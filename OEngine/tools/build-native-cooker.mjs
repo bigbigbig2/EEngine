@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -8,7 +9,9 @@ const toolsDir = dirname(fileURLToPath(import.meta.url));
 const engineDir = dirname(toolsDir);
 const coreDir = join(toolsDir, "oengine-asset-core");
 const nyxRoot = resolve(process.env.NYX_SOURCE_DIR ?? "D:/Nyx-main");
-const compiler = process.env.CXX ?? "D:/Devtool/mingw64/bin/g++.exe";
+const defaultCompiler = "D:/Devtool/mingw64/bin/g++.exe";
+const clangCompiler = "C:/Program Files/LLVM/bin/clang++.exe";
+const compiler = process.env.CXX ?? (existsSync(defaultCompiler) ? defaultCompiler : existsSync(clangCompiler) ? clangCompiler : "g++");
 const output = join(coreDir, "build", "oengine-asset-cooker.exe");
 
 const requiredHashes = new Map([
@@ -45,7 +48,7 @@ const sources = [
   join(nyxRoot, "MiniEngine", "ThirdParty", "lz4", "lz4.c"),
 ];
 const args = [
-  "-std=c++2a", "-O2", "-Wall", "-Wextra", "-Werror=return-type", "-fno-fast-math", "-ffp-contract=off", "-pthread",
+  "-std=c++2a", "-O2", "-Wall", "-Wextra", "-Werror=return-type", "-fno-fast-math", "-ffp-contract=off", "-pthread", "-DNOMINMAX",
   `-I${join(coreDir, "include")}`,
   `-I${meshoptimizerDir}`,
   `-I${join(nyxRoot, "MiniEngine", "ThirdParty", "lz4")}`,

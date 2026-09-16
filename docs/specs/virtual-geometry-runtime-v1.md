@@ -8,7 +8,7 @@ Owners: geometry admission/residency owner、`GpuAssetStore`、GPU hierarchy/wor
 
 本规范消费 [Geometry Product V1](./geometry-product-v1.md)，不直接依赖 GLB、WASM Worker、OEGPACK 文件或 cache。V1 只支持 `oengine-vg-v1-v3-decoded`，因此 decoded page 固定 256 KiB，并复用 OEGPACK V3-compatible hierarchy/Group/Meshlet consumer。
 
-本文件冻结状态机、queue 和 publication 语义。GPU-visible layout 中已明确的记录必须按下文实现；尚未实现的 product metadata table 组合在 candidate 前仍需补齐字段/stride/align、TypeScript mirror、WGSL oracle 和 version gate。V1 不改变 VisibilityKey、material identity 或 Sparse Shading ABI。
+本文件冻结状态机、queue 和 publication 语义。GPU-visible layout 中已明确的记录必须按下文实现，包括下述 Product table 与 asset reference；它们需要 TypeScript mirror、WGSL oracle 和 version gate。V1 不改变 VisibilityKey、material identity 或 Sparse Shading ABI。
 
 ## Nyx Runtime 移植边界
 
@@ -76,7 +76,48 @@ absent -> queued -> producing-or-reading -> verified -> upload-queued
 
 ### Physical heap 与地址表
 
+为保持 WebGPU 2026 Desktop 的 `maxStorageBuffersPerShaderStage >= 10` 基线，所有只读 Product metadata 与可更新 Page location 共用一个 `GeometryProductMetadataHeapV1` storage buffer，而不是每张逻辑表占一个 binding。Heap 以 64-byte little-endian header 开始；所有 word offset 从 heap byte 0 计，且对应 section 起点按 16 byte 对齐：
+
+| Byte | 类型 | 字段 |
+| ---: | --- | --- |
+| 0 | `u32` | ABI version = 1 |
+| 4 | `u32` | product count |
+| 8 | `u32` | product capacity |
+| 12 | `u32` | total words |
+| 16..47 | `u32[8]` | product table、asset reference、asset record、root id、hierarchy、Group directory、Page location、VertexFormat 的 word offsets |
+| 48..63 | `u32[4]` | reserved = 0 |
+
+Canonical 单 Product admission 也使用该 heap；后续全局 registry 只改变各逻辑表的 begin/count 和 heap capacity，不改变 shader ABI。动态 Page mapping 仅更新 Page location section 的 16-byte record；Product 激活仅更新对应 64-byte Product record 的 active bit。任何 offset、count 或 stride 组合越过 `totalWords` 均 fail closed。
+
+单 Product owner 如取得非零 `ProductTableSlot`，其表必须包含从 slot 0 到该 slot 的稀疏记录，`productCount = productCapacity = ProductTableSlot + 1`；未使用记录全零且 inactive。资产引用只能指向该 slot 的记录，不能以本地 slot 0 偷换。每个 section 的索引/数量必须落在本 section 的下一 offset 之前，不能仅以 heap 总长为界而别名后续 section。
+
+GPU-visible `GeometryProductTableRecordV1` 是 64-byte little-endian record。所有 begin/count 指向按 descriptor 原始 stride 拼接的全局只读表；单 Product owner 也必须写 begin=0 的同一 record，不能发明私有 shader layout。
+
+| Byte | 类型 | 字段 |
+| ---: | --- | --- |
+| 0 | `u32` | product generation；0 为 invalid |
+| 4 | `u32` | flags；bit 0 = active，bits 1..31 = 0 |
+| 8..15 | `u32[2]` | asset begin/count |
+| 16..23 | `u32[2]` | root-node-id begin/count |
+| 24..31 | `u32[2]` | hierarchy begin/count |
+| 32..39 | `u32[2]` | Group directory begin/count |
+| 40..47 | `u32[2]` | Page location begin/count |
+| 48..55 | `u32[2]` | VertexFormat begin/count |
+| 56..63 | `u32[2]` | reserved = 0 |
+
+`GeometryProductAssetReferenceV1` 是 16-byte little-endian record，由 Scene/GPU asset publication 在与 instance `geometry_record_index` 相同的稳定 slot 发布：
+
+| Byte | 类型 | 字段 |
+| ---: | --- | --- |
+| 0 | `u32` | product table slot |
+| 4 | `u32` | expected product generation |
+| 8 | `u32` | Product-local AssetRecord index |
+| 12 | `u32` | flags；V1 必须为 0 |
+
+Shader 必须验证 Product table slot 范围、active bit、两处 generation 相等、AssetRecord index 小于 product asset count，再访问 descriptor table。失败必须 fail closed 并计入 invalid generation/location；不能退回同 slot 的 V2 `GpuGeometryRecord`。迁移期间 instance flag 显式区分两种 geometry owner，禁止依赖表内容猜测。
+
 - decoded slot 固定 256 KiB；默认 bank 为 128 MiB、512 slots。
+- V1 全局 512 MiB resident 上限最多 4 个上述 bank；GPU 与 CPU mirror 均拒绝 `bankIndex >= 4` 或 `slotIndex >= 512`。
 - bank 数与总 slot 数来自设备 limit、全局 resident budget 和显式配置，不得依赖未协商能力。
 - slot 在 `submitted`/`resident`/`retiring` 状态有唯一 owner；禁止同帧重分配。
 - activation pages 在 revision active 期间 pinned；pinned 总量服从 admission budget。

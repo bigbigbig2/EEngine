@@ -9,6 +9,7 @@ import { gpuShadingBinVisibilityAttachmentContract } from
   "../../gpu/GpuShadingBinVisibilityContract.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
+import type { GeometryProductGpuBindingsV1 } from "../../gpu/VirtualGeometryResidency.js";
 import type { GpuShadingExecutionMode } from "../../gpu/GpuShadingExecutionMode.js";
 import {
   DEFAULT_GEOMETRY_WORK_BUDGET,
@@ -46,6 +47,7 @@ import {
 } from "../VisibilityBindingSet.js";
 import {
   MeshletWorkCandidate,
+  VirtualGeometryMeshletWorkCandidate,
   type PreparedMeshletWorkCandidate
 } from "../MeshletWorkCandidate.js";
 import { MeshletBucketRaster } from "../MeshletBucketRaster.js";
@@ -68,6 +70,7 @@ export interface PackedVisibilityPrepareJob {
   readonly width: number;
   readonly height: number;
   readonly hierarchyView: GeometryHierarchyView;
+  readonly virtualGeometry?: GeometryProductGpuBindingsV1;
   readonly sseThreshold: number;
   readonly geometryWorkBudget?: GeometryWorkBudget;
   readonly coneEnabled: boolean;
@@ -179,6 +182,7 @@ export class PackedVisibilityPass {
   lastPreparation: Readonly<PackedVisibilityPreparationEvidence> | null = null;
   private readonly hierarchyGenerator: PackedVisibilityHierarchyGenerator;
   private readonly meshletCandidate: PackedVisibilityMeshletCandidate;
+  private readonly virtualMeshletCandidate: VirtualGeometryMeshletWorkCandidate;
   private readonly meshletBucketRaster: MeshletBucketRaster;
   private readonly largeTriangleSetup: LargeTriangleSetupCache;
   private readonly hierarchyPrepared = new Map<GpuRenderWorldRuntime, VisibilityWorkSet>();
@@ -202,6 +206,7 @@ export class PackedVisibilityPass {
       graphics.device,
       graphics.resource_accounting
     );
+    this.virtualMeshletCandidate = new VirtualGeometryMeshletWorkCandidate(graphics.device);
     this.meshletBucketRaster = new MeshletBucketRaster(graphics);
     this.largeTriangleSetup = new LargeTriangleSetupCache(
       graphics.device,
@@ -297,6 +302,7 @@ export class PackedVisibilityPass {
     this.hierarchyPrepared.clear();
     this.hierarchyGenerator.destroy();
     this.meshletCandidate.destroy();
+    this.virtualMeshletCandidate.destroy();
     this.largeTriangleSetup.destroy();
   }
 
@@ -323,7 +329,11 @@ export class PackedVisibilityPass {
       }
     );
     const meshletWork = requireMeshletWork(workSet);
-    this.meshletCandidate.encode(command, meshletWork);
+    if (meshletWork.productMode) {
+      this.virtualMeshletCandidate.encode(command, meshletWork);
+    } else {
+      this.meshletCandidate.encode(command, meshletWork);
+    }
     if (workSet.largeTriangleSetup !== null) {
       this.largeTriangleSetup.encode(
         command.gpu_encoder,
@@ -340,7 +350,8 @@ export class PackedVisibilityPass {
         runtime: job.runtime,
         visibilityKey,
         shadingBinId,
-        depth
+        depth,
+        virtualGeometry: job.virtualGeometry ?? null
       }, job.executionMode ?? "sparse-microtile", job.primitiveIndexPath ?? "auto");
     this.debugBindings.set(job.runtime, Object.freeze({
       instances: job.scene.instances,
@@ -426,11 +437,15 @@ export class PackedVisibilityPass {
         sseThreshold: bindings.sseThreshold
       });
       if (existing.meshletWorkCandidate !== null) {
-        this.meshletCandidate.rebind(existing.meshletWorkCandidate, {
-          camera: bindings.camera,
-          counterBuffer: bindings.counters,
-          countersEnabled: bindings.countersEnabled
-        });
+        if (existing.meshletWorkCandidate.productMode) {
+          this.virtualMeshletCandidate.rebind();
+        } else {
+          this.meshletCandidate.rebind(existing.meshletWorkCandidate, {
+            camera: bindings.camera,
+            counterBuffer: bindings.counters,
+            countersEnabled: bindings.countersEnabled
+          });
+        }
       }
       if (existing.largeTriangleSetup !== null) {
         this.largeTriangleSetup.rebind(existing.largeTriangleSetup, {
@@ -450,7 +465,8 @@ export class PackedVisibilityPass {
       traversalWorkCapacity: job.runtime.hierarchyTraversalCapacity,
       visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
       rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
-      counterBuffer: counters
+      counterBuffer: counters,
+      virtualGeometry: job.virtualGeometry
     }, {
       sseThreshold: job.sseThreshold,
       countersEnabled: job.countersEnabled,
@@ -464,7 +480,17 @@ export class PackedVisibilityPass {
     let meshletWorkCandidate: PreparedMeshletWorkCandidate | null = null;
     let largeTriangleSetup: PreparedLargeTriangleSetup | null = null;
     try {
-      meshletWorkCandidate = this.meshletCandidate.prepare({
+      if (job.virtualGeometry !== undefined) {
+        meshletWorkCandidate = this.virtualMeshletCandidate.prepare({
+          virtualGeometry: job.virtualGeometry,
+          visibleClusters: prepared.generated.visibleClusters,
+          visibleClusterCapacity: prepared.generated.visibleClusterCapacity,
+          capacity: key.meshletWorkCandidateCapacity,
+          counterBuffer: counters,
+          countersEnabled: job.countersEnabled
+        });
+      } else {
+        meshletWorkCandidate = this.meshletCandidate.prepare({
           camera,
           visibleClusters: prepared.generated.visibleClusters,
           visibleClusterCapacity: prepared.generated.visibleClusterCapacity,
@@ -475,6 +501,7 @@ export class PackedVisibilityPass {
           countersEnabled: job.countersEnabled,
           compactionPath: key.meshletWorkCompactionPath
         });
+      }
       if (key.triangleSetupEnabled) {
         largeTriangleSetup = this.largeTriangleSetup.prepare({
           camera,
@@ -491,7 +518,11 @@ export class PackedVisibilityPass {
     } catch (error) {
       if (largeTriangleSetup !== null) this.largeTriangleSetup.release(largeTriangleSetup);
       if (meshletWorkCandidate !== null) {
-        this.meshletCandidate.release(meshletWorkCandidate);
+        if (meshletWorkCandidate.productMode) {
+          this.virtualMeshletCandidate.release(meshletWorkCandidate);
+        } else {
+          this.meshletCandidate.release(meshletWorkCandidate);
+        }
       }
       this.hierarchyGenerator.release(prepared);
       throw error;
@@ -519,7 +550,11 @@ export class PackedVisibilityPass {
           this.largeTriangleSetup.release(workSet.largeTriangleSetup);
         }
         if (workSet.meshletWorkCandidate !== null) {
-          this.meshletCandidate.release(workSet.meshletWorkCandidate);
+          if (workSet.meshletWorkCandidate.productMode) {
+            this.virtualMeshletCandidate.release(workSet.meshletWorkCandidate);
+          } else {
+            this.meshletCandidate.release(workSet.meshletWorkCandidate);
+          }
         }
         this.hierarchyGenerator.release(workSet.hierarchy);
       }

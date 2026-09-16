@@ -7,6 +7,8 @@ import {
 import { GPU_NORMAL_FORMAT, GPU_POSITION_FORMAT, GPU_UV_FORMAT } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
+import { GPU_MESHLET_DECODE_PROFILE } from "../gpu/GpuMeshletRasterWorkAbi.js";
+import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 import { GPU_MATERIAL_VISIBILITY_FLAGS } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_SHADING_BIN_FRAME_FLAG, GPU_SHADING_BIN_WGSL } from "../gpu/GpuShadingBinAbi.js";
 import { GPU_SHADING_FRAME_STATUS_WGSL } from "../gpu/GpuShadingFrameStatusAbi.js";
@@ -216,6 +218,11 @@ function frameBindingsWgsl(
     ...(names.has("instance_records") ? ["@group(1) @binding(1) var<storage, read> instance_records: array<OEngineInstanceRecord>;"] : []),
     ...(names.has("asset_metadata_heap") ? ["@group(1) @binding(2) var<storage, read> asset_metadata_heap: array<u32>;"] : []),
     ...(names.has("vertex_payload_heap") ? ["@group(1) @binding(3) var<storage, read> vertex_payload_heap: array<u32>;"] : []),
+    ...(names.has("virtual_product_metadata") ? ["@group(1) @binding(4) var<storage, read> virtual_product_metadata: array<u32>;"] : []),
+    ...(names.has("virtual_product_bank_0") ? ["@group(1) @binding(5) var<storage, read> virtual_product_bank_0: array<u32>;"] : []),
+    ...(names.has("virtual_product_bank_1") ? ["@group(1) @binding(6) var<storage, read> virtual_product_bank_1: array<u32>;"] : []),
+    ...(names.has("virtual_product_bank_2") ? ["@group(1) @binding(7) var<storage, read> virtual_product_bank_2: array<u32>;"] : []),
+    ...(names.has("virtual_product_bank_3") ? ["@group(1) @binding(8) var<storage, read> virtual_product_bank_3: array<u32>;"] : []),
     `@group(2) @binding(0) var<storage, read> material_records: array<${isFastUnlitFactor(descriptor) ? "OEngineSparseUnlitFactorRecord" : "OEngineShadingMaterialRecord"}>;`,
     ...(names.has("texture_descriptor_routing_heap") ? ["@group(2) @binding(1) var<storage, read> texture_descriptor_routing_heap: array<OEngineShadingTextureRoute>;"] : []),
     ...Array.from({ length: 9 }, (_, index) => names.has(`material_texture_${index}`)
@@ -293,6 +300,83 @@ function geometryWgsl(): string {
 ${GPU_INSTANCE_RECORD_WGSL}
 const SPARSE_GEOMETRY_WORDS: u32 = 60u;
 const SPARSE_MESHLET_WORDS: u32 = 28u;
+
+${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
+
+fn sparse_virtual_bank_word(bank: u32, word: u32) -> u32 {
+  if (bank == 0u) { return virtual_product_bank_0[word]; }
+  if (bank == 1u) { return virtual_product_bank_1[word]; }
+  if (bank == 2u) { return virtual_product_bank_2[word]; }
+  return virtual_product_bank_3[word];
+}
+fn sparse_virtual_u8(bank: u32, byte_offset: u32) -> u32 {
+  return (sparse_virtual_bank_word(bank, byte_offset >> 2u) >> ((byte_offset & 3u) * 8u)) & 0xffu;
+}
+fn sparse_virtual_triangle_vertex(work: OEngineMeshletRasterWork, primitive: u32, corner: u32) -> u32 {
+  let asset = oengine_geometry_product_resolve_asset_v1(&virtual_product_metadata,
+    work.geometry_slot, oengine_instance_geometry_generation(instance_records[work.instance_slot]));
+  let group = oengine_virtual_group_v1(&virtual_product_metadata, asset, work.meshlet_slot >> 7u);
+  let location = oengine_geometry_product_lookup_page_heap_v1(&virtual_product_metadata, asset, group.page_id);
+  if (!asset.valid || !group.valid || !location.valid) { return 0u; }
+  let local = work.meshlet_slot & 127u;
+  var header = oengine_virtual_invalid_group_header_v1();
+  if (location.bank_index == 0u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_0, location, group); }
+  else if (location.bank_index == 1u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_1, location, group); }
+  else if (location.bank_index == 2u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_2, location, group); }
+  else { header = oengine_virtual_group_header_v1(&virtual_product_bank_3, location, group); }
+  var meshlet = oengine_virtual_invalid_meshlet_header_v1();
+  if (location.bank_index == 0u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_0, location, group, header, local); }
+  else if (location.bank_index == 1u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_1, location, group, header, local); }
+  else if (location.bank_index == 2u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_2, location, group, header, local); }
+  else { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_3, location, group, header, local); }
+  if (!meshlet.valid || primitive >= meshlet.triangle_count || corner >= 3u) { return 0u; }
+  return sparse_virtual_u8(location.bank_index,
+    location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset + primitive * 3u + corner);
+}
+fn sparse_virtual_position(work: OEngineMeshletRasterWork, vertex: u32) -> vec3f {
+  let asset = oengine_geometry_product_resolve_asset_v1(&virtual_product_metadata,
+    work.geometry_slot, oengine_instance_geometry_generation(instance_records[work.instance_slot]));
+  let group = oengine_virtual_group_v1(&virtual_product_metadata, asset, work.meshlet_slot >> 7u);
+  let location = oengine_geometry_product_lookup_page_heap_v1(&virtual_product_metadata, asset, group.page_id);
+  if (!asset.valid || !group.valid || !location.valid) { return vec3f(0.0); }
+  let local = work.meshlet_slot & 127u;
+  var header = oengine_virtual_invalid_group_header_v1();
+  if (location.bank_index == 0u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_0, location, group); }
+  else if (location.bank_index == 1u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_1, location, group); }
+  else if (location.bank_index == 2u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_2, location, group); }
+  else { header = oengine_virtual_group_header_v1(&virtual_product_bank_3, location, group); }
+  var meshlet = oengine_virtual_invalid_meshlet_header_v1();
+  if (location.bank_index == 0u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_0, location, group, header, local); }
+  else if (location.bank_index == 1u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_1, location, group, header, local); }
+  else if (location.bank_index == 2u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_2, location, group, header, local); }
+  else { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_3, location, group, header, local); }
+  if (!meshlet.valid || vertex >= meshlet.vertex_count) { return vec3f(0.0); }
+  let format_at = asset.vertex_format_word_offset + header.vertex_format_id * 4u;
+  let format_word0 = virtual_product_metadata[format_at];
+  let format_word1 = virtual_product_metadata[format_at + 1u];
+  let stride = format_word0 & 0xffffu;
+  let position_offset = format_word1 & 0xffu;
+  let at = location.byte_offset + group.offset_in_page + meshlet.vertex_byte_offset + vertex * stride + position_offset;
+  let q = vec3f(f32(sparse_virtual_u8(location.bank_index, at) | (sparse_virtual_u8(location.bank_index, at + 1u) << 8u)),
+    f32(sparse_virtual_u8(location.bank_index, at + 2u) | (sparse_virtual_u8(location.bank_index, at + 3u) << 8u)),
+    f32(sparse_virtual_u8(location.bank_index, at + 4u) | (sparse_virtual_u8(location.bank_index, at + 5u) << 8u))) / 65535.0;
+  return mix(meshlet.bounds_min, meshlet.bounds_max, q);
+}
+fn sparse_work_is_virtual(work: OEngineMeshletRasterWork) -> bool {
+  return (work.packed_profile_lod & 0xffu) == ${GPU_MESHLET_DECODE_PROFILE.VirtualGeometryProductV1}u;
+}
+fn sparse_meshlet_vertices_for_work(work: OEngineMeshletRasterWork, meshlet_base: u32, primitive: u32) -> vec3u {
+  if (sparse_work_is_virtual(work)) {
+    return vec3u(sparse_virtual_triangle_vertex(work, primitive, 0u),
+      sparse_virtual_triangle_vertex(work, primitive, 1u),
+      sparse_virtual_triangle_vertex(work, primitive, 2u));
+  }
+  return sparse_meshlet_vertices(meshlet_base, primitive);
+}
+fn sparse_position_for_work(work: OEngineMeshletRasterWork, geometry_base: u32, vertex: u32) -> vec3f {
+  if (sparse_work_is_virtual(work)) { return sparse_virtual_position(work, vertex); }
+  return sparse_position(geometry_base, vertex);
+}
 
 fn sparse_meta_u32(base: u32, field: u32) -> u32 { return asset_metadata_heap[base + field]; }
 fn sparse_meta_f32(base: u32, field: u32) -> f32 { return bitcast<f32>(sparse_meta_u32(base, field)); }
@@ -616,8 +700,8 @@ fn sparse_evaluate(material_slot:u32,material:OEngineShadingMaterialRecord)->OEn
       descriptor.programId === GPU_SHADING_PROGRAM.UnlitTextureColor;
     return /* wgsl */ `
 fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:u32,material_slot:u32,material:OEngineShadingMaterialRecord)->OEngineSparseSurface{
-  let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices(meshlet_base,primitive);let model=sparse_affine(instance);
-  let p0=model*vec4f(sparse_position(geometry_base,vertices.x),1.0);let p1=model*vec4f(sparse_position(geometry_base,vertices.y),1.0);let p2=model*vec4f(sparse_position(geometry_base,vertices.z),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;
+  let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices_for_work(work,meshlet_base,primitive);let model=sparse_affine(instance);
+  let p0=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.x),1.0);let p1=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.y),1.0);let p2=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.z),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;
   var color=vec3f(1.0);${usesColor ? "color=sparse_color(geometry_base,vertices.x)*bary.weights.x+sparse_color(geometry_base,vertices.y)*bary.weights.y+sparse_color(geometry_base,vertices.z)*bary.weights.z;" : ""}
   var base_sample=vec4f(1.0);${usesBase ? `let uv_set=sparse_material_uv_set(material,0u);let u0=sparse_uv(geometry_base,vertices.x,uv_set);let u1=sparse_uv(geometry_base,vertices.y,uv_set);let u2=sparse_uv(geometry_base,vertices.z,uv_set);let uv=u0*bary.weights.x+u1*bary.weights.y+u2*bary.weights.z;let uv_dx=(u0*bary.ddx.x+u1*bary.ddx.y+u2*bary.ddx.z)/shading_view.upscale_ratio.x;let uv_dy=(u0*bary.ddy.x+u1*bary.ddy.y+u2*bary.ddy.z)/shading_view.upscale_ratio.y;if !sparse_texture_route_valid(material_slot,0u,material.payload.texture_ref){sparse_identity_error();return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u);}base_sample=sparse_sample(material.payload.texture_ref,sparse_sampler_0(material),sparse_transform_uv_0(material,uv,false),sparse_transform_uv_0(material,uv_dx,true),sparse_transform_uv_0(material,uv_dy,true),bary.valid,vec4f(1.0));` : ""}
   ${velocityCode}let factor=material.payload.base_color_factor;
@@ -627,8 +711,8 @@ fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:
   }
   return /* wgsl */ `
 fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:u32,material_slot:u32,material:OEngineShadingMaterialRecord)->OEngineSparseSurface{
-  let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices(meshlet_base,primitive);let model=sparse_affine(instance);
-  let p0=model*vec4f(sparse_position(geometry_base,vertices.x),1.0);let p1=model*vec4f(sparse_position(geometry_base,vertices.y),1.0);let p2=model*vec4f(sparse_position(geometry_base,vertices.z),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);
+  let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices_for_work(work,meshlet_base,primitive);let model=sparse_affine(instance);
+  let p0=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.x),1.0);let p1=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.y),1.0);let p2=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.z),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);
   let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;let local_normal=normalize(sparse_normal(geometry_base,vertices.x)*bary.weights.x+sparse_normal(geometry_base,vertices.y)*bary.weights.y+sparse_normal(geometry_base,vertices.z)*bary.weights.z);var normal=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*local_normal);let geometric=normalize(cross(p1.xyz-p0.xyz,p2.xyz-p0.xyz));
   var color=vec3f(1.0);${s.authoredVertexColor !== "never" ? "if sparse_meta_u32(geometry_base,44u)!=0u { color=sparse_color(geometry_base,vertices.x)*bary.weights.x+sparse_color(geometry_base,vertices.y)*bary.weights.y+sparse_color(geometry_base,vertices.z)*bary.weights.z; }" : ""}
   let gradient_valid=bary.valid;

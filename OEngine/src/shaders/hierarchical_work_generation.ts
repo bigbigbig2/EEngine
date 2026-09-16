@@ -11,6 +11,7 @@ import {
   GPU_WORK_GENERATION_WGSL
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
+import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 
 export const HIERARCHICAL_WORKGROUP_SIZE = 64;
 export const HIERARCHICAL_VIEW_UNIFORM_SIZE = 256;
@@ -54,10 +55,11 @@ const HIERARCHICAL_HZB_ENABLED_WGSL = /* wgsl */ `
 @group(1) @binding(10) var traversal_previous_hzb: texture_2d<f32>;
 @group(3) @binding(10) var leaf_previous_hzb: texture_2d<f32>;
 
-fn hierarchy_hzb_occluded_from(
+fn hierarchy_hzb_occluded_bounds_from(
   hzb_texture: texture_2d<f32>,
   view: ptr<uniform, OEngineHierarchyView>,
-  cluster: GpuClusterRecord,
+  bounds_min: vec3f,
+  bounds_max: vec3f,
   instance: OEngineInstanceRecord
 ) -> bool {
   if !oengine_instance_motion_valid(instance) { return false; }
@@ -66,9 +68,9 @@ fn hierarchy_hzb_occluded_from(
   var candidate_nearest = 0.0;
   for (var corner = 0u; corner < 8u; corner++) {
     let local = vec3f(
-      select(cluster.bounds_min.x, cluster.bounds_max.x, (corner & 1u) != 0u),
-      select(cluster.bounds_min.y, cluster.bounds_max.y, (corner & 2u) != 0u),
-      select(cluster.bounds_min.z, cluster.bounds_max.z, (corner & 4u) != 0u)
+      select(bounds_min.x, bounds_max.x, (corner & 1u) != 0u),
+      select(bounds_min.y, bounds_max.y, (corner & 2u) != 0u),
+      select(bounds_min.z, bounds_max.z, (corner & 4u) != 0u)
     );
     let current_world = oengine_instance_current_object_to_world(instance) * vec4f(local, 1.0);
     let previous_world = oengine_instance_previous_from_current(instance) * current_world;
@@ -112,8 +114,9 @@ fn hierarchy_root_hzb_occluded(
   cluster: GpuClusterRecord,
   instance: OEngineInstanceRecord
 ) -> bool {
-  return hierarchy_hzb_occluded_from(
-    hierarchy_previous_hzb, &hierarchy_view, cluster, instance
+  return hierarchy_hzb_occluded_bounds_from(
+    hierarchy_previous_hzb, &hierarchy_view,
+    cluster.bounds_min, cluster.bounds_max, instance
   );
 }
 
@@ -121,8 +124,9 @@ fn hierarchy_traversal_hzb_occluded(
   cluster: GpuClusterRecord,
   instance: OEngineInstanceRecord
 ) -> bool {
-  return hierarchy_hzb_occluded_from(
-    traversal_previous_hzb, &traversal_view, cluster, instance
+  return hierarchy_hzb_occluded_bounds_from(
+    traversal_previous_hzb, &traversal_view,
+    cluster.bounds_min, cluster.bounds_max, instance
   );
 }
 
@@ -130,8 +134,9 @@ fn hierarchy_leaf_hzb_occluded(
   cluster: GpuClusterRecord,
   instance: OEngineInstanceRecord
 ) -> bool {
-  return hierarchy_hzb_occluded_from(
-    leaf_previous_hzb, &leaf_view, cluster, instance
+  return hierarchy_hzb_occluded_bounds_from(
+    leaf_previous_hzb, &leaf_view,
+    cluster.bounds_min, cluster.bounds_max, instance
   );
 }
 `;
@@ -154,13 +159,17 @@ fn hierarchy_leaf_hzb_occluded(
  * subgroup, 64-bit atomics and native command features are intentionally
  * absent from this R3-B shader.
  */
-function createHierarchicalWorkGenerationWgsl(hzbEnabled: boolean): string {
+function createHierarchicalWorkGenerationWgsl(
+  hzbEnabled: boolean,
+  virtualGeometryEnabled = false
+): string {
 return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_CLUSTER_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_WORK_GENERATION_WGSL}
+${virtualGeometryEnabled ? VIRTUAL_GEOMETRY_PRODUCT_WGSL : ""}
 
 struct OEngineHierarchyView {
   camera_position: vec4f,
@@ -292,6 +301,7 @@ struct OEngineWorldSphere {
 @group(0) @binding(6) var<storage, read_write> hierarchy_selected: OEngineVisibleClusterQueue;
 @group(0) @binding(7) var<storage, read_write> hierarchy_output_dispatch: OEngineDispatchIndirectArgs;
 @group(0) @binding(8) var<storage, read_write> hierarchy_counters: array<atomic<u32>>;
+${virtualGeometryEnabled ? "@group(0) @binding(9) var<storage, read> hierarchy_product_heap: array<u32>;" : ""}
 
 fn hierarchy_conservative_scale(transform: mat4x4f) -> f32 {
   let x_axis = transform[0].xyz;
@@ -407,6 +417,24 @@ fn hierarchy_cluster_cone_backfacing(
 }
 
 ${hzbEnabled ? HIERARCHICAL_HZB_ENABLED_WGSL : HIERARCHICAL_HZB_DISABLED_WGSL}
+${virtualGeometryEnabled ? (hzbEnabled ? /* wgsl */ `
+fn hierarchy_virtual_traversal_hzb_occluded(
+  node: OEngineVirtualHierarchyNodeV1,
+  instance: OEngineInstanceRecord
+) -> bool {
+  return hierarchy_hzb_occluded_bounds_from(
+    traversal_previous_hzb, &traversal_view,
+    node.bounds_min, node.bounds_max, instance
+  );
+}
+` : /* wgsl */ `
+fn hierarchy_virtual_traversal_hzb_occluded(
+  node: OEngineVirtualHierarchyNodeV1,
+  instance: OEngineInstanceRecord
+) -> bool {
+  return false;
+}
+`) : ""}
 
 fn hierarchy_update_dispatch(
   args: ptr<storage, OEngineDispatchIndirectArgs, read_write>,
@@ -508,6 +536,8 @@ fn r3_fused_root_cull(
   var child_local = 0u;
   var child_begin = 0u;
   var child_count = 0u;
+  var child_source = 0u;
+  var expand_fallback_selectable = true;
 
   if invocation_index < hierarchy_view.scene.y {
     let instance_record_index = hierarchy_view.scene.x + invocation_index;
@@ -519,6 +549,28 @@ fn r3_fused_root_cull(
     if hierarchy_instance_enabled(instance, hierarchy_view.scene.w, hierarchy_view.limits.y) &&
       hierarchy_sphere_in_frustum(instance_sphere, &hierarchy_view) {
       atomicAdd(&hierarchy_wg_visible_instances, 1u);
+${virtualGeometryEnabled ? /* wgsl */ `
+      if oengine_instance_virtual_geometry(instance) {
+        let asset = oengine_geometry_product_resolve_asset_v1(
+          &hierarchy_product_heap,
+          instance.geometry_record_index,
+          oengine_instance_geometry_generation(instance)
+        );
+        if asset.valid {
+          selected_instance = instance_record_index;
+          selected_geometry = instance.geometry_record_index;
+          selected_material = instance.material_handle;
+          selected_raster_flags = instance.flags;
+          expand = true;
+          child_source = 1u;
+          child_begin = asset.root_word_offset;
+          child_count = asset.root_count;
+          // Root seeding has no renderable parent. Overflow is therefore
+          // evidence/failure, never a fabricated Group 0 fallback.
+          expand_fallback_selectable = false;
+        }
+      } else {
+` : ""}
       atomicAdd(&hierarchy_wg_visited_clusters, 1u);
       let geometry = hierarchy_geometries[instance.geometry_record_index];
       let cluster = hierarchy_clusters[geometry.cluster_root];
@@ -556,6 +608,7 @@ fn r3_fused_root_cull(
           }
         }
       }
+${virtualGeometryEnabled ? "      }" : ""}
     }
   }
 
@@ -583,13 +636,21 @@ fn r3_fused_root_cull(
   workgroupBarrier();
   if expand {
     if hierarchy_wg_child_base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
-      selected = true;
+      selected = expand_fallback_selectable;
     } else {
       for (var child = 0u; child < child_count; child++) {
+${virtualGeometryEnabled ? /* wgsl */ `
+        var child_node = 0u;
+        if child_source == 1u {
+          child_node = hierarchy_product_heap[child_begin + child];
+        } else {
+          child_node = hierarchy_children[child_begin + child];
+        }
+` : ""}
         hierarchy_output.elements[hierarchy_wg_child_base + child_local + child] =
           OEngineTraversalWork(
             selected_instance,
-            hierarchy_children[child_begin + child]
+${virtualGeometryEnabled ? "            child_node" : "            hierarchy_children[child_begin + child]"}
           );
       }
     }
@@ -713,6 +774,7 @@ fn r3_fused_root_cull(
 @group(1) @binding(7) var<storage, read_write> traversal_selected: OEngineVisibleClusterQueue;
 @group(1) @binding(8) var<storage, read_write> traversal_output_dispatch: OEngineDispatchIndirectArgs;
 @group(1) @binding(9) var<storage, read_write> traversal_counters: array<atomic<u32>>;
+${virtualGeometryEnabled ? "@group(1) @binding(11) var<storage, read> traversal_product_heap: array<u32>;" : ""}
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
 fn r3_traverse_clusters(
@@ -753,11 +815,74 @@ fn r3_traverse_clusters(
   var child_local = 0u;
   var child_begin = 0u;
   var child_count = 0u;
+  var child_source = 0u;
+  var expand_fallback_selectable = true;
 
   if invocation_index < input_count {
     atomicAdd(&hierarchy_wg_visited_clusters, 1u);
     let work = traversal_input.elements[invocation_index];
     let instance = traversal_instances[work.instance_record_index];
+${virtualGeometryEnabled ? /* wgsl */ `
+    if oengine_instance_virtual_geometry(instance) {
+      let asset = oengine_geometry_product_resolve_asset_v1(
+        &traversal_product_heap,
+        instance.geometry_record_index,
+        oengine_instance_geometry_generation(instance)
+      );
+      let node = oengine_virtual_hierarchy_node_v1(
+        &traversal_product_heap, asset, work.cluster_record_index
+      );
+      selected_instance = work.instance_record_index;
+      selected_geometry = instance.geometry_record_index;
+      selected_cluster = work.cluster_record_index;
+      selected_material = instance.material_handle;
+      selected_raster_flags = instance.flags;
+      if node.valid {
+        let transform = oengine_instance_current_object_to_world(instance);
+        let scale = hierarchy_conservative_scale(transform);
+        let sphere = hierarchy_transform_sphere(node.bounds_sphere, transform);
+        let projected_error = hierarchy_projected_error_pixels(
+          node.max_parent_error, sphere, scale, &traversal_view
+        );
+        if hierarchy_sphere_in_frustum(sphere, &traversal_view) &&
+          projected_error > traversal_view.sse.x {
+          if (traversal_view.hzb.w & R3_FEATURE_HZB) != 0u &&
+            hierarchy_virtual_traversal_hzb_occluded(node, instance) {
+            atomicAdd(&hierarchy_wg_rejected_hzb, 1u);
+          } else if oengine_virtual_node_is_group_v1(node) {
+            let group_id = oengine_virtual_node_group_id_v1(node);
+            let group = oengine_virtual_group_v1(
+              &traversal_product_heap, asset, group_id
+            );
+            if group.valid {
+              let location = oengine_geometry_product_lookup_page_heap_v1(
+                &traversal_product_heap, asset, group.page_id
+              );
+              if location.valid {
+                selected = true;
+                selected_cluster = group_id;
+              }
+            }
+          } else {
+            let hierarchy_begin = traversal_product_heap[
+              asset.asset_word_offset + 20u
+            ];
+            let begin = oengine_virtual_node_child_begin_v1(node);
+            let count = oengine_virtual_node_child_count_v1(node);
+            if count > 0u && count <= 8u && count <= asset.hierarchy_count &&
+              begin >= hierarchy_begin && begin - hierarchy_begin <=
+                asset.hierarchy_count - count {
+              expand = true;
+              child_source = 1u;
+              child_begin = begin;
+              child_count = count;
+              expand_fallback_selectable = false;
+            }
+          }
+        }
+      }
+    } else {
+` : ""}
     let geometry = traversal_geometries[instance.geometry_record_index];
     let cluster = traversal_clusters[work.cluster_record_index];
     let scale = hierarchy_conservative_scale(oengine_instance_current_object_to_world(instance));
@@ -794,6 +919,7 @@ fn r3_traverse_clusters(
         }
       }
     }
+${virtualGeometryEnabled ? "    }" : ""}
   }
 
   if expand {
@@ -820,14 +946,20 @@ fn r3_traverse_clusters(
   workgroupBarrier();
   if expand {
     if hierarchy_wg_child_base == OENGINE_WORK_QUEUE_INVALID_OFFSET {
-      selected = true;
+      selected = expand_fallback_selectable;
     } else {
       for (var child = 0u; child < child_count; child++) {
+${virtualGeometryEnabled ? /* wgsl */ `
+        var child_node = child_begin + child;
+        if child_source == 0u {
+          child_node = traversal_children[child_begin + child];
+        }
+` : ""}
         traversal_output.elements[
           hierarchy_wg_child_base + child_local + child
         ] = OEngineTraversalWork(
           selected_instance,
-          traversal_children[child_begin + child]
+${virtualGeometryEnabled ? "          child_node" : "          traversal_children[child_begin + child]"}
         );
       }
     }
@@ -1269,3 +1401,9 @@ export const HIERARCHICAL_WORK_GENERATION_WGSL =
 
 export const HIERARCHICAL_HZB_WORK_GENERATION_WGSL =
   createHierarchicalWorkGenerationWgsl(true);
+
+export const HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL =
+  createHierarchicalWorkGenerationWgsl(false, true);
+
+export const HIERARCHICAL_VIRTUAL_HZB_WORK_GENERATION_WGSL =
+  createHierarchicalWorkGenerationWgsl(true, true);

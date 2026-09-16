@@ -185,7 +185,14 @@ export function createGpuSparseShadingPipelineDescriptor(
     storageBufferBinding(1, 0, "meshlet_work", "read-only-storage"),
     ...(needsGeometry ? [storageBufferBinding(1, 1, "instance_records", "read-only-storage")] : []),
     ...(needsGeometry ? [storageBufferBinding(1, 2, "asset_metadata_heap", "read-only-storage")] : []),
-    ...(needsGeometry ? [storageBufferBinding(1, 3, "vertex_payload_heap", "read-only-storage")] : [])
+    ...(needsGeometry ? [storageBufferBinding(1, 3, "vertex_payload_heap", "read-only-storage")] : []),
+    ...(needsGeometry ? [
+      storageBufferBinding(1, 4, "virtual_product_metadata", "read-only-storage"),
+      storageBufferBinding(1, 5, "virtual_product_bank_0", "read-only-storage"),
+      storageBufferBinding(1, 6, "virtual_product_bank_1", "read-only-storage"),
+      storageBufferBinding(1, 7, "virtual_product_bank_2", "read-only-storage"),
+      storageBufferBinding(1, 8, "virtual_product_bank_3", "read-only-storage")
+    ] : [])
   ];
 
   const materialBindings: GpuSparseShadingBindingDescriptor[] = [

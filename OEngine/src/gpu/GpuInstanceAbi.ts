@@ -1,7 +1,7 @@
 import { mat4 } from "gl-matrix";
 import { GPU_SHADING_BIN_COUNT } from "./GpuShadingBinAbi.js";
 
-export const GPU_INSTANCE_ABI_VERSION = 6;
+export const GPU_INSTANCE_ABI_VERSION = 7;
 export const GPU_INSTANCE_STATIC_RECORD_STRIDE = 64;
 export const GPU_INSTANCE_DYNAMIC_RECORD_STRIDE = 112;
 export const GPU_INSTANCE_RECORD_STRIDE =
@@ -22,7 +22,9 @@ export const GPU_INSTANCE_FLAGS = Object.freeze({
   /** Velocity must output zero because current-to-previous motion is not invertible. */
   MotionInvalid: 1 << 5,
   /** BLEND material routed to a bounded transparent SecondaryRasterWork queue. */
-  Transparent: 1 << 6
+  Transparent: 1 << 6,
+  /** geometry_record_index addresses GeometryProductAssetReferenceV1, not GpuGeometryRecord. */
+  VirtualGeometry: 1 << 7
 } as const);
 
 /** Bits replaced by an InstanceMaterialPatch; every other instance bit persists. */
@@ -132,6 +134,10 @@ fn oengine_instance_active(instance: OEngineInstanceRecord) -> bool {
 
 fn oengine_instance_motion_valid(instance: OEngineInstanceRecord) -> bool {
   return (instance.motion_flags & ${GPU_INSTANCE_FLAGS.MotionInvalid}u) == 0u;
+}
+
+fn oengine_instance_virtual_geometry(instance: OEngineInstanceRecord) -> bool {
+  return (instance.flags & ${GPU_INSTANCE_FLAGS.VirtualGeometry}u) != 0u;
 }
 
 fn oengine_instance_geometry_generation(instance: OEngineInstanceRecord) -> u32 {

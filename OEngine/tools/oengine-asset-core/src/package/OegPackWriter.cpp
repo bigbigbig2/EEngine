@@ -248,17 +248,14 @@ PackAssembly AssemblePack(std::vector<CookedAssetV3> cooked) {
         pack.assets.push_back(record);
     }
 
+    // Geometry Product V1 page records carry one contiguous GroupID range.
+    // Keep the Nyx-produced Group identity order and only continue packing onto
+    // the page containing the immediately preceding GroupID. A page boundary
+    // is therefore the only place where a range can split; no page may contain
+    // an interleaved set such as [0, 6]. This changes packing, not meshlet,
+    // hierarchy, refine/error, or bootstrap selection semantics.
     std::vector<std::uint32_t> packingOrder(pack.serializedGroups.size());
     std::iota(packingOrder.begin(), packingOrder.end(), 0u);
-    std::stable_sort(packingOrder.begin(), packingOrder.end(), [&](std::uint32_t a, std::uint32_t b) {
-        const SerializedGroupV3& left = pack.serializedGroups[a];
-        const SerializedGroupV3& right = pack.serializedGroups[b];
-        const bool leftBootstrap = (left.flags & kGroupBootstrap) != 0u;
-        const bool rightBootstrap = (right.flags & kGroupBootstrap) != 0u;
-        if (leftBootstrap != rightBootstrap) return leftBootstrap > rightBootstrap;
-        if (left.lodLevel != right.lodLevel) return left.lodLevel > right.lodLevel;
-        return a < b;
-    });
     constexpr std::size_t kBestFitCandidateWindow = 16u;
     for (std::uint32_t groupId : packingOrder) {
         const SerializedGroupV3& group = pack.serializedGroups[groupId];
@@ -268,6 +265,7 @@ PackAssembly AssemblePack(std::vector<CookedAssetV3> cooked) {
         std::size_t matchingCandidates = 0u;
         for (std::size_t reverse = pack.pages.size(); reverse-- > 0u && matchingCandidates < kBestFitCandidateWindow;) {
             PageBuild& candidate = pack.pages[reverse];
+            if (candidate.groups.empty() || candidate.groups.back() + 1u != groupId) continue;
             if (candidate.bootstrap != bootstrap || candidate.lodLevel != group.lodLevel) continue;
             ++matchingCandidates;
             const std::uint32_t aligned = std::uint32_t(AlignUp64(candidate.usedBytes, 16u));

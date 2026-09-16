@@ -13,6 +13,17 @@
 - Fallback/lifecycle: attribute-aware simplification未达到冻结比率时仅在 recipe 允许时使用 `meshopt_simplifySloppy`，并设置 `kGroupSimplificationFallback`、放大 error、计数；不做隐藏的 source-vertex runtime fallback。bootstrap owner 失败时销毁全部 bank，显式 `destroy()` 释放 GPUBuffer。
 - Local validation: C++ struct/offset `static_assert`、不同线程数 byte-identical golden、native/TS reopen、CRC/hash、DAG/bootstrap、page independence、corruption、Chrome WGSL raw-record decode/readback 与 medium-scene diagnostic cook。格式冻结还需要 [OEGPACK V3 spec](../specs/oegpack-v3.md) 规定的真实生产 Visibility consumer。
 
+## GEO-NYX-VIRTUAL-RUNTIME · Product V1 hierarchy/address consumer（移植中）
+
+- Local owner/source: `OEngine/src/gpu/GeometryProductGpuAbiV1.ts`、`VirtualGeometryResidency.ts`、`OEngine/src/shaders/virtual_geometry_product.ts`、`hierarchical_work_generation.ts`、`OEngine/src/render/HierarchicalWorkGenerator.ts`。尚未接通 `MeshletWorkCandidate`、bucket raster、VisibilityKey 和 Sparse Shading，因此不是 production candidate。
+- Upstream: 本地 `D:\Nyx-main` 快照，无可验证 `.git` metadata；声明 commit 仅作线索。2026-09-16 复核 `MiniEngine/Model/Shaders/DAGCull.slang` SHA-256 `6534dd8794248d693acd07488653a625df3b4fac11117f96537a43857dcfee7e`、`VBufferMesh.slang` `9f374a2437d5ab939ae4d98289c150097bdab17305191ff97abf3fd1d13c621d`、`GeometryStreaming.cpp` `acb3aa4786eb6367e92b99e9e295c83e0aade516d59578f23ff38496f838a072`；其余源文件/hash 见 [0016](../implementation/0016-virtualized-assets.md#nyx-移植工作流强制)。
+- License/adoption: Nyx/MiniEngine MIT，notice 见 `OEngine/tools/oengine-asset-core/THIRD_PARTY_NOTICES.md`；可追溯局部移植，不直接依赖 DX12 runtime。
+- Function map（当前已实现的部分）：`MeshletStructs.h::HierarchyNode`、`GroupHeader`、`MeshletHeader`、`GroupDataLocation` → V3 decoded profile、Product heap 的 bounds/error/Group/page/bank-slot-generation 解码；`DAGCull.slang::ProcessNodeBatch` 的 root seeding、BVH8 internal child wavefront、leaf bounds/HZB/SSE 与 resident check → `HierarchicalWorkGenerator` 的 Product-specialized root/traversal；`GeometryStreaming::PinRootPages` 与 `SyncMemoryAndAddressTable` 的 pinned activation 和映射 → `VirtualGeometryResidency`。输入为 Product descriptor、instance geometry slot/generation、resident page；输出仍是现有 GPU traversal/VisibleCluster queue，不让 CPU 构造最终可见列表。
+- Retained invariants: V3 48/64/48-byte record、24-bit GroupID、7-bit local MeshletID、BVH8、原始 parent error、独立 Page hash、generation-before-bank-read、有界全有或全无队列、上一帧 HZB fail-open；Product metadata 仅一只 storage binding，避免超过 WebGPU 10 storage buffers/stage 基线。
+- WebGPU differences: Nyx bindless GPU address 改为 Product heap 和最多 4 个 128 MiB storage bank；Slang wave/global atomics 改为现有 64-lane WGSL workgroup/ping-pong indirect rounds、32-bit CAS reservation；Group request mask 与延迟 page demand 尚未接入，不能把当前 leaf skip 说成 ancestor fallback。
+- Fallback/lifecycle: root queue overflow 不编造不可渲染 parent；无效 Product generation/node/location fail closed；实际 resident ancestor/refine meshlet 抑制、需求写入、提交安全的替换/驱逐尚未完成，S1/S4 不得验收。
+- Validation: CPU metadata heap/record/generation/section negative oracle、非零 ProductTableSlot admission/rollback、V3 native golden；尚缺该 WGSL 的真实浏览器编译/readback、Nyx DAG 与 VBuffer differential corpus、Visibility screenshot、相同 workload GPU 性能证据。后续补齐 `ProcessMeshletBatch`、`computeMain`、`VBufferMesh::BuildVertexOutput/meshMain/pixelMain` 与 `GeometryStreaming::Update/EnqueueAsyncLoad/OnPageIOComplete/ImmediateEvict` 的逐函数对照。
+
 ## GEO-MESHOPT · meshoptimizer Cooker
 
 - Local owner/source: `OEngine/src/assets/GeometryAssetPackage.ts`、`OEngine/src/geometry/GeometryCooker.ts` 与 `meshoptimizer@1.0.0`。

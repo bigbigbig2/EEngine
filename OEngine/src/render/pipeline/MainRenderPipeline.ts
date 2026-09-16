@@ -2576,6 +2576,21 @@ export class MainRenderPipeline {
             bind("sparse-vertex-payload", (bindings) =>
               bindings.geometry.visibilityJob.assets.sparseShading.vertexPayloadHeap)
           );
+          const virtualProductMetadataRes = graph.import_resource(
+            "SparseShading/virtual-product-metadata",
+            { kind: "imported", label: "S1 Product metadata heap" },
+            bind("sparse-virtual-product-metadata", (bindings) =>
+              bindings.geometry.visibilityJob.virtualGeometry?.metadata ??
+              bindings.geometry.visibilityJob.assets.sparseShading.assetMetadataHeap)
+          );
+          const virtualProductBankRes = (bank: number) => graph.import_resource(
+            `SparseShading/virtual-product-bank-${bank}`,
+            { kind: "imported", label: `S1 Product page bank ${bank}` },
+            bind(`sparse-virtual-product-bank-${bank}`, (bindings) =>
+              bindings.geometry.visibilityJob.virtualGeometry?.banks[bank] ??
+              bindings.geometry.visibilityJob.assets.sparseShading.vertexPayloadHeap)
+          );
+          const virtualProductBanks = [0, 1, 2, 3].map(virtualProductBankRes) as [ResourceId, ResourceId, ResourceId, ResourceId];
           const materialRecordsRes = graph.import_resource(
             "SparseShading/material-records",
             { kind: "imported", label: "ADR-0013 association material records" },
@@ -2648,8 +2663,10 @@ export class MainRenderPipeline {
               revision: sparseRevision,
               visibility: packedVisibilityFrame!,
               instanceRecords: instanceRecordsRes,
-              assetMetadataHeap: assetMetadataHeapRes,
-              vertexPayloadHeap: vertexPayloadHeapRes,
+                assetMetadataHeap: assetMetadataHeapRes,
+                vertexPayloadHeap: vertexPayloadHeapRes,
+                virtualProductMetadata: virtualProductMetadataRes,
+                virtualProductBanks,
               materialRecords: materialRecordsRes,
               textureDescriptorRoutingHeap: textureRoutesRes,
               textureBindingSets,

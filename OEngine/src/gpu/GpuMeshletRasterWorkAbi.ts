@@ -35,8 +35,16 @@ export const GPU_MESHLET_RASTER_FLAGS = Object.freeze({
 export const GPU_MESHLET_DECODE_PROFILE = Object.freeze({
   Invalid: 0,
   StaticPbrCompactV2: 1,
-  ExplicitFloat32FallbackV2: 2
+  ExplicitFloat32FallbackV2: 2,
+  /** meshlet_slot encodes Product-local GroupID + local MeshletID. */
+  VirtualGeometryProductV1: 3
 } as const);
+export const GPU_VIRTUAL_MESHLET_LOCAL_BITS = 7;
+export const GPU_VIRTUAL_MESHLET_LOCAL_MASK = (1 << GPU_VIRTUAL_MESHLET_LOCAL_BITS) - 1;
+export const GPU_VIRTUAL_MESHLET_MAX_GROUP_ID = 0x00ffffff;
+
+export function encodeVirtualGeometryMeshletSlot(groupId: number, localMeshlet: number): number { if (!Number.isInteger(groupId) || groupId < 0 || groupId > GPU_VIRTUAL_MESHLET_MAX_GROUP_ID || !Number.isInteger(localMeshlet) || localMeshlet < 0 || localMeshlet > GPU_VIRTUAL_MESHLET_LOCAL_MASK) throw new RangeError("virtual geometry Group/Meshlet identity is invalid"); return ((groupId << GPU_VIRTUAL_MESHLET_LOCAL_BITS) | localMeshlet) >>> 0; }
+export function decodeVirtualGeometryMeshletSlot(value: number): Readonly<{ groupId: number; localMeshlet: number }> { if (!Number.isInteger(value) || value < 0 || value > 0xffffffff || (value >>> 31) !== 0) throw new RangeError("virtual geometry meshlet slot is invalid"); return Object.freeze({ groupId: value >>> GPU_VIRTUAL_MESHLET_LOCAL_BITS, localMeshlet: value & GPU_VIRTUAL_MESHLET_LOCAL_MASK }); }
 
 export const GPU_MESHLET_RASTER_PIPELINE_CLASS = Object.freeze({
   BackFaceCull: 0,

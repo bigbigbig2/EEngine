@@ -17,6 +17,7 @@ import {
   packGpuMeshletWorkQueueHeader
 } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import type { GpuSceneBindings } from "../gpu/GpuScene.js";
+import type { GeometryProductGpuBindingsV1 } from "../gpu/VirtualGeometryResidency.js";
 import { GPU_DISPATCH_INDIRECT_ARGS_SIZE } from "../gpu/GpuWorkGenerationAbi.js";
 import { GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY } from "../gpu/GpuVisibilityKeyAbi.js";
 import {
@@ -27,6 +28,7 @@ import {
   MESHLET_WORK_COMPACTION_SUBGROUP_WGSL,
   type MeshletWorkCompactionPath
 } from "../shaders/meshlet_work_compaction.js";
+import { VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL } from "../shaders/virtual_geometry_work.js";
 
 const PREPARED_MESHLET_WORK_CANDIDATE = Symbol("PreparedMeshletWorkCandidate");
 
@@ -45,12 +47,15 @@ export interface MeshletWorkCandidateInputs {
 export interface PreparedMeshletWorkCandidate {
   readonly [PREPARED_MESHLET_WORK_CANDIDATE]: true;
   readonly queue: GPUBuffer;
-  readonly bucketStates: GPUBuffer;
+  readonly bucketStates: GPUBuffer | null;
   readonly drawIndirect: GPUBuffer;
-  readonly bucketSettings: GPUBuffer;
+  readonly bucketSettings: GPUBuffer | null;
   readonly bucketCount: number;
   readonly compactionPath: MeshletWorkCompactionPath;
   readonly capacity: number;
+  readonly productMode?: boolean;
+  readonly productBindings?: GeometryProductGpuBindingsV1;
+  readonly productBanks?: readonly GPUBuffer[];
 }
 
 interface CandidatePipelines {
@@ -545,6 +550,229 @@ export class MeshletWorkCandidate {
     if (this.destroyed) throw new Error("MeshletWorkCandidate is destroyed");
   }
 }
+
+/** S1 Product consumer: one bounded, fixed-width indirect route for decoded Groups. */
+export class VirtualGeometryMeshletWorkCandidate {
+  private readonly layout: GPUBindGroupLayout;
+  private readonly pipeline: GPUComputePipeline;
+  private readonly prepared = new Set<PreparedMeshletWorkCandidate>();
+  private destroyed = false;
+
+  constructor(private readonly device: GPUDevice) {
+    this.layout = device.createBindGroupLayout({
+      label: "S1 Product MeshletWork layout",
+      entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 56 } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + GPU_MESHLET_RASTER_WORK_RECORD_STRIDE } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 64 } },
+        ...Array.from({ length: 4 }, (_, index) => ({
+          binding: index + 6,
+          visibility: GPUShaderStage.COMPUTE,
+          buffer: { type: "read-only-storage" as GPUBufferBindingType, minBindingSize: 4 }
+        }))
+      ]
+    });
+    const module = device.createShaderModule({
+      label: "S1 Product MeshletWork shader",
+      code: VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL
+    });
+    const pipelineLayout = device.createPipelineLayout({
+      label: "S1 Product MeshletWork pipeline layout",
+      bindGroupLayouts: [this.layout]
+    });
+    this.pipeline = device.createComputePipeline({
+      label: "S1 Product MeshletWork pipeline",
+      layout: pipelineLayout,
+      compute: { module, entryPoint: "generate_virtual_geometry_work" }
+    });
+  }
+
+  prepare(input: {
+    readonly virtualGeometry: GeometryProductGpuBindingsV1;
+    readonly visibleClusters: GPUBuffer;
+    readonly visibleClusterCapacity: number;
+    readonly capacity: number;
+    readonly counterBuffer: GPUBuffer;
+    readonly countersEnabled: boolean;
+  }): PreparedMeshletWorkCandidate {
+    this.assertAlive();
+    if (input.virtualGeometry.banks.length === 0 || input.virtualGeometry.banks.length > 4) {
+      throw new RangeError("S1 Product MeshletWork requires one to four resident banks");
+    }
+    if (!Number.isInteger(input.visibleClusterCapacity) || input.visibleClusterCapacity <= 0) {
+      throw new RangeError("S1 Product visible cluster capacity must be positive");
+    }
+    if (!Number.isInteger(input.capacity) || input.capacity <= 0 ||
+        input.capacity > GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY) {
+      throw new RangeError("S1 Product MeshletWork capacity is invalid");
+    }
+    if (input.visibleClusterCapacity > Number(this.device.limits.maxComputeWorkgroupsPerDimension)) {
+      throw new RangeError("S1 Product visible cluster capacity exceeds dispatch dimension");
+    }
+    const queue = this.device.createBuffer({
+      label: "S1 Product MeshletWork queue",
+      size: gpuMeshletWorkQueueByteLength(input.capacity),
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+    });
+    const drawIndirect = this.device.createBuffer({
+      label: "S1 Product MeshletWork drawIndirect",
+      size: 16,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST
+    });
+    const settings = this.device.createBuffer({
+      label: "S1 Product MeshletWork settings",
+      size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
+    });
+    const banks: GPUBuffer[] = [...input.virtualGeometry.banks];
+    while (banks.length < 4) {
+      banks.push(this.device.createBuffer({
+        label: "S1 Product MeshletWork empty bank",
+        size: 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      }));
+    }
+    this.device.queue.writeBuffer(queue, 0, packGpuMeshletWorkQueueHeader({
+      attemptedCount: 0,
+      writtenCount: 0,
+      consumedCount: 0,
+      capacity: input.capacity,
+      overflowCount: 0,
+      generation: 0,
+      invalidCount: 0
+    }));
+    this.device.queue.writeBuffer(settings, 0, new Uint32Array([
+      input.countersEnabled ? 1 : 0,
+      input.virtualGeometry.productGeneration,
+      input.visibleClusterCapacity,
+      0
+    ]));
+    const bindGroup = this.device.createBindGroup({
+      label: "S1 Product MeshletWork bindings",
+      layout: this.layout,
+      entries: [
+        { binding: 0, resource: { buffer: input.visibleClusters } },
+        { binding: 1, resource: { buffer: queue } },
+        { binding: 2, resource: { buffer: settings } },
+        { binding: 3, resource: { buffer: input.counterBuffer } },
+        { binding: 4, resource: { buffer: drawIndirect } },
+        { binding: 5, resource: { buffer: input.virtualGeometry.metadata } },
+        ...banks.map((buffer, index) => ({ binding: index + 6, resource: { buffer } }))
+      ]
+    });
+    const prepared = Object.freeze({
+      [PREPARED_MESHLET_WORK_CANDIDATE]: true as const,
+      queue,
+      bucketStates: null,
+      drawIndirect,
+      bucketSettings: null,
+      bucketCount: 0,
+      compactionPath: "portable" as const,
+      capacity: input.capacity,
+      productMode: true as const,
+      productBindings: input.virtualGeometry,
+      productBanks: Object.freeze(banks)
+    });
+    PRODUCT_CANDIDATE_STATE.set(prepared, {
+      queue,
+      drawIndirect,
+      settings,
+      bindGroup,
+      banks: Object.freeze(banks),
+      visibleClusterCapacity: input.visibleClusterCapacity,
+      destroyed: false
+    });
+    this.prepared.add(prepared);
+    return prepared;
+  }
+
+  rebind(): void {
+    // Product bindings are immutable for one prepared visibility work set.
+  }
+
+  encode(command: ShadeGPUCommandContext, prepared: PreparedMeshletWorkCandidate): void {
+    const state = this.requireState(prepared);
+    const pass = command.gpu_encoder.beginComputePass({ label: "S1 Product MeshletWork" });
+    pass.setPipeline(this.pipelineFor("prepare_virtual_geometry_work"));
+    pass.setBindGroup(0, state.bindGroup);
+    pass.dispatchWorkgroups(1, 1, 1);
+    pass.setPipeline(this.pipeline);
+    pass.dispatchWorkgroups(state.visibleClusterCapacity, 1, 1);
+    pass.setPipeline(this.pipelineFor("finalize_virtual_geometry_work"));
+    pass.dispatchWorkgroups(1, 1, 1);
+    pass.end();
+  }
+
+  release(prepared: PreparedMeshletWorkCandidate): void {
+    const state = PRODUCT_CANDIDATE_STATE.get(prepared);
+    if (state === undefined || state.destroyed) return;
+    state.destroyed = true;
+    state.queue.destroy();
+    state.drawIndirect.destroy();
+    state.settings.destroy();
+    for (const bank of state.banks.slice(4)) bank.destroy();
+    PRODUCT_CANDIDATE_STATE.delete(prepared);
+    this.prepared.delete(prepared);
+  }
+
+  destroy(): void {
+    if (this.destroyed) return;
+    for (const prepared of [...this.prepared]) this.release(prepared);
+    this.destroyed = true;
+  }
+
+  private pipelineFor(entryPoint: string): GPUComputePipeline {
+    const key = `${entryPoint}`;
+    const cache = PRODUCT_CANDIDATE_PIPELINES.get(this);
+    if (cache?.has(key)) return cache.get(key)!;
+    const module = PRODUCT_CANDIDATE_MODULES.get(this) ?? this.device.createShaderModule({
+      label: "S1 Product MeshletWork shader",
+      code: VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL
+    });
+    PRODUCT_CANDIDATE_MODULES.set(this, module);
+    const layout = this.device.createPipelineLayout({
+      label: `S1 Product MeshletWork ${entryPoint} layout`,
+      bindGroupLayouts: [this.layout]
+    });
+    const pipeline = this.device.createComputePipeline({
+      label: `S1 Product MeshletWork ${entryPoint}`,
+      layout,
+      compute: { module, entryPoint }
+    });
+    if (cache === undefined) PRODUCT_CANDIDATE_PIPELINES.set(this, new Map([[key, pipeline]]));
+    else cache.set(key, pipeline);
+    return pipeline;
+  }
+
+  private requireState(prepared: PreparedMeshletWorkCandidate): ProductCandidateState {
+    const state = PRODUCT_CANDIDATE_STATE.get(prepared);
+    if (state === undefined || state.destroyed || !prepared.productMode) {
+      throw new Error("S1 Product MeshletWork is stale or invalid");
+    }
+    return state;
+  }
+
+  private assertAlive(): void {
+    if (this.destroyed) throw new Error("S1 Product MeshletWork candidate is destroyed");
+  }
+}
+
+interface ProductCandidateState {
+  readonly queue: GPUBuffer;
+  readonly drawIndirect: GPUBuffer;
+  readonly settings: GPUBuffer;
+  readonly bindGroup: GPUBindGroup;
+  readonly banks: readonly GPUBuffer[];
+  readonly visibleClusterCapacity: number;
+  destroyed: boolean;
+}
+
+const PRODUCT_CANDIDATE_STATE = new WeakMap<object, ProductCandidateState>();
+const PRODUCT_CANDIDATE_MODULES = new WeakMap<VirtualGeometryMeshletWorkCandidate, GPUShaderModule>();
+const PRODUCT_CANDIDATE_PIPELINES = new WeakMap<VirtualGeometryMeshletWorkCandidate, Map<string, GPUComputePipeline>>();
 
 function assertPositiveU32(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value <= 0 || value > 0xffffffff) {

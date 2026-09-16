@@ -10,7 +10,7 @@ Owners: Web Runtime Cooker、Offline/OEGPACK adapter、geometry admission owner
 
 V1 profile 复用 [OEGPACK V3](./oegpack-v3.md) 的 decoded Group/Meshlet payload、AssetRecord、HierarchyNode、GroupDirectory 和 VertexFormat 布局，但不包含 OEGPACK header、compressed offset、codec、CRC 或文件 hash。OEGPACK 只是该 profile 的一个 source adapter。
 
-本 spec 冻结字段、作用域、状态和校验语义；跨 Worker 的二进制 descriptor transport 尚未实现，提升为 candidate 前必须补齐 fixed layout/offset/align、TypeScript/WASM mirror 和 golden oracle。
+本 spec 冻结字段、作用域、状态和校验语义。跨 Worker 的二进制 descriptor transport 使用下述 `GeometryProductDescriptorBinaryV1`；任何 producer 必须生成 canonical offsets，Runtime 必须拒绝 alias、越界、非零 reserved 和 trailing bytes。WASM mirror 与 golden oracle 仍是 candidate gate。
 
 ## Nyx Provenance 与移植合同
 
@@ -104,6 +104,34 @@ activationPageIds: sorted unique u32 array
 | 20 | `u32` | group count |
 | 24 | `u32` | flags；V1 必须为 0 |
 | 28 | `u32` | reserved；必须为 0 |
+
+#### Descriptor binary transport
+
+`GeometryProductDescriptorBinaryV1` 使用 little-endian、256-byte header，magic 为 ASCII `OEGP`（字节 `4f 45 47 50`）。所有 section 起点按 16 byte 对齐，section 之间的 padding 必须为 0；`totalBytes` 必须等于最后一个 section 对齐后的长度，不允许 trailing bytes。固定表 stride 沿用本 spec：Asset 128、root `u32` 4、Hierarchy 48、Group 16、Page 32、VertexFormat 16、activation/bootstrap PageID 4。字符串是非空 UTF-8 bytes、不带 NUL；`producerId` 解码后仍须满足 printable ASCII。
+
+| Byte | 类型 | 字段 |
+| ---: | --- | --- |
+| 0 | `u32` | magic = `0x5047454f` |
+| 4 | `u32` | transport version = 1 |
+| 8 | `u32` | header bytes = 256 |
+| 12 | `u32` | total bytes |
+| 16 | `u32` | runtime profile；V1 = 1 |
+| 20 | `u32` | producer kind；web-runtime = 1，offline-native = 2 |
+| 24 | `u32` | source identity kind；content-sha256 = 1，strong-http-validator = 2，session = 3 |
+| 28 | `u32` | flags；bit 0 = has replacement，bits 1..31 = 0 |
+| 32 | `u32` | revision |
+| 36 | `u32` | decoded page bytes = 262144 |
+| 40..68 | `u32[8]` | asset/root/hierarchy/group/page/bootstrap/vertex-format/activation counts |
+| 72..76 | `u32[2]` | producerId / producerVersion byte lengths |
+| 80..116 | `u32[10]` | 对应八张表、producerId、producerVersion 的 byte offsets |
+| 120 | `u32` | replaces revision；无 replacement 时为 0 |
+| 124 | `u32` | reserved = 0 |
+| 128..159 | `u8[32]` | ProductID |
+| 160..191 | `u8[32]` | source identity hash |
+| 192..223 | `u8[32]` | recipe hash |
+| 224..255 | `u8[32]` | replaces ProductID；无 replacement 时必须全 0 |
+
+Canonical section 顺序固定为 `assetRecords -> rootNodeIds -> hierarchyNodes -> groupDirectory -> pageRecords -> bootstrapPageIds -> vertexFormats -> activationPageIds -> producerId -> producerVersion`；每段结束向 16 byte 对齐。count 乘 stride、offset 加 byte length 和最终总长度均须以防溢出的方式验证。Transport decode 后仍必须运行完整 `GeometryProductDescriptorV1` validator；binary validation 不能替代跨表/tree/activation 校验。
 
 descriptor 中的 V3-compatible table 必须通过 OEGPACK V3 的范围、树、Group、payload 和 vertex-format 不变量。Page record 的 Group range 必须连续、互不重叠并与 GroupDirectory 中的 PageID 一致。所有 PageID 都必须有且仅有一个 page record。AssetRecord 的 bootstrap range 引用 `bootstrapPageIds`；该表保留 per-asset range/order，元素必须合法且对应 asset 的可绘制 cut。
 

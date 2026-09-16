@@ -20,8 +20,8 @@ source asset
 | 边界 | 当前 owner | 合同 |
 | --- | --- | --- |
 | Runtime Asset | `src/assets`、`src/loaders` | 设备无关 package、内容身份、校验、range read 和 codec preparation |
-| OEGPACK V3 | `GeometryAbiV3.ts`、`OegPackV3.ts`、`GeometryBootstrapResidencyV3.ts` | V3 metadata/page 解析、校验、bootstrap residency；尚不是生产几何 consumer |
-| GPU 资产 | `GpuAssetStore.ts`、`TextureResidency.ts` | GPU allocation、稳定 handle/generation、资源发布与提交感知 retire |
+| OEGPACK V3 / Geometry Product | `GeometryAbiV3.ts`、`OegPackV3.ts`、`assets/geometry-product/` | V3 metadata/page 解析、producer-neutral descriptor/page validation、OEGPACK Product adapter；仍未完成 production Visibility consumer |
+| GPU 资产 | `GpuAssetStore.ts`、`TextureResidency.ts`、`VirtualGeometryResidency.ts` | GPU allocation、稳定 handle/generation、Product activation page heap 与资源发布；demand/eviction 闭环仍在迁移 |
 | Scene 与实例 | `GpuScene.ts`、`GpuRenderWorld.ts` | Packed instance、显式 patch、资产/材质关联与原子 publication |
 | GPU 工作/可见性 | `GpuWorkGenerationAbi.ts`、`GpuVisibilityKeyAbi.ts` 及 work/visibility owners | hierarchy/culling、容量和 overflow、indirect work、VisibilityKey |
 | Sparse shading | `SurfaceFeature.ts`、`ShadingBinPass.ts`、`SparseShadingResolvePass.ts` 及 publication owners | 可见像素分类、active-bin indirect specialization、一次材质解析、按需 Surface/velocity |

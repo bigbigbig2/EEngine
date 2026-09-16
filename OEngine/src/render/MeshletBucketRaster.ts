@@ -10,7 +10,8 @@ import {
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_SINGLE_WGSL,
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
   MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL,
-  MESHLET_BUCKET_VISIBILITY_WGSL
+  MESHLET_BUCKET_VISIBILITY_WGSL,
+  VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
 } from "../shaders/meshlet_bucket_visibility.js";
 import {
   gpuShadingBinVisibilityRenderPassAttachments,
@@ -44,6 +45,22 @@ const MESHLET_BUCKET_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
         viewDimension: "2d-array" as GPUTextureViewDimension
       }
     }))
+  ]
+};
+
+const VIRTUAL_GEOMETRY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "S1 Product Meshlet bucket Visibility group0",
+  entries: [
+    { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: PACKED_CAMERA_TYPE.size } },
+    { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+    { binding: 2, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+    { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+    ...Array.from({ length: 4 }, (_, index) => ({
+      binding: index + 4,
+      visibility: GPUShaderStage.VERTEX,
+      buffer: { type: "read-only-storage" as GPUBufferBindingType }
+    })),
+    { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
   ]
 };
 
@@ -113,12 +130,14 @@ export interface MeshletBucketRasterInputs {
   readonly visibilityKey: GPUTextureView;
   readonly shadingBinId: GPUTextureView | null;
   readonly depth: GPUTextureView;
+  readonly virtualGeometry?: import("../gpu/VirtualGeometryResidency.js").GeometryProductGpuBindingsV1 | null;
 }
 
 /** Standard indirect GPU consumer for VisibilityKey V2. */
 export class MeshletBucketRaster {
   readonly primitiveIndexSupported: boolean;
   private readonly rasterPipelines = new Map<string, readonly GPURenderPipeline[]>();
+  private virtualRasterPipeline: GPURenderPipeline | null = null;
 
   constructor(private readonly graphics: GraphicsContext) {
     this.primitiveIndexSupported = graphics.device.features.has("primitive-index");
@@ -133,6 +152,10 @@ export class MeshletBucketRaster {
     const includeShadingBinId = executionMode === "sparse-microtile";
     if (includeShadingBinId !== (inputs.shadingBinId !== null)) {
       throw new Error("Meshlet visibility MRT does not match the shading execution mode");
+    }
+    if (inputs.prepared.productMode) {
+      this.encodeVirtualRaster(encoder, inputs);
+      return;
     }
     const primitiveIndex = primitiveIndexPath === "auto" && this.primitiveIndexSupported;
     const bindingSets = inputs.runtime.materialResources.bindingSets;
@@ -187,12 +210,68 @@ export class MeshletBucketRaster {
         { buffer: inputs.assets.vertexStreamData },
         { buffer: inputs.assets.geometryRecords },
         { buffer: inputs.prepared.queue },
-        { buffer: inputs.prepared.bucketStates },
-        { buffer: inputs.prepared.bucketSettings, size: MESHLET_BUCKET_SETTINGS_SIZE },
+        { buffer: inputs.prepared.bucketStates! },
+        { buffer: inputs.prepared.bucketSettings!, size: MESHLET_BUCKET_SETTINGS_SIZE },
         { buffer: inputs.runtime.materialResources.materialRecords },
         ...textureBanks
       ]
     });
+  }
+
+  private encodeVirtualRaster(
+    encoder: GPUCommandEncoder,
+    inputs: MeshletBucketRasterInputs
+  ): void {
+    if (inputs.virtualGeometry === null || inputs.virtualGeometry === undefined ||
+        inputs.prepared.productBindings === undefined || inputs.prepared.productBanks === undefined) {
+      throw new Error("S1 Product raster requires immutable Product bindings");
+    }
+    if (inputs.shadingBinId !== null) {
+      throw new Error("S1 Product raster currently uses the direct VisibilityKey attachment");
+    }
+    const pipeline = this.virtualRasterPipeline ??= this.graphics.render_pipelines.obtain({
+      label: "S1 Product Meshlet bucket Visibility",
+      layout: {
+        label: "S1 Product Meshlet bucket Visibility layout",
+        bindGroupLayouts: [VIRTUAL_GEOMETRY_RASTER_GROUP]
+      },
+      vertex: {
+        module: { label: "S1 Product Meshlet bucket Visibility", code: VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL },
+        entryPoint: "raster_virtual_meshlet"
+      },
+      fragment: {
+        module: { label: "S1 Product Meshlet bucket Visibility", code: VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL },
+        entryPoint: "write_virtual_meshlet",
+        targets: [{ format: "r32uint" }]
+      },
+      primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
+      depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "greater" }
+    });
+    const group = this.graphics.bind_groups.obtain({
+      layout: VIRTUAL_GEOMETRY_RASTER_GROUP,
+      entries: [
+        { buffer: inputs.camera },
+        { buffer: inputs.scene.instances },
+        { buffer: inputs.prepared.queue },
+        { buffer: inputs.virtualGeometry.metadata },
+        ...inputs.prepared.productBanks.slice(0, 4).map((buffer) => ({ buffer })),
+        { buffer: inputs.runtime.materialResources.materialRecords }
+      ]
+    });
+    const pass = encoder.beginRenderPass({
+      label: "S1 Product Meshlet bucket Hardware Visibility",
+      colorAttachments: gpuVisibilityKeyRenderPassAttachments(inputs.visibilityKey),
+      depthStencilAttachment: {
+        view: inputs.depth,
+        depthClearValue: 0,
+        depthLoadOp: "clear",
+        depthStoreOp: "store"
+      }
+    });
+    pass.setPipeline(pipeline);
+    pass.setBindGroup(0, group);
+    pass.drawIndirect(inputs.prepared.drawIndirect, 0);
+    pass.end();
   }
 
 }

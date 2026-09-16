@@ -19,6 +19,11 @@ const {
   OEGPACK_V3_PAGE_BYTES
 } = await import("../.test-dist/assets/GeometryAbiV3.js");
 const { GeometryBootstrapResidencyV3 } = await import("../.test-dist/gpu/GeometryBootstrapResidencyV3.js");
+const {
+  descriptorFromOegPack,
+  OegPackProductRevisionSource,
+  validateGeometryProductDescriptorV1
+} = await import("../.test-dist/assets/geometry-product/index.js");
 const { createGeometryCookRecipeV3, geometryCookRecipeV3Key } = await import("../.test-dist/assets/GeometryCookRecipe.js");
 const { GltfLoader } = await import("../.test-dist/loaders/gltf/GltfLoader.js");
 const { buildPackedGltfSource } = await import("../.test-dist/loaders/load_gltf.js");
@@ -94,6 +99,28 @@ test("A1-A7 native cook is deterministic across thread counts and TS opens the g
   const v3InstancedTriangles = scene.instances.reduce((sum, instance) => sum + opened.assets[instance.asset].sourceTriangleCount, 0);
   assert.equal(v3InstancedTriangles, v2InstancedTriangles, "V3 content dedup and material-domain grouping must preserve V2 instanced triangle semantics");
   assert.equal(new Set(v2.materialIndices).size, opened.assets[0].rootNodeCount, "V3 roots must preserve the V2 material-domain split");
+});
+
+test("S1 OEGPACK adapter emits a producer-neutral Product V1 descriptor and exclusive pages", async () => {
+  const cooked = runCook("product-adapter", 2);
+  const { bytes } = await packBytes(cooked.output);
+  const opened = await openOegPackV3(new MemoryRangeReadablePackV3(bytes));
+  const descriptor = descriptorFromOegPack(opened);
+  const report = validateGeometryProductDescriptorV1(descriptor);
+  assert.equal(report.valid, true, report.issues.map(issue => issue.message).join("; "));
+  assert.equal(descriptor.runtimeProfile, "oengine-vg-v1-v3-decoded");
+  assert.equal(descriptor.producerKind, "offline-native");
+  assert.equal(descriptor.assetRecords.byteLength, opened.assets.length * 128);
+  assert.equal(descriptor.hierarchyNodes.byteLength, opened.hierarchy.length * 48);
+  assert.equal(descriptor.groupDirectory.byteLength, opened.groups.length * 16);
+  assert.equal(descriptor.pageRecords.byteLength, opened.pages.length * 32);
+  assert.deepEqual([...descriptor.activationPageIds], [...new Set(opened.bootstrapPageIds)].sort((a, b) => a - b));
+  const source = new OegPackProductRevisionSource(opened, descriptor);
+  const page = await source.readPage(descriptor.activationPageIds[0]);
+  assert.equal(page.bytes.byteLength, 262144);
+  assert.deepEqual([...createHash("sha256").update(new Uint8Array(page.bytes)).digest().subarray(0, 16)], [...descriptor.pageRecords.slice(descriptor.activationPageIds[0] * 32, descriptor.activationPageIds[0] * 32 + 16)]);
+  source.release();
+  await assert.rejects(source.readPage(descriptor.activationPageIds[0]), /released/i);
 });
 
 test("page independence: every group on an arbitrary page decodes from page-local bytes", async () => {
@@ -178,13 +205,16 @@ test("A8 bootstrap owner uploads fixed slots, resolves groups, and destroys ever
     queue: { writeBuffer(buffer, offset, data) { writes.push({ buffer, offset, bytes: data.byteLength }); } }
   };
   const residency = await GeometryBootstrapResidencyV3.create(device, opened);
-  assert.equal(writes.length, new Set(opened.bootstrapPageIds).size);
-  assert.ok(writes.every(write => write.bytes === 262144 && write.offset % 262144 === 0));
+  const pageWrites = writes.filter(write => write.bytes === 262144);
+  const locationTableWrites = writes.filter(write => write.bytes !== 262144);
+  assert.equal(pageWrites.length, new Set(opened.bootstrapPageIds).size);
+  assert.equal(locationTableWrites.length, 1, "Product admission publishes one page-location table update");
+  assert.ok(pageWrites.every(write => write.offset % 262144 === 0));
   for (let groupId = 0; groupId < opened.groups.length; groupId++) {
     const expected = new Set(opened.bootstrapPageIds).has(opened.groups[groupId].pageId);
     assert.equal(residency.groupAddress(groupId) !== undefined, expected);
   }
-  assert.equal(residency.evidence().uploadedBytes, writes.length * 262144);
+  assert.equal(residency.evidence().uploadedBytes, pageWrites.length * 262144);
   residency.destroy();
   assert.ok(buffers.every(buffer => buffer.destroyed));
 });
@@ -350,4 +380,4 @@ function buildFixtureGlb({ distinctMaterialIds = false } = {}) {
 }
 
 // Updated only when an intentional ABI/algorithm/recipe change is reviewed.
-const GOLDEN_PACK_SHA256 = "4ba27aa47a26194afec2a7dd8f6ba8d50cbbd5a838a113d4563d85d6e1fbc8f7";
+const GOLDEN_PACK_SHA256 = "4f68db668a787382091b6bffe8599f602eb90014df1ca647734f50b83d31497f";

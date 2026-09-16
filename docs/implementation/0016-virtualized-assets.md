@@ -32,9 +32,9 @@ OEGPACK -> Offline adapter ─────┘          |
 - Offline 文件合同：[OEGPACK V3](../specs/oegpack-v3.md)。
 - 能力与证据：[WEBGPU](../WEBGPU.md)、[VALIDATION](../VALIDATION.md)、[ADR-0014](../adr/0014-browser-validation-and-performance-host.md)。
 
-当前已有：Native OEGPACK writer、TS Range reader/validator、`GeometryAbiV3.ts`、`GeometryBootstrapResidencyV3`、V2 GeometryAssetPackage/GeometryCooker、`AssetWorkerPool`、GpuAssetStore/GpuScene/GpuRenderWorld、GPU hierarchy/work、`MeshletBucketRaster`、VisibilityKey 和 Sparse Shading。
+当前已有：Native OEGPACK writer、TS Range reader/validator、`GeometryAbiV3.ts`、`GeometryBootstrapResidencyV3`、V2 GeometryAssetPackage/GeometryCooker、`AssetWorkerPool`、GpuAssetStore/GpuScene/GpuRenderWorld、GPU hierarchy/work、`MeshletBucketRaster`、VisibilityKey 和 Sparse Shading；S1 已加入 Product-aware admission、hierarchy/work/raster 生产接线、真实 Chrome GPU page/group/meshlet 解码 oracle，以及 Sparse Shading 的 Product metadata/page-bank binding 和 virtual work geometry lookup plumbing。
 
-当前缺失：Producer-neutral Product 类型/validator、OEGPACK adapter、Web WASM Cooker、streaming GLB source、CookSession 协议、生产 page heap、GPU demand/readback、ancestor fallback、revision replacement、eviction/recovery，以及所有 consumer 的 V2 cutover。
+当前已补齐第一批：Producer-neutral Product TS 类型/validator、OEGPACK adapter、Product-aware bootstrap/page heap/location table、GLB Range source、versioned CookSession credit seam、PageDemand ABI 与 Product GPU location mirror；另外已有严格 page hash/key scheduler、8 MiB/frame upload sink、retire slot ownership 和至少双槽的延迟 readback ownership ring。它们仍是 GPU producer 接线前的 owner/ABI 骨架，不构成生产 demand/readback 闭环；仍缺 Nyx WASM Cooker、真实 GPU demand producer/consumer、ancestor fallback、revision replacement、device-loss recovery，以及所有 consumer 的 V2 cutover。
 
 `AssetWorkerPool` 可复用其优先级、并发、estimated bytes、Transferable 和取消原则，但“一项 task 返回一次 Promise”的模型不能承担持续 CookSession；不要在其上堆无限 Page event。
 
