@@ -394,7 +394,7 @@ S11 waits for S10 physical-memory evidence
 - 当前帧不等待 Worker、`mapAsync()`、upload 或 submitted work；CPU feedback 只调度资源，不生成最终可见 work。
 - upload/readback、resident/transient/history/shadow 服从 [VALIDATION](../VALIDATION.md) 总预算；调整必须有同 workload evidence。
 - cancel、replace、camera cut、source failure、Worker crash、aborted submit 与 device loss 都不得发布旧 generation。
-- 每个 slice 先做命中 DEV，再由 ADR-0014 宿主完成 MILESTONE；只有性能声明才运行固定条件 PERF。
+- 每个 slice 先按改动风险完成命中 DEV；准备把 slice 标记为完成或声明 Runtime Validated 时，再由 ADR-0014 宿主集中完成 MILESTONE。只有性能声明才运行固定条件 PERF；中间实现步骤不要求重复高等级验证。
 - 完成事实写回 ARCHITECTURE/PIPELINE/STATUS，稳定 ABI 写回 spec，外部算法/代码写回 porting ledger。
 
 ## Validation plan

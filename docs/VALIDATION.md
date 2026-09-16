@@ -10,11 +10,19 @@
 | MILESTONE | consumer cutover、删除旧路径、垂直切片完成 | DEV + ADR-0014 真实浏览器 case + GPU diagnostics + 生命周期/feature-off + 必要截图或数值 readback |
 | PERF | 性能判断或发布声明 | MILESTONE + clean revision + 固定 workload/capability + 多个独立 run + 持久化机器可读 evidence |
 
+验证等级按风险和声明触发，不按每次提交或每个小步骤强制升级。默认先运行能证明当前改动的最低等级：
+
+- 普通 ABI、validator、CPU 状态机、shader 组合和局部 owner 改动运行 DEV；不要求同时启动完整浏览器宿主。
+- 只有改动会跨越真实 GPU producer/consumer、render graph、资源生命周期、feature-off 或 device capability 边界时，才补命中的 Browser Case 或短 smoke。短 smoke 是开发诊断，不自动升级为 MILESTONE。
+- 只有准备声明 consumer cutover、垂直 Slice 完成、Runtime Validated、Pipeline Feature Complete 或 ADR Complete 时，才运行对应 MILESTONE。MILESTONE 可以在一组相关改动完成后集中运行，不要求每个中间提交都通过。
+- 只有准备作性能判断、性能回归结论或发布性能数字时，才运行 PERF。性能工作之外不要求重复 PERF。
+- 延后运行高等级验证是允许的，但交付说明、状态记录或变更说明必须列出未运行项目、原因和当前不能作出的声明。
+
 纯文档改动只运行静态文档检查。dependency/lockfile 未变化时普通 DEV 不运行 `npm ci`；TypeScript/WGSL 变更运行 `cd OEngine; npm run typecheck` 和命中测试。clean reproduction、CI 或正式 PERF 才运行 `npm ci`。
 
 ## 浏览器与 evidence
 
-真实浏览器验证只能由 [ADR-0014](./adr/0014-browser-validation-and-performance-host.md) 的独立 `validation/` 宿主承担；`examples/` 和 Storybook 只用于示例。artifact 至少记录 revision、case/workload identity、内容 hash、浏览器、adapter/device、capability fingerprint、分辨率/DPR、画质、warm-up、采样窗口、console/GPU error 和结果新鲜度。
+需要真实浏览器证据时，只能由 [ADR-0014](./adr/0014-browser-validation-and-performance-host.md) 的独立 `validation/` 宿主承担；`examples/` 和 Storybook 只用于示例。ADR-0014 定义证据格式和生命周期，不要求每次开发改动都启动宿主。artifact 至少记录 revision、case/workload identity、内容 hash、浏览器、adapter/device、capability fingerprint、分辨率/DPR、画质、warm-up、采样窗口、console/GPU error 和结果新鲜度。
 
 小型稳定基线可进入 `OEngine/benchmarks/`；大型截图、trace 和逐帧 capture 使用外部 artifact 存储并由稳定标识与 hash 引用。`temp/` 只用于本地探索，不是事实源。
 
