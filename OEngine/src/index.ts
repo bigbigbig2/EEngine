@@ -154,6 +154,8 @@ export type {
   WebCookProductProviderEvidence,
   WebCookProductProviderOptions
 } from "./assets/web-cook/WebCookProductProvider.js";
+export { WebCookClient } from "./assets/web-cook/WebCookClient.js";
+export type { WebCookClientEvidence, WebCookClientOptions } from "./assets/web-cook/WebCookClient.js";
 export {
   GeometryProductAdmissionController
 } from "./gpu/GeometryProductAdmission.js";
