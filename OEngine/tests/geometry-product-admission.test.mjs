@@ -4,6 +4,7 @@ import test from "node:test";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 const { GeometryProductAdmission, GeometryProductAdmissionController } = await import("../.test-dist/gpu/GeometryProductAdmission.js");
+const { GeometryPageSchedulerV1 } = await import("../.test-dist/gpu/GeometryPageScheduler.js");
 const { resolveGeometryProductAssetFromHeapV1, unpackGeometryProductMetadataHeapHeaderV1 } = await import("../.test-dist/gpu/GeometryProductGpuAbiV1.js");
 
 function makeFixture() {
@@ -138,6 +139,19 @@ test("successful replacement switches active generation before retiring the old 
   assert.equal(oldSource.released, 1);
   controller.retireActive();
   assert.equal(nextSource.released, 1);
+});
+
+test("scheduler registration can borrow an active Product source without releasing Residency ownership", async () => {
+  const value = makeFixture(), device = fakeDevice(), source = sourceFor(value.descriptor, value.page);
+  async function* provider() { yield source; }
+  const controller = new GeometryProductAdmissionController(device);
+  await controller.consume({ revisions: provider });
+  const scheduler = new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 262144 });
+  controller.registerActiveProduct(scheduler);
+  scheduler.unregisterProduct(controller.active.generation);
+  assert.equal(source.released, 0);
+  controller.retireActive();
+  assert.equal(source.released, 1);
 });
 
 test("controller cancellation aborts the in-flight activation and releases its source", async () => {

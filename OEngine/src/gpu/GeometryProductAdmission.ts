@@ -5,6 +5,7 @@ import {
   type GeometryProductRevisionSourceV1
 } from "../assets/geometry-product/GeometryProductV1.js";
 import { VirtualGeometryResidency } from "./VirtualGeometryResidency.js";
+import type { GeometryPageSchedulerV1 } from "./GeometryPageScheduler.js";
 
 export type GeometryProductRevisionStateV1 = "offered" | "validating" | "reserving" | "filling-activation-cut" | "ready-to-activate" | "active" | "retiring" | "retired" | "failed" | "cancelled";
 
@@ -77,6 +78,13 @@ export class GeometryProductAdmissionController {
 
   get active(): GeometryProductAdmissionTransaction | undefined { return this.#active; }
   get admission(): GeometryProductAdmission { return this.#admission; }
+
+  /** Registers the active Product for demand scheduling without transferring source ownership. */
+  registerActiveProduct(scheduler: GeometryPageSchedulerV1): void {
+    const active = this.#active;
+    if (!active || active.state !== "active") throw new Error("Geometry Product admission has no active revision to register");
+    scheduler.registerProduct(active.productTableSlot, active.generation, active.source, { sourceOwnership: "external" });
+  }
 
   consume(provider: GeometryProductProviderV1, signal?: AbortSignal): Promise<void> {
     if (this.#state !== "idle") throw new Error(`Geometry Product admission controller cannot consume from '${this.#state}'`);

@@ -160,6 +160,7 @@ export {
 export type {
   GeometryProductAdmissionControllerEvidenceV1
 } from "./gpu/GeometryProductAdmission.js";
+export type { GeometryPageRegistrationOptionsV1 } from "./gpu/GeometryPageScheduler.js";
 export { WebCookWorkerTransport } from "./assets/web-cook/WebCookWorkerTransport.js";
 export type {
   WebCookWorkerPort,
