@@ -140,6 +140,15 @@ export {
 } from "./assets/codec/Ktx2BasisCodec.js";
 export type { PrepareKtx2TextureOptions } from "./assets/codec/Ktx2BasisCodec.js";
 export { planTextureDecode } from "./assets/codec/AssetCodecPlanner.js";
+export { WebCookCoordinator } from "./assets/web-cook/WebCookCoordinator.js";
+export type {
+  WebCookCoordinatorEvidence,
+  WebCookCoordinatorOptions,
+  WebCookProductPage,
+  WebCookProductRevision,
+  WebCookUnitContext,
+  WebRuntimeCooker
+} from "./assets/web-cook/WebCookCoordinator.js";
 export { selectTextureTranscodeTarget } from "./assets/codec/TextureCodecPolicy.js";
 export type {
   AssetCodecEvidence,
@@ -414,6 +423,10 @@ export { load_environment_map } from "./loaders/load_environment_map.js";
 export { load_gltf, load_gltf_packed } from "./loaders/load_gltf.js";
 export type { PackedGltfSource } from "./loaders/load_gltf.js";
 export { load_scene_from_url } from "./loaders/load_scene_from_url.js";
+export { openGlbRangeSource } from "./loaders/gltf/streaming/GlbRangeSource.js";
+export type { GlbBufferDescriptor, GlbRangeReadableSource, GlbRangeSourceOptions, GlbSourceIdentity } from "./loaders/gltf/streaming/GlbRangeSource.js";
+export { buildGlbSceneCatalog } from "./loaders/gltf/streaming/GlbSceneCatalog.js";
+export type { GlbByteRange, GlbCookPrimitive, GlbSceneCatalog } from "./loaders/gltf/streaming/GlbSceneCatalog.js";
 export { load_usd } from "./loaders/load_usd.js";
 export {
   BENCHMARK_RESULT_SCHEMA_VERSION,

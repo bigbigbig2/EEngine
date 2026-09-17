@@ -75,7 +75,11 @@ export class WebCookSessionProtocol {
     const max = this.#budgets?.maxQueuedEvents ?? 0;
     if (this.#events.length >= max) throw new RangeError("CookSession event queue capacity exceeded");
     if (event.type === "RevisionOffered") decodeGeometryProductDescriptorBinaryV1(event.descriptor);
-    if (event.type === "PageReady") { if (event.bytes.byteLength !== WEB_COOK_PAGE_BYTES || event.decodedHash128.byteLength !== 16 || this.#creditsBlocks < 1 || this.#creditsBytes < event.bytes.byteLength) return false; this.#creditsBlocks--; this.#creditsBytes -= event.bytes.byteLength; }
+    if (event.type === "PageReady") {
+      if (event.productId.byteLength !== 32 || !Number.isInteger(event.revision) || event.revision < 0 || event.revision === 0xffffffff) throw new RangeError("PageReady contains an invalid Product identity");
+      if (!Number.isInteger(event.pageId) || event.pageId < 0 || event.pageId === 0xffffffff || event.bytes.byteLength !== WEB_COOK_PAGE_BYTES || event.decodedHash128.byteLength !== 16 || this.#creditsBlocks < 1 || this.#creditsBytes < event.bytes.byteLength) return false;
+      this.#creditsBlocks--; this.#creditsBytes -= event.bytes.byteLength;
+    }
     this.#events.push(event); this.#peakOutputBytes = Math.max(this.#peakOutputBytes, maxOutputBytes(this.#events)); return true;
   }
 

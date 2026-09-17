@@ -13,9 +13,18 @@ export interface GlbRangeReadableSource {
   readonly jsonBytes: Uint8Array;
   readonly binByteOffset: number;
   readonly binByteLength: number;
+  readonly buffers: readonly GlbBufferDescriptor[];
   readonly sourceIdentity: GlbSourceIdentity;
   readRange(byteOffset: number, byteLength: number, signal?: AbortSignal): Promise<ArrayBuffer>;
+  readBufferRange(bufferIndex: number, byteOffset: number, byteLength: number, signal?: AbortSignal): Promise<ArrayBuffer>;
   release(): void;
+}
+
+export interface GlbBufferDescriptor {
+  readonly index: number;
+  readonly byteLength: number;
+  readonly embedded: boolean;
+  readonly uri?: string;
 }
 
 export interface GlbSourceIdentity {
@@ -44,6 +53,7 @@ class HttpGlbRangeSource implements GlbRangeReadableSource {
   #binByteOffset = -1;
   #binByteLength = 0;
   #identity!: GlbSourceIdentity;
+  #buffers: GlbBufferDescriptor[] = [];
   #etag: string | undefined;
   #finalUrl: string;
   constructor(readonly url: string, readonly fetchImpl: typeof globalThis.fetch, readonly init: RequestInit, readonly fallbackBudget: number) { this.#finalUrl = url; }
@@ -52,6 +62,7 @@ class HttpGlbRangeSource implements GlbRangeReadableSource {
   get jsonBytes(): Uint8Array { return this.#jsonBytes.slice(); }
   get binByteOffset(): number { return this.#binByteOffset; }
   get binByteLength(): number { return this.#binByteLength; }
+  get buffers(): readonly GlbBufferDescriptor[] { return this.#buffers.map(buffer => Object.freeze({ ...buffer })); }
   get sourceIdentity(): GlbSourceIdentity { return Object.freeze({ ...this.#identity, hash: this.#identity.hash.slice() }); }
 
   async initialize(): Promise<void> {
@@ -79,8 +90,17 @@ class HttpGlbRangeSource implements GlbRangeReadableSource {
     const binChunk = chunks.find(chunk => chunk.type === GLB_CHUNK_BIN);
     this.#binByteOffset = binChunk?.offset ?? -1;
     this.#binByteLength = binChunk?.length ?? 0;
+    this.#buffers = parseBufferDescriptors(this.#json, this.#binByteLength);
     if (this.#etag) this.#identity = await makeValidatorIdentity(this.#finalUrl, this.#byteLength, this.#etag);
     else this.#identity = await makeSessionIdentity(this.url, this.#byteLength);
+  }
+
+  async readBufferRange(bufferIndex: number, byteOffset: number, byteLength: number, signal?: AbortSignal): Promise<ArrayBuffer> {
+    const buffer = this.#buffers[bufferIndex];
+    if (!buffer) throw new RangeError(`GLB buffer ${bufferIndex} is out of range`);
+    if (!buffer.embedded) throw new Error(`GLB buffer ${bufferIndex} is external and has no embedded range`);
+    if (!Number.isInteger(byteOffset) || !Number.isInteger(byteLength) || byteOffset < 0 || byteLength < 0 || byteOffset + byteLength > buffer.byteLength) throw new RangeError("GLB buffer range is outside the declared buffer");
+    return this.readRange(this.#binByteOffset + byteOffset, byteLength, signal);
   }
 
   async readRange(byteOffset: number, byteLength: number, signal?: AbortSignal): Promise<ArrayBuffer> {
@@ -90,7 +110,7 @@ class HttpGlbRangeSource implements GlbRangeReadableSource {
     if (this.#wholeBytes) return this.#wholeBytes.slice(byteOffset, byteOffset + byteLength).buffer;
     const end = byteOffset + byteLength - 1;
     if (byteLength === 0) return new ArrayBuffer(0);
-    const response = await this.fetchImpl(this.url, { ...this.init, signal, headers: { ...(this.init.headers ?? {}), Range: `bytes=${byteOffset}-${end}`, "Accept-Encoding": "identity" } });
+    const response = await this.fetchImpl(this.url, { ...this.init, signal, headers: { ...(this.init.headers ?? {}), Range: `bytes=${byteOffset}-${end}`, "Accept-Encoding": "identity", ...(this.#etag === undefined ? {} : { "If-Range": this.#etag }) } });
     const encoding = response.headers.get("content-encoding");
     if (encoding && encoding !== "identity") throw new Error(`GLB range used forbidden Content-Encoding '${encoding}'`);
     const bytes = new Uint8Array(await response.arrayBuffer());
@@ -104,6 +124,7 @@ class HttpGlbRangeSource implements GlbRangeReadableSource {
       return bytes.buffer;
     }
     if (response.status !== 200) throw new Error(`GLB range request failed with HTTP ${response.status}`);
+    if (this.#etag !== undefined) throw new Error("GLB source validator changed while reading ranges");
     if (bytes.byteLength > this.fallbackBudget) throw new Error(`GLB server ignored Range and returned ${bytes.byteLength} bytes above wholeSourceFallbackBytes=${this.fallbackBudget}`);
     this.#wholeBytes = bytes;
     this.#byteLength = bytes.byteLength;
@@ -112,8 +133,24 @@ class HttpGlbRangeSource implements GlbRangeReadableSource {
     return bytes.slice(byteOffset, byteOffset + byteLength).buffer;
   }
 
-  release(): void { this.#released = true; this.#wholeBytes = undefined; this.#jsonBytes = new Uint8Array(); this.#json = undefined; }
-  #captureIdentity(response: Response, totalLength: number | undefined): void { const etag = response.headers.get("etag") ?? undefined; if (etag && totalLength !== undefined) { this.#etag = etag; this.#finalUrl = response.url || this.url; } }
+  release(): void { this.#released = true; this.#wholeBytes = undefined; this.#jsonBytes = new Uint8Array(); this.#json = undefined; this.#buffers = []; }
+  #captureIdentity(response: Response, totalLength: number | undefined): void { const etag = response.headers.get("etag") ?? undefined; if (this.#etag !== undefined && etag !== this.#etag) throw new Error("GLB source ETag changed while reading ranges"); if (etag && !etag.startsWith("W/") && totalLength !== undefined) { this.#etag = etag; this.#finalUrl = response.url || this.url; } }
+}
+
+function parseBufferDescriptors(json: unknown, embeddedBytes: number): GlbBufferDescriptor[] {
+  if (!json || typeof json !== "object") throw new Error("GLB JSON root is invalid");
+  const table = (json as { buffers?: unknown }).buffers;
+  if (table === undefined && embeddedBytes === 0) return [];
+  if (!Array.isArray(table)) throw new Error("GLB JSON has no valid buffers table");
+  return table.map((entry, index) => {
+    if (!entry || typeof entry !== "object") throw new Error(`GLB buffer ${index} is invalid`);
+    const value = entry as { byteLength?: unknown; uri?: unknown };
+    if (!Number.isSafeInteger(value.byteLength) || (value.byteLength as number) < 0) throw new Error(`GLB buffer ${index} has an invalid byteLength`);
+    const uri = typeof value.uri === "string" ? value.uri : undefined;
+    const embedded = uri === undefined && index === 0 && embeddedBytes >= (value.byteLength as number);
+    if (!embedded && uri === undefined) throw new Error(`GLB buffer ${index} is missing an embedded BIN chunk`);
+    return Object.freeze({ index, byteLength: value.byteLength as number, embedded, ...(uri === undefined ? {} : { uri }) });
+  });
 }
 
 async function makeSessionIdentity(url: string, byteLength: number): Promise<GlbSourceIdentity> { const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${url}\0${byteLength}\0${Math.random().toString(36)}`).buffer)); return { kind: "session", hash: digest, finalUrl: url }; }
