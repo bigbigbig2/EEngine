@@ -120,6 +120,19 @@ export class WebCookCoordinator {
     }
   }
 
+  /** Re-reads requested Product pages without mutating the immutable revision. */
+  async requestPages(productId: Uint8Array, revision: number, pageIds: Uint32Array, _priority: number): Promise<void> {
+    if (this.#state !== "cooking" && this.#state !== "complete") throw new Error(`WebCookCoordinator cannot request pages from '${this.#state}'`);
+    if (productId.byteLength !== 32 || !Number.isInteger(revision) || revision < 0 || revision === 0xffffffff) throw new RangeError("Web Cook page request identity is invalid");
+    const source = this.#liveRevisions.find(candidate => candidate.revision === revision && sameBytes(candidate.productId, productId));
+    if (!source) throw new Error("Web Cook page request targets an unknown Product revision");
+    const unique = [...new Set(pageIds)].sort((left, right) => left - right);
+    for (const pageId of unique) {
+      if (!Number.isInteger(pageId) || pageId < 0 || pageId === 0xffffffff || pageId >= source.pageCount) throw new RangeError("Web Cook page request targets an invalid page");
+      await this.emitPage(source, pageId);
+    }
+  }
+
   grantOutputCredits(blockCount: number, bytes: number): void { this.#session.accept(this.header({ type: "GrantOutputCredits", blockCount, bytes })); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); }
   returnOutputCredits(blockCount: number, bytes: number): void { this.#session.returnOutputCredits(blockCount, bytes); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); }
   drainEvents(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] { return this.#session.drain(maxEvents); }

@@ -62,8 +62,10 @@ export class WebCookWorkerHost {
       } else if (command.type === "DisposeSession") {
         this.close();
         return;
-      } else if (command.type === "SetSourcePriority" || command.type === "RequestPages") {
-        // Scheduling and non-activation Page requests are handled by the next residency slice.
+      } else if (command.type === "RequestPages") {
+        await this.#coordinator.requestPages(command.productId, command.revision, command.pageIds, command.priority);
+      } else if (command.type === "SetSourcePriority") {
+        // Source priority is consumed by the next bounded cook scheduling slice.
       }
       this.#flushEvents();
     } catch (error) {

@@ -65,7 +65,8 @@ export class WebCookClient implements GeometryProductProviderV1 {
       returnOutputCredits: (blockCount, bytes) => this.#returnOutputCredits(blockCount, bytes),
       onSceneCatalogReady: catalog => { this.#catalog = catalog; },
       onProgress: () => { this.#progressEvents++; },
-      onRecoverableFailure: () => { this.#recoverableFailures++; }
+      onRecoverableFailure: () => { this.#recoverableFailures++; },
+      requestPage: (productId, revision, pageId) => this.requestPages(productId, revision, new Uint32Array([pageId]), 0)
     });
   }
 

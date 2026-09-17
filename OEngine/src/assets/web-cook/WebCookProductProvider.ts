@@ -9,6 +9,8 @@ export interface WebCookProductProviderOptions {
   readonly onSceneCatalogReady?: (catalog: Readonly<Record<string, unknown>>) => void;
   readonly onProgress?: (progress: { readonly stage: string; readonly units: number; readonly bytes: number; readonly timings: Readonly<Record<string, number>> }) => void;
   readonly onRecoverableFailure?: (failure: { readonly scope: string; readonly code: string; readonly retryAfterMs?: number }) => void;
+  /** Requests a page again after a previous transfer was consumed. */
+  readonly requestPage?: (productId: Uint8Array, revision: number, pageId: number) => void;
 }
 
 export interface WebCookProductProviderEvidence {
@@ -119,6 +121,8 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
   _discardPage(bytes: number): void { this.#discardedPages++; this.#options.returnOutputCredits(1, bytes); }
   _discardBufferedPage(bytes: number): void { this.#bufferedPages--; this.#bufferedBytes -= bytes; this.#discardedPages++; this.#options.returnOutputCredits(1, bytes); }
   _releaseSource(source: LiveWebCookRevisionSource): void { this.#sources.delete(productKey(source.descriptor.productId, source.descriptor.revision)); }
+  _hasPageRequester(): boolean { return this.#options.requestPage !== undefined; }
+  _requestPage(productId: Uint8Array, revision: number, pageId: number): void { this.#options.requestPage?.(productId.slice(), revision, pageId); }
 }
 
 class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
@@ -135,10 +139,11 @@ class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
     if (this.#failure) throw this.#failure;
     const ready = this.#pages.get(pageId);
     if (ready) { this.#pages.delete(pageId); this.owner._deliverBufferedPage(ready.bytes.byteLength); return ready; }
-    if (this.#finished) throw new Error(`Web Product stream ended before page ${pageId} arrived`);
+    if (this.#finished && !this.owner._hasPageRequester()) throw new Error(`Web Product stream ended before page ${pageId} arrived`);
     if (this.#waiters.has(pageId)) throw new Error(`Web Product page ${pageId} already has a pending reader`);
     const deferred = new Deferred<GeometryPageProductV1>();
     this.#waiters.set(pageId, deferred);
+    try { this.owner._requestPage(this.descriptor.productId, this.descriptor.revision, pageId); } catch (error) { this.#waiters.delete(pageId); deferred.reject(error); }
     const abort = (): void => { if (this.#waiters.delete(pageId)) deferred.reject(signal ? abortReason(signal) : new Error("Web Product page read aborted")); };
     signal?.addEventListener("abort", abort, { once: true });
     try { return await deferred.promise; } finally { signal?.removeEventListener("abort", abort); }

@@ -58,3 +58,23 @@ test("Web Product provider reaches the shared Geometry Product admission and res
   controller.retireActive();
   provider.release();
 });
+
+test("Web Product provider asks the Worker for a page after a consumed transfer", async () => {
+  const value = fixture(), credits = [], requests = [];
+  let pushEvent;
+  const pending = new Promise(resolve => { pushEvent = resolve; });
+  async function* events() {
+    const header = { protocolVersion: 1, sessionId: "s4", sessionGeneration: 5 };
+    yield { ...header, type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor) };
+    await pending;
+    yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
+  }
+  const provider = new WebCookProductProvider(events(), { maxBufferedPages: 1, maxBufferedBytes: 262144, returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]), requestPage: (productId, revision, pageId) => { requests.push([productId, revision, pageId]); pushEvent(); } });
+  const iterator = provider.revisions()[Symbol.asyncIterator]();
+  const offered = await iterator.next();
+  const page = await offered.value.readPage(0);
+  assert.strictEqual(page.bytes, value.page.buffer);
+  assert.deepEqual(requests.map(request => [request[1], request[2]]), [[2, 0]]);
+  assert.deepEqual(credits, [[1, 262144]]);
+  offered.value.release(); provider.release();
+});
