@@ -18,3 +18,12 @@ npm run test:web-geometry-cooker-core
 ```
 
 That oracle proves producer ABI, Nyx algorithm execution, negative validation and determinism. It does not replace an actual Emscripten build or Dedicated Worker/browser evidence.
+
+The checked-in browser artifact under `src/assets/web-cook/wasm/vendor/` was
+built with Emscripten SDK 6.0.9 (release `f04ea239d533260dd1db760dd2d668d5f9a88d6b`)
+using the command above and the pinned Nyx hashes enforced by CMake:
+
+```text
+oengine-web-geometry-cooker.mjs   SHA-256 c425c75290a6db5b6553542f5e11e60d9ce37706b48413848f3c044e740e78c5
+oengine-web-geometry-cooker.wasm  SHA-256 e61765e749eca8181eb7c48cf6109c8b0438888e1aa61ccd0d4ba563600cedaa
+```

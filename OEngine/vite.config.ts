@@ -45,6 +45,8 @@ const distributablePackage = {
 const nativeAssets = [
   ["avif_dec.wasm", "src/loaders/avif_dec.wasm"],
   ["asset-codec/libktx_read.wasm", "src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.wasm"],
+  ["web-cook/oengine-web-geometry-cooker.mjs", "src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs"],
+  ["web-cook/oengine-web-geometry-cooker.wasm", "src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm"],
   ["assets/textures/stbn_unitvec1.bin", "src/render/assets/textures/stbn_unitvec1.bin"],
   ["assets/textures/stbn_unitvec2.bin", "src/render/assets/textures/stbn_unitvec2.bin"],
   ["assets/textures/stbn_unitvec3.bin", "src/render/assets/textures/stbn_unitvec3.bin"],
