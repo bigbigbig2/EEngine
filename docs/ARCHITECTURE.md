@@ -37,7 +37,7 @@ Runtime Asset 是设备无关事实；GPU owner 由 Renderer/device 生命周期
 
 生产几何目前仍使用既有 package/GPU hierarchy/work/visibility 路径。OEGPACK V3 已拥有 native cooker、TypeScript parser、range source、固定页 ABI 与 bootstrap loader，但还没有接入 `GpuAssetStore -> hierarchy/work -> MeshletBucketRaster` 的生产闭环。迁移必须在同一主管线内替换几何来源和地址解析，不能新增第二套 renderer backend。
 
-纹理生产路径目前是 TextureAssetPackage V2 + GPU-native variants/KTX2 preparation + `TextureResidency` + 有界 `TextureBindingSet`。后续渐进 mip residency 应扩展这个所有权模型，不以“V3”名义重写已经有效的材质和绑定体系。
+纹理生产路径目前是 TextureAssetPackage V2 + GPU-native variants/KTX2 preparation + `TextureResidency` + 有界 `TextureBindingSet`。Mode A 已在该所有权模型内实现：完整逻辑纹理一次分配、先上传 mip tail、按可用 mip clamp 采样并通过稳定逻辑句柄 promotion；这不等同于真实物理显存释放。Mode B/Virtual Texturing 仍需独立的 allocation 证据和 spec，不以“V3”名义重写已经有效的材质和绑定体系。
 
 ## 生命周期不变量
 

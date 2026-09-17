@@ -74,6 +74,7 @@ export interface TextureResidencyStage {
   readonly textureRefs: ReadonlyMap<ShadeTexture, number>;
   /** Material-local routing because one physical segment may occupy different set slots. */
   readonly materialTextureRoutingRefs: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>;
+  readonly textureMipRanges: ReadonlyMap<ShadeTexture, readonly [number, number]>;
 }
 
 export interface TextureResidencyDescriptor {
@@ -185,6 +186,9 @@ export interface TextureResidencyEvidence {
   readonly packageSegments: readonly TexturePackageSegmentEvidence[];
   readonly textureLedger: readonly TextureResidencyLedgerEntry[];
   readonly privateSubmitCount: 0;
+  readonly progressiveMipUploadBytes: number;
+  readonly mipPromotionCount: number;
+  readonly mipUploadCount: number;
 }
 
 interface TextureBank {
@@ -237,6 +241,8 @@ interface ResidentTexture {
   readonly routing: number;
   readonly residentBytes: number;
   readonly uploadBytes: number;
+  readonly mipLevelCount: number;
+  availableMip: number;
   refCount: number;
   retireGeneration: number;
 }
@@ -342,6 +348,9 @@ export class TextureResidency {
   private bankCopyOperationCount = 0;
   private bindingSetPreflightFailures = 0;
   private transactionPeakBytes = 0;
+  private progressiveMipUploadBytes = 0;
+  private mipPromotionCount = 0;
+  private mipUploadCount = 0;
   private destroyed = false;
 
   constructor(
@@ -490,7 +499,8 @@ export class TextureResidency {
           this.graphics.device,
           assignment.asset,
           requirePackageSegmentTexture(assignment.segment),
-          entry.layer
+          entry.layer,
+          { mipLevelRange: initialMipRange(assignment.asset, assignment.variant.mips.length) }
         ));
       }
       command.onFinished.addOne(() => {
@@ -502,6 +512,8 @@ export class TextureResidency {
             `TextureResidency/package-segment-${entry.bankClass}-layer-${entry.layer}`
           );
           this.cookedUploadBytes += packageUploads[index]!.evidence.uploadBytes;
+          this.progressiveMipUploadBytes += packageUploads[index]!.evidence.uploadBytes;
+          this.mipUploadCount++;
         }
         for (const entry of newTextures) {
           this.descriptors.set(entry.slot, this.createDescriptor(entry));
@@ -513,12 +525,95 @@ export class TextureResidency {
         bindings: this.bindings(),
         materialBindingSetIds: preflight.materialBindingSetIds,
         textureRefs: this.textureRefs(),
-        materialTextureRoutingRefs: this.materialTextureRoutingRefs(materials)
+        materialTextureRoutingRefs: this.materialTextureRoutingRefs(materials),
+        textureMipRanges: this.textureMipRanges(materials)
       });
     } catch (error) {
       rollback();
       throw error;
     }
+  }
+
+  /** Uploads previously unavailable cooked mips and publishes the new range at
+   * the submission boundary of the supplied GPU command. Queue ordering makes
+   * the writes visible to later frozen frame revisions. */
+  promote(
+    textures: readonly ShadeTexture[],
+    command: ShadeGPUCommandContext,
+    targetMip = 0
+  ): void {
+    this.assertAlive();
+    if (command.device !== undefined && command.device !== this.graphics.device) {
+      throw new Error("TextureResidency promotion command belongs to another GPUDevice");
+    }
+    if (command.closed === true) throw new Error("TextureResidency promotion command is already closed");
+    if (!Number.isInteger(targetMip) || targetMip < 0) {
+      throw new RangeError("TextureResidency promotion target mip must be a non-negative integer");
+    }
+    const entries = [...new Set(textures)].map((texture) => {
+      const entry = this.textures.get(texture);
+      if (entry === undefined || entry.refCount <= 0 || !entry.cooked) {
+        throw new Error("TextureResidency promotion requires a resident cooked texture");
+      }
+      return entry;
+    });
+    const uploads: Array<{ entry: ResidentTexture; staged: TextureAssetLayerUploadV2; nextMip: number }> = [];
+    try {
+      for (const entry of entries) {
+        const asset = entry.source.runtime_asset_package_v2!;
+        // The sampler-class clamp has seven codes; the tail therefore starts
+        // no higher than mip 6, and promotion below that boundary is published
+        // as a complete mip-0 upload.
+        const requestedMip = Math.max(0, Math.min(targetMip, entry.availableMip));
+        const nextMip = requestedMip < 6 ? 0 : requestedMip;
+        if (nextMip >= entry.availableMip) continue;
+        const staged = stageTextureAssetPackageV2ToLayer(
+          this.graphics.device,
+          asset,
+          requirePackageSegmentTexture(this.packageSegments[entry.segment]!),
+          entry.layer,
+          { mipLevelRange: [nextMip, entry.availableMip - 1] }
+        );
+        uploads.push({ entry, staged, nextMip });
+      }
+    } catch (error) {
+      for (const upload of uploads) upload.staged.abort();
+      throw error;
+    }
+    let settled = false;
+    command.onAborted.addOne(() => {
+      if (settled) return;
+      settled = true;
+      for (const upload of uploads) upload.staged.abort();
+    });
+    command.onFinished.addOne(() => {
+      if (settled) return;
+      settled = true;
+      for (const upload of uploads) {
+        upload.staged.commit(`TextureResidency/promotion-segment-${upload.entry.segment}-layer-${upload.entry.layer}`);
+        upload.entry.availableMip = upload.nextMip;
+        this.progressiveMipUploadBytes += upload.staged.evidence.uploadBytes;
+        this.cookedUploadBytes += upload.staged.evidence.uploadBytes;
+        this.mipUploadCount++;
+        this.descriptors.set(upload.entry.slot, this.createDescriptor(upload.entry));
+      }
+      if (uploads.length > 0) this.mipPromotionCount++;
+    });
+  }
+
+  private textureMipRanges(
+    materials: readonly StandardShadeMaterial[]
+  ): ReadonlyMap<ShadeTexture, readonly [number, number]> {
+    const ranges = new Map<ShadeTexture, readonly [number, number]>();
+    for (const material of new Set(materials)) {
+      for (const texture of material.textures) {
+        const entry = this.textures.get(texture);
+        if (entry !== undefined && entry.refCount > 0) {
+          ranges.set(texture, Object.freeze([entry.availableMip, entry.mipLevelCount - 1]) as readonly [number, number]);
+        }
+      }
+    }
+    return ranges;
   }
 
   release(materials: readonly StandardShadeMaterial[], command: ShadeGPUCommandContext): void {
@@ -760,7 +855,10 @@ export class TextureResidency {
       packageSegments: Object.freeze(packageSegments),
       textureLedger: Object.freeze(textureLedger.sort((left, right) =>
         left.assetIdentity.localeCompare(right.assetIdentity) || left.layer - right.layer)),
-      privateSubmitCount: 0
+      privateSubmitCount: 0,
+      progressiveMipUploadBytes: this.progressiveMipUploadBytes,
+      mipPromotionCount: this.mipPromotionCount,
+      mipUploadCount: this.mipUploadCount
     });
   }
 
@@ -1345,6 +1443,10 @@ export class TextureResidency {
         routing,
         residentBytes,
         uploadBytes: packageAssignment === undefined ? 0 : residentBytes,
+        mipLevelCount: packageAssignment?.variant.mips.length ?? this.banks[bankClass]!.mipLevelCount,
+        availableMip: packageAssignment === undefined
+          ? 0
+          : initialMipRange(packageAssignment.asset, packageAssignment.variant.mips.length)[0],
         refCount: 0,
         retireGeneration: 0
       };
@@ -1519,7 +1621,7 @@ export class TextureResidency {
         layer: entry.layer,
         logicalSize: Object.freeze([asset.width, asset.height]) as readonly [number, number],
         uvScaleBias: Object.freeze([1, 1, 0, 0]) as readonly [number, number, number, number],
-        residentMipRange: Object.freeze([0, segment.mipLevelCount - 1]) as readonly [number, number]
+        residentMipRange: Object.freeze([entry.availableMip, entry.mipLevelCount - 1]) as readonly [number, number]
       });
     }
     const image = entry.source.image!;
@@ -1538,7 +1640,7 @@ export class TextureResidency {
         0,
         0
       ]) as readonly [number, number, number, number],
-      residentMipRange: Object.freeze([0, bank.mipLevelCount - 1]) as readonly [number, number]
+      residentMipRange: Object.freeze([entry.availableMip, entry.mipLevelCount - 1]) as readonly [number, number]
     });
   }
 
@@ -1622,6 +1724,15 @@ function nextPowerOfTwo(value: number): number {
 
 function mipCount(size: number): number {
   return Math.floor(Math.log2(size)) + 1;
+}
+
+function initialMipRange(
+  asset: TextureAssetPackageV2,
+  mipLevelCount: number
+): readonly [number, number] {
+  if (asset.semantic === "alpha-mask") return [0, mipLevelCount - 1];
+  const tailStart = Math.max(0, Math.min(6, mipLevelCount - 1));
+  return [tailStart, mipLevelCount - 1];
 }
 
 function arrayBytes(size: number, capacity: number): number {

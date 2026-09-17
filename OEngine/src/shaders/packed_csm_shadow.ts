@@ -287,7 +287,7 @@ fn product_uv(bank: u32, byte_offset: u32, meshlet: OEngineVirtualMeshletHeaderV
   format_word0: u32, format_word1: u32, format_word2: u32, vertex: u32, uv_set: u32) -> vec2f {
   let attribute_bit = select(8u, 16u, uv_set == 1u);
   let offset = select((format_word1 >> 24u) & 0xffu, format_word2 & 0xffu, uv_set == 1u);
-  if uv_set > 1u || (format_word0 >> 16u & attribute_bit) == 0u || offset == 0xffu {
+  if uv_set > 1u || ((format_word0 >> 16u) & attribute_bit) == 0u || offset == 0xffu {
     return vec2f(0.0);
   }
   let at = byte_offset + meshlet.vertex_byte_offset + vertex * (format_word0 & 0xffffu) + offset;
@@ -378,8 +378,8 @@ fn packed_csm_product_vertex(@builtin(vertex_index) vertex_index: u32,
       uv1 = product_uv(location.bank_index,
         location.byte_offset + group.offset_in_page, meshlet,
         format_word0, format_word1, format_word2, local_vertex, 1u);
-      uv_valid_mask = select(0u, 1u, (format_word0 >> 16u & 8u) != 0u) |
-        select(0u, 2u, (format_word0 >> 16u & 16u) != 0u);
+      uv_valid_mask = select(0u, 1u, ((format_word0 >> 16u) & 8u) != 0u) |
+        select(0u, 2u, ((format_word0 >> 16u) & 16u) != 0u);
       valid = true;
     }
   }

@@ -35,7 +35,8 @@ const [
     decodeGpuTextureRef,
     encodeGpuTextureRef,
     GPU_TEXTURE_REF_INVALID,
-    GPU_TEXTURE_BANK_MAX_CAPACITIES
+    GPU_TEXTURE_BANK_MAX_CAPACITIES,
+    gpuTextureBankSampleWgsl
   },
   { decodeTextureHandle },
   { textureBindingSetPolicy },
@@ -767,6 +768,43 @@ test("Ordinary Scene patch abort retries and structural edits require explicit f
   );
 });
 
+test("TextureResidency publishes a cooked mip tail before generation-safe promotion", async () => {
+  const fixture = createTextureResidencyFixture({ features: ["texture-compression-bc"] });
+  const residency = new TextureResidency(fixture.graphics, 4096);
+  const asset = await encodedBcAsset(256, "bc3-rgba-unorm-srgb", "base-color-srgb", "fixture://progressive");
+  const texture = ShadeTexture.fromAssetPackageV2(asset);
+  const material = createTexturedMaterial(texture, "progressive-material");
+
+  const initial = new FakeCommand("progressive-tail");
+  const stage = residency.stage([material], initial);
+  const ref = stage.textureRefs.get(texture);
+  assert.equal(residency.descriptor(ref), null);
+  initial.finish();
+  const tail = residency.descriptor(ref);
+  assert.deepEqual(tail?.residentMipRange, [6, 8]);
+  assert.equal(fixture.writes.length, 3);
+  assert.equal(stage.textureMipRanges.get(texture)?.[0], 6);
+
+  const promotion = new FakeCommand("progressive-promote");
+  residency.promote([texture], promotion, 0);
+  assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [6, 8]);
+  promotion.finish();
+  assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [0, 8]);
+  assert.equal(fixture.writes.length, 9);
+  const evidence = residency.evidence();
+  assert.equal(evidence.mipPromotionCount, 1);
+  assert.equal(evidence.mipUploadCount, 2);
+  assert.ok(evidence.progressiveMipUploadBytes > 0);
+  residency.destroy();
+});
+
+test("Texture sampling ABI clamps array-texture LOD with an explicit layer", () => {
+  const source = gpuTextureBankSampleWgsl(1);
+  assert.match(source, /oengine_sample_texture_clamped\(oengine_texture_bank_0, sampler_clamp_linear, texture_ref, sampler_class, uv, layer, uv_dx, uv_dy\)/u);
+  assert.match(source, /textureSampleGrad\(texture, sampler, uv, layer, uv_dx, uv_dy\)/u);
+  assert.match(source, /textureSampleLevel\(texture, sampler, uv, layer, max\(lod, f32\(min_mip\)\)\)/u);
+});
+
 test("Texture residency rolls back failed commands and reuses a released base layer", async () => {
   const fixture = createTextureResidencyFixture();
   const residency = new TextureResidency(fixture.graphics, 4096);
@@ -988,7 +1026,7 @@ test("Texture residency publishes cooked BC packages as authoritative material r
       .map(({ format }) => format).sort(),
     ["bc1-rgba-unorm", "bc3-rgba-unorm-srgb", "bc4-r-unorm", "bc5-rg-unorm"]
   );
-  assert.equal(fixture.writes.length, 24);
+  assert.ok(fixture.writes.length > 0 && fixture.writes.length < 24);
   assert.ok(textures.every((texture) =>
     residency.descriptor(staged.textureRefs.get(texture)) !== null));
   residency.destroy();

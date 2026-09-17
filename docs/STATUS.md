@@ -43,7 +43,7 @@ evidence remains open.
 | 0016-A Offline/OEGPACK | implemented, validation open | native cooker、OEGPACK V3 parser、range source、页校验和 bootstrap residency proof 已存在；OEGPACK Product adapter 已通过共同 production consumer 接线 | 用 ADR-0014 浏览器证据验证并冻结候选 spec |
 | 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag、统一 frame completion 自动 poll/upload 与保留 identity 的 device-loss residency 重建已接线；浏览器 demand/residency 证据仍未完成 | 用 ADR-0014 真实浏览器证据验证 activation cut、GPU demand -> delayed readback -> provider -> upload -> generation publication 闭环 |
 | 0016-C renderer cutover | in progress | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity，并可在 device-loss 后按原 generation/table slot 重建 publication；普通 Scene adapter/V2 owner 仍保留 | 完成 Product recovery checkpoint 的真实浏览器验证、删除旧 V2 owner/path，并用 ADR-0014 浏览器证据验证统一 consumer |
-| 0016-D texture modes | accepted, not implemented | 当前纹理按完整离线 mip/variant resident；没有渐进传输，也未证明真实物理 mip residency | 先交付 Mode A mip tail/高 mip 渐进传输；有 allocation 证据后再决定 Mode B/VT |
+| 0016-D texture modes | Mode A implemented, validation open | TextureResidency allocates the complete logical chain, uploads a cooked mip tail first, clamps sampling to the available range, and promotes higher mips through a stable logical handle; this does not claim physical VRAM savings | Run browser evidence for progressive sampling/publication; only after allocation evidence decide whether Mode B/Virtual Texturing merits a separate ADR |
 
 详细交付切片见 [implementation/0016-virtualized-assets.md](./implementation/0016-virtualized-assets.md)。
 
@@ -64,3 +64,13 @@ evidence remains open.
 2. 完成 S2/S3 的 `GLB Range -> Worker/WASM bootstrap/richer Product` 与联合背压，再接 S4 GPU demand/residency 闭环。
 3. 补齐 replacement/eviction/device-loss 后迁移 main、shadow、普通 Scene adapter；删除前完成 source、compiled graph/shader 与 browser counter 三层审计。
 4. 纹理先验证 Mode A 渐进传输；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。
+
+## Mode A texture update
+
+TextureResidency now allocates the complete logical texture once, uploads a
+cooked mip tail first, and exposes generation-safe `promote()` for higher mip
+uploads. The descriptor publishes `residentMipRange` only after the owning GPU
+command is submitted, while evidence records actual progressive upload bytes and
+promotion counts. Alpha-mask packages keep the full chain for the current mip0
+coverage consumer. Per-texture shader LOD clamping and browser evidence remain
+open.

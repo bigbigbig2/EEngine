@@ -304,7 +304,8 @@ export class GpuRenderWorld {
     const materialStage = this.graphics.material_store.stage(
       associationPlan.sources,
       textureStage.materialTextureRoutingRefs,
-      command
+      command,
+      textureStage.textureMipRanges
     );
     initializeRenderWorldShadingPublication(
       classification,

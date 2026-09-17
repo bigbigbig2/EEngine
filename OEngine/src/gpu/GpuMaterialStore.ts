@@ -118,7 +118,8 @@ export class GpuMaterialStore {
   stage(
     associations: readonly GpuMaterialAssociationSource[],
     textureRefsByMaterial: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>,
-    command: ShadeGPUCommandContext
+    command: ShadeGPUCommandContext,
+    textureMipRanges?: ReadonlyMap<ShadeTexture, readonly [number, number]>
   ): GpuMaterialStage {
     this.assertStageCommand(command);
     this.preflight(associations, textureRefsByMaterial);
@@ -166,7 +167,7 @@ export class GpuMaterialStore {
           orm: textureRef(association.material.texture_orm),
           emissive: textureRef(association.material.texture_emissive),
           occlusion: textureRef(association.material.texture_occlusion)
-        }, slot, association.textureBindingSetId);
+        }, slot, association.textureBindingSetId, textureMipRanges);
         const packed = packGpuShadingMaterialRecord({
           programId: association.programId,
           textureBindingSetId: association.textureBindingSetId,

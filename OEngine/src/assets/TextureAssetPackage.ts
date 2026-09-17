@@ -140,6 +140,8 @@ export interface UploadedTextureAssetV2 {
 
 export interface TextureUploadOptionsV2 {
   readonly budget?: RuntimeAssetResidencyBudget;
+  /** Inclusive logical mip range to upload. Omit to upload the complete chain. */
+  readonly mipLevelRange?: readonly [number, number];
 }
 
 export interface TextureAssetLayerUploadV2 {
@@ -370,19 +372,32 @@ export function stageTextureAssetPackageV2ToLayer(
   const selectedChunks = manifestVariant.chunkIds.map((id) =>
     asset.runtime.manifest.chunks.find((chunk) => chunk.id === id)!
   );
+  const mipRange = normalizeMipRange(options.mipLevelRange, variant.mips.length);
+  const selectedMipIndices = variant.mips
+    .map((mip, index) => ({ mip, index }))
+    .filter(({ mip }) => mip.level >= mipRange[0] && mip.level <= mipRange[1]);
+  if (selectedMipIndices.length === 0) throw new RangeError("Texture Package V2 mip range selects no levels");
+  const selectedMipChunkIds = selectedMipIndices.map(({ mip }) => mip.chunkId);
+  const selectedMipChunkSet = new Set(selectedMipChunkIds);
+  // Metadata chunks are part of every residency transaction even when only a
+  // subset of mip payloads is uploaded; they carry the stable variant identity.
+  const selectedChunkIds = manifestVariant.chunkIds.filter((id) =>
+    !variant.mips.some((mip) => mip.chunkId === id) || selectedMipChunkSet.has(id)
+  );
+  const selectedChunkSet = new Set(selectedChunkIds);
+  const selectedUploadChunks = selectedChunks.filter((chunk) => selectedChunkSet.has(chunk.id));
   const residency = new RuntimeAssetResidencyState(asset.runtime.manifest, manifestVariant);
   const reservation: RuntimeAssetResidencyReservation = residency.request(
-    manifestVariant.chunkIds,
+    selectedChunkIds,
     options.budget ?? {
-      maxUploadBytes: selectedChunks.reduce((sum, chunk) => sum + chunk.compressedBytes, 0),
-      maxResidentBytes: selectedChunks.reduce((sum, chunk) => sum + chunk.expectedResidentBytes, 0)
+      maxUploadBytes: selectedUploadChunks.reduce((sum, chunk) => sum + chunk.compressedBytes, 0),
+      maxResidentBytes: selectedUploadChunks.reduce((sum, chunk) => sum + chunk.expectedResidentBytes, 0)
     }
   );
   let uploadBytes = 0;
   let settled = false;
   try {
-    for (let index = 0; index < variant.mips.length; index++) {
-      const mip = variant.mips[index]!;
+    for (const { mip, index } of selectedMipIndices) {
       const payload = variant.payloads[index]!;
       const physicalWidth = mip.physicalWidth;
       const physicalHeight = mip.physicalHeight;
@@ -414,7 +429,10 @@ export function stageTextureAssetPackageV2ToLayer(
     residency.abort(reservation);
     throw error;
   }
-  const residentBytes = variant.payloads.reduce((sum, payload) => sum + payload.byteLength, 0);
+  const residentBytes = selectedMipIndices.reduce(
+    (sum, { index }) => sum + variant.payloads[index]!.byteLength,
+    0
+  );
   const evidence = Object.freeze({
     selectedVariant: variant.id,
     physicalFormat: variant.format,
@@ -431,7 +449,7 @@ export function stageTextureAssetPackageV2ToLayer(
       if (settled) throw new Error("Texture Package V2 layer upload is already settled");
       if (resourceId.length === 0) throw new RangeError("Texture Package V2 resident resource id is empty");
       let mipByteOffset = 0;
-      const ranges = Object.fromEntries(manifestVariant.chunkIds.map((chunkId) => {
+      const ranges = Object.fromEntries(selectedChunkIds.map((chunkId) => {
         const mipIndex = variant.mips.findIndex((mip) => mip.chunkId === chunkId);
         if (mipIndex < 0) {
           const chunk = selectedChunks.find((candidate) => candidate.id === chunkId)!;
@@ -455,6 +473,20 @@ export function stageTextureAssetPackageV2ToLayer(
       residency.abort(reservation);
     }
   });
+}
+
+function normalizeMipRange(
+  range: readonly [number, number] | undefined,
+  mipCount: number
+): readonly [number, number] {
+  if (mipCount < 1) throw new RangeError("Texture Package V2 variant has no mip levels");
+  if (range === undefined) return [0, mipCount - 1];
+  const [minMip, maxMip] = range;
+  if (!Number.isInteger(minMip) || !Number.isInteger(maxMip) ||
+      minMip < 0 || maxMip < minMip || maxMip >= mipCount) {
+    throw new RangeError(`Texture Package V2 mip range [${minMip}, ${maxMip}] is invalid`);
+  }
+  return [minMip, maxMip];
 }
 
 function validateEncodedVariant(

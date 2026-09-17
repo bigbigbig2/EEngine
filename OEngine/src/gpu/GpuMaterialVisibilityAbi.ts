@@ -37,6 +37,9 @@ export const GPU_MATERIAL_VISIBILITY_SAMPLER = Object.freeze({
   AddressVBits: 2,
   AddressMask: 0x3,
   LinearBit: 1 << 4,
+  MipShift: 5,
+  MipMask: 0xe0,
+  FullMipCode: 7,
   Fallback: (1 << 4) | (1 << 2) | 1
 });
 
@@ -168,6 +171,9 @@ const OENGINE_MATERIAL_VISIBILITY_INVALID_TEXTURE: u32 = OENGINE_TEXTURE_REF_INV
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressMask}u;
 const OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.AddressVBits}u;
 const OENGINE_MATERIAL_SAMPLER_LINEAR: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit}u;
+const OENGINE_MATERIAL_SAMPLER_MIP_SHIFT: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.MipShift}u;
+const OENGINE_MATERIAL_SAMPLER_MIP_MASK: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.MipMask}u;
+const OENGINE_MATERIAL_SAMPLER_FULL_MIP_CODE: u32 = ${GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode}u;
 ${GPU_TEXTURE_REF_WGSL}
 `;
 
@@ -181,7 +187,8 @@ export function materialVisibilitySource(
     occlusion?: number;
   }> | number,
   materialSlot: number,
-  textureBindingSetId = 0
+  textureBindingSetId = 0,
+  textureMipRanges?: ReadonlyMap<ShadeTexture, readonly [number, number]>
 ): GpuMaterialVisibilitySource {
   checkedU32(materialSlot, "resident material slot");
   checkedU32(textureBindingSetId, "texture binding set id");
@@ -211,11 +218,13 @@ export function materialVisibilitySource(
   const textureFallback = requestedTextures.some(([candidate, ref]) =>
     candidate !== undefined && (!isUsableTexture(candidate) || ref === GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE)
   );
-  const sampler = encodeSamplerClass(texture);
-  const normalSampler = encodeSamplerClass(normalTexture ?? null);
-  const ormSampler = encodeSamplerClass(ormTexture ?? null);
-  const emissiveSampler = encodeSamplerClass(emissiveTexture ?? null);
-  const occlusionSampler = encodeSamplerClass(occlusionTexture ?? null);
+  const mipRange = (value: ShadeTexture | null): readonly [number, number] | undefined =>
+    value === null ? undefined : textureMipRanges?.get(value);
+  const sampler = encodeSamplerClass(texture, mipRange(texture));
+  const normalSampler = encodeSamplerClass(normalTexture ?? null, mipRange(normalTexture ?? null));
+  const ormSampler = encodeSamplerClass(ormTexture ?? null, mipRange(ormTexture ?? null));
+  const emissiveSampler = encodeSamplerClass(emissiveTexture ?? null, mipRange(emissiveTexture ?? null));
+  const occlusionSampler = encodeSamplerClass(occlusionTexture ?? null, mipRange(occlusionTexture ?? null));
   let flags = GPU_MATERIAL_VISIBILITY_FLAGS.Valid;
   if (material.draw_side === ShadeDrawSide.Double) {
     flags |= GPU_MATERIAL_VISIBILITY_FLAGS.DoubleSided;
@@ -421,7 +430,10 @@ function alphaMode(mode: number): number {
   return GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Opaque;
 }
 
-function encodeSamplerClass(texture: ShadeTexture | null): {
+function encodeSamplerClass(
+  texture: ShadeTexture | null,
+  residentMipRange?: readonly [number, number]
+): {
   readonly value: number;
   readonly fallback: boolean;
 } {
@@ -438,9 +450,28 @@ function encodeSamplerClass(texture: ShadeTexture | null): {
   }
   return {
     value: u | (v << GPU_MATERIAL_VISIBILITY_SAMPLER.AddressVBits) |
-      (linear ? GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit : 0),
+      (linear ? GPU_MATERIAL_VISIBILITY_SAMPLER.LinearBit : 0) |
+      (mipClampCode(texture, residentMipRange) << GPU_MATERIAL_VISIBILITY_SAMPLER.MipShift),
     fallback: false
   };
+}
+
+function mipClampCode(
+  texture: ShadeTexture | null,
+  residentMipRange?: readonly [number, number]
+): number {
+  if (texture === null || residentMipRange === undefined) return GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
+  const asset = texture.runtime_asset_package_v2;
+  if (asset === undefined) return GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
+  const maxMip = Math.floor(Math.log2(Math.max(asset.width, asset.height)));
+  const availableMip = residentMipRange[0];
+  if (!Number.isInteger(availableMip) || availableMip <= 0) return GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
+  // Codes 0..6 carry the actual minimum available mip. Code 7 is reserved
+  // for a complete chain, keeping the ABI valid for every supported texture
+  // dimension instead of deriving a value from maxMip.
+  return availableMip <= 6 && availableMip <= maxMip
+    ? availableMip
+    : GPU_MATERIAL_VISIBILITY_SAMPLER.FullMipCode;
 }
 
 function addressMode(value: number): number | null {
