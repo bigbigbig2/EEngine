@@ -144,6 +144,9 @@ export class GeometryPageStreamingRuntimeV1 {
     nowMs = 0
   ): Promise<GeometryPageStreamingPollEvidenceV1> {
     this.assertAlive();
+    // A frame completion is also the scheduler clock. This advances delayed
+    // retries even when the GPU produced no new demand this frame.
+    this.#scheduler.tick(nowMs);
     const results = await this.#readback.poll(completedFrame);
     const shadowResults = this.#shadowReadback === null
       ? []
@@ -170,6 +173,7 @@ export class GeometryPageStreamingRuntimeV1 {
         this.#shadowReadback!.release(result.slotIndex);
       }
     }
+    this.#scheduler.tick(nowMs);
     const uploadedBytes = this.#scheduler.drainUploadBudget(this.#residency);
     this.#lastPoll = Object.freeze({
       completedFrame,

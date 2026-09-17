@@ -41,7 +41,7 @@ test("page scheduler verifies identity/hash, retries transient source errors, an
   const scheduler = new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 262144, retryBaseDelayMs: 5 });
   scheduler.registerProduct(3, 9, source); scheduler.ingestDemands([demand(), demand({ priority: 2 })], 0);
   await scheduler.drainReads(); assert.equal(scheduler.state(9, 0), "queued");
-  scheduler.pump(5); await scheduler.drainReads(); assert.equal(scheduler.state(9, 0), "upload-queued");
+  scheduler.tick(5); await scheduler.drainReads(); assert.equal(scheduler.state(9, 0), "upload-queued");
   const uploaded = []; assert.equal(scheduler.drainUploadBudget({ uploadPage(value) { uploaded.push(value); } }), 262144); assert.equal(uploaded.length, 1); assert.equal(scheduler.state(9, 0), "resident");
   const evidence = scheduler.evidence(); assert.equal(evidence.deduplicated, 1); assert.equal(evidence.retries, 1); assert.equal(evidence.uploadedBytes, 262144); assert.equal(calls, 2);
 });
