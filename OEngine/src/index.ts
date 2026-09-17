@@ -149,6 +149,16 @@ export type {
   WebCookUnitContext,
   WebRuntimeCooker
 } from "./assets/web-cook/WebCookCoordinator.js";
+export { WebCookProductProvider } from "./assets/web-cook/WebCookProductProvider.js";
+export type {
+  WebCookProductProviderEvidence,
+  WebCookProductProviderOptions
+} from "./assets/web-cook/WebCookProductProvider.js";
+export { WebCookWorkerTransport } from "./assets/web-cook/WebCookWorkerTransport.js";
+export type {
+  WebCookWorkerPort,
+  WebCookWorkerTransportEvidence
+} from "./assets/web-cook/WebCookWorkerTransport.js";
 export { selectTextureTranscodeTarget } from "./assets/codec/TextureCodecPolicy.js";
 export type {
   AssetCodecEvidence,

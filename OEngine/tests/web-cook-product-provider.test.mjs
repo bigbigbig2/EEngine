@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import test from "node:test";
+
+const { WebCookProductProvider } = await import("../.test-dist/assets/web-cook/WebCookProductProvider.js");
+const { encodeGeometryProductDescriptorBinaryV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+
+function fixture() {
+  const page = new Uint8Array(262144); const hash = createHash("sha256").update(page).digest(); const productId = new Uint8Array(32).fill(9);
+  const asset = new Uint8Array(128); const av = new DataView(asset.buffer); asset.fill(1, 0, 32); for (const [at, value] of [[72, 0], [76, 1], [80, 0], [84, 1], [88, 0], [92, 1], [96, 0], [100, 1], [104, 1], [108, 1], [112, 1], [116, 0]]) av.setUint32(at, value, true);
+  const hierarchy = new Uint8Array(48); const hv = new DataView(hierarchy.buffer); hv.setFloat32(12, 1, true); hv.setUint32(44, 1, true);
+  const groups = new Uint8Array(16); const gv = new DataView(groups.buffer); gv.setUint32(8, 64, true); gv.setUint32(12, 1, true);
+  const pages = new Uint8Array(32); pages.set(hash.subarray(0, 16)); const pv = new DataView(pages.buffer); pv.setUint32(20, 1, true);
+  const formats = new Uint8Array(16); const fv = new DataView(formats.buffer); fv.setUint16(0, 16, true); fv.setUint16(2, 3, true); fv.setUint8(5, 6);
+  const descriptor = { schemaVersion: 1, productId, revision: 2, producerKind: "web-runtime", producerId: "provider-test", producerVersion: "1", sourceIdentityKind: "session", sourceIdentityHash: new Uint8Array(32).fill(3), recipeHash: new Uint8Array(32).fill(4), runtimeProfile: "oengine-vg-v1-v3-decoded", decodedPageBytes: 262144, assetRecords: asset, rootNodeIds: new Uint32Array([0]), hierarchyNodes: hierarchy, groupDirectory: groups, pageRecords: pages, bootstrapPageIds: new Uint32Array([0]), vertexFormats: formats, activationPageIds: new Uint32Array([0]) };
+  return { page, hash, productId, descriptor };
+}
+
+test("Web Product provider preserves page ownership and returns credit on delivery", async () => {
+  const value = fixture(), credits = [];
+  async function* events() {
+    const header = { protocolVersion: 1, sessionId: "s", sessionGeneration: 1 };
+    yield { ...header, type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor) };
+    yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
+  }
+  const provider = new WebCookProductProvider(events(), { maxBufferedPages: 1, maxBufferedBytes: 262144, returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]) });
+  const iterator = provider.revisions()[Symbol.asyncIterator](); const offered = await iterator.next(); assert.equal(offered.done, false);
+  const page = await offered.value.readPage(0); assert.strictEqual(page.bytes, value.page.buffer); assert.deepEqual(credits, [[1, 262144]]);
+  assert.deepEqual(provider.evidence(), { offeredRevisions: 1, bufferedPages: 0, bufferedBytes: 0, deliveredPages: 1, discardedPages: 0, staleEvents: 0, failures: 0 });
+  offered.value.release(); provider.release();
+});
