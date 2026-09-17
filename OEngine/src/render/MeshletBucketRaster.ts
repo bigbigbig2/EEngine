@@ -11,7 +11,8 @@ import {
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
   MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL,
   MESHLET_BUCKET_VISIBILITY_WGSL,
-  VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
+  VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL,
+  VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL
 } from "../shaders/meshlet_bucket_visibility.js";
 import {
   gpuShadingBinVisibilityRenderPassAttachments,
@@ -137,7 +138,7 @@ export interface MeshletBucketRasterInputs {
 export class MeshletBucketRaster {
   readonly primitiveIndexSupported: boolean;
   private readonly rasterPipelines = new Map<string, readonly GPURenderPipeline[]>();
-  private virtualRasterPipeline: GPURenderPipeline | null = null;
+  private readonly virtualRasterPipelines = new Map<"direct" | "sparse", GPURenderPipeline>();
 
   constructor(private readonly graphics: GraphicsContext) {
     this.primitiveIndexSupported = graphics.device.features.has("primitive-index");
@@ -226,27 +227,41 @@ export class MeshletBucketRaster {
         inputs.prepared.productBindings === undefined || inputs.prepared.productBanks === undefined) {
       throw new Error("S1 Product raster requires immutable Product bindings");
     }
-    if (inputs.shadingBinId !== null) {
-      throw new Error("S1 Product raster currently uses the direct VisibilityKey attachment");
-    }
-    const pipeline = this.virtualRasterPipeline ??= this.graphics.render_pipelines.obtain({
+    const pipelineMode = inputs.shadingBinId === null ? "direct" : "sparse";
+    let pipeline = this.virtualRasterPipelines.get(pipelineMode);
+    if (pipeline === undefined) {
+      pipeline = this.graphics.render_pipelines.obtain({
       label: "S1 Product Meshlet bucket Visibility",
       layout: {
         label: "S1 Product Meshlet bucket Visibility layout",
         bindGroupLayouts: [VIRTUAL_GEOMETRY_RASTER_GROUP]
       },
       vertex: {
-        module: { label: "S1 Product Meshlet bucket Visibility", code: VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL },
+        module: {
+          label: "S1 Product Meshlet bucket Visibility",
+          code: inputs.shadingBinId === null
+            ? VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
+            : VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL
+        },
         entryPoint: "raster_virtual_meshlet"
       },
       fragment: {
-        module: { label: "S1 Product Meshlet bucket Visibility", code: VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL },
+        module: {
+          label: "S1 Product Meshlet bucket Visibility",
+          code: inputs.shadingBinId === null
+            ? VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
+            : VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL
+        },
         entryPoint: "write_virtual_meshlet",
-        targets: [{ format: "r32uint" }]
+        targets: inputs.shadingBinId === null
+          ? [{ format: "r32uint" }]
+          : [{ format: "r32uint" }, { format: "r8uint" }]
       },
       primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
       depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "greater" }
-    });
+      });
+      this.virtualRasterPipelines.set(pipelineMode, pipeline);
+    }
     const group = this.graphics.bind_groups.obtain({
       layout: VIRTUAL_GEOMETRY_RASTER_GROUP,
       entries: [
@@ -260,7 +275,9 @@ export class MeshletBucketRaster {
     });
     const pass = encoder.beginRenderPass({
       label: "S1 Product Meshlet bucket Hardware Visibility",
-      colorAttachments: gpuVisibilityKeyRenderPassAttachments(inputs.visibilityKey),
+      colorAttachments: inputs.shadingBinId === null
+        ? gpuVisibilityKeyRenderPassAttachments(inputs.visibilityKey)
+        : gpuShadingBinVisibilityRenderPassAttachments(inputs.visibilityKey, inputs.shadingBinId),
       depthStencilAttachment: {
         view: inputs.depth,
         depthClearValue: 0,

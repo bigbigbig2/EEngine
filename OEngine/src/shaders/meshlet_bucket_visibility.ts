@@ -424,3 +424,28 @@ fn write_virtual_meshlet(@location(0) @interpolate(flat) instance_slot: u32,
   return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
 }
 `;
+
+/** Product raster variant used by the sparse ShadingBin MRT path. */
+export const VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL =
+  VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL.replace(
+    `) -> @location(0) u32 {
+  return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
+}`,
+    `) -> OEngineProductVisibilityOutput {
+  let key = oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
+  let shading_bin_id = oengine_instance_shading_bin_id(
+    product_work.elements[meshlet_work_slot].packed_raster_flags
+  );
+  return OEngineProductVisibilityOutput(key, shading_bin_id);
+}`
+  ).replace(
+    `@fragment
+fn write_virtual_meshlet`,
+    `struct OEngineProductVisibilityOutput {
+  @location(0) visibility_key: u32,
+  @location(1) shading_bin_id: u32,
+};
+
+@fragment
+fn write_virtual_meshlet`
+  );

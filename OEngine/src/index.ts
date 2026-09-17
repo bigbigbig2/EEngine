@@ -346,7 +346,9 @@ export type {
   GpuRenderWorldHandle,
   PackedSceneMaterialPatch,
   PackedScenePatchBatch,
-  PackedSceneSource
+  PackedSceneSource,
+  VirtualGeometryGeometryProfile,
+  VirtualGeometrySceneSource
 } from "./gpu/GpuRenderWorld.js";
 export type { GraphicsOwnerCreationEvidence } from "./gpu/GraphicsContext.js";
 export type {

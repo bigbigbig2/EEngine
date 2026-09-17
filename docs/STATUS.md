@@ -7,6 +7,13 @@ device-loss recovery that rebuilds active Product residency from retained CPU
 source data. These are DEV-validated owner seams; they do not constitute the
 S7 main/shadow Scene cutover or browser Runtime Validation.
 
+Product Scene publication update (2026-09-17): Product-backed instances now
+publish directly through the unified `GpuScene`/`GpuRenderWorld` owner and are
+consumed by the existing `MainRenderPipeline` and `PackedVisibilityPass`.
+Product raster covers direct VisibilityKey and sparse ShadingBin MRT variants.
+This remains DEV-validated only; Product shadow cutover, complete renderer
+device-loss recovery, and ADR-0014 browser evidence remain open.
+
 更新时间：2026-09-17。本页是可变进度、开放风险和下一步的唯一汇总；历史结果由 Git 与 evidence artifact 保存。
 
 ## 生产基线

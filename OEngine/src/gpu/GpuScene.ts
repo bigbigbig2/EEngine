@@ -35,6 +35,12 @@ export interface InstanceSetHandle {
 export interface InstanceSource {
   readonly count: number;
   readonly geometryHandles: readonly AssetHandle[];
+  /** Direct Product asset references for virtual geometry instances. */
+  readonly virtualGeometry?: Readonly<{
+    readonly productTableSlot: number;
+    readonly productGeneration: number;
+    readonly assetCount: number;
+  }>;
   readonly geometryIndices: Uint32Array;
   readonly materialHandles: Uint32Array;
   readonly currentTransforms: Float32Array;
@@ -918,18 +924,22 @@ export class GpuScene {
     for (let index = 0; index < source.count; index++) {
       const base = index * GPU_INSTANCE_RECORD_STRIDE;
       const geometryLocal = source.geometryIndices[index]!;
-      const geometryIdentity = geometryIdentities[geometryLocal];
-      if (geometryIdentity === undefined) {
+      const geometryIdentity = source.virtualGeometry === undefined
+        ? geometryIdentities[geometryLocal]
+        : undefined;
+      if (source.virtualGeometry === undefined && geometryIdentity === undefined) {
         throw new RangeError(`geometryIndices[${index}] is outside geometryHandles`);
       }
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index,
-        geometryIdentity.slot,
+        source.virtualGeometry === undefined ? geometryIdentity!.slot : geometryLocal,
         true
       );
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.geometry_generation,
-        geometryIdentity.generation,
+        source.virtualGeometry === undefined
+          ? geometryIdentity!.generation
+          : source.virtualGeometry.productGeneration,
         true
       );
       view.setUint32(
@@ -938,6 +948,7 @@ export class GpuScene {
         true
       );
       let flags = (source.flags?.[index] ?? 0) | GPU_INSTANCE_FLAGS.Active;
+      if (source.virtualGeometry !== undefined) flags |= GPU_INSTANCE_FLAGS.VirtualGeometry;
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.debug_id,
         source.debugIds?.[index] ?? index,
@@ -1134,8 +1145,19 @@ export class GpuScene {
 function validateInstanceSource(source: InstanceSource): void {
   assertU32(source.count, "Instance source count");
   if (source.count === 0) throw new RangeError("Instance source count must be positive");
-  if (source.geometryHandles.length === 0) {
+  if (source.geometryHandles.length === 0 && source.virtualGeometry === undefined) {
     throw new RangeError("Instance source must reference at least one geometry handle");
+  }
+  if (source.geometryHandles.length !== 0 && source.virtualGeometry !== undefined) {
+    throw new RangeError("Instance source cannot mix package and Product geometry references");
+  }
+  if (source.virtualGeometry !== undefined) {
+    const product = source.virtualGeometry;
+    if (!Number.isSafeInteger(product.productTableSlot) || product.productTableSlot < 0 || product.productTableSlot >= 0xffffffff ||
+        !Number.isSafeInteger(product.productGeneration) || product.productGeneration <= 0 || product.productGeneration >= 0xffffffff ||
+        !Number.isSafeInteger(product.assetCount) || product.assetCount <= 0) {
+      throw new RangeError("Instance Product identity is invalid");
+    }
   }
   assertLength(source.geometryIndices, source.count, "geometryIndices");
   assertLength(source.materialHandles, source.count, "materialHandles");

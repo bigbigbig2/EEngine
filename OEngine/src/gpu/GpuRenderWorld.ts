@@ -48,6 +48,7 @@ import type {
   InstanceTransformPatch
 } from "./GpuScene.js";
 import type { ResourceHandle as AccountingResourceHandle } from "../debug/profiling/ResourceAccounting.js";
+import type { GeometryProductGpuBindingsV1 } from "./VirtualGeometryResidency.js";
 
 declare const GPU_RENDER_WORLD_HANDLE_BRAND: unique symbol;
 
@@ -59,6 +60,36 @@ export interface GpuRenderWorldHandle {
 export interface PackedSceneSource {
   readonly geometries: readonly GeometryAssetPackage[];
   readonly materials: readonly StandardShadeMaterial[];
+  readonly count: number;
+  readonly geometryIndices: Uint32Array;
+  readonly materialIndices: Uint32Array;
+  readonly currentTransforms: Float32Array;
+  readonly previousTransforms?: Float32Array;
+  readonly boundsSpheres: Float32Array;
+  readonly boundsMin?: Float32Array;
+  readonly boundsMax?: Float32Array;
+  readonly flags?: Uint32Array;
+  readonly debugIds?: Uint32Array;
+}
+
+/** CPU scene truth for a Product-backed virtual geometry scene. */
+export interface VirtualGeometryGeometryProfile {
+  readonly hasAuthoredVertexColor: boolean;
+  readonly hasUv0: boolean;
+  readonly hasUv1: boolean;
+  readonly hasUv2: boolean;
+  readonly hasNormal: boolean;
+  readonly hasTangent: boolean;
+}
+
+export interface VirtualGeometrySceneSource {
+  readonly materials: readonly StandardShadeMaterial[];
+  readonly geometryProfiles: readonly Readonly<VirtualGeometryGeometryProfile>[];
+  readonly assetCount: number;
+  readonly hierarchyMaxDepth: number;
+  readonly hierarchyTraversalCapacity: number;
+  readonly hierarchyVisibleClusterCapacity: number;
+  readonly hierarchyRasterWorkCapacity: number;
   readonly count: number;
   readonly geometryIndices: Uint32Array;
   readonly materialIndices: Uint32Array;
@@ -121,7 +152,7 @@ export interface GpuRenderWorldShadingPublication {
 export interface GpuRenderWorldRuntime {
   readonly handle: GpuRenderWorldHandle;
   readonly scene: Scene;
-  readonly sourceKind: "packed" | "ordinary-scene";
+  readonly sourceKind: "packed" | "ordinary-scene" | "virtual-product";
   readonly assetHandles: readonly AssetHandle[];
   readonly instanceHandle: InstanceSetHandle;
   readonly materials: readonly StandardShadeMaterial[];
@@ -149,6 +180,8 @@ export interface GpuRenderWorldRuntime {
   /** Zero-based deepest reachable Cluster depth. */
   readonly hierarchyMaxDepth: number;
   readonly counterSink: GPUBuffer;
+  /** Active Product bindings consumed by the unified visibility path. */
+  readonly virtualGeometry: GeometryProductGpuBindingsV1 | null;
 }
 
 interface PendingPatch {
@@ -221,23 +254,47 @@ export class GpuRenderWorld {
     command: ShadeGPUCommandContext,
     ordinaryMeshes?: readonly Mesh[]
   ): GpuRenderWorldHandle {
+    if (manifest.packages.length !== manifest.source.geometries.length ||
+        manifest.materials.length !== manifest.source.materials.length) {
+      throw new Error("GPU Render World manifest dictionaries do not match its source");
+    }
+    return this.stageSource(scene, manifest.source, assetHandles, command, ordinaryMeshes);
+  }
+
+  private stageSource(
+    scene: Scene,
+    source: PackedSceneSource,
+    assetHandles: readonly AssetHandle[],
+    command: ShadeGPUCommandContext,
+    ordinaryMeshes?: readonly Mesh[],
+    virtualProduct?: Readonly<{
+      readonly bindings: GeometryProductGpuBindingsV1;
+      readonly assetCount: number;
+      readonly geometryProfiles: readonly Readonly<VirtualGeometryGeometryProfile>[];
+      readonly hierarchyMaxDepth: number;
+      readonly hierarchyTraversalCapacity: number;
+      readonly hierarchyVisibleClusterCapacity: number;
+      readonly hierarchyRasterWorkCapacity: number;
+    }>
+  ): GpuRenderWorldHandle {
     if (this.byScene.has(scene)) {
       throw new Error("Scene already has a GPU Render World registration");
     }
-    const source = manifest.source;
-    if (manifest.packages.length !== source.geometries.length ||
-      manifest.materials.length !== source.materials.length) {
-      throw new Error("GPU Render World manifest dictionaries do not match its source");
-    }
-    validateSource(source, assetHandles);
-    const hierarchyCapacity = computeIndexedPackedHierarchyWorkCapacity(
-      source.geometries,
-      source.geometryIndices
-    );
+    if (virtualProduct === undefined) validateSource(source, assetHandles);
+    else validateVirtualSource(source, assetHandles, virtualProduct);
+    const hierarchyCapacity = virtualProduct === undefined
+      ? computeIndexedPackedHierarchyWorkCapacity(source.geometries, source.geometryIndices)
+      : {
+        maxHierarchyDepth: virtualProduct.hierarchyMaxDepth,
+        traversalWorkCapacity: virtualProduct.hierarchyTraversalCapacity,
+        visibleClusterCapacity: virtualProduct.hierarchyVisibleClusterCapacity,
+        rasterWorkCapacity: virtualProduct.hierarchyRasterWorkCapacity
+      };
     const textureStage = this.graphics.texture_residency.stage(source.materials, command);
     const classification = createPackedSceneClassificationState(
       source,
-      source.materials.map((material) => textureStage.materialBindingSetIds.get(material)!)
+      source.materials.map((material) => textureStage.materialBindingSetIds.get(material)!),
+      virtualProduct?.geometryProfiles
     );
     const associationPlan = createPackedSceneMaterialAssociationPlan(
       source.materials,
@@ -252,7 +309,12 @@ export class GpuRenderWorld {
     initializeRenderWorldShadingPublication(
       classification,
       source,
-      assetHandles.map((handle) => this.graphics.assets.publicationIdentity(handle)),
+      virtualProduct === undefined
+        ? assetHandles.map((handle) => this.graphics.assets.publicationIdentity(handle))
+        : Array.from({ length: virtualProduct.assetCount }, (_, index) => ({
+          slot: index,
+          generation: virtualProduct.bindings.productGeneration
+        })),
       materialStage.materialGeneration,
       materialStage.textureGeneration,
       materialStage.publicationRevision
@@ -283,6 +345,13 @@ export class GpuRenderWorld {
     const instanceSource: InstanceSource = {
       count: source.count,
       geometryHandles,
+      ...(virtualProduct === undefined ? {} : {
+        virtualGeometry: {
+          productTableSlot: virtualProduct.bindings.productTableSlot,
+          productGeneration: virtualProduct.bindings.productGeneration,
+          assetCount: virtualProduct.assetCount
+        }
+      }),
       geometryIndices: source.geometryIndices,
       materialHandles,
       currentTransforms: source.currentTransforms,
@@ -304,7 +373,9 @@ export class GpuRenderWorld {
     const runtime: GpuRenderWorldRuntime = Object.freeze({
       handle,
       scene,
-      sourceKind: ordinaryMeshes === undefined ? "packed" : "ordinary-scene",
+      sourceKind: virtualProduct !== undefined
+        ? "virtual-product"
+        : ordinaryMeshes === undefined ? "packed" : "ordinary-scene",
       assetHandles: geometryHandles,
       instanceHandle,
       materials: Object.freeze([...source.materials]),
@@ -336,7 +407,8 @@ export class GpuRenderWorld {
       hierarchyVisibleClusterCapacity: hierarchyCapacity.visibleClusterCapacity,
       hierarchyRasterWorkCapacity: hierarchyCapacity.rasterWorkCapacity,
       hierarchyMaxDepth: hierarchyCapacity.maxHierarchyDepth,
-      counterSink
+      counterSink,
+      virtualGeometry: virtualProduct?.bindings ?? null
     });
     command.onFinished.addOne(() => {
       this.byScene.set(scene, runtime);
@@ -358,6 +430,50 @@ export class GpuRenderWorld {
       this.destroyCounterSink(counterSink);
     });
     return handle;
+  }
+
+  /** Publishes Product instances into the same GPU Scene/Render World owner. */
+  stageVirtualProduct(
+    scene: Scene,
+    source: VirtualGeometrySceneSource,
+    bindings: GeometryProductGpuBindingsV1,
+    command: ShadeGPUCommandContext
+  ): GpuRenderWorldHandle {
+    if (this.byScene.has(scene)) {
+      throw new Error("Scene already has a GPU Render World registration");
+    }
+    if (source.geometryProfiles.length !== source.assetCount) {
+      throw new RangeError("Virtual Product geometry profile count must match assetCount");
+    }
+    return this.stageSource(
+      scene,
+      {
+        geometries: Object.freeze([]),
+        materials: source.materials,
+        count: source.count,
+        geometryIndices: source.geometryIndices,
+        materialIndices: source.materialIndices,
+        currentTransforms: source.currentTransforms,
+        previousTransforms: source.previousTransforms,
+        boundsSpheres: source.boundsSpheres,
+        boundsMin: source.boundsMin,
+        boundsMax: source.boundsMax,
+        flags: source.flags,
+        debugIds: source.debugIds
+      },
+      [],
+      command,
+      undefined,
+      {
+        bindings,
+        assetCount: source.assetCount,
+        geometryProfiles: source.geometryProfiles,
+        hierarchyMaxDepth: source.hierarchyMaxDepth,
+        hierarchyTraversalCapacity: source.hierarchyTraversalCapacity,
+        hierarchyVisibleClusterCapacity: source.hierarchyVisibleClusterCapacity,
+        hierarchyRasterWorkCapacity: source.hierarchyRasterWorkCapacity
+      }
+    );
   }
 
   /** Registers an ordinary Scene adapter in the same GPU Render World owner. */
@@ -483,7 +599,7 @@ export class GpuRenderWorld {
   queuePatch(scene: Scene, batch: PackedScenePatchBatch): void {
     const runtime = this.byScene.get(scene);
     if (runtime === undefined) throw new Error("Scene has no GPU Render World registration");
-    if (runtime.sourceKind !== "packed") {
+    if (runtime.sourceKind === "ordinary-scene") {
       throw new Error("Ordinary Scene adapters are patched only through SceneChangeSet");
     }
     this.pendingPatches.set(scene, { batch });
@@ -727,7 +843,8 @@ function createOrdinarySceneAdapterState(
 
 function createPackedSceneClassificationState(
   source: PackedSceneSource,
-  materialBindingSetIds: readonly number[]
+  materialBindingSetIds: readonly number[],
+  geometryProfiles?: readonly Readonly<GpuShadingGeometryProfile>[]
 ): PackedSceneClassificationState {
   const state: PackedSceneClassificationState = {
     materialIndices: source.materialIndices.slice(),
@@ -738,7 +855,11 @@ function createPackedSceneClassificationState(
     binRefCounts: new Uint32Array(64),
     dependencyRefCounts: new Uint32Array(GPU_SHADING_DEPENDENCY_COUNT),
     materialBindingSetIds: Object.freeze([...materialBindingSetIds]),
-    geometryProfiles: Object.freeze(source.geometries.map(shadingGeometryProfile)),
+    geometryProfiles: Object.freeze(
+      geometryProfiles === undefined
+        ? source.geometries.map(shadingGeometryProfile)
+        : [...geometryProfiles]
+    ),
     geometryPublicationIds: Object.freeze([]),
     transparentInstanceCount: 0,
     opaqueLitReceiverCount: 0,
@@ -1431,6 +1552,61 @@ function validateSource(
   for (let index = 0; index < source.count; index++) {
     if (source.geometryIndices[index]! >= source.geometries.length) {
       throw new RangeError(`geometryIndices[${index}] is outside the geometry package dictionary`);
+    }
+    if (source.materialIndices[index]! >= source.materials.length) {
+      throw new RangeError(`materialIndices[${index}] is outside the material dictionary`);
+    }
+  }
+}
+
+function validateVirtualSource(
+  source: PackedSceneSource,
+  assetHandles: readonly AssetHandle[],
+  product: Readonly<{
+    readonly bindings: GeometryProductGpuBindingsV1;
+    readonly assetCount: number;
+  readonly geometryProfiles: readonly Readonly<VirtualGeometryGeometryProfile>[];
+    readonly hierarchyMaxDepth: number;
+    readonly hierarchyTraversalCapacity: number;
+    readonly hierarchyVisibleClusterCapacity: number;
+    readonly hierarchyRasterWorkCapacity: number;
+  }>
+): void {
+  if (assetHandles.length !== 0 || source.geometries.length !== 0) {
+    throw new RangeError("Virtual Product scenes cannot include package geometry residency");
+  }
+  if (!Number.isSafeInteger(source.count) || source.count <= 0) {
+    throw new RangeError("Virtual Product scene count must be positive");
+  }
+  if (!Number.isSafeInteger(product.assetCount) || product.assetCount <= 0 ||
+      product.geometryProfiles.length !== product.assetCount) {
+    throw new RangeError("Virtual Product asset/profile dictionary is invalid");
+  }
+  for (const [name, value] of [
+    ["hierarchyMaxDepth", product.hierarchyMaxDepth],
+    ["hierarchyTraversalCapacity", product.hierarchyTraversalCapacity],
+    ["hierarchyVisibleClusterCapacity", product.hierarchyVisibleClusterCapacity],
+    ["hierarchyRasterWorkCapacity", product.hierarchyRasterWorkCapacity]
+  ] as const) {
+    if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`Virtual Product ${name} must be positive`);
+  }
+  if (product.bindings.productGeneration === 0 || product.bindings.productGeneration >= 0xffffffff ||
+      product.bindings.productTableSlot < 0 || product.bindings.productTableSlot >= 0xffffffff) {
+    throw new RangeError("Virtual Product GPU identity is invalid");
+  }
+  assertLength(source.geometryIndices, source.count, "geometryIndices");
+  assertLength(source.materialIndices, source.count, "materialIndices");
+  assertLength(source.currentTransforms, source.count * 16, "currentTransforms");
+  if (source.previousTransforms) assertLength(source.previousTransforms, source.count * 16, "previousTransforms");
+  assertLength(source.boundsSpheres, source.count * 4, "boundsSpheres");
+  if (source.boundsMin) assertLength(source.boundsMin, source.count * 3, "boundsMin");
+  if (source.boundsMax) assertLength(source.boundsMax, source.count * 3, "boundsMax");
+  if (source.flags) assertLength(source.flags, source.count, "flags");
+  if (source.debugIds) assertLength(source.debugIds, source.count, "debugIds");
+  if (source.materials.length === 0) throw new RangeError("Virtual Product scene requires materials");
+  for (let index = 0; index < source.count; index++) {
+    if (source.geometryIndices[index]! >= product.assetCount) {
+      throw new RangeError(`geometryIndices[${index}] is outside the Product asset dictionary`);
     }
     if (source.materialIndices[index]! >= source.materials.length) {
       throw new RangeError(`materialIndices[${index}] is outside the material dictionary`);

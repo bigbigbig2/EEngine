@@ -132,9 +132,12 @@ import type {
   GpuRenderWorldHandle,
   GpuRenderWorldShadingPublication,
   PackedScenePatchBatch,
-  PackedSceneSource
+  PackedSceneSource,
+  VirtualGeometrySceneSource
 } from "../../gpu/GpuRenderWorld.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
+import type { VirtualGeometryResidency } from "../../gpu/VirtualGeometryResidency.js";
+import type { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 import {
   createPackedSceneSourceFromScene,
   type SceneGeometryAssetBinding
@@ -630,6 +633,10 @@ export class MainRenderPipeline {
     invalidGeneration?: number;
     invalid: boolean;
   }>();
+  private readonly _virtualProductScenes = new Map<Scene, {
+    readonly residency: VirtualGeometryResidency;
+    readonly streamingRuntime: GeometryPageStreamingRuntimeV1 | null;
+  }>();
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _capabilities: RendererCapabilities | null = null;
   private readonly _rendererConfig: RendererConfig;
@@ -943,6 +950,58 @@ export class MainRenderPipeline {
   }
 
   /**
+   * Publishes a Product-backed virtual geometry scene through the same
+   * GpuRenderWorld, hierarchy, VisibilityKey and sparse shading pipeline.
+   * Product residency is admitted by the caller; this method only publishes
+   * its immutable GPU bindings and instance/material truth.
+   */
+  async uploadVirtualGeometryScene(
+    scene: Scene,
+    source: VirtualGeometrySceneSource,
+    residency: VirtualGeometryResidency,
+    streamingRuntime: GeometryPageStreamingRuntimeV1 | null = null
+  ): Promise<GpuRenderWorldHandle> {
+    if (residency.descriptor.assetRecords.byteLength / 128 !== source.assetCount) {
+      throw new RangeError("Virtual Product source assetCount does not match its descriptor");
+    }
+    if (streamingRuntime !== null) {
+      streamingRuntime.registerProduct(residency.sourceForStreaming());
+    }
+    const command = ShadeGPUCommandContext.create(
+      this._graphics,
+      "Renderer/GpuRenderWorld/virtual-product-transaction"
+    );
+    try {
+      const handle = this._graphics.render_world.stageVirtualProduct(
+        scene,
+        source,
+        residency.bindings(),
+        command
+      );
+      command.finish();
+      await command.submitted;
+      const runtime = this._graphics.render_world.runtime(scene);
+      if (runtime === null) throw new Error("Virtual Product upload committed without publishing its runtime");
+      this._virtualProductScenes.set(scene, Object.freeze({ residency, streamingRuntime }));
+      await this._sparseShadingPublications.reconcile(
+        runtime.shadingPublication,
+        this.createSparseShadingPublicationContext(runtime),
+        this._frame_count
+      );
+      return handle;
+    } catch (error) {
+      if (!command.closed) command.abort(error);
+      throw error;
+    }
+  }
+
+  /** Removes the Scene publication while leaving Product admission ownership to the caller. */
+  async releaseVirtualGeometryScene(scene: Scene): Promise<void> {
+    await this.releasePackedScene(scene);
+    this._virtualProductScenes.delete(scene);
+  }
+
+  /**
    * Publishes one validated, already-cooked Brick4 generation for a registered
    * Scene. This explicit tool path is never called from the stable frame loop.
    */
@@ -1080,6 +1139,7 @@ export class MainRenderPipeline {
       // or being reused while an earlier frame still references them.
       await command.gpuDone;
       this._brickRecovery.delete(scene);
+      this._virtualProductScenes.delete(scene);
       if (shadingPublication !== null) {
         const released = await this._sparseShadingPublications.release(
           shadingPublication,
@@ -1758,6 +1818,7 @@ export class MainRenderPipeline {
     this._frameCoordinator?.destroy();
     this._graphics?.destroy();
     this._brickRecovery.clear();
+    this._virtualProductScenes.clear();
     if (this._ownsDevice) this.device?.destroy();
   }
 
@@ -1765,6 +1826,11 @@ export class MainRenderPipeline {
   protected checkpointDeviceRecovery() {
     if (this._destroyed || !this._deviceLost || this._initializationConfig === null) {
       throw new Error("Renderer recovery requires a lost, initialized, non-destroyed Renderer");
+    }
+    if (this._virtualProductScenes.size !== 0) {
+      throw new Error(
+        "Renderer recovery with Product scenes requires re-admission through GeometryProductAdmissionController"
+      );
     }
     return {
       context: this.context,
@@ -2089,6 +2155,7 @@ export class MainRenderPipeline {
       });
       const registryBindings = this._graphics.render_world.bindings();
       const counters = gpuCounterBuffer ?? gpuPacked.counterSink;
+      const virtualProductScene = this._virtualProductScenes.get(scene);
       const prepareJob = {
         runtime: gpuPacked,
         assets: registryBindings.assets,
@@ -2097,6 +2164,7 @@ export class MainRenderPipeline {
         width: w,
         height: h,
         hierarchyView: createPackedHierarchyView(camera, h),
+        virtualGeometry: gpuPacked.virtualGeometry ?? undefined,
         sseThreshold: this.effectivePackedVisibilitySseThreshold(),
         geometryWorkBudget: this.packed_geometry_work_budget,
         coneEnabled: this.packed_visibility_cone_enabled,
@@ -2112,7 +2180,9 @@ export class MainRenderPipeline {
             view.gpu_previous_camera_state.view_projection_matrix
           )
           : null,
-        demandFrameRevisionLow: this._frame_count >>> 0
+        demandFrameRevisionLow: this._frame_count >>> 0,
+        streamingRuntime: virtualProductScene?.streamingRuntime ?? undefined,
+        demandFrameIndex: this._frame_count
       };
       const packedVisibilityJob: PackedVisibilityJob = Object.freeze({
         ...prepareJob,

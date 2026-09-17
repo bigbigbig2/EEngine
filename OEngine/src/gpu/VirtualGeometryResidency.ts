@@ -151,6 +151,15 @@ export class VirtualGeometryResidency {
 
   bank(index: number): GPUBuffer { if (this.#destroyed || !Number.isInteger(index) || index < 0 || index >= this.#banks.length) throw new RangeError("geometry bank index is invalid"); return this.#banks[index]!; }
   get descriptor(): GeometryProductDescriptorV1 { return this.#descriptor; }
+  /** CPU Product source view for external schedulers; residency keeps release ownership. */
+  sourceForStreaming(): GeometryProductRevisionSourceV1 {
+    if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
+    return Object.freeze({
+      descriptor: this.#descriptor,
+      readPage: (pageId: number, signal?: AbortSignal) => this.#source.readPage(pageId, signal),
+      release: () => undefined
+    });
+  }
   get productGeneration(): number { return this.#productGeneration; }
   get productTableSlot(): number { return this.#productTableSlot; }
   activatePublication(): void { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#writeProductRecord(GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1); }
