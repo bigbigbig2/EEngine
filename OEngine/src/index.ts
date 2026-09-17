@@ -161,6 +161,53 @@ export type {
   GeometryProductAdmissionControllerEvidenceV1
 } from "./gpu/GeometryProductAdmission.js";
 export type { GeometryPageRegistrationOptionsV1 } from "./gpu/GeometryPageScheduler.js";
+export { GeometryPageSchedulerV1 } from "./gpu/GeometryPageScheduler.js";
+export type {
+  GeometryPageSchedulerEvidenceV1,
+  GeometryPageSchedulerOptionsV1,
+  GeometryPageUploadSinkV1
+} from "./gpu/GeometryPageScheduler.js";
+export {
+  GeometryDemandReadbackRingV1,
+  GpuGeometryDemandReadbackRingV1
+} from "./gpu/GeometryDemandReadbackRing.js";
+export type {
+  GeometryDemandReadbackResultV1,
+  GeometryDemandReadbackSlotV1,
+  GeometryDemandReadbackSlotStateV1,
+  GpuGeometryDemandReadbackRingOptionsV1
+} from "./gpu/GeometryDemandReadbackRing.js";
+export { GeometryPageStreamingRuntimeV1 } from "./gpu/GeometryPageStreamingRuntime.js";
+export type {
+  GeometryPageStreamingPollEvidenceV1,
+  GeometryPageStreamingRuntimeEvidenceV1,
+  GeometryPageStreamingRuntimeOptionsV1
+} from "./gpu/GeometryPageStreamingRuntime.js";
+export { VirtualGeometryResidency } from "./gpu/VirtualGeometryResidency.js";
+export type {
+  GeometryPageLocationV1,
+  GeometryProductGpuBindingsV1,
+  VirtualGeometryResidencyEvidenceV1
+} from "./gpu/VirtualGeometryResidency.js";
+export {
+  GEOMETRY_PAGE_DEMAND_ABI_VERSION,
+  GEOMETRY_PAGE_DEMAND_HEADER_BYTES,
+  GEOMETRY_PAGE_DEMAND_RECORD_BYTES,
+  GEOMETRY_PAGE_DEMAND_MAX_QUEUE_BYTES_V1,
+  GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1,
+  createGeometryPageDemandQueueV1,
+  deduplicateGeometryPageDemandsV1,
+  packGeometryPageDemandHeaderV1,
+  packGeometryPageDemandV1,
+  reserveGeometryPageDemandV1,
+  unpackGeometryPageDemandHeaderV1,
+  unpackGeometryPageDemandV1
+} from "./gpu/GeometryPageDemandAbiV1.js";
+export type {
+  GeometryPageDemandV1,
+  GeometryPageDemandQueueHeaderV1,
+  GeometryPageDemandQueueStateV1
+} from "./gpu/GeometryPageDemandAbiV1.js";
 export { WebCookWorkerTransport } from "./assets/web-cook/WebCookWorkerTransport.js";
 export type {
   WebCookWorkerPort,

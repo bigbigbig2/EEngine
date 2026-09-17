@@ -20,7 +20,11 @@ import {
   GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
   GPU_WORK_QUEUE_HEADER_SCHEMA
 } from "../gpu/GpuWorkGenerationAbi.js";
-import { GEOMETRY_PAGE_DEMAND_RECORD_BYTES, GEOMETRY_PAGE_DEMAND_HEADER_BYTES } from "../gpu/GeometryPageDemandAbiV1.js";
+import {
+  GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1,
+  GEOMETRY_PAGE_DEMAND_RECORD_BYTES,
+  GEOMETRY_PAGE_DEMAND_HEADER_BYTES
+} from "../gpu/GeometryPageDemandAbiV1.js";
 import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 import {
   HIERARCHICAL_VIEW_OFFSETS,
@@ -105,6 +109,8 @@ export interface HierarchicalWorkFeatures {
     /** Matrix used when the committed HZB was built. Column-major. */
     worldToClipMatrix: ArrayLike<number>;
   }> | null;
+  /** Frame/scene epoch copied into the GPU demand queue header. */
+  readonly demandFrameRevisionLow?: number;
 }
 
 export interface HierarchicalWorkEvidenceLayout {
@@ -462,6 +468,11 @@ export class HierarchicalWorkGenerator {
     const virtualGeometryEnabled = scene.virtualGeometry !== undefined;
     const pageDemandCapacity = config.pageDemandCapacity ?? Math.max(1, scene.visibleClusterCapacity);
     assertPositiveU32(pageDemandCapacity, "R3-D virtual page demand capacity");
+    if (pageDemandCapacity > GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1) {
+      throw new RangeError(
+        "R3-D virtual page demand capacity exceeds the bounded readback queue"
+      );
+    }
     const implementation = virtualGeometryEnabled
       ? "wavefront"
       : rasterExpansionEnabled
@@ -844,7 +855,18 @@ export class HierarchicalWorkGenerator {
 
     clearQueueCounters(encoder, state.selectedQueue);
     if (state.rasterQueue !== null) clearQueueCounters(encoder, state.rasterQueue);
-    if (state.pageDemand !== null) clearPageDemandCounters(encoder, state.pageDemand);
+    if (state.pageDemand !== null) {
+      clearPageDemandCounters(encoder, state.pageDemand);
+      const frameRevisionLow = features.demandFrameRevisionLow ?? 0;
+      assertU32(frameRevisionLow, "R3-D demand frame revision");
+      writeGpuBuffer(
+        this.device.queue,
+        "HierarchicalWorkGenerator/demand-frame",
+        state.pageDemand,
+        12,
+        new Uint32Array([frameRevisionLow])
+      );
+    }
     if (state.evidence !== null) {
       clearEvidenceCounters(
         encoder,

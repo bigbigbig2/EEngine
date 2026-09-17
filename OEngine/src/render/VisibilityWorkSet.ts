@@ -12,6 +12,9 @@ export interface VisibilityWorkSetKey {
   readonly maxHierarchyDepth: number;
   readonly traversalCapacity: number;
   readonly visibleClusterCapacity: number;
+  /** Product identity/bank shape participates in prepared bind-group lifetime. */
+  readonly virtualProductGeneration: number;
+  readonly virtualProductBankCount: number;
   readonly meshletWorkCandidateCapacity: number;
   readonly meshletWorkCompactionPath: "auto" | "portable" | "subgroup";
   readonly triangleSetupEnabled: boolean;
@@ -50,6 +53,8 @@ export function sameVisibilityWorkSetKey(
     left.maxHierarchyDepth === right.maxHierarchyDepth &&
     left.traversalCapacity === right.traversalCapacity &&
     left.visibleClusterCapacity === right.visibleClusterCapacity &&
+    left.virtualProductGeneration === right.virtualProductGeneration &&
+    left.virtualProductBankCount === right.virtualProductBankCount &&
     left.meshletWorkCandidateCapacity === right.meshletWorkCandidateCapacity &&
     left.meshletWorkCompactionPath === right.meshletWorkCompactionPath &&
     left.triangleSetupEnabled === right.triangleSetupEnabled &&

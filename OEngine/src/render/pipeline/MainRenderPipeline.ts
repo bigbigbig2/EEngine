@@ -2111,7 +2111,8 @@ export class MainRenderPipeline {
             viewHzb,
             view.gpu_previous_camera_state.view_projection_matrix
           )
-          : null
+          : null,
+        demandFrameRevisionLow: this._frame_count >>> 0
       };
       const packedVisibilityJob: PackedVisibilityJob = Object.freeze({
         ...prepareJob,

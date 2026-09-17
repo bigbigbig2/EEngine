@@ -6,6 +6,11 @@ export const GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING = 1 << 16;
 export const GEOMETRY_PAGE_DEMAND_FLAG_SHADOW = 1 << 17;
 export const GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE = 1 << 18;
 export const GEOMETRY_PAGE_DEMAND_FLAGS_MASK = 0x00070000;
+/** Readback ring upper bound for one bounded demand queue. */
+export const GEOMETRY_PAGE_DEMAND_MAX_QUEUE_BYTES_V1 = 256 * 1024;
+export const GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1 =
+  (GEOMETRY_PAGE_DEMAND_MAX_QUEUE_BYTES_V1 -
+    GEOMETRY_PAGE_DEMAND_HEADER_BYTES) / GEOMETRY_PAGE_DEMAND_RECORD_BYTES;
 
 export interface GeometryPageDemandV1 {
   readonly productTableSlot: number;

@@ -146,6 +146,9 @@ export class VirtualGeometryResidency {
   }
 
   bank(index: number): GPUBuffer { if (this.#destroyed || !Number.isInteger(index) || index < 0 || index >= this.#banks.length) throw new RangeError("geometry bank index is invalid"); return this.#banks[index]!; }
+  get descriptor(): GeometryProductDescriptorV1 { return this.#descriptor; }
+  get productGeneration(): number { return this.#productGeneration; }
+  get productTableSlot(): number { return this.#productTableSlot; }
   activatePublication(): void { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#writeProductRecord(GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1); }
   bindings(): GeometryProductGpuBindingsV1 { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return Object.freeze({ productTableSlot: this.#productTableSlot, productGeneration: this.#productGeneration, metadata: this.#metadata, metadataByteLength: this.#metadataLayout.byteLength, productTableByteOffset: this.#metadataLayout.productRecord, pageLocationByteOffset: this.#metadataLayout.pageLocations, productTable: this.#metadata, banks: Object.freeze([...this.#banks]) }); }
   pageLocationTable(): GPUBuffer { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return this.#metadata; }
@@ -155,6 +158,8 @@ export class VirtualGeometryResidency {
   uploadPage(page: GeometryPageProductV1): void {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
     if (page.revision !== this.#descriptor.revision || page.pageId < 0 || page.pageId >= this.#descriptor.pageRecords.byteLength / 32 || page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES || !sameBytes(page.productId, this.#descriptor.productId)) throw new Error("Geometry Product page identity or payload is invalid");
+    const expected = decodeGeometryProductPageRecordV1(this.#descriptor, page.pageId);
+    if (!sameBytes(page.decodedHash128, expected.decodedHash128)) throw new Error("Geometry Product page decoded hash identity is invalid");
     if (this.#pageLocations.has(page.pageId)) return;
     if (this.#retiringLocations.has(page.pageId)) throw new Error("Geometry Product page is retiring and cannot be re-uploaded yet");
     const slot = this.#acquireSlot();

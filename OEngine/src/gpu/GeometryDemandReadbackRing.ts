@@ -110,3 +110,107 @@ export class GeometryDemandReadbackRingV1 {
     return Object.freeze({ submitted: this.#submitted, overflow: this.#overflow, inUse: this.#slots.filter(slot => slot.state !== "free").length, ready: this.#slots.filter(slot => slot.state === "ready").length });
   }
 }
+
+export interface GpuGeometryDemandReadbackRingOptionsV1 {
+  readonly device: GPUDevice;
+  readonly slotCount?: number;
+  readonly bytesPerSlot?: number;
+}
+
+/**
+ * WebGPU owner for the delayed demand ring.  The copy is encoded into the
+ * caller's existing submission; mapping is only possible after a later frame
+ * completion has been observed by the caller.
+ */
+export class GpuGeometryDemandReadbackRingV1 {
+  readonly #device: GPUDevice;
+  readonly #ring: GeometryDemandReadbackRingV1;
+  readonly #buffers: GPUBuffer[];
+  readonly #bytesPerSlot: number;
+  #destroyed = false;
+
+  constructor(options: GpuGeometryDemandReadbackRingOptionsV1) {
+    this.#device = options.device;
+    const slotCount = options.slotCount ?? 3;
+    this.#bytesPerSlot = options.bytesPerSlot ?? GEOMETRY_DEMAND_READBACK_MAX_BYTES_V1;
+    if (!Number.isInteger(slotCount) || slotCount < 2) {
+      throw new RangeError("GPU demand readback ring requires at least two slots");
+    }
+    if (!Number.isInteger(this.#bytesPerSlot) || this.#bytesPerSlot <= 0 ||
+        this.#bytesPerSlot > GEOMETRY_DEMAND_READBACK_MAX_BYTES_V1 ||
+        (this.#bytesPerSlot & 3) !== 0) {
+      throw new RangeError("GPU demand readback slot must be 4-byte aligned and bounded");
+    }
+    this.#buffers = Array.from({ length: slotCount }, (_, index) => this.#device.createBuffer({
+      label: `Geometry Page Demand readback ${index}`,
+      size: this.#bytesPerSlot,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+    }));
+    this.#ring = new GeometryDemandReadbackRingV1({
+      slotCount,
+      bytesPerSlot: this.#bytesPerSlot,
+      mapCompletedSlot: async (slot) => {
+        const buffer = this.#buffers[slot.index]!;
+        await buffer.mapAsync(GPUMapMode.READ, 0, this.#bytesPerSlot);
+        try {
+          return buffer.getMappedRange(0, this.#bytesPerSlot).slice(0);
+        } finally {
+          buffer.unmap();
+        }
+      }
+    });
+  }
+
+  get bytesPerSlot(): number { return this.#bytesPerSlot; }
+
+  /** Encodes a bounded queue copy and never maps or waits for the GPU. */
+  encode(
+    encoder: GPUCommandEncoder,
+    source: GPUBuffer,
+    frameIndex: number
+  ): number | undefined {
+    this.assertAlive();
+    if (!Number.isInteger(source.size) || source.size <= 0 ||
+        source.size > this.#bytesPerSlot) {
+      throw new RangeError("GPU demand source exceeds the readback slot capacity");
+    }
+    return this.#ring.submit(frameIndex, (slot) => {
+      encoder.copyBufferToBuffer(
+        source,
+        0,
+        this.#buffers[slot.index]!,
+        0,
+        source.size
+      );
+    });
+  }
+
+  async poll(completedFrame: number): Promise<readonly GeometryDemandReadbackResultV1[]> {
+    this.assertAlive();
+    return this.#ring.poll(completedFrame);
+  }
+
+  release(slotIndex: number): void {
+    this.assertAlive();
+    this.#ring.release(slotIndex);
+  }
+
+  slot(slotIndex: number): GeometryDemandReadbackSlotV1 {
+    this.assertAlive();
+    return this.#ring.slot(slotIndex);
+  }
+
+  evidence(): Readonly<{ submitted: number; overflow: number; inUse: number; ready: number }> {
+    return this.#ring.evidence();
+  }
+
+  destroy(): void {
+    if (this.#destroyed) return;
+    this.#destroyed = true;
+    for (const buffer of this.#buffers) buffer.destroy();
+  }
+
+  private assertAlive(): void {
+    if (this.#destroyed) throw new Error("GPU demand readback ring is destroyed");
+  }
+}

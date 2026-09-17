@@ -92,6 +92,7 @@ export interface PackedVisibilityPrepareJob {
     mipLevelCount: number;
     worldToClipMatrix: ArrayLike<number>;
   }> | null;
+  readonly demandFrameRevisionLow?: number;
 }
 
 export interface PackedVisibilityJob extends PackedVisibilityPrepareJob {
@@ -325,7 +326,8 @@ export class PackedVisibilityPass {
       {
         coneEnabled: job.coneEnabled,
         excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent,
-        previousHzb: job.previousHzb
+        previousHzb: job.previousHzb,
+        demandFrameRevisionLow: job.demandFrameRevisionLow
       }
     );
     const meshletWork = requireMeshletWork(workSet);
@@ -413,6 +415,8 @@ export class PackedVisibilityPass {
       maxHierarchyDepth: job.runtime.hierarchyMaxDepth,
       traversalCapacity,
       visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
+      virtualProductGeneration: job.virtualGeometry?.productGeneration ?? 0,
+      virtualProductBankCount: job.virtualGeometry?.banks.length ?? 0,
       meshletWorkCandidateCapacity,
       meshletWorkCompactionPath: job.meshletWorkCompactionPath ?? "auto",
       triangleSetupEnabled,
