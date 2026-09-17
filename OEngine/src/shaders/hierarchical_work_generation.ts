@@ -11,6 +11,7 @@ import {
   GPU_WORK_GENERATION_WGSL
 } from "../gpu/GpuWorkGenerationAbi.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
+import { GEOMETRY_PAGE_DEMAND_WGSL } from "../gpu/GeometryPageDemandAbiV1.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 
 export const HIERARCHICAL_WORKGROUP_SIZE = 64;
@@ -169,7 +170,7 @@ ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_CLUSTER_RECORD_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_WORK_GENERATION_WGSL}
-${virtualGeometryEnabled ? VIRTUAL_GEOMETRY_PRODUCT_WGSL : ""}
+${virtualGeometryEnabled ? `${VIRTUAL_GEOMETRY_PRODUCT_WGSL}\n${GEOMETRY_PAGE_DEMAND_WGSL}` : ""}
 
 struct OEngineHierarchyView {
   camera_position: vec4f,
@@ -217,6 +218,26 @@ struct OEngineVisibleClusterQueueRead {
   header: OEngineWorkQueueHeaderRead,
   elements: array<OEngineVisibleClusterRecord>,
 };
+
+${virtualGeometryEnabled ? /* wgsl */ `
+struct OEngineGeometryPageDemandQueueV1 {
+  header: OEngineGeometryPageDemandQueueHeaderV1,
+  records: array<OEngineGeometryPageDemandV1>,
+};
+
+fn hierarchy_emit_page_demand_v1(
+  queue: ptr<storage, OEngineGeometryPageDemandQueueV1, read_write>,
+  asset: OEngineGeometryProductResolvedAssetV1,
+  page_id: u32
+) {
+  if (!asset.valid || page_id >= asset.page_count) { return; }
+  let index = oengine_geometry_page_demand_try_reserve(&(*queue).header);
+  if (index == 0xffffffffu || index >= (*queue).header.capacity) { return; }
+  (*queue).records[index] = OEngineGeometryPageDemandV1(
+    asset.product_table_slot, asset.product_generation, page_id, 0x0001ffffu
+  );
+}
+` : ""}
 
 struct OEngineRasterWorkQueue {
   header: OEngineWorkQueueHeader,
@@ -301,7 +322,7 @@ struct OEngineWorldSphere {
 @group(0) @binding(6) var<storage, read_write> hierarchy_selected: OEngineVisibleClusterQueue;
 @group(0) @binding(7) var<storage, read_write> hierarchy_output_dispatch: OEngineDispatchIndirectArgs;
 @group(0) @binding(8) var<storage, read_write> hierarchy_counters: array<atomic<u32>>;
-${virtualGeometryEnabled ? "@group(0) @binding(9) var<storage, read> hierarchy_product_heap: array<u32>;" : ""}
+${virtualGeometryEnabled ? "@group(0) @binding(9) var<storage, read> hierarchy_product_heap: array<u32>;\n@group(0) @binding(12) var<storage, read_write> hierarchy_page_demand: OEngineGeometryPageDemandQueueV1;" : ""}
 
 fn hierarchy_conservative_scale(transform: mat4x4f) -> f32 {
   let x_axis = transform[0].xyz;
@@ -774,7 +795,7 @@ ${virtualGeometryEnabled ? "            child_node" : "            hierarchy_chi
 @group(1) @binding(7) var<storage, read_write> traversal_selected: OEngineVisibleClusterQueue;
 @group(1) @binding(8) var<storage, read_write> traversal_output_dispatch: OEngineDispatchIndirectArgs;
 @group(1) @binding(9) var<storage, read_write> traversal_counters: array<atomic<u32>>;
-${virtualGeometryEnabled ? "@group(1) @binding(11) var<storage, read> traversal_product_heap: array<u32>;" : ""}
+${virtualGeometryEnabled ? "@group(1) @binding(11) var<storage, read> traversal_product_heap: array<u32>;\n@group(1) @binding(13) var<storage, read_write> traversal_page_demand: OEngineGeometryPageDemandQueueV1;" : ""}
 
 @compute @workgroup_size(${HIERARCHICAL_WORKGROUP_SIZE})
 fn r3_traverse_clusters(
@@ -861,6 +882,10 @@ ${virtualGeometryEnabled ? /* wgsl */ `
               if location.valid {
                 selected = true;
                 selected_cluster = group_id;
+              } else {
+                hierarchy_emit_page_demand_v1(
+                  &traversal_page_demand, asset, group.page_id
+                );
               }
             }
           } else {

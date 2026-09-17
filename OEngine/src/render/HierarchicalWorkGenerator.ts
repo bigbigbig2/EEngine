@@ -20,6 +20,7 @@ import {
   GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
   GPU_WORK_QUEUE_HEADER_SCHEMA
 } from "../gpu/GpuWorkGenerationAbi.js";
+import { GEOMETRY_PAGE_DEMAND_RECORD_BYTES, GEOMETRY_PAGE_DEMAND_HEADER_BYTES } from "../gpu/GeometryPageDemandAbiV1.js";
 import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 import {
   HIERARCHICAL_VIEW_OFFSETS,
@@ -79,6 +80,8 @@ export interface HierarchicalWorkConfig {
   readonly traversalWorkCapacity?: number;
   /** False for the main VisibilityKey V2 path; leaves VisibleCluster as the terminal queue. */
   readonly rasterExpansionEnabled?: boolean;
+  /** Capacity of the GPU-produced virtual geometry page-demand queue. */
+  readonly pageDemandCapacity?: number;
 }
 
 export interface HierarchicalWorkBindingInputs {
@@ -130,6 +133,8 @@ export interface GeneratedHierarchyWork {
   readonly implementation: HierarchicalWorkImplementation;
   readonly virtualGeometryEnabled: boolean;
   readonly rasterExpansionEnabled: boolean;
+  /** GPU producer queue; present only for virtual geometry scenes. */
+  readonly pageDemand: GPUBuffer | null;
 }
 
 export interface PreparedHierarchyWork {
@@ -156,6 +161,7 @@ interface PreparedState {
   readonly rasterQueue: GPUBuffer | null;
   readonly drawIndirect: GPUBuffer | null;
   readonly rasterExpansionEnabled: boolean;
+  readonly pageDemand: GPUBuffer | null;
   readonly dispatchArgs: readonly [GPUBuffer, GPUBuffer, GPUBuffer | null] | null;
   readonly evidence: GPUBuffer | null;
   readonly evidenceLayout: HierarchicalWorkEvidenceLayout;
@@ -207,7 +213,8 @@ const VIRTUAL_INSTANCE_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "S1 Geometry Product/fused root group0",
   entries: [
     ...INSTANCE_GROUP.entries,
-    { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
+    { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GEOMETRY_PAGE_DEMAND_HEADER_BYTES + GEOMETRY_PAGE_DEMAND_RECORD_BYTES } }
   ]
 };
 
@@ -251,7 +258,8 @@ const VIRTUAL_TRAVERSAL_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "S1 Geometry Product/hierarchy traversal group1",
   entries: [
     ...TRAVERSAL_GROUP.entries,
-    { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
+    { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+    { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GEOMETRY_PAGE_DEMAND_HEADER_BYTES + GEOMETRY_PAGE_DEMAND_RECORD_BYTES } }
   ]
 };
 
@@ -452,6 +460,8 @@ export class HierarchicalWorkGenerator {
     );
     const rasterExpansionEnabled = config.rasterExpansionEnabled ?? true;
     const virtualGeometryEnabled = scene.virtualGeometry !== undefined;
+    const pageDemandCapacity = config.pageDemandCapacity ?? Math.max(1, scene.visibleClusterCapacity);
+    assertPositiveU32(pageDemandCapacity, "R3-D virtual page demand capacity");
     const implementation = virtualGeometryEnabled
       ? "wavefront"
       : rasterExpansionEnabled
@@ -504,6 +514,9 @@ export class HierarchicalWorkGenerator {
         GPU_VISIBLE_CLUSTER_RECORD_SCHEMA.stride,
         buffers
       );
+      const pageDemand = virtualGeometryEnabled
+        ? this.createPageDemandQueue("S4/GeometryPageDemand", pageDemandCapacity, buffers)
+        : null;
       const rasterQueue = rasterExpansionEnabled
         ? this.createQueue(
           "R3-D/RasterWorkQueue",
@@ -558,7 +571,8 @@ export class HierarchicalWorkGenerator {
           viewUniform,
           ping!,
           selectedQueue,
-          pingArgs!
+          pingArgs!,
+          pageDemand ?? undefined
         )
         : null;
       const createTraversalGroup = (
@@ -583,7 +597,8 @@ export class HierarchicalWorkGenerator {
           { binding: 8, resource: { buffer: outputArgs } },
           { binding: 9, resource: { buffer: scene.counterBuffer } },
           ...(scene.virtualGeometry === undefined ? [] : [
-            { binding: 11, resource: { buffer: scene.virtualGeometry.metadata } }
+            { binding: 11, resource: { buffer: scene.virtualGeometry.metadata } },
+            { binding: 13, resource: { buffer: pageDemand! } }
           ])
         ]
       });
@@ -650,7 +665,8 @@ export class HierarchicalWorkGenerator {
         encodedRoundCount: roundCount,
         implementation,
         virtualGeometryEnabled,
-        rasterExpansionEnabled
+        rasterExpansionEnabled,
+        pageDemand
       });
       const prepared = Object.freeze({
         [PREPARED_HIERARCHY_WORK_BRAND]: true as const,
@@ -669,6 +685,7 @@ export class HierarchicalWorkGenerator {
         rasterQueue,
         drawIndirect,
         rasterExpansionEnabled,
+        pageDemand,
         dispatchArgs: pingArgs !== null && pongArgs !== null
           ? [pingArgs, pongArgs, selectedArgs]
           : null,
@@ -737,7 +754,8 @@ export class HierarchicalWorkGenerator {
         state.viewUniform,
         queues[0],
         state.selectedQueue,
-        args[0]
+        args[0],
+        state.pageDemand ?? undefined
       );
       const createTraversalGroup = (
         label: string,
@@ -761,7 +779,8 @@ export class HierarchicalWorkGenerator {
           { binding: 8, resource: { buffer: outputArgs } },
           { binding: 9, resource: { buffer: state.scene.counterBuffer } },
           ...(state.scene.virtualGeometry === undefined ? [] : [
-            { binding: 11, resource: { buffer: state.scene.virtualGeometry.metadata } }
+            { binding: 11, resource: { buffer: state.scene.virtualGeometry.metadata } },
+            { binding: 13, resource: { buffer: state.pageDemand! } }
           ])
         ]
       });
@@ -825,6 +844,7 @@ export class HierarchicalWorkGenerator {
 
     clearQueueCounters(encoder, state.selectedQueue);
     if (state.rasterQueue !== null) clearQueueCounters(encoder, state.rasterQueue);
+    if (state.pageDemand !== null) clearPageDemandCounters(encoder, state.pageDemand);
     if (state.evidence !== null) {
       clearEvidenceCounters(
         encoder,
@@ -1063,6 +1083,7 @@ export class HierarchicalWorkGenerator {
     output: GPUBuffer,
     selected: GPUBuffer,
     outputArgs: GPUBuffer,
+    pageDemand?: GPUBuffer,
     hzbView?: GPUTextureView
   ): GPUBindGroup {
     return this.device.createBindGroup({
@@ -1079,7 +1100,8 @@ export class HierarchicalWorkGenerator {
         { binding: 7, resource: { buffer: outputArgs } },
         { binding: 8, resource: { buffer: scene.counterBuffer } },
         ...(scene.virtualGeometry === undefined ? [] : [
-          { binding: 9, resource: { buffer: scene.virtualGeometry.metadata } }
+          { binding: 9, resource: { buffer: scene.virtualGeometry.metadata } },
+          { binding: 12, resource: { buffer: pageDemand! } }
         ]),
         ...(hzbView === undefined ? [] : [{ binding: 10, resource: hzbView }])
       ]
@@ -1202,6 +1224,28 @@ export class HierarchicalWorkGenerator {
     }, initial, buffers);
   }
 
+  private createPageDemandQueue(
+    label: string,
+    capacity: number,
+    buffers: GPUBuffer[]
+  ): GPUBuffer {
+    const size = checkedByteLength(
+      capacity,
+      GEOMETRY_PAGE_DEMAND_RECORD_BYTES,
+      GEOMETRY_PAGE_DEMAND_HEADER_BYTES,
+      label
+    );
+    validateStorageBufferSize(this.device, size, label);
+    const initial = new Uint8Array(size);
+    new DataView(initial.buffer).setUint32(4, capacity, true);
+    return this.createInitializedBuffer({
+      label,
+      size,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC |
+        GPUBufferUsage.COPY_DST
+    }, initial, buffers);
+  }
+
   private createDispatchArgs(label: string, buffers: GPUBuffer[]): GPUBuffer {
     const initial = new Uint32Array([0, 1, 1]);
     return this.createInitializedBuffer({
@@ -1307,6 +1351,7 @@ export class HierarchicalWorkGenerator {
       queues[0],
       state.selectedQueue,
       args[0],
+      state.pageDemand ?? undefined,
       hzbView
     );
     state.hzbRootBindGroups.set(hzbView, group);
@@ -1366,7 +1411,8 @@ export class HierarchicalWorkGenerator {
         { binding: 9, resource: { buffer: state.scene.counterBuffer } },
         { binding: 10, resource: hzbView },
         ...(state.scene.virtualGeometry === undefined ? [] : [
-          { binding: 11, resource: { buffer: state.scene.virtualGeometry.metadata } }
+          { binding: 11, resource: { buffer: state.scene.virtualGeometry.metadata } },
+          { binding: 13, resource: { buffer: state.pageDemand! } }
         ])
       ]
     });
@@ -1799,6 +1845,12 @@ function clearQueueCounters(encoder: GPUCommandEncoder, queue: GPUBuffer): void 
     GPU_WORK_QUEUE_HEADER_SCHEMA.offsets.rejected_cone!,
     8
   );
+}
+
+function clearPageDemandCounters(encoder: GPUCommandEncoder, queue: GPUBuffer): void {
+  // Preserve capacity at byte 4; reset attempted and overflow for this frame.
+  encoder.clearBuffer(queue, 0, 4);
+  encoder.clearBuffer(queue, 8, 4);
 }
 
 function clearEvidenceCounters(
