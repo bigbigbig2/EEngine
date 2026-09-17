@@ -23,6 +23,7 @@ export class WebCookWorkerHost {
   #closed = false;
   #sessionId = "";
   #generation = 0;
+  #commandTail: Promise<void> = Promise.resolve();
 
   constructor(options: WebCookWorkerHostOptions) {
     this.#options = options;
@@ -37,7 +38,12 @@ export class WebCookWorkerHost {
     this.#coordinator = undefined;
   }
 
-  receive(value: unknown): Promise<void> { return this.#accept(value); }
+  /** Serializes protocol commands so lifecycle and credit order is preserved. */
+  receive(value: unknown): Promise<void> {
+    const operation = this.#commandTail.then(() => this.#accept(value));
+    this.#commandTail = operation.catch(() => undefined);
+    return operation;
+  }
 
   async #accept(value: unknown): Promise<void> {
     if (this.#closed) return;
