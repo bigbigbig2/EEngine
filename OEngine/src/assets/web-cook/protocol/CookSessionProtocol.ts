@@ -23,6 +23,7 @@ export type WebCookCommand =
   | (WebCookSessionHeader & { readonly type: "SetSourcePriority"; readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number })
   | (WebCookSessionHeader & { readonly type: "RequestPages"; readonly productId: Uint8Array; readonly revision: number; readonly pageIds: Uint32Array; readonly priority: number })
   | (WebCookSessionHeader & { readonly type: "GrantOutputCredits"; readonly blockCount: number; readonly bytes: number })
+  | (WebCookSessionHeader & { readonly type: "ReturnOutputCredits"; readonly blockCount: number; readonly bytes: number })
   | (WebCookSessionHeader & { readonly type: "CancelScope"; readonly scope: string })
   | (WebCookSessionHeader & { readonly type: "DisposeSession" });
 
@@ -71,6 +72,7 @@ export class WebCookSessionProtocol {
       if (this.#creditsBlocks + this.#outstandingBlocks + command.blockCount > this.#budgets!.maxQueuedEvents || this.#creditsBytes + this.#outstandingBytes + command.bytes > this.#budgets!.maxOutputBytes) throw new RangeError("output credit grant exceeds CookSession budget");
       this.#creditsBlocks += command.blockCount; this.#creditsBytes += command.bytes; return;
     }
+    if (command.type === "ReturnOutputCredits") { this.requireState("open"); this.returnOutputCredits(command.blockCount, command.bytes); return; }
     if (command.type === "CancelScope") { if (this.#state === "open") this.#state = "cancelled"; return; }
     if (command.type === "DisposeSession") { this.#state = "disposed"; this.#events.length = 0; return; }
     this.requireState("open"); if (!this.#sourceOpened) throw new Error("CookSession source must be opened before work commands");

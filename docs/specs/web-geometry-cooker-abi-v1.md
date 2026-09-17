@@ -98,7 +98,7 @@ Section ID：
 | 9 | 256 KiB | decoded page；`index` 是 Product-local PageID |
 | 10 | 32 | cooked content manifest SHA-256；固定纳入每张 Product table 的 SHA-256 与每页完整 decoded SHA-256 |
 
-Section 10 is producer-owned identity evidence. It is calculated before the opaque handle is returned, so the browser adapter can derive `ProductID` without copying the complete page set out of WASM. The manifest is domain-separated and ordered; it is not a replacement for per-page validation when a page is later copied.
+Section 10 is producer-owned identity evidence. It is calculated before the opaque handle is returned, so the browser adapter can derive `ProductID` without copying the complete page set out of WASM. The manifest is domain-separated and ordered; it is not a replacement for per-page validation when a page is later copied. Unknown glTF attribute semantics are rejected before canonical input assembly; they are never silently dropped.
 
 Page record 布局严格复用 `Geometry Product V1`：decoded SHA-256 前 16 bytes、first Group、Group count、flags = 0、reserved = 0。WASM output budget 至少容纳一页；decoded pages 超过传入 budget，或 bootstrap Group payload bytes 超过 recipe bootstrap budget 时整体失败，不 offer descriptor。后者与 Native writer 的 recipe 语义一致；Product admission 仍需另按完整 pinned page bytes 预留 GPU budget。
 

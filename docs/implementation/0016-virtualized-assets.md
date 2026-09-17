@@ -112,6 +112,7 @@ OpenSource(source descriptor / transferable metadata)
 SetSourcePriority(asset/shard key, score, camera hint revision)
 RequestPages(ProductID, revision, PageID[], priority)
 GrantOutputCredits(blockCount, bytes)
+ReturnOutputCredits(blockCount, bytes)
 CancelScope(session/product/shard)
 DisposeSession
 ```

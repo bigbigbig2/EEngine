@@ -46,7 +46,7 @@ Shadow、direct/indirect lighting、AO/GI/SSR、transparency、temporal 和 post
 
 ## Runtime-first Virtual Geometry 迁移边界
 
-- Web 主路线：GLB/glTF Range source、versioned Worker CookSession/whole-page credit lease、Nyx geometry-builder WASM build target、GLB accessor canonicalization、Product content identity 和逐页 credit-copy ABI 已有 DEV 实现；真实 Emscripten artifact、Dedicated Worker entry、progressive immutable Product scene admission 与生产 consumer 仍未闭环。
+- Web 主路线：GLB/glTF Range source、versioned Worker CookSession/whole-page credit lease、Nyx geometry-builder WASM build target、GLB accessor canonicalization、CPU/WASM-only Dedicated Worker host、Product content identity 和逐页 credit-copy ABI 已有 DEV 实现；真实 Emscripten module bootstrap、progressive immutable Product scene admission 与生产 consumer 仍未闭环。
 - A：独立 Offline Cooker/OEGPACK 第二路线已有基础能力，通过 adapter 接入共同 Product，不拥有独立 renderer。
 - B：Producer-neutral admission、page residency、feedback、provider/cook/decode/upload/eviction，尚未形成生产闭环。
 - C：把 active Product generation 接入现有 hierarchy/work/visibility，不创建新 raster backend。

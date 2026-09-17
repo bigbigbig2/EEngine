@@ -87,6 +87,8 @@ export function buildGlbSceneCatalog(source: GlbRangeReadableSource): GlbSceneCa
       if (primitive.extensions?.KHR_draco_mesh_compression !== undefined) throw new Error(`GLB primitive ${meshIndex}:${primitiveIndex} requires Draco decode before canonical cook`);
       const positionAccessor = primitive.attributes.POSITION;
       if (positionAccessor === undefined) throw new Error(`GLB primitive ${meshIndex}:${primitiveIndex} has no POSITION accessor`);
+      const supportedSemantics = new Set(["POSITION", "NORMAL", "TANGENT", "TEXCOORD_0", "TEXCOORD_1", "COLOR_0"]);
+      for (const semantic of Object.keys(primitive.attributes)) if (!supportedSemantics.has(semantic)) throw new Error(`GLB primitive ${meshIndex}:${primitiveIndex} uses unsupported attribute semantic ${semantic}`);
       const attributes: Partial<Record<GlbCookAttributeSemantic, GlbCookAccessor>> = {};
       for (const semantic of ["POSITION", "NORMAL", "TANGENT", "TEXCOORD_0", "TEXCOORD_1", "COLOR_0"] as const) {
         const accessorIndex = primitive.attributes[semantic];
