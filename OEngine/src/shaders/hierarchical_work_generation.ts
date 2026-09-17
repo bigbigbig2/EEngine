@@ -228,13 +228,14 @@ struct OEngineGeometryPageDemandQueueV1 {
 fn hierarchy_emit_page_demand_v1(
   queue: ptr<storage, OEngineGeometryPageDemandQueueV1, read_write>,
   asset: OEngineGeometryProductResolvedAssetV1,
-  page_id: u32
+  page_id: u32,
+  flags: u32
 ) {
   if (!asset.valid || page_id >= asset.page_count) { return; }
   let index = oengine_geometry_page_demand_try_reserve(&(*queue).header);
   if (index == 0xffffffffu || index >= (*queue).header.capacity) { return; }
   (*queue).records[index] = OEngineGeometryPageDemandV1(
-    asset.product_table_slot, asset.product_generation, page_id, 0x0001ffffu
+    asset.product_table_slot, asset.product_generation, page_id, flags
   );
 }
 
@@ -935,7 +936,8 @@ ${virtualGeometryEnabled ? /* wgsl */ `
                 selected_cluster = group_id;
               } else {
                 hierarchy_emit_page_demand_v1(
-                  &traversal_page_demand, asset, group.page_id
+                  &traversal_page_demand, asset, group.page_id,
+                  traversal_view.limits.z
                 );
                 let fallback = hierarchy_virtual_find_resident_ancestor_v1(
                   &traversal_product_heap, asset, work.cluster_record_index

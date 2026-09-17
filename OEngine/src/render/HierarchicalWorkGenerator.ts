@@ -22,6 +22,7 @@ import {
 } from "../gpu/GpuWorkGenerationAbi.js";
 import {
   GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1,
+  GEOMETRY_PAGE_DEMAND_DEFAULT_FLAGS_V1,
   GEOMETRY_PAGE_DEMAND_RECORD_BYTES,
   GEOMETRY_PAGE_DEMAND_HEADER_BYTES
 } from "../gpu/GeometryPageDemandAbiV1.js";
@@ -111,6 +112,8 @@ export interface HierarchicalWorkFeatures {
   }> | null;
   /** Frame/scene epoch copied into the GPU demand queue header. */
   readonly demandFrameRevisionLow?: number;
+  /** Flags copied into Product page-demand records (main-view flags by default). */
+  readonly pageDemandFlags?: number;
 }
 
 export interface HierarchicalWorkEvidenceLayout {
@@ -1676,6 +1679,9 @@ export function packHierarchyViewUniform(
   const excludedInstanceFlags = features.excludedInstanceFlags ?? 0;
   assertU32(excludedInstanceFlags, "R5 SecondaryRasterWork excluded instance flags");
   data.setUint32(HIERARCHICAL_VIEW_OFFSETS.limits + 4, excludedInstanceFlags, true);
+  const pageDemandFlags = features.pageDemandFlags ?? GEOMETRY_PAGE_DEMAND_DEFAULT_FLAGS_V1;
+  assertU32(pageDemandFlags, "R3-D Product page demand flags");
+  data.setUint32(HIERARCHICAL_VIEW_OFFSETS.limits + 8, pageDemandFlags, true);
   const previousHzb = features.previousHzb ?? null;
   const worldToClip = previousHzb?.worldToClipMatrix;
   if (previousHzb !== null &&

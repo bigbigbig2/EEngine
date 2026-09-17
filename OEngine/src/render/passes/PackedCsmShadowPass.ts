@@ -11,6 +11,7 @@ import type { GeometryProductGpuBindingsV1 } from "../../gpu/VirtualGeometryResi
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { GPU_RASTER_WORK_SCHEMA, GPU_WORK_QUEUE_HEADER_SCHEMA } from "../../gpu/GpuWorkGenerationAbi.js";
+import { GEOMETRY_PAGE_DEMAND_DEFAULT_FLAGS_V1, GEOMETRY_PAGE_DEMAND_FLAG_SHADOW } from "../../gpu/GeometryPageDemandAbiV1.js";
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import {
   PACKED_CSM_COUNTER_WGSL,
@@ -406,7 +407,9 @@ export class PackedCsmShadowPass {
       createPackedShadowHierarchyView(job.camera, job.viewport[3]),
       {
         requiredInstanceFlags: GPU_INSTANCE_FLAGS.CastsShadow,
-        excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent
+        excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent,
+        pageDemandFlags: GEOMETRY_PAGE_DEMAND_DEFAULT_FLAGS_V1 |
+          GEOMETRY_PAGE_DEMAND_FLAG_SHADOW
       }
     );
     this.productMeshletWork.encode(command, prepared.meshletWork);

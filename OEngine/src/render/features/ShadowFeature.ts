@@ -58,6 +58,7 @@ export type ShadowGeometrySource = Readonly<{
   readonly scene: GpuSceneBindings;
   readonly counterBuffer: GPUBuffer | null;
   readonly sseThreshold: number;
+  readonly virtualGeometry?: import("../../gpu/VirtualGeometryResidency.js").GeometryProductGpuBindingsV1 | null;
 }>;
 
 export interface ShadowFeatureSettings {

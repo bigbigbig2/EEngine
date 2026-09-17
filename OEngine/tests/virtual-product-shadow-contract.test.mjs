@@ -14,7 +14,16 @@ test("Product shadow consumes the shared hierarchy and Product MeshletWork ABI",
   assert.match(pass, /virtualGeometry: product/u);
   assert.match(pass, /packed_csm_product_vertex/u);
   assert.match(pass, /packed_csm_product_evidence/u);
+  assert.match(pass, /GEOMETRY_PAGE_DEMAND_FLAG_SHADOW/u);
   assert.doesNotMatch(pass, /SecondaryRasterWork.*Product/u);
+});
+
+test("Product page demand flags are an explicit hierarchy-view contract", () => {
+  const generator = source(["render", "HierarchicalWorkGenerator.ts"]);
+  const shader = source(["shaders", "hierarchical_work_generation.ts"]);
+  assert.match(generator, /pageDemandFlags\?: number/u);
+  assert.match(generator, /HIERARCHICAL_VIEW_OFFSETS\.limits \+ 8/u);
+  assert.match(shader, /traversal_view\.limits\.z/u);
 });
 
 test("MainRenderPipeline publishes Product bindings into shadow jobs", () => {

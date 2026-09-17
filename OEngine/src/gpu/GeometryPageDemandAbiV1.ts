@@ -5,6 +5,7 @@ export const GEOMETRY_PAGE_DEMAND_MAX_PRIORITY = 0xffff;
 export const GEOMETRY_PAGE_DEMAND_FLAG_CURRENT_VIEW_MISSING = 1 << 16;
 export const GEOMETRY_PAGE_DEMAND_FLAG_SHADOW = 1 << 17;
 export const GEOMETRY_PAGE_DEMAND_FLAG_PREDICTIVE = 1 << 18;
+export const GEOMETRY_PAGE_DEMAND_DEFAULT_FLAGS_V1 = 0x0001ffff;
 export const GEOMETRY_PAGE_DEMAND_FLAGS_MASK = 0x00070000;
 /** Readback ring upper bound for one bounded demand queue. */
 export const GEOMETRY_PAGE_DEMAND_MAX_QUEUE_BYTES_V1 = 256 * 1024;
