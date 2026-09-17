@@ -17,7 +17,7 @@ export interface WebCookWorkerHostOptions {
 /** Dedicated Worker-side command host. It owns CPU/WASM cook state only. */
 export class WebCookWorkerHost {
   readonly #options: WebCookWorkerHostOptions;
-  readonly #listener = (event: MessageEvent<unknown>): void => { void this.#accept(event.data); };
+  readonly #listener = (event: MessageEvent<unknown>): void => { void this.receive(event.data); };
   #coordinator: WebCookCoordinator | undefined;
   #running = false;
   #closed = false;
@@ -36,6 +36,8 @@ export class WebCookWorkerHost {
     this.#coordinator?.dispose();
     this.#coordinator = undefined;
   }
+
+  receive(value: unknown): Promise<void> { return this.#accept(value); }
 
   async #accept(value: unknown): Promise<void> {
     if (this.#closed) return;

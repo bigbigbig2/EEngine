@@ -161,6 +161,8 @@ export type {
 } from "./assets/web-cook/WebCookWorkerTransport.js";
 export { WebCookWorkerHost, installWebCookWorkerHost } from "./assets/web-cook/WebCookWorkerHost.js";
 export type { WebCookWorkerHostOptions, WebCookWorkerHostPort } from "./assets/web-cook/WebCookWorkerHost.js";
+export { installWebCookWorkerEntry } from "./assets/web-cook/WebCookWorkerEntry.js";
+export type { WebCookWorkerEntryOptions, WebCookWorkerModuleFactory } from "./assets/web-cook/WebCookWorkerEntry.js";
 export { selectTextureTranscodeTarget } from "./assets/codec/TextureCodecPolicy.js";
 export type {
   AssetCodecEvidence,

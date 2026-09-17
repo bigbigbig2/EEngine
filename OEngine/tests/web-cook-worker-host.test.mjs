@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 const { WebCookWorkerHost } = await import("../.test-dist/assets/web-cook/WebCookWorkerHost.js");
+const { installWebCookWorkerEntry } = await import("../.test-dist/assets/web-cook/WebCookWorkerEntry.js");
 const { encodeGeometryProductDescriptorBinaryV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
 
 class Port {
@@ -45,4 +46,12 @@ test("Dedicated Worker host runs CPU cook session and transfers descriptor/page 
   port.dispatch({ ...header, type: "ReturnOutputCredits", blockCount: 1, bytes: 262144 });
   port.dispatch({ ...header, type: "DisposeSession" });
   host.close();
+});
+
+test("Worker entry retains session identity when WASM bootstrap fails", async () => {
+  const port = new Port(), header = { protocolVersion: 1, sessionId: "entry-failure", sessionGeneration: 9 };
+  const boot = installWebCookWorkerEntry({ port, moduleFactory: async () => { throw new Error("wasm-init-failed"); }, maxCanonicalInputBytes: 4096, maxDecodedProductBytes: 262144 });
+  port.dispatch({ ...header, type: "CreateSession", runtimeProfile: "portable-single", recipe: {}, budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 1, maxWasmBytes: 4096, maxOutputBytes: 262144, maxQueuedEvents: 8 } });
+  await assert.rejects(boot, /wasm-init-failed/);
+  assert.deepEqual(port.sent.map(entry => entry.message), [{ ...header, type: "FatalSessionFailure", code: "wasm-init-failed" }]);
 });
