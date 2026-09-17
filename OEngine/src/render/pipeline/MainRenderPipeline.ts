@@ -4006,6 +4006,19 @@ export class MainRenderPipeline {
           this._sparseShadingPublications.completeSubmittedWork(sparseSubmissionSerial);
         }
       }, () => {});
+      const streamingRuntime = this._virtualProductScenes.get(scene)?.streamingRuntime;
+      if (streamingRuntime !== undefined && streamingRuntime !== null) {
+        // Demand copies belong to this submission; consume them only after a
+        // later completion boundary so mapping never races the producer.
+        void streamingRuntime.consumeAfterCompletion(
+          this._frame_count,
+          cmd.gpuDone,
+          Date.now()
+        ).catch(() => {
+          // Device loss/scene teardown invalidates the runtime; the next
+          // publication owns recovery and must not surface a late poll error.
+        });
+      }
       if (frameLinearHdrCapture !== null) {
         void settleLinearHdrCapture(frameLinearHdrCapture, cmd.gpuDone);
         frameLinearHdrCapture = null;

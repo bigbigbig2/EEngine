@@ -36,6 +36,13 @@ test("Shadow demand uses a separate delayed ring while sharing the Product sched
   assert.match(pass, /job\.cascadeIndex === 0/u);
 });
 
+test("Main frame completion consumes Product demand through the streaming runtime", () => {
+  const pipeline = source(["render", "pipeline", "MainRenderPipeline.ts"]);
+  assert.match(pipeline, /streamingRuntime\.consumeAfterCompletion\(/u);
+  assert.match(pipeline, /cmd\.gpuDone/u);
+  assert.match(pipeline, /Date\.now\(\)/u);
+});
+
 test("MainRenderPipeline publishes Product bindings into shadow jobs", () => {
   const pipeline = source(["render", "pipeline", "MainRenderPipeline.ts"]);
   assert.match(pipeline, /virtualGeometry: bindings\.geometry\.visibilityJob\.virtualGeometry \?\? null/u);
