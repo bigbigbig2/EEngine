@@ -2608,7 +2608,9 @@ export class MainRenderPipeline {
                     scene: bindings.geometry.visibilityJob.scene,
                     counterBuffer: bindings.gpuCounterBuffer,
                     sseThreshold: this.effectivePackedVisibilitySseThreshold(),
-                    virtualGeometry: bindings.geometry.visibilityJob.virtualGeometry ?? null
+                    virtualGeometry: bindings.geometry.visibilityJob.virtualGeometry ?? null,
+                    streamingRuntime: this._virtualProductScenes.get(bindings.scene)?.streamingRuntime ?? null,
+                    demandFrameIndex: bindings.frameIndex
                   }
                 }
               })),

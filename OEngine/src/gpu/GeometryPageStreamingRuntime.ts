@@ -22,6 +22,7 @@ export interface GeometryPageStreamingPollEvidenceV1 {
 
 export interface GeometryPageStreamingRuntimeEvidenceV1 {
   readonly readback: Readonly<{ submitted: number; overflow: number; inUse: number; ready: number }>;
+  readonly shadowReadback?: Readonly<{ submitted: number; overflow: number; inUse: number; ready: number }>;
   readonly scheduler: GeometryPageSchedulerEvidenceV1;
   readonly residency: VirtualGeometryResidencyEvidenceV1;
   readonly lastPoll: GeometryPageStreamingPollEvidenceV1 | null;
@@ -32,7 +33,9 @@ export interface GeometryPageStreamingRuntimeEvidenceV1 {
  * Product residency owner.  It has no visibility or draw-list responsibilities.
  */
 export class GeometryPageStreamingRuntimeV1 {
+  readonly #device: GPUDevice;
   readonly #readback: GpuGeometryDemandReadbackRingV1;
+  #shadowReadback: GpuGeometryDemandReadbackRingV1 | null = null;
   readonly #scheduler: GeometryPageSchedulerV1;
   readonly #residency: VirtualGeometryResidency;
   #lastPoll: GeometryPageStreamingPollEvidenceV1 | null = null;
@@ -43,6 +46,7 @@ export class GeometryPageStreamingRuntimeV1 {
     residency: VirtualGeometryResidency,
     options: GeometryPageStreamingRuntimeOptionsV1 = {}
   ) {
+    this.#device = device;
     this.#residency = residency;
     this.#scheduler = options.scheduler ?? new GeometryPageSchedulerV1(
       options.schedulerOptions ?? {
@@ -117,6 +121,19 @@ export class GeometryPageStreamingRuntimeV1 {
     return this.#readback.encode(encoder, demandBuffer, frameIndex);
   }
 
+  /** Encodes one CSM/Product shadow demand queue into a separate delayed ring. */
+  encodeShadowDemandReadback(
+    encoder: GPUCommandEncoder,
+    demandBuffer: GPUBuffer,
+    frameIndex: number
+  ): number | undefined {
+    this.assertAlive();
+    this.#shadowReadback ??= new GpuGeometryDemandReadbackRingV1({
+      device: this.#device
+    });
+    return this.#shadowReadback.encode(encoder, demandBuffer, frameIndex);
+  }
+
   /**
    * Consumes only slots older than the supplied completed frame.  The caller
    * must establish GPU completion (for example via a submission token) before
@@ -128,6 +145,9 @@ export class GeometryPageStreamingRuntimeV1 {
   ): Promise<GeometryPageStreamingPollEvidenceV1> {
     this.assertAlive();
     const results = await this.#readback.poll(completedFrame);
+    const shadowResults = this.#shadowReadback === null
+      ? []
+      : await this.#shadowReadback.poll(completedFrame);
     let consumedReadbacks = 0;
     let malformedReadbacks = 0;
     for (const result of results) {
@@ -138,6 +158,16 @@ export class GeometryPageStreamingRuntimeV1 {
         malformedReadbacks++;
       } finally {
         this.#readback.release(result.slotIndex);
+      }
+    }
+    for (const result of shadowResults) {
+      try {
+        this.#scheduler.ingestDemandReadback(result.bytes, nowMs);
+        consumedReadbacks++;
+      } catch {
+        malformedReadbacks++;
+      } finally {
+        this.#shadowReadback!.release(result.slotIndex);
       }
     }
     const uploadedBytes = this.#scheduler.drainUploadBudget(this.#residency);
@@ -167,6 +197,7 @@ export class GeometryPageStreamingRuntimeV1 {
   evidence(): GeometryPageStreamingRuntimeEvidenceV1 {
     return Object.freeze({
       readback: this.#readback.evidence(),
+      ...(this.#shadowReadback === null ? {} : { shadowReadback: this.#shadowReadback.evidence() }),
       scheduler: this.#scheduler.evidence(),
       residency: this.#residency.evidence(),
       lastPoll: this.#lastPoll
@@ -177,11 +208,13 @@ export class GeometryPageStreamingRuntimeV1 {
     if (this.#destroyed) return;
     this.#destroyed = true;
     this.#readback.destroy();
+    this.#shadowReadback?.destroy();
   }
 
   private assertAlive(): void {
     if (this.#destroyed) throw new Error("Geometry page streaming runtime is destroyed");
   }
+
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

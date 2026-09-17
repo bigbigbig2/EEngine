@@ -26,6 +26,16 @@ test("Product page demand flags are an explicit hierarchy-view contract", () => 
   assert.match(shader, /traversal_view\.limits\.z/u);
 });
 
+test("Shadow demand uses a separate delayed ring while sharing the Product scheduler", () => {
+  const runtime = source(["gpu", "GeometryPageStreamingRuntime.ts"]);
+  const pass = source(["render", "passes", "PackedCsmShadowPass.ts"]);
+  assert.match(runtime, /encodeShadowDemandReadback/u);
+  assert.match(runtime, /#shadowReadback/u);
+  assert.match(runtime, /shadowResults/u);
+  assert.match(pass, /encodeShadowDemandReadback/u);
+  assert.match(pass, /job\.cascadeIndex === 0/u);
+});
+
 test("MainRenderPipeline publishes Product bindings into shadow jobs", () => {
   const pipeline = source(["render", "pipeline", "MainRenderPipeline.ts"]);
   assert.match(pipeline, /virtualGeometry: bindings\.geometry\.visibilityJob\.virtualGeometry \?\? null/u);

@@ -23,6 +23,7 @@ import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
+import type { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 import type { GPUDatabase, GPUTypedTable } from "../../gpu/GPUDatabase.js";
 import type { GPULightCollection } from "../../gpu/LightDatabase.js";
 import { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
@@ -59,6 +60,8 @@ export type ShadowGeometrySource = Readonly<{
   readonly counterBuffer: GPUBuffer | null;
   readonly sseThreshold: number;
   readonly virtualGeometry?: import("../../gpu/VirtualGeometryResidency.js").GeometryProductGpuBindingsV1 | null;
+  readonly streamingRuntime?: GeometryPageStreamingRuntimeV1 | null;
+  readonly demandFrameIndex?: number;
 }>;
 
 export interface ShadowFeatureSettings {

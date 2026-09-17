@@ -8,6 +8,7 @@ import type { GpuPackedMaterialBindings } from "../../gpu/GpuPackedMaterialBindi
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
 import type { GeometryProductGpuBindingsV1 } from "../../gpu/VirtualGeometryResidency.js";
+import type { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { GPU_RASTER_WORK_SCHEMA, GPU_WORK_QUEUE_HEADER_SCHEMA } from "../../gpu/GpuWorkGenerationAbi.js";
@@ -172,6 +173,8 @@ export interface PackedCsmShadowJob {
   readonly sseThreshold: number;
   readonly counterBuffer: GPUBuffer | null;
   readonly virtualGeometry?: GeometryProductGpuBindingsV1 | null;
+  readonly streamingRuntime?: GeometryPageStreamingRuntimeV1 | null;
+  readonly demandFrameIndex?: number;
 }
 
 interface CacheEntry {
@@ -412,6 +415,15 @@ export class PackedCsmShadowPass {
           GEOMETRY_PAGE_DEMAND_FLAG_SHADOW
       }
     );
+    if (job.streamingRuntime !== undefined && job.streamingRuntime !== null &&
+        prepared.prepared.generated.pageDemand !== null &&
+        job.demandFrameIndex !== undefined && job.cascadeIndex === 0) {
+      job.streamingRuntime.encodeShadowDemandReadback(
+        command.gpu_encoder,
+        prepared.prepared.generated.pageDemand,
+        job.demandFrameIndex
+      );
+    }
     this.productMeshletWork.encode(command, prepared.meshletWork);
     this.clearViewport(command, job.depthView, job.viewport);
     const pass = command.beginRenderPass({
