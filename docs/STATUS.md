@@ -1,5 +1,12 @@
 # OEngine 当前状态
 
+Implementation update (2026-09-17): virtual geometry now has a bounded GPU
+demand copy in the existing Packed Visibility submission, scheduler-coupled
+revoke/retire eviction with pinned and age-aware selection, and explicit
+device-loss recovery that rebuilds active Product residency from retained CPU
+source data. These are DEV-validated owner seams; they do not constitute the
+S7 main/shadow Scene cutover or browser Runtime Validation.
+
 更新时间：2026-09-17。本页是可变进度、开放风险和下一步的唯一汇总；历史结果由 Git 与 evidence artifact 保存。
 
 ## 生产基线
