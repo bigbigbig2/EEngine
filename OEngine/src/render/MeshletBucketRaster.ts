@@ -61,7 +61,15 @@ const VIRTUAL_GEOMETRY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
       visibility: GPUShaderStage.VERTEX,
       buffer: { type: "read-only-storage" as GPUBufferBindingType }
     })),
-    { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
+    { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+    ...Array.from({ length: 9 }, (_, index) => ({
+      binding: index + 9,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: {
+        sampleType: "unfilterable-float" as GPUTextureSampleType,
+        viewDimension: "2d-array" as GPUTextureViewDimension
+      }
+    }))
   ]
 };
 
@@ -138,7 +146,7 @@ export interface MeshletBucketRasterInputs {
 export class MeshletBucketRaster {
   readonly primitiveIndexSupported: boolean;
   private readonly rasterPipelines = new Map<string, readonly GPURenderPipeline[]>();
-  private readonly virtualRasterPipelines = new Map<"direct" | "sparse", GPURenderPipeline>();
+  private readonly virtualRasterPipelines = new Map<string, GPURenderPipeline>();
 
   constructor(private readonly graphics: GraphicsContext) {
     this.primitiveIndexSupported = graphics.device.features.has("primitive-index");
@@ -228,51 +236,60 @@ export class MeshletBucketRaster {
       throw new Error("S1 Product raster requires immutable Product bindings");
     }
     const pipelineMode = inputs.shadingBinId === null ? "direct" : "sparse";
-    let pipeline = this.virtualRasterPipelines.get(pipelineMode);
-    if (pipeline === undefined) {
-      pipeline = this.graphics.render_pipelines.obtain({
-      label: "S1 Product Meshlet bucket Visibility",
-      layout: {
-        label: "S1 Product Meshlet bucket Visibility layout",
-        bindGroupLayouts: [VIRTUAL_GEOMETRY_RASTER_GROUP]
-      },
-      vertex: {
-        module: {
+    const bindingSets = inputs.runtime.materialResources.bindingSets;
+    if (bindingSets.length === 0) throw new Error("Product Meshlet visibility requires one active TextureBindingSet");
+    const pipelines = new Map<number, GPURenderPipeline>();
+    const groups = new Map<number, GPUBindGroup>();
+    for (const bindingSet of bindingSets) {
+      let pipeline = this.virtualRasterPipelines.get(`${pipelineMode}:${bindingSet.id}`);
+      if (pipeline === undefined) {
+        pipeline = this.graphics.render_pipelines.obtain({
           label: "S1 Product Meshlet bucket Visibility",
-          code: inputs.shadingBinId === null
-            ? VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
-            : VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL
-        },
-        entryPoint: "raster_virtual_meshlet"
-      },
-      fragment: {
-        module: {
-          label: "S1 Product Meshlet bucket Visibility",
-          code: inputs.shadingBinId === null
-            ? VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
-            : VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL
-        },
-        entryPoint: "write_virtual_meshlet",
-        targets: inputs.shadingBinId === null
-          ? [{ format: "r32uint" }]
-          : [{ format: "r32uint" }, { format: "r8uint" }]
-      },
-      primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
-      depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "greater" }
+          layout: {
+            label: "S1 Product Meshlet bucket Visibility layout",
+            bindGroupLayouts: [VIRTUAL_GEOMETRY_RASTER_GROUP]
+          },
+          vertex: {
+            module: {
+              label: "S1 Product Meshlet bucket Visibility",
+              code: inputs.shadingBinId === null
+                ? VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
+                : VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL
+            },
+            entryPoint: "raster_virtual_meshlet"
+          },
+          fragment: {
+            module: {
+              label: "S1 Product Meshlet bucket Visibility",
+              code: inputs.shadingBinId === null
+                ? VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
+                : VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL
+            },
+            entryPoint: "write_virtual_meshlet",
+            constants: { OENGINE_ACTIVE_TEXTURE_BINDING_SET: bindingSet.id },
+            targets: inputs.shadingBinId === null
+              ? [{ format: "r32uint" }]
+              : [{ format: "r32uint" }, { format: "r8uint" }]
+          },
+          primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
+          depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "greater" }
       });
-      this.virtualRasterPipelines.set(pipelineMode, pipeline);
+        this.virtualRasterPipelines.set(`${pipelineMode}:${bindingSet.id}`, pipeline);
+      }
+      pipelines.set(bindingSet.id, pipeline);
+      groups.set(bindingSet.id, this.graphics.bind_groups.obtain({
+        layout: VIRTUAL_GEOMETRY_RASTER_GROUP,
+        entries: [
+          { buffer: inputs.camera },
+          { buffer: inputs.scene.instances },
+          { buffer: inputs.prepared.queue },
+          { buffer: inputs.virtualGeometry.metadata },
+          ...inputs.prepared.productBanks.slice(0, 4).map((buffer) => ({ buffer })),
+          { buffer: inputs.runtime.materialResources.materialRecords },
+          ...bindingSet.textureBanks
+        ]
+      }));
     }
-    const group = this.graphics.bind_groups.obtain({
-      layout: VIRTUAL_GEOMETRY_RASTER_GROUP,
-      entries: [
-        { buffer: inputs.camera },
-        { buffer: inputs.scene.instances },
-        { buffer: inputs.prepared.queue },
-        { buffer: inputs.virtualGeometry.metadata },
-        ...inputs.prepared.productBanks.slice(0, 4).map((buffer) => ({ buffer })),
-        { buffer: inputs.runtime.materialResources.materialRecords }
-      ]
-    });
     const pass = encoder.beginRenderPass({
       label: "S1 Product Meshlet bucket Hardware Visibility",
       colorAttachments: inputs.shadingBinId === null
@@ -285,9 +302,11 @@ export class MeshletBucketRaster {
         depthStoreOp: "store"
       }
     });
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, group);
-    pass.drawIndirect(inputs.prepared.drawIndirect, 0);
+    for (const bindingSet of bindingSets) {
+      pass.setPipeline(pipelines.get(bindingSet.id)!);
+      pass.setBindGroup(0, groups.get(bindingSet.id)!);
+      pass.drawIndirect(inputs.prepared.drawIndirect, 0);
+    }
     pass.end();
   }
 

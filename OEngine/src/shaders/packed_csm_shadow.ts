@@ -317,6 +317,12 @@ fn packed_csm_product_fragment(input: ProductShadowVertex) {
   let record = materials[input.material_handle].payload;
   if (record.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u { discard; }
   if (record.alpha_mode == OENGINE_MATERIAL_ALPHA_BLEND) { discard; }
+  // Product shadow has no texture binding/UV dependency yet.  Fail closed
+  // for textured masks instead of treating them as factor-only opaque work.
+  if (record.alpha_mode == OENGINE_MATERIAL_ALPHA_MASK &&
+      (record.flags & OENGINE_MATERIAL_VISIBILITY_HAS_ALPHA_TEXTURE) != 0u) {
+    discard;
+  }
   if (record.alpha_mode == OENGINE_MATERIAL_ALPHA_MASK &&
       record.base_color_factor_alpha < record.alpha_cutoff) { discard; }
 }

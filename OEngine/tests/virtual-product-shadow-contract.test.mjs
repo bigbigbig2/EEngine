@@ -48,6 +48,26 @@ test("Product scenes remain isolated from package geometry owners", () => {
   assert.match(world, /sourceKind: virtualProduct !== undefined/u);
 });
 
+test("Product visibility samples alpha masks through the active texture binding set", () => {
+  const raster = source(["render", "MeshletBucketRaster.ts"]);
+  const shader = source(["shaders", "meshlet_bucket_visibility.ts"]);
+  assert.match(raster, /binding: index \+ 9/u);
+  assert.match(raster, /bindingSet\.textureBanks/u);
+  assert.match(raster, /constants: \{ OENGINE_ACTIVE_TEXTURE_BINDING_SET: bindingSet\.id \}/u);
+  assert.match(shader, /product_raster_uv/u);
+  assert.match(shader, /OENGINE_ACTIVE_TEXTURE_BINDING_SET/u);
+  assert.match(shader, /product_sample_alpha\(record\.texture_ref/u);
+  assert.match(shader, /OENGINE_MATERIAL_SAMPLER_LINEAR/u);
+  assert.match(shader, /product_alpha_texel/u);
+  assert.match(shader, /GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL/u);
+});
+
+test("Product shadow fails closed for textured alpha masks until UV sampling is bound", () => {
+  const shader = source(["shaders", "packed_csm_shadow.ts"]);
+  assert.match(shader, /Product shadow has no texture binding\/UV dependency yet/u);
+  assert.match(shader, /OENGINE_MATERIAL_VISIBILITY_HAS_ALPHA_TEXTURE/u);
+});
+
 test("Product recovery preserves identity and re-publishes through the unified runtime", () => {
   const pipeline = source(["render", "pipeline", "MainRenderPipeline.ts"]);
   assert.match(pipeline, /productGeneration: state\.residency\.productGeneration/u);

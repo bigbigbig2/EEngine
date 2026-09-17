@@ -12,10 +12,10 @@
     ],
     "limitation": "Dynamic imports and runtime-composed source strings require manual confirmation."
   },
-  "shaderCount": 47,
+  "shaderCount": 50,
   "summary": {
-    "authored-live": 46,
-    "dead": 1
+    "authored-live": 48,
+    "dead": 2
   },
   "entries": [
     {
@@ -563,9 +563,12 @@
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
+        "src/render/features/ShadowFeature.ts",
+        "src/render/features/ShadowFeatureManager.ts",
         "src/render/features/VisibilityFeature.ts",
         "src/render/MeshletBucketRaster.ts",
         "src/render/MeshletWorkCandidate.ts",
+        "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
@@ -594,9 +597,12 @@
         "src/addons/inspector/index.ts",
         "src/addons/inspector/Inspector.ts",
         "src/index.ts",
+        "src/render/features/ShadowFeature.ts",
+        "src/render/features/ShadowFeatureManager.ts",
         "src/render/features/VisibilityFeature.ts",
         "src/render/MeshletBucketRaster.ts",
         "src/render/MeshletWorkCandidate.ts",
+        "src/render/passes/PackedCsmShadowPass.ts",
         "src/render/passes/PackedVisibilityPass.ts",
         "src/render/passes/RenderDebugViewPass.ts",
         "src/render/pipeline/MainRenderPipeline.ts",
@@ -819,6 +825,17 @@
       "generatorCandidates": [],
       "deletionCandidate": false,
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/oegpack_v3_decode.ts",
+      "sourceKind": "authored",
+      "classification": "dead",
+      "directConsumers": [],
+      "runtimeConsumers": [],
+      "pipelineOwners": [],
+      "generatorCandidates": [],
+      "deletionCandidate": true,
+      "status": "No runtime pipeline owner; deletion candidate after manual confirmation."
     },
     {
       "shader": "src/shaders/opaque_lighting_resolve.ts",
@@ -1196,7 +1213,9 @@
         "src/render/passes/SparseShadingDiagnosticsPass.ts",
         "src/render/passes/SparseShadingResolvePass.ts"
       ],
-      "generatorCandidates": [],
+      "generatorCandidates": [
+        "tools/audit-adr-0015-receiver.mjs"
+      ],
       "deletionCandidate": false,
       "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
     },
@@ -1533,6 +1552,90 @@
       ],
       "pipelineOwners": [
         "src/render/passes/TonemapPass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/virtual_geometry_product.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/shaders/hierarchical_work_generation.ts",
+        "src/shaders/meshlet_bucket_visibility.ts",
+        "src/shaders/packed_csm_shadow.ts",
+        "src/shaders/sparse_shading_resolve.ts",
+        "src/shaders/virtual_geometry_work.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/ShadowFeature.ts",
+        "src/render/features/ShadowFeatureManager.ts",
+        "src/render/features/SurfaceFeature.ts",
+        "src/render/features/TransparencyFeature.ts",
+        "src/render/features/VisibilityFeature.ts",
+        "src/render/HierarchicalWorkGenerator.ts",
+        "src/render/MeshletBucketRaster.ts",
+        "src/render/MeshletWorkCandidate.ts",
+        "src/render/passes/PackedCsmShadowPass.ts",
+        "src/render/passes/PackedTransparentOitPass.ts",
+        "src/render/passes/PackedVisibilityPass.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/pipeline/SparseShadingCandidateExecutor.ts",
+        "src/render/pipeline/SparseShadingGpuRevision.ts",
+        "src/render/pipeline/SparseShadingPublicationCoordinator.ts",
+        "src/render/Renderer.ts",
+        "src/render/VisibilityWorkSet.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/HierarchicalWorkGenerator.ts",
+        "src/render/MeshletBucketRaster.ts",
+        "src/render/MeshletWorkCandidate.ts",
+        "src/render/passes/PackedCsmShadowPass.ts",
+        "src/render/passes/SparseShadingDiagnosticsPass.ts",
+        "src/render/passes/SparseShadingResolvePass.ts"
+      ],
+      "generatorCandidates": [],
+      "deletionCandidate": false,
+      "status": "Runtime pipeline reachable; authored file is the current source-of-truth."
+    },
+    {
+      "shader": "src/shaders/virtual_geometry_work.ts",
+      "sourceKind": "authored",
+      "classification": "authored-live",
+      "directConsumers": [
+        "src/render/MeshletWorkCandidate.ts"
+      ],
+      "runtimeConsumers": [
+        "src/addons/debug/RendererDebugController.ts",
+        "src/addons/debug/RendererDebugUI.ts",
+        "src/addons/debug/RendererInfoModel.ts",
+        "src/addons/inspector/index.ts",
+        "src/addons/inspector/Inspector.ts",
+        "src/index.ts",
+        "src/render/features/ShadowFeature.ts",
+        "src/render/features/ShadowFeatureManager.ts",
+        "src/render/features/VisibilityFeature.ts",
+        "src/render/MeshletBucketRaster.ts",
+        "src/render/MeshletWorkCandidate.ts",
+        "src/render/passes/PackedCsmShadowPass.ts",
+        "src/render/passes/PackedVisibilityPass.ts",
+        "src/render/passes/RenderDebugViewPass.ts",
+        "src/render/pipeline/MainRenderPipeline.ts",
+        "src/render/Renderer.ts",
+        "src/render/VisibilityWorkSet.ts"
+      ],
+      "pipelineOwners": [
+        "src/render/MeshletWorkCandidate.ts"
       ],
       "generatorCandidates": [],
       "deletionCandidate": false,

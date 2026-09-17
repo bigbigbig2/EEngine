@@ -299,6 +299,7 @@ ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
+${GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL}
 
 struct OEngineProductBucketOutput {
   @builtin(position) position: vec4f,
@@ -322,6 +323,17 @@ struct OEngineProductBucketOutput {
 @group(0) @binding(6) var<storage, read> product_bank_raster_2: array<u32>;
 @group(0) @binding(7) var<storage, read> product_bank_raster_3: array<u32>;
 @group(0) @binding(8) var<storage, read> product_materials: array<OEngineShadingMaterialRecord>;
+@group(0) @binding(9) var oengine_texture_bank_0: texture_2d_array<f32>;
+@group(0) @binding(10) var oengine_texture_bank_1: texture_2d_array<f32>;
+@group(0) @binding(11) var oengine_texture_bank_2: texture_2d_array<f32>;
+@group(0) @binding(12) var oengine_texture_bank_3: texture_2d_array<f32>;
+@group(0) @binding(13) var oengine_texture_bank_4: texture_2d_array<f32>;
+@group(0) @binding(14) var oengine_texture_bank_5: texture_2d_array<f32>;
+@group(0) @binding(15) var oengine_texture_bank_6: texture_2d_array<f32>;
+@group(0) @binding(16) var oengine_texture_bank_7: texture_2d_array<f32>;
+@group(0) @binding(17) var oengine_texture_bank_8: texture_2d_array<f32>;
+
+override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
 
 fn product_raster_bank_word(bank: u32, word: u32) -> u32 {
   if (bank == 0u) { return product_bank_raster_0[word]; }
@@ -360,6 +372,53 @@ fn product_raster_position(bank: u32, byte_offset: u32, meshlet: OEngineVirtualM
   return mix(meshlet.bounds_min, meshlet.bounds_max, q);
 }
 
+fn product_raster_uv(bank: u32, byte_offset: u32, meshlet: OEngineVirtualMeshletHeaderV1,
+  format_word0: u32, format_word1: u32, format_word2: u32, vertex: u32, uv_set: u32) -> vec2f {
+  let attribute_bit = select(8u, 16u, uv_set == 1u);
+  let offset = select((format_word1 >> 24u) & 0xffu, format_word2 & 0xffu, uv_set == 1u);
+  if (uv_set > 1u || (format_word0 >> 16u & attribute_bit) == 0u || offset == 0xffu) {
+    return vec2f(0.0);
+  }
+  let at = byte_offset + meshlet.vertex_byte_offset + vertex * (format_word0 & 0xffffu) + offset;
+  let first = product_raster_u16(bank, at);
+  let second = product_raster_u16(bank, at + 2u);
+  return unpack2x16float(first | (second << 16u));
+}
+
+fn product_wrap_texel(value: i32, mode: u32, size: i32) -> i32 {
+  if mode == 0u { return clamp(value, 0i, size - 1i); }
+  if mode == 2u {
+    let period = size * 2i;
+    let wrapped = ((value % period) + period) % period;
+    return select(wrapped, period - 1i - wrapped, wrapped >= size);
+  }
+  return ((value % size) + size) % size;
+}
+
+fn product_alpha_texel(texture_ref: u32, x: i32, y: i32, sampler_class: u32) -> f32 {
+  let size = oengine_texture_bank_size(oengine_texture_ref_bank(texture_ref));
+  return oengine_texture_bank_alpha(texture_ref, vec2i(
+    product_wrap_texel(x, sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size),
+    product_wrap_texel(y, (sampler_class >> OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS) &
+      OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size)));
+}
+
+fn product_sample_alpha(texture_ref: u32, uv: vec2f, sampler_class: u32) -> f32 {
+  let size = f32(oengine_texture_bank_size(oengine_texture_ref_bank(texture_ref)));
+  let position = uv * size - 0.5;
+  let base = vec2i(floor(position));
+  if (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) == 0u {
+    let nearest = vec2i(floor(uv * size));
+    return product_alpha_texel(texture_ref, nearest.x, nearest.y, sampler_class);
+  }
+  let fraction = fract(position);
+  let a = product_alpha_texel(texture_ref, base.x, base.y, sampler_class);
+  let b = product_alpha_texel(texture_ref, base.x + 1i, base.y, sampler_class);
+  let c = product_alpha_texel(texture_ref, base.x, base.y + 1i, sampler_class);
+  let d = product_alpha_texel(texture_ref, base.x + 1i, base.y + 1i, sampler_class);
+  return mix(mix(a, b, fraction.x), mix(c, d, fraction.x), fraction.y);
+}
+
 @vertex
 fn raster_virtual_meshlet(@builtin(vertex_index) vertex_index: u32,
   @builtin(instance_index) instance_index: u32) -> OEngineProductBucketOutput {
@@ -379,6 +438,7 @@ fn raster_virtual_meshlet(@builtin(vertex_index) vertex_index: u32,
   var meshlet = oengine_virtual_invalid_meshlet_header_v1();
   var format_word0 = 0u;
   var format_word1 = 0u;
+  var format_word2 = 0u;
   var local_vertex = 0u;
   var valid = false;
   var position = vec3f(0.0);
@@ -391,6 +451,7 @@ fn raster_virtual_meshlet(@builtin(vertex_index) vertex_index: u32,
         let format_at = asset.vertex_format_word_offset + header.vertex_format_id * 4u;
         format_word0 = product_heap_raster[format_at];
         format_word1 = product_heap_raster[format_at + 1u];
+        format_word2 = product_heap_raster[format_at + 2u];
       }
       if (meshlet.valid && triangle < meshlet.triangle_count && format_valid) {
         let triangle_byte = location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset + triangle * 3u + corner;
@@ -409,8 +470,17 @@ fn raster_virtual_meshlet(@builtin(vertex_index) vertex_index: u32,
   output.triangle = triangle;
   output.uv0 = vec2f(0.0);
   output.uv1 = vec2f(0.0);
+  if (valid) {
+    output.uv0 = product_raster_uv(location.bank_index,
+      location.byte_offset + group.offset_in_page, meshlet, format_word0,
+      format_word1, format_word2, local_vertex, 0u);
+    output.uv1 = product_raster_uv(location.bank_index,
+      location.byte_offset + group.offset_in_page, meshlet, format_word0,
+      format_word1, format_word2, local_vertex, 1u);
+  }
   output.uv2 = vec2f(0.0);
-  output.uv_valid_mask = 0u;
+  output.uv_valid_mask = select(0u, 1u, (format_word0 >> 16u & 8u) != 0u) |
+    select(0u, 2u, (format_word0 >> 16u & 16u) != 0u);
   output.material_handle = work.material_slot_or_range;
   output.meshlet_work_slot = safe_work;
   return output;
@@ -420,7 +490,32 @@ fn raster_virtual_meshlet(@builtin(vertex_index) vertex_index: u32,
 fn write_virtual_meshlet(@location(0) @interpolate(flat) instance_slot: u32,
   @location(1) @interpolate(flat) meshlet_slot: u32,
   @location(2) @interpolate(flat) triangle: u32,
-  @location(8) @interpolate(flat) meshlet_work_slot: u32) -> @location(0) u32 {
+  @location(7) @interpolate(flat) material_handle: u32,
+  @location(8) @interpolate(flat) meshlet_work_slot: u32,
+  @location(3) uv0: vec2f,
+  @location(4) uv1: vec2f,
+  @location(6) @interpolate(flat) uv_valid_mask: u32) -> @location(0) u32 {
+  if material_handle >= arrayLength(&product_materials) { discard; }
+  let record = product_materials[material_handle].payload;
+  if (record.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u { discard; }
+  if record.texture_binding_set_id != OENGINE_ACTIVE_TEXTURE_BINDING_SET { discard; }
+  if record.alpha_mode == OENGINE_MATERIAL_ALPHA_BLEND { discard; }
+  if record.alpha_mode == OENGINE_MATERIAL_ALPHA_MASK {
+    var alpha = record.base_color_factor_alpha;
+    let uv_set = record.texture_uv_sets & 0xffu;
+    let uv_bit = select(0u, 1u << uv_set, uv_set < 3u);
+    if (record.flags & OENGINE_MATERIAL_VISIBILITY_HAS_ALPHA_TEXTURE) != 0u {
+      if (!oengine_texture_ref_valid(record.texture_ref) || uv_set > 1u ||
+          (uv_valid_mask & uv_bit) == 0u) { discard; }
+      let source_uv = select(uv0, uv1, uv_set == 1u);
+      let scaled = source_uv * record.uv_offset_scale.zw;
+      let uv = record.uv_offset_scale.xy + vec2f(
+        record.uv_rotation.x * scaled.x - record.uv_rotation.y * scaled.y,
+        record.uv_rotation.y * scaled.x + record.uv_rotation.x * scaled.y);
+      alpha *= product_sample_alpha(record.texture_ref, uv, record.sampler_class);
+    }
+    if alpha < record.alpha_cutoff { discard; }
+  }
   return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
 }
 `;
@@ -428,11 +523,12 @@ fn write_virtual_meshlet(@location(0) @interpolate(flat) instance_slot: u32,
 /** Product raster variant used by the sparse ShadingBin MRT path. */
 export const VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL =
   VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL.replace(
-    `) -> @location(0) u32 {
-  return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
+    `) -> @location(0) u32 {`,
+    `) -> OEngineProductVisibilityOutput {`
+  ).replace(
+    `  return oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
 }`,
-    `) -> OEngineProductVisibilityOutput {
-  let key = oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
+    `  let key = oengine_visibility_key_try_encode(meshlet_work_slot, triangle).key;
   let shading_bin_id = oengine_instance_shading_bin_id(
     product_work.elements[meshlet_work_slot].packed_raster_flags
   );
