@@ -7,12 +7,15 @@ import { GPU_INSTANCE_FLAGS } from "../../gpu/GpuInstanceAbi.js";
 import type { GpuPackedMaterialBindings } from "../../gpu/GpuPackedMaterialBindings.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GpuSceneBindings } from "../../gpu/GpuScene.js";
+import type { GeometryProductGpuBindingsV1 } from "../../gpu/VirtualGeometryResidency.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { CachedRenderPipelineDescriptor } from "../../gpu/GPUDescriptorCaches.js";
 import { GPU_RASTER_WORK_SCHEMA, GPU_WORK_QUEUE_HEADER_SCHEMA } from "../../gpu/GpuWorkGenerationAbi.js";
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import {
   PACKED_CSM_COUNTER_WGSL,
+  PACKED_CSM_PRODUCT_COUNTER_WGSL,
+  PACKED_CSM_PRODUCT_SHADOW_WGSL,
   PACKED_CSM_SHADOW_WGSL
 } from "../../shaders/packed_csm_shadow.js";
 import { SHADOW_DEPTH_CLEAR_WGSL } from "../../shaders/shadow_depth_clear.js";
@@ -20,6 +23,10 @@ import {
   HierarchicalWorkGenerator,
   type PreparedHierarchyWork
 } from "../HierarchicalWorkGenerator.js";
+import {
+  VirtualGeometryMeshletWorkCandidate,
+  type PreparedMeshletWorkCandidate
+} from "../MeshletWorkCandidate.js";
 import {
   SHADOW_CASCADE_COUNT,
   SHADOW_DEPTH_BIAS,
@@ -42,6 +49,22 @@ const PACKED_CSM_GROUP: GPUBindGroupLayoutDescriptor = {
       visibility: GPUShaderStage.FRAGMENT,
       texture: { sampleType: "unfilterable-float" as GPUTextureSampleType, viewDimension: "2d-array" as GPUTextureViewDimension }
     }))
+  ]
+};
+
+const PACKED_CSM_PRODUCT_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "FX-04 Packed CSM Product MeshletWork group0",
+  entries: [
+    { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: PACKED_CAMERA_TYPE.size } },
+    { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+    { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+    { binding: 3, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+    ...Array.from({ length: 4 }, (_, index) => ({
+      binding: index + 4,
+      visibility: GPUShaderStage.VERTEX,
+      buffer: { type: "read-only-storage" as GPUBufferBindingType }
+    })),
+    { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
   ]
 };
 
@@ -70,6 +93,29 @@ return {
   }
 };
 }
+
+const PACKED_CSM_PRODUCT_PIPELINE: CachedRenderPipelineDescriptor = {
+  label: "FX-04 Packed CSM Product MeshletWork depth consumer",
+  layout: { label: "FX-04 Packed CSM Product layout", bindGroupLayouts: [PACKED_CSM_PRODUCT_GROUP] },
+  vertex: {
+    module: { label: "FX-04 Packed CSM Product", code: PACKED_CSM_PRODUCT_SHADOW_WGSL },
+    entryPoint: "packed_csm_product_vertex"
+  },
+  fragment: {
+    module: { label: "FX-04 Packed CSM Product", code: PACKED_CSM_PRODUCT_SHADOW_WGSL },
+    entryPoint: "packed_csm_product_fragment",
+    targets: []
+  },
+  primitive: { topology: "triangle-list", cullMode: "none" },
+  depthStencil: {
+    format: "depth32float",
+    depthWriteEnabled: true,
+    depthCompare: "greater",
+    depthBias: SHADOW_DEPTH_BIAS,
+    depthBiasSlopeScale: SHADOW_DEPTH_SLOPE_SCALE,
+    depthBiasClamp: 0
+  }
+};
 
 const CLEAR_PIPELINE: CachedRenderPipelineDescriptor = {
   label: "FX-04 Packed CSM viewport clear",
@@ -107,6 +153,11 @@ const COUNTER_GROUP: GPUBindGroupLayoutDescriptor = {
   ]
 };
 
+const PRODUCT_COUNTER_GROUP: GPUBindGroupLayoutDescriptor = {
+  label: "FX-04 Packed CSM Product sampled evidence group0",
+  entries: COUNTER_GROUP.entries
+};
+
 export interface PackedCsmShadowJob {
   readonly runtime: GpuRenderWorldRuntime;
   readonly assets: GpuAssetBindings;
@@ -119,12 +170,21 @@ export interface PackedCsmShadowJob {
   readonly depthView: GPUTextureView;
   readonly sseThreshold: number;
   readonly counterBuffer: GPUBuffer | null;
+  readonly virtualGeometry?: GeometryProductGpuBindingsV1 | null;
 }
 
 interface CacheEntry {
   readonly prepared: PreparedHierarchyWork;
   readonly assetEpoch: number;
   readonly sceneEpoch: number;
+  readonly sseThreshold: number;
+}
+
+interface ProductCacheEntry {
+  readonly prepared: PreparedHierarchyWork;
+  readonly meshletWork: PreparedMeshletWorkCandidate;
+  readonly sceneEpoch: number;
+  readonly productGeneration: number;
   readonly sseThreshold: number;
 }
 
@@ -135,11 +195,17 @@ export class PackedCsmShadowPass {
   lastIndirectBytes = 0;
   private readonly generator: HierarchicalWorkGenerator;
   private readonly prepared = new Map<GpuRenderWorldRuntime, Map<OrthographicCamera, CacheEntry>>();
+  private readonly productPrepared = new Map<GpuRenderWorldRuntime, Map<OrthographicCamera, ProductCacheEntry>>();
+  private readonly productMeshletWork: VirtualGeometryMeshletWorkCandidate;
   private readonly counterLayout: GPUBindGroupLayout;
   private readonly counterPipeline: GPUComputePipeline;
+  private readonly productCounterLayout: GPUBindGroupLayout;
+  private readonly productCounterPipeline: GPUComputePipeline;
+  private readonly productRasterPipeline: GPURenderPipeline;
 
   constructor(private readonly graphics: GraphicsContext) {
     this.generator = new HierarchicalWorkGenerator(graphics.device);
+    this.productMeshletWork = new VirtualGeometryMeshletWorkCandidate(graphics.device);
     this.counterLayout = graphics.device.createBindGroupLayout(COUNTER_GROUP);
     this.counterPipeline = graphics.device.createComputePipeline({
       label: "FX-04 Packed CSM sampled queue evidence",
@@ -155,17 +221,39 @@ export class PackedCsmShadowPass {
         entryPoint: "packed_csm_evidence"
       }
     });
+    this.productCounterLayout = graphics.device.createBindGroupLayout(PRODUCT_COUNTER_GROUP);
+    this.productCounterPipeline = graphics.device.createComputePipeline({
+      label: "FX-04 Packed CSM Product sampled queue evidence",
+      layout: graphics.device.createPipelineLayout({
+        label: "FX-04 Packed CSM Product evidence layout",
+        bindGroupLayouts: [this.productCounterLayout]
+      }),
+      compute: {
+        module: graphics.device.createShaderModule({
+          label: "FX-04 Packed CSM Product evidence",
+          code: PACKED_CSM_PRODUCT_COUNTER_WGSL
+        }),
+        entryPoint: "packed_csm_product_evidence"
+      }
+    });
+    this.productRasterPipeline = graphics.render_pipelines.obtain(PACKED_CSM_PRODUCT_PIPELINE);
   }
 
   get preparedWorkSetCount(): number {
     let count = 0;
     for (const entries of this.prepared.values()) count += entries.size;
+    for (const entries of this.productPrepared.values()) count += entries.size;
     return count;
   }
 
   get preparedWorkBytes(): number {
     let bytes = 0;
     for (const entries of this.prepared.values()) {
+      for (const entry of entries.values()) {
+        bytes += this.generator.evidence(entry.prepared).transientBytes;
+      }
+    }
+    for (const entries of this.productPrepared.values()) {
       for (const entry of entries.values()) {
         bytes += this.generator.evidence(entry.prepared).transientBytes;
       }
@@ -181,6 +269,10 @@ export class PackedCsmShadowPass {
 
   execute(command: ShadeGPUCommandContext, job: PackedCsmShadowJob): void {
     validateJob(job);
+    if (job.virtualGeometry !== undefined && job.virtualGeometry !== null) {
+      this.executeProduct(command, job);
+      return;
+    }
     const prepared = this.prepare(job, command);
     const generated = this.generator.encode(
       command.gpu_encoder,
@@ -235,15 +327,35 @@ export class PackedCsmShadowPass {
 
   release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
     const entries = this.prepared.get(runtime);
-    if (entries === undefined) return;
-    this.prepared.delete(runtime);
-    for (const entry of entries.values()) {
-      command.destroyAfterGpuDone({ destroy: () => this.generator.release(entry.prepared) });
+    if (entries !== undefined) {
+      this.prepared.delete(runtime);
+      for (const entry of entries.values()) {
+        command.destroyAfterGpuDone({ destroy: () => this.generator.release(entry.prepared) });
+      }
+    }
+    const productEntries = this.productPrepared.get(runtime);
+    if (productEntries === undefined) return;
+    this.productPrepared.delete(runtime);
+    for (const entry of productEntries.values()) {
+      command.destroyAfterGpuDone({
+        destroy: () => {
+          this.productMeshletWork.release(entry.meshletWork);
+          this.generator.release(entry.prepared);
+        }
+      });
     }
   }
 
   destroy(): void {
+    for (const entries of this.prepared.values()) {
+      for (const entry of entries.values()) this.generator.release(entry.prepared);
+    }
     this.prepared.clear();
+    for (const entries of this.productPrepared.values()) {
+      for (const entry of entries.values()) this.productMeshletWork.release(entry.meshletWork);
+    }
+    this.productPrepared.clear();
+    this.productMeshletWork.destroy();
     this.generator.destroy();
   }
 
@@ -283,6 +395,116 @@ export class PackedCsmShadowPass {
       command.destroyAfterGpuDone({ destroy: () => this.generator.release(previous.prepared) });
     }
     return prepared;
+  }
+
+  private executeProduct(command: ShadeGPUCommandContext, job: PackedCsmShadowJob): void {
+    const product = job.virtualGeometry!;
+    const prepared = this.prepareProduct(job, product, command);
+    this.generator.encode(
+      command.gpu_encoder,
+      prepared.prepared,
+      createPackedShadowHierarchyView(job.camera, job.viewport[3]),
+      {
+        requiredInstanceFlags: GPU_INSTANCE_FLAGS.CastsShadow,
+        excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent
+      }
+    );
+    this.productMeshletWork.encode(command, prepared.meshletWork);
+    this.clearViewport(command, job.depthView, job.viewport);
+    const pass = command.beginRenderPass({
+      label: `FX-04 Packed CSM Product cascade ${job.cascadeIndex} drawIndirect`,
+      colorAttachments: [],
+      depthStencilAttachment: { view: job.depthView, depthLoadOp: "load", depthStoreOp: "store" }
+    });
+    pass.setViewport(...job.viewport, 0, 1);
+    const group = this.graphics.bind_groups.obtain({
+      layout: PACKED_CSM_PRODUCT_GROUP,
+      entries: [
+        { buffer: job.cameraBuffer },
+        { buffer: job.scene.instances },
+        { buffer: prepared.meshletWork.queue },
+        { buffer: product.metadata },
+        ...prepared.meshletWork.productBanks!.slice(0, 4).map((buffer) => ({ buffer })),
+        { buffer: job.materials.materialRecords }
+      ]
+    });
+    pass.setPipeline(this.productRasterPipeline);
+    pass.setBindGroup(0, group);
+    pass.drawIndirect(prepared.meshletWork.drawIndirect, 0);
+    pass.end();
+    if (job.counterBuffer !== null) {
+      this.encodeProductEvidence(command, prepared.meshletWork.queue, job);
+    }
+    this.lastCascadeDraws++;
+    this.lastAtlasPixelsUpdated += job.viewport[2] * job.viewport[3];
+    this.lastIndirectBytes += 16;
+  }
+
+  private prepareProduct(
+    job: PackedCsmShadowJob,
+    product: GeometryProductGpuBindingsV1,
+    command: ShadeGPUCommandContext
+  ): ProductCacheEntry {
+    let byCamera = this.productPrepared.get(job.runtime);
+    if (byCamera === undefined) {
+      byCamera = new Map();
+      this.productPrepared.set(job.runtime, byCamera);
+    }
+    const previous = byCamera.get(job.camera);
+    if (previous !== undefined && previous.sceneEpoch === job.scene.resourceEpoch &&
+        previous.productGeneration === product.productGeneration &&
+        previous.sseThreshold === job.sseThreshold) {
+      return previous;
+    }
+    const counterBuffer = job.counterBuffer ?? job.runtime.counterSink;
+    const prepared = this.generator.prepare({
+      assets: job.assets,
+      scene: job.scene,
+      instanceBegin: job.runtime.instanceBegin,
+      instanceCount: job.runtime.instanceCount,
+      maxHierarchyDepth: job.runtime.hierarchyMaxDepth,
+      traversalWorkCapacity: job.runtime.hierarchyTraversalCapacity,
+      visibleClusterCapacity: job.runtime.hierarchyVisibleClusterCapacity,
+      rasterWorkCapacity: job.runtime.hierarchyRasterWorkCapacity,
+      counterBuffer,
+      virtualGeometry: product
+    }, {
+      sseThreshold: job.sseThreshold,
+      countersEnabled: job.counterBuffer !== null,
+      diagnosticsEnabled: false,
+      rasterExpansionEnabled: false
+    });
+    let meshletWork: PreparedMeshletWorkCandidate;
+    try {
+      meshletWork = this.productMeshletWork.prepare({
+        virtualGeometry: product,
+        visibleClusters: prepared.generated.visibleClusters,
+        visibleClusterCapacity: prepared.generated.visibleClusterCapacity,
+        capacity: job.runtime.hierarchyRasterWorkCapacity,
+        counterBuffer,
+        countersEnabled: job.counterBuffer !== null
+      });
+    } catch (error) {
+      this.generator.release(prepared);
+      throw error;
+    }
+    const next: ProductCacheEntry = Object.freeze({
+      prepared,
+      meshletWork,
+      sceneEpoch: job.scene.resourceEpoch,
+      productGeneration: product.productGeneration,
+      sseThreshold: job.sseThreshold
+    });
+    byCamera.set(job.camera, next);
+    if (previous !== undefined) {
+      command.destroyAfterGpuDone({
+        destroy: () => {
+          this.productMeshletWork.release(previous.meshletWork);
+          this.generator.release(previous.prepared);
+        }
+      });
+    }
+    return next;
   }
 
   private clearViewport(
@@ -326,6 +548,36 @@ export class PackedCsmShadowPass {
       label: `FX-04 Packed CSM Shadow cascade ${job.cascadeIndex} counters`
     });
     pass.setPipeline(this.counterPipeline);
+    pass.setBindGroup(0, group);
+    pass.dispatchWorkgroups(1);
+    pass.end();
+  }
+
+  private encodeProductEvidence(
+    command: ShadeGPUCommandContext,
+    meshletWork: GPUBuffer,
+    job: PackedCsmShadowJob
+  ): void {
+    const values = new Uint32Array([
+      job.cascadeIndex,
+      job.viewport[2] * job.viewport[3],
+      0,
+      0
+    ]);
+    const params = command.allocateTransientBufferAndLoad(values.buffer);
+    const group = this.graphics.device.createBindGroup({
+      label: `FX-04 Product cascade ${job.cascadeIndex} sampled evidence`,
+      layout: this.productCounterLayout,
+      entries: [
+        { binding: 0, resource: { buffer: meshletWork } },
+        { binding: 1, resource: { buffer: job.counterBuffer! } },
+        { binding: 2, resource: { buffer: params } }
+      ]
+    });
+    const pass = command.beginComputePass({
+      label: `FX-04 Packed CSM Product cascade ${job.cascadeIndex} counters`
+    });
+    pass.setPipeline(this.productCounterPipeline);
     pass.setBindGroup(0, group);
     pass.dispatchWorkgroups(1);
     pass.end();

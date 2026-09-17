@@ -11,8 +11,10 @@ Product Scene publication update (2026-09-17): Product-backed instances now
 publish directly through the unified `GpuScene`/`GpuRenderWorld` owner and are
 consumed by the existing `MainRenderPipeline` and `PackedVisibilityPass`.
 Product raster covers direct VisibilityKey and sparse ShadingBin MRT variants.
-This remains DEV-validated only; Product shadow cutover, complete renderer
-device-loss recovery, and ADR-0014 browser evidence remain open.
+Packed CSM now consumes the same Product hierarchy, generation and resident
+banks through a Product MeshletWork depth consumer. This remains DEV-validated
+only; complete renderer device-loss recovery and ADR-0014 browser evidence
+remain open.
 
 更新时间：2026-09-17。本页是可变进度、开放风险和下一步的唯一汇总；历史结果由 Git 与 evidence artifact 保存。
 
@@ -28,11 +30,11 @@ device-loss recovery, and ADR-0014 browser evidence remain open.
 
 | 部分 | 状态 | 当前事实 | 下一出口 |
 | --- | --- | --- | --- |
-| Geometry Product V1 | in progress | 已落地 producer-neutral TS descriptor/page/provider mirror、严格 table/tree/bootstrap/activation validator、OEGPACK -> Product adapter，以及 Product-aware hierarchy/work/raster 接线；真实 Chrome GPU metadata/page/group/meshlet oracle 已通过；Sparse Shading 已加入 Product metadata/page-bank binding 与 virtual work geometry lookup plumbing，最终 VisibilityKey + shaded pixel consumer 仍待真实浏览器验证 | 接通 Product work 的真实 raster 与 Sparse Shading 回查，随后用轻量浏览器 readback 完成 S1 MILESTONE；再补 transport/golden 后冻结候选 spec |
+| Geometry Product V1 | in progress | 已落地 producer-neutral TS descriptor/page/provider mirror、严格 table/tree/bootstrap/activation validator、OEGPACK -> Product adapter，以及 Product-aware hierarchy/work/raster 接线；Product 现已进入统一 main/shadow consumer（VisibilityKey、Sparse Shading、Packed CSM depth）；真实 Chrome GPU metadata/page/group/meshlet oracle 已通过，最终像素闭环仍待真实浏览器验证 | 完成 Product raster/shadow 的真实浏览器闭环与 demand evidence，随后再补 transport/golden 后冻结候选 spec |
 | Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、带 source/WASM/output budget、取消与 whole-page credit lease 的 `WebCookCoordinator`、generation-filtered Dedicated Worker transport、CPU/WASM-only `WebCookWorkerHost`、异步 Emscripten module queueing 的 `WebCookWorkerEntry`、live Product provider，以及 container-neutral decoded Product assembly；S2b 已交付完整有界 GLB primitive canonicalization（interleaved/normalized/index/material/defaults）、Nyx Web Runtime Cooker adapter、Product content-manifest identity 与 page hash 校验、canonicalizer/credit pause/adapter tests。browser-first target 仍无真实 Emscripten artifact 与同一生产像素路径 | 完成真实 Emscripten build 与 Worker bootstrap Product -> 同一生产像素路径；不得把 native ABI oracle、Node fake module 或 TypeScript tests 视为 S2 Runtime 完成 |
 | 0016-A Offline/OEGPACK | implemented, validation open | native cooker、OEGPACK V3 parser、range source、页校验和 bootstrap residency proof 已存在 | 实现 OEGPACK Product adapter并通过共同 production consumer；之后才能冻结候选 spec |
 | 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、至少双槽的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer 已接线，但 async generation publication/device-loss recovery 与完整 demand 闭环仍未完成 | 完成 activation cut、GPU demand -> delayed readback -> provider -> upload -> generation publication 的有界闭环 |
-| 0016-C renderer cutover | not implemented | 生产 renderer 仍消费既有 V2 geometry package/hierarchy | 接入 Product generation、resident ancestor fallback，迁移 main/shadow/Scene adapter 后删除 V2 path |
+| 0016-C renderer cutover | in progress | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity；普通 Scene adapter/V2 owner 仍保留，Product device-loss 自动重建仍要求重新 admission | 完成 Product recovery checkpoint、删除旧 V2 owner/path，并用 ADR-0014 浏览器证据验证统一 consumer |
 | 0016-D texture modes | accepted, not implemented | 当前纹理按完整离线 mip/variant resident；没有渐进传输，也未证明真实物理 mip residency | 先交付 Mode A mip tail/高 mip 渐进传输；有 allocation 证据后再决定 Mode B/VT |
 
 详细交付切片见 [implementation/0016-virtualized-assets.md](./implementation/0016-virtualized-assets.md)。
