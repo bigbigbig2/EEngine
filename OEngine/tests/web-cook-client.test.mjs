@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const { WebCookClient } = await import("../.test-dist/assets/web-cook/WebCookClient.js");
+const { WebCookRuntimeAsset } = await import("../.test-dist/assets/web-cook/WebCookRuntimeAsset.js");
 
 class FakeWorker {
   listeners = new Map();
@@ -55,5 +56,17 @@ test("Web Cook client rejects invalid page identity before crossing the Worker b
   assert.equal(worker.sent.length, 3);
   client.cancel();
   assert.equal(client.state, "cancelled");
+  assert.equal(worker.terminated, true);
+});
+
+test("Web Cook runtime asset exposes Product ownership without GPU ownership", () => {
+  const worker = new FakeWorker();
+  const asset = WebCookRuntimeAsset.open("https://assets.test/runtime.glb", options(worker));
+  assert.equal(asset.url, "https://assets.test/runtime.glb");
+  assert.equal(asset.state, "open");
+  assert.equal(typeof asset.revisions, "function");
+  assert.equal(asset.evidence().provider.offeredRevisions, 0);
+  asset.dispose();
+  assert.equal(asset.state, "disposed");
   assert.equal(worker.terminated, true);
 });

@@ -156,6 +156,7 @@ export type {
 } from "./assets/web-cook/WebCookProductProvider.js";
 export { WebCookClient } from "./assets/web-cook/WebCookClient.js";
 export type { WebCookClientEvidence, WebCookClientOptions } from "./assets/web-cook/WebCookClient.js";
+export { WebCookRuntimeAsset } from "./assets/web-cook/WebCookRuntimeAsset.js";
 export {
   GeometryProductAdmissionController
 } from "./gpu/GeometryProductAdmission.js";
@@ -492,7 +493,7 @@ export { create_frame_loop } from "./render/create_frame_loop.js";
 export { deserialize_scene } from "./loaders/deserialize_scene.js";
 export { load_environment_avif } from "./loaders/load_environment_avif.js";
 export { load_environment_map } from "./loaders/load_environment_map.js";
-export { load_gltf, load_gltf_packed } from "./loaders/load_gltf.js";
+export { load_gltf, load_gltf_packed, load_gltf_web_product } from "./loaders/load_gltf.js";
 export type { PackedGltfSource } from "./loaders/load_gltf.js";
 export { load_scene_from_url } from "./loaders/load_scene_from_url.js";
 export { openGlbRangeSource } from "./loaders/gltf/streaming/GlbRangeSource.js";

@@ -36,6 +36,8 @@ import {
   applyDirSpotLookRotation,
   parsePunctualLight
 } from "./gltf/gltfLights.js";
+import { WebCookRuntimeAsset } from "../assets/web-cook/WebCookRuntimeAsset.js";
+import type { WebCookClientOptions } from "../assets/web-cook/WebCookClient.js";
 
 function buildSceneBundle(doc: GltfDocument): SceneBundle {
   const nodes = doc.nodes!;
@@ -493,6 +495,17 @@ export async function load_gltf_packed(
   if (fileMap) loader.fileMap = fileMap;
   const doc = await loader.loadFromUrl(url);
   return buildPackedGltfSource(doc);
+}
+
+/**
+ * Opens the Web Runtime Cook GLB route and returns a CPU/Product-only asset
+ * handle. GPU admission and Scene publication remain explicit renderer calls.
+ */
+export function load_gltf_web_product(
+  url: string,
+  options: WebCookClientOptions
+): WebCookRuntimeAsset {
+  return WebCookRuntimeAsset.open(url, options);
 }
 
 export type { GltfFileMap };
