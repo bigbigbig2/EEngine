@@ -1717,6 +1717,8 @@ Nyx 仓库自身的 README 明确记录了其技术边界：DirectX 12、Slang�
 
 以下是硬性移植规则：
 
+这里的“移植”严格指**算法实现与语义的可追溯转换**，不是逐行翻译或复制 Nyx 的 C++/Slang、DX12 API、struct 内存布局和最终产物字节。Web Runtime Cooker、Native Offline Cooker 与 OEngine GPU consumer 可以使用不同语言、执行编排和 WebGPU 资源表达，但必须分别保留各自命中的 Nyx 源函数/Shader 的算法阶段、关键分支/接受拒绝条件、数据依赖及正确性不变量。平台差异需要显式映射和验证；不能把删减核心算法解释为“思想相同”或“平台适配”。本段作为研究母稿的解释口径；仓库级强约束及完成门禁分别见 `AGENTS.md`、`docs/porting/README.md` 和 `docs/VALIDATION.md`。
+
 1. **算法必须移植，不得自行发明等价简化版。** Meshlet 构建、Group 划分、属性保护锁、简化接受/拒绝、refine 关系、误差传播、BVH/DAG 构建、SSE、resident ancestor fallback、request 生成、page 独立性和 meshlet-local primitive identity，必须以表中 Nyx 函数/Shader 为源逐项移植。只保留“有 meshlet、有 LOD、有 streaming”的概念不算移植。
 2. **允许改的是平台和边界，不是算法不变量。** 允许把 C++/Slang 翻译为 WASM C++、TypeScript 胶水、WGSL，把 DX12 resource/bindless/mesh shader 映射到 WebGPU 已验证的 buffer、indirect draw、bounded queue 和现有 raster consumer；允许把 Nyx 文件 I/O 接到 HTTP Range/GLB source、把 DX12 fence 接到提交序号/retire queue、把 64-bit GPU 地址改成 bank/slot/generation。
 3. **禁止以性能或“WebGPU 不支持”为理由偷换算法。** 禁止用简单均匀 LOD、单层 BVH、CPU 全量可见列表、按对象逐 draw、整包常驻、随机/first-fit page packing、只 pin root 不做 request/fallback、删除 attribute lock、删除 error propagation、删除 coarse-to-fine refinement 或直接改成普通 triangle renderer 作为正式实现。若 WebGPU 能力不足，必须保留 Nyx 不变量并新增明确的 OEngine 适配层、fallback 或独立 capability gate。

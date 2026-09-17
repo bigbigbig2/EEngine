@@ -25,6 +25,7 @@ OEngine 当前阶段是面向桌面 WebGPU、中大型高几何密度场景的 G
 - 不以 Pass 数量、Shader 数量或“已存在类名”证明能力完成；必须有运行证据、计数器和 benchmark。
 - 当前实现不是不可推翻的权威。性能证据可以要求删除或重写现有 Visibility、HZB、Material Expand 和帧提交路径。
 - 具体算法、GPU 数据结构和 Shader 实现先检查 `docs/porting/`；存在许可证兼容且经过验证的实现时，优先做可追溯移植。移植必须记录上游仓库、commit/tag、源码路径、保留不变量和 WebGPU/OEngine 差异。
+- ADR-0016 的 Nyx 来源算法是强制忠实移植目标：Web Runtime Cooker、Native Offline Cooker 与 GPU traversal/streaming/raster 各自命中的 Nyx 算法阶段、决策条件、数据依赖和正确性不变量必须按源函数/Shader entry point 对照保留。移植不要求逐行、同语言、同图形 API、同内存布局或 Web/Offline 字节相同；允许 C++/WASM、TypeScript 与 WGSL 的必要平台适配，但不得以适配为名删减阶段、自行换用简化算法或只保留概念。每项适配必须记录源函数到生产代码的映射、保留/改变的语义、原因、fallback 和验证；若平台限制导致核心语义无法保留，应停止该切片并请求方向确认，不得自行降级。未完成对照与下游消费证据时不得宣称 Nyx 算法移植完成。具体门禁见 `docs/porting/README.md` 与 `docs/VALIDATION.md`。
 
 ## 开源实现与算法复用
 

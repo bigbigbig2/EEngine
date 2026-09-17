@@ -32,6 +32,7 @@
 - 新 GPU 队列：容量、overflow、counter、producer -> consumer、零工作和 feature-off。
 - 资源生命周期：replace、resize、toggle、camera cut、aborted submit、异步取消、device loss/recovery。
 - Renderer cutover：被替换 source/public symbol 不存在；compiled graph/shader 无旧 producer；真实浏览器 topology/counter 证明 replacement consumer 闭环。
+- Nyx 算法移植：按 `docs/porting/README.md` 的源函数/Shader 映射逐项核对阶段、分支与不变量；用结构化 differential corpus 比较 Nyx 参考与 Web/Offline 产物，用 negative corpus 覆盖非法输入、溢出、缺页、取消和生命周期，并证明真实 GPU producer → consumer。不同语言、API、布局或字节输出不自动构成失败；仅有相似架构、单元测试或自述不构成完成证据。
 - 视觉算法：稳定数值 seam 加少量代表性视角；截图只用于确实需要视觉判断的项目。
 
 ## 性能采样
@@ -54,7 +55,7 @@
 - **Performance Improved**：同条件证据支持具体相对改善。
 - **GPU-driven Complete**：GPU producer 的有效输出由 GPU consumer 直接消费，容量/overflow/counter 闭合。
 - **Pipeline Feature Complete**：正确性、fallback/lifecycle、feature-off 和所需性能证据齐全。
-- **External Algorithm Complete**：来源、revision、license、差异和本地验证已登记。
+- **External Algorithm Complete**：来源、revision、license、源函数到生产实现的映射、保留不变量/差异和命中的本地验证已登记；Nyx 移植还须满足上述 differential、negative 与真实下游 consumer 门禁。不要求逐行或跨 Producer 字节相同。
 - **ADR Complete**：production cutover、要求的 MILESTONE/PERF、旧路径删除和事实文档同步全部完成。
 
 交付说明必须列出已运行验证、未运行验证及原因。
