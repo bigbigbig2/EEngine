@@ -13,6 +13,17 @@
 - Fallback/lifecycle: attribute-aware simplification未达到冻结比率时仅在 recipe 允许时使用 `meshopt_simplifySloppy`，并设置 `kGroupSimplificationFallback`、放大 error、计数；不做隐藏的 source-vertex runtime fallback。bootstrap owner 失败时销毁全部 bank，显式 `destroy()` 释放 GPUBuffer。
 - Local validation: C++ struct/offset `static_assert`、不同线程数 byte-identical golden、native/TS reopen、CRC/hash、DAG/bootstrap、page independence、corruption、Chrome WGSL raw-record decode/readback 与 medium-scene diagnostic cook。格式冻结还需要 [OEGPACK V3 spec](../specs/oegpack-v3.md) 规定的真实生产 Visibility consumer。
 
+## GEO-NYX-WEB-COOKER · Browser-first WASM Geometry Product producer（移植中）
+
+- Local owner/source: `OEngine/tools/oengine-web-geometry-cooker/`、`OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp`、`src/product/DecodedGeometryProduct.cpp`、`OEngine/src/assets/web-cook/wasm/WebGeometryCookerAbi.ts`。
+- Upstream: 本地 `D:\Nyx-main` 快照，无可验证 `.git` metadata；2026-09-17 复核母稿列出的 7 个 Nyx source hash，构建入口在编译前强制复核；meshoptimizer 0.25 header hash `a05dfed026d1dbeea6b38751ff22397e48a6706a4138e92a160ad57e33f7c0fd`。
+- License/adoption: Nyx/MiniEngine MIT、meshoptimizer MIT；完整 notice 见 `OEngine/tools/oengine-web-geometry-cooker/THIRD_PARTY_NOTICES.md`。可追溯局部移植；首个 browser profile 直接把已审查的 Nyx C++ port 编译为单线程 WASM，不链接 Native CLI、cgltf、LZ4、文件系统或 OEGPACK writer。
+- Function map: `Build/BuildLOD0Meshlets/BuildMeshletsFromIndices` -> `BuildMeshlets/CookDomain`；`GeneratePositionRemap/GroupMeshlets/BuildVertexLocksByGroups` -> `CookDomain/BuildSeamLocks`；`SimplifyGroup` -> 同名 local port；`SerializeGroup/BuildStreamingData/BuildHierarchy/ValidateBuild` -> `SerializeGroup/BuildNyxHierarchy/ValidateLodBuild/AssembleDecodedGeometryProductV1`。精确输入/输出和字段布局见 [Web Geometry Cooker ABI V1](../specs/web-geometry-cooker-abi-v1.md)。
+- Retained invariants: meshoptimizer clusterizer、position remap、material domain、同 LOD partition、seam/attribute protect lock、attribute-aware simplify、显式 sloppy/permissive fallback、refine/error propagation、per-LOD BVH8 + top BVH、coarse-first、Group page-local、完整 bootstrap cut、256 KiB independent decoded Page。
+- Web differences: Range/glTF accessor canonicalization 在 Worker TS 边界形成 bounded canonical binary；WASM 返回 Product tables 和 page handle，只有取得 output credit 才逐页拷到 exclusive `ArrayBuffer`。不先写 OEGPACK，不把 WASM memory/SAB 当 transferable，不创建 GPU object。当前只建立 `portable-single` producer ABI；GLB accessor canonicalizer、Worker entry 和 Runtime admission 接线仍未交付。
+- Fallback/lifecycle: input/recipe/reserved/padding/index/finite/budget 错误整体 fail closed；opaque handle 在 generation cancel/failure 时整体销毁，未 offer descriptor/page 不允许进入 admission。`portable-pool`/pthread 不是本切片 fallback，等待 S3。
+- Local validation: Native ABI oracle 对同一 canonical cube 连续 cook 两次并逐 section/page byte compare；C++/TS canonical + recipe bytes 共用 SHA-256 golden；覆盖 length、normal declaration、non-finite、index 和 budget negative case。实际 Emscripten build、Dedicated Worker crash/OOM、真实 GLB Range 与浏览器 pixel evidence 尚缺，因此 S2 未完成。
+
 ## GEO-NYX-VIRTUAL-RUNTIME · Product V1 hierarchy/address consumer（移植中）
 
 - Local owner/source: `OEngine/src/gpu/GeometryProductGpuAbiV1.ts`、`VirtualGeometryResidency.ts`、`OEngine/src/shaders/virtual_geometry_product.ts`、`hierarchical_work_generation.ts`、`OEngine/src/render/HierarchicalWorkGenerator.ts`。尚未接通 `MeshletWorkCandidate`、bucket raster、VisibilityKey 和 Sparse Shading，因此不是 production candidate。

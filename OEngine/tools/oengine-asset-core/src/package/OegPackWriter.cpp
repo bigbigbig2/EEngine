@@ -1,4 +1,5 @@
 #include "oengine_asset/OegPackWriter.h"
+#include "oengine_asset/DecodedGeometryProduct.h"
 #include "oengine_asset/OegPackCodec.h"
 
 #include "lz4.h"
@@ -24,12 +25,7 @@
 namespace oengine::asset {
 namespace {
 
-struct PageBuild {
-    std::vector<std::uint8_t> decoded = std::vector<std::uint8_t>(kGeometryPageBytesV3, 0u);
-    std::vector<std::uint32_t> groups;
-    std::uint32_t usedBytes = 0u;
-    std::uint8_t lodLevel = 0u;
-    bool bootstrap = false;
+struct EncodedPage {
     std::vector<std::uint8_t> encoded;
     GeometryPageDirectoryV3 directory{};
 };
@@ -146,42 +142,16 @@ std::uint64_t AssetDecodedBytes(const CookedAssetV3& asset) {
     return bytes;
 }
 
-void PatchAssetForPack(
-    CookedAssetV3& asset, std::uint32_t groupBase, std::uint32_t nodeBase,
-    const std::vector<std::uint8_t>& formatRemap) {
-    for (SerializedGroupV3& group : asset.groups) {
-        GroupHeaderV3 header{}; DecodeRecordV3(group.bytes.data(), &header);
-        if (header.vertexFormatId >= formatRemap.size()) throw std::runtime_error("asset vertex format id is invalid");
-        header.vertexFormatId = formatRemap[header.vertexFormatId]; EncodeRecordV3(group.bytes.data(), header);
-        for (std::uint32_t i = 0; i < header.meshletCount; ++i) {
-            std::uint8_t* address = group.bytes.data() + header.meshletHeaderOffset + i * sizeof(MeshletHeaderV3);
-            MeshletHeaderV3 meshlet{}; DecodeRecordV3(address, &meshlet);
-            if (meshlet.refineGroupId != kInvalidId) meshlet.refineGroupId += groupBase;
-            EncodeRecordV3(address, meshlet);
-        }
-    }
-    for (GeometryHierarchyNodeV3& node : asset.hierarchy) {
-        if (IsGroupLeafV3(node.packedNodeData)) {
-            const std::uint32_t group = (node.packedNodeData >> 1u) & 0x00ffffffu;
-            const std::uint32_t count = ((node.packedNodeData >> 25u) & 0x7fu) + 1u;
-            node.packedNodeData = PackGroupLeafV3(groupBase + group, count);
-        } else {
-            const std::uint32_t child = (node.packedNodeData >> 1u) & 0x07ffffffu;
-            const std::uint32_t count = (node.packedNodeData >> 28u) & 0x0fu;
-            node.packedNodeData = PackInternalNodeV3(nodeBase + child, count);
-        }
-    }
-    for (std::uint32_t& root : asset.rootNodeIndices) root += nodeBase;
-}
-
-void CompressPage(PageBuild& page, const GeometryCookRecipeV3& recipe) {
+void CompressPage(
+    const DecodedGeometryPageV1& decoded, EncodedPage& page,
+    const GeometryCookRecipeV3& recipe) {
     std::vector<char> lz4(static_cast<std::size_t>(LZ4_compressBound(int(kGeometryPageBytesV3))), char(0));
     const int compressed = LZ4_compress_default(
-        reinterpret_cast<const char*>(page.decoded.data()), lz4.data(),
+        reinterpret_cast<const char*>(decoded.bytes.data()), lz4.data(),
         int(kGeometryPageBytesV3), int(lz4.size()));
     if (compressed <= 0) throw std::runtime_error("LZ4 compression failed");
     if (std::uint32_t(compressed) >= kGeometryPageBytesV3 - recipe.rawCodecThresholdBytes) {
-        page.encoded = page.decoded;
+        page.encoded = decoded.bytes;
         page.directory.codec = kPageCodecRaw256K;
     } else {
         page.encoded.assign(reinterpret_cast<const std::uint8_t*>(lz4.data()), reinterpret_cast<const std::uint8_t*>(lz4.data()) + compressed);
@@ -189,150 +159,29 @@ void CompressPage(PageBuild& page, const GeometryCookRecipeV3& recipe) {
     }
     page.directory.compressedBytes = std::uint32_t(page.encoded.size());
     page.directory.decodedBytes = kGeometryPageBytesV3;
-    const Hash256 hash = Sha256(page.decoded);
-    std::copy(hash.begin(), hash.begin() + 16u, page.directory.decodedContentHash128);
+    page.directory.firstGroup = decoded.firstGroup;
+    page.directory.groupCount = decoded.groupCount;
+    std::copy(
+        decoded.decodedHash128.begin(), decoded.decodedHash128.end(),
+        page.directory.decodedContentHash128);
     page.directory.compressedChecksum = Crc32(page.encoded.data(), page.encoded.size());
-    page.directory.flags = page.bootstrap ? kGroupBootstrap : 0u;
-}
-
-struct PackAssembly {
-    std::vector<GeometryAssetRecordV3> assets;
-    std::vector<std::uint32_t> roots;
-    std::vector<GeometryHierarchyNodeV3> hierarchy;
-    std::vector<GeometryGroupDirectoryV3> groups;
-    std::vector<VertexFormatRecordV3> formats;
-    std::vector<std::uint32_t> bootstrapPages;
-    std::vector<PageBuild> pages;
-    std::vector<SerializedGroupV3> serializedGroups;
-};
-
-PackAssembly AssemblePack(std::vector<CookedAssetV3> cooked) {
-    PackAssembly pack;
-    std::vector<std::vector<std::uint32_t>> assetBootstrapPages(cooked.size());
-    for (std::size_t assetIndex = 0; assetIndex < cooked.size(); ++assetIndex) {
-        CookedAssetV3& asset = cooked[assetIndex];
-        const std::uint32_t groupBase = std::uint32_t(pack.groups.size());
-        const std::uint32_t nodeBase = std::uint32_t(pack.hierarchy.size());
-        std::vector<std::uint8_t> formatRemap;
-        for (const VertexFormatRecordV3& format : asset.vertexFormats) {
-            auto found = std::find_if(pack.formats.begin(), pack.formats.end(), [&](const VertexFormatRecordV3& candidate) {
-                return std::memcmp(&candidate, &format, sizeof(format)) == 0;
-            });
-            if (found == pack.formats.end()) {
-                if (pack.formats.size() >= 255u) throw std::runtime_error("pack has more than 255 distinct vertex formats");
-                formatRemap.push_back(std::uint8_t(pack.formats.size()));
-                pack.formats.push_back(format);
-            } else {
-                formatRemap.push_back(std::uint8_t(found - pack.formats.begin()));
-            }
-        }
-        PatchAssetForPack(asset, groupBase, nodeBase, formatRemap);
-
-        GeometryAssetRecordV3 record{};
-        std::copy(asset.assetId.begin(), asset.assetId.end(), record.assetId);
-        std::copy(asset.boundsSphere, asset.boundsSphere + 4, record.boundsSphere);
-        std::copy(asset.boundsMin, asset.boundsMin + 3, record.boundsMin);
-        std::copy(asset.boundsMax, asset.boundsMax + 3, record.boundsMax);
-        record.rootNodeBegin = std::uint32_t(pack.roots.size()); record.rootNodeCount = std::uint32_t(asset.rootNodeIndices.size());
-        record.hierarchyBegin = nodeBase; record.hierarchyCount = std::uint32_t(asset.hierarchy.size());
-        record.groupBegin = groupBase; record.groupCount = std::uint32_t(asset.groups.size());
-        record.sourceTriangleCount = asset.sourceTriangleCount; record.leafMeshletCount = asset.leafMeshletCount;
-        record.totalMeshletCount = asset.totalMeshletCount;
-        pack.roots.insert(pack.roots.end(), asset.rootNodeIndices.begin(), asset.rootNodeIndices.end());
-        pack.hierarchy.insert(pack.hierarchy.end(), asset.hierarchy.begin(), asset.hierarchy.end());
-        pack.groups.resize(pack.groups.size() + asset.groups.size());
-        pack.serializedGroups.insert(
-            pack.serializedGroups.end(),
-            std::make_move_iterator(asset.groups.begin()),
-            std::make_move_iterator(asset.groups.end()));
-        pack.assets.push_back(record);
-    }
-
-    // Geometry Product V1 page records carry one contiguous GroupID range.
-    // Keep the Nyx-produced Group identity order and only continue packing onto
-    // the page containing the immediately preceding GroupID. A page boundary
-    // is therefore the only place where a range can split; no page may contain
-    // an interleaved set such as [0, 6]. This changes packing, not meshlet,
-    // hierarchy, refine/error, or bootstrap selection semantics.
-    std::vector<std::uint32_t> packingOrder(pack.serializedGroups.size());
-    std::iota(packingOrder.begin(), packingOrder.end(), 0u);
-    constexpr std::size_t kBestFitCandidateWindow = 16u;
-    for (std::uint32_t groupId : packingOrder) {
-        const SerializedGroupV3& group = pack.serializedGroups[groupId];
-        const bool bootstrap = (group.flags & kGroupBootstrap) != 0u;
-        std::size_t bestPage = pack.pages.size();
-        std::uint32_t bestRemaining = std::numeric_limits<std::uint32_t>::max();
-        std::size_t matchingCandidates = 0u;
-        for (std::size_t reverse = pack.pages.size(); reverse-- > 0u && matchingCandidates < kBestFitCandidateWindow;) {
-            PageBuild& candidate = pack.pages[reverse];
-            if (candidate.groups.empty() || candidate.groups.back() + 1u != groupId) continue;
-            if (candidate.bootstrap != bootstrap || candidate.lodLevel != group.lodLevel) continue;
-            ++matchingCandidates;
-            const std::uint32_t aligned = std::uint32_t(AlignUp64(candidate.usedBytes, 16u));
-            if (group.bytes.size() > kGeometryPageBytesV3 - aligned) continue;
-            const std::uint32_t remaining = kGeometryPageBytesV3 - aligned - std::uint32_t(group.bytes.size());
-            if (remaining <= bestRemaining) { bestRemaining = remaining; bestPage = reverse; }
-        }
-        if (bestPage == pack.pages.size()) {
-            pack.pages.emplace_back(); bestPage = pack.pages.size() - 1u;
-            pack.pages[bestPage].bootstrap = bootstrap; pack.pages[bestPage].lodLevel = group.lodLevel;
-        }
-        PageBuild& page = pack.pages[bestPage];
-        const std::uint32_t offset = std::uint32_t(AlignUp64(page.usedBytes, 16u));
-        if (offset + group.bytes.size() > kGeometryPageBytesV3) throw std::runtime_error("group does not fit in an empty page");
-        std::copy(group.bytes.begin(), group.bytes.end(), page.decoded.begin() + offset);
-        GeometryGroupDirectoryV3& directory = pack.groups[groupId];
-        directory.offsetInDecodedPage = offset; directory.payloadBytes = std::uint32_t(group.bytes.size()); directory.flags = group.flags;
-        page.groups.push_back(groupId); page.usedBytes = offset + directory.payloadBytes;
-    }
-    for (PageBuild& page : pack.pages) {
-        page.directory.firstGroup = *std::min_element(page.groups.begin(), page.groups.end());
-        page.directory.groupCount = std::uint32_t(page.groups.size());
-    }
-
-    std::stable_sort(pack.pages.begin(), pack.pages.end(), [](const PageBuild& a, const PageBuild& b) {
-        if (a.bootstrap != b.bootstrap) return a.bootstrap > b.bootstrap;
-        if (a.lodLevel != b.lodLevel) return a.lodLevel > b.lodLevel;
-        return a.groups.front() < b.groups.front();
-    });
-    for (std::uint32_t pageId = 0u; pageId < pack.pages.size(); ++pageId) {
-        PageBuild& page = pack.pages[pageId];
-        for (std::uint32_t group : page.groups) pack.groups[group].pageId = pageId;
-        if (page.bootstrap) {
-            pack.bootstrapPages.push_back(pageId);
-            for (std::size_t assetIndex = 0; assetIndex < pack.assets.size(); ++assetIndex) {
-                const GeometryAssetRecordV3& asset = pack.assets[assetIndex];
-                const std::uint32_t assetLast = asset.groupBegin + asset.groupCount - 1u;
-                if (std::any_of(page.groups.begin(), page.groups.end(), [&](std::uint32_t group) {
-                    return group >= asset.groupBegin && group <= assetLast;
-                })) assetBootstrapPages[assetIndex].push_back(pageId);
-            }
-        }
-    }
-    pack.bootstrapPages.clear();
-    for (std::size_t assetIndex = 0; assetIndex < pack.assets.size(); ++assetIndex) {
-        GeometryAssetRecordV3& asset = pack.assets[assetIndex];
-        asset.bootstrapPageBegin = std::uint32_t(pack.bootstrapPages.size());
-        asset.bootstrapPageCount = std::uint32_t(assetBootstrapPages[assetIndex].size());
-        pack.bootstrapPages.insert(pack.bootstrapPages.end(), assetBootstrapPages[assetIndex].begin(), assetBootstrapPages[assetIndex].end());
-        if (asset.bootstrapPageCount == 0u) throw std::runtime_error("asset has no bootstrap pages");
-    }
-    return pack;
+    page.directory.flags = decoded.bootstrap ? kGroupBootstrap : 0u;
 }
 
 WrittenPackV3 WritePack(
     const std::string& outputDirectory, std::vector<CookedAssetV3> assets,
     const std::vector<std::uint32_t>& sourceIndices, const GeometryCookRecipeV3& recipe,
     std::uint32_t workerCount, CookEvidenceV3& evidence, std::vector<double>& pageFills) {
-    PackAssembly pack = AssemblePack(std::move(assets));
+    DecodedGeometryProductV1 product = AssembleDecodedGeometryProductV1(std::move(assets));
+    std::vector<EncodedPage> encodedPages(product.pages.size());
     const std::size_t concurrency = std::max<std::size_t>(1u, workerCount);
-    for (std::size_t begin = 0u; begin < pack.pages.size(); begin += concurrency) {
+    for (std::size_t begin = 0u; begin < product.pages.size(); begin += concurrency) {
         std::vector<std::future<void>> compression;
-        const std::size_t end = std::min(pack.pages.size(), begin + concurrency);
+        const std::size_t end = std::min(product.pages.size(), begin + concurrency);
         compression.reserve(end - begin);
         for (std::size_t pageIndex = begin; pageIndex < end; ++pageIndex) {
             compression.push_back(std::async(std::launch::async, [&, pageIndex]() {
-                CompressPage(pack.pages[pageIndex], recipe);
+                CompressPage(product.pages[pageIndex], encodedPages[pageIndex], recipe);
             }));
         }
         for (auto& task : compression) task.get();
@@ -344,20 +193,20 @@ WrittenPackV3 WritePack(
     header.endianMarker = kOegPackEndianMarker; header.headerBytes = kOegPackHeaderBytesV3;
     header.pageShift = kGeometryPageShiftV3; header.pageBytes = kGeometryPageBytesV3;
     header.defaultCodec = kPageCodecLz4Block;
-    header.assetCount = std::uint32_t(pack.assets.size()); header.rootNodeIndexCount = std::uint32_t(pack.roots.size());
-    header.hierarchyNodeCount = std::uint32_t(pack.hierarchy.size()); header.groupCount = std::uint32_t(pack.groups.size());
-    header.pageCount = std::uint32_t(pack.pages.size()); header.vertexFormatCount = std::uint32_t(pack.formats.size());
-    header.bootstrapPageCount = std::uint32_t(pack.bootstrapPages.size());
+    header.assetCount = std::uint32_t(product.assets.size()); header.rootNodeIndexCount = std::uint32_t(product.roots.size());
+    header.hierarchyNodeCount = std::uint32_t(product.hierarchy.size()); header.groupCount = std::uint32_t(product.groups.size());
+    header.pageCount = std::uint32_t(product.pages.size()); header.vertexFormatCount = std::uint32_t(product.formats.size());
+    header.bootstrapPageCount = std::uint32_t(product.bootstrapPages.size());
     std::uint64_t cursor = sizeof(header);
-    header.assetDirectoryOffset = cursor; cursor = AlignUp64(cursor + pack.assets.size() * sizeof(GeometryAssetRecordV3), 16u);
-    header.rootNodeIndexOffset = cursor; cursor = AlignUp64(cursor + pack.roots.size() * sizeof(std::uint32_t), 16u);
-    header.hierarchyOffset = cursor; cursor = AlignUp64(cursor + pack.hierarchy.size() * sizeof(GeometryHierarchyNodeV3), 16u);
-    header.groupDirectoryOffset = cursor; cursor = AlignUp64(cursor + pack.groups.size() * sizeof(GeometryGroupDirectoryV3), 16u);
-    header.pageDirectoryOffset = cursor; cursor = AlignUp64(cursor + pack.pages.size() * sizeof(GeometryPageDirectoryV3), 16u);
-    header.bootstrapPageOffset = cursor; cursor = AlignUp64(cursor + pack.bootstrapPages.size() * sizeof(std::uint32_t), 16u);
-    header.vertexFormatOffset = cursor; cursor = AlignUp64(cursor + pack.formats.size() * sizeof(VertexFormatRecordV3), 256u);
+    header.assetDirectoryOffset = cursor; cursor = AlignUp64(cursor + product.assets.size() * sizeof(GeometryAssetRecordV3), 16u);
+    header.rootNodeIndexOffset = cursor; cursor = AlignUp64(cursor + product.roots.size() * sizeof(std::uint32_t), 16u);
+    header.hierarchyOffset = cursor; cursor = AlignUp64(cursor + product.hierarchy.size() * sizeof(GeometryHierarchyNodeV3), 16u);
+    header.groupDirectoryOffset = cursor; cursor = AlignUp64(cursor + product.groups.size() * sizeof(GeometryGroupDirectoryV3), 16u);
+    header.pageDirectoryOffset = cursor; cursor = AlignUp64(cursor + encodedPages.size() * sizeof(GeometryPageDirectoryV3), 16u);
+    header.bootstrapPageOffset = cursor; cursor = AlignUp64(cursor + product.bootstrapPages.size() * sizeof(std::uint32_t), 16u);
+    header.vertexFormatOffset = cursor; cursor = AlignUp64(cursor + product.formats.size() * sizeof(VertexFormatRecordV3), 256u);
     header.pageBlobOffset = cursor;
-    for (PageBuild& page : pack.pages) {
+    for (EncodedPage& page : encodedPages) {
         page.directory.compressedFileOffset = cursor;
         cursor += page.encoded.size();
     }
@@ -365,17 +214,17 @@ WrittenPackV3 WritePack(
     const Hash256 recipeHash = Sha256(CanonicalRecipeJson(recipe));
     std::copy(recipeHash.begin(), recipeHash.end(), header.recipeHash);
     std::vector<GeometryPageDirectoryV3> pageDirectories;
-    for (const PageBuild& page : pack.pages) pageDirectories.push_back(page.directory);
+    for (const EncodedPage& page : encodedPages) pageDirectories.push_back(page.directory);
     std::vector<std::uint8_t> bytes(std::size_t(header.fileBytes), 0u);
     WriteRecord(bytes, 0u, header);
-    WriteRecords(bytes, header.assetDirectoryOffset, pack.assets);
-    WriteRecords(bytes, header.rootNodeIndexOffset, pack.roots);
-    WriteRecords(bytes, header.hierarchyOffset, pack.hierarchy);
-    WriteRecords(bytes, header.groupDirectoryOffset, pack.groups);
+    WriteRecords(bytes, header.assetDirectoryOffset, product.assets);
+    WriteRecords(bytes, header.rootNodeIndexOffset, product.roots);
+    WriteRecords(bytes, header.hierarchyOffset, product.hierarchy);
+    WriteRecords(bytes, header.groupDirectoryOffset, product.groups);
     WriteRecords(bytes, header.pageDirectoryOffset, pageDirectories);
-    WriteRecords(bytes, header.bootstrapPageOffset, pack.bootstrapPages);
-    WriteRecords(bytes, header.vertexFormatOffset, pack.formats);
-    for (const PageBuild& page : pack.pages) std::copy(page.encoded.begin(), page.encoded.end(), bytes.begin() + page.directory.compressedFileOffset);
+    WriteRecords(bytes, header.bootstrapPageOffset, product.bootstrapPages);
+    WriteRecords(bytes, header.vertexFormatOffset, product.formats);
+    for (const EncodedPage& page : encodedPages) std::copy(page.encoded.begin(), page.encoded.end(), bytes.begin() + page.directory.compressedFileOffset);
     const Hash256 packHash = Sha256(bytes.data(), std::size_t(header.pageBlobOffset));
     std::copy(packHash.begin(), packHash.end(), header.packContentHash);
     WriteRecord(bytes, 0u, header);
@@ -384,9 +233,10 @@ WrittenPackV3 WritePack(
     WriteFile(path, bytes);
     ValidateOegPackV3File(path, true);
 
-    evidence.pageCount += pack.pages.size(); evidence.decodedPageBytes += pack.pages.size() * std::uint64_t(kGeometryPageBytesV3);
-    for (const PageBuild& page : pack.pages) {
-        evidence.compressedPageBytes += page.encoded.size(); evidence.wastedPaddingBytes += kGeometryPageBytesV3 - page.usedBytes;
+    evidence.pageCount += product.pages.size(); evidence.decodedPageBytes += product.pages.size() * std::uint64_t(kGeometryPageBytesV3);
+    for (std::size_t pageIndex = 0u; pageIndex < product.pages.size(); ++pageIndex) {
+        const DecodedGeometryPageV1& page = product.pages[pageIndex];
+        evidence.compressedPageBytes += encodedPages[pageIndex].encoded.size(); evidence.wastedPaddingBytes += kGeometryPageBytesV3 - page.usedBytes;
         if (page.bootstrap) { ++evidence.bootstrapPageCount; evidence.bootstrapGeometryBytes += page.usedBytes; }
         pageFills.push_back(double(page.usedBytes) / double(kGeometryPageBytesV3));
     }

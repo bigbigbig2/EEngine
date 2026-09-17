@@ -35,7 +35,9 @@ add_executable(oengine-asset-cooker
     src/GeometryCookRecipe.cpp
     src/OegPackCodec.cpp
     src/import/GltfImporter.cpp
+    src/geometry/CanonicalGeometry.cpp
     src/geometry/GeometryCooker.cpp
+    src/product/DecodedGeometryProduct.cpp
     src/package/OegPackWriter.cpp
     "${NYX_SOURCE_DIR}/MiniEngine/ThirdParty/lz4/lz4.c"
     ${MESHOPTIMIZER_SOURCES})

@@ -17,6 +17,9 @@ validation/temp-*.png
 .codex-temp/
 .three.js/
 temp
+OEngine/tools/oengine-asset-core/build/
+OEngine/tools/oengine-web-geometry-cooker/build/
+OEngine/tools/oengine-web-geometry-cooker/build-wasm/
 
 
 

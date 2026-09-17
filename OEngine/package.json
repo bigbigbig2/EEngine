@@ -14,6 +14,7 @@
     "typecheck": "tsc --noEmit",
     "build:test": "tsc -p tsconfig.test.json",
     "build:native-cooker": "node tools/build-native-cooker.mjs",
+    "test:web-geometry-cooker-core": "node tools/build-web-geometry-cooker-oracle.mjs",
     "test:oegpack-v3": "npm run build:native-cooker && npm run build:test && node --test tests/oegpack-v3.test.mjs",
     "benchmark:oegpack-v3": "node tools/benchmark-oegpack-v3.mjs",
     "generate:oegpack-stress": "node tools/generate-oegpack-stress-glb.mjs",

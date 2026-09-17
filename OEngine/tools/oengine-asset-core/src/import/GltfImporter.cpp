@@ -3,6 +3,8 @@
 #define CGLTF_IMPLEMENTATION
 #include "cgltf.h"
 
+#include "oengine_asset/CanonicalGeometry.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -18,19 +20,6 @@ namespace {
 struct CgltfDeleter {
     void operator()(cgltf_data* data) const { if (data) cgltf_free(data); }
 };
-
-void AddU32(Sha256Builder& hash, std::uint32_t value) {
-    const std::uint8_t bytes[4] = {
-        std::uint8_t(value), std::uint8_t(value >> 8u),
-        std::uint8_t(value >> 16u), std::uint8_t(value >> 24u)};
-    hash.Add(bytes, sizeof(bytes));
-}
-
-void AddF32(Sha256Builder& hash, float value) {
-    std::uint32_t bits = 0u;
-    std::memcpy(&bits, &value, sizeof(bits));
-    AddU32(hash, bits);
-}
 
 const cgltf_accessor* FindAttribute(
     const cgltf_primitive& primitive, cgltf_attribute_type type, int index = 0) {
@@ -57,36 +46,6 @@ std::uint32_t MaterialFlags(const cgltf_material* material) {
     else flags |= kMeshletBlend;
     if (material && material->double_sided) flags |= kMeshletTwoSided;
     return flags;
-}
-
-void GenerateNormals(MaterialDomain& domain) {
-    for (CanonicalVertex& vertex : domain.vertices) {
-        vertex.normal[0] = vertex.normal[1] = vertex.normal[2] = 0.0f;
-    }
-    for (std::size_t i = 0; i < domain.indices.size(); i += 3u) {
-        CanonicalVertex& a = domain.vertices[domain.indices[i]];
-        CanonicalVertex& b = domain.vertices[domain.indices[i + 1u]];
-        CanonicalVertex& c = domain.vertices[domain.indices[i + 2u]];
-        const float ab[3] = {b.position[0] - a.position[0], b.position[1] - a.position[1], b.position[2] - a.position[2]};
-        const float ac[3] = {c.position[0] - a.position[0], c.position[1] - a.position[1], c.position[2] - a.position[2]};
-        const float n[3] = {
-            ab[1] * ac[2] - ab[2] * ac[1],
-            ab[2] * ac[0] - ab[0] * ac[2],
-            ab[0] * ac[1] - ab[1] * ac[0]};
-        for (std::uint32_t axis = 0; axis < 3u; ++axis) {
-            a.normal[axis] += n[axis]; b.normal[axis] += n[axis]; c.normal[axis] += n[axis];
-        }
-    }
-    for (CanonicalVertex& vertex : domain.vertices) {
-        const float length = std::sqrt(vertex.normal[0] * vertex.normal[0] +
-                                       vertex.normal[1] * vertex.normal[1] +
-                                       vertex.normal[2] * vertex.normal[2]);
-        if (length > 1e-20f) {
-            vertex.normal[0] /= length; vertex.normal[1] /= length; vertex.normal[2] /= length;
-        } else {
-            vertex.normal[2] = 1.0f;
-        }
-    }
 }
 
 MaterialDomain DecodePrimitive(const cgltf_data& data, const cgltf_primitive& primitive) {
@@ -125,7 +84,7 @@ MaterialDomain DecodePrimitive(const cgltf_data& data, const cgltf_primitive& pr
         if (index >= domain.vertices.size()) throw std::runtime_error("glTF index exceeds primitive vertex count");
         domain.indices[i] = std::uint32_t(index);
     }
-    if (!normal) GenerateNormals(domain);
+    if (!normal) GenerateCanonicalNormalsV3(domain);
     return domain;
 }
 
@@ -140,57 +99,6 @@ void AppendDomain(MaterialDomain& target, MaterialDomain source) {
     target.vertices.insert(target.vertices.end(), source.vertices.begin(), source.vertices.end());
     target.indices.reserve(target.indices.size() + source.indices.size());
     for (std::uint32_t index : source.indices) target.indices.push_back(vertexBase + index);
-}
-
-void ComputeBounds(CanonicalGeometryAsset& asset) {
-    float minimum[3] = {
-        std::numeric_limits<float>::infinity(),
-        std::numeric_limits<float>::infinity(),
-        std::numeric_limits<float>::infinity()};
-    float maximum[3] = {-minimum[0], -minimum[1], -minimum[2]};
-    for (const MaterialDomain& domain : asset.domains) {
-        for (const CanonicalVertex& vertex : domain.vertices) {
-            for (std::uint32_t axis = 0; axis < 3u; ++axis) {
-                minimum[axis] = std::min(minimum[axis], vertex.position[axis]);
-                maximum[axis] = std::max(maximum[axis], vertex.position[axis]);
-            }
-        }
-    }
-    float radius = 0.0f;
-    float center[3]{};
-    for (std::uint32_t axis = 0; axis < 3u; ++axis) center[axis] = 0.5f * (minimum[axis] + maximum[axis]);
-    for (const MaterialDomain& domain : asset.domains) {
-        for (const CanonicalVertex& vertex : domain.vertices) {
-            const float dx = vertex.position[0] - center[0];
-            const float dy = vertex.position[1] - center[1];
-            const float dz = vertex.position[2] - center[2];
-            radius = std::max(radius, std::sqrt(dx * dx + dy * dy + dz * dz));
-        }
-    }
-    std::copy(minimum, minimum + 3, asset.boundsMin);
-    std::copy(maximum, maximum + 3, asset.boundsMax);
-    asset.boundsSphere[0] = center[0]; asset.boundsSphere[1] = center[1];
-    asset.boundsSphere[2] = center[2]; asset.boundsSphere[3] = radius;
-}
-
-Hash256 HashCanonicalAsset(const CanonicalGeometryAsset& asset) {
-    Sha256Builder hash;
-    hash.Add("OENGINE-CANONICAL-GEOMETRY-V3");
-    AddU32(hash, std::uint32_t(asset.domains.size()));
-    for (const MaterialDomain& domain : asset.domains) {
-        AddU32(hash, domain.materialId); AddU32(hash, domain.meshletFlags); AddU32(hash, domain.attributeMask);
-        AddU32(hash, std::uint32_t(domain.vertices.size())); AddU32(hash, std::uint32_t(domain.indices.size()));
-        for (const CanonicalVertex& vertex : domain.vertices) {
-            for (float value : vertex.position) AddF32(hash, value);
-            for (float value : vertex.normal) AddF32(hash, value);
-            if (domain.attributeMask & kAttributeTangent) for (float value : vertex.tangent) AddF32(hash, value);
-            if (domain.attributeMask & kAttributeUv0) for (float value : vertex.uv0) AddF32(hash, value);
-            if (domain.attributeMask & kAttributeUv1) for (float value : vertex.uv1) AddF32(hash, value);
-            if (domain.attributeMask & kAttributeColor) for (float value : vertex.color) AddF32(hash, value);
-        }
-        for (std::uint32_t index : domain.indices) AddU32(hash, index);
-    }
-    return hash.Finish();
 }
 
 CanonicalGeometryAsset DecodeMesh(const cgltf_data& data, const cgltf_mesh& mesh, std::size_t meshIndex) {
@@ -211,8 +119,7 @@ CanonicalGeometryAsset DecodeMesh(const cgltf_data& data, const cgltf_mesh& mesh
         }
     }
     if (asset.domains.empty()) throw std::runtime_error("glTF mesh has no supported triangle primitives");
-    ComputeBounds(asset);
-    asset.sourceHash = HashCanonicalAsset(asset);
+    FinalizeCanonicalGeometryAssetV3(asset);
     return asset;
 }
 

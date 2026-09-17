@@ -21,6 +21,7 @@ source asset
 | --- | --- | --- |
 | Runtime Asset | `src/assets`、`src/loaders` | 设备无关 package、内容身份、校验、range read 和 codec preparation |
 | OEGPACK V3 / Geometry Product | `GeometryAbiV3.ts`、`OegPackV3.ts`、`assets/geometry-product/` | V3 metadata/page 解析、producer-neutral descriptor/page validation、OEGPACK Product adapter；仍未完成 production Visibility consumer |
+| Web Runtime Cooker | `loaders/gltf/streaming/`、`assets/web-cook/`、`tools/oengine-web-geometry-cooker/` | GLB Range/catalog、CookSession/credit、canonical Worker/WASM ABI 与 decoded Product producer；当前尚未接通 accessor canonicalizer、Worker entry 和 scene admission |
 | GPU 资产 | `GpuAssetStore.ts`、`TextureResidency.ts`、`VirtualGeometryResidency.ts` | GPU allocation、稳定 handle/generation、Product activation page heap 与资源发布；demand/eviction 闭环仍在迁移 |
 | Scene 与实例 | `GpuScene.ts`、`GpuRenderWorld.ts` | Packed instance、显式 patch、资产/材质关联与原子 publication |
 | GPU 工作/可见性 | `GpuWorkGenerationAbi.ts`、`GpuVisibilityKeyAbi.ts` 及 work/visibility owners | hierarchy/culling、容量和 overflow、indirect work、VisibilityKey |

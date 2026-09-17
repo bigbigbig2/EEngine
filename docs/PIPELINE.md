@@ -30,7 +30,7 @@ explicit scene/asset patches
 
 生产路径从 resident geometry 和 GPU Scene 生成 hierarchy/work queue，再由 indirect hardware raster 直接消费并写 `VisibilityKey + depth`。VisibilityKey 必须稳定标识 work/instance/local primitive；overflow 和无效 identity fail closed。
 
-OEGPACK V3 现在已有 `OegPackProductProvider`、producer-neutral Product V1 validator 和 Product-aware bootstrap heap 的 DEV seam，但尚未到达生产 Visibility consumer；Web Runtime Cooker 仍不存在。接受的目标迁移是先让 Product admission 进入现有 hierarchy/work/raster，再在上述闭环中替换 geometry/hierarchy 地址来源并加入 resident ancestor fallback 与 page demand。在任何 Product 真正到达现有 Visibility consumer 之前，不能称为虚拟几何运行时完成。
+OEGPACK V3 现在已有 `OegPackProductProvider`、producer-neutral Product V1 validator 和 Product-aware bootstrap heap 的 DEV seam，但尚未完成生产 Visibility 浏览器证据。Web Runtime Cooker 已有 container-neutral decoded Product assembly、browser-first Nyx C++/WASM target 与 canonical/recipe/result ABI，但尚无实际 Emscripten artifact、GLB accessor canonicalizer 和 Worker entry。接受的迁移是在同一 hierarchy/work/raster 闭环中替换 geometry/hierarchy 地址来源并加入 resident ancestor fallback 与 page demand；producer ABI 存在不等于 Web Runtime 路线完成。
 
 ### Sparse shading
 
@@ -46,7 +46,7 @@ Shadow、direct/indirect lighting、AO/GI/SSR、transparency、temporal 和 post
 
 ## Runtime-first Virtual Geometry 迁移边界
 
-- Web 主路线：GLB/glTF Range source 与 versioned Worker CookSession/credit seam 已有 DEV 实现；Nyx WASM cooker、progressive immutable Product 和生产 consumer 尚未实现。
+- Web 主路线：GLB/glTF Range source、versioned Worker CookSession/credit seam、Nyx geometry-builder WASM build target 和逐页 credit-copy ABI 已有 DEV 实现；真实 Emscripten artifact、accessor canonicalization、Worker entry、progressive immutable Product 与生产 consumer 仍未闭环。
 - A：独立 Offline Cooker/OEGPACK 第二路线已有基础能力，通过 adapter 接入共同 Product，不拥有独立 renderer。
 - B：Producer-neutral admission、page residency、feedback、provider/cook/decode/upload/eviction，尚未形成生产闭环。
 - C：把 active Product generation 接入现有 hierarchy/work/visibility，不创建新 raster backend。
