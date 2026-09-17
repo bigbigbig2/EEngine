@@ -61,3 +61,22 @@ test("Product-aware residency delays reuse of a retiring slot", async () => {
   residency.uploadPage(demanded); residency.beginRetirePage(1); assert.equal(residency.evidence().retiringPages, 1); assert.throws(() => residency.uploadPage(demanded), /retiring/);
   residency.completeRetirePage(1); residency.uploadPage(demanded); assert.equal(residency.pageLocation(1).flags, 1); assert.equal(residency.evidence().pinnedPages, 1); assert.equal(residency.evidence().retiringPages, 0); residency.destroy();
 });
+
+test("Product-aware residency selects only aged, non-pinned pages for eviction", async () => {
+  const { descriptor, page } = fixture(); const buffers = [];
+  const pageRecords = new Uint8Array(64); pageRecords.set(descriptor.pageRecords); pageRecords.set(descriptor.pageRecords.slice(0, 16), 32);
+  const pv = new DataView(pageRecords.buffer); pv.setUint32(52, 0, true); pv.setUint32(56, 0, true);
+  const product = { ...descriptor, pageRecords };
+  const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { const b = { d, destroy() {} }; buffers.push(b); return b; }, queue: { writeBuffer() {} } };
+  const source = { descriptor: product, async readPage(pageId) { return { productId: product.productId.slice(), revision: product.revision, pageId, decodedHash128: product.pageRecords.slice(pageId * 32, pageId * 32 + 16), bytes: page.slice().buffer }; }, release() {} };
+  const residency = await VirtualGeometryResidency.create(device, source, 9);
+  const demanded = { productId: product.productId.slice(), revision: product.revision, pageId: 1, decodedHash128: product.pageRecords.slice(32, 48), bytes: page.slice().buffer };
+  residency.uploadPage(demanded);
+  assert.deepEqual(residency.selectEvictionCandidates(1, 262144, 2), []);
+  residency.touchPage(1, 1);
+  assert.deepEqual(residency.selectEvictionCandidates(2, 262144, 2), []);
+  assert.deepEqual(residency.selectEvictionCandidates(3, 262144, 2), [1]);
+  residency.touchPage(0, 3);
+  assert.deepEqual(residency.selectEvictionCandidates(10, 524288, 0), [1]);
+  residency.destroy();
+});

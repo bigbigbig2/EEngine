@@ -10,6 +10,7 @@ import { gpuShadingBinVisibilityAttachmentContract } from
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import type { GeometryProductGpuBindingsV1 } from "../../gpu/VirtualGeometryResidency.js";
+import type { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 import type { GpuShadingExecutionMode } from "../../gpu/GpuShadingExecutionMode.js";
 import {
   DEFAULT_GEOMETRY_WORK_BUDGET,
@@ -93,6 +94,10 @@ export interface PackedVisibilityPrepareJob {
     worldToClipMatrix: ArrayLike<number>;
   }> | null;
   readonly demandFrameRevisionLow?: number;
+  /** Optional delayed demand consumer; its copy is encoded into this frame. */
+  readonly streamingRuntime?: GeometryPageStreamingRuntimeV1;
+  /** Monotonic frame identity required when streamingRuntime is supplied. */
+  readonly demandFrameIndex?: number;
 }
 
 export interface PackedVisibilityJob extends PackedVisibilityPrepareJob {
@@ -319,7 +324,7 @@ export class PackedVisibilityPass {
   ): void {
     const prepared = job.prepared;
     const workSet = prepared.workSet;
-    this.hierarchyGenerator.encode(
+    const generated = this.hierarchyGenerator.encode(
       command.gpu_encoder,
       workSet.hierarchy,
       job.hierarchyView,
@@ -330,6 +335,21 @@ export class PackedVisibilityPass {
         demandFrameRevisionLow: job.demandFrameRevisionLow
       }
     );
+    if (job.streamingRuntime !== undefined) {
+      if (generated.pageDemand === null) {
+        throw new Error("Geometry page streaming requires virtual geometry work");
+      }
+      const demandFrameIndex = job.demandFrameIndex;
+      if (demandFrameIndex === undefined ||
+          !Number.isSafeInteger(demandFrameIndex) || demandFrameIndex < 0) {
+        throw new RangeError("Geometry page streaming requires a non-negative demand frame index");
+      }
+      job.streamingRuntime.encodeDemandReadback(
+        command.gpu_encoder,
+        generated.pageDemand,
+        demandFrameIndex
+      );
+    }
     const meshletWork = requireMeshletWork(workSet);
     if (meshletWork.productMode) {
       this.virtualMeshletCandidate.encode(command, meshletWork);

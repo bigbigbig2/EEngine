@@ -73,6 +73,7 @@ export class GeometryProductAdmissionController {
   readonly #retiring: GeometryProductAdmissionTransaction[] = [];
   #failure: string | undefined;
   #lastRejection: string | undefined;
+  readonly #schedulers = new Set<GeometryPageSchedulerV1>();
 
   constructor(device: GPUDevice) { this.#admission = new GeometryProductAdmission(device); }
 
@@ -84,6 +85,7 @@ export class GeometryProductAdmissionController {
     const active = this.#active;
     if (!active || active.state !== "active") throw new Error("Geometry Product admission has no active revision to register");
     scheduler.registerProduct(active.productTableSlot, active.generation, active.source, { sourceOwnership: "external" });
+    this.#schedulers.add(scheduler);
   }
 
   consume(provider: GeometryProductProviderV1, signal?: AbortSignal): Promise<void> {
@@ -110,6 +112,9 @@ export class GeometryProductAdmissionController {
   /** Completes replacement retirement after the renderer's submission safety boundary. */
   retireReplaced(): void {
     for (const transaction of this.#retiring.splice(0)) {
+      for (const scheduler of this.#schedulers) {
+        scheduler.unregisterProduct(transaction.generation);
+      }
       if (transaction.state === "active") transaction.beginRetire();
       transaction.retire();
     }
