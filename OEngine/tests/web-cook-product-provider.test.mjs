@@ -18,16 +18,20 @@ function fixture() {
   return { page, hash, productId, descriptor };
 }
 
-test("Web Product provider preserves page ownership and returns credit on delivery", async () => {
-  const value = fixture(), credits = [];
+test("Web Product provider preserves metadata events and page ownership", async () => {
+  const value = fixture(), credits = [], catalogs = [], progress = [];
   async function* events() {
     const header = { protocolVersion: 1, sessionId: "s", sessionGeneration: 1 };
+    yield { ...header, type: "SceneCatalogReady", catalog: { primitiveCount: 1, mutable: { rejected: true } } };
+    yield { ...header, type: "Progress", stage: "bootstrap", units: 1, bytes: 12, timings: { cook: 1 } };
     yield { ...header, type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor) };
     yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
   }
-  const provider = new WebCookProductProvider(events(), { maxBufferedPages: 1, maxBufferedBytes: 262144, returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]) });
+  const provider = new WebCookProductProvider(events(), { maxBufferedPages: 1, maxBufferedBytes: 262144, returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]), onSceneCatalogReady: catalog => catalogs.push(catalog), onProgress: value => progress.push(value) });
   const iterator = provider.revisions()[Symbol.asyncIterator](); const offered = await iterator.next(); assert.equal(offered.done, false);
   const page = await offered.value.readPage(0); assert.strictEqual(page.bytes, value.page.buffer); assert.deepEqual(credits, [[1, 262144]]);
+  assert.deepEqual(catalogs, [{ primitiveCount: 1, mutable: { rejected: true } }]);
+  assert.deepEqual(progress, [{ stage: "bootstrap", units: 1, bytes: 12, timings: { cook: 1 } }]);
   assert.deepEqual(provider.evidence(), { offeredRevisions: 1, bufferedPages: 0, bufferedBytes: 0, deliveredPages: 1, discardedPages: 0, staleEvents: 0, failures: 0 });
   offered.value.release(); provider.release();
 });

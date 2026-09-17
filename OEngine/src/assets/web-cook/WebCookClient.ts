@@ -28,6 +28,9 @@ export interface WebCookClientEvidence {
   readonly sessionGeneration: number;
   readonly transport: WebCookWorkerTransportEvidence;
   readonly provider: WebCookProductProviderEvidence;
+  readonly catalogReady: boolean;
+  readonly progressEvents: number;
+  readonly recoverableFailures: number;
 }
 
 /**
@@ -43,6 +46,9 @@ export class WebCookClient implements GeometryProductProviderV1 {
   readonly #options: WebCookClientOptions;
   #state: WebCookClientEvidence["state"] = "created";
   #providerConsumed = false;
+  #catalog: Readonly<Record<string, unknown>> | undefined;
+  #progressEvents = 0;
+  #recoverableFailures = 0;
 
   constructor(options: WebCookClientOptions) {
     validateOptions(options);
@@ -56,11 +62,15 @@ export class WebCookClient implements GeometryProductProviderV1 {
     this.#provider = new WebCookProductProvider(this.#transport, {
       maxBufferedPages,
       maxBufferedBytes,
-      returnOutputCredits: (blockCount, bytes) => this.#returnOutputCredits(blockCount, bytes)
+      returnOutputCredits: (blockCount, bytes) => this.#returnOutputCredits(blockCount, bytes),
+      onSceneCatalogReady: catalog => { this.#catalog = catalog; },
+      onProgress: () => { this.#progressEvents++; },
+      onRecoverableFailure: () => { this.#recoverableFailures++; }
     });
   }
 
   get state(): WebCookClientEvidence["state"] { return this.#state; }
+  get catalog(): Readonly<Record<string, unknown>> | undefined { return this.#catalog; }
 
   /** Starts one bounded GLB source session and grants only whole-page credit. */
   open(url: string): void {
@@ -140,7 +150,10 @@ export class WebCookClient implements GeometryProductProviderV1 {
       sessionId: this.#options.sessionId,
       sessionGeneration: this.#options.sessionGeneration,
       transport: this.#transport.evidence(),
-      provider: this.#provider.evidence()
+      provider: this.#provider.evidence(),
+      catalogReady: this.#catalog !== undefined,
+      progressEvents: this.#progressEvents,
+      recoverableFailures: this.#recoverableFailures
     });
   }
 

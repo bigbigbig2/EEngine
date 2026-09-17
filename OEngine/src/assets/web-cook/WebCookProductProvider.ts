@@ -6,6 +6,9 @@ export interface WebCookProductProviderOptions {
   readonly maxBufferedPages: number;
   readonly maxBufferedBytes: number;
   readonly returnOutputCredits: (blockCount: number, bytes: number) => void;
+  readonly onSceneCatalogReady?: (catalog: Readonly<Record<string, unknown>>) => void;
+  readonly onProgress?: (progress: { readonly stage: string; readonly units: number; readonly bytes: number; readonly timings: Readonly<Record<string, number>> }) => void;
+  readonly onRecoverableFailure?: (failure: { readonly scope: string; readonly code: string; readonly retryAfterMs?: number }) => void;
 }
 
 export interface WebCookProductProviderEvidence {
@@ -83,6 +86,18 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
       this.#sources.set(key, source);
       this.#offeredRevisions++;
       this.#revisions.push(source);
+      return;
+    }
+    if (event.type === "SceneCatalogReady") {
+      this.#options.onSceneCatalogReady?.(Object.freeze({ ...event.catalog }));
+      return;
+    }
+    if (event.type === "Progress") {
+      this.#options.onProgress?.(Object.freeze({ stage: event.stage, units: event.units, bytes: event.bytes, timings: Object.freeze({ ...event.timings }) }));
+      return;
+    }
+    if (event.type === "RecoverableFailure") {
+      this.#options.onRecoverableFailure?.(Object.freeze({ scope: event.scope, code: event.code, ...(event.retryAfterMs === undefined ? {} : { retryAfterMs: event.retryAfterMs }) }));
       return;
     }
     if (event.type === "PageReady") {
