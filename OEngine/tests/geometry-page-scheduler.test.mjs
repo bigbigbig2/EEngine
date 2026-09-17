@@ -28,6 +28,13 @@ test("page scheduler rejects unbounded retry and upload budgets", () => {
   assert.throws(() => new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 1, retryBaseDelayMs: Number.NaN }), /budgets\/retry/);
 });
 
+test("page scheduler rejects a Product whose page cannot fit the configured budgets", () => {
+  const { descriptor } = fixture();
+  const source = { descriptor, async readPage() { throw new Error("unreachable"); }, release() {} };
+  const scheduler = new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 262144, maxUploadBytesPerFrame: 131072 });
+  assert.throws(() => scheduler.registerProduct(3, 9, source), /page budget/);
+});
+
 test("page scheduler verifies identity/hash, retries transient source errors, and batches uploads", async () => {
   const { descriptor, page, hash } = fixture(); let calls = 0;
   const source = { descriptor, async readPage(pageId) { calls++; if (calls === 1) throw new Error("temporary network failure"); return { productId: descriptor.productId.slice(), revision: 0, pageId, decodedHash128: hash.slice(), bytes: page.slice().buffer }; }, release() {} };
