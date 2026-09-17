@@ -4,7 +4,7 @@ import {
   type GpuGeometryDemandReadbackRingOptionsV1
 } from "./GeometryDemandReadbackRing.js";
 import { GeometryPageSchedulerV1, type GeometryPageSchedulerEvidenceV1, type GeometryPageSchedulerOptionsV1 } from "./GeometryPageScheduler.js";
-import { VirtualGeometryResidency, type VirtualGeometryResidencyEvidenceV1 } from "./VirtualGeometryResidency.js";
+import { GEOMETRY_PAGE_LOCATION_PINNED, VirtualGeometryResidency, type VirtualGeometryResidencyEvidenceV1 } from "./VirtualGeometryResidency.js";
 
 export interface GeometryPageStreamingRuntimeOptionsV1 {
   readonly scheduler?: GeometryPageSchedulerV1;
@@ -70,6 +70,41 @@ export class GeometryPageStreamingRuntimeV1 {
       source,
       { sourceOwnership: "external" }
     );
+  }
+
+  selectEvictionCandidates(frameIndex: number, maxBytes: number, minimumAge = 2): readonly number[] {
+    this.assertAlive();
+    return this.#residency.selectEvictionCandidates(frameIndex, maxBytes, minimumAge);
+  }
+
+  /**
+   * Revokes mappings immediately, then releases their physical slots only
+   * after the caller-provided submission boundary settles. Rejected GPU
+   * completion is treated as safe because the submission did not remain live.
+   */
+  async retirePages(pageIds: readonly number[], completion: PromiseLike<void>): Promise<void> {
+    this.assertAlive();
+    const unique = [...new Set(pageIds)];
+    for (const pageId of unique) {
+      if (!Number.isSafeInteger(pageId) || pageId < 0) {
+        throw new RangeError("Geometry page eviction pageId must be a non-negative integer");
+      }
+      if (pageId >= this.#residency.descriptor.pageRecords.byteLength / 32) {
+        throw new RangeError("Geometry page eviction pageId exceeds the active Product");
+      }
+      const location = this.#residency.pageLocation(pageId);
+      if (location === undefined) continue;
+      if ((location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0) {
+        throw new Error(`Geometry page ${pageId} is pinned and cannot be evicted`);
+      }
+      this.#residency.beginRetirePage(pageId);
+      this.#scheduler.markRetiring(this.#residency.productGeneration, pageId);
+    }
+    await Promise.resolve(completion).then(() => undefined, () => undefined);
+    for (const pageId of unique) {
+      this.#residency.completeRetirePage(pageId);
+      this.#scheduler.markRetired(this.#residency.productGeneration, pageId);
+    }
   }
 
   /** Encodes demand feedback into the current frame submission. */

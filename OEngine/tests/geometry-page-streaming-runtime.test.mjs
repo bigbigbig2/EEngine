@@ -107,3 +107,34 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
   assert.equal(runtime.evidence().scheduler.resident, 1);
   runtime.destroy();
 });
+
+test("streaming runtime revokes pages before the settled submission boundary", async () => {
+  const descriptor = { pageRecords: new Uint8Array(160), decodedPageBytes: 262144, productId: new Uint8Array(32).fill(4), revision: 0 };
+  const page = { productId: descriptor.productId.slice(), revision: 0, pageId: 4, decodedHash128: new Uint8Array(16), bytes: new ArrayBuffer(262144) };
+  const source = { descriptor, async readPage() { return page; }, release() {} };
+  const events = [];
+  const residency = {
+    productGeneration: 12,
+    productTableSlot: 1,
+    descriptor,
+    uploadPage() {},
+    pageLocation(pageId) { return pageId === 4 ? { flags: 1 } : undefined; },
+    beginRetirePage(pageId) { events.push(`begin:${pageId}`); },
+    completeRetirePage(pageId) { events.push(`complete:${pageId}`); },
+    selectEvictionCandidates() { return []; },
+    evidence() { return { productGeneration: 12, residentPages: 0 }; }
+  };
+  const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, {
+    schedulerOptions: { maxConcurrentReads: 1, maxInFlightBytes: 262144 },
+    readback: { slotCount: 2, bytesPerSlot: 64 }
+  });
+  runtime.registerProduct(source);
+  let settled = false;
+  const completion = new Promise((resolve) => setTimeout(() => { settled = true; resolve(); }, 0));
+  const retirement = runtime.retirePages([4], completion);
+  assert.deepEqual(events, ["begin:4"]);
+  await retirement;
+  assert.equal(settled, true);
+  assert.deepEqual(events, ["begin:4", "complete:4"]);
+  runtime.destroy();
+});
