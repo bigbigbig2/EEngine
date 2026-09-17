@@ -180,3 +180,25 @@ test("controller cancellation aborts the in-flight activation and releases its s
   assert.equal(controller.evidence().activated, 0);
   assert.equal(releaseCount, 1);
 });
+
+test("active Product recovery rebuilds GPU residency without releasing the CPU source", async () => {
+  const fixture = makeFixture(), deviceA = fakeDevice(), deviceB = fakeDevice();
+  let reads = 0;
+  const source = {
+    descriptor: fixture.descriptor,
+    async readPage(pageId) { reads++; return { productId: fixture.descriptor.productId.slice(), revision: 0, pageId, decodedHash128: fixture.descriptor.pageRecords.slice(0, 16), bytes: fixture.page.slice().buffer }; },
+    release() { this.released = (this.released ?? 0) + 1; }
+  };
+  async function* provider() { yield source; }
+  const controller = new GeometryProductAdmissionController(deviceA);
+  await controller.consume({ revisions: provider });
+  const generation = controller.active.generation;
+  await controller.recoverDevice(deviceB);
+  assert.equal(controller.active.generation, generation);
+  assert.equal(reads, 2);
+  assert.equal(source.released ?? 0, 0);
+  assert.equal(controller.active.residency.device, deviceB);
+  controller.retireActive();
+  controller.retireReplaced();
+  assert.equal(source.released, 1);
+});

@@ -157,6 +157,12 @@ export class VirtualGeometryResidency {
   bindings(): GeometryProductGpuBindingsV1 { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return Object.freeze({ productTableSlot: this.#productTableSlot, productGeneration: this.#productGeneration, metadata: this.#metadata, metadataByteLength: this.#metadataLayout.byteLength, productTableByteOffset: this.#metadataLayout.productRecord, pageLocationByteOffset: this.#metadataLayout.pageLocations, productTable: this.#metadata, banks: Object.freeze([...this.#banks]) }); }
   pageLocationTable(): GPUBuffer { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return this.#metadata; }
   pageLocation(pageId: number): GeometryPageLocationV1 | undefined { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return this.#pageLocations.get(pageId); }
+  /** Drops all GPU allocations after device loss while retaining the Product source. */
+  abandonForDeviceLoss(): void {
+    if (this.#destroyed) return;
+    this.#destroyGpuResources();
+    this.#destroyed = true;
+  }
   /** Records a consumer use for age-aware eviction; it never changes GPU state. */
   touchPage(pageId: number, frameIndex: number): boolean {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
@@ -219,7 +225,8 @@ export class VirtualGeometryResidency {
   #publishPageLocation(pageId: number, location: GeometryPageLocationV1 | undefined): void { const bytes = new ArrayBuffer(GEOMETRY_PAGE_LOCATION_STRIDE); if (location) this.writePageLocation(location, bytes); else { const view = new DataView(bytes); view.setUint32(0, GEOMETRY_PAGE_LOCATION_NON_RESIDENT, true); view.setUint32(4, GEOMETRY_PAGE_LOCATION_NON_RESIDENT, true); view.setUint32(8, 0, true); view.setUint32(12, 0, true); } this.device.queue.writeBuffer(this.#metadata, this.#metadataLayout.pageLocations + pageId * GEOMETRY_PAGE_LOCATION_STRIDE, new Uint8Array(bytes)); }
   #publishGroupsForPage(pageId: number, location: GeometryPageLocationV1): void { const groupView = new DataView(this.#descriptor.groupDirectory.buffer, this.#descriptor.groupDirectory.byteOffset, this.#descriptor.groupDirectory.byteLength); for (let groupId = 0; groupId < this.#descriptor.groupDirectory.byteLength / 16; groupId++) if (groupView.getUint32(groupId * 16, true) === pageId) this.#groupLocations.set(groupId, Object.freeze({ ...location, byteOffset: location.slotIndex * OEGPACK_V3_PAGE_BYTES + groupView.getUint32(groupId * 16 + 4, true) })); }
   #writeProductRecord(flags: number): void { const descriptor = this.#descriptor; const record = packGeometryProductTableRecordV1({ productGeneration: this.#productGeneration, flags, assetBegin: 0, assetCount: descriptor.assetRecords.byteLength / 128, rootBegin: 0, rootCount: descriptor.rootNodeIds.length, hierarchyBegin: 0, hierarchyCount: descriptor.hierarchyNodes.byteLength / 48, groupBegin: 0, groupCount: descriptor.groupDirectory.byteLength / 16, pageBegin: 0, pageCount: descriptor.pageRecords.byteLength / 32, vertexFormatBegin: 0, vertexFormatCount: descriptor.vertexFormats.byteLength / 16 }); this.device.queue.writeBuffer(this.#metadata, this.#metadataLayout.productRecord, record); }
-  destroy(): void { if (this.#destroyed) return; this.#destroyed = true; for (const bank of this.#banks) bank.destroy(); this.#metadata.destroy(); this.#banks.length = 0; this.#pageLocations.clear(); this.#retiringLocations.clear(); this.#groupLocations.clear(); this.#slotOwners.clear(); this.#pageLastUsed.clear(); this.#source.release(); }
+  destroy(): void { if (this.#destroyed) return; this.#destroyed = true; this.#destroyGpuResources(); this.#source.release(); }
+  #destroyGpuResources(): void { for (const bank of this.#banks) bank.destroy(); this.#metadata.destroy(); this.#banks.length = 0; this.#pageLocations.clear(); this.#retiringLocations.clear(); this.#groupLocations.clear(); this.#slotOwners.clear(); this.#pageLastUsed.clear(); }
 }
 
 function slotKey(bankIndex: number, slotIndex: number): string { return `${bankIndex}:${slotIndex}`; }

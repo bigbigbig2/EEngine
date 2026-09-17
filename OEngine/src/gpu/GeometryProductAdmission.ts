@@ -37,7 +37,9 @@ export class GeometryProductAdmission {
   #active = 0;
   #failed = 0;
   #cancelled = 0;
-  constructor(readonly device: GPUDevice) {}
+  constructor(public device: GPUDevice) {}
+
+  replaceDevice(device: GPUDevice): void { this.device = device; }
 
   offer(source: GeometryProductRevisionSourceV1): GeometryProductAdmissionTransaction {
     if (this.#nextProductTableSlot >= 0xffffffff) throw new Error("Geometry Product table slot space exhausted");
@@ -117,6 +119,20 @@ export class GeometryProductAdmissionController {
       }
       if (transaction.state === "active") transaction.beginRetire();
       transaction.retire();
+    }
+  }
+
+  /** Rebuilds the active Product on a new device from its retained CPU source. */
+  async recoverDevice(device: GPUDevice): Promise<void> {
+    const active = this.#active;
+    if (!active || active.state !== "active") throw new Error("Geometry Product recovery requires an active revision");
+    this.#admission.replaceDevice(device);
+    try {
+      await active.recover(device);
+    } catch (error) {
+      this.#admission._retired();
+      this.#active = undefined;
+      throw error;
     }
   }
 
@@ -234,6 +250,21 @@ export class GeometryProductAdmissionTransaction {
     this.#released = true;
     this.#state = "retired";
     this.admission._retired();
+  }
+  async recover(device: GPUDevice): Promise<VirtualGeometryResidency> {
+    if (this.#state !== "active" || !this.#residency) throw new Error("Geometry Product transaction cannot recover unless active");
+    this.#residency.abandonForDeviceLoss();
+    try {
+      this.#residency = await VirtualGeometryResidency.create(device, this.source, this.generation, this.productTableSlot, this.#abort.signal);
+      this.#residency.activatePublication();
+      return this.#residency;
+    } catch (error) {
+      this.#residency = undefined;
+      this.#released = true;
+      this.#state = "failed";
+      this.admission._failed();
+      throw error;
+    }
   }
   cancel(): void {
     if (this.#state === "active" || this.#state === "retiring" || this.#state === "retired") throw new Error("active Geometry Product transaction must retire before cancellation");
