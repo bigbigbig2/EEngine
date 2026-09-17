@@ -202,3 +202,18 @@ test("active Product recovery rebuilds GPU residency without releasing the CPU s
   controller.retireReplaced();
   assert.equal(source.released, 1);
 });
+
+test("Product recovery disposes superseded GPU revisions before rebuilding the active one", async () => {
+  const first = makeFixture(), richer = makeFixture();
+  richer.descriptor = { ...richer.descriptor, productId: first.descriptor.productId.slice(), revision: 1, replaces: { productId: first.descriptor.productId.slice(), revision: 0 } };
+  const oldSource = sourceFor(first.descriptor, first.page), nextSource = sourceFor(richer.descriptor, richer.page);
+  async function* provider() { yield oldSource; yield nextSource; }
+  const controller = new GeometryProductAdmissionController(fakeDevice());
+  await controller.consume({ revisions: provider });
+  await controller.recoverDevice(fakeDevice());
+  assert.equal(oldSource.released, 1);
+  assert.equal(nextSource.released, 0);
+  controller.retireActive();
+  controller.retireReplaced();
+  assert.equal(nextSource.released, 1);
+});

@@ -124,6 +124,10 @@ export class GeometryProductAdmissionController {
 
   /** Rebuilds the active Product on a new device from its retained CPU source. */
   async recoverDevice(device: GPUDevice): Promise<void> {
+    for (const transaction of this.#retiring.splice(0)) {
+      if (transaction.state === "active") transaction.beginRetire();
+      if (transaction.state === "retiring") transaction.retire();
+    }
     const active = this.#active;
     if (!active || active.state !== "active") throw new Error("Geometry Product recovery requires an active revision");
     this.#admission.replaceDevice(device);
