@@ -43,7 +43,7 @@ evidence remains open.
 | 0016-A Offline/OEGPACK | implemented, validation open | native cooker、OEGPACK V3 parser、range source、页校验和 bootstrap residency proof 已存在；OEGPACK Product adapter 已通过共同 production consumer 接线 | 用 ADR-0014 浏览器证据验证并冻结候选 spec |
 | 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag、统一 frame completion 自动 poll/upload 与保留 identity 的 device-loss residency 重建已接线；浏览器 demand/residency 证据仍未完成 | 用 ADR-0014 真实浏览器证据验证 activation cut、GPU demand -> delayed readback -> provider -> upload -> generation publication 闭环 |
 | 0016-C renderer cutover | in progress | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity，并可在 device-loss 后按原 generation/table slot 重建 publication；普通 Scene adapter/V2 owner 仍保留 | 完成 Product recovery checkpoint 的真实浏览器验证、删除旧 V2 owner/path，并用 ADR-0014 浏览器证据验证统一 consumer |
-| 0016-D texture modes | Mode A implemented, validation open | TextureResidency allocates the complete logical chain, uploads a cooked mip tail first, clamps sampling to the available range, and promotes higher mips through a stable logical handle; this does not claim physical VRAM savings | Run browser evidence for progressive sampling/publication; only after allocation evidence decide whether Mode B/Virtual Texturing merits a separate ADR |
+| 0016-D texture modes | Mode A implemented, diagnostic validation passed | TextureResidency allocates the complete logical chain, uploads a cooked mip tail first, clamps sampling to the available range, and promotes higher mips through a stable logical handle; the independent Chrome component case read back the expected tail and promoted colors, and this does not claim physical VRAM savings | Obtain production-path browser evidence for progressive publication; only after allocation evidence decide whether Mode B/Virtual Texturing merits a separate ADR |
 
 详细交付切片见 [implementation/0016-virtualized-assets.md](./implementation/0016-virtualized-assets.md)。
 
@@ -72,5 +72,6 @@ cooked mip tail first, and exposes generation-safe `promote()` for higher mip
 uploads. The descriptor publishes `residentMipRange` only after the owning GPU
 command is submitted, while evidence records actual progressive upload bytes and
 promotion counts. Alpha-mask packages keep the full chain for the current mip0
-coverage consumer. Per-texture shader LOD clamping and browser evidence remain
+coverage consumer. The independent Chrome component case now verifies tail and
+promoted sampling with GPU readback; production-path publication evidence remains
 open.

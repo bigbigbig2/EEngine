@@ -47,6 +47,11 @@
       "layer": "L3",
       "description": "Product metadata, hierarchy, Group, Page and Meshlet generation/range checks execute on GPU"
     },
+    "TEX-MODE-A": {
+      "ownerAdr": "ADR-0016",
+      "layer": "L3",
+      "description": "A cooked mip tail is sampled through an explicit available-mip clamp and converges after higher-mip promotion"
+    },
     "CAP-001": {
       "ownerAdr": "ADR-0013",
       "layer": "L3",
@@ -344,6 +349,20 @@
       "timestampRequired": false,
       "independentRuns": 1
     },
+    "texture-residency-component-v1": {
+      "resolution": [1280, 720],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0016-mode-a-texture-v1",
+      "features": ["core-features-and-limits"],
+      "seed": 16017,
+      "cameraPath": "none",
+      "warmupFrames": 1,
+      "sampleFrames": 2,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
     "shading-bin-component-v1": {
       "resolution": [
         1280,
@@ -561,6 +580,33 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while adapter identity is captured for the Product ABI proof.",
           "ownerRequirement": "GEO-VIRTUAL-ABI"
+        }
+      ]
+    },
+    {
+      "id": "texture-residency-component",
+      "route": "/src/cases/texture-residency-component/index.html",
+      "kind": "component",
+      "buildTarget": "host",
+      "ownerAdr": "ADR-0016",
+      "requirements": ["TEX-MODE-A"],
+      "workloadId": "texture-residency-component-v1",
+      "profile": "smoke",
+      "timeoutMs": 60000,
+      "artifacts": ["result", "events", "screenshot", "readback"],
+      "changedPaths": [
+        "validation/src/cases/texture-residency-component",
+        "OEngine/src/assets/TextureAssetPackage.ts",
+        "OEngine/src/gpu/TextureResidency.ts",
+        "OEngine/src/gpu/GpuTextureRefAbi.ts",
+        "OEngine/src/gpu/GpuMaterialVisibilityAbi.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while adapter identity is captured from WebGPU evidence.",
+          "ownerRequirement": "TEX-MODE-A"
         }
       ]
     },

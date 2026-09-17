@@ -13,6 +13,7 @@
     "run:webgpu": "node src/runner/run-case.mjs webgpu-component",
     "run:oegpack-v3": "node src/runner/run-case.mjs oegpack-v3-component",
     "run:virtual-geometry": "node src/runner/run-case.mjs virtual-geometry-component",
+    "run:texture-residency": "node src/runner/run-case.mjs texture-residency-component",
     "run:shading-bin": "node src/runner/run-case.mjs shading-bin-component",
     "run:shading-resolve": "node src/runner/run-case.mjs shading-resolve-component",
     "run:sparse-shading-candidate": "node src/runner/run-case.mjs sparse-shading-candidate",
