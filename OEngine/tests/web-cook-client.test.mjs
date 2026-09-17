@@ -3,6 +3,7 @@ import test from "node:test";
 
 const { WebCookClient } = await import("../.test-dist/assets/web-cook/WebCookClient.js");
 const { WebCookRuntimeAsset } = await import("../.test-dist/assets/web-cook/WebCookRuntimeAsset.js");
+const { createWebCookWorker } = await import("../.test-dist/assets/web-cook/WebCookWorkerFactory.js");
 
 class FakeWorker {
   listeners = new Map();
@@ -13,6 +14,26 @@ class FakeWorker {
   postMessage(message, transfer = []) { this.sent.push({ message, transfer }); }
   terminate() { this.terminated = true; }
 }
+
+test("Web Cook Worker factory sends an explicit real-module bootstrap", () => {
+  const worker = new FakeWorker();
+  const created = createWebCookWorker({
+    wasmModuleUrl: "https://assets.test/oengine-web-geometry-cooker.mjs",
+    maxCanonicalInputBytes: 1024,
+    maxDecodedProductBytes: 262144,
+    createWorker: url => { assert.match(url.href, /WebCookWorkerEntrypoint\.ts$/u); return worker; }
+  });
+  assert.equal(created, worker);
+  assert.deepEqual(worker.sent, [{
+    message: {
+      type: "InitializeWebCookWorker",
+      wasmModuleUrl: "https://assets.test/oengine-web-geometry-cooker.mjs",
+      maxCanonicalInputBytes: 1024,
+      maxDecodedProductBytes: 262144
+    },
+    transfer: []
+  }]);
+});
 
 function options(worker) {
   return {
