@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
+globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 const { WebCookProductProvider } = await import("../.test-dist/assets/web-cook/WebCookProductProvider.js");
 const { encodeGeometryProductDescriptorBinaryV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+const { GeometryProductAdmissionController } = await import("../.test-dist/gpu/GeometryProductAdmission.js");
 
 function fixture() {
   const page = new Uint8Array(262144); const hash = createHash("sha256").update(page).digest(); const productId = new Uint8Array(32).fill(9);
@@ -28,4 +30,27 @@ test("Web Product provider preserves page ownership and returns credit on delive
   const page = await offered.value.readPage(0); assert.strictEqual(page.bytes, value.page.buffer); assert.deepEqual(credits, [[1, 262144]]);
   assert.deepEqual(provider.evidence(), { offeredRevisions: 1, bufferedPages: 0, bufferedBytes: 0, deliveredPages: 1, discardedPages: 0, staleEvents: 0, failures: 0 });
   offered.value.release(); provider.release();
+});
+
+test("Web Product provider reaches the shared Geometry Product admission and residency owner", async () => {
+  const value = fixture(), credits = [], writes = [];
+  async function* events() {
+    const header = { protocolVersion: 1, sessionId: "s3", sessionGeneration: 4 };
+    yield { ...header, type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor) };
+    yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
+  }
+  const provider = new WebCookProductProvider(events(), { maxBufferedPages: 1, maxBufferedBytes: 262144, returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]) });
+  const device = {
+    limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
+    createBuffer(d) { return { d, destroy() {} }; },
+    queue: { writeBuffer(buffer, offset, bytes) { writes.push({ buffer, offset, bytes: bytes.byteLength }); } }
+  };
+  const controller = new GeometryProductAdmissionController(device);
+  await controller.consume(provider);
+  assert.equal(controller.evidence().activated, 1, JSON.stringify(controller.evidence()));
+  assert.equal(controller.active?.residency.pageLocation(0)?.flags & 1, 1);
+  assert.deepEqual(credits, [[1, 262144]]);
+  assert.equal(provider.evidence().deliveredPages, 1);
+  controller.retireActive();
+  provider.release();
 });

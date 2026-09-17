@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
-const { GeometryProductAdmission } = await import("../.test-dist/gpu/GeometryProductAdmission.js");
+const { GeometryProductAdmission, GeometryProductAdmissionController } = await import("../.test-dist/gpu/GeometryProductAdmission.js");
 const { resolveGeometryProductAssetFromHeapV1, unpackGeometryProductMetadataHeapHeaderV1 } = await import("../.test-dist/gpu/GeometryProductGpuAbiV1.js");
 
 function makeFixture() {
@@ -68,4 +68,95 @@ test("cancel during asynchronous activation prevents late Product publication", 
   assert.equal(admission.evidence().active, 0); assert.equal(admission.evidence().cancelled, 1);
   assert.equal(releaseCount, 1);
   assert.equal(writes.filter(write => write.bytes.byteLength === 64 && new DataView(write.bytes.buffer).getUint32(4, true) === 1).length, 0);
+});
+
+function fakeDevice() {
+  const writes = [];
+  return {
+    writes,
+    limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
+    createBuffer(d) { return { d, destroy() {} }; },
+    queue: { writeBuffer(buffer, offset, data) { writes.push({ buffer, offset, bytes: new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength ?? data.byteLength).slice() }); } }
+  };
+}
+
+function sourceFor(descriptor, page, { fail = false } = {}) {
+  let released = 0;
+  return {
+    descriptor,
+    async readPage(pageId, signal) {
+      if (fail) throw new Error("richer revision failed");
+      if (signal?.aborted) throw signal.reason;
+      return { productId: descriptor.productId.slice(), revision: descriptor.revision, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer };
+    },
+    release() { released++; },
+    get released() { return released; }
+  };
+}
+
+test("admission controller activates Web-style provider revisions at the shared GPU boundary", async () => {
+  const first = makeFixture(), device = fakeDevice(), source = sourceFor(first.descriptor, first.page);
+  async function* provider() { yield source; }
+  const controller = new GeometryProductAdmissionController(device);
+  await controller.consume({ revisions: provider });
+  assert.equal(controller.evidence().state, "complete");
+  assert.equal(controller.evidence().activated, 1);
+  assert.equal(controller.active?.state, "active");
+  assert.equal(controller.active?.residency.pageLocation(0)?.flags & 1, 1);
+  controller.retireActive();
+  assert.equal(source.released, 1);
+});
+
+test("failed richer revision leaves the previous active revision published", async () => {
+  const first = makeFixture(), richer = makeFixture();
+  richer.descriptor = { ...richer.descriptor, productId: first.descriptor.productId.slice(), revision: 1, replaces: { productId: first.descriptor.productId.slice(), revision: first.descriptor.revision } };
+  const device = fakeDevice(), oldSource = sourceFor(first.descriptor, first.page), failedSource = sourceFor(richer.descriptor, richer.page, { fail: true });
+  async function* provider() { yield oldSource; yield failedSource; }
+  const controller = new GeometryProductAdmissionController(device);
+  await controller.consume({ revisions: provider });
+  assert.equal(controller.evidence().activated, 1);
+  assert.equal(controller.evidence().rejected, 1);
+  assert.equal(controller.active?.descriptor.revision, 0);
+  controller.retireActive();
+  assert.equal(oldSource.released, 1);
+  assert.equal(failedSource.released, 1);
+});
+
+test("successful replacement switches active generation before retiring the old one", async () => {
+  const first = makeFixture(), richer = makeFixture();
+  richer.descriptor = { ...richer.descriptor, productId: first.descriptor.productId.slice(), revision: 1, replaces: { productId: first.descriptor.productId.slice(), revision: first.descriptor.revision } };
+  const device = fakeDevice(), oldSource = sourceFor(first.descriptor, first.page), nextSource = sourceFor(richer.descriptor, richer.page);
+  async function* provider() { yield oldSource; yield nextSource; }
+  const controller = new GeometryProductAdmissionController(device);
+  await controller.consume({ revisions: provider });
+  assert.equal(controller.evidence().activated, 2);
+  assert.equal(controller.evidence().replacements, 1);
+  assert.equal(controller.evidence().retiring, 1);
+  assert.equal(controller.active?.descriptor.revision, 1);
+  assert.equal(oldSource.released, 0);
+  controller.retireReplaced();
+  assert.equal(oldSource.released, 1);
+  controller.retireActive();
+  assert.equal(nextSource.released, 1);
+});
+
+test("controller cancellation aborts the in-flight activation and releases its source", async () => {
+  const fixture = makeFixture(), device = fakeDevice();
+  let releaseCount = 0, resolveRead, markStarted;
+  const pending = new Promise(resolve => { resolveRead = resolve; });
+  const started = new Promise(resolve => { markStarted = resolve; });
+  const source = {
+    descriptor: fixture.descriptor,
+    async readPage(pageId, signal) { markStarted(); await pending; if (signal?.aborted) throw signal.reason; return { productId: fixture.descriptor.productId, revision: 0, pageId, decodedHash128: fixture.descriptor.pageRecords.slice(0, 16), bytes: fixture.page.slice().buffer }; },
+    release() { releaseCount++; }
+  };
+  async function* provider() { yield source; }
+  const controller = new GeometryProductAdmissionController(device), consuming = controller.consume({ revisions: provider });
+  await started;
+  controller.cancel();
+  resolveRead();
+  await consuming;
+  assert.equal(controller.evidence().state, "cancelled");
+  assert.equal(controller.evidence().activated, 0);
+  assert.equal(releaseCount, 1);
 });

@@ -1,6 +1,7 @@
 import {
   assertGeometryProductDescriptorV1,
   type GeometryProductDescriptorV1,
+  type GeometryProductProviderV1,
   type GeometryProductRevisionSourceV1
 } from "../assets/geometry-product/GeometryProductV1.js";
 import { VirtualGeometryResidency } from "./VirtualGeometryResidency.js";
@@ -13,6 +14,18 @@ export interface GeometryProductAdmissionEvidenceV1 {
   readonly active: number;
   readonly failed: number;
   readonly cancelled: number;
+}
+
+export interface GeometryProductAdmissionControllerEvidenceV1 {
+  readonly state: "idle" | "consuming" | "complete" | "cancelled" | "failed";
+  readonly offered: number;
+  readonly activated: number;
+  readonly rejected: number;
+  readonly replacements: number;
+  readonly retiring: number;
+  readonly activeGeneration: number;
+  readonly lastRejection?: string;
+  readonly failure?: string;
 }
 
 export class GeometryProductAdmission {
@@ -41,6 +54,130 @@ export class GeometryProductAdmission {
   _cancelled(): void { this.#cancelled++; }
 }
 
+/**
+ * Consumes producer revisions at the single admission boundary. The
+ * controller never inspects provider internals and never owns GPU resources;
+ * it only commits a revision after VirtualGeometryResidency has filled its
+ * complete activation cut.
+ */
+export class GeometryProductAdmissionController {
+  readonly #admission: GeometryProductAdmission;
+  readonly #abort = new AbortController();
+  #state: GeometryProductAdmissionControllerEvidenceV1["state"] = "idle";
+  #offered = 0;
+  #activated = 0;
+  #rejected = 0;
+  #replacements = 0;
+  #active: GeometryProductAdmissionTransaction | undefined;
+  readonly #retiring: GeometryProductAdmissionTransaction[] = [];
+  #failure: string | undefined;
+  #lastRejection: string | undefined;
+
+  constructor(device: GPUDevice) { this.#admission = new GeometryProductAdmission(device); }
+
+  get active(): GeometryProductAdmissionTransaction | undefined { return this.#active; }
+  get admission(): GeometryProductAdmission { return this.#admission; }
+
+  consume(provider: GeometryProductProviderV1, signal?: AbortSignal): Promise<void> {
+    if (this.#state !== "idle") throw new Error(`Geometry Product admission controller cannot consume from '${this.#state}'`);
+    this.#state = "consuming";
+    return this.#consume(provider, signal);
+  }
+
+  cancel(reason = new Error("Geometry Product admission was cancelled")): void {
+    if (this.#state === "complete" || this.#state === "cancelled" || this.#state === "failed") return;
+    this.#abort.abort(reason);
+    this.#state = "cancelled";
+  }
+
+  /** Retires the current active revision; callers must do this at a safe GPU boundary. */
+  retireActive(): void {
+    const active = this.#active;
+    if (!active) return;
+    active.beginRetire();
+    active.retire();
+    this.#active = undefined;
+  }
+
+  /** Completes replacement retirement after the renderer's submission safety boundary. */
+  retireReplaced(): void {
+    for (const transaction of this.#retiring.splice(0)) {
+      transaction.beginRetire();
+      transaction.retire();
+    }
+  }
+
+  evidence(): GeometryProductAdmissionControllerEvidenceV1 {
+    return Object.freeze({
+      state: this.#state,
+      offered: this.#offered,
+      activated: this.#activated,
+      rejected: this.#rejected,
+      replacements: this.#replacements,
+      retiring: this.#retiring.length,
+      activeGeneration: this.#active?.generation ?? 0,
+      ...(this.#lastRejection === undefined ? {} : { lastRejection: this.#lastRejection }),
+      ...(this.#failure === undefined ? {} : { failure: this.#failure })
+    });
+  }
+
+  async #consume(provider: GeometryProductProviderV1, signal?: AbortSignal): Promise<void> {
+    const abort = new AbortController();
+    const forwardAbort = (): void => abort.abort(signal?.reason ?? new Error("Geometry Product admission was cancelled"));
+    signal?.addEventListener("abort", forwardAbort, { once: true });
+    this.#abort.signal.addEventListener("abort", () => abort.abort(this.#abort.signal.reason), { once: true });
+    try {
+      for await (const source of provider.revisions(abort.signal)) {
+        if (abort.signal.aborted) throw abort.signal.reason ?? new Error("Geometry Product admission was cancelled");
+        this.#offered++;
+        const transaction = this.#admission.offer(source);
+        const cancelTransaction = (): void => transaction.cancel();
+        abort.signal.addEventListener("abort", cancelTransaction, { once: true });
+        try {
+          if (!this.#active && transaction.descriptor.replaces) throw new Error("Geometry Product replacement requires an active revision");
+          await transaction.activate();
+          if (this.#active) {
+            this.#assertReplacement(this.#active, transaction);
+            const old = this.#active;
+            this.#active = transaction;
+            this.#replacements++;
+            this.#retiring.push(old);
+          } else {
+            this.#active = transaction;
+          }
+          this.#activated++;
+        } catch (error) {
+          this.#rejected++;
+          this.#lastRejection = error instanceof Error ? error.message : String(error);
+          // Activation owns rollback/release. A replacement failure therefore
+          // leaves the previous active revision untouched and consumption can
+          // continue to a later valid revision.
+          if (transaction.state === "active") {
+            transaction.beginRetire();
+            transaction.retire();
+          } else if (transaction.state === "offered") {
+            transaction.cancel();
+          }
+        } finally {
+          abort.signal.removeEventListener("abort", cancelTransaction);
+        }
+      }
+      if (this.#state === "consuming") this.#state = "complete";
+    } catch (error) {
+      this.#failure = error instanceof Error ? error.message : String(error);
+      this.#state = abort.signal.aborted ? "cancelled" : "failed";
+      throw error;
+    } finally {
+      signal?.removeEventListener("abort", forwardAbort);
+    }
+  }
+
+  #assertReplacement(active: GeometryProductAdmissionTransaction, next: GeometryProductAdmissionTransaction): void {
+    const replaces = next.descriptor.replaces;
+    if (!replaces || !sameRevisionKey(replaces, active.descriptor)) throw new Error("Geometry Product replacement does not target the active revision");
+  }
+}
+
 export class GeometryProductAdmissionTransaction {
   readonly descriptor: GeometryProductDescriptorV1;
   readonly generation: number;
@@ -58,6 +195,8 @@ export class GeometryProductAdmissionTransaction {
     try {
       this.#state = "validating"; assertGeometryProductDescriptorV1(this.descriptor);
       this.#state = "reserving"; this.#state = "filling-activation-cut";
+      // VirtualGeometryResidency.create owns source release on every path once
+      // descriptor validation has passed, including asynchronous fill failure.
       sourceTransferred = true;
       this.#residency = await VirtualGeometryResidency.create(this.admission.device, this.source, this.generation, this.productTableSlot, this.#abort.signal);
       if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Geometry Product admission was cancelled");
@@ -73,7 +212,16 @@ export class GeometryProductAdmissionTransaction {
     }
   }
   beginRetire(): void { if (this.#state !== "active") throw new Error(`Geometry Product transaction cannot retire from ${this.#state}`); this.#state = "retiring"; }
-  retire(): void { if (this.#state !== "retiring") throw new Error(`Geometry Product transaction cannot finish retire from ${this.#state}`); this.#residency?.destroy(); this.#residency = undefined; this.#state = "retired"; this.admission._retired(); this.releaseSource(); }
+  retire(): void {
+    if (this.#state !== "retiring") throw new Error(`Geometry Product transaction cannot finish retire from ${this.#state}`);
+    // VirtualGeometryResidency owns the source after activation and releases it
+    // exactly once when its GPU resources are destroyed.
+    this.#residency?.destroy();
+    this.#residency = undefined;
+    this.#released = true;
+    this.#state = "retired";
+    this.admission._retired();
+  }
   cancel(): void {
     if (this.#state === "active" || this.#state === "retiring" || this.#state === "retired") throw new Error("active Geometry Product transaction must retire before cancellation");
     if (this.#state === "cancelled" || this.#state === "failed") return;
@@ -83,4 +231,11 @@ export class GeometryProductAdmissionTransaction {
     if (!inFlight) this.releaseSource();
   }
   private releaseSource(): void { if (this.#released) return; this.#released = true; this.source.release(); }
+}
+
+function sameRevisionKey(key: { readonly productId: Uint8Array; readonly revision: number }, descriptor: GeometryProductDescriptorV1): boolean {
+  if (key.revision !== descriptor.revision) return false;
+  if (key.productId.byteLength !== descriptor.productId.byteLength) return false;
+  for (let index = 0; index < key.productId.byteLength; index++) if (key.productId[index] !== descriptor.productId[index]) return false;
+  return true;
 }

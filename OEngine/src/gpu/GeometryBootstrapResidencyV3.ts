@@ -24,7 +24,9 @@ export class GeometryBootstrapResidencyV3 {
 
   static async create(device: GPUDevice, pack: OegPackV3): Promise<GeometryBootstrapResidencyV3> {
     const source = new OegPackProductRevisionSource(pack, descriptorFromOegPack(pack));
-    try { const transaction = new GeometryProductAdmission(device).offer(source); const residency = await transaction.activate(); return new GeometryBootstrapResidencyV3(device, pack, residency); } catch (error) { source.release(); throw error; }
+    const transaction = new GeometryProductAdmission(device).offer(source);
+    const residency = await transaction.activate();
+    return new GeometryBootstrapResidencyV3(device, pack, residency);
   }
 
   bank(index: number): GPUBuffer {

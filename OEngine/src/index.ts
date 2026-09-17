@@ -154,6 +154,12 @@ export type {
   WebCookProductProviderEvidence,
   WebCookProductProviderOptions
 } from "./assets/web-cook/WebCookProductProvider.js";
+export {
+  GeometryProductAdmissionController
+} from "./gpu/GeometryProductAdmission.js";
+export type {
+  GeometryProductAdmissionControllerEvidenceV1
+} from "./gpu/GeometryProductAdmission.js";
 export { WebCookWorkerTransport } from "./assets/web-cook/WebCookWorkerTransport.js";
 export type {
   WebCookWorkerPort,
