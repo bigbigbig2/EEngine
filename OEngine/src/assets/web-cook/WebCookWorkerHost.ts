@@ -65,7 +65,7 @@ export class WebCookWorkerHost {
       } else if (command.type === "RequestPages") {
         await this.#coordinator.requestPages(command.productId, command.revision, command.pageIds, command.priority);
       } else if (command.type === "SetSourcePriority") {
-        // Source priority is consumed by the next bounded cook scheduling slice.
+        this.#coordinator.setSourcePriority(command.assetKey, command.score, command.cameraHintRevision);
       }
       this.#flushEvents();
     } catch (error) {
