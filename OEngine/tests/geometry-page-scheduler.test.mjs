@@ -4,6 +4,7 @@ import test from "node:test";
 
 const { GeometryPageSchedulerV1 } = await import("../.test-dist/gpu/GeometryPageScheduler.js");
 const { GeometryDemandReadbackRingV1 } = await import("../.test-dist/gpu/GeometryDemandReadbackRing.js");
+const { createGeometryPageDemandQueueV1, packGeometryPageDemandHeaderV1, packGeometryPageDemandV1, reserveGeometryPageDemandV1 } = await import("../.test-dist/gpu/GeometryPageDemandAbiV1.js");
 
 function fixture() {
   const page = new Uint8Array(262144);
@@ -52,4 +53,24 @@ test("readback ring delays mapping until a completed later frame and enforces bo
   assert.deepEqual(await ring.poll(10), []); assert.deepEqual(mapped, []);
   const results = await ring.poll(12); assert.equal(results.length, 2); assert.deepEqual(mapped.sort(), [0, 1]); assert.equal(ring.evidence().ready, 2);
   ring.release(results[0].slotIndex); ring.release(results[1].slotIndex); assert.equal(ring.evidence().inUse, 0);
+});
+
+test("scheduler consumes bounded demand readback records and preserves overflow accounting", async () => {
+  const { descriptor, page, hash } = fixture();
+  const source = { descriptor, async readPage(pageId) { return { productId: descriptor.productId.slice(), revision: 0, pageId, decodedHash128: hash.slice(), bytes: page.slice().buffer }; }, release() {} };
+  const queue = createGeometryPageDemandQueueV1(2, 17);
+  reserveGeometryPageDemandV1(queue, demand({ productTableSlot: 3, productGeneration: 9, pageId: 0 }));
+  reserveGeometryPageDemandV1(queue, demand({ productTableSlot: 99, productGeneration: 9, pageId: 0 }));
+  reserveGeometryPageDemandV1(queue, demand({ productTableSlot: 3, productGeneration: 9, pageId: 0, priority: 50 }));
+  const bytes = new Uint8Array(16 + queue.records.length * 16);
+  bytes.set(packGeometryPageDemandHeaderV1(queue), 0);
+  queue.records.forEach((record, index) => bytes.set(packGeometryPageDemandV1(record), 16 + index * 16));
+  const scheduler = new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 262144 });
+  scheduler.registerProduct(3, 9, source);
+  scheduler.ingestDemandReadback(bytes);
+  await scheduler.drainReads();
+  assert.equal(scheduler.evidence().demandOverflow, 1);
+  assert.equal(scheduler.evidence().requested, 2);
+  assert.equal(scheduler.evidence().stale, 1);
+  assert.equal(scheduler.state(9, 0), "upload-queued");
 });

@@ -1,5 +1,7 @@
 import {
   deduplicateGeometryPageDemandsV1,
+  unpackGeometryPageDemandHeaderV1,
+  unpackGeometryPageDemandV1,
   type GeometryPageDemandV1
 } from "./GeometryPageDemandAbiV1.js";
 import {
@@ -36,6 +38,8 @@ export interface GeometryPageSchedulerEvidenceV1 {
   readonly cancelled: number;
   readonly lateResults: number;
   readonly uploadBudgetExhausted: number;
+  readonly demandOverflow: number;
+  readonly malformedReadbacks: number;
 }
 
 export interface GeometryPageRegistrationOptionsV1 {
@@ -52,10 +56,27 @@ export class GeometryPageSchedulerV1 {
   readonly #products = new Map<number, RegisteredProduct>();
   readonly #operations = new Map<string, Operation>();
   readonly #inFlight = new Set<Promise<void>>();
-  #requested = 0; #deduplicated = 0; #stale = 0; #failed = 0; #resident = 0; #uploadedBytes = 0; #inFlightBytes = 0; #peakInFlightBytes = 0; #retries = 0; #cancelled = 0; #lateResults = 0; #uploadBudgetExhausted = 0;
+  #requested = 0; #deduplicated = 0; #stale = 0; #failed = 0; #resident = 0; #uploadedBytes = 0; #inFlightBytes = 0; #peakInFlightBytes = 0; #retries = 0; #cancelled = 0; #lateResults = 0; #uploadBudgetExhausted = 0; #demandOverflow = 0; #malformedReadbacks = 0;
   constructor(options: GeometryPageSchedulerOptionsV1) { if (!Number.isInteger(options.maxConcurrentReads) || options.maxConcurrentReads <= 0 || !Number.isInteger(options.maxInFlightBytes) || options.maxInFlightBytes <= 0) throw new RangeError("Geometry page scheduler concurrency/byte budgets must be positive"); this.#options = Object.freeze({ maxConcurrentReads: options.maxConcurrentReads, maxInFlightBytes: options.maxInFlightBytes, maxUploadBytesPerFrame: options.maxUploadBytesPerFrame ?? 8 * 1024 * 1024, maxRetries: options.maxRetries ?? 3, retryBaseDelayMs: options.retryBaseDelayMs ?? 100 }); }
   registerProduct(productTableSlot: number, generation: number, source: GeometryProductRevisionSourceV1, options: GeometryPageRegistrationOptionsV1 = {}): void { if (!Number.isInteger(productTableSlot) || productTableSlot < 0 || !Number.isInteger(generation) || generation <= 0 || generation === 0xffffffff) throw new RangeError("invalid Geometry Product scheduler registration"); if (this.#products.has(generation)) throw new Error(`product generation ${generation} is already registered`); if (options.sourceOwnership !== undefined && options.sourceOwnership !== "scheduler" && options.sourceOwnership !== "external") throw new RangeError("invalid Geometry Product source ownership"); this.#products.set(generation, { productTableSlot, generation, source, pageCount: source.descriptor.pageRecords.byteLength / GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE, ownsSource: options.sourceOwnership !== "external" }); }
   unregisterProduct(generation: number): void { const product = this.#products.get(generation); if (!product) return; for (const [key, operation] of this.#operations) if (operation.product.generation === generation && operation.state !== "resident") { operation.controller?.abort(); operation.state = "failed"; this.#operations.delete(key); this.#cancelled++; } this.#products.delete(generation); if (product.ownsSource) product.source.release(); }
+  /** Consumes a delayed GPU demand readback; it never rebuilds visible work. */
+  ingestDemandReadback(bytes: ArrayBuffer | Uint8Array, nowMs = 0): void {
+    const view = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    try {
+      const header = unpackGeometryPageDemandHeaderV1(view);
+      if (header.overflow !== 0) this.#demandOverflow++;
+      const count = Math.min(header.attempted, header.capacity);
+      const required = 16 + count * 16;
+      if (required > view.byteLength) throw new RangeError("GeometryPageDemand readback is truncated");
+      const records: GeometryPageDemandV1[] = [];
+      for (let index = 0; index < count; index++) records.push(unpackGeometryPageDemandV1(view, 16 + index * 16));
+      this.ingestDemands(records, nowMs);
+    } catch (error) {
+      this.#malformedReadbacks++;
+      throw error;
+    }
+  }
   ingestDemands(demands: readonly GeometryPageDemandV1[], nowMs = 0): void { const unique = deduplicateGeometryPageDemandsV1(demands); this.#requested += demands.length; this.#deduplicated += demands.length - unique.length; for (const demand of unique) { const product = this.#products.get(demand.productGeneration); if (!product || product.productTableSlot !== demand.productTableSlot || demand.pageId >= product.pageCount) { this.#stale++; continue; } const key = operationKey(demand); const existing = this.#operations.get(key); if (existing) { existing.age++; if (priority(demand) > priority(existing.demand)) existing.demand = demand; continue; } this.#operations.set(key, { key, demand, product, state: "queued", attempts: 0, nextRetryAt: nowMs, age: 0 }); } this.pump(nowMs); }
   pump(nowMs = 0): void { while (this.#inFlight.size < this.#options.maxConcurrentReads) { const operation = [...this.#operations.values()].filter(candidate => candidate.state === "queued" && candidate.nextRetryAt <= nowMs).sort((a, b) => priority(b.demand) + b.age - priority(a.demand) - a.age)[0]; if (!operation) break; operation.state = "producing-or-reading"; operation.controller = new AbortController(); const bytes = this.#readReservationBytes(operation); if (this.#inFlightBytes + bytes > this.#options.maxInFlightBytes) { operation.state = "queued"; operation.controller = undefined; break; } this.#inFlightBytes += bytes; this.#peakInFlightBytes = Math.max(this.#peakInFlightBytes, this.#inFlightBytes); const task = this.produce(operation, nowMs); this.#inFlight.add(task); void task.then(() => { this.#inFlight.delete(task); this.#inFlightBytes -= bytes; this.pump(nowMs); }, () => { this.#inFlight.delete(task); this.#inFlightBytes -= bytes; this.pump(nowMs); }); } }
   async drainReads(): Promise<void> { await Promise.all([...this.#inFlight]); }
@@ -64,7 +85,7 @@ export class GeometryPageSchedulerV1 {
   markRetired(productGeneration: number, pageId: number): void { const key = `${productGeneration}:${pageId}`, operation = this.#operations.get(key); if (operation?.state === "retiring") { operation.state = "absent"; this.#operations.delete(key); } }
   cancelGeneration(productGeneration: number): void { for (const [key, operation] of this.#operations) if (operation.product.generation === productGeneration && operation.state !== "resident") { operation.controller?.abort(); operation.state = "failed"; this.#operations.delete(key); this.#cancelled++; } }
   state(productGeneration: number, pageId: number): GeometryPageOperationStateV1 { return this.#operations.get(`${productGeneration}:${pageId}`)?.state ?? "absent"; }
-  evidence(): GeometryPageSchedulerEvidenceV1 { return Object.freeze({ requested: this.#requested, deduplicated: this.#deduplicated, stale: this.#stale, failed: this.#failed, resident: this.#resident, uploadedBytes: this.#uploadedBytes, inFlightBytes: this.#inFlightBytes, peakInFlightBytes: this.#peakInFlightBytes, retries: this.#retries, cancelled: this.#cancelled, lateResults: this.#lateResults, uploadBudgetExhausted: this.#uploadBudgetExhausted }); }
+  evidence(): GeometryPageSchedulerEvidenceV1 { return Object.freeze({ requested: this.#requested, deduplicated: this.#deduplicated, stale: this.#stale, failed: this.#failed, resident: this.#resident, uploadedBytes: this.#uploadedBytes, inFlightBytes: this.#inFlightBytes, peakInFlightBytes: this.#peakInFlightBytes, retries: this.#retries, cancelled: this.#cancelled, lateResults: this.#lateResults, uploadBudgetExhausted: this.#uploadBudgetExhausted, demandOverflow: this.#demandOverflow, malformedReadbacks: this.#malformedReadbacks }); }
   #readReservationBytes(operation: Operation): number { return operation.product.source.descriptor.decodedPageBytes; }
   private async produce(operation: Operation, nowMs: number): Promise<void> { try { const page = await operation.product.source.readPage(operation.demand.pageId, operation.controller?.signal); const descriptor = operation.product.source.descriptor; const expected = decodeGeometryProductPageRecordV1(descriptor, operation.demand.pageId); if (page.revision !== descriptor.revision || page.pageId !== operation.demand.pageId || !sameBytes(page.productId, descriptor.productId) || page.bytes.byteLength !== descriptor.decodedPageBytes || !sameBytes(page.decodedHash128, expected.decodedHash128)) throw new Error("page key/size/hash mismatch"); const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes.slice(0))); if (!sameBytes(digest.subarray(0, 16), expected.decodedHash128)) throw new Error("page decoded hash mismatch"); if (this.#products.get(operation.product.generation) !== operation.product || operation.controller?.signal.aborted) { this.#lateResults++; operation.state = "failed"; this.#failed++; return; } operation.page = Object.freeze({ ...page, productId: page.productId.slice(), decodedHash128: page.decodedHash128.slice(), bytes: page.bytes.slice(0) }); operation.state = "verified"; operation.state = "upload-queued"; } catch (error) { if (this.#products.get(operation.product.generation) !== operation.product || operation.controller?.signal.aborted) { this.#lateResults++; operation.state = "failed"; return; } operation.attempts++; const deterministic = /hash|size|key|profile|corrupt|unsupported/i.test(error instanceof Error ? error.message : String(error)); if (!deterministic && operation.attempts <= this.#options.maxRetries) { operation.state = "queued"; operation.nextRetryAt = nowMs + this.#options.retryBaseDelayMs * (2 ** (operation.attempts - 1)); this.#retries++; } else { operation.state = "failed"; this.#failed++; } } }
 }
