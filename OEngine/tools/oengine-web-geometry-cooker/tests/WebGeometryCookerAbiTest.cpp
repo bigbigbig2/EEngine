@@ -140,6 +140,7 @@ int main() {
     assert(Section(first, OENGINE_WEB_COOK_SECTION_BOOTSTRAP_PAGE_IDS).size() >= 4u);
     assert(Section(first, OENGINE_WEB_COOK_SECTION_VERTEX_FORMATS).size() % 16u == 0u);
     assert(Section(first, OENGINE_WEB_COOK_SECTION_RECIPE_HASH).size() == 32u);
+    assert(Section(first, OENGINE_WEB_COOK_SECTION_CONTENT_MANIFEST_HASH).size() == 32u);
     for (std::uint32_t group = 0u; group < groups.size() / 16u; ++group) {
         assert(U32(groups, group * 16u) < pageCount);
     }
@@ -156,6 +157,8 @@ int main() {
          section <= OENGINE_WEB_COOK_SECTION_RECIPE_HASH; ++section) {
         assert(Section(first, section) == Section(second, section));
     }
+    assert(Section(first, OENGINE_WEB_COOK_SECTION_CONTENT_MANIFEST_HASH) ==
+           Section(second, OENGINE_WEB_COOK_SECTION_CONTENT_MANIFEST_HASH));
     for (std::uint32_t page = 0u; page < pageCount; ++page) {
         assert(Section(first, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, page) ==
                Section(second, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, page));

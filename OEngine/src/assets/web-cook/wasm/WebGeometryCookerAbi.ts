@@ -11,6 +11,18 @@ export const WEB_GEOMETRY_CANONICAL_VERTEX_BYTES = WEB_GEOMETRY_CANONICAL_VERTEX
 export const WEB_GEOMETRY_RECIPE_BYTES = 96;
 export const WEB_GEOMETRY_PAGE_BYTES = 262144;
 
+export const WEB_GEOMETRY_ATTRIBUTE_POSITION = 1 << 0;
+export const WEB_GEOMETRY_ATTRIBUTE_NORMAL = 1 << 1;
+export const WEB_GEOMETRY_ATTRIBUTE_TANGENT = 1 << 2;
+export const WEB_GEOMETRY_ATTRIBUTE_UV0 = 1 << 3;
+export const WEB_GEOMETRY_ATTRIBUTE_UV1 = 1 << 4;
+export const WEB_GEOMETRY_ATTRIBUTE_COLOR = 1 << 5;
+export const WEB_GEOMETRY_MESHLET_OPAQUE = 1 << 0;
+export const WEB_GEOMETRY_MESHLET_MASK = 1 << 1;
+export const WEB_GEOMETRY_MESHLET_BLEND = 1 << 2;
+export const WEB_GEOMETRY_MESHLET_TWO_SIDED = 1 << 3;
+export const WEB_GEOMETRY_MESHLET_CASTS_SHADOW = 1 << 4;
+
 const CANONICAL_MAGIC = new Uint8Array([0x4f, 0x45, 0x57, 0x47, 0x43, 0x41, 0x4e, 0x00]);
 const RECIPE_MAGIC = new Uint8Array([0x4f, 0x45, 0x57, 0x47, 0x52, 0x43, 0x50, 0x00]);
 const DOMAIN_GENERATE_NORMALS = 1;
@@ -24,7 +36,8 @@ const enum Section {
   BootstrapPageIds = 6,
   VertexFormats = 7,
   RecipeHash = 8,
-  PageBytes = 9
+  PageBytes = 9,
+  ContentManifestHash = 10
 }
 
 export interface WebCanonicalGeometryDomainV1 {
@@ -47,6 +60,7 @@ export interface WebGeometryCookDescriptorSectionsV1 {
   readonly activationPageIds: Uint32Array;
   readonly vertexFormats: Uint8Array;
   readonly recipeHash: Uint8Array;
+  readonly contentManifestHash: Uint8Array;
 }
 
 export interface EmscriptenWebGeometryCookerModuleV1 {
@@ -69,10 +83,14 @@ export function encodeWebCanonicalGeometryV1(domains: readonly WebCanonicalGeome
   for (const domain of domains) {
     assertU32(domain.materialId, "materialId");
     assertU32(domain.meshletFlags, "meshletFlags");
-    if (!Number.isInteger(domain.attributeMask) || domain.attributeMask <= 0 || domain.attributeMask > 0xffff) throw new RangeError("attributeMask must be a non-zero u16");
+    const knownAttributes = WEB_GEOMETRY_ATTRIBUTE_POSITION | WEB_GEOMETRY_ATTRIBUTE_NORMAL | WEB_GEOMETRY_ATTRIBUTE_TANGENT | WEB_GEOMETRY_ATTRIBUTE_UV0 | WEB_GEOMETRY_ATTRIBUTE_UV1 | WEB_GEOMETRY_ATTRIBUTE_COLOR;
+    if (!Number.isInteger(domain.attributeMask) || (domain.attributeMask & WEB_GEOMETRY_ATTRIBUTE_POSITION) === 0 || (domain.attributeMask & ~knownAttributes) !== 0) throw new RangeError("attributeMask must contain POSITION and only known V3 attributes");
+    const alphaModes = domain.meshletFlags & (WEB_GEOMETRY_MESHLET_OPAQUE | WEB_GEOMETRY_MESHLET_MASK | WEB_GEOMETRY_MESHLET_BLEND);
+    const knownMeshletFlags = WEB_GEOMETRY_MESHLET_OPAQUE | WEB_GEOMETRY_MESHLET_MASK | WEB_GEOMETRY_MESHLET_BLEND | WEB_GEOMETRY_MESHLET_TWO_SIDED | WEB_GEOMETRY_MESHLET_CASTS_SHADOW;
+    if ((domain.meshletFlags & ~knownMeshletFlags) !== 0 || alphaModes === 0 || (alphaModes & (alphaModes - 1)) !== 0) throw new RangeError("meshletFlags must contain exactly one alpha mode and only known V3 flags");
     if (!(domain.vertices instanceof Float32Array) || domain.vertices.length % WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS !== 0 || domain.vertices.length < WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS * 3) throw new RangeError("canonical domain vertices must contain at least three 18-f32 records");
     if (!(domain.indices instanceof Uint32Array) || domain.indices.length === 0 || domain.indices.length % 3 !== 0) throw new RangeError("canonical domain indices must be a non-empty triangle list");
-    if (domain.generateNormals === ((domain.attributeMask & 2) !== 0)) throw new RangeError("generateNormals must be the inverse of the normal attribute bit");
+    if (domain.generateNormals === ((domain.attributeMask & WEB_GEOMETRY_ATTRIBUTE_NORMAL) !== 0)) throw new RangeError("generateNormals must be the inverse of the normal attribute bit");
     const domainVertexCount = domain.vertices.length / WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS;
     for (const value of domain.vertices) if (!Number.isFinite(value)) throw new RangeError("canonical vertex data must be finite");
     for (const index of domain.indices) if (index >= domainVertexCount) throw new RangeError("canonical index exceeds its domain vertex count");
@@ -178,7 +196,8 @@ export class WebGeometryCookWasmResultV1 {
       bootstrapPageIds,
       activationPageIds: bootstrapPageIds.slice(),
       vertexFormats: this.copySection(Section.VertexFormats),
-      recipeHash: this.copySection(Section.RecipeHash)
+      recipeHash: requireHash(this.copySection(Section.RecipeHash), "recipeHash"),
+      contentManifestHash: requireHash(this.copySection(Section.ContentManifestHash), "contentManifestHash")
     });
   }
 
@@ -253,6 +272,8 @@ function asU32(bytes: Uint8Array, name: string): Uint32Array {
   if (bytes.byteLength % 4 !== 0) throw new Error(`${name} is not u32-aligned`);
   return new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4).slice();
 }
+
+function requireHash(bytes: Uint8Array<ArrayBuffer>, name: string): Uint8Array<ArrayBuffer> { if (bytes.byteLength !== 32) throw new Error(`${name} must be exactly 32 bytes`); return bytes; }
 
 function alignUp(value: number, alignment: number): number { return Math.ceil(value / alignment) * alignment; }
 function assertU32(value: number, name: string): void { if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) throw new RangeError(`${name} must be a u32`); }

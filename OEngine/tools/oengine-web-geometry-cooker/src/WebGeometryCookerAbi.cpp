@@ -34,6 +34,7 @@ struct CookResult {
     DecodedGeometryProductV1 product;
     CookEvidenceV3 evidence;
     Hash256 recipeHash{};
+    Hash256 contentManifestHash{};
     std::vector<std::uint8_t> assetRecords;
     std::vector<std::uint8_t> rootNodeIds;
     std::vector<std::uint8_t> hierarchyNodes;
@@ -42,6 +43,31 @@ struct CookResult {
     std::vector<std::uint8_t> bootstrapPageIds;
     std::vector<std::uint8_t> vertexFormats;
 };
+
+void AddU32(Sha256Builder& hash, std::uint32_t value) {
+    const std::uint8_t bytes[4] = {
+        std::uint8_t(value), std::uint8_t(value >> 8u),
+        std::uint8_t(value >> 16u), std::uint8_t(value >> 24u)};
+    hash.Add(bytes, sizeof(bytes));
+}
+
+void AddU64(Sha256Builder& hash, std::uint64_t value) {
+    const std::uint8_t bytes[8] = {
+        std::uint8_t(value), std::uint8_t(value >> 8u),
+        std::uint8_t(value >> 16u), std::uint8_t(value >> 24u),
+        std::uint8_t(value >> 32u), std::uint8_t(value >> 40u),
+        std::uint8_t(value >> 48u), std::uint8_t(value >> 56u)};
+    hash.Add(bytes, sizeof(bytes));
+}
+
+void AddManifestPart(
+    Sha256Builder& manifest, std::uint32_t tag,
+    const std::vector<std::uint8_t>& bytes) {
+    const Hash256 digest = Sha256(bytes);
+    AddU32(manifest, tag);
+    AddU64(manifest, bytes.size());
+    manifest.Add(digest.data(), digest.size());
+}
 
 std::uint16_t ReadU16(const std::uint8_t* bytes, std::size_t at) {
     return std::uint16_t(bytes[at]) | (std::uint16_t(bytes[at + 1u]) << 8u);
@@ -281,6 +307,23 @@ std::unique_ptr<CookResult> Cook(
         WriteU32(record, 16u, page.firstGroup);
         WriteU32(record, 20u, page.groupCount);
     }
+    Sha256Builder contentManifest;
+    contentManifest.Add("OENGINE-WEB-GEOMETRY-CONTENT-MANIFEST-V1");
+    AddManifestPart(contentManifest, 1u, result->assetRecords);
+    AddManifestPart(contentManifest, 2u, result->rootNodeIds);
+    AddManifestPart(contentManifest, 3u, result->hierarchyNodes);
+    AddManifestPart(contentManifest, 4u, result->groupDirectory);
+    AddManifestPart(contentManifest, 5u, result->pageRecords);
+    AddManifestPart(contentManifest, 6u, result->bootstrapPageIds);
+    AddManifestPart(contentManifest, 7u, result->vertexFormats);
+    AddU32(contentManifest, 8u);
+    AddU64(contentManifest, result->product.pages.size());
+    for (std::size_t pageIndex = 0u; pageIndex < result->product.pages.size(); ++pageIndex) {
+        const Hash256 pageHash = Sha256(result->product.pages[pageIndex].bytes);
+        AddU32(contentManifest, std::uint32_t(pageIndex));
+        contentManifest.Add(pageHash.data(), pageHash.size());
+    }
+    result->contentManifestHash = contentManifest.Finish();
     return result;
 }
 
@@ -342,6 +385,10 @@ std::size_t oengine_web_geometry_cook_section_size(
             if (index != 0u) throw std::runtime_error("recipe hash index must be zero");
             return result.recipeHash.size();
         }
+        if (section == OENGINE_WEB_COOK_SECTION_CONTENT_MANIFEST_HASH) {
+            if (index != 0u) throw std::runtime_error("content manifest hash index must be zero");
+            return result.contentManifestHash.size();
+        }
         if (section == OENGINE_WEB_COOK_SECTION_PAGE_BYTES) {
             if (index >= result.product.pages.size()) {
                 throw std::runtime_error("decoded page index is out of range");
@@ -369,6 +416,10 @@ std::uint32_t oengine_web_geometry_cook_copy_section(
             if (index != 0u) throw std::runtime_error("recipe hash index must be zero");
             begin = result.recipeHash.data();
             required = result.recipeHash.size();
+        } else if (section == OENGINE_WEB_COOK_SECTION_CONTENT_MANIFEST_HASH) {
+            if (index != 0u) throw std::runtime_error("content manifest hash index must be zero");
+            begin = result.contentManifestHash.data();
+            required = result.contentManifestHash.size();
         } else if (section == OENGINE_WEB_COOK_SECTION_PAGE_BYTES) {
             if (index >= result.product.pages.size()) {
                 throw std::runtime_error("decoded page index is out of range");

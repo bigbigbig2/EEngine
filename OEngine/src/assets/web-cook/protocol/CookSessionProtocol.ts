@@ -40,6 +40,8 @@ export interface WebCookSessionEvidence {
   readonly queuedEvents: number;
   readonly outputCreditsBlocks: number;
   readonly outputCreditsBytes: number;
+  readonly outstandingOutputBlocks: number;
+  readonly outstandingOutputBytes: number;
   readonly peakOutputBytes: number;
   readonly droppedLateMessages: number;
 }
@@ -51,6 +53,8 @@ export class WebCookSessionProtocol {
   #events: WebCookEvent[] = [];
   #creditsBlocks = 0;
   #creditsBytes = 0;
+  #outstandingBlocks = 0;
+  #outstandingBytes = 0;
   #peakOutputBytes = 0;
   #droppedLateMessages = 0;
   constructor(readonly sessionId: string, readonly sessionGeneration: number) {
@@ -61,7 +65,12 @@ export class WebCookSessionProtocol {
     this.validateHeader(command);
     if (command.type === "CreateSession") { this.requireState("created"); this.#budgets = validateBudgets(command.budgets); this.#state = "open"; return; }
     if (command.type === "OpenSource") { this.requireState("open"); this.#sourceOpened = true; return; }
-    if (command.type === "GrantOutputCredits") { this.requireState("open"); if (!Number.isInteger(command.blockCount) || command.blockCount < 0 || !Number.isInteger(command.bytes) || command.bytes < 0) throw new RangeError("output credits must be non-negative integers"); this.#creditsBlocks += command.blockCount; this.#creditsBytes += command.bytes; return; }
+    if (command.type === "GrantOutputCredits") {
+      this.requireState("open");
+      if (!Number.isInteger(command.blockCount) || command.blockCount < 0 || !Number.isInteger(command.bytes) || command.bytes !== command.blockCount * WEB_COOK_PAGE_BYTES) throw new RangeError("output credits must describe whole 256-KiB page blocks");
+      if (this.#creditsBlocks + this.#outstandingBlocks + command.blockCount > this.#budgets!.maxQueuedEvents || this.#creditsBytes + this.#outstandingBytes + command.bytes > this.#budgets!.maxOutputBytes) throw new RangeError("output credit grant exceeds CookSession budget");
+      this.#creditsBlocks += command.blockCount; this.#creditsBytes += command.bytes; return;
+    }
     if (command.type === "CancelScope") { if (this.#state === "open") this.#state = "cancelled"; return; }
     if (command.type === "DisposeSession") { this.#state = "disposed"; this.#events.length = 0; return; }
     this.requireState("open"); if (!this.#sourceOpened) throw new Error("CookSession source must be opened before work commands");
@@ -79,14 +88,24 @@ export class WebCookSessionProtocol {
       if (event.productId.byteLength !== 32 || !Number.isInteger(event.revision) || event.revision < 0 || event.revision === 0xffffffff) throw new RangeError("PageReady contains an invalid Product identity");
       if (!Number.isInteger(event.pageId) || event.pageId < 0 || event.pageId === 0xffffffff || event.bytes.byteLength !== WEB_COOK_PAGE_BYTES || event.decodedHash128.byteLength !== 16 || this.#creditsBlocks < 1 || this.#creditsBytes < event.bytes.byteLength) return false;
       this.#creditsBlocks--; this.#creditsBytes -= event.bytes.byteLength;
+      this.#outstandingBlocks++; this.#outstandingBytes += event.bytes.byteLength;
     }
     this.#events.push(event); this.#peakOutputBytes = Math.max(this.#peakOutputBytes, maxOutputBytes(this.#events)); return true;
   }
 
+  canEmitPage(byteLength: number): boolean {
+    return this.#state === "open" && Number.isInteger(byteLength) && byteLength > 0 &&
+      this.#creditsBlocks >= 1 && this.#creditsBytes >= byteLength;
+  }
+
   drain(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] { if (!Number.isSafeInteger(maxEvents) || maxEvents < 0) throw new RangeError("maxEvents must be non-negative"); return this.#events.splice(0, maxEvents); }
-  returnOutputCredits(blockCount: number, bytes: number): void { if (!Number.isInteger(blockCount) || blockCount < 0 || !Number.isInteger(bytes) || bytes < 0) throw new RangeError("returned output credits must be non-negative integers"); this.#creditsBlocks += blockCount; this.#creditsBytes += bytes; }
+  returnOutputCredits(blockCount: number, bytes: number): void {
+    if (!Number.isInteger(blockCount) || blockCount < 0 || !Number.isInteger(bytes) || bytes !== blockCount * WEB_COOK_PAGE_BYTES || blockCount > this.#outstandingBlocks || bytes > this.#outstandingBytes) throw new RangeError("returned output credits exceed outstanding ownership");
+    this.#outstandingBlocks -= blockCount; this.#outstandingBytes -= bytes;
+    this.#creditsBlocks += blockCount; this.#creditsBytes += bytes;
+  }
   fail(code: string, diagnostics?: Readonly<Record<string, unknown>>): void { if (this.#state === "disposed") return; this.#state = "failed"; this.#events.length = 0; }
-  evidence(): WebCookSessionEvidence { return Object.freeze({ sessionGeneration: this.sessionGeneration, state: this.#state, queuedEvents: this.#events.length, outputCreditsBlocks: this.#creditsBlocks, outputCreditsBytes: this.#creditsBytes, peakOutputBytes: this.#peakOutputBytes, droppedLateMessages: this.#droppedLateMessages }); }
+  evidence(): WebCookSessionEvidence { return Object.freeze({ sessionGeneration: this.sessionGeneration, state: this.#state, queuedEvents: this.#events.length, outputCreditsBlocks: this.#creditsBlocks, outputCreditsBytes: this.#creditsBytes, outstandingOutputBlocks: this.#outstandingBlocks, outstandingOutputBytes: this.#outstandingBytes, peakOutputBytes: this.#peakOutputBytes, droppedLateMessages: this.#droppedLateMessages }); }
   private validateHeader(message: WebCookSessionHeader): void { if (message.protocolVersion !== WEB_COOK_PROTOCOL_VERSION || message.sessionId !== this.sessionId || message.sessionGeneration !== this.sessionGeneration) { this.#droppedLateMessages++; throw new Error("stale or incompatible CookSession message"); } }
   private requireState(state: WebCookSessionEvidence["state"]): void { if (this.#state !== state) throw new Error(`CookSession expected state '${state}', got '${this.#state}'`); }
 }

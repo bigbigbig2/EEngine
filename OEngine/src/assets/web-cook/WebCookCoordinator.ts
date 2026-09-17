@@ -1,7 +1,7 @@
 import { buildGlbSceneCatalog, type GlbByteRange, type GlbCookPrimitive, type GlbSceneCatalog } from "../../loaders/gltf/streaming/GlbSceneCatalog.js";
 import { openGlbRangeSource, type GlbRangeReadableSource, type GlbRangeSourceOptions } from "../../loaders/gltf/streaming/GlbRangeSource.js";
 import { decodeGeometryProductDescriptorBinaryV1 } from "../geometry-product/GeometryProductBinaryV1.js";
-import { WebCookSessionProtocol, WEB_COOK_PROTOCOL_VERSION, type WebCookBudgets, type WebCookEvent, type WebCookRuntimeProfile } from "./protocol/CookSessionProtocol.js";
+import { WebCookSessionProtocol, WEB_COOK_PAGE_BYTES, WEB_COOK_PROTOCOL_VERSION, type WebCookBudgets, type WebCookEvent, type WebCookRuntimeProfile } from "./protocol/CookSessionProtocol.js";
 
 export interface WebCookUnitContext {
   readonly source: GlbRangeReadableSource;
@@ -20,7 +20,9 @@ export interface WebCookProductRevision {
   readonly descriptor: ArrayBuffer;
   readonly productId: Uint8Array;
   readonly revision: number;
-  readonly pages: readonly WebCookProductPage[];
+  readonly pageCount: number;
+  readPage(pageId: number): Promise<WebCookProductPage>;
+  release(): void;
 }
 
 /**
@@ -62,6 +64,8 @@ export class WebCookCoordinator {
   #emittedPages = 0;
   #peakUnitBytes = 0;
   #failure: string | undefined;
+  readonly #liveRevisions: WebCookProductRevision[] = [];
+  readonly #creditWaiters = new Set<() => void>();
 
   constructor(readonly sessionId: string, sessionGeneration: number, options: WebCookCoordinatorOptions) {
     this.#options = options;
@@ -101,17 +105,11 @@ export class WebCookCoordinator {
         this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
         if (estimated > this.#options.budgets.maxWasmBytes) throw new Error(`cook unit exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
         const revision = await this.#options.cooker.cookBootstrap(unit, context);
-        if (revision.productId.byteLength !== 32 || !Number.isInteger(revision.revision) || revision.revision < 0 || revision.revision === 0xffffffff) throw new Error("Web Cook revision identity is invalid");
+        this.validateRevision(revision);
         const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
-        if (descriptor.revision !== revision.revision || !sameBytes(descriptor.productId, revision.productId)) throw new Error("Web Cook descriptor and revision identity disagree");
-        const outputBytes = revision.pages.reduce((sum, page) => sum + page.bytes.byteLength, 0);
-        if (outputBytes > this.#options.budgets.maxOutputBytes) throw new Error(`cook unit exceeds maxOutputBytes=${this.#options.budgets.maxOutputBytes}`);
+        this.#liveRevisions.push(revision);
         this.#session.emit(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
-        for (const page of revision.pages) {
-          if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");
-          if (!this.#session.emit(this.header({ type: "PageReady", productId: revision.productId.slice(), revision: revision.revision, pageId: page.pageId, decodedHash128: page.decodedHash128, bytes: page.bytes }))) throw new Error("Web Cook output credits exhausted");
-          this.#emittedPages++;
-        }
+        for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
         this.#completedUnits++;
         this.#session.emit(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
       }
@@ -122,13 +120,33 @@ export class WebCookCoordinator {
     }
   }
 
-  grantOutputCredits(blockCount: number, bytes: number): void { this.#session.accept(this.header({ type: "GrantOutputCredits", blockCount, bytes })); }
+  grantOutputCredits(blockCount: number, bytes: number): void { this.#session.accept(this.header({ type: "GrantOutputCredits", blockCount, bytes })); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); }
+  returnOutputCredits(blockCount: number, bytes: number): void { this.#session.returnOutputCredits(blockCount, bytes); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); }
   drainEvents(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] { return this.#session.drain(maxEvents); }
-  cancel(reason = new Error("Web Cook was cancelled")): void { if (this.#state === "disposed" || this.#state === "complete") return; this.#abort.abort(reason); this.#state = "cancelled"; this.#session.accept(this.header({ type: "CancelScope", scope: "session" })); }
-  dispose(): void { if (this.#state === "disposed") return; this.#abort.abort(new Error("Web Cook session disposed")); this.#source?.release(); this.#source = undefined; this.#catalog = undefined; this.#state = "disposed"; this.#session.accept(this.header({ type: "DisposeSession" })); }
+  cancel(reason = new Error("Web Cook was cancelled")): void { if (this.#state === "disposed" || this.#state === "complete") return; this.#abort.abort(reason); this.#state = "cancelled"; for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.accept(this.header({ type: "CancelScope", scope: "session" })); }
+  dispose(): void { if (this.#state === "disposed") return; this.#abort.abort(new Error("Web Cook session disposed")); for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#source?.release(); this.#source = undefined; this.#catalog = undefined; this.#state = "disposed"; this.#session.accept(this.header({ type: "DisposeSession" })); }
   evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
 
-  private fail(error: unknown): void { this.#failure = error instanceof Error ? error.message : String(error); this.#state = this.#abort.signal.aborted ? "cancelled" : "failed"; this.#session.fail(this.#failure); this.#source?.release(); this.#source = undefined; }
+  private fail(error: unknown): void { this.#failure = error instanceof Error ? error.message : String(error); this.#state = this.#abort.signal.aborted ? "cancelled" : "failed"; for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.fail(this.#failure); this.#source?.release(); this.#source = undefined; }
+  private validateRevision(revision: WebCookProductRevision): void {
+    if (revision.productId.byteLength !== 32 || !Number.isInteger(revision.revision) || revision.revision < 0 || revision.revision === 0xffffffff || !Number.isInteger(revision.pageCount) || revision.pageCount <= 0) throw new Error("Web Cook revision identity/count is invalid");
+    const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
+    if (descriptor.revision !== revision.revision || !sameBytes(descriptor.productId, revision.productId) || descriptor.pageRecords.byteLength / 32 !== revision.pageCount) throw new Error("Web Cook descriptor and revision identity/count disagree");
+  }
+  private async emitPage(revision: WebCookProductRevision, pageId: number): Promise<void> {
+    await this.waitForOutputCredit(WEB_COOK_PAGE_BYTES);
+    if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");
+    const page = await revision.readPage(pageId);
+    if (page.pageId !== pageId || page.bytes.byteLength !== WEB_COOK_PAGE_BYTES) throw new Error("Web Cook producer returned the wrong page");
+    if (!this.#session.emit(this.header({ type: "PageReady", productId: revision.productId.slice(), revision: revision.revision, pageId, decodedHash128: page.decodedHash128, bytes: page.bytes }))) throw new Error("Web Cook output credit changed before PageReady emission");
+    this.#emittedPages++;
+  }
+  private async waitForOutputCredit(bytes: number): Promise<void> {
+    while (!this.#session.canEmitPage(bytes)) {
+      if (this.#abort.signal.aborted || this.#state === "disposed" || this.#state === "failed") throw this.#abort.signal.reason ?? new Error("Web Cook stopped while awaiting output credit");
+      await new Promise<void>(resolve => this.#creditWaiters.add(resolve));
+    }
+  }
   private requireState(state: WebCookCoordinatorEvidence["state"]): void { if (this.#state !== state) throw new Error(`WebCookCoordinator expected state '${state}', got '${this.#state}'`); }
   private header<const T extends Record<string, unknown>>(message: T): T & { protocolVersion: 1; sessionId: string; sessionGeneration: number } { return Object.assign({ protocolVersion: WEB_COOK_PROTOCOL_VERSION as 1, sessionId: this.sessionId, sessionGeneration: this.#session.sessionGeneration }, message); }
 }

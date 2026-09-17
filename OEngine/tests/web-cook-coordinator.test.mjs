@@ -29,9 +29,30 @@ test("Web Cook coordinator bounds source work and emits credited Product events"
   const coordinator = new WebCookCoordinator("session-a", 1, {
     budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 1024, maxOutputBytes: 262144, maxQueuedEvents: 8 },
     source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); fetched.push([start, end]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
-    cooker: { async cookBootstrap(unit, context) { for (const range of unit.ranges) await context.readRange(range); return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pages: [{ pageId: 0, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }] }; } }
+    cooker: { async cookBootstrap(unit, context) { for (const range of unit.ranges) await context.readRange(range); return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { assert.equal(pageId, 0); return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} }; } }
   });
   await coordinator.open("https://example.test/scene.glb"); coordinator.grantOutputCredits(1, 262144); await coordinator.cookBootstrap();
   assert.equal(coordinator.evidence().state, "complete"); assert.equal(coordinator.evidence().completedUnits, 1); assert.ok(fetched.length >= 5);
   assert.deepEqual(coordinator.drainEvents().map(event => event.type), ["SceneCatalogReady", "RevisionOffered", "PageReady", "Progress"]); coordinator.dispose();
+});
+
+test("Web Cook coordinator waits for a whole page lease before copying output", async () => {
+  const glb = makeGlb(), product = productFixture(); let reads = 0, released = 0;
+  const coordinator = new WebCookCoordinator("session-credit", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 1024, maxOutputBytes: 262144, maxQueuedEvents: 8 },
+    source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    cooker: { async cookBootstrap() { return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { reads++; return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() { released++; } }; } }
+  });
+  await coordinator.open("https://example.test/credit.glb");
+  let settled = false;
+  const cooking = coordinator.cookBootstrap().finally(() => { settled = true; });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(reads, 0);
+  assert.equal(settled, false);
+  coordinator.grantOutputCredits(1, 262144);
+  await cooking;
+  assert.equal(reads, 1);
+  coordinator.returnOutputCredits(1, 262144);
+  coordinator.dispose();
+  assert.equal(released, 1);
 });
