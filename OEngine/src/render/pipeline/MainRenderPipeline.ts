@@ -115,6 +115,7 @@ import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js"
 import type { Scene } from "../../scene/Scene.js";
 import { STATIC_GRAPHICS_ENGINE_ASSETS } from "../STATIC_GRAPHICS_ENGINE_ASSETS.js";
 import type { GeometryAssetPackage } from "../../assets/GeometryAssetPackage.js";
+import type { GeometryProductRevisionSourceV1 } from "../../assets/geometry-product/GeometryProductV1.js";
 import type {
   AssetHandle,
   AssetResidencyEvidence
@@ -136,8 +137,8 @@ import type {
   VirtualGeometrySceneSource
 } from "../../gpu/GpuRenderWorld.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
-import type { VirtualGeometryResidency } from "../../gpu/VirtualGeometryResidency.js";
-import type { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
+import { VirtualGeometryResidency } from "../../gpu/VirtualGeometryResidency.js";
+import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 import {
   createPackedSceneSourceFromScene,
   type SceneGeometryAssetBinding
@@ -636,6 +637,9 @@ export class MainRenderPipeline {
   private readonly _virtualProductScenes = new Map<Scene, {
     readonly residency: VirtualGeometryResidency;
     readonly streamingRuntime: GeometryPageStreamingRuntimeV1 | null;
+    readonly source: GeometryProductRevisionSourceV1;
+    readonly sceneSource: VirtualGeometrySceneSource;
+    readonly streamingEnabled: boolean;
   }>();
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _capabilities: RendererCapabilities | null = null;
@@ -982,7 +986,13 @@ export class MainRenderPipeline {
       await command.submitted;
       const runtime = this._graphics.render_world.runtime(scene);
       if (runtime === null) throw new Error("Virtual Product upload committed without publishing its runtime");
-      this._virtualProductScenes.set(scene, Object.freeze({ residency, streamingRuntime }));
+      this._virtualProductScenes.set(scene, Object.freeze({
+        residency,
+        streamingRuntime,
+        source: residency.sourceForStreaming(),
+        sceneSource: source,
+        streamingEnabled: streamingRuntime !== null
+      }));
       await this._sparseShadingPublications.reconcile(
         runtime.shadingPublication,
         this.createSparseShadingPublicationContext(runtime),
@@ -1827,11 +1837,21 @@ export class MainRenderPipeline {
     if (this._destroyed || !this._deviceLost || this._initializationConfig === null) {
       throw new Error("Renderer recovery requires a lost, initialized, non-destroyed Renderer");
     }
-    if (this._virtualProductScenes.size !== 0) {
-      throw new Error(
-        "Renderer recovery with Product scenes requires re-admission through GeometryProductAdmissionController"
-      );
-    }
+    const products = [...this._virtualProductScenes.entries()].map(([scene, state]) => {
+      const product = Object.freeze({
+        scene,
+        source: state.source,
+        productGeneration: state.residency.productGeneration,
+        productTableSlot: state.residency.productTableSlot,
+        sceneSource: state.sceneSource,
+        streamingEnabled: state.streamingEnabled
+      });
+      // The old device is already lost. Retain the external Product source,
+      // but release invalid GPU buffers before the replacement renderer starts.
+      state.residency.abandonForDeviceLoss();
+      state.streamingRuntime?.destroy();
+      return product;
+    });
     return {
       context: this.context,
       pixelRatio: this._pixel_ratio,
@@ -1839,6 +1859,7 @@ export class MainRenderPipeline {
       height: this._height,
       config: { ...this._initializationConfig, renderSettings: this.render_settings },
       scenes: this._graphics.render_world.recoveryScenes(),
+      products,
       bricks: [...this._brickRecovery.entries()],
       deviceEpoch: this.deviceEpoch + 1
     };
@@ -1859,6 +1880,29 @@ export class MainRenderPipeline {
       } else {
         await this.uploadPackedScene(entry.scene, entry.source);
         if (entry.queuedPatch !== undefined) this.queuePackedScenePatch(entry.scene, entry.queuedPatch);
+      }
+    }
+    for (const entry of checkpoint.products) {
+      const residency = await VirtualGeometryResidency.create(
+        this.device,
+        entry.source,
+        entry.productGeneration,
+        entry.productTableSlot
+      );
+      const streamingRuntime = entry.streamingEnabled
+        ? new GeometryPageStreamingRuntimeV1(this.device, residency)
+        : null;
+      try {
+        await this.uploadVirtualGeometryScene(
+          entry.scene,
+          entry.sceneSource,
+          residency,
+          streamingRuntime
+        );
+      } catch (error) {
+        streamingRuntime?.destroy();
+        residency.destroy();
+        throw error;
       }
     }
     for (const [scene, brick] of checkpoint.bricks) {

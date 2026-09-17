@@ -28,3 +28,13 @@ test("Product scenes remain isolated from package geometry owners", () => {
   assert.match(world, /Virtual Product scenes cannot include package geometry residency/u);
   assert.match(world, /sourceKind: virtualProduct !== undefined/u);
 });
+
+test("Product recovery preserves identity and re-publishes through the unified runtime", () => {
+  const pipeline = source(["render", "pipeline", "MainRenderPipeline.ts"]);
+  assert.match(pipeline, /productGeneration: state\.residency\.productGeneration/u);
+  assert.match(pipeline, /productTableSlot: state\.residency\.productTableSlot/u);
+  assert.match(pipeline, /abandonForDeviceLoss\(\)/u);
+  assert.match(pipeline, /VirtualGeometryResidency\.create\(/u);
+  assert.match(pipeline, /entry\.sceneSource/u);
+  assert.doesNotMatch(pipeline, /re-admission through GeometryProductAdmissionController/u);
+});
