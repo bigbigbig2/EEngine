@@ -22,6 +22,12 @@ function fixture() {
 
 function demand(flags = {}) { return { productTableSlot: 3, productGeneration: 9, pageId: 0, priority: 10, currentViewMissing: false, shadow: false, predictive: false, ...flags }; }
 
+test("page scheduler rejects unbounded retry and upload budgets", () => {
+  assert.throws(() => new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 1, maxUploadBytesPerFrame: 0 }), /budgets\/retry/);
+  assert.throws(() => new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 1, maxRetries: -1 }), /budgets\/retry/);
+  assert.throws(() => new GeometryPageSchedulerV1({ maxConcurrentReads: 1, maxInFlightBytes: 1, retryBaseDelayMs: Number.NaN }), /budgets\/retry/);
+});
+
 test("page scheduler verifies identity/hash, retries transient source errors, and batches uploads", async () => {
   const { descriptor, page, hash } = fixture(); let calls = 0;
   const source = { descriptor, async readPage(pageId) { calls++; if (calls === 1) throw new Error("temporary network failure"); return { productId: descriptor.productId.slice(), revision: 0, pageId, decodedHash128: hash.slice(), bytes: page.slice().buffer }; }, release() {} };

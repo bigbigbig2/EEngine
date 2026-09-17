@@ -156,7 +156,7 @@ export class VirtualGeometryResidency {
   activatePublication(): void { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#writeProductRecord(GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1); }
   bindings(): GeometryProductGpuBindingsV1 { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return Object.freeze({ productTableSlot: this.#productTableSlot, productGeneration: this.#productGeneration, metadata: this.#metadata, metadataByteLength: this.#metadataLayout.byteLength, productTableByteOffset: this.#metadataLayout.productRecord, pageLocationByteOffset: this.#metadataLayout.pageLocations, productTable: this.#metadata, banks: Object.freeze([...this.#banks]) }); }
   pageLocationTable(): GPUBuffer { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return this.#metadata; }
-  pageLocation(pageId: number): GeometryPageLocationV1 | undefined { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return this.#pageLocations.get(pageId); }
+  pageLocation(pageId: number): GeometryPageLocationV1 | undefined { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#assertPageId(pageId); return this.#pageLocations.get(pageId); }
   /** Drops all GPU allocations after device loss while retaining the Product source. */
   abandonForDeviceLoss(): void {
     if (this.#destroyed) return;
@@ -166,6 +166,7 @@ export class VirtualGeometryResidency {
   /** Records a consumer use for age-aware eviction; it never changes GPU state. */
   touchPage(pageId: number, frameIndex: number): boolean {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
+    this.#assertPageId(pageId);
     if (!Number.isSafeInteger(frameIndex) || frameIndex < 0) throw new RangeError("Geometry Product frame index must be non-negative");
     const location = this.#pageLocations.get(pageId);
     if (!location) return false;
@@ -200,7 +201,8 @@ export class VirtualGeometryResidency {
   /** Scheduler upload sink. The page was hash-verified before this synchronous publication. */
   uploadPage(page: GeometryPageProductV1): void {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
-    if (page.revision !== this.#descriptor.revision || page.pageId < 0 || page.pageId >= this.#descriptor.pageRecords.byteLength / 32 || page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES || !sameBytes(page.productId, this.#descriptor.productId)) throw new Error("Geometry Product page identity or payload is invalid");
+    this.#assertPageId(page.pageId);
+    if (page.revision !== this.#descriptor.revision || page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES || !sameBytes(page.productId, this.#descriptor.productId)) throw new Error("Geometry Product page identity or payload is invalid");
     const expected = decodeGeometryProductPageRecordV1(this.#descriptor, page.pageId);
     if (!sameBytes(page.decodedHash128, expected.decodedHash128)) throw new Error("Geometry Product page decoded hash identity is invalid");
     if (this.#pageLocations.has(page.pageId)) return;
@@ -214,11 +216,12 @@ export class VirtualGeometryResidency {
     this.#publishPageLocation(page.pageId, location); this.#publishGroupsForPage(page.pageId, location);
   }
   beginRetirePage(pageId: number): void {
+    this.#assertPageId(pageId);
     const location = this.#pageLocations.get(pageId); if (!location || (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0) return;
     this.#pageLocations.delete(pageId); this.#retiringLocations.set(pageId, location); this.#pageLastUsed.delete(pageId); this.#publishPageLocation(pageId, undefined);
     for (const [groupId, group] of this.#groupLocations) if (group.bankIndex === location.bankIndex && group.slotIndex === location.slotIndex) this.#groupLocations.delete(groupId);
   }
-  completeRetirePage(pageId: number): void { const location = this.#retiringLocations.get(pageId); if (!location) return; this.#retiringLocations.delete(pageId); this.#slotOwners.delete(slotKey(location.bankIndex, location.slotIndex)); this.#evictedPages++; }
+  completeRetirePage(pageId: number): void { this.#assertPageId(pageId); const location = this.#retiringLocations.get(pageId); if (!location) return; this.#retiringLocations.delete(pageId); this.#slotOwners.delete(slotKey(location.bankIndex, location.slotIndex)); this.#evictedPages++; }
   writePageLocation(location: GeometryPageLocationV1, target = new ArrayBuffer(GEOMETRY_PAGE_LOCATION_STRIDE)): ArrayBuffer { const view = new DataView(target); view.setUint32(0, location.flags & GEOMETRY_PAGE_LOCATION_RESIDENT ? location.bankIndex : GEOMETRY_PAGE_LOCATION_NON_RESIDENT, true); view.setUint32(4, location.flags & GEOMETRY_PAGE_LOCATION_RESIDENT ? location.slotIndex : GEOMETRY_PAGE_LOCATION_NON_RESIDENT, true); view.setUint32(8, location.flags & GEOMETRY_PAGE_LOCATION_RESIDENT ? location.productGeneration : 0, true); view.setUint32(12, location.flags, true); return target; }
   evidence(): VirtualGeometryResidencyEvidenceV1 { const pinnedPages = [...this.#pageLocations.values()].filter(location => (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0).length; return Object.freeze({ productGeneration: this.#productGeneration, offeredRevisions: 1, admittedRevisions: this.#failedPages ? 0 : 1, activeRevisions: this.#failedPages ? 0 : 1, failedRevisions: this.#failedPages ? 1 : 0, requestedPages: this.#descriptor.activationPageIds.length, residentPages: this.#pageLocations.size, pinnedPages, retiringPages: this.#retiringLocations.size, residentBytes: this.#pageLocations.size * OEGPACK_V3_PAGE_BYTES, retiringBytes: this.#retiringLocations.size * OEGPACK_V3_PAGE_BYTES, evictedPages: this.#evictedPages, uploadedBytes: this.#uploadedBytes, metadataBytes: this.#metadataLayout.byteLength, bankCount: this.#banks.length, slotCapacity: this.#banks.length * OEGPACK_V3_SLOTS_PER_BANK, invalidGeneration: 0, failedPages: this.#failedPages }); }
   #acquireSlot(): { bankIndex: number; slotIndex: number } | undefined { for (let bankIndex = 0; bankIndex < this.#banks.length; bankIndex++) for (let slotIndex = 0; slotIndex < OEGPACK_V3_SLOTS_PER_BANK; slotIndex++) if (!this.#slotOwners.has(slotKey(bankIndex, slotIndex))) return { bankIndex, slotIndex }; if (this.#banks.length >= 4) return undefined; const bankIndex = this.#banks.length; this.#banks.push(this.device.createBuffer({ label: `OEngine Geometry Product V1 bank ${bankIndex}`, size: OEGPACK_V3_GEOMETRY_BANK_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST })); return { bankIndex, slotIndex: 0 }; }
@@ -227,6 +230,7 @@ export class VirtualGeometryResidency {
   #writeProductRecord(flags: number): void { const descriptor = this.#descriptor; const record = packGeometryProductTableRecordV1({ productGeneration: this.#productGeneration, flags, assetBegin: 0, assetCount: descriptor.assetRecords.byteLength / 128, rootBegin: 0, rootCount: descriptor.rootNodeIds.length, hierarchyBegin: 0, hierarchyCount: descriptor.hierarchyNodes.byteLength / 48, groupBegin: 0, groupCount: descriptor.groupDirectory.byteLength / 16, pageBegin: 0, pageCount: descriptor.pageRecords.byteLength / 32, vertexFormatBegin: 0, vertexFormatCount: descriptor.vertexFormats.byteLength / 16 }); this.device.queue.writeBuffer(this.#metadata, this.#metadataLayout.productRecord, record); }
   destroy(): void { if (this.#destroyed) return; this.#destroyed = true; this.#destroyGpuResources(); this.#source.release(); }
   #destroyGpuResources(): void { for (const bank of this.#banks) bank.destroy(); this.#metadata.destroy(); this.#banks.length = 0; this.#pageLocations.clear(); this.#retiringLocations.clear(); this.#groupLocations.clear(); this.#slotOwners.clear(); this.#pageLastUsed.clear(); }
+  #assertPageId(pageId: number): void { const pageCount = this.#descriptor.pageRecords.byteLength / 32; if (!Number.isSafeInteger(pageId) || pageId < 0 || pageId >= pageCount) throw new RangeError("Geometry Product pageId is outside the descriptor"); }
 }
 
 function slotKey(bankIndex: number, slotIndex: number): string { return `${bankIndex}:${slotIndex}`; }
