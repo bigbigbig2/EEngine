@@ -237,6 +237,57 @@ fn hierarchy_emit_page_demand_v1(
     asset.product_table_slot, asset.product_generation, page_id, 0x0001ffffu
   );
 }
+
+struct OEngineVirtualAncestorFallbackV1 {
+  valid: bool,
+  group_id: u32,
+};
+
+fn hierarchy_virtual_find_resident_ancestor_v1(
+  heap: ptr<storage, array<u32>, read>,
+  asset: OEngineGeometryProductResolvedAssetV1,
+  node_id: u32
+) -> OEngineVirtualAncestorFallbackV1 {
+  if (!asset.valid) {
+    return OEngineVirtualAncestorFallbackV1(false, 0u);
+  }
+  let hierarchy_begin = (*heap)[asset.asset_word_offset + 20u];
+  var current = node_id;
+  // The cooker bounds normal hierarchy depth; the cap also prevents corrupt
+  // cyclic topology from turning fallback into an unbounded shader loop.
+  for (var depth = 0u; depth < 256u; depth++) {
+    let node = oengine_virtual_hierarchy_node_v1(heap, asset, current);
+    if (oengine_virtual_node_is_group_v1(node)) {
+      let group_id = oengine_virtual_node_group_id_v1(node);
+      let group = oengine_virtual_group_v1(heap, asset, group_id);
+      if (group.valid && oengine_geometry_product_lookup_page_heap_v1(
+        heap, asset, group.page_id
+      ).valid) {
+        return OEngineVirtualAncestorFallbackV1(true, group_id);
+      }
+    }
+    var parent = OENGINE_WORK_QUEUE_INVALID_OFFSET;
+    for (var candidate = 0u; candidate < asset.hierarchy_count; candidate++) {
+      if (hierarchy_begin > 0xffffffffu - candidate) { break; }
+      let parent_id = hierarchy_begin + candidate;
+      let candidate_node = oengine_virtual_hierarchy_node_v1(
+        heap, asset, parent_id
+      );
+      let child_count = oengine_virtual_node_child_count_v1(candidate_node);
+      if (!candidate_node.valid || child_count == 0u) { continue; }
+      let child_begin = oengine_virtual_node_child_begin_v1(candidate_node);
+      if (child_begin <= current && current - child_begin < child_count) {
+        parent = parent_id;
+        break;
+      }
+    }
+    if (parent == OENGINE_WORK_QUEUE_INVALID_OFFSET || parent == current) {
+      break;
+    }
+    current = parent;
+  }
+  return OEngineVirtualAncestorFallbackV1(false, 0u);
+}
 ` : ""}
 
 struct OEngineRasterWorkQueue {
@@ -886,6 +937,13 @@ ${virtualGeometryEnabled ? /* wgsl */ `
                 hierarchy_emit_page_demand_v1(
                   &traversal_page_demand, asset, group.page_id
                 );
+                let fallback = hierarchy_virtual_find_resident_ancestor_v1(
+                  &traversal_product_heap, asset, work.cluster_record_index
+                );
+                if (fallback.valid) {
+                  selected = true;
+                  selected_cluster = fallback.group_id;
+                }
               }
             }
           } else {

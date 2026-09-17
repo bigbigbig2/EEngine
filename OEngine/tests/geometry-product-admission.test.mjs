@@ -105,6 +105,8 @@ test("admission controller activates Web-style provider revisions at the shared 
   assert.equal(controller.active?.state, "active");
   assert.equal(controller.active?.residency.pageLocation(0)?.flags & 1, 1);
   controller.retireActive();
+  assert.equal(source.released, 0);
+  controller.retireReplaced();
   assert.equal(source.released, 1);
 });
 
@@ -119,6 +121,8 @@ test("failed richer revision leaves the previous active revision published", asy
   assert.equal(controller.evidence().rejected, 1);
   assert.equal(controller.active?.descriptor.revision, 0);
   controller.retireActive();
+  assert.equal(oldSource.released, 0);
+  controller.retireReplaced();
   assert.equal(oldSource.released, 1);
   assert.equal(failedSource.released, 1);
 });
@@ -138,6 +142,7 @@ test("successful replacement switches active generation before retiring the old 
   controller.retireReplaced();
   assert.equal(oldSource.released, 1);
   controller.retireActive();
+  controller.retireReplaced();
   assert.equal(nextSource.released, 1);
 });
 
@@ -151,6 +156,7 @@ test("scheduler registration can borrow an active Product source without releasi
   scheduler.unregisterProduct(controller.active.generation);
   assert.equal(source.released, 0);
   controller.retireActive();
+  controller.retireReplaced();
   assert.equal(source.released, 1);
 });
 

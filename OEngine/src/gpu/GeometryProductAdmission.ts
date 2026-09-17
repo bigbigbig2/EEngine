@@ -103,14 +103,14 @@ export class GeometryProductAdmissionController {
     const active = this.#active;
     if (!active) return;
     active.beginRetire();
-    active.retire();
+    this.#retiring.push(active);
     this.#active = undefined;
   }
 
   /** Completes replacement retirement after the renderer's submission safety boundary. */
   retireReplaced(): void {
     for (const transaction of this.#retiring.splice(0)) {
-      transaction.beginRetire();
+      if (transaction.state === "active") transaction.beginRetire();
       transaction.retire();
     }
   }
