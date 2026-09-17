@@ -6,6 +6,10 @@ revoke/retire eviction with pinned and age-aware selection, and explicit
 device-loss recovery that rebuilds active Product residency from retained CPU
 source data. These are DEV-validated owner seams; they do not constitute the
 S7 main/shadow Scene cutover or browser Runtime Validation.
+Streaming runtime destruction now unregisters its Product generation before
+discarding readback resources, cancelling pending page reads even when the
+caller supplied an external scheduler; late results therefore cannot cross a
+device-loss or scene-release boundary.
 
 Product Scene publication update (2026-09-17): Product-backed instances now
 publish directly through the unified `GpuScene`/`GpuRenderWorld` owner and are

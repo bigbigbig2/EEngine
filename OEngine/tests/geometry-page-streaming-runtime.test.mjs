@@ -138,3 +138,49 @@ test("streaming runtime revokes pages before the settled submission boundary", a
   assert.deepEqual(events, ["begin:4", "complete:4"]);
   runtime.destroy();
 });
+
+test("runtime destruction unregisters the Product and aborts pending page reads", async () => {
+  const page = new Uint8Array(262144).fill(3);
+  const hash = createHash("sha256").update(page).digest();
+  const descriptor = {
+    pageRecords: new Uint8Array(32),
+    decodedPageBytes: page.byteLength,
+    productId: new Uint8Array(32).fill(8),
+    revision: 0
+  };
+  descriptor.pageRecords.set(hash.subarray(0, 16));
+  new DataView(descriptor.pageRecords.buffer).setUint32(20, 1, true);
+  let aborted = false;
+  let resolveRead;
+  const source = {
+    descriptor,
+    readPage(_pageId, signal) {
+      signal.addEventListener("abort", () => { aborted = true; resolveRead?.(); }, { once: true });
+      return new Promise((resolve) => { resolveRead = () => resolve({ productId: descriptor.productId.slice(), revision: 0, pageId: 0, decodedHash128: hash.subarray(0, 16), bytes: page.slice().buffer }); });
+    },
+    release() {}
+  };
+  const scheduler = new (await import("../.test-dist/gpu/GeometryPageScheduler.js")).GeometryPageSchedulerV1({
+    maxConcurrentReads: 1,
+    maxInFlightBytes: page.byteLength
+  });
+  const residency = {
+    productGeneration: 21,
+    productTableSlot: 5,
+    descriptor,
+    uploadPage() {},
+    evidence() { return { productGeneration: 21, residentPages: 0 }; }
+  };
+  const runtime = new GeometryPageStreamingRuntimeV1(device(), residency, {
+    scheduler,
+    readback: { slotCount: 2, bytesPerSlot: 64 }
+  });
+  runtime.registerProduct(source);
+  scheduler.ingestDemands([{ productTableSlot: 5, productGeneration: 21, pageId: 0, priority: 10, currentViewMissing: true, shadow: false, predictive: false }]);
+  assert.equal(scheduler.state(21, 0), "producing-or-reading");
+  runtime.destroy();
+  assert.equal(aborted, true);
+  assert.equal(scheduler.state(21, 0), "absent");
+  assert.equal(scheduler.evidence().cancelled, 1);
+  await scheduler.drainReads();
+});

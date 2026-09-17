@@ -207,6 +207,11 @@ export class GeometryPageStreamingRuntimeV1 {
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
+    // The scheduler registration is owned by this runtime.  Remove the
+    // generation before dropping the readback rings so pending reads cannot
+    // publish pages against a lost/released residency, including callers that
+    // supplied an external scheduler.
+    this.#scheduler.unregisterProduct(this.#residency.productGeneration);
     this.#readback.destroy();
     this.#shadowReadback?.destroy();
   }
