@@ -53,3 +53,9 @@ Shadow、direct/indirect lighting、AO/GI/SSR、transparency、temporal 和 post
 - D：先区分纹理渐进传输与真实物理 residency；在现有 TextureAssetPackage/TextureResidency/TextureBindingSet 上推进，Virtual Texturing 不是基线。
 
 当前顺序和退出条件见 [0016 实施文档](./implementation/0016-virtualized-assets.md)。
+## Product Consumer Status (2026-09-17)
+
+The Product path now reaches the unified production graph through GPU-generated
+hierarchy/work, Product MeshletWork, VisibilityKey, Sparse Shading and Packed
+CSM shadow depth. Product and package geometry are not mixed in one publication;
+browser validation and the real Emscripten Worker artifact remain open.

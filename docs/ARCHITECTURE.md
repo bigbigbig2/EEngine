@@ -50,3 +50,7 @@ Runtime Asset 是设备无关事实；GPU owner 由 Renderer/device 生命周期
 ## 不属于本页
 
 二进制字段偏移和状态机写入 spec；活跃切片和退出条件写入 implementation；完成度和风险写入 STATUS；算法来源写入 porting ledger。
+## Product Runtime Status (2026-09-17)
+
+Geometry Product V1 now has a live internal consumer in the unified GPU path:
+`GpuScene -> GpuRenderWorld -> hierarchy/work -> MeshletBucketRaster -> VisibilityKey -> Sparse Shading`. Packed CSM uses the same Product generation and resident banks. This is DEV-validated structure only; real browser GPU evidence and the Web Runtime Emscripten artifact remain open.
