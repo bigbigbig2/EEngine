@@ -66,7 +66,15 @@ const PACKED_CSM_PRODUCT_GROUP: GPUBindGroupLayoutDescriptor = {
       visibility: GPUShaderStage.VERTEX,
       buffer: { type: "read-only-storage" as GPUBufferBindingType }
     })),
-    { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
+    { binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
+    ...Array.from({ length: 9 }, (_, index) => ({
+      binding: index + 9,
+      visibility: GPUShaderStage.FRAGMENT,
+      texture: {
+        sampleType: "unfilterable-float" as GPUTextureSampleType,
+        viewDimension: "2d-array" as GPUTextureViewDimension
+      }
+    }))
   ]
 };
 
@@ -96,28 +104,31 @@ return {
 };
 }
 
-const PACKED_CSM_PRODUCT_PIPELINE: CachedRenderPipelineDescriptor = {
-  label: "FX-04 Packed CSM Product MeshletWork depth consumer",
-  layout: { label: "FX-04 Packed CSM Product layout", bindGroupLayouts: [PACKED_CSM_PRODUCT_GROUP] },
-  vertex: {
-    module: { label: "FX-04 Packed CSM Product", code: PACKED_CSM_PRODUCT_SHADOW_WGSL },
-    entryPoint: "packed_csm_product_vertex"
-  },
-  fragment: {
-    module: { label: "FX-04 Packed CSM Product", code: PACKED_CSM_PRODUCT_SHADOW_WGSL },
-    entryPoint: "packed_csm_product_fragment",
-    targets: []
-  },
-  primitive: { topology: "triangle-list", cullMode: "none" },
-  depthStencil: {
-    format: "depth32float",
-    depthWriteEnabled: true,
-    depthCompare: "greater",
-    depthBias: SHADOW_DEPTH_BIAS,
-    depthBiasSlopeScale: SHADOW_DEPTH_SLOPE_SCALE,
-    depthBiasClamp: 0
-  }
-};
+function packedCsmProductPipeline(textureBindingSetId: number): CachedRenderPipelineDescriptor {
+  return {
+    label: `FX-04 Packed CSM Product set ${textureBindingSetId} MeshletWork depth consumer`,
+    layout: { label: "FX-04 Packed CSM Product layout", bindGroupLayouts: [PACKED_CSM_PRODUCT_GROUP] },
+    vertex: {
+      module: { label: "FX-04 Packed CSM Product", code: PACKED_CSM_PRODUCT_SHADOW_WGSL },
+      entryPoint: "packed_csm_product_vertex"
+    },
+    fragment: {
+      module: { label: "FX-04 Packed CSM Product", code: PACKED_CSM_PRODUCT_SHADOW_WGSL },
+      entryPoint: "packed_csm_product_fragment",
+      constants: { OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId },
+      targets: []
+    },
+    primitive: { topology: "triangle-list", cullMode: "none" },
+    depthStencil: {
+      format: "depth32float",
+      depthWriteEnabled: true,
+      depthCompare: "greater",
+      depthBias: SHADOW_DEPTH_BIAS,
+      depthBiasSlopeScale: SHADOW_DEPTH_SLOPE_SCALE,
+      depthBiasClamp: 0
+    }
+  };
+}
 
 const CLEAR_PIPELINE: CachedRenderPipelineDescriptor = {
   label: "FX-04 Packed CSM viewport clear",
@@ -205,7 +216,7 @@ export class PackedCsmShadowPass {
   private readonly counterPipeline: GPUComputePipeline;
   private readonly productCounterLayout: GPUBindGroupLayout;
   private readonly productCounterPipeline: GPUComputePipeline;
-  private readonly productRasterPipeline: GPURenderPipeline;
+  private readonly productRasterPipelines = new Map<number, GPURenderPipeline>();
 
   constructor(private readonly graphics: GraphicsContext) {
     this.generator = new HierarchicalWorkGenerator(graphics.device);
@@ -240,7 +251,6 @@ export class PackedCsmShadowPass {
         entryPoint: "packed_csm_product_evidence"
       }
     });
-    this.productRasterPipeline = graphics.render_pipelines.obtain(PACKED_CSM_PRODUCT_PIPELINE);
   }
 
   get preparedWorkSetCount(): number {
@@ -432,25 +442,35 @@ export class PackedCsmShadowPass {
       depthStencilAttachment: { view: job.depthView, depthLoadOp: "load", depthStoreOp: "store" }
     });
     pass.setViewport(...job.viewport, 0, 1);
-    const group = this.graphics.bind_groups.obtain({
-      layout: PACKED_CSM_PRODUCT_GROUP,
-      entries: [
-        { buffer: job.cameraBuffer },
-        { buffer: job.scene.instances },
-        { buffer: prepared.meshletWork.queue },
-        { buffer: product.metadata },
-        ...prepared.meshletWork.productBanks!.slice(0, 4).map((buffer) => ({ buffer })),
-        { buffer: job.materials.materialRecords }
-      ]
-    });
-    pass.setPipeline(this.productRasterPipeline);
-    pass.setBindGroup(0, group);
-    pass.drawIndirect(prepared.meshletWork.drawIndirect, 0);
+    const bindingSets = job.materials.bindingSets;
+    if (bindingSets.length === 0) throw new Error("Packed CSM Product requires one active TextureBindingSet");
+    for (const bindingSet of bindingSets) {
+      let pipeline = this.productRasterPipelines.get(bindingSet.id);
+      if (pipeline === undefined) {
+        pipeline = this.graphics.render_pipelines.obtain(packedCsmProductPipeline(bindingSet.id));
+        this.productRasterPipelines.set(bindingSet.id, pipeline);
+      }
+      const group = this.graphics.bind_groups.obtain({
+        layout: PACKED_CSM_PRODUCT_GROUP,
+        entries: [
+          { buffer: job.cameraBuffer },
+          { buffer: job.scene.instances },
+          { buffer: prepared.meshletWork.queue },
+          { buffer: product.metadata },
+          ...prepared.meshletWork.productBanks!.slice(0, 4).map((buffer) => ({ buffer })),
+          { buffer: job.materials.materialRecords },
+          ...bindingSet.textureBanks
+        ]
+      });
+      pass.setPipeline(pipeline);
+      pass.setBindGroup(0, group);
+      pass.drawIndirect(prepared.meshletWork.drawIndirect, 0);
+    }
     pass.end();
     if (job.counterBuffer !== null) {
       this.encodeProductEvidence(command, prepared.meshletWork.queue, job);
     }
-    this.lastCascadeDraws++;
+    this.lastCascadeDraws += bindingSets.length;
     this.lastAtlasPixelsUpdated += job.viewport[2] * job.viewport[3];
     this.lastIndirectBytes += 16;
   }

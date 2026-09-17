@@ -17,11 +17,11 @@ consumed by the existing `MainRenderPipeline` and `PackedVisibilityPass`.
 Product raster covers direct VisibilityKey and sparse ShadingBin MRT variants,
 including UV0/UV1 pulling and TextureBindingSet-routed alpha-mask sampling.
 Packed CSM now consumes the same Product hierarchy, generation and resident
-banks through a Product MeshletWork depth consumer; textured alpha masks remain
-fail-closed there until shadow UV bindings are added. This remains DEV-validated
-only; Product hierarchy page-demand records now carry an explicit shadow flag,
-and CSM demand uses a separate delayed ring into the shared scheduler. ADR-0014
-browser evidence remains open.
+banks through a Product MeshletWork depth consumer with the same UV0/UV1 and
+TextureBindingSet alpha-mask sampling semantics. This remains DEV-validated only;
+Product hierarchy page-demand records now carry an explicit shadow flag, and CSM
+demand uses a separate delayed ring into the shared scheduler. ADR-0014 browser
+evidence remains open.
 
 更新时间：2026-09-17。本页是可变进度、开放风险和下一步的唯一汇总；历史结果由 Git 与 evidence artifact 保存。
 
@@ -37,7 +37,7 @@ browser evidence remains open.
 
 | 部分 | 状态 | 当前事实 | 下一出口 |
 | --- | --- | --- | --- |
-| Geometry Product V1 | in progress | 已落地 producer-neutral TS descriptor/page/provider mirror、严格 table/tree/bootstrap/activation validator、OEGPACK -> Product adapter，以及 Product-aware hierarchy/work/raster 接线；Product 现已进入统一 main/shadow consumer（VisibilityKey、Sparse Shading、Packed CSM depth），主视图已具备 UV0/UV1 与 TextureBindingSet alpha-mask 采样，CSM 对纹理 alpha-mask 保持 fail-closed；真实 Chrome GPU metadata/page/group/meshlet oracle 已通过，最终像素闭环仍待真实浏览器验证 | 完成 Product raster/shadow 的真实浏览器闭环与 demand evidence，随后再补 transport/golden 后冻结候选 spec |
+| Geometry Product V1 | in progress | 已落地 producer-neutral TS descriptor/page/provider mirror、严格 table/tree/bootstrap/activation validator、OEGPACK -> Product adapter，以及 Product-aware hierarchy/work/raster 接线；Product 现已进入统一 main/shadow consumer（VisibilityKey、Sparse Shading、Packed CSM depth），主视图与 CSM 均具备 UV0/UV1 与 TextureBindingSet alpha-mask 采样；真实 Chrome GPU metadata/page/group/meshlet oracle 已通过，最终像素闭环仍待真实浏览器验证 | 完成 Product raster/shadow 的真实浏览器闭环与 demand evidence，随后再补 transport/golden 后冻结候选 spec |
 | Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、带 source/WASM/output budget、取消与 whole-page credit lease 的 `WebCookCoordinator`、generation-filtered Dedicated Worker transport、CPU/WASM-only `WebCookWorkerHost`、异步 Emscripten module queueing 的 `WebCookWorkerEntry`、live Product provider，以及 container-neutral decoded Product assembly；S2b 已交付完整有界 GLB primitive canonicalization（interleaved/normalized/index/material/defaults）、Nyx Web Runtime Cooker adapter、Product content-manifest identity 与 page hash 校验、canonicalizer/credit pause/adapter tests。browser-first target 仍无真实 Emscripten artifact 与同一生产像素路径 | 完成真实 Emscripten build 与 Worker bootstrap Product -> 同一生产像素路径；不得把 native ABI oracle、Node fake module 或 TypeScript tests 视为 S2 Runtime 完成 |
 | 0016-A Offline/OEGPACK | implemented, validation open | native cooker、OEGPACK V3 parser、range source、页校验和 bootstrap residency proof 已存在；OEGPACK Product adapter 已通过共同 production consumer 接线 | 用 ADR-0014 浏览器证据验证并冻结候选 spec |
 | 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag 与保留 identity 的 device-loss residency 重建已接线，但完整 demand 闭环仍未完成 | 完成 activation cut、GPU demand -> delayed readback -> provider -> upload -> generation publication 的有界闭环 |

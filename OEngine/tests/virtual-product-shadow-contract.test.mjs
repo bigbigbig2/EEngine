@@ -62,10 +62,17 @@ test("Product visibility samples alpha masks through the active texture binding 
   assert.match(shader, /GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL/u);
 });
 
-test("Product shadow fails closed for textured alpha masks until UV sampling is bound", () => {
+test("Product shadow routes textured alpha masks through TextureBindingSet UV sampling", () => {
   const shader = source(["shaders", "packed_csm_shadow.ts"]);
-  assert.match(shader, /Product shadow has no texture binding\/UV dependency yet/u);
+  const pass = source(["render", "passes", "PackedCsmShadowPass.ts"]);
+  assert.match(pass, /PACKED_CSM_PRODUCT_GROUP/u);
+  assert.match(pass, /bindingSet\.textureBanks/u);
+  assert.match(pass, /packedCsmProductPipeline\(bindingSet\.id\)/u);
+  assert.match(shader, /product_uv/u);
+  assert.match(shader, /product_sample_alpha/u);
+  assert.match(shader, /OENGINE_ACTIVE_TEXTURE_BINDING_SET/u);
   assert.match(shader, /OENGINE_MATERIAL_VISIBILITY_HAS_ALPHA_TEXTURE/u);
+  assert.doesNotMatch(shader, /Product shadow has no texture binding\/UV dependency yet/u);
 });
 
 test("Product recovery preserves identity and re-publishes through the unified runtime", () => {

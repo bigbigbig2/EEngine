@@ -218,6 +218,9 @@ struct ProductShadowVertex {
   @builtin(position) position: vec4f,
   @location(0) @interpolate(flat) material_handle: u32,
   @location(1) @interpolate(flat) raster_flags: u32,
+  @location(2) uv0: vec2f,
+  @location(3) uv1: vec2f,
+  @location(4) @interpolate(flat) uv_valid_mask: u32,
 };
 
 @group(0) @binding(0) var<uniform> shadow_camera: CommandEncoder;
@@ -229,6 +232,19 @@ struct ProductShadowVertex {
 @group(0) @binding(6) var<storage, read> product_bank_2: array<u32>;
 @group(0) @binding(7) var<storage, read> product_bank_3: array<u32>;
 @group(0) @binding(8) var<storage, read> materials: array<OEngineShadingMaterialRecord>;
+@group(0) @binding(9) var oengine_texture_bank_0: texture_2d_array<f32>;
+@group(0) @binding(10) var oengine_texture_bank_1: texture_2d_array<f32>;
+@group(0) @binding(11) var oengine_texture_bank_2: texture_2d_array<f32>;
+@group(0) @binding(12) var oengine_texture_bank_3: texture_2d_array<f32>;
+@group(0) @binding(13) var oengine_texture_bank_4: texture_2d_array<f32>;
+@group(0) @binding(14) var oengine_texture_bank_5: texture_2d_array<f32>;
+@group(0) @binding(15) var oengine_texture_bank_6: texture_2d_array<f32>;
+@group(0) @binding(16) var oengine_texture_bank_7: texture_2d_array<f32>;
+@group(0) @binding(17) var oengine_texture_bank_8: texture_2d_array<f32>;
+
+${GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL}
+
+override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
 
 fn product_bank_word(bank: u32, word: u32) -> u32 {
   if (bank == 0u) { return product_bank_0[word]; }
@@ -267,6 +283,60 @@ fn product_position(bank: u32, byte_offset: u32, meshlet: OEngineVirtualMeshletH
   return mix(meshlet.bounds_min, meshlet.bounds_max, q);
 }
 
+fn product_uv(bank: u32, byte_offset: u32, meshlet: OEngineVirtualMeshletHeaderV1,
+  format_word0: u32, format_word1: u32, format_word2: u32, vertex: u32, uv_set: u32) -> vec2f {
+  let attribute_bit = select(8u, 16u, uv_set == 1u);
+  let offset = select((format_word1 >> 24u) & 0xffu, format_word2 & 0xffu, uv_set == 1u);
+  if uv_set > 1u || (format_word0 >> 16u & attribute_bit) == 0u || offset == 0xffu {
+    return vec2f(0.0);
+  }
+  let at = byte_offset + meshlet.vertex_byte_offset + vertex * (format_word0 & 0xffffu) + offset;
+  let first = product_u16(bank, at);
+  let second = product_u16(bank, at + 2u);
+  return unpack2x16float(first | (second << 16u));
+}
+
+fn product_wrap_texel(value: i32, mode: u32, size: i32) -> i32 {
+  if mode == 0u { return clamp(value, 0i, size - 1i); }
+  if mode == 2u {
+    let period = size * 2i;
+    let wrapped = ((value % period) + period) % period;
+    return select(wrapped, period - 1i - wrapped, wrapped >= size);
+  }
+  return ((value % size) + size) % size;
+}
+
+fn product_alpha_texel(texture_ref: u32, x: i32, y: i32, sampler_class: u32) -> f32 {
+  let size = oengine_texture_bank_size(oengine_texture_ref_bank(texture_ref));
+  return oengine_texture_bank_alpha(texture_ref, vec2i(
+    product_wrap_texel(x, sampler_class & OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size),
+    product_wrap_texel(y, (sampler_class >> OENGINE_MATERIAL_SAMPLER_ADDRESS_V_BITS) &
+      OENGINE_MATERIAL_SAMPLER_ADDRESS_MASK, size)));
+}
+
+fn product_sample_alpha(texture_ref: u32, uv: vec2f, sampler_class: u32) -> f32 {
+  let size = f32(oengine_texture_bank_size(oengine_texture_ref_bank(texture_ref)));
+  let position = uv * size - 0.5;
+  let base = vec2i(floor(position));
+  if (sampler_class & OENGINE_MATERIAL_SAMPLER_LINEAR) == 0u {
+    let nearest = vec2i(floor(uv * size));
+    return product_alpha_texel(texture_ref, nearest.x, nearest.y, sampler_class);
+  }
+  let fraction = fract(position);
+  let a = product_alpha_texel(texture_ref, base.x, base.y, sampler_class);
+  let b = product_alpha_texel(texture_ref, base.x + 1i, base.y, sampler_class);
+  let c = product_alpha_texel(texture_ref, base.x, base.y + 1i, sampler_class);
+  let d = product_alpha_texel(texture_ref, base.x + 1i, base.y + 1i, sampler_class);
+  return mix(mix(a, b, fraction.x), mix(c, d, fraction.x), fraction.y);
+}
+
+fn product_transform_uv(record: OEngineMaterialVisibilityRecord, uv: vec2f) -> vec2f {
+  let scaled = uv * record.uv_offset_scale.zw;
+  return record.uv_offset_scale.xy + vec2f(
+    record.uv_rotation.x * scaled.x - record.uv_rotation.y * scaled.y,
+    record.uv_rotation.y * scaled.x + record.uv_rotation.x * scaled.y);
+}
+
 @vertex
 fn packed_csm_product_vertex(@builtin(vertex_index) vertex_index: u32,
   @builtin(instance_index) instance_index: u32) -> ProductShadowVertex {
@@ -281,6 +351,9 @@ fn packed_csm_product_vertex(@builtin(vertex_index) vertex_index: u32,
   let location = oengine_geometry_product_lookup_page_heap_v1(&product_heap, asset, group.page_id);
   var valid = false;
   var position = vec3f(0.0);
+  var uv0 = vec2f(0.0);
+  var uv1 = vec2f(0.0);
+  var uv_valid_mask = 0u;
   if (asset.valid && group.valid && location.valid) {
     let header = product_group_header(location.bank_index, location, group);
     let meshlet = product_meshlet_header(location.bank_index, location, group, header, local_meshlet);
@@ -289,6 +362,7 @@ fn packed_csm_product_vertex(@builtin(vertex_index) vertex_index: u32,
       let format_at = asset.vertex_format_word_offset + header.vertex_format_id * 4u;
       let format_word0 = product_heap[format_at];
       let format_word1 = product_heap[format_at + 1u];
+      let format_word2 = product_heap[format_at + 2u];
       let triangle = vertex_index / 3u;
       let corner = vertex_index % 3u;
       let triangle_byte = location.byte_offset + group.offset_in_page +
@@ -298,6 +372,14 @@ fn packed_csm_product_vertex(@builtin(vertex_index) vertex_index: u32,
       position = product_position(location.bank_index,
         location.byte_offset + group.offset_in_page, meshlet,
         format_word0, format_word1, local_vertex);
+      uv0 = product_uv(location.bank_index,
+        location.byte_offset + group.offset_in_page, meshlet,
+        format_word0, format_word1, format_word2, local_vertex, 0u);
+      uv1 = product_uv(location.bank_index,
+        location.byte_offset + group.offset_in_page, meshlet,
+        format_word0, format_word1, format_word2, local_vertex, 1u);
+      uv_valid_mask = select(0u, 1u, (format_word0 >> 16u & 8u) != 0u) |
+        select(0u, 2u, (format_word0 >> 16u & 16u) != 0u);
       valid = true;
     }
   }
@@ -307,6 +389,9 @@ fn packed_csm_product_vertex(@builtin(vertex_index) vertex_index: u32,
       oengine_instance_current_object_to_world(instance) * vec4f(position, 1.0), valid);
   output.material_handle = work.material_slot_or_range;
   output.raster_flags = work.packed_raster_flags;
+  output.uv0 = uv0;
+  output.uv1 = uv1;
+  output.uv_valid_mask = uv_valid_mask;
   return output;
 }
 
@@ -315,16 +400,22 @@ fn packed_csm_product_fragment(input: ProductShadowVertex) {
   if (input.raster_flags & ${GPU_MESHLET_RASTER_FLAGS.Transparent}u) != 0u { discard; }
   if (input.material_handle >= arrayLength(&materials)) { discard; }
   let record = materials[input.material_handle].payload;
+  if record.texture_binding_set_id != OENGINE_ACTIVE_TEXTURE_BINDING_SET { discard; }
   if (record.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u { discard; }
   if (record.alpha_mode == OENGINE_MATERIAL_ALPHA_BLEND) { discard; }
-  // Product shadow has no texture binding/UV dependency yet.  Fail closed
-  // for textured masks instead of treating them as factor-only opaque work.
-  if (record.alpha_mode == OENGINE_MATERIAL_ALPHA_MASK &&
-      (record.flags & OENGINE_MATERIAL_VISIBILITY_HAS_ALPHA_TEXTURE) != 0u) {
-    discard;
+  if (record.alpha_mode == OENGINE_MATERIAL_ALPHA_MASK) {
+    var alpha = record.base_color_factor_alpha;
+    let uv_set = record.texture_uv_sets & 0xffu;
+    let uv_bit = select(0u, 1u << uv_set, uv_set < 3u);
+    if (record.flags & OENGINE_MATERIAL_VISIBILITY_HAS_ALPHA_TEXTURE) != 0u {
+      if (!oengine_texture_ref_valid(record.texture_ref) || uv_set > 1u ||
+          (input.uv_valid_mask & uv_bit) == 0u) { discard; }
+      let source_uv = select(input.uv0, input.uv1, uv_set == 1u);
+      alpha *= product_sample_alpha(record.texture_ref,
+        product_transform_uv(record, source_uv), record.sampler_class);
+    }
+    if alpha < record.alpha_cutoff { discard; }
   }
-  if (record.alpha_mode == OENGINE_MATERIAL_ALPHA_MASK &&
-      record.base_color_factor_alpha < record.alpha_cutoff) { discard; }
 }
 `;
 
