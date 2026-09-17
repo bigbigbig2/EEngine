@@ -56,3 +56,17 @@ test("Web Cook coordinator waits for a whole page lease before copying output", 
   coordinator.dispose();
   assert.equal(released, 1);
 });
+
+test("Web Cook coordinator prefers the whole-source immutable batch entry", async () => {
+  const glb = makeGlb(), product = productFixture(); let batchCalls = 0, unitCalls = 0;
+  const coordinator = new WebCookCoordinator("session-batch", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 1024, maxOutputBytes: 262144, maxQueuedEvents: 8 },
+    source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    cooker: {
+      async cookBootstrap() { unitCalls++; throw new Error("unit cooker should not be selected"); },
+      async cookBootstrapBatch(units) { batchCalls++; assert.equal(units.length, 1); return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} }; }
+    }
+  });
+  await coordinator.open("https://example.test/batch.glb"); coordinator.grantOutputCredits(1, 262144); await coordinator.cookBootstrap();
+  assert.equal(batchCalls, 1); assert.equal(unitCalls, 0); assert.equal(coordinator.evidence().completedUnits, 1); coordinator.dispose();
+});

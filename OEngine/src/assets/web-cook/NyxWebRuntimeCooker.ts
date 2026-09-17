@@ -46,9 +46,27 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   }
 
   async cookBootstrap(unit: GlbCookPrimitive, context: WebCookUnitContext): Promise<WebCookProductRevision> {
-    const domain = await canonicalizeGlbPrimitiveV1(unit, context);
+    return this.cookDomains([unit], context);
+  }
+
+  async cookBootstrapBatch(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision> {
+    if (units.length === 0) throw new Error("Nyx Web Product requires at least one GLB primitive");
+    const material = units[0]!.materialIndex;
+    if (units.some(unit => unit.materialIndex !== material)) {
+      throw new Error("Web GLB Product currently requires one material domain per immutable Product; split the source or use an offline Product");
+    }
+    const mesh = units[0]!.meshIndex;
+    if (units.some(unit => unit.meshIndex !== mesh)) {
+      throw new Error("Web GLB Product currently requires one mesh per immutable Product; split the source or use an offline Product");
+    }
+    return this.cookDomains(units, context);
+  }
+
+  private async cookDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision> {
+    const domains = [];
+    for (const unit of units) domains.push(await canonicalizeGlbPrimitiveV1(unit, context));
     if (context.signal.aborted) throw context.signal.reason ?? new DOMException("The operation was aborted", "AbortError");
-    const canonicalInput = encodeWebCanonicalGeometryV1([domain]);
+    const canonicalInput = encodeWebCanonicalGeometryV1(domains);
     if (canonicalInput.byteLength > this.#maxCanonicalInputBytes) throw new Error(`canonical cook input exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
     const result = cookWebGeometryWasmV1(this.#module, canonicalInput, this.#recipeInput, this.#maxDecodedProductBytes);
     try {

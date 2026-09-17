@@ -24,6 +24,12 @@ export interface GlbCookMaterialDomain {
   readonly materialIndex: number;
   readonly alphaMode: "OPAQUE" | "MASK" | "BLEND";
   readonly doubleSided: boolean;
+  readonly baseColorFactor: readonly [number, number, number, number];
+  readonly metallicFactor: number;
+  readonly roughnessFactor: number;
+  readonly emissiveFactor: readonly [number, number, number];
+  readonly alphaCutoff: number;
+  readonly unlit: boolean;
 }
 
 export interface GlbCookPrimitive {
@@ -46,7 +52,14 @@ export interface GlbSceneCatalog {
   readonly sourceIdentityHash: Uint8Array;
   readonly scenes: readonly number[];
   readonly primitives: readonly GlbCookPrimitive[];
+  readonly instances: readonly GlbSceneInstance[];
   readonly sourceBytes: number;
+}
+
+export interface GlbSceneInstance {
+  readonly nodeIndex: number;
+  readonly meshIndex: number;
+  readonly worldMatrix: Float32Array;
 }
 
 /** Builds a compact dependency catalog without reading any BIN payload. */
@@ -59,23 +72,30 @@ export function buildGlbSceneCatalog(source: GlbRangeReadableSource): GlbSceneCa
   const accessors = document.accessors ?? [];
   const views = document.bufferViews ?? [];
   const meshInstances = new Map<number, Set<number>>();
-  const visit = (nodeIndex: number, visited: Set<number>): void => {
+  const instanceByNode = new Map<number, GlbSceneInstance>();
+  const visit = (nodeIndex: number, visited: Set<number>, parentWorld: Float32Array): void => {
     if (visited.has(nodeIndex)) throw new Error(`GLB node graph contains a cycle at node ${nodeIndex}`);
     const node = nodes[nodeIndex];
     if (!node) throw new Error(`GLB scene references missing node ${nodeIndex}`);
     visited.add(nodeIndex);
+    const worldMatrix = multiplyMatrix(parentWorld, nodeLocalMatrix(node, nodeIndex));
     if (node.mesh !== undefined) {
       if (node.skin !== undefined) throw new Error(`GLB node ${nodeIndex} is skinned; the static Web geometry profile does not admit skins`);
       if (!meshes[node.mesh]) throw new Error(`GLB node ${nodeIndex} references missing mesh ${node.mesh}`);
       const instances = meshInstances.get(node.mesh) ?? new Set<number>();
       instances.add(nodeIndex); meshInstances.set(node.mesh, instances);
+      const previous = instanceByNode.get(nodeIndex);
+      if (previous !== undefined && !sameMatrix(previous.worldMatrix, worldMatrix)) {
+        throw new Error(`GLB node ${nodeIndex} is reachable with multiple world transforms; static instance publication is ambiguous`);
+      }
+      instanceByNode.set(nodeIndex, Object.freeze({ nodeIndex, meshIndex: node.mesh, worldMatrix }));
     }
-    for (const child of node.children ?? []) visit(child, visited);
+    for (const child of node.children ?? []) visit(child, visited, worldMatrix);
     visited.delete(nodeIndex);
   };
   const sceneRoots = (document.scenes ?? []).flatMap(scene => scene.nodes ?? []);
   const roots = sceneRoots.length > 0 ? sceneRoots : nodes.map((_, index) => index);
-  for (const root of roots) visit(root, new Set());
+  for (const root of roots) visit(root, new Set(), identityMatrix());
   const primitives: GlbCookPrimitive[] = [];
   for (const [meshIndex, instanceSet] of [...meshInstances].sort(([a], [b]) => a - b)) {
     const mesh = meshes[meshIndex]!;
@@ -114,18 +134,18 @@ export function buildGlbSceneCatalog(source: GlbRangeReadableSource): GlbSceneCa
       primitives.push(Object.freeze({ nodeIndex: instanceNodeIndices[0]!, instanceNodeIndices, meshIndex, primitiveIndex, materialIndex: material.materialIndex, mode, vertexCount: position.count, triangleCount: (indices?.count ?? position.count) / 3, attributes: Object.freeze(attributes) as GlbCookPrimitive["attributes"], ...(indices ? { indices } : {}), material, ranges: Object.freeze([...ranges.values()].sort(compareRange)) }));
     });
   }
-  return Object.freeze({ schemaVersion: 1, sourceIdentityHash: source.sourceIdentity.hash, scenes: Object.freeze(sceneRoots), primitives: Object.freeze(primitives.sort((a, b) => a.nodeIndex - b.nodeIndex || a.meshIndex - b.meshIndex || a.primitiveIndex - b.primitiveIndex)), sourceBytes: source.byteLength });
+  return Object.freeze({ schemaVersion: 1, sourceIdentityHash: source.sourceIdentity.hash, scenes: Object.freeze(sceneRoots), primitives: Object.freeze(primitives.sort((a, b) => a.nodeIndex - b.nodeIndex || a.meshIndex - b.meshIndex || a.primitiveIndex - b.primitiveIndex)), instances: Object.freeze([...instanceByNode.values()].sort((a, b) => a.nodeIndex - b.nodeIndex)), sourceBytes: source.byteLength });
 }
 
 interface GltfCatalogDocument { buffers?: GltfBuffer[]; bufferViews?: GltfBufferView[]; accessors?: GltfAccessor[]; nodes?: GltfNode[]; meshes?: GltfMesh[]; scenes?: GltfScene[]; materials?: GltfMaterial[] }
 interface GltfBuffer { byteLength?: unknown; uri?: unknown }
 interface GltfBufferView { buffer?: unknown; byteOffset?: unknown; byteLength?: unknown; byteStride?: unknown }
 interface GltfAccessor { bufferView?: unknown; byteOffset?: unknown; componentType?: unknown; count?: unknown; type?: unknown; normalized?: unknown; sparse?: unknown }
-interface GltfNode { mesh?: number; skin?: number; children?: number[] }
+interface GltfNode { mesh?: number; skin?: number; children?: number[]; matrix?: unknown; translation?: unknown; rotation?: unknown; scale?: unknown }
 interface GltfMesh { primitives: GltfPrimitive[] }
 interface GltfPrimitive { attributes: Record<string, number>; indices?: number; material?: number; mode?: number; targets?: unknown[]; extensions?: { KHR_draco_mesh_compression?: unknown } }
 interface GltfScene { nodes?: number[] }
-interface GltfMaterial { alphaMode?: unknown; doubleSided?: unknown }
+interface GltfMaterial { alphaMode?: unknown; doubleSided?: unknown; pbrMetallicRoughness?: { baseColorFactor?: unknown; metallicFactor?: unknown; roughnessFactor?: unknown }; emissiveFactor?: unknown; alphaCutoff?: unknown; extensions?: { KHR_materials_unlit?: unknown } }
 
 function accessorInfo(accessors: readonly GltfAccessor[], views: readonly GltfBufferView[], buffers: readonly GltfBuffer[], index: number): GlbCookAccessor {
   const accessor = accessors[index];
@@ -160,7 +180,46 @@ function requireAttributeEncoding(accessor: GlbCookAccessor, semantic: GlbCookAt
       : encodingIs([5126], false) || encodingIs([5121, 5123], true);
   if (!valid) throw new Error(`GLB primitive ${mesh}:${primitive} ${semantic} component encoding is invalid`);
 }
-function materialInfo(materials: readonly GltfMaterial[], index: number | undefined): GlbCookMaterialDomain { if (index === undefined) return Object.freeze({ materialIndex: 0xffffffff, alphaMode: "OPAQUE", doubleSided: false }); const material = materials[index]; if (!material) throw new Error(`GLB primitive references missing material ${index}`); const alphaMode = material.alphaMode ?? "OPAQUE"; if (alphaMode !== "OPAQUE" && alphaMode !== "MASK" && alphaMode !== "BLEND") throw new Error(`GLB material ${index} has invalid alphaMode`); if (material.doubleSided !== undefined && typeof material.doubleSided !== "boolean") throw new Error(`GLB material ${index} has invalid doubleSided`); return Object.freeze({ materialIndex: index, alphaMode, doubleSided: material.doubleSided === true }); }
+function materialInfo(materials: readonly GltfMaterial[], index: number | undefined): GlbCookMaterialDomain {
+  if (index === undefined) return Object.freeze({ materialIndex: 0xffffffff, alphaMode: "OPAQUE", doubleSided: false, baseColorFactor: [1, 1, 1, 1] as const, metallicFactor: 0, roughnessFactor: 1, emissiveFactor: [0, 0, 0] as const, alphaCutoff: 0.5, unlit: false });
+  const material = materials[index];
+  if (!material) throw new Error(`GLB primitive references missing material ${index}`);
+  const alphaMode = material.alphaMode ?? "OPAQUE";
+  if (alphaMode !== "OPAQUE" && alphaMode !== "MASK" && alphaMode !== "BLEND") throw new Error(`GLB material ${index} has invalid alphaMode`);
+  if (material.doubleSided !== undefined && typeof material.doubleSided !== "boolean") throw new Error(`GLB material ${index} has invalid doubleSided`);
+  const pbr = material.pbrMetallicRoughness;
+  const baseColorFactor = finiteTuple(pbr?.baseColorFactor, 4, [1, 1, 1, 1], `GLB material ${index} baseColorFactor`) as [number, number, number, number];
+  const emissiveFactor = finiteTuple(material.emissiveFactor, 3, [0, 0, 0], `GLB material ${index} emissiveFactor`) as [number, number, number];
+  const metallicFactor = finiteScalar(pbr?.metallicFactor, 0, `GLB material ${index} metallicFactor`);
+  const roughnessFactor = finiteScalar(pbr?.roughnessFactor, 1, `GLB material ${index} roughnessFactor`);
+  const alphaCutoff = finiteScalar(material.alphaCutoff, 0.5, `GLB material ${index} alphaCutoff`);
+  if (metallicFactor < 0 || metallicFactor > 1 || roughnessFactor < 0 || roughnessFactor > 1 || alphaCutoff < 0 || alphaCutoff > 1) throw new Error(`GLB material ${index} contains an out-of-range scalar factor`);
+  return Object.freeze({ materialIndex: index, alphaMode, doubleSided: material.doubleSided === true, baseColorFactor, metallicFactor, roughnessFactor, emissiveFactor, alphaCutoff, unlit: material.extensions?.KHR_materials_unlit !== undefined });
+}
+
+function finiteScalar(value: unknown, fallback: number, label: string): number { if (value === undefined) return fallback; if (typeof value !== "number" || !Number.isFinite(value)) throw new Error(`${label} must be finite`); return value; }
+function finiteTuple(value: unknown, length: number, fallback: readonly number[], label: string): readonly number[] { if (value === undefined) return fallback; if (!Array.isArray(value) || value.length !== length || value.some(item => typeof item !== "number" || !Number.isFinite(item))) throw new Error(`${label} must contain ${length} finite numbers`); return Object.freeze(value.slice()) as readonly number[]; }
+
+function identityMatrix(): Float32Array { const matrix = new Float32Array(16); matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1; return matrix; }
+function nodeLocalMatrix(node: GltfNode, nodeIndex: number): Float32Array {
+  if (node.matrix !== undefined) {
+    if (!Array.isArray(node.matrix) || node.matrix.length !== 16 || node.matrix.some(value => typeof value !== "number" || !Number.isFinite(value))) throw new Error(`GLB node ${nodeIndex} matrix must contain 16 finite numbers`);
+    return Float32Array.from(node.matrix);
+  }
+  const translation = finiteTuple(node.translation, 3, [0, 0, 0], `GLB node ${nodeIndex} translation`);
+  const scale = finiteTuple(node.scale, 3, [1, 1, 1], `GLB node ${nodeIndex} scale`);
+  const rotation = finiteTuple(node.rotation, 4, [0, 0, 0, 1], `GLB node ${nodeIndex} rotation`);
+  const x = rotation[0]!, y = rotation[1]!, z = rotation[2]!, w = rotation[3]!;
+  const xx = x * x, yy = y * y, zz = z * z, xy = x * y, xz = x * z, yz = y * z, wx = w * x, wy = w * y, wz = w * z;
+  const out = identityMatrix();
+  out[0] = (1 - 2 * (yy + zz)) * scale[0]!; out[1] = 2 * (xy + wz) * scale[0]!; out[2] = 2 * (xz - wy) * scale[0]!;
+  out[4] = 2 * (xy - wz) * scale[1]!; out[5] = (1 - 2 * (xx + zz)) * scale[1]!; out[6] = 2 * (yz + wx) * scale[1]!;
+  out[8] = 2 * (xz + wy) * scale[2]!; out[9] = 2 * (yz - wx) * scale[2]!; out[10] = (1 - 2 * (xx + yy)) * scale[2]!;
+  out[12] = translation[0]!; out[13] = translation[1]!; out[14] = translation[2]!;
+  return out;
+}
+function multiplyMatrix(a: Float32Array, b: Float32Array): Float32Array { const out = new Float32Array(16); for (let column = 0; column < 4; column++) for (let row = 0; row < 4; row++) { let value = 0; for (let k = 0; k < 4; k++) value += a[k * 4 + row]! * b[column * 4 + k]!; out[column * 4 + row] = value; } return out; }
+function sameMatrix(a: Float32Array, b: Float32Array): boolean { for (let index = 0; index < 16; index++) if (Math.abs(a[index]! - b[index]!) > 1e-6) return false; return true; }
 function addRange(map: Map<string, GlbByteRange>, range: GlbByteRange): void { const value = Object.freeze({ bufferIndex: range.bufferIndex, byteOffset: range.byteOffset, byteLength: range.byteLength }); const key = `${value.bufferIndex}:${value.byteOffset}:${value.byteLength}`; map.set(key, value); }
 function compareRange(a: GlbByteRange, b: GlbByteRange): number { return a.bufferIndex - b.bufferIndex || a.byteOffset - b.byteOffset || a.byteLength - b.byteLength; }
 function componentTypeBytes(value: number): number { if (value === 5120 || value === 5121) return 1; if (value === 5122 || value === 5123) return 2; if (value === 5125 || value === 5126) return 4; throw new Error(`GLB accessor componentType ${value} is unsupported`); }

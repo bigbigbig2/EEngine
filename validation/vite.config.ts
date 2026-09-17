@@ -9,7 +9,8 @@ export default defineConfig({
   server: {
     host: "127.0.0.1",
     port: 4178,
-    strictPort: true
+    strictPort: true,
+    fs: { allow: [root, resolve(root, "../OEngine")] }
   },
   build: {
     target: "es2022",
@@ -25,7 +26,8 @@ export default defineConfig({
         "shading-resolve-component": resolve(root, "src/cases/shading-resolve-component/index.html"),
         "sparse-shading-candidate": resolve(root, "src/cases/sparse-shading-candidate/index.html"),
         "sparse-shading-production": resolve(root, "src/cases/sparse-shading-production/index.html"),
-        "virtual-product-production": resolve(root, "src/cases/virtual-product-production/index.html")
+        "virtual-product-production": resolve(root, "src/cases/virtual-product-production/index.html"),
+        "glb-web-product": resolve(root, "src/cases/glb-web-product/index.html")
       }
     }
   }

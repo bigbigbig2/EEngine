@@ -8,6 +8,7 @@ const MAX_PENDING_MESSAGES = 16;
 interface BootstrapMessage {
   readonly type: typeof BOOTSTRAP_TYPE;
   readonly wasmModuleUrl: string;
+  readonly wasmBinaryUrl?: string;
   readonly maxCanonicalInputBytes: number;
   readonly maxDecodedProductBytes: number;
 }
@@ -61,7 +62,7 @@ async function initialize(message: BootstrapMessage): Promise<void> {
     const factory = imported.default;
     if (typeof factory !== "function") throw new Error("Emscripten Web geometry module has no default factory export");
     const module = await (factory as (options?: Readonly<Record<string, unknown>>) => EmscriptenWebGeometryCookerModuleV1)({
-      locateFile: (file: string) => new URL(file, moduleUrl).href
+      locateFile: (file: string) => message.wasmBinaryUrl && file.endsWith(".wasm") ? message.wasmBinaryUrl : new URL(file, moduleUrl).href
     });
     await installWebCookWorkerEntry({
       port,

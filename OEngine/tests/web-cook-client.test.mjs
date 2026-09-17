@@ -35,6 +35,18 @@ test("Web Cook Worker factory sends an explicit real-module bootstrap", () => {
   }]);
 });
 
+test("Web Cook Worker factory forwards an explicitly emitted wasm binary URL", () => {
+  const worker = new FakeWorker();
+  createWebCookWorker({
+    wasmModuleUrl: "https://assets.test/oengine-web-geometry-cooker-abc.mjs",
+    wasmBinaryUrl: "https://assets.test/oengine-web-geometry-cooker-def.wasm",
+    maxCanonicalInputBytes: 1024,
+    maxDecodedProductBytes: 262144,
+    createWorker: () => worker
+  });
+  assert.equal(worker.sent[0].message.wasmBinaryUrl, "https://assets.test/oengine-web-geometry-cooker-def.wasm");
+});
+
 function options(worker) {
   return {
     worker,

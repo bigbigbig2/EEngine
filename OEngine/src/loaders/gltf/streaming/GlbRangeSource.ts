@@ -14,6 +14,7 @@ export interface GlbRangeReadableSource {
   readonly binByteOffset: number;
   readonly binByteLength: number;
   readonly buffers: readonly GlbBufferDescriptor[];
+  readonly transferMode: "range" | "whole-source-fallback";
   readonly sourceIdentity: GlbSourceIdentity;
   readRange(byteOffset: number, byteLength: number, signal?: AbortSignal): Promise<ArrayBuffer>;
   readBufferRange(bufferIndex: number, byteOffset: number, byteLength: number, signal?: AbortSignal): Promise<ArrayBuffer>;
@@ -63,6 +64,7 @@ class HttpGlbRangeSource implements GlbRangeReadableSource {
   get binByteOffset(): number { return this.#binByteOffset; }
   get binByteLength(): number { return this.#binByteLength; }
   get buffers(): readonly GlbBufferDescriptor[] { return this.#buffers.map(buffer => Object.freeze({ ...buffer })); }
+  get transferMode(): "range" | "whole-source-fallback" { return this.#wholeBytes === undefined ? "range" : "whole-source-fallback"; }
   get sourceIdentity(): GlbSourceIdentity { return Object.freeze({ ...this.#identity, hash: this.#identity.hash.slice() }); }
 
   async initialize(): Promise<void> {

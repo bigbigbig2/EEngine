@@ -53,3 +53,14 @@ test("Nyx Web Runtime Cooker assembles an immutable revision and validates trans
   revision.release();
   await assert.rejects(() => revision.readPage(0), /released/i);
 });
+
+test("Nyx Web Runtime Cooker batches same-material GLB domains and rejects mixed domains", async () => {
+  const sections = productSections(), { unit, context: cookContext } = context();
+  const cooker = new NyxWebRuntimeCooker(fakeModule(sections), { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const second = { ...unit, nodeIndex: 1, instanceNodeIndices: [1] };
+  const revision = await cooker.cookBootstrapBatch([unit, second], cookContext);
+  assert.equal(revision.pageCount, 1);
+  revision.release();
+  await assert.rejects(() => cooker.cookBootstrapBatch([unit, { ...second, materialIndex: 2 }], cookContext), /one material domain/i);
+  await assert.rejects(() => cooker.cookBootstrapBatch([unit, { ...second, meshIndex: 3 }], cookContext), /one mesh/i);
+});

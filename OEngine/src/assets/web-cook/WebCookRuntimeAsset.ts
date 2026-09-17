@@ -1,5 +1,5 @@
 import type { GeometryProductProviderV1, GeometryProductRevisionSourceV1 } from "../geometry-product/GeometryProductV1.js";
-import { WebCookClient, type WebCookClientEvidence, type WebCookClientOptions } from "./WebCookClient.js";
+import { WebCookClient, type WebCookClientEvidence, type WebCookClientOptions, type WebCookSceneCatalogSnapshot } from "./WebCookClient.js";
 
 /**
  * Runtime-side handle for a Web GLB CookSession.
@@ -31,7 +31,7 @@ export class WebCookRuntimeAsset implements GeometryProductProviderV1 {
 
   get url(): string { return this.#url; }
   get state(): WebCookClientEvidence["state"] { return this.#client.state; }
-  get catalog(): Readonly<Record<string, unknown>> | undefined { return this.#client.catalog; }
+  get catalog(): WebCookSceneCatalogSnapshot | undefined { return this.#client.catalog; }
 
   revisions(signal?: AbortSignal): AsyncIterable<GeometryProductRevisionSourceV1> {
     return this.#client.revisions(signal);
@@ -49,4 +49,3 @@ export class WebCookRuntimeAsset implements GeometryProductProviderV1 {
   dispose(): void { this.#client.dispose(); }
   evidence(): WebCookClientEvidence { return this.#client.evidence(); }
 }
-

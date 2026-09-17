@@ -31,6 +31,8 @@ export interface WebCookProductRevision {
  */
 export interface WebRuntimeCooker {
   cookBootstrap(unit: GlbCookPrimitive, context: WebCookUnitContext): Promise<WebCookProductRevision>;
+  /** Optional whole-source entry. Producers use this to publish one immutable Product cut. */
+  cookBootstrapBatch?(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision>;
 }
 
 export interface WebCookCoordinatorOptions {
@@ -86,7 +88,18 @@ export class WebCookCoordinator {
       if (source.byteLength > this.#options.budgets.maxSourceBytes) throw new Error(`GLB source exceeds maxSourceBytes=${this.#options.budgets.maxSourceBytes}`);
       this.#catalog = buildGlbSceneCatalog(source);
       this.#session.accept(this.header({ type: "OpenSource", source: { url: source.sourceIdentity.finalUrl, byteLength: source.byteLength, identityHash: source.sourceIdentity.hash.slice() } }));
-      this.#session.emit(this.header({ type: "SceneCatalogReady", catalog: { schemaVersion: this.#catalog.schemaVersion, primitiveCount: this.#catalog.primitives.length, sourceBytes: this.#catalog.sourceBytes, sourceIdentityHash: this.#catalog.sourceIdentityHash.slice() } }));
+      this.#session.emit(this.header({ type: "SceneCatalogReady", catalog: {
+        schemaVersion: this.#catalog.schemaVersion,
+        primitiveCount: this.#catalog.primitives.length,
+        sourceBytes: this.#catalog.sourceBytes,
+        sourceTransferMode: source.transferMode,
+        sourceIdentityHash: this.#catalog.sourceIdentityHash.slice(),
+        // Scene metadata is JSON-only and therefore safe to transfer before
+        // any geometry page is copied out of the Worker.
+        scenes: this.#catalog.scenes.slice(),
+        instances: this.#catalog.instances.map(instance => ({ nodeIndex: instance.nodeIndex, meshIndex: instance.meshIndex, worldMatrix: Array.from(instance.worldMatrix) })),
+        primitives: this.#catalog.primitives.map(primitive => ({ nodeIndex: primitive.nodeIndex, instanceNodeIndices: primitive.instanceNodeIndices.slice(), meshIndex: primitive.meshIndex, primitiveIndex: primitive.primitiveIndex, materialIndex: primitive.materialIndex, material: primitive.material, attributeSemantics: Object.keys(primitive.attributes), vertexCount: primitive.vertexCount, triangleCount: primitive.triangleCount }))
+      } }));
       this.#state = "cooking";
       return this.#catalog;
     } catch (error) {
@@ -100,6 +113,23 @@ export class WebCookCoordinator {
     try {
       const source = this.#source!, catalog = this.#catalog!;
       const units = [...catalog.primitives].sort((left, right) => this.priorityFor(right) - this.priorityFor(left) || left.nodeIndex - right.nodeIndex || left.meshIndex - right.meshIndex || left.primitiveIndex - right.primitiveIndex);
+      const batchCooker = this.#options.cooker.cookBootstrapBatch;
+      if (batchCooker) {
+        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
+        const estimated = units.reduce((sum, unit) => sum + unit.ranges.reduce((inner, range) => inner + range.byteLength, 0), 0);
+        this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
+        if (estimated > this.#options.budgets.maxWasmBytes) throw new Error(`cook source exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
+        const revision = await batchCooker.call(this.#options.cooker, units, context);
+        this.validateRevision(revision);
+        this.#liveRevisions.push(revision);
+        const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
+        this.#session.emit(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
+        for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
+        this.#completedUnits = units.length;
+        this.#session.emit(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
+        this.#state = "complete";
+        return;
+      }
       const concurrency = Math.min(this.#options.budgets.maxConcurrentWorkers, units.length);
       for (let begin = 0; begin < units.length; begin += concurrency) {
         if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");

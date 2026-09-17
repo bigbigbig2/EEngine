@@ -9,6 +9,31 @@ import {
 import { WebCookProductProvider, type WebCookProductProviderEvidence } from "./WebCookProductProvider.js";
 import { WebCookWorkerTransport, type WebCookWorkerPort, type WebCookWorkerTransportEvidence } from "./WebCookWorkerTransport.js";
 
+export interface WebCookSceneCatalogSnapshot {
+  readonly schemaVersion: 1;
+  readonly primitiveCount: number;
+  readonly sourceBytes: number;
+  readonly sourceTransferMode: "range" | "whole-source-fallback";
+  readonly sourceIdentityHash: Uint8Array;
+  readonly scenes: readonly number[];
+  readonly instances: readonly {
+    readonly nodeIndex: number;
+    readonly meshIndex: number;
+    readonly worldMatrix: readonly number[];
+  }[];
+  readonly primitives: readonly {
+    readonly nodeIndex: number;
+    readonly instanceNodeIndices: readonly number[];
+    readonly meshIndex: number;
+    readonly primitiveIndex: number;
+    readonly materialIndex: number;
+    readonly material: Readonly<Record<string, unknown>>;
+    readonly attributeSemantics: readonly string[];
+    readonly vertexCount: number;
+    readonly triangleCount: number;
+  }[];
+}
+
 export interface WebCookClientOptions {
   readonly worker: WebCookWorkerPort;
   readonly sessionId: string;
@@ -20,6 +45,7 @@ export interface WebCookClientOptions {
   readonly initialOutputPageCredits: number;
   readonly maxBufferedPages?: number;
   readonly maxBufferedBytes?: number;
+  readonly onSceneCatalogReady?: (catalog: WebCookSceneCatalogSnapshot) => void;
 }
 
 export interface WebCookClientEvidence {
@@ -46,7 +72,7 @@ export class WebCookClient implements GeometryProductProviderV1 {
   readonly #options: WebCookClientOptions;
   #state: WebCookClientEvidence["state"] = "created";
   #providerConsumed = false;
-  #catalog: Readonly<Record<string, unknown>> | undefined;
+  #catalog: WebCookSceneCatalogSnapshot | undefined;
   #progressEvents = 0;
   #recoverableFailures = 0;
 
@@ -63,7 +89,10 @@ export class WebCookClient implements GeometryProductProviderV1 {
       maxBufferedPages,
       maxBufferedBytes,
       returnOutputCredits: (blockCount, bytes) => this.#returnOutputCredits(blockCount, bytes),
-      onSceneCatalogReady: catalog => { this.#catalog = catalog; },
+      onSceneCatalogReady: catalog => {
+        this.#catalog = catalog as unknown as WebCookSceneCatalogSnapshot;
+        this.#options.onSceneCatalogReady?.(this.#catalog);
+      },
       onProgress: () => { this.#progressEvents++; },
       onRecoverableFailure: () => { this.#recoverableFailures++; },
       requestPage: (productId, revision, pageId) => this.requestPages(productId, revision, new Uint32Array([pageId]), 0)
@@ -71,7 +100,7 @@ export class WebCookClient implements GeometryProductProviderV1 {
   }
 
   get state(): WebCookClientEvidence["state"] { return this.#state; }
-  get catalog(): Readonly<Record<string, unknown>> | undefined { return this.#catalog; }
+  get catalog(): WebCookSceneCatalogSnapshot | undefined { return this.#catalog; }
 
   /** Starts one bounded GLB source session and grants only whole-page credit. */
   open(url: string): void {

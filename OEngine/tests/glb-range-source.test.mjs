@@ -26,6 +26,6 @@ test("GLB Range source validates exact 206 ranges and exposes JSON/BIN ranges", 
 test("GLB Range source accepts bounded 200 fallback and rejects over-budget fallback", async () => {
   const bytes = makeGlb();
   const source = await openGlbRangeSource("https://example.test/fallback.glb", { wholeSourceFallbackBytes: bytes.byteLength, fetch: async () => new Response(bytes, { status: 200, headers: { ETag: '"scene-2"' } }) });
-  assert.equal(source.sourceIdentity.kind, "strong-http-validator"); source.release();
+  assert.equal(source.sourceIdentity.kind, "strong-http-validator"); assert.equal(source.transferMode, "whole-source-fallback"); source.release();
   await assert.rejects(openGlbRangeSource("https://example.test/too-large.glb", { wholeSourceFallbackBytes: bytes.byteLength - 1, fetch: async () => new Response(bytes, { status: 200 }) }), /wholeSourceFallbackBytes/i);
 });

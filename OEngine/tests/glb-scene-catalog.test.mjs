@@ -10,8 +10,9 @@ function makeGlb() {
     buffers: [{ byteLength: 42 }],
     bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }, { buffer: 0, byteOffset: 36, byteLength: 6 }],
     accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3" }, { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" }],
-    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
-    nodes: [{ mesh: 0 }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }] }],
+    materials: [{ pbrMetallicRoughness: { baseColorFactor: [0.2, 0.4, 0.6, 1], metallicFactor: 0.25, roughnessFactor: 0.75 }, emissiveFactor: [0.1, 0.2, 0.3] }],
+    nodes: [{ mesh: 0, translation: [2, 3, 4] }],
     scenes: [{ nodes: [0] }]
   };
   const encoded = new TextEncoder().encode(JSON.stringify(jsonObject));
@@ -31,9 +32,13 @@ test("GLB scene catalog is metadata-first and reports exact accessor ranges", as
     return new Response(bytes.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${bytes.byteLength}`, "Content-Encoding": "identity" } });
   } });
   const catalog = buildGlbSceneCatalog(source);
+  assert.equal(source.transferMode, "range");
   assert.equal(catalog.primitives.length, 1);
   assert.equal(catalog.primitives[0].vertexCount, 3);
   assert.equal(catalog.primitives[0].triangleCount, 1);
+  assert.deepEqual([...catalog.instances[0].worldMatrix], [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 3, 4, 1]);
+  assert.deepEqual(catalog.primitives[0].material.baseColorFactor, [0.2, 0.4, 0.6, 1]);
+  assert.equal(catalog.primitives[0].material.metallicFactor, 0.25);
   assert.deepEqual(catalog.primitives[0].ranges.map(range => [range.bufferIndex, range.byteOffset, range.byteLength]), [[0, 0, 36], [0, 36, 6]]);
   assert.deepEqual([...new Uint8Array(await source.readBufferRange(0, 36, 6))], [36, 37, 38, 39, 40, 41]);
   source.release();
