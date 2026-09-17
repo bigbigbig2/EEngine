@@ -467,6 +467,20 @@
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
+    },
+    "virtual-product-production-correctness-v1": {
+      "resolution": [1280, 720],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0016-s1-product-raster-v1",
+      "features": ["product-admission", "product-page", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
+      "seed": 1601,
+      "cameraPath": "single-product-triangle",
+      "warmupFrames": 1,
+      "sampleFrames": 1,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
     }
   },
   "cases": [
@@ -792,6 +806,37 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
           "ownerRequirement": "CAP-005"
+        }
+      ]
+    },
+    {
+      "id": "virtual-product-production",
+      "route": "/src/cases/virtual-product-production/index.html",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0016",
+      "requirements": ["GEO-VIRTUAL-ABI", "GEO-BOOTSTRAP-CONSUME"],
+      "workloadId": "virtual-product-production-correctness-v1",
+      "profile": "smoke",
+      "timeoutMs": 180000,
+      "artifacts": ["result", "events", "screenshot", "readback"],
+      "changedPaths": [
+        "validation/src/cases/virtual-product-production",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
+        "OEngine/src/gpu/GpuRenderWorld.ts",
+        "OEngine/src/gpu/VirtualGeometryResidency.ts",
+        "OEngine/src/render/HierarchicalWorkGenerator.ts",
+        "OEngine/src/shaders/hierarchical_work_generation.ts",
+        "OEngine/src/render/MeshletWorkCandidate.ts",
+        "OEngine/src/render/MeshletBucketRaster.ts",
+        "OEngine/src/shaders/sparse_shading_resolve.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while the Product production device is captured.",
+          "ownerRequirement": "GEO-VIRTUAL-ABI"
         }
       ]
     }

@@ -137,7 +137,10 @@ import type {
   VirtualGeometrySceneSource
 } from "../../gpu/GpuRenderWorld.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
-import { VirtualGeometryResidency } from "../../gpu/VirtualGeometryResidency.js";
+import {
+  VirtualGeometryResidency,
+  VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE
+} from "../../gpu/VirtualGeometryResidency.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 import {
   createPackedSceneSourceFromScene,
@@ -965,6 +968,15 @@ export class MainRenderPipeline {
     residency: VirtualGeometryResidency,
     streamingRuntime: GeometryPageStreamingRuntimeV1 | null = null
   ): Promise<GpuRenderWorldHandle> {
+    const storageBufferLimit = Number(this.device.limits.maxStorageBuffersPerShaderStage);
+    if (!Number.isFinite(storageBufferLimit) ||
+        storageBufferLimit < VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE) {
+      throw new Error(
+        `Virtual Geometry Product consumer requires maxStorageBuffersPerShaderStage >= ` +
+        `${VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE}; ` +
+        `initialize Renderer with requiredLimits.maxStorageBuffersPerShaderStage before admission (device permits ${storageBufferLimit})`
+      );
+    }
     if (residency.descriptor.assetRecords.byteLength / 128 !== source.assetCount) {
       throw new RangeError("Virtual Product source assetCount does not match its descriptor");
     }
@@ -973,7 +985,7 @@ export class MainRenderPipeline {
     }
     const command = ShadeGPUCommandContext.create(
       this._graphics,
-      "Renderer/GpuRenderWorld/virtual-product-transaction"
+      "Renderer/GpuRenderWorld/residency-transaction"
     );
     try {
       const handle = this._graphics.render_world.stageVirtualProduct(
@@ -2694,21 +2706,20 @@ export class MainRenderPipeline {
             bind("sparse-vertex-payload", (bindings) =>
               bindings.geometry.visibilityJob.assets.sparseShading.vertexPayloadHeap)
           );
-          const virtualProductMetadataRes = graph.import_resource(
+          const virtualProduct = mainBindings.geometry.visibilityJob.virtualGeometry;
+          const productBindings = virtualProduct;
+          const virtualProductMetadataRes = virtualProduct === undefined ? undefined : graph.import_resource(
             "SparseShading/virtual-product-metadata",
             { kind: "imported", label: "S1 Product metadata heap" },
             bind("sparse-virtual-product-metadata", (bindings) =>
-              bindings.geometry.visibilityJob.virtualGeometry?.metadata ??
-              bindings.geometry.visibilityJob.assets.sparseShading.assetMetadataHeap)
+              productBindings!.metadata)
           );
-          const virtualProductBankRes = (bank: number) => graph.import_resource(
+          const virtualProductBanks = virtualProduct === undefined ? undefined : [0, 1, 2, 3].map((bank) => graph.import_resource(
             `SparseShading/virtual-product-bank-${bank}`,
             { kind: "imported", label: `S1 Product page bank ${bank}` },
             bind(`sparse-virtual-product-bank-${bank}`, (bindings) =>
-              bindings.geometry.visibilityJob.virtualGeometry?.banks[bank] ??
-              bindings.geometry.visibilityJob.assets.sparseShading.vertexPayloadHeap)
-          );
-          const virtualProductBanks = [0, 1, 2, 3].map(virtualProductBankRes) as [ResourceId, ResourceId, ResourceId, ResourceId];
+              productBindings!.banks[bank] ?? productBindings!.banks[0]!)
+          )) as [ResourceId, ResourceId, ResourceId, ResourceId];
           const materialRecordsRes = graph.import_resource(
             "SparseShading/material-records",
             { kind: "imported", label: "ADR-0013 association material records" },
@@ -2783,8 +2794,10 @@ export class MainRenderPipeline {
               instanceRecords: instanceRecordsRes,
                 assetMetadataHeap: assetMetadataHeapRes,
                 vertexPayloadHeap: vertexPayloadHeapRes,
-                virtualProductMetadata: virtualProductMetadataRes,
-                virtualProductBanks,
+                ...(virtualProductMetadataRes === undefined ? {} : {
+                  virtualProductMetadata: virtualProductMetadataRes,
+                  virtualProductBanks: virtualProductBanks!
+                }),
               materialRecords: materialRecordsRes,
               textureDescriptorRoutingHeap: textureRoutesRes,
               textureBindingSets,
@@ -4073,6 +4086,7 @@ export class MainRenderPipeline {
       visibilityConfiguration:
         `hardware-meshlet-visibility-key-v2-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
         `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
+        `-virtual-product${bindings.geometry.visibilityJob.virtualGeometry ? 1 : 0}` +
         `-meshlet-visibility-v2` +
         `-meshlet-capacity${this.packed_meshlet_work_candidate_capacity}` +
         `-meshlet-compact${this.packed_meshlet_work_compaction}` +
@@ -4120,6 +4134,7 @@ export class MainRenderPipeline {
       opaqueDemand,
       outputDependencyMask: opaqueDemand.outputDependencyMask,
       shadowSamplingEnabled: opaqueDemand.shadowSamplingEnabled,
+      virtualGeometry: runtime.virtualGeometry !== null,
       textureBankMasks: Object.freeze(Array.from({ length: 4 }, (_, id) =>
         runtime.materialResources.bindingSets.find((set) => set.id === id)?.textureBankMask ?? 1
       )),

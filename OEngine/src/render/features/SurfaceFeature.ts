@@ -60,9 +60,9 @@ export interface SurfaceFeatureInputs {
   readonly instanceRecords: ResourceId;
   readonly assetMetadataHeap: ResourceId;
   readonly vertexPayloadHeap: ResourceId;
-  /** Product metadata/banks; V2 frames bind the existing heaps as harmless fallbacks. */
-  readonly virtualProductMetadata: ResourceId;
-  readonly virtualProductBanks: readonly [ResourceId, ResourceId, ResourceId, ResourceId];
+  /** Product metadata/banks; omitted for ordinary Scene publications. */
+  readonly virtualProductMetadata?: ResourceId;
+  readonly virtualProductBanks?: readonly [ResourceId, ResourceId, ResourceId, ResourceId];
   readonly materialRecords: ResourceId;
   readonly textureDescriptorRoutingHeap: ResourceId;
   readonly textureBindingSets: readonly SparseShadingTextureBindingSetResources[];
@@ -366,7 +366,7 @@ export class SurfaceFeature {
           name: string,
           descriptor: Readonly<{ textureBindingSetId: number }>
         ): GPUBindingResource => {
-          const buffers: Readonly<Record<string, ResourceId | null>> = {
+          const buffers: Readonly<Record<string, ResourceId | null | undefined>> = {
             shading_bin_settings: settings,
             shading_bin_heap: heap,
             shading_frame_status: status,
@@ -376,10 +376,10 @@ export class SurfaceFeature {
             asset_metadata_heap: inputs.assetMetadataHeap,
             vertex_payload_heap: inputs.vertexPayloadHeap,
             virtual_product_metadata: inputs.virtualProductMetadata,
-            virtual_product_bank_0: inputs.virtualProductBanks[0],
-            virtual_product_bank_1: inputs.virtualProductBanks[1],
-            virtual_product_bank_2: inputs.virtualProductBanks[2],
-            virtual_product_bank_3: inputs.virtualProductBanks[3],
+            virtual_product_bank_0: inputs.virtualProductBanks?.[0],
+            virtual_product_bank_1: inputs.virtualProductBanks?.[1],
+            virtual_product_bank_2: inputs.virtualProductBanks?.[2],
+            virtual_product_bank_3: inputs.virtualProductBanks?.[3],
             material_records: inputs.materialRecords,
             texture_descriptor_routing_heap: inputs.textureDescriptorRoutingHeap,
             light_database: inputs.lightDatabase,

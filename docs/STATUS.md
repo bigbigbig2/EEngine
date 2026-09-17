@@ -65,6 +65,19 @@ evidence remains open.
 3. 补齐 replacement/eviction/device-loss 后迁移 main、shadow、普通 Scene adapter；删除前完成 source、compiled graph/shader 与 browser counter 三层审计。
 4. 纹理先验证 Mode A 渐进传输；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。
 
+## 2026-09-17 Product S1 checkpoint
+
+The unified Product production case now passes in Chrome with HZB enabled: a
+validated one-page Product reaches GPU hierarchy/work, Product MeshletWork,
+hardware raster, VisibilityKey, and sparse shading. The case remains
+diagnostic-only because its source is an in-browser legal Product fixture and
+the worktree is not a clean milestone revision. Product consumers use four
+fixed page-bank bindings and therefore require an explicit
+`maxStorageBuffersPerShaderStage >= 14` capability request before admission;
+the current unified sparse shader retains three ordinary geometry buffers while
+the Product specialization is compiled, in addition to Product metadata and
+four fixed page-bank bindings.
+
 ## Mode A texture update
 
 TextureResidency now allocates the complete logical texture once, uploads a

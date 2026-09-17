@@ -117,7 +117,7 @@ fn hierarchy_root_hzb_occluded(
 ) -> bool {
   return hierarchy_hzb_occluded_bounds_from(
     hierarchy_previous_hzb, &hierarchy_view,
-    cluster.bounds_min, cluster.bounds_max, instance
+    cluster.bounds_min.xyz, cluster.bounds_max.xyz, instance
   );
 }
 
@@ -127,7 +127,7 @@ fn hierarchy_traversal_hzb_occluded(
 ) -> bool {
   return hierarchy_hzb_occluded_bounds_from(
     traversal_previous_hzb, &traversal_view,
-    cluster.bounds_min, cluster.bounds_max, instance
+    cluster.bounds_min.xyz, cluster.bounds_max.xyz, instance
   );
 }
 
@@ -137,7 +137,7 @@ fn hierarchy_leaf_hzb_occluded(
 ) -> bool {
   return hierarchy_hzb_occluded_bounds_from(
     leaf_previous_hzb, &leaf_view,
-    cluster.bounds_min, cluster.bounds_max, instance
+    cluster.bounds_min.xyz, cluster.bounds_max.xyz, instance
   );
 }
 `;
@@ -497,7 +497,7 @@ fn hierarchy_virtual_traversal_hzb_occluded(
 ) -> bool {
   return hierarchy_hzb_occluded_bounds_from(
     traversal_previous_hzb, &traversal_view,
-    node.bounds_min, node.bounds_max, instance
+    node.bounds_min.xyz, node.bounds_max.xyz, instance
   );
 }
 ` : /* wgsl */ `

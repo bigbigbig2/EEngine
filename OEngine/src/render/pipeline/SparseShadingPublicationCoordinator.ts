@@ -338,6 +338,7 @@ function publicationContextKey(context: Readonly<GpuShadingPublicationContext>):
     ],
     context.outputDependencyMask,
     Number(context.shadowSamplingEnabled),
+    Number(context.virtualGeometry ?? false),
     ...(context.textureBankMasks ?? []),
     context.capability.fingerprint,
     context.sizingLimits.maxTextureDimension2D,

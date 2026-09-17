@@ -168,6 +168,11 @@ export interface GpuSparseShadingConcreteBinding {
   readonly kind: GpuSparseShadingBindingKind;
 }
 
+export interface GpuSparseShadingBindingBudgetOptions {
+  /** Product geometry specialization adds one metadata heap and four banks. */
+  readonly virtualGeometry?: boolean;
+}
+
 export interface GpuSparseShadingBindingBudgetRecord {
   readonly schemaVersion: 2;
   readonly groups: readonly GpuShadingBindingGroupBudget[];
@@ -240,7 +245,8 @@ export function gpuSparseShadingBindingBudget(
     | "maxStorageBuffersPerShaderStage"
     | "maxStorageTexturesPerShaderStage"
     | "maxUniformBuffersPerShaderStage"
-  >
+  >,
+  options: GpuSparseShadingBindingBudgetOptions = {}
 ): Readonly<GpuSparseShadingBindingBudgetRecord> {
   const groupRecords = GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS.map((maximum) => ({
     group: maximum.group,
@@ -270,8 +276,13 @@ export function gpuSparseShadingBindingBudget(
       case "uniform-buffer": record.uniformBuffers++; break;
     }
   }
+  const groupLimits = options.virtualGeometry
+    ? groupRecords.map((record) => record.group === 1
+      ? { ...GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS[1], storageBuffers: 9 }
+      : GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS[record.group])
+    : GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS;
   for (const record of groupRecords) {
-    const maximum = GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS[record.group]!;
+    const maximum = groupLimits[record.group]!;
     for (const field of [
       "sampledTextures",
       "samplers",
@@ -304,7 +315,10 @@ export function gpuSparseShadingBindingBudget(
   requireLimit(limits.maxBindingsPerBindGroup, maximumBindingsInGroup, "maxBindingsPerBindGroup");
   requireLimit(limits.maxSampledTexturesPerShaderStage, totals.sampledTextures, "maxSampledTexturesPerShaderStage");
   requireLimit(limits.maxSamplersPerShaderStage, totals.samplers, "maxSamplersPerShaderStage");
-  requireLimit(limits.maxStorageBuffersPerShaderStage, totals.storageBuffers, "maxStorageBuffersPerShaderStage");
+  const requiredStorageBuffers = options.virtualGeometry
+    ? Math.max(14, totals.storageBuffers)
+    : totals.storageBuffers;
+  requireLimit(limits.maxStorageBuffersPerShaderStage, requiredStorageBuffers, "maxStorageBuffersPerShaderStage");
   requireLimit(limits.maxStorageTexturesPerShaderStage, totals.storageTextures, "maxStorageTexturesPerShaderStage");
   requireLimit(limits.maxUniformBuffersPerShaderStage, totals.uniformBuffers, "maxUniformBuffersPerShaderStage");
   return Object.freeze({

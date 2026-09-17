@@ -81,6 +81,8 @@ export interface GpuShadingPublicationContext {
   readonly outputDependencyMask: number;
   /** Opaque-lit shader specialization; false physically omits shadow bindings/sampling. */
   readonly shadowSamplingEnabled: boolean;
+  /** Enables Product metadata/page-bank bindings for this scene. */
+  readonly virtualGeometry?: boolean;
   /** Per-set texture bank read mask; legacy contexts default to all banks. */
   readonly textureBankMasks?: readonly number[];
   readonly capability: Readonly<GpuSparseShadingCapabilityRecord>;
@@ -287,6 +289,7 @@ export class GpuShadingPublicationStore {
         textureBindingSetId,
         outputDependencyMask: context.outputDependencyMask,
         shadowSamplingEnabled: context.shadowSamplingEnabled,
+        virtualGeometry: context.virtualGeometry ?? false,
         executionMode: executionMode === "none" ? "sparse-microtile" : executionMode,
         textureBankMask: textureBankMaskForSet(context, textureBindingSetId),
         capability: context.capability
@@ -858,6 +861,7 @@ function freezeContext(input: GpuShadingPublicationContext): Readonly<GpuShading
       : { opaqueDemand: Object.freeze({ ...input.opaqueDemand }) }),
     outputDependencyMask: input.outputDependencyMask,
     shadowSamplingEnabled: input.shadowSamplingEnabled,
+    virtualGeometry: input.virtualGeometry ?? false,
     textureBankMasks: Object.freeze(normalizeTextureBankMasks(input.textureBankMasks)),
     capability: input.capability,
     sizingLimits: Object.freeze({ ...input.sizingLimits })
@@ -933,6 +937,7 @@ function sameContext(
     left.outputDependencyMask === right.outputDependencyMask &&
     left.capability.fingerprint === right.capability.fingerprint &&
     left.shadowSamplingEnabled === right.shadowSamplingEnabled &&
+    (left.virtualGeometry ?? false) === (right.virtualGeometry ?? false) &&
     sameTextureBankMasks(left.textureBankMasks, right.textureBankMasks) &&
     left.sizingLimits.maxTextureDimension2D === right.sizingLimits.maxTextureDimension2D &&
     left.sizingLimits.maxBufferSize === right.sizingLimits.maxBufferSize &&

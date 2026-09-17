@@ -242,6 +242,15 @@ export class VirtualGeometryResidency {
   #assertPageId(pageId: number): void { const pageCount = this.#descriptor.pageRecords.byteLength / 32; if (!Number.isSafeInteger(pageId) || pageId < 0 || pageId >= pageCount) throw new RangeError("Geometry Product pageId is outside the descriptor"); }
 }
 
+/**
+ * The current Product raster/shading specialization declares the metadata
+ * heap, four fixed page banks, and the existing frame/material buffers in one
+ * compute stage.  This is a capability of the concrete consumer ABI, not a
+ * new global sparse-shading baseline; callers must request it before device
+ * creation when they admit a Product scene.
+ */
+export const VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE = 14;
+
 function slotKey(bankIndex: number, slotIndex: number): string { return `${bankIndex}:${slotIndex}`; }
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean { if (a.byteLength !== b.byteLength) return false; for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false; return true; }
 function createStorageBuffer(device: GPUDevice, label: string, byteLength: number): GPUBuffer { const size = Math.max(4, Math.ceil(byteLength / 4) * 4); if (!Number.isSafeInteger(size)) throw new RangeError("Geometry Product metadata buffer size is invalid"); return device.createBuffer({ label, size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); }

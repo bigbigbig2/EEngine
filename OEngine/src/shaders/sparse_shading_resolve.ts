@@ -124,6 +124,7 @@ export function createSparseShadingProgramFamily(input: {
   readonly textureBindingSetId: number;
   readonly outputDependencyMask: number;
   readonly shadowSamplingEnabled: boolean;
+  readonly virtualGeometry?: boolean;
   readonly capability: Parameters<typeof createGpuSparseShadingPipelineDescriptor>[0]["capability"];
   readonly textureBankMask?: number;
   readonly diagnostics?: boolean;
@@ -137,6 +138,7 @@ export function createSparseShadingProgramFamily(input: {
       textureBindingSetId,
       outputDependencyMask: input.outputDependencyMask,
       shadowSamplingEnabled: input.shadowSamplingEnabled,
+      virtualGeometry: input.virtualGeometry,
       textureBankMask: input.textureBankMask,
       capability: input.capability
     }), input.diagnostics ?? false);
@@ -764,10 +766,13 @@ function consumerWgsl(descriptor: Readonly<GpuSparseShadingPipelineDescriptor>, 
     descriptor.programId,
     descriptor.outputDependencyMask
   ).reconstructTriangle;
+  const geometryIdentityCheck = descriptor.virtualGeometry
+    ? "if work.instance_slot>=arrayLength(&instance_records){sparse_identity_error();return;}"
+    : "if work.geometry_slot>=shading_view.geometry_count||work.instance_slot>=arrayLength(&instance_records)||instance_records[work.instance_slot].geometry_record_index!=work.geometry_slot||asset_metadata_heap[shading_view.geometry_generation_word_base+work.geometry_slot]!=oengine_instance_geometry_generation(instance_records[work.instance_slot]){sparse_identity_error();return;}";
   const evaluation = isFastUnlitFactor(descriptor)
     ? "let factor=sparse_evaluate_unlit_factor(material);"
     : reconstruct
-      ? "if work.geometry_slot>=shading_view.geometry_count||work.instance_slot>=arrayLength(&instance_records)||instance_records[work.instance_slot].geometry_record_index!=work.geometry_slot||asset_metadata_heap[shading_view.geometry_generation_word_base+work.geometry_slot]!=oengine_instance_geometry_generation(instance_records[work.instance_slot]){sparse_identity_error();return;}let surface=sparse_evaluate_geometry(pixel,work,oengine_visibility_key_local_primitive(key),material_slot,material);"
+      ? `${geometryIdentityCheck}let surface=sparse_evaluate_geometry(pixel,work,oengine_visibility_key_local_primitive(key),material_slot,material);`
       : "let surface=sparse_evaluate(material_slot,material);";
   const store = isFastUnlitFactor(descriptor)
     ? "sparse_store_unlit_factor(pixel,factor);"
@@ -776,7 +781,7 @@ function consumerWgsl(descriptor: Readonly<GpuSparseShadingPipelineDescriptor>, 
   const directEvaluation = isFastUnlitFactor(descriptor)
     ? "let factor=sparse_evaluate_unlit_factor(material);"
     : reconstruct
-      ? "if work.geometry_slot>=shading_view.geometry_count||work.instance_slot>=arrayLength(&instance_records)||instance_records[work.instance_slot].geometry_record_index!=work.geometry_slot||asset_metadata_heap[shading_view.geometry_generation_word_base+work.geometry_slot]!=oengine_instance_geometry_generation(instance_records[work.instance_slot]){sparse_identity_error();return;}let surface=sparse_evaluate_geometry(pixel,work,oengine_visibility_key_local_primitive(key),material_slot,material);"
+      ? `${geometryIdentityCheck}let surface=sparse_evaluate_geometry(pixel,work,oengine_visibility_key_local_primitive(key),material_slot,material);`
       : "let surface=sparse_evaluate(material_slot,material);";
   const directStatusCheck = "if atomicLoad(&shading_frame_status.frame_flags)!=0u{return;}";
   const diagnosticsStore = diagnostics && descriptor.executionMode === "sparse-microtile"

@@ -63,6 +63,8 @@ export interface GpuSparseShadingPipelineIdentityInput {
   readonly shadowSamplingEnabled: boolean;
   /** Physical consumer ABI. Omitted only by legacy contract fixtures. */
   readonly executionMode?: GpuShadingExecutionMode;
+  /** Product geometry consumers opt into metadata and page-bank bindings. */
+  readonly virtualGeometry?: boolean;
   /** Static set-local bank signature; defaults to every bounded bank. */
   readonly textureBankMask?: number;
   readonly capability: Pick<GpuSparseShadingCapabilityRecord, "fingerprint" | "formatProfile">;
@@ -79,6 +81,7 @@ export interface GpuSparseShadingPipelineDescriptor {
   readonly outputDependencyMask: number;
   readonly shadowSamplingEnabled: boolean;
   readonly executionMode: GpuShadingExecutionMode;
+  readonly virtualGeometry: boolean;
   readonly textureBankMask: number;
   readonly capabilityFingerprint: string;
   readonly formatProfile: string;
@@ -115,6 +118,10 @@ export function createGpuSparseShadingPipelineDescriptor(
   }
   if (input.capability.fingerprint.length === 0 || input.capability.formatProfile.length === 0) {
     throw new RangeError("Sparse shading capability and format profile must not be empty");
+  }
+  const virtualGeometry = input.virtualGeometry ?? false;
+  if (typeof virtualGeometry !== "boolean") {
+    throw new TypeError("Sparse shading virtual geometry specialization must be boolean");
   }
   const executionMode = input.executionMode ?? "sparse-microtile";
   if (executionMode !== "sparse-microtile" && executionMode !== "direct-single-bin") {
@@ -186,7 +193,7 @@ export function createGpuSparseShadingPipelineDescriptor(
     ...(needsGeometry ? [storageBufferBinding(1, 1, "instance_records", "read-only-storage")] : []),
     ...(needsGeometry ? [storageBufferBinding(1, 2, "asset_metadata_heap", "read-only-storage")] : []),
     ...(needsGeometry ? [storageBufferBinding(1, 3, "vertex_payload_heap", "read-only-storage")] : []),
-    ...(needsGeometry ? [
+    ...(needsGeometry && virtualGeometry ? [
       storageBufferBinding(1, 4, "virtual_product_metadata", "read-only-storage"),
       storageBufferBinding(1, 5, "virtual_product_bank_0", "read-only-storage"),
       storageBufferBinding(1, 6, "virtual_product_bank_1", "read-only-storage"),
@@ -241,6 +248,7 @@ export function createGpuSparseShadingPipelineDescriptor(
     `o${input.outputDependencyMask}`,
     `h${Number(input.shadowSamplingEnabled)}`,
     `m${executionMode}`,
+    `v${Number(virtualGeometry)}`,
     `b${textureBankMask.toString(16)}`,
     lengthPrefixed("c", input.capability.fingerprint),
     lengthPrefixed("f", input.capability.formatProfile)
@@ -256,6 +264,7 @@ export function createGpuSparseShadingPipelineDescriptor(
     outputDependencyMask: input.outputDependencyMask,
     shadowSamplingEnabled: input.shadowSamplingEnabled,
     executionMode,
+    virtualGeometry,
     textureBankMask,
     capabilityFingerprint: input.capability.fingerprint,
     formatProfile: input.capability.formatProfile,
@@ -269,7 +278,8 @@ export function gpuSparseShadingPipelineBindingBudget(
 ): Readonly<GpuSparseShadingBindingBudgetRecord> {
   return gpuSparseShadingBindingBudget(
     descriptor.groups.flatMap((group) => group.bindings),
-    limits
+    limits,
+    { virtualGeometry: descriptor.virtualGeometry }
   );
 }
 
