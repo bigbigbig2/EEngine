@@ -24,7 +24,7 @@ Web GLB/glTF 与 Native OEGPACK 是两个 Producer，而不是两个 Renderer。
 | Web Cook | GLB Range、Worker protocol、canonicalizer、Nyx C++ port、bootstrap + richer revision、逐页 credit | 实际 `cookProgressive` 一次 canonicalize **全部** primitive 与 Range，再对整场景 Cook 两次；source priority 没有带来按 asset 的首帧发布；巨大 primitive 无 shard |
 | GPU residency | demand→延迟 readback→scheduler→upload、ancestor fallback、原子换版/失败保旧/驱逐/device-loss 有 targeted 与真实浏览器证据；同设备共享固定 4-bank slot pool | 仍需后续多 Product 压力、demand overflow 与设备丢失下的浏览器证据；淘汰评分已有 request/visible/predictive/refetch/thrash 记账，但尚未完成大场景 PERF |
 | 预算/并行 | 单会话限制、output credit、全局 `WebCookBudgetLedger` 类型与 session admission | 生产路径只登记 output 的全局 reserve，source/WASM 跨会话字节未登记；`portable-pool` 未实现，pthread pool/部署未闭环，Worker crash/OOM 证据不足 |
-| glTF/材质/纹理 | GLB/glTF Range source、Blob/File、data URI、外部 buffer、sparse/interleaved/normalized/non-indexed、作者 PBR texture metadata 与 Texture Mode A 接线已落地；独立 authored-texture Chrome case 已取得 diagnostic-only 证据 | clean revision 的 accepted 证据、promotion/replacement/device-loss/feature-off 仍缺；Draco/meshopt/skin/morph 仍按 capability/error 拒绝；巨大 primitive shard 属于第二步遗留 |
+| glTF/材质/纹理 | GLB/glTF Range source、Blob/File、data URI、外部 buffer、sparse/interleaved/normalized/non-indexed、作者 PBR texture metadata、Texture Mode A 接线与独立 authored-texture Chrome case 均已落地；clean revision 已取得 accepted 证据 | Mode A 不代表物理显存节省；promotion/失败回滚/代际复用/容量与 feature-off 已有 targeted 合同，replacement/device-loss 复用共享 Product 浏览器门禁；Draco/meshopt/skin/morph 仍按 capability/error 拒绝；巨大 primitive shard 属于第二步遗留 |
 | Nyx 验收 | 本地 7 个关键 Nyx 文件 hash 匹配移植台账；本地 Cooker 真实调用 meshoptimizer build/partition/attribute-aware simplify；Native↔Web corpus 通过 | 两个 OEngine Producer 共用本地 C++ port，现有 differential 不是独立 Nyx 原版输出；GPU `DAGCull`/`VBufferMesh` 的逐入口行为、负例与真实 consumer 对照未齐 |
 | 验证/文档 | Dungeon、Offline、demand、replacement、eviction、device-loss case 已登记 | 现有像素 smoke 不是作者材质保真或大场景 TTFMF/PERF；`ARCHITECTURE.md`、`PIPELINE.md` 有已过时叙述，`STATUS.md` 下一步重复 S6 |
 
@@ -81,9 +81,9 @@ bootstrap activation、revision 1 replacement 和 replacement 后 demand 像素�
 
 #### 第三步当前实现检查（2026-09-19）
 
-已完成：`GlbRangeSource` 支持 GLB、JSON `.gltf`、data URI、外部 buffer 的有界 Range/200 fallback、取消与 Blob/File object URL 生命周期；`GlbSceneCatalog` 输出 texture/image/sampler/UV/PBR 元数据，严格处理 sparse accessor，并对 `extensionsRequired`、Draco、`EXT_meshopt_compression`、skin/morph 给出拒绝错误；Web Product catalog snapshot 已携带纹理元数据；`WebCookRuntimeAsset.readImageSource()` 对嵌入 image bufferView 和外部/data URI 提供有界读取；Web Scene mapper 在 Product admission 前异步解码作者纹理，生成 `StandardShadeMaterial`/`ShadeTexture` 并交给既有 `TextureResidency`、`TextureBindingSet` 原子 staging。独立 `glb-web-product-authored-texture` Chrome case 已在当前 dirty revision 下 diagnostic-only 通过，取得五个 PBR 槽位、UV transform、`MASK`、resident page、GPU 纹理统计和真实像素读回证据。
+已完成：`GlbRangeSource` 支持 GLB、JSON `.gltf`、data URI、外部 buffer 的有界 Range/200 fallback、取消与 Blob/File object URL 生命周期；`GlbSceneCatalog` 输出 texture/image/sampler/UV/PBR 元数据，严格处理 sparse accessor，并对 `extensionsRequired`、Draco、`EXT_meshopt_compression`、skin/morph 给出拒绝错误；Web Product catalog snapshot 已携带纹理元数据；`WebCookRuntimeAsset.readImageSource()` 对嵌入 image bufferView 和外部/data URI 提供有界读取；Web Scene mapper 在 Product admission 前异步解码作者纹理，生成 `StandardShadeMaterial`/`ShadeTexture` 并交给既有 `TextureResidency`、`TextureBindingSet` 原子 staging。独立 `glb-web-product-authored-texture` Chrome case 已在 clean commit 上 accepted，取得五个 PBR 槽位、UV transform、`MASK`、resident page、GPU 纹理统计和真实像素读回证据；`packed-render-world-contract.test.mjs` 的 41 个 targeted tests 覆盖 promotion、失败回滚、代际复用、容量和 feature-off。
 
-仍未完成：第三步专用浏览器 case 尚未在 clean revision 上取得 accepted 证据；纹理 promotion、失败换版、device-loss、feature-off 仍没有完整的第三步专用 artifact；当前 authored case 使用单三角形/单 page，只验证材质生产连接，不替代多材质、大场景和 S4 demand；Mode A 仍只表示网络/上传渐进，不宣称物理显存节省。
+第三步已达到本计划的实现与验证退出条件。保留边界：当前 authored case 是单三角形/单 page 的材质生产连接验证，不替代多材质、大场景和 S4 demand；Mode A 仍只表示网络/上传渐进，不宣称物理显存节省。后续第四步继续处理公开入口、普通 Scene/Offline downstream 统一与旧 V2 owner 删除。
 
 ### 第四步：完成可移植并行与跨会话背压/故障恢复
 
