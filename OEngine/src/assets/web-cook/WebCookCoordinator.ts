@@ -33,6 +33,18 @@ export interface WebRuntimeCooker {
   cookBootstrap(unit: GlbCookPrimitive, context: WebCookUnitContext): Promise<WebCookProductRevision>;
   /** Optional whole-source entry. Producers use this to publish one immutable Product cut. */
   cookBootstrapBatch?(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision>;
+  /**
+   * Optional progressive entry. The producer offers each immutable revision
+   * through `onRevision` in activation order (coarse bootstrap first, richer
+   * replacement later) and reports non-fatal refinement failures through
+   * `onFailure` so the resident bootstrap keeps rendering.
+   */
+  cookProgressive?(
+    units: readonly GlbCookPrimitive[],
+    context: WebCookUnitContext,
+    onRevision: (revision: WebCookProductRevision) => Promise<void>,
+    onFailure?: (error: Error) => void
+  ): Promise<void>;
 }
 
 export interface WebCookCoordinatorOptions {
@@ -116,6 +128,26 @@ export class WebCookCoordinator {
     try {
       const source = this.#source!, catalog = this.#catalog!;
       const units = [...catalog.primitives].sort((left, right) => this.priorityFor(right) - this.priorityFor(left) || left.nodeIndex - right.nodeIndex || left.meshIndex - right.meshIndex || left.primitiveIndex - right.primitiveIndex);
+      const progressive = this.#options.cooker.cookProgressive;
+      if (progressive) {
+        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
+        const estimated = units.reduce((sum, unit) => sum + unit.ranges.reduce((inner, range) => inner + range.byteLength, 0), 0);
+        this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
+        if (estimated > this.#options.budgets.maxWasmBytes) throw new Error(`cook source exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
+        await progressive.call(this.#options.cooker, units, context, async (revision) => {
+          this.validateRevision(revision);
+          this.#liveRevisions.push(revision);
+          const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
+          this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
+          for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
+        }, (error) => {
+          this.publish(this.header({ type: "RecoverableFailure", scope: "richer-product-revision", code: error.message, retryAfterMs: 0 }));
+        });
+        this.#completedUnits = units.length;
+        this.publish(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
+        this.#state = "complete";
+        return;
+      }
       const batchCooker = this.#options.cooker.cookBootstrapBatch;
       if (batchCooker) {
         const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });

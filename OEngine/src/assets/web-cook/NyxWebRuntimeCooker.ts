@@ -18,31 +18,55 @@ import {
   type WebGeometryCookDescriptorSectionsV1,
   type WebGeometryCookWasmResultV1
 } from "./wasm/WebGeometryCookerAbi.js";
-import type { GlbCookPrimitive } from "../../loaders/gltf/streaming/GlbSceneCatalog.js";
+import type { GlbByteRange, GlbCookPrimitive } from "../../loaders/gltf/streaming/GlbSceneCatalog.js";
+import { prefetchCoalescedRanges, type CoalescedRangeReaderOptions } from "./CoalescedRangeReader.js";
 
 export const NYX_WEB_RUNTIME_PRODUCER_ID = "oengine-nyx-web-runtime";
 export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi1-product-v1";
+
+/**
+ * Coarse bootstrap profile. It stops simplification earlier than the full
+ * recipe, so the first complete activation cut is resident sooner while the
+ * richer revision converges in the background.
+ */
+const DEFAULT_BOOTSTRAP_RECIPE: Partial<GeometryCookRecipeV3> = Object.freeze({ minimumLodReduction: 0.35 });
 
 export interface NyxWebRuntimeCookerOptions {
   readonly recipe?: Partial<GeometryCookRecipeV3>;
   readonly maxCanonicalInputBytes: number;
   readonly maxDecodedProductBytes: number;
+  /** Coarse bootstrap recipe; the richer revision uses `recipe`. */
+  readonly bootstrapRecipe?: Partial<GeometryCookRecipeV3>;
+  /** Coalesced GLB range block budget (defaults to 1 MiB). */
+  readonly rangeBlockBytes?: number;
+  /** Maximum unused gap merged into one range block (defaults to 64 KiB). */
+  readonly rangeMaxGapBytes?: number;
+  /** Maximum in-flight GLB range reads (defaults to 4). */
+  readonly rangeConcurrency?: number;
 }
 
 /** Browser-first Nyx producer. It owns no GPU object and emits only Product bytes. */
 export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   readonly #module: EmscriptenWebGeometryCookerModuleV1;
   readonly #recipeInput: ArrayBuffer;
+  readonly #bootstrapRecipeInput: ArrayBuffer;
   readonly #maxCanonicalInputBytes: number;
   readonly #maxDecodedProductBytes: number;
+  readonly #rangeOptions: CoalescedRangeReaderOptions;
 
   constructor(module: EmscriptenWebGeometryCookerModuleV1, options: NyxWebRuntimeCookerOptions) {
     if (!Number.isSafeInteger(options.maxCanonicalInputBytes) || options.maxCanonicalInputBytes <= 0) throw new RangeError("maxCanonicalInputBytes must be a positive safe integer");
     if (!Number.isSafeInteger(options.maxDecodedProductBytes) || options.maxDecodedProductBytes < WEB_GEOMETRY_PAGE_BYTES) throw new RangeError("maxDecodedProductBytes must admit at least one page");
     this.#module = module;
     this.#recipeInput = encodeWebGeometryCookRecipeV1(createGeometryCookRecipeV3(options.recipe));
+    this.#bootstrapRecipeInput = encodeWebGeometryCookRecipeV1(createGeometryCookRecipeV3({ ...(options.recipe ?? {}), ...DEFAULT_BOOTSTRAP_RECIPE, ...(options.bootstrapRecipe ?? {}) }));
     this.#maxCanonicalInputBytes = options.maxCanonicalInputBytes;
     this.#maxDecodedProductBytes = options.maxDecodedProductBytes;
+    this.#rangeOptions = Object.freeze({
+      maxBlockBytes: options.rangeBlockBytes ?? 1024 * 1024,
+      maxGapBytes: options.rangeMaxGapBytes ?? 64 * 1024,
+      concurrency: options.rangeConcurrency ?? 4
+    });
   }
 
   async cookBootstrap(unit: GlbCookPrimitive, context: WebCookUnitContext): Promise<WebCookProductRevision> {
@@ -58,13 +82,28 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     return this.cookDomains(ordered, context);
   }
 
-  private async cookDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision> {
+  private async canonicalizeDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<ArrayBuffer> {
+    // Coalesce the bounded accessor ranges first so canonicalization reads from
+    // memory instead of issuing one HTTP range per attribute (master doc S8.5).
+    const allRanges: GlbByteRange[] = [];
+    for (const unit of units) for (const range of unit.ranges) allRanges.push(range);
+    const reader = await prefetchCoalescedRanges(allRanges, range => context.readRange(range), context.signal, this.#rangeOptions);
     const domains = [];
-    for (const unit of units) domains.push(await canonicalizeGlbPrimitiveV1(unit, context));
+    for (const unit of units) domains.push(await canonicalizeGlbPrimitiveV1(unit, reader));
     if (context.signal.aborted) throw context.signal.reason ?? new DOMException("The operation was aborted", "AbortError");
     const canonicalInput = encodeWebCanonicalGeometryV1(domains);
     if (canonicalInput.byteLength > this.#maxCanonicalInputBytes) throw new Error(`canonical cook input exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
-    const result = cookWebGeometryWasmV1(this.#module, canonicalInput, this.#recipeInput, this.#maxDecodedProductBytes);
+    return canonicalInput;
+  }
+
+  private async cookCanonical(
+    canonicalInput: ArrayBuffer,
+    context: WebCookUnitContext,
+    recipeInput: ArrayBuffer,
+    revision: number,
+    replaces?: { readonly productId: Uint8Array; readonly revision: number }
+  ): Promise<NyxWebProductRevision> {
+    const result = cookWebGeometryWasmV1(this.#module, canonicalInput, recipeInput, this.#maxDecodedProductBytes);
     try {
       const sections = result.descriptorSections();
       const sourceIdentityKind = context.source.sourceIdentity.kind;
@@ -73,7 +112,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       const descriptor: GeometryProductDescriptorV1 = Object.freeze({
         schemaVersion: 1,
         productId,
-        revision: 0,
+        revision,
+        ...(replaces === undefined ? {} : { replaces: Object.freeze({ productId: replaces.productId.slice(), revision: replaces.revision }) }),
         producerKind: "web-runtime",
         producerId: NYX_WEB_RUNTIME_PRODUCER_ID,
         producerVersion: NYX_WEB_RUNTIME_PRODUCER_VERSION,
@@ -96,6 +136,41 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     } catch (error) {
       result.release();
       throw error;
+    }
+  }
+
+  private async cookDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision> {
+    const canonicalInput = await this.canonicalizeDomains(units, context);
+    return this.cookCanonical(canonicalInput, context, this.#recipeInput, 0);
+  }
+
+  async cookProgressive(
+    units: readonly GlbCookPrimitive[],
+    context: WebCookUnitContext,
+    onRevision: (revision: WebCookProductRevision) => Promise<void>,
+    onFailure?: (error: Error) => void
+  ): Promise<void> {
+    if (units.length === 0) throw new Error("Nyx Web Product requires at least one GLB primitive");
+    const ordered = [...units].sort(compareCookPrimitiveOrder);
+    const canonicalInput = await this.canonicalizeDomains(ordered, context);
+    const bootstrap = await this.cookCanonical(canonicalInput, context, this.#bootstrapRecipeInput, 0);
+    try {
+      await onRevision(bootstrap);
+    } catch (error) {
+      bootstrap.release();
+      throw error;
+    }
+    // A richer failure must not tear down the resident bootstrap revision.
+    try {
+      const richer = await this.cookCanonical(canonicalInput, context, this.#recipeInput, 1, { productId: bootstrap.product.productId, revision: bootstrap.product.revision });
+      try {
+        await onRevision(richer);
+      } catch (error) {
+        richer.release();
+        throw error;
+      }
+    } catch (error) {
+      onFailure?.(error instanceof Error ? error : new Error(String(error)));
     }
   }
 }

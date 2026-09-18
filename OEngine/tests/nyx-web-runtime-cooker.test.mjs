@@ -72,3 +72,40 @@ test("Nyx Web Runtime Cooker emits one asset per GLB domain in the catalog's sta
   revision.release();
   await assert.rejects(() => cooker.cookBootstrapBatch([], cookContext), /at least one GLB primitive/i);
 });
+
+test("Nyx Web Runtime Cooker offers a bootstrap revision, then a richer replacement", async () => {
+  const sections = productSections(), { unit, context: cookContext } = context();
+  const cooker = new NyxWebRuntimeCooker(fakeModule(sections), { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const revisions = [];
+  let failure;
+  await cooker.cookProgressive([unit], cookContext, async (revision) => { revisions.push(revision); }, (error) => { failure = error; });
+  assert.equal(failure, undefined);
+  assert.equal(revisions.length, 2);
+  assert.equal(revisions[0].revision, 0);
+  assert.equal(revisions[1].revision, 1);
+  const bootstrap = decodeGeometryProductDescriptorBinaryV1(revisions[0].descriptor);
+  const richer = decodeGeometryProductDescriptorBinaryV1(revisions[1].descriptor);
+  assert.deepEqual([...richer.replaces.productId], [...bootstrap.productId]);
+  assert.equal(richer.replaces.revision, bootstrap.revision);
+  for (const revision of revisions) revision.release();
+});
+
+test("Nyx Web Runtime Cooker keeps the bootstrap revision when the richer cook fails", async () => {
+  const sections = productSections(), { unit, context: cookContext } = context();
+  const base = fakeModule(sections);
+  let calls = 0;
+  const failing = {
+    ...base,
+    _oengine_web_geometry_cook() { calls++; return calls === 2 ? 0 : 1; },
+    _oengine_web_geometry_cook_last_error_size() { return 10; },
+    _oengine_web_geometry_cook_copy_last_error(output, outputBytes) { if (outputBytes !== 10) return 0; base.HEAPU8.set(new TextEncoder().encode("richer-err"), output); return 1; }
+  };
+  const cooker = new NyxWebRuntimeCooker(failing, { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const revisions = [];
+  let failure;
+  await cooker.cookProgressive([unit], cookContext, async (revision) => { revisions.push(revision); }, (error) => { failure = error; });
+  assert.equal(revisions.length, 1);
+  assert.equal(revisions[0].revision, 0);
+  assert.match(failure?.message ?? "", /richer-err/);
+  for (const revision of revisions) revision.release();
+});
