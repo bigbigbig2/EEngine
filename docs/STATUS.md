@@ -1,5 +1,20 @@
 # OEngine 当前状态
 
+Implementation update (2026-09-18): the Runtime-first Web route now runs a real
+GLB end to end. `run:glb-web-product` drives the Dungeon (798 mesh / 25
+material) through the pinned Emscripten Worker cooker, the shared Product
+admission and `MainRenderPipeline`, and is accepted on the current revision with
+a 256x256 linear-HDR coverage assertion (5610/65536 lit pixels), so a black
+frame can no longer pass. The route offers a complete coarse bootstrap revision
+first, cooks a richer revision in the background and swaps it atomically
+(release -> re-stage -> retire), coalesces GLB accessor ranges, parallelizes the
+per-domain cook, and enforces a page-global session/source/WASM/output budget
+ledger. A residency defect that appended a page bank after publication, and
+therefore dropped every refinement page in it, is fixed by sizing the bank heap
+from the whole Product page table. `tests/nyx-differential-corpus.test.mjs` adds
+the ADR-0016 differential, invariant and negative corpus, including Native
+Offline <-> Web Runtime equivalence on one deterministic GLB.
+
 Implementation update (2026-09-17): virtual geometry now has a bounded GPU
 demand copy in the existing Packed Visibility submission, scheduler-coupled
 revoke/retire eviction with pinned and age-aware selection, automatic delayed
@@ -24,7 +39,7 @@ Product hierarchy page-demand records now carry an explicit shadow flag, and CSM
 demand uses a separate delayed ring into the shared scheduler. ADR-0014 browser
 evidence remains open.
 
-更新时间：2026-09-17。本页是可变进度、开放风险和下一步的唯一汇总；历史结果由 Git 与 evidence artifact 保存。
+更新时间：2026-09-18。本页是可变进度、开放风险和下一步的唯一汇总；历史结果由 Git 与 evidence artifact 保存。
 
 ## 生产基线
 
@@ -38,10 +53,10 @@ evidence remains open.
 
 | 部分 | 状态 | 当前事实 | 下一出口 |
 | --- | --- | --- | --- |
-| Geometry Product V1 | in progress | 已落地 producer-neutral TS descriptor/page/provider mirror、严格 table/tree/bootstrap/activation validator、OEGPACK -> Product adapter，以及 Product-aware hierarchy/work/raster 接线；Product 现已进入统一 main/shadow consumer（VisibilityKey、Sparse Shading、Packed CSM depth），主视图与 CSM 均具备 UV0/UV1 与 TextureBindingSet alpha-mask 采样；`virtual-product-production` 已在当前 revision 的 Chrome 上以 HZB enabled 通过 Product -> admission/residency -> GPU hierarchy/work/raster -> VisibilityKey -> sparse shading 的真实 HDR readback（`evidenceStatus: accepted`），真实 GLB 与 demand 像素闭环仍待验证 | 完成 Product raster/shadow 的真实 GLB 与 demand 证据，随后再补 transport/golden 后冻结候选 spec |
-| Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、带 source/WASM/output budget、取消与 whole-page credit lease 的 `WebCookCoordinator`、generation-filtered Dedicated Worker transport、CPU/WASM-only `WebCookWorkerHost`、异步 Emscripten module queueing 的 `WebCookWorkerEntry`、live Product provider，以及 container-neutral decoded Product assembly；S2b 已交付完整有界 GLB primitive canonicalization（interleaved/normalized/index/material/defaults）、Nyx Web Runtime Cooker adapter、Product content-manifest identity 与 page hash 校验、canonicalizer/credit pause/adapter tests。真实 Emscripten module/wasm artifact 已入库并经 `createDefaultWebCookWorker`/`WebCookWorkerEntrypoint` 接入 Dedicated Worker，`WebCookClient`/`WebCookRuntimeAsset`/`load_gltf_web_product` 提供运行时 facade，`RequestPages` 已路由到 Worker；仍缺 portable-pool/isolated-pthreads、真实 GLB 浏览器像素证据与 demand 端到端证据 | 完成真实 GLB Worker bootstrap Product -> 同一生产像素路径与 demand 证据；不得把 native ABI oracle、Node fake module 或 TypeScript tests 视为 S2 Runtime 完成 |
+| Geometry Product V1 | in progress | 已落地 producer-neutral TS descriptor/page/provider mirror、严格 table/tree/bootstrap/activation validator、OEGPACK -> Product adapter，以及 Product-aware hierarchy/work/raster 接线；Product 现已进入统一 main/shadow consumer（VisibilityKey、Sparse Shading、Packed CSM depth），主视图与 CSM 均具备 UV0/UV1 与 TextureBindingSet alpha-mask 采样；`virtual-product-production` 与真实 GLB 的 `glb-web-product`（Dungeon，798 mesh/25 material）均已在当前 revision 的 Chrome 上 `accepted`；`glb-web-product` 已改为 256x256 HDR 覆盖率断言，并有 Native Offline <-> Web 结构化 differential 与不变量/负例 corpus；bank heap 已按 Product 总页数预分配 | 完成 demand/residency 与 lifecycle 的浏览器 MILESTONE，随后再补 transport/golden 后冻结候选 spec |
+| Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、带 source/WASM/output budget、取消与 whole-page credit lease 的 `WebCookCoordinator`、generation-filtered Dedicated Worker transport、CPU/WASM-only `WebCookWorkerHost`、异步 Emscripten module queueing 的 `WebCookWorkerEntry`、live Product provider，以及 container-neutral decoded Product assembly；S2b 已交付完整有界 GLB primitive canonicalization（interleaved/normalized/index/material/defaults）、Nyx Web Runtime Cooker adapter、Product content-manifest identity 与 page hash 校验、canonicalizer/credit pause/adapter tests。Emscripten 6.0.9 module/wasm artifact 已入库并经 `createDefaultWebCookWorker`/`WebCookWorkerEntrypoint` 接入 Dedicated Worker；`WebCookClient`/`WebCookRuntimeAsset`/`load_gltf_web_product` + `Renderer.uploadWebCookedScene` 是运行时 facade；`RequestPages` 已路由到 Worker；`glb-web-product`（真实 Dungeon GLB）已在 Chrome `accepted`。已加入 Range coalescing、progressive bootstrap + richer revision（含原子 release→re-stage→retire 替换）、page-global `WebCookBudgetLedger` 与 per-domain 并行 cook；pthread 变体已构建但 pool 握手未闭环，默认仍 `portable-single` | 完成 pthread/portable-pool、真实 GLB demand 端到端浏览器证据；不得把 native ABI oracle、Node fake module 或 TypeScript tests 视为 S2/S3 Runtime 完成 |
 | 0016-A Offline/OEGPACK | implemented, validation open | native cooker、OEGPACK V3 parser、range source、页校验和 bootstrap residency proof 已存在；OEGPACK Product adapter 已通过共同 production consumer 接线 | 用 ADR-0014 浏览器证据验证并冻结候选 spec |
-| 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag、统一 frame completion 自动 poll/upload 与保留 identity 的 device-loss residency 重建已接线；浏览器 demand/residency 证据仍未完成 | 用 ADR-0014 真实浏览器证据验证 activation cut、GPU demand -> delayed readback -> provider -> upload -> generation publication 闭环 |
+| 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag、统一 frame completion 自动 poll/upload、保留 identity 的 device-loss residency 重建与 Product revision 原子替换已接线；bank heap 改按 Product 总页数预分配（修复 demand 上传新建未绑定 bank 导致的黑屏），并新增 Native↔Web differential / invariant / negative corpus；浏览器 demand/residency 证据仍未完成 | 用 ADR-0014 真实浏览器证据验证 activation cut、GPU demand -> delayed readback -> provider -> upload -> generation publication 闭环 |
 | 0016-C renderer cutover | in progress | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity，并可在 device-loss 后按原 generation/table slot 重建 publication；普通 Scene adapter/V2 owner 仍保留 | 完成 Product recovery checkpoint 的真实浏览器验证、删除旧 V2 owner/path，并用 ADR-0014 浏览器证据验证统一 consumer |
 | 0016-D texture modes | Mode A implemented, diagnostic validation passed | TextureResidency allocates the complete logical chain, uploads a cooked mip tail first, clamps sampling to the available range, and promotes higher mips through a stable logical handle; the independent Chrome component case read back the expected tail and promoted colors, and this does not claim physical VRAM savings | Obtain production-path browser evidence for progressive publication; only after allocation evidence decide whether Mode B/Virtual Texturing merits a separate ADR |
 
@@ -53,31 +68,31 @@ evidence remains open.
 - resident、transient、history、shadow、upload 和 readback 预算仍需同条件真实浏览器证据。
 - Sparse shading 的剩余 lifecycle、production-entry 和正式 PERF case 尚未全部关闭；不得把静态结构等同 Runtime Validated 或 Performance Improved。
 - ADR-0013 的历史 baseline 冻结、Step 6 formal A/B、删除前后比较与相对收益门禁已以 `closed / requirement-removed` 关闭；当前 revision 的绝对 PERF 验收仍独立开放。
-- Geometry Product 与 Virtual Geometry Runtime 仍是 draft；Product validator/adapter 与 Product-aware bootstrap heap 已有 DEV 实现，V3 geometry 已接入统一 Visibility/Sparse/CSM consumer，但尚无 ADR-0014 真实浏览器像素证据，因此 OEGPACK ABI 仍是 candidate。
+- Geometry Product 与 Virtual Geometry Runtime 仍是 draft；Product validator/adapter 与 Product-aware bootstrap heap 已有 DEV 实现，V3 geometry 已接入统一 Visibility/Sparse/CSM consumer，且 `virtual-product-production` 与真实 GLB 的 `glb-web-product` 均已在 Chrome accepted。但 demand/residency 与 replacement/eviction/device-loss 的浏览器 MILESTONE 仍未完成，因此 OEGPACK ABI 仍是 candidate。
 - S1 的 `virtual-product-production` 已在当前 revision 通过 Chrome HDR readback（`evidenceStatus: accepted`）；`virtual-geometry-component` 仍是 diagnostic-only 的 WGSL ABI 解码。两者都不替代真实 GLB/demand 证据，也不作为 S2/S3/S4 完成证据。
-- Web Cooker 的 pthread/SAB 与多 Worker specialization 尚无同 workload 证据；cross-origin isolation 不是 correctness 前提，默认执行 profile 暂未冻结。
+- Web Cooker 的 pthread 变体已构建并接入 `?profile=isolated-pthreads`，但 pthread pool 在应用 Dedicated Worker 内的握手未闭环；`portable-pool` 仍需 shard assembly ABI；默认执行 profile 仍为 `portable-single`。cross-origin isolation 不是 correctness 前提。
+- ADR-0016 §18.4 的 “Native Nyx 参考输出” 尚未产出：上游 `MeshletBuilder.cpp` 依赖整个 MiniEngine（`pch.h`/`Renderer.h`/`glTFLoader.h`/DX12/Slang 类型），当前仓库无法构建可运行的 Nyx 参考二进制；该腿暂以函数级映射 + 固定源 hash + 不变量 checklist 代替，Native↔Web 等价性单独验证。
 - `shader-f16`、Immediate Data 与 Transient Attachment 没有生产 consumer；`primitive-index` 等 specialization 只按真实 capability 启用。
 - 普通 Scene adapter 不支持 `SkinnedMesh`；完整动画/蒙皮仍 deferred。
 
 ## 下一步
 
-1. 按 0016 S1 先完成 `OEGPACK -> Geometry Product -> production Visibility`，以最短路径冻结共同 consumer 边界；这不改变 Web Runtime-first 的产品优先级。
-2. 完成 S2/S3 的 `GLB Range -> Worker/WASM bootstrap/richer Product` 与联合背压，再接 S4 GPU demand/residency 闭环。
-3. 补齐 replacement/eviction/device-loss 后迁移 main、shadow、普通 Scene adapter；删除前完成 source、compiled graph/shader 与 browser counter 三层审计。
-4. 纹理先验证 Mode A 渐进传输；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。
+1. 完成 S4/S5：用 ADR-0014 独立宿主补齐 GPU demand/residency、replacement/eviction/device-loss 的浏览器 MILESTONE 证据。
+2. 完成 Web Cooker 的 `isolated-pthreads` pool 握手与 `portable-pool` + shard assembly。
+3. 产出 §18.4 的 Native Nyx 参考 harness（独立 MiniEngine Model harness 或抽取 Nyx 算法函数的 native 构建）。
+4. 做 S6 Offline parity，然后 S7 cutover + 删除旧 V2 owner/path，并完成 source / compiled graph-shader / browser counter 三层审计。
+5. 纹理先验证 Mode A 渐进传输的生产路径证据；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。
 
 ## 2026-09-17 Product S1 checkpoint
 
-The unified Product production case now passes in Chrome with HZB enabled: a
-validated one-page Product reaches GPU hierarchy/work, Product MeshletWork,
-hardware raster, VisibilityKey, and sparse shading. The case remains
-diagnostic-only because its source is an in-browser legal Product fixture and
-the worktree is not a clean milestone revision. Product consumers use four
-fixed page-bank bindings and therefore require an explicit
+The unified Product production case and the real-GLB `glb-web-product` case both
+pass in Chrome on the current revision with HZB enabled: a validated Product
+reaches GPU hierarchy/work, Product MeshletWork, hardware raster, VisibilityKey
+and sparse shading. `glb-web-product` additionally asserts 256x256 linear-HDR
+coverage (5610/65536 lit pixels) so a black frame fails. Product consumers use
+four fixed page-bank bindings and therefore require an explicit
 `maxStorageBuffersPerShaderStage >= 14` capability request before admission;
-the current unified sparse shader retains three ordinary geometry buffers while
-the Product specialization is compiled, in addition to Product metadata and
-four fixed page-bank bindings.
+the residency now pre-allocates every bank the Product page table can reach.
 
 ## Mode A texture update
 
