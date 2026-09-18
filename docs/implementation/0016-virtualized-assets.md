@@ -384,10 +384,9 @@ Worker/WASM cooker, the common Product admission/residency and
 `MainRenderPipeline`; it does not create a second renderer or a hand-authored
 triangle. The current revision reaches a complete bootstrap Product and passes
 in Chrome for a single primitive. Multi-material/multi-mesh asset mapping is
-implemented in the cooker and scene publication, but the checked-in Emscripten
-artifact predates that C++ change and must be rebuilt with Emscripten SDK 6.0.9
-before the multi-asset Web path is active; richer revisions and demand feedback
-remain open.
+implemented in the cooker and scene publication, with the browser artifact
+rebuilt from the same C++ sources; richer revisions and demand feedback remain
+open.
 
 ## Slice dependency 与并行边界
 

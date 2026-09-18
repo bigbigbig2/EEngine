@@ -257,7 +257,8 @@ function buildSceneSource(catalog: WebCookSceneCatalogSnapshot, descriptor: Read
     if (materials[index]) continue;
     materials[index] = new StandardShadeMaterial();
   }
-  return { materials, geometryProfiles, assetCount, hierarchyMaxDepth: 64, hierarchyTraversalCapacity: Math.max(64, assetCount * 64), hierarchyVisibleClusterCapacity: Math.max(64, assetCount * 256), hierarchyRasterWorkCapacity: Math.max(64, assetCount * 256), count: geometryIndices.length, geometryIndices: Uint32Array.from(geometryIndices), materialIndices: Uint32Array.from(materialIndices), currentTransforms: Float32Array.from(transforms), boundsSpheres: Float32Array.from(bounds) };
+  const capacity = Math.min(65535, Math.max(256, assetCount * 16));
+  return { materials, geometryProfiles, assetCount, hierarchyMaxDepth: 64, hierarchyTraversalCapacity: capacity, hierarchyVisibleClusterCapacity: capacity, hierarchyRasterWorkCapacity: capacity, count: geometryIndices.length, geometryIndices: Uint32Array.from(geometryIndices), materialIndices: Uint32Array.from(materialIndices), currentTransforms: Float32Array.from(transforms), boundsSpheres: Float32Array.from(bounds) };
 }
 
 function tuple(value: unknown, length: number, fallback: readonly number[]): readonly number[] { return Array.isArray(value) && value.length === length && value.every(item => typeof item === "number" && Number.isFinite(item)) ? value : fallback; }

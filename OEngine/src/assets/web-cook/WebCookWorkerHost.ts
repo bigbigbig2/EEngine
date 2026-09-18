@@ -40,6 +40,11 @@ export class WebCookWorkerHost {
 
   /** Serializes protocol commands so lifecycle and credit order is preserved. */
   receive(value: unknown): Promise<void> {
+    // Credit accounting must stay responsive while a work command is awaiting
+    // output credit, otherwise RequestPages/emitPage would deadlock behind its
+    // own ReturnOutputCredits.
+    const type = (value as { readonly type?: unknown } | null | undefined)?.type;
+    if ((type === "GrantOutputCredits" || type === "ReturnOutputCredits") && this.#coordinator) return this.#accept(value);
     const operation = this.#commandTail.then(() => this.#accept(value));
     this.#commandTail = operation.catch(() => undefined);
     return operation;
@@ -90,7 +95,8 @@ export class WebCookWorkerHost {
       runtimeProfile: command.runtimeProfile,
       recipe: command.recipe,
       source: this.#options.source,
-      cooker: this.#options.cooker
+      cooker: this.#options.cooker,
+      onEvent: () => this.#flushEvents()
     });
   }
 
@@ -107,10 +113,15 @@ export class WebCookWorkerHost {
     const coordinator = this.#coordinator;
     if (!coordinator) return;
     for (const event of coordinator.drainEvents()) {
-      const transfer: Transferable[] = [];
-      if (event.type === "PageReady") transfer.push(event.bytes);
-      if (event.type === "RevisionOffered") transfer.push(event.descriptor);
-      this.#emit(event, transfer);
+      // The Worker keeps its own descriptor bytes for later page requests, so
+      // send a copy instead of transferring the revision's buffer away.
+      if (event.type === "RevisionOffered") {
+        const descriptor = event.descriptor.slice(0);
+        this.#emit({ ...event, descriptor }, [descriptor]);
+        continue;
+      }
+      if (event.type === "PageReady") { this.#emit(event, [event.bytes]); continue; }
+      this.#emit(event);
     }
   }
 

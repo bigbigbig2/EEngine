@@ -41,6 +41,8 @@ export interface WebCookCoordinatorOptions {
   readonly recipe?: Readonly<Record<string, unknown>>;
   readonly source?: GlbRangeSourceOptions;
   readonly cooker: WebRuntimeCooker;
+  /** Invoked after each queued session event so the Worker can flush before awaiting output credit. */
+  readonly onEvent?: () => void;
 }
 
 export interface WebCookCoordinatorEvidence {
@@ -69,6 +71,7 @@ export class WebCookCoordinator {
   readonly #sourcePriorities = new Map<string, { readonly score: number; readonly cameraHintRevision: number }>();
   readonly #liveRevisions: WebCookProductRevision[] = [];
   readonly #creditWaiters = new Set<() => void>();
+  #emitTail: Promise<void> = Promise.resolve();
 
   constructor(readonly sessionId: string, sessionGeneration: number, options: WebCookCoordinatorOptions) {
     this.#options = options;
@@ -123,7 +126,7 @@ export class WebCookCoordinator {
         this.validateRevision(revision);
         this.#liveRevisions.push(revision);
         const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
-        this.#session.emit(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
+        this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
         for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
         this.#completedUnits = units.length;
         this.#session.emit(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
@@ -146,7 +149,7 @@ export class WebCookCoordinator {
         for (const { revision, estimated } of cooked) {
           const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
           this.#liveRevisions.push(revision);
-          this.#session.emit(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
+          this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
           for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
           this.#completedUnits++;
           this.#session.emit(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
@@ -173,8 +176,12 @@ export class WebCookCoordinator {
     const source = this.#liveRevisions.find(candidate => candidate.revision === revision && sameBytes(candidate.productId, productId));
     if (!source) throw new Error("Web Cook page request targets an unknown Product revision");
     const unique = [...new Set(pageIds)].sort((left, right) => left - right);
+    // Activation pages are streamed by cookBootstrap; re-emitting them here would
+    // race the activation loop for output credit and drop PageReady events.
+    const activation = new Set<number>(decodeGeometryProductDescriptorBinaryV1(source.descriptor).activationPageIds);
     for (const pageId of unique) {
       if (!Number.isInteger(pageId) || pageId < 0 || pageId === 0xffffffff || pageId >= source.pageCount) throw new RangeError("Web Cook page request targets an invalid page");
+      if (activation.has(pageId)) continue;
       await this.emitPage(source, pageId);
     }
   }
@@ -198,12 +205,19 @@ export class WebCookCoordinator {
     for (const key of keys) score = Math.max(score, this.#sourcePriorities.get(key)?.score ?? 0);
     return score;
   }
-  private async emitPage(revision: WebCookProductRevision, pageId: number): Promise<void> {
+  private emitPage(revision: WebCookProductRevision, pageId: number): Promise<void> {
+    // Activation streaming and RequestPages can both emit; serialize so credit
+    // accounting and PageReady publication stay atomic.
+    const run = this.#emitTail.then(() => this.emitPageNow(revision, pageId));
+    this.#emitTail = run.catch(() => undefined);
+    return run;
+  }
+  private async emitPageNow(revision: WebCookProductRevision, pageId: number): Promise<void> {
     await this.waitForOutputCredit(WEB_COOK_PAGE_BYTES);
     if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");
     const page = await revision.readPage(pageId);
     if (page.pageId !== pageId || page.bytes.byteLength !== WEB_COOK_PAGE_BYTES) throw new Error("Web Cook producer returned the wrong page");
-    if (!this.#session.emit(this.header({ type: "PageReady", productId: revision.productId.slice(), revision: revision.revision, pageId, decodedHash128: page.decodedHash128, bytes: page.bytes }))) throw new Error("Web Cook output credit changed before PageReady emission");
+    if (!this.publish(this.header({ type: "PageReady", productId: revision.productId.slice(), revision: revision.revision, pageId, decodedHash128: page.decodedHash128, bytes: page.bytes }))) throw new Error("Web Cook output credit changed before PageReady emission");
     this.#emittedPages++;
   }
   private async waitForOutputCredit(bytes: number): Promise<void> {
@@ -213,6 +227,11 @@ export class WebCookCoordinator {
     }
   }
   private requireState(state: WebCookCoordinatorEvidence["state"]): void { if (this.#state !== state) throw new Error(`WebCookCoordinator expected state '${state}', got '${this.#state}'`); }
+  private publish(event: WebCookEvent): boolean {
+    const accepted = this.#session.emit(event);
+    this.#options.onEvent?.();
+    return accepted;
+  }
   private header<const T extends Record<string, unknown>>(message: T): T & { protocolVersion: 1; sessionId: string; sessionGeneration: number } { return Object.assign({ protocolVersion: WEB_COOK_PROTOCOL_VERSION as 1, sessionId: this.sessionId, sessionGeneration: this.#session.sessionGeneration }, message); }
 }
 

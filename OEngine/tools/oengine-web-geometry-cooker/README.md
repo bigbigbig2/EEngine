@@ -24,11 +24,10 @@ built with Emscripten SDK 6.0.9 (release `f04ea239d533260dd1db760dd2d668d5f9a88d
 using the command above and the pinned Nyx hashes enforced by CMake:
 
 ```text
-oengine-web-geometry-cooker.mjs   SHA-256 c425c75290a6db5b6553542f5e11e60d9ce37706b48413848f3c044e740e78c5
-oengine-web-geometry-cooker.wasm  SHA-256 e61765e749eca8181eb7c48cf6109c8b0438888e1aa61ccd0d4ba563600cedaa
+oengine-web-geometry-cooker.mjs   SHA-256 93c183863acb85e7c9550e14cf19cf5d6510c9b4fec177630b444cccbc8118d8
+oengine-web-geometry-cooker.wasm  SHA-256 c4ff7f9d0905ab6412d090443ee07cf179b03b59ed3e47bc00da762bc9630402
 ```
 
-The C++ source now emits one Product asset per canonical material domain (so a
-multi-mesh GLB keeps independently addressable primitives). The checked-in
-artifact above was built before that change; rebuild it with the same Emscripten
-SDK and update both hashes before relying on multi-asset Web Products.
+The cooker emits one Product asset per canonical material domain, so a
+multi-mesh GLB keeps independently addressable primitives. Rebuild the artifact
+and refresh both hashes whenever the C++ sources change.

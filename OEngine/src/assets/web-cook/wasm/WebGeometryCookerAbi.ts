@@ -187,6 +187,9 @@ export class WebGeometryCookWasmResultV1 {
   descriptorSections(): WebGeometryCookDescriptorSectionsV1 {
     this.requireOpen();
     const bootstrapPageIds = asU32(this.copySection(Section.BootstrapPageIds), "bootstrapPageIds");
+    // bootstrapPageIds keeps the per-asset ranges; the activation cut is the
+    // sorted unique union, matching the OEGPACK Product adapter.
+    const activationPageIds = Uint32Array.from([...new Set(bootstrapPageIds)].sort((left, right) => left - right));
     return Object.freeze({
       assetRecords: this.copySection(Section.AssetRecords),
       rootNodeIds: asU32(this.copySection(Section.RootNodeIds), "rootNodeIds"),
@@ -194,7 +197,7 @@ export class WebGeometryCookWasmResultV1 {
       groupDirectory: this.copySection(Section.GroupDirectory),
       pageRecords: this.copySection(Section.PageRecords),
       bootstrapPageIds,
-      activationPageIds: bootstrapPageIds.slice(),
+      activationPageIds,
       vertexFormats: this.copySection(Section.VertexFormats),
       recipeHash: requireHash(this.copySection(Section.RecipeHash), "recipeHash"),
       contentManifestHash: requireHash(this.copySection(Section.ContentManifestHash), "contentManifestHash")

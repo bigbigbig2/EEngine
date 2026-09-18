@@ -469,7 +469,10 @@ export class HierarchicalWorkGenerator {
     );
     const rasterExpansionEnabled = config.rasterExpansionEnabled ?? true;
     const virtualGeometryEnabled = scene.virtualGeometry !== undefined;
-    const pageDemandCapacity = config.pageDemandCapacity ?? Math.max(1, scene.visibleClusterCapacity);
+    const pageDemandCapacity = config.pageDemandCapacity ?? Math.min(
+      Math.max(1, scene.visibleClusterCapacity),
+      GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1
+    );
     assertPositiveU32(pageDemandCapacity, "R3-D virtual page demand capacity");
     if (pageDemandCapacity > GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1) {
       throw new RangeError(
