@@ -31,6 +31,10 @@ function collectExamplePages(directory: string): Record<string, string> {
 export default defineConfig({
   root: examplesRoot,
   server: {
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp"
+    },
     fs: {
       allow: [examplesRoot, resolve(examplesRoot, "../OEngine")]
     }

@@ -25,9 +25,25 @@ using the command above and the pinned Nyx hashes enforced by CMake:
 
 ```text
 oengine-web-geometry-cooker.mjs   SHA-256 93c183863acb85e7c9550e14cf19cf5d6510c9b4fec177630b444cccbc8118d8
-oengine-web-geometry-cooker.wasm  SHA-256 c4ff7f9d0905ab6412d090443ee07cf179b03b59ed3e47bc00da762bc9630402
+oengine-web-geometry-cooker.wasm  SHA-256 20febf54211716a3da77e476caf8201170cf76aff4bed71bc4eb45a299d9959c
 ```
 
 The cooker emits one Product asset per canonical material domain, so a
 multi-mesh GLB keeps independently addressable primitives. Rebuild the artifact
 and refresh both hashes whenever the C++ sources change.
+
+### `isolated-pthreads` specialization (experimental)
+
+The same sources build a pthread specialization used by the
+`isolated-pthreads` runtime profile behind cross-origin isolation:
+
+```powershell
+emcmake cmake -S tools/oengine-web-geometry-cooker -B tools/oengine-web-geometry-cooker/build-wasm-threads -G Ninja -DCMAKE_BUILD_TYPE=Release -DOENGINE_WEB_COOK_THREADS=ON
+cmake --build tools/oengine-web-geometry-cooker/build-wasm-threads
+# copy to src/assets/web-cook/wasm/vendor/threads/
+```
+
+The per-domain cook loop is parallelized with the same bounded batching as the
+native writer. The runtime profile is opt-in (`?profile=isolated-pthreads`) and
+still requires browser validation: the Emscripten pthread module does not
+yet finish pool initialization inside the app's Dedicated Worker.

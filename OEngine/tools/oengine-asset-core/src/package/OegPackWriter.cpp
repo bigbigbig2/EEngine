@@ -121,20 +121,7 @@ void WriteFile(const std::string& path, const std::vector<std::uint8_t>& bytes) 
     if (!output) throw std::runtime_error("cannot write file: " + path);
 }
 
-void AddEvidence(CookEvidenceV3& target, const CookEvidenceV3& source) {
-    target.sourceBytes += source.sourceBytes;
-    target.uniqueGeometryBytes += source.uniqueGeometryBytes;
-    target.leafMeshlets += source.leafMeshlets; target.parentMeshlets += source.parentMeshlets;
-    target.groups += source.groups; target.hierarchyNodes += source.hierarchyNodes; target.hierarchyBytes += source.hierarchyBytes;
-    target.pageCount += source.pageCount; target.compressedPageBytes += source.compressedPageBytes;
-    target.decodedPageBytes += source.decodedPageBytes; target.wastedPaddingBytes += source.wastedPaddingBytes;
-    target.bootstrapPageCount += source.bootstrapPageCount; target.bootstrapGeometryBytes += source.bootstrapGeometryBytes;
-    target.serializedVertexBytes += source.serializedVertexBytes;
-    target.uniqueReferencedVertexBytes += source.uniqueReferencedVertexBytes;
-    target.simplificationFallbackGroups += source.simplificationFallbackGroups;
-    target.cookWallMilliseconds += source.cookWallMilliseconds;
-    target.peakWorkingBytes = std::max(target.peakWorkingBytes, source.peakWorkingBytes);
-}
+
 
 std::uint64_t AssetDecodedBytes(const CookedAssetV3& asset) {
     std::uint64_t bytes = 0u;

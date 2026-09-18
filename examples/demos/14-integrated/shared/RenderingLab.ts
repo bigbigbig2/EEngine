@@ -214,9 +214,11 @@ async function loadPackedLab(activeRenderer: Renderer, activeScene: Scene): Prom
 /** Runtime-first path: GLB -> Web Worker/WASM CookSession -> shared Product admission. */
 async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): Promise<LabScene> {
   setLoading("Assets", `Loading ${modelLabel} via Web Runtime Cooker...`, 0.1);
-  const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 128 * 1024 * 1024, maxDecodedProductBytes: 512 * 1024 * 1024 });
+  const runtimeProfile = new URLSearchParams(window.location.search).get("profile") === "isolated-pthreads" ? "isolated-pthreads" : "portable-single";
+  const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 128 * 1024 * 1024, maxDecodedProductBytes: 512 * 1024 * 1024, runtimeProfile });
   const asset = load_gltf_web_product(modelUrl, {
     worker,
+    runtimeProfile,
     sessionId: `rendering-lab-${crypto.randomUUID()}`,
     sessionGeneration: 1,
     budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 128 * 1024 * 1024, maxWasmBytes: 128 * 1024 * 1024, maxOutputBytes: 256 * 1024 * 1024, maxQueuedEvents: 1024 },

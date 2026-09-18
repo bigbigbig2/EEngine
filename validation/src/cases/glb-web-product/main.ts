@@ -120,9 +120,11 @@ async function loadModel(): Promise<void> {
     localUrl = file ? URL.createObjectURL(file) : undefined;
     const sourceUrl = localUrl ?? urlInput.value.trim();
     if (!sourceUrl) throw new Error("GLB URL is empty");
-    const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024 });
+    const runtimeProfile = new URLSearchParams(window.location.search).get("profile") === "isolated-pthreads" ? "isolated-pthreads" : "portable-single";
+    const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile });
     asset = load_gltf_web_product(sourceUrl, {
       worker,
+      runtimeProfile,
       sessionId: `glb-ui-${crypto.randomUUID()}`,
       sessionGeneration: ticket,
       budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 512 * 1024 * 1024, maxWasmBytes: 64 * 1024 * 1024, maxOutputBytes: 128 * 1024 * 1024, maxQueuedEvents: 512 },

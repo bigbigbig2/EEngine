@@ -10,6 +10,10 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 4178,
     strictPort: true,
+    headers: {
+      "Cross-Origin-Opener-Policy": "same-origin",
+      "Cross-Origin-Embedder-Policy": "require-corp"
+    },
     fs: { allow: [root, resolve(root, "../OEngine"), resolve(root, "../examples")] }
   },
   build: {

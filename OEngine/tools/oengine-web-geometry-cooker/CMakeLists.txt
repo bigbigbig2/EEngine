@@ -7,6 +7,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(NYX_SOURCE_DIR "D:/Nyx-main" CACHE PATH "Pinned local Nyx source root")
 set(OENGINE_WEB_COOK_INITIAL_MEMORY_MB 64 CACHE STRING "Initial portable-single WASM memory")
 set(OENGINE_WEB_COOK_MAXIMUM_MEMORY_MB 512 CACHE STRING "Maximum portable-single WASM memory")
+option(OENGINE_WEB_COOK_THREADS "Build the cross-origin-isolated pthread specialization" OFF)
+set(OENGINE_WEB_COOK_MAX_THREADS 8 CACHE STRING "pthread pool size for the isolated-pthreads profile")
 
 function(require_nyx_sha256 relative expected)
     set(source "${NYX_SOURCE_DIR}/${relative}")
@@ -70,6 +72,16 @@ if(EMSCRIPTEN)
         "-sINITIAL_MEMORY=${OENGINE_WEB_COOK_INITIAL_MEMORY_BYTES}"
         "-sMAXIMUM_MEMORY=${OENGINE_WEB_COOK_MAXIMUM_MEMORY_BYTES}"
         "-sEXPORTED_FUNCTIONS=['_malloc','_free','_oengine_web_geometry_cook_abi_version','_oengine_web_geometry_cook','_oengine_web_geometry_cook_destroy','_oengine_web_geometry_cook_section_size','_oengine_web_geometry_cook_copy_section','_oengine_web_geometry_cook_page_count','_oengine_web_geometry_cook_last_error_size','_oengine_web_geometry_cook_copy_last_error']")
+    if(OENGINE_WEB_COOK_THREADS)
+        target_compile_options(oengine-web-geometry-cooker PRIVATE -pthread)
+        target_link_options(oengine-web-geometry-cooker PRIVATE
+            -pthread
+            -sALLOW_MEMORY_GROWTH=0
+            "-sPTHREAD_POOL_SIZE=${OENGINE_WEB_COOK_MAX_THREADS}"
+            "-sPTHREAD_POOL_SIZE_STRICT=0"
+            "-sINITIAL_MEMORY=${OENGINE_WEB_COOK_MAXIMUM_MEMORY_BYTES}"
+            "-sMAXIMUM_MEMORY=${OENGINE_WEB_COOK_MAXIMUM_MEMORY_BYTES}")
+    endif()
 else()
     target_sources(oengine-web-geometry-cooker PRIVATE tests/WebGeometryCookerAbiTest.cpp)
 endif()

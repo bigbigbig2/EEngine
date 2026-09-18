@@ -1,4 +1,5 @@
 import type { WebCookWorkerPort } from "./WebCookWorkerTransport.js";
+import type { WebCookRuntimeProfile } from "./protocol/CookSessionProtocol.js";
 
 export interface WebCookWorkerFactoryOptions {
   /** URL of the real Emscripten-generated Web geometry `.mjs` module. */
@@ -14,11 +15,19 @@ export interface DefaultWebCookWorkerFactoryOptions {
   readonly maxCanonicalInputBytes: number;
   readonly maxDecodedProductBytes: number;
   readonly createWorker?: (url: URL) => WebCookWorkerPort;
+  /**
+   * `isolated-pthreads` selects the pthread cooker when the document is
+   * cross-origin isolated; otherwise the portable-single artifact is used.
+   */
+  readonly runtimeProfile?: WebCookRuntimeProfile;
 }
 
 /** Versioned browser-first cooker module built from the pinned Nyx sources. */
 export const DEFAULT_WEB_GEOMETRY_COOKER_MODULE_URL = defaultWebGeometryCookerModuleUrl();
 export const DEFAULT_WEB_GEOMETRY_COOKER_WASM_URL = new URL("./wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url);
+/** Cross-origin-isolated pthread specialization of the same cooker ABI. */
+export const DEFAULT_WEB_GEOMETRY_COOKER_THREADS_MODULE_URL = new URL("./wasm/vendor/threads/oengine-web-geometry-cooker.mjs", import.meta.url);
+export const DEFAULT_WEB_GEOMETRY_COOKER_THREADS_WASM_URL = new URL("./wasm/vendor/threads/oengine-web-geometry-cooker.wasm", import.meta.url);
 
 /** Starts the production Dedicated Worker around a real Emscripten module. */
 export function createWebCookWorker(options: WebCookWorkerFactoryOptions): WebCookWorkerPort {
@@ -49,10 +58,11 @@ export function createWebCookWorker(options: WebCookWorkerFactoryOptions): WebCo
 
 /** Starts a Worker using the repository's real Emscripten cooker artifact. */
 export function createDefaultWebCookWorker(options: DefaultWebCookWorkerFactoryOptions): WebCookWorkerPort {
+  const useThreads = options.runtimeProfile === "isolated-pthreads" && globalThis.crossOriginIsolated === true;
   return createWebCookWorker({
     ...options,
-    wasmModuleUrl: DEFAULT_WEB_GEOMETRY_COOKER_MODULE_URL,
-    wasmBinaryUrl: DEFAULT_WEB_GEOMETRY_COOKER_WASM_URL
+    wasmModuleUrl: useThreads ? DEFAULT_WEB_GEOMETRY_COOKER_THREADS_MODULE_URL : DEFAULT_WEB_GEOMETRY_COOKER_MODULE_URL,
+    wasmBinaryUrl: useThreads ? DEFAULT_WEB_GEOMETRY_COOKER_THREADS_WASM_URL : DEFAULT_WEB_GEOMETRY_COOKER_WASM_URL
   });
 }
 

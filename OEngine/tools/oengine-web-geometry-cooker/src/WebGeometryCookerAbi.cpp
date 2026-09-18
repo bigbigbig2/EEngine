@@ -9,10 +9,12 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <future>
 #include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -20,6 +22,8 @@ namespace {
 using namespace oengine::asset;
 
 constexpr std::uint32_t kAbiVersion = 1u;
+/** Upper bound on per-cook worker threads; the pthread pool is sized the same. */
+[[maybe_unused]] constexpr std::uint32_t kMaxCookThreads = 8u;
 constexpr std::uint32_t kCanonicalHeaderBytes = 128u;
 constexpr std::uint32_t kCanonicalDomainBytes = 32u;
 constexpr std::uint32_t kCanonicalVertexBytes = 72u;
@@ -99,6 +103,17 @@ std::size_t AlignUp(std::size_t value, std::size_t alignment) {
         throw std::runtime_error("canonical input size overflows address space");
     }
     return (value + alignment - 1u) & ~(alignment - 1u);
+}
+
+/** Bounded per-cook concurrency. Threads only exist in the pthread build. */
+std::uint32_t CookConcurrency(std::size_t domainCount) {
+#if defined(__EMSCRIPTEN_PTHREADS__)
+    const std::uint32_t hardware = std::max(1u, std::thread::hardware_concurrency());
+    return std::max(1u, std::min<std::uint32_t>(std::min(hardware, kMaxCookThreads), std::max<std::size_t>(1u, domainCount)));
+#else
+    (void)domainCount;
+    return 1u;
+#endif
 }
 
 std::size_t CheckedTableBytes(
@@ -282,17 +297,35 @@ std::unique_ptr<CookResult> Cook(
     // that each GLB mesh primitive stays independently addressable by instance
     // geometry index. The Offline cooker keeps its own mesh-level asset
     // granularity; Web and Offline are not required to share asset boundaries.
-    std::vector<CookedAssetV3> cooked;
-    cooked.reserve(asset.domains.size());
-    for (std::size_t domainIndex = 0u; domainIndex < asset.domains.size(); ++domainIndex) {
-        CanonicalGeometryAsset single;
-        single.sourceName = asset.sourceName + "#" + std::to_string(domainIndex);
-        single.domains.push_back(asset.domains[domainIndex]);
-        FinalizeCanonicalGeometryAssetV3(single);
-        cooked.push_back(CookGeometryAssetV3(single, recipe, result->evidence));
+    const std::size_t domainCount = asset.domains.size();
+    std::vector<CanonicalGeometryAsset> singles(domainCount);
+    for (std::size_t domainIndex = 0u; domainIndex < domainCount; ++domainIndex) {
+        singles[domainIndex].sourceName = asset.sourceName + "#" + std::to_string(domainIndex);
+        singles[domainIndex].domains.push_back(asset.domains[domainIndex]);
+        FinalizeCanonicalGeometryAssetV3(singles[domainIndex]);
     }
-    result->product = AssembleDecodedGeometryProductV1(std::move(cooked));
-    const std::uint64_t decodedBytes =
+    std::vector<CookedAssetV3> cooked(domainCount);
+    std::vector<CookEvidenceV3> domainEvidence(domainCount);
+    const std::uint32_t concurrency = CookConcurrency(domainCount);
+    if (concurrency <= 1u) {
+        for (std::size_t index = 0u; index < domainCount; ++index) {
+            cooked[index] = CookGeometryAssetV3(singles[index], recipe, domainEvidence[index]);
+        }
+    } else {
+        for (std::size_t begin = 0u; begin < domainCount; begin += concurrency) {
+            const std::size_t end = std::min(domainCount, begin + std::size_t(concurrency));
+            std::vector<std::future<void>> tasks;
+            tasks.reserve(end - begin);
+            for (std::size_t index = begin; index < end; ++index) {
+                tasks.push_back(std::async(std::launch::async, [&, index]() {
+                    cooked[index] = CookGeometryAssetV3(singles[index], recipe, domainEvidence[index]);
+                }));
+            }
+            for (auto& task : tasks) task.get();
+        }
+    }
+    for (const CookEvidenceV3& item : domainEvidence) AddEvidence(result->evidence, item);
+    result->product = AssembleDecodedGeometryProductV1(std::move(cooked));    const std::uint64_t decodedBytes =
         std::uint64_t(result->product.pages.size()) * kGeometryPageBytesV3;
     std::uint64_t bootstrapPayloadBytes = 0u;
     for (const GeometryGroupDirectoryV3& group : result->product.groups) {

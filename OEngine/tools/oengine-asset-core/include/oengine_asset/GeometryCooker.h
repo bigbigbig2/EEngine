@@ -4,6 +4,7 @@
 #include "GeometryCookRecipe.h"
 #include "Hash.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <string>
@@ -72,6 +73,22 @@ struct CookEvidenceV3 {
     double cookWallMilliseconds = 0.0;
     std::uint64_t peakWorkingBytes = 0u;
 };
+
+/** Merges per-asset cook evidence; shared by the Native writer and the WASM ABI. */
+inline void AddEvidence(CookEvidenceV3& target, const CookEvidenceV3& source) {
+    target.sourceBytes += source.sourceBytes;
+    target.uniqueGeometryBytes += source.uniqueGeometryBytes;
+    target.leafMeshlets += source.leafMeshlets; target.parentMeshlets += source.parentMeshlets;
+    target.groups += source.groups; target.hierarchyNodes += source.hierarchyNodes; target.hierarchyBytes += source.hierarchyBytes;
+    target.pageCount += source.pageCount; target.compressedPageBytes += source.compressedPageBytes;
+    target.decodedPageBytes += source.decodedPageBytes; target.wastedPaddingBytes += source.wastedPaddingBytes;
+    target.bootstrapPageCount += source.bootstrapPageCount; target.bootstrapGeometryBytes += source.bootstrapGeometryBytes;
+    target.serializedVertexBytes += source.serializedVertexBytes;
+    target.uniqueReferencedVertexBytes += source.uniqueReferencedVertexBytes;
+    target.simplificationFallbackGroups += source.simplificationFallbackGroups;
+    target.cookWallMilliseconds += source.cookWallMilliseconds;
+    target.peakWorkingBytes = std::max(target.peakWorkingBytes, source.peakWorkingBytes);
+}
 
 struct SerializedGroupV3 {
     std::vector<std::uint8_t> bytes;
