@@ -14,3 +14,4 @@ implementation 文档只协调仍在进行的跨 owner 交付，不是永久设�
 ## Active
 
 - [0016 · Virtualized Assets](./0016-virtualized-assets.md)
+- [0016 · 当前差距与后续交付计划](./0016-remaining-work-plan.md)

@@ -8,7 +8,8 @@ const {
   assertGeometryProductDescriptorV1,
   validateGeometryProductDescriptorV1
 } = await import("../.test-dist/assets/geometry-product/GeometryProductV1.js");
-const { VirtualGeometryResidency, virtualGeometryRequiredBankCount } = await import("../.test-dist/gpu/VirtualGeometryResidency.js");
+const { VirtualGeometryResidency } = await import("../.test-dist/gpu/VirtualGeometryResidency.js");
+const { GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK } = await import("../.test-dist/gpu/GeometryProductSlotPool.js");
 
 function fixture() {
   const page = new Uint8Array(262144);
@@ -81,12 +82,46 @@ test("Product-aware residency selects only aged, non-pinned pages for eviction",
   residency.destroy();
 });
 
-test("Product residency pre-allocates every bank its page table can reach", () => {
-  assert.equal(virtualGeometryRequiredBankCount(1, 1), 1);
-  assert.equal(virtualGeometryRequiredBankCount(512, 512), 1);
-  assert.equal(virtualGeometryRequiredBankCount(513, 1), 2, "a demand page past the activation cut still needs its bank bound");
-  assert.equal(virtualGeometryRequiredBankCount(811, 374), 2, "Dungeon-style product");
-  assert.equal(virtualGeometryRequiredBankCount(2048, 10), 4);
-  assert.equal(virtualGeometryRequiredBankCount(2049, 10), 4, "the resident heap stays bounded to four banks");
-  assert.equal(virtualGeometryRequiredBankCount(3000, 3000), 6, "an over-budget activation cut is rejected by the caller");
+test("Product residency shares four immutable banks across simultaneous revisions", async () => {
+  const { descriptor, page } = fixture();
+  const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { return { d, destroyed: false, destroy() { this.destroyed = true; } }; }, queue: { writeBuffer() {} } };
+  const source = () => ({ descriptor, async readPage(pageId) { return { productId: descriptor.productId.slice(), revision: 0, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() {} });
+  const old = await VirtualGeometryResidency.create(device, source(), 1);
+  const next = await VirtualGeometryResidency.create(device, source(), 2);
+  assert.equal(old.evidence().bankCount, 4);
+  assert.equal(old.evidence().slotCapacity, 4 * GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK);
+  assert.equal(next.bindings().banks[0], old.bindings().banks[0]);
+  assert.notDeepEqual(next.pageLocation(0), old.pageLocation(0));
+  const shared = next.bindings().banks[0];
+  old.destroy(); assert.equal(shared.destroyed, false);
+  next.destroy(); assert.equal(shared.destroyed, true);
+});
+
+test("eviction weighs GPU request/visibility, prediction and refetch cost; records thrash", async () => {
+  const { descriptor, page } = fixture();
+  const records = new Uint8Array(96);
+  for (let index = 0; index < 3; index++) records.set(descriptor.pageRecords, index * 32);
+  const recordView = new DataView(records.buffer);
+  for (const at of [32, 64]) { recordView.setUint32(at + 16, 0, true); recordView.setUint32(at + 20, 0, true); }
+  const product = { ...descriptor, pageRecords: records };
+  const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { return { d, destroy() {} }; }, queue: { writeBuffer() {} } };
+  const source = { descriptor: product, async readPage(pageId) { return { productId: product.productId.slice(), revision: 0, pageId, decodedHash128: records.slice(pageId * 32, pageId * 32 + 16), bytes: page.slice().buffer }; }, release() {} };
+  const residency = await VirtualGeometryResidency.create(device, source);
+  const upload = (pageId) => residency.uploadPage({ productId: product.productId.slice(), revision: 0, pageId, decodedHash128: records.slice(pageId * 32, pageId * 32 + 16), bytes: page.slice().buffer });
+  upload(1); upload(2);
+  residency.recordDemand(2, 10, true, false, 4);
+  assert.deepEqual(residency.selectEvictionCandidates(12, 262144, 2), [1]);
+  residency.recordDemand(1, 13, false, true, 1);
+  assert.deepEqual(residency.selectEvictionCandidates(15, 262144, 0), [2]);
+  assert.deepEqual(residency.selectEvictionCandidates(22, 262144, 0), [1]);
+  residency.beginRetirePage(1); residency.completeRetirePage(1);
+  residency.recordDemand(1, 23, true, false, 1);
+  upload(1);
+  const evidence = residency.evidence();
+  assert.equal(evidence.shortTermRerequests, 1);
+  assert.equal(evidence.reloads, 1);
+  assert.equal(evidence.thrashBytes, 262144);
+  assert.equal(evidence.averagePageLifetimeFrames, 22);
+  assert.deepEqual(residency.selectEvictionCandidates(23, 262144, 0), [2]);
+  residency.destroy();
 });

@@ -1,5 +1,19 @@
 # OEngine 当前状态
 
+Audit correction (2026-09-18, `64f346d`): the accepted browser cases below
+prove successful Product publication, GPU demand, replacement, eviction and
+device-loss paths, not failure-atomic replacement or large-scene visible-first
+loading. Current `swapProductScene` releases the old Scene before the new one
+is staged and does not restore it on failure; the Web progressive cooker
+canonicalizes all catalog primitives before its first Product offer; the
+page-global ledger reserves output bytes in production but not source/WASM
+bytes. The per-Product 128 MiB bank allocation also needs a global capacity
+ledger and measured memory evidence. These open defects and the seven larger
+delivery stages are tracked in
+[0016 remaining-work plan](./implementation/0016-remaining-work-plan.md).
+Earlier “atomic”, “per-domain parallel” and “page-global source/WASM” wording
+on this page describes intended or successful-path behavior, not closed gates.
+
 Implementation update (2026-09-18): the Runtime-first Web route now runs a real
 GLB end to end. `run:glb-web-product` drives the Dungeon (798 mesh / 25
 material) through the pinned Emscripten Worker cooker, the shared Product
@@ -145,7 +159,7 @@ evidence remains open.
 1. 做 S7 Geometry consumer cutover：迁移 `GpuAssetStore`/`GpuRenderWorld` recovery、asset publication 与 shadow consumer，删除 V2 `GeometryAssetPackage`/upload/consumer 与生产调用，并完成 source/compiled/browser 三层 legacy 审计。
 2. 完成 Web Cooker 的 `isolated-pthreads` pool 握手与 `portable-pool` + shard assembly。
 3. 产出 §18.4 的 Native Nyx 参考 harness（独立 MiniEngine Model harness 或抽取 Nyx 算法函数的 native 构建）。
-4. 做 S6 Offline parity，然后 S7 cutover + 删除旧 V2 owner/path，并完成 source / compiled graph-shader / browser counter 三层审计。
+4. S6 Offline production parity 的成功路径已 accepted；继续补同 workload 对照和 source-selection 边界，再在失败事务、Nyx 对照与入口切换门禁通过后执行 S7 V2 删除和三层 legacy 审计。
 5. 纹理先验证 Mode A 渐进传输的生产路径证据；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。
 
 ## 2026-09-17 Product S1 checkpoint

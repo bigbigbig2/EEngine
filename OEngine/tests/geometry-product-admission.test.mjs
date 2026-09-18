@@ -4,6 +4,7 @@ import test from "node:test";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 const { GeometryProductAdmission, GeometryProductAdmissionController } = await import("../.test-dist/gpu/GeometryProductAdmission.js");
+const { geometryProductGpuBudgetEvidence, reserveGeometryProductGpuBytes } = await import("../.test-dist/gpu/GeometryProductGpuBudget.js");
 const { GeometryPageSchedulerV1 } = await import("../.test-dist/gpu/GeometryPageScheduler.js");
 const { resolveGeometryProductAssetFromHeapV1, unpackGeometryProductMetadataHeapHeaderV1 } = await import("../.test-dist/gpu/GeometryProductGpuAbiV1.js");
 
@@ -216,4 +217,75 @@ test("Product recovery disposes superseded GPU revisions before rebuilding the a
   controller.retireActive();
   controller.retireReplaced();
   assert.equal(nextSource.released, 1);
+});
+
+test("candidate mapping/submit failure after cut fill preserves the old active generation", async () => {
+  for (const failure of ["mapping failed", "submit failed"]) {
+    const first = makeFixture(), richer = makeFixture();
+    richer.descriptor = { ...richer.descriptor, productId: first.descriptor.productId.slice(), revision: 1, replaces: { productId: first.descriptor.productId.slice(), revision: 0 } };
+    const oldSource = sourceFor(first.descriptor, first.page), nextSource = sourceFor(richer.descriptor, richer.page);
+    let cutWasReady = false;
+    const controller = new GeometryProductAdmissionController(fakeDevice(), async (candidate, previous) => {
+      if (!previous) return;
+      cutWasReady = candidate.state === "ready-to-activate" && candidate.residency.pageLocation(0) !== undefined;
+      assert.equal(controller.active?.generation, previous.generation);
+      throw new Error(failure);
+    });
+    async function* provider() { yield oldSource; yield nextSource; }
+    await assert.rejects(controller.consume({ revisions: provider }), new RegExp(failure));
+    assert.equal(cutWasReady, true);
+    assert.equal(controller.active?.descriptor.revision, 0);
+    assert.equal(controller.evidence().replacements, 0);
+    assert.equal(nextSource.released, 1);
+    assert.equal(oldSource.released, 0);
+    controller.retireActive(); controller.retireReplaced();
+    assert.equal(oldSource.released, 1);
+  }
+});
+
+test("concurrent candidate cancellation cannot publish or release the old Product", async () => {
+  const first = makeFixture(), richer = makeFixture();
+  richer.descriptor = { ...richer.descriptor, productId: first.descriptor.productId.slice(), revision: 1, replaces: { productId: first.descriptor.productId.slice(), revision: 0 } };
+  const oldSource = sourceFor(first.descriptor, first.page), nextSource = sourceFor(richer.descriptor, richer.page);
+  let enterPublish, finishPublish;
+  const entered = new Promise(resolve => { enterPublish = resolve; });
+  const pending = new Promise(resolve => { finishPublish = resolve; });
+  const controller = new GeometryProductAdmissionController(fakeDevice(), async (_candidate, previous) => {
+    if (previous) { enterPublish(); await pending; }
+  });
+  async function* provider() { yield oldSource; yield nextSource; }
+  const consuming = controller.consume({ revisions: provider });
+  await entered;
+  controller.cancel();
+  finishPublish();
+  await assert.rejects(consuming, /cancelled/);
+  assert.equal(controller.active?.descriptor.revision, 0);
+  assert.equal(nextSource.released, 1);
+  assert.equal(oldSource.released, 0);
+  controller.retireActive(); controller.retireReplaced();
+});
+
+test("GPUBuffer capacity is device-global while candidate and old revision share banks", async () => {
+  const fixture = makeFixture(), device = fakeDevice();
+  const owners = [];
+  for (let index = 0; index < 3; index++) {
+    const transaction = new GeometryProductAdmission(device).offer(sourceFor(fixture.descriptor, fixture.page));
+    await transaction.activate(); owners.push(transaction);
+  }
+  const before = geometryProductGpuBudgetEvidence(device);
+  assert.equal(before.allocations, 4);
+  assert.equal(before.metadataAllocations, 3);
+  assert.ok(before.allocatedBytes > 504 * 1024 * 1024);
+  assert.throws(() => reserveGeometryProductGpuBytes(device, 9 * 1024 * 1024), /capacity budget exceeded/);
+  const candidate = new GeometryProductAdmission(device).offer(sourceFor(fixture.descriptor, fixture.page));
+  await candidate.activate();
+  assert.equal(candidate.residency.bindings().banks[0], owners[0].residency.bindings().banks[0]);
+  assert.equal(geometryProductGpuBudgetEvidence(device).allocations, 4);
+  candidate.beginRetire(); candidate.retire();
+  owners[0].beginRetire(); owners[0].retire();
+  const replacement = new GeometryProductAdmission(device).offer(sourceFor(fixture.descriptor, fixture.page));
+  await replacement.activate();
+  assert.ok(geometryProductGpuBudgetEvidence(device).peakBytes <= 512 * 1024 * 1024);
+  for (const transaction of [...owners.slice(1), replacement]) { transaction.beginRetire(); transaction.retire(); }
+  assert.equal(geometryProductGpuBudgetEvidence(device).allocatedBytes, 0);
 });

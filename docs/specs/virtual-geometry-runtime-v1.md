@@ -61,6 +61,8 @@ validated descriptor + complete resident activation cut + dependencies
 
 不得在一个冻结 `FrameContext` 内混用不同 product generation。新事务失败或取消时回滚其 reservation，旧 active revision 不变。
 
+`ready-to-activate` 只表示候选 descriptor、activation cut 和 Scene mapper 已准备，不能被 frame/admission consumer 当作 active。Renderer 必须将候选 metadata、Scene/instance、material/texture 与 sparse-shading closure 一起预检；只有对应命令提交成功后才 `commit()` Product active bit 和 generation。mapping、staging、submit 或取消失败必须释放候选 reservation，旧 Scene、旧 generation 和旧 sparse-shading closure 保持可消费；异步 replacement 错误不得吞掉。
+
 ### 逻辑 page 状态
 
 每个 `(productGeneration, PageID)` 具有以下单向主状态：
@@ -117,7 +119,7 @@ GPU-visible `GeometryProductTableRecordV1` 是 64-byte little-endian record。�
 Shader 必须验证 Product table slot 范围、active bit、两处 generation 相等、AssetRecord index 小于 product asset count，再访问 descriptor table。失败必须 fail closed 并计入 invalid generation/location；不能退回同 slot 的 V2 `GpuGeometryRecord`。迁移期间 instance flag 显式区分两种 geometry owner，禁止依赖表内容猜测。
 
 - decoded slot 固定 256 KiB；默认 bank 为 128 MiB、512 slots。
-- V1 全局 512 MiB resident 上限最多 4 个上述 bank；GPU 与 CPU mirror 均拒绝 `bankIndex >= 4` 或 `slotIndex >= 512`。
+- V1 同一 GPUDevice 共享一个固定的 4 x 128 MiB bank/slot pool（总计 512 MiB）；每个 Product revision 复用这四个绑定，不得重复创建 bank 或追加未绑定 bank。slot 只有在 revoke 已提交且 queue completion 证明旧 work 不再引用后才归还。metadata heap 不进入 Page bank 预算，但必须由独立有界 overhead ledger 记账并报告。GPU 与 CPU mirror 均拒绝 `bankIndex >= 4` 或 `slotIndex >= 512`。
 - bank 数与总 slot 数来自设备 limit、全局 resident budget 和显式配置，不得依赖未协商能力。
 - slot 在 `submitted`/`resident`/`retiring` 状态有唯一 owner；禁止同帧重分配。
 - activation pages 在 revision active 期间 pinned；pinned 总量服从 admission budget。
@@ -134,6 +136,8 @@ GPU-visible `GeometryPageLocationV1` 是 16-byte little-endian record：
 flags bit 0 为 resident，bit 1 为 pinned；bits 2..31 必须为 0。`byteOffset = slotIndex << 18`。Shader 必须先验证 resident bit 和预期 product generation，再读取 page；失败视为 non-resident。地址表容量至少等于 descriptor page count，越界 PageID fail closed 并计数。
 
 映射撤销必须先将 record 写为 non-resident，并确保未来 frame 不再产生旧 work；slot 只有在引用旧 mapping 的所有提交完成后才能复用。不得在帧循环中 await `queue.onSubmittedWorkDone()`；retire owner 使用提交序号/fence 批次异步回收。
+
+Eviction 候选不能只按 `lastUsed` 排序，至少必须排除 pinned/bootstrap，满足最小驻留时间，并结合近期 demand/visible 频率、ancestor/fallback importance、预测保护、refetch cost、memory pressure 与 retiring bytes。策略必须有 hysteresis/cooldown，并记录平均 Page lifetime、reload、eviction 后短期 rerequest 和 thrash bytes。
 
 ### Demand queue ABI
 
@@ -202,7 +206,7 @@ scene/asset replace、AbortSignal、Provider release 和 feature toggle 都要�
 
 ### 必需证据与 counters
 
-至少暴露以下每帧/累计 counters：offered/admitted/active/failed revision，requested/deduplicated/stale/failed/resident/evicted page，demand attempted/valid/overflow，fallback Group，invalid location/generation，source/cook/decode/upload bytes 与 latency，in-flight/peak bytes，pinned/resident/retiring bytes，retry/cancel/late result，device recovery。
+至少暴露以下每帧/累计 counters：offered/admitted/active/failed revision，requested/deduplicated/stale/failed/resident/evicted page，demand attempted/valid/overflow，fallback Group，invalid location/generation，source/cook/decode/upload bytes 与 latency，in-flight/peak bytes，pinned/resident/retiring bytes，retry/cancel/late result，device recovery；Product bank capacity、shared slot usage、metadata overhead、双 revision peak、平均 Page lifetime、reload、短期 rerequest 与 thrash bytes 也必须可观测。
 
 Counter readback 必须有界且可以关闭；关闭诊断不能改变 correctness。所有 queue/table 记录其 ABI version、capacity、producer、consumer 和 overflow count。
 

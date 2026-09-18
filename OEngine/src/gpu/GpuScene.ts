@@ -181,7 +181,7 @@ export interface GpuSceneEvidence {
   readonly abortedMutationCount: number;
   readonly releaseCount: number;
   readonly privateSubmitCount: 0;
-  readonly pendingMutation: "instantiate" | "patch" | "release" | null;
+  readonly pendingMutation: "instantiate" | "patch" | "release" | "replace" | null;
   readonly lastPatch: InstancePatchResult | null;
 }
 
@@ -253,6 +253,9 @@ export class GpuScene {
   private contentRevision = 1;
   private destroyed = false;
   private pendingMutation: GpuSceneEvidence["pendingMutation"] = null;
+  private pendingMutationCommand: ShadeGPUCommandContext | GpuSceneCommand | null = null;
+  private pendingReleaseEntry: InstanceSetEntry | null = null;
+  private publishedCursorCount = 0;
   private logicalBytes = 0;
   private reclaimableBytes = 0;
   private cpuShadowBytes = 0;
@@ -304,34 +307,50 @@ export class GpuScene {
     command: ShadeGPUCommandContext | GpuSceneCommand
   ): InstanceSetHandle {
     this.assertMutation(command, "instantiate");
+    const replacingRelease = this.pendingMutation === "replace" && this.pendingMutationCommand === command
+      ? this.pendingReleaseEntry
+      : null;
     const cursorBefore = this.cursorCount;
     let replacement: BufferReplacement | null = null;
     let entry: InstanceSetEntry | undefined;
     let reusedSlot = false;
+    let reuseReleasedRange = false;
+    let releaseEntryForReuse: InstanceSetEntry | null = null;
     let slot = -1;
     try {
       validateInstanceSource(source);
-      const requiredCount = checkedAdd(cursorBefore, source.count, "Instance high-water count");
+      releaseEntryForReuse = replacingRelease !== null && source.count <= replacingRelease.count
+        ? replacingRelease
+        : null;
+      reuseReleasedRange = releaseEntryForReuse !== null;
+      const requiredCount = reuseReleasedRange
+        ? cursorBefore
+        : checkedAdd(cursorBefore, source.count, "Instance high-water count");
       this.assertCapacity(requiredCount);
       const records = this.packSource(source);
       if (requiredCount * GPU_INSTANCE_RECORD_STRIDE > this.buffer.size) {
         replacement = this.grow(requiredCount, command);
       }
 
-      slot = this.freeSlots.length > 0
+      slot = reuseReleasedRange
+        ? releaseEntryForReuse!.slot
+        : this.freeSlots.length > 0
         ? this.freeSlots[this.freeSlots.length - 1]!
         : this.slots.length;
-      reusedSlot = slot < this.slots.length;
-      const generation = reusedSlot ? this.slots[slot]!.generation : 1;
-      if (reusedSlot) this.freeSlots.pop();
-      else this.slots.push({ generation });
+      reusedSlot = reuseReleasedRange || slot < this.slots.length;
+      const generation = reusedSlot ? nextGeneration(this.slots[slot]!.generation) : 1;
+      if (reusedSlot) {
+        if (!reuseReleasedRange) this.freeSlots.pop();
+      } else {
+        this.slots.push({ generation });
+      }
 
       const handle = Object.freeze({}) as InstanceSetHandle;
       entry = {
         handle,
         slot,
         generation,
-        start: cursorBefore,
+        start: reuseReleasedRange ? releaseEntryForReuse!.start : cursorBefore,
         count: source.count,
         bytes: records,
         lastTransformFrame: new Uint32Array(source.count).fill(NEVER_PATCHED_FRAME),
@@ -340,9 +359,9 @@ export class GpuScene {
       this.slots[slot]!.entry = entry;
       HANDLE_STATE.set(handle as object, { scene: this, slot, generation });
       this.cursorCount = requiredCount;
-      const byteOffset = cursorBefore * GPU_INSTANCE_RECORD_STRIDE;
+      const byteOffset = (reuseReleasedRange ? releaseEntryForReuse!.start : cursorBefore) * GPU_INSTANCE_RECORD_STRIDE;
       command.writeBuffer(
-        this.buffer,
+        replacement?.next ?? this.buffer,
         byteOffset,
         records.buffer,
         records.byteOffset,
@@ -353,6 +372,10 @@ export class GpuScene {
       const committed = entry;
       command.onFinished.addOne(() => {
         if (committed.state !== "pending") return;
+        if (reuseReleasedRange) {
+          const freeIndex = this.freeSlots.lastIndexOf(committed.slot);
+          if (freeIndex >= 0) this.freeSlots.splice(freeIndex, 1);
+        }
         committed.state = "resident";
         this.instanceSetCount++;
         this.activeInstanceCount += committed.count;
@@ -366,18 +389,24 @@ export class GpuScene {
           this.resourceEpoch++;
         }
         this.contentRevision++;
+        this.publishedCursorCount = this.cursorCount;
         this.pendingMutation = null;
+        this.pendingReleaseEntry = null;
       });
       command.onAborted.addOne(() => {
         if (committed.state !== "pending") return;
         committed.state = "aborted";
         this.cursorCount = cursorBefore;
-        this.slots[committed.slot]!.entry = undefined;
-        if (reusedSlot) this.freeSlots.push(committed.slot);
-        else if (committed.slot === this.slots.length - 1) this.slots.pop();
+        if (this.slots[committed.slot]!.entry === committed) this.slots[committed.slot]!.entry = releaseEntryForReuse ?? undefined;
+        if (reusedSlot) {
+          if (!reuseReleasedRange) this.freeSlots.push(committed.slot);
+        } else if (committed.slot === this.slots.length - 1) {
+          this.slots.pop();
+        }
         if (replacement !== null) this.rollbackReplacement(replacement);
         this.abortedMutationCount++;
         this.pendingMutation = null;
+        this.pendingReleaseEntry = null;
       });
       return handle;
     } catch (error) {
@@ -385,10 +414,11 @@ export class GpuScene {
       this.cursorCount = cursorBefore;
       if (slot >= 1) {
         if (!reusedSlot && slot === this.slots.length - 1) this.slots.pop();
-        else if (reusedSlot && !this.freeSlots.includes(slot)) this.freeSlots.push(slot);
+        else if (reusedSlot && !reuseReleasedRange && !this.freeSlots.includes(slot)) this.freeSlots.push(slot);
       }
       if (replacement !== null) this.rollbackReplacement(replacement);
       this.pendingMutation = null;
+      this.pendingReleaseEntry = null;
       throw error;
     }
   }
@@ -741,6 +771,7 @@ export class GpuScene {
     this.assertMutation(command, "release");
     try {
       const entry = this.requireEntry(handle, "resident");
+      this.pendingReleaseEntry = entry;
       entry.state = "pending-release";
       const zero = new Uint8Array(entry.bytes.byteLength);
       command.writeBuffer(
@@ -755,9 +786,10 @@ export class GpuScene {
         if (entry.state !== "pending-release") return;
         entry.state = "released";
         const slot = this.slots[entry.slot]!;
-        slot.entry = undefined;
+        const stillOwned = slot.entry === entry;
+        if (stillOwned) slot.entry = undefined;
         slot.generation = nextGeneration(slot.generation);
-        this.freeSlots.push(entry.slot);
+        if (stillOwned) this.freeSlots.push(entry.slot);
         this.instanceSetCount--;
         this.activeInstanceCount -= entry.count;
         this.logicalBytes -= entry.bytes.byteLength;
@@ -771,15 +803,18 @@ export class GpuScene {
         });
         this.contentRevision++;
         this.pendingMutation = null;
+        this.pendingReleaseEntry = null;
       });
       command.onAborted.addOne(() => {
         if (entry.state !== "pending-release") return;
         entry.state = "resident";
         this.abortedMutationCount++;
         this.pendingMutation = null;
+        this.pendingReleaseEntry = null;
       });
     } catch (error) {
       this.pendingMutation = null;
+      this.pendingReleaseEntry = null;
       throw error;
     }
   }
@@ -792,7 +827,7 @@ export class GpuScene {
       contentRevision: this.contentRevision,
       instances: this.buffer,
       recordStride: GPU_INSTANCE_RECORD_STRIDE,
-      highWaterCount: this.cursorCount,
+      highWaterCount: this.publishedCursorCount,
       activeCount: this.activeInstanceCount
     });
   }
@@ -1018,7 +1053,6 @@ export class GpuScene {
       usage: STORAGE_USAGE
     });
     command.copyBufferToBuffer(previous, 0, next, 0, previous.size);
-    this.buffer = next;
     this.attemptedGrowCount++;
     this.peakAllocatedBytes = Math.max(
       this.peakAllocatedBytes,
@@ -1028,6 +1062,7 @@ export class GpuScene {
   }
 
   private commitReplacement(replacement: BufferReplacement): void {
+    this.buffer = replacement.next;
     this.committedGrowCount++;
     this.retiredBufferCount++;
     this.retiringBytes += replacement.previous.size;
@@ -1078,10 +1113,16 @@ export class GpuScene {
       throw new Error("GpuScene command belongs to another GPUDevice");
     }
     if (command.closed === true) throw new Error("GpuScene command is already closed");
+    if (this.pendingMutation === "release" && kind === "instantiate" && this.pendingMutationCommand === command) {
+      this.pendingMutation = "replace";
+      return;
+    }
     if (this.pendingMutation !== null) {
       throw new Error(`GpuScene already has a pending ${this.pendingMutation} mutation`);
     }
     this.pendingMutation = kind;
+    this.pendingMutationCommand = command;
+    if (kind === "release") this.pendingReleaseEntry = null;
   }
 
   private assertCapacity(requiredCount: number): void {

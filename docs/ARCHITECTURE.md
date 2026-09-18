@@ -20,9 +20,9 @@ source asset
 | 边界 | 当前 owner | 合同 |
 | --- | --- | --- |
 | Runtime Asset | `src/assets`、`src/loaders` | 设备无关 package、内容身份、校验、range read 和 codec preparation |
-| OEGPACK V3 / Geometry Product | `GeometryAbiV3.ts`、`OegPackV3.ts`、`assets/geometry-product/` | V3 metadata/page 解析、producer-neutral descriptor/page validation、OEGPACK Product adapter；仍未完成 production Visibility consumer |
-| Web Runtime Cooker | `loaders/gltf/streaming/`、`assets/web-cook/`、`tools/oengine-web-geometry-cooker/` | GLB Range/catalog、CookSession whole-page credit lease、GLB primitive canonicalizer、Nyx Web Runtime WASM adapter、CPU/WASM-only Dedicated Worker host 与异步 module entry、canonical Worker/WASM ABI 与 decoded Product producer；当前仍未接通 real Emscripten artifact、scene admission 和真实 GPU consumer |
-| GPU 资产 | `GpuAssetStore.ts`、`TextureResidency.ts`、`VirtualGeometryResidency.ts` | GPU allocation、稳定 handle/generation、Product activation page heap 与资源发布；demand/eviction 闭环仍在迁移 |
+| OEGPACK V3 / Geometry Product | `GeometryAbiV3.ts`、`OegPackV3.ts`、`assets/geometry-product/` | V3 metadata/page 解析、producer-neutral descriptor/page validation、OEGPACK Product adapter；Offline 已经共享 admission/residency 和 production Visibility consumer |
+| Web Runtime Cooker | `loaders/gltf/streaming/`、`assets/web-cook/`、`tools/oengine-web-geometry-cooker/` | GLB Range/catalog、CookSession whole-page credit、GLB primitive canonicalizer、Nyx C++/Emscripten WASM artifact、Dedicated Worker 与 live Product provider；真实 GLB 已经进入共同 GPU consumer，但当前仍以整场景 canonicalize/cook 为首个 Product 的前置条件 |
+| GPU 资产 | `GpuAssetStore.ts`、`TextureResidency.ts`、`VirtualGeometryResidency.ts` | GPU allocation、稳定 handle/generation、Product activation/page heap、demand/readback/upload/eviction；失败换版原子性与全局 bank 容量尚待重构 |
 | Scene 与实例 | `GpuScene.ts`、`GpuRenderWorld.ts` | Packed instance、显式 patch、资产/材质关联与原子 publication |
 | GPU 工作/可见性 | `GpuWorkGenerationAbi.ts`、`GpuVisibilityKeyAbi.ts` 及 work/visibility owners | hierarchy/culling、容量和 overflow、indirect work、VisibilityKey |
 | Sparse shading | `SurfaceFeature.ts`、`ShadingBinPass.ts`、`SparseShadingResolvePass.ts` 及 publication owners | 可见像素分类、active-bin indirect specialization、一次材质解析、按需 Surface/velocity |
@@ -35,7 +35,7 @@ source asset
 
 Runtime Asset 是设备无关事实；GPU owner 由 Renderer/device 生命周期控制。Loader、Scene 临时对象和 FrameGraph 外部引用不得隐式延长 GPU 资源寿命。
 
-生产几何目前仍使用既有 package/GPU hierarchy/work/visibility 路径。OEGPACK V3 已拥有 native cooker、TypeScript parser、range source、固定页 ABI 与 bootstrap loader，但还没有接入 `GpuAssetStore -> hierarchy/work -> MeshletBucketRaster` 的生产闭环。迁移必须在同一主管线内替换几何来源和地址解析，不能新增第二套 renderer backend。
+生产几何目前有 Product 与旧 V2 package 两种资产来源，二者都进入现有 GPU hierarchy/work/visibility 主管线，不另建 renderer backend。Web WASM 与 Offline OEGPACK Product 已有真实浏览器 consumer 证据；普通 Scene 和默认 `load_gltf()` 仍需 cutover，随后删除 V2 geometry owner/路径。具体开放问题见 [0016 后续计划](./implementation/0016-remaining-work-plan.md)。
 
 纹理生产路径目前是 TextureAssetPackage V2 + GPU-native variants/KTX2 preparation + `TextureResidency` + 有界 `TextureBindingSet`。Mode A 已在该所有权模型内实现，并由独立 Chrome component case 以 GPU readback 验证 tail/promoted sampling：完整逻辑纹理一次分配、先上传 mip tail、按可用 mip clamp 采样并通过稳定逻辑句柄 promotion；这不等同于真实物理显存释放，也不等同于 production-path 完成。Mode B/Virtual Texturing 仍需独立的 allocation 证据和 spec，不以“V3”名义重写已经有效的材质和绑定体系。
 
@@ -50,7 +50,7 @@ Runtime Asset 是设备无关事实；GPU owner 由 Renderer/device 生命周期
 ## 不属于本页
 
 二进制字段偏移和状态机写入 spec；活跃切片和退出条件写入 implementation；完成度和风险写入 STATUS；算法来源写入 porting ledger。
-## Product Runtime Status (2026-09-17)
+## Product Runtime Status (2026-09-18)
 
 Geometry Product V1 now has a live internal consumer in the unified GPU path:
-`GpuScene -> GpuRenderWorld -> hierarchy/work -> MeshletBucketRaster -> VisibilityKey -> Sparse Shading`. Packed CSM uses the same Product generation and resident banks. This is DEV-validated structure only; real browser GPU evidence and the Web Runtime Emscripten artifact remain open.
+`GpuScene -> GpuRenderWorld -> hierarchy/work -> MeshletBucketRaster -> VisibilityKey -> Sparse Shading`. Packed CSM uses the same Product generation and resident banks. Real GLB/Offline browser cases and the Emscripten Worker artifact exist; their successful paths do not prove failure-atomic replacement, visible-first large-scene loading, authored-texture fidelity or final V2 cutover.

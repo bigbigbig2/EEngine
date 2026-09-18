@@ -30,6 +30,10 @@ type PendingPublication = Readonly<{
 }>;
 
 export type SparseShadingSubmissionBoundary = number | (() => number);
+export interface PreparedSparseShadingPublication {
+  commit(boundary: SparseShadingSubmissionBoundary): Readonly<SparseShadingGpuRevision>;
+  abort(): void;
+}
 
 /**
  * Converts the RenderWorld's immutable scene source plus render-context state
@@ -46,6 +50,7 @@ export class SparseShadingPublicationCoordinator {
   private activeScene: Readonly<GpuRenderWorldShadingPublication> | null = null;
   private activeContextKey: string | null = null;
   private pending: PendingPublication | null = null;
+  private staged: { readonly done: Promise<void>; readonly abort: () => void } | null = null;
   private stableHits = 0;
   private prepareCount = 0;
   private publishCount = 0;
@@ -75,6 +80,13 @@ export class SparseShadingPublicationCoordinator {
       ));
     }
     const contextKey = publicationContextKey(context);
+    if (this.staged !== null) {
+      if (this.activeScene !== null && sameScenePublication(this.activeScene, scene) && this.activeContextKey === contextKey) {
+        this.stableHits++;
+        return Promise.resolve(this.gpuOwner.active(this.store!.currentSnapshot()));
+      }
+      return this.staged.done.then(() => this.reconcile(scene, context, retireAfterSubmission));
+    }
     if (this.pending !== null) {
       if (sameScenePublication(this.pending.scene, scene) &&
           this.pending.contextKey === contextKey) {
@@ -99,6 +111,61 @@ export class SparseShadingPublicationCoordinator {
       if (this.pending === pending) this.pending = null;
     }).catch(() => {});
     return result;
+  }
+
+  /** Prepare a replacement without changing the active frame's sparse closure. */
+  async prepareSceneSwap(
+    scene: Readonly<GpuRenderWorldShadingPublication>,
+    context: Readonly<GpuShadingPublicationContext>
+  ): Promise<PreparedSparseShadingPublication> {
+    this.requireAlive();
+    assertScenePublication(scene);
+    if (this.deviceLost) throw new Error("Sparse shading cannot prepare a Scene swap after device loss");
+    if (this.pending !== null) {
+      try { await this.pending.result; } catch { /* retry against the still-active revision */ }
+      return this.prepareSceneSwap(scene, context);
+    }
+    if (this.staged !== null) { await this.staged.done; return this.prepareSceneSwap(scene, context); }
+    const store = this.store;
+    if (store === null) throw new Error("Sparse shading Scene swap requires an active publication");
+    const transaction = store.beginTransaction().replaceAll(scene.source).updateContext(context);
+    let prepared: Awaited<ReturnType<SparseShadingGpuRevisionOwner["prepare"]>> | null = null;
+    let close!: () => void;
+    const done = new Promise<void>((resolve) => { close = resolve; });
+    let closed = false;
+    const finish = (): void => { if (closed) return; closed = true; this.staged = null; close(); };
+    const abort = (): void => {
+      if (closed) return;
+      if (prepared !== null) { try { this.gpuOwner.abort(prepared); } catch { /* device loss already invalidated it */ } prepared = null; }
+      try { transaction.abort(); } catch { /* transaction already closed */ }
+      this.failureCount++;
+      finish();
+    };
+    this.staged = { done, abort };
+    try {
+      const snapshot = transaction.prepare();
+      assertSummaryMatchesScene(scene.summary, snapshot.summary);
+      this.prepareCount++;
+      prepared = await this.gpuOwner.prepare(snapshot);
+      if (closed || this.deviceLost || this.destroyed) throw new Error("Sparse shading Scene swap was invalidated");
+      return Object.freeze({
+        commit: (boundary: SparseShadingSubmissionBoundary): Readonly<SparseShadingGpuRevision> => {
+          if (closed || prepared === null) throw new Error("Sparse shading Scene swap is closed");
+          try {
+            const retirementSerial = resolveSubmissionBoundary(boundary);
+            const committed = transaction.commit(retirementSerial);
+            const published = this.gpuOwner.publish(prepared, committed, retirementSerial);
+            prepared = null;
+            this.activeScene = scene;
+            this.activeContextKey = publicationContextKey(context);
+            this.publishCount++;
+            finish();
+            return published;
+          } catch (error) { abort(); throw error; }
+        },
+        abort
+      });
+    } catch (error) { abort(); throw error; }
   }
 
   active(
@@ -192,6 +259,7 @@ export class SparseShadingPublicationCoordinator {
   markDeviceLost(): void {
     this.requireAlive();
     if (this.deviceLost) return;
+    this.staged?.abort();
     this.store?.markDeviceLost();
     this.gpuOwner.markDeviceLost();
     this.activeContextKey = null;
@@ -257,6 +325,7 @@ export class SparseShadingPublicationCoordinator {
 
   destroy(): void {
     if (this.destroyed) return;
+    this.staged?.abort();
     this.destroyed = true;
     this.gpuOwner.destroy();
     this.store = null;

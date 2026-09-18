@@ -4,6 +4,8 @@ Status: active
 
 Owners: Web Runtime Cooker、geometry product/admission、`GpuAssetStore`、`GpuRenderWorld`、GPU hierarchy/work/visibility、texture residency、validation host
 
+当前 revision 的差距复核与后续执行顺序见 [0016 当前差距与后续交付计划](./0016-remaining-work-plan.md)。本页早期阶段记录中的 “accepted” 只描述当时的成功路径，不替代该计划所列的失败原子性、visible-first、预算与 Nyx differential 门禁。
+
 ## Outcome
 
 保留应用侧 `load("scene.glb")` / glTF 体验，把 Web Runtime Cooker 作为默认生产路线：浏览器通过 WASM + Worker 有界、渐进地产生 Geometry Product，首个完整 bootstrap revision 可立即进入现有 GPU-driven 管线，后续 Page 和 richer revision 在后台提升质量。Native Offline Cooker/OEGPACK 是独立第二路线，但从 Geometry Product admission 开始复用同一 residency、hierarchy/work、VisibilityKey、Sparse Shading 和 `MainRenderPipeline`。

@@ -241,6 +241,8 @@ export class GpuRenderWorld {
   private readonly classificationByScene = new Map<Scene, PackedSceneClassificationState>();
   private readonly ordinaryAdapters = new Map<Scene, OrdinarySceneAdapterState>();
   private readonly recoveryGeometry = new Map<Scene, readonly GeometryAssetPackage[]>();
+  private readonly releasingCommands = new Map<Scene, ShadeGPUCommandContext>();
+  private readonly stagedRuntimes = new WeakMap<GpuRenderWorldHandle, GpuRenderWorldRuntime>();
   private ordinaryScenePatchCount = 0;
   private ordinarySceneStableFrameCount = 0;
   private ordinarySceneFullResyncRequiredCount = 0;
@@ -277,7 +279,7 @@ export class GpuRenderWorld {
       readonly hierarchyRasterWorkCapacity: number;
     }>
   ): GpuRenderWorldHandle {
-    if (this.byScene.has(scene)) {
+    if (this.byScene.has(scene) && this.releasingCommands.get(scene) !== command) {
       throw new Error("Scene already has a GPU Render World registration");
     }
     if (virtualProduct === undefined) validateSource(source, assetHandles);
@@ -411,7 +413,9 @@ export class GpuRenderWorld {
       counterSink,
       virtualGeometry: virtualProduct?.bindings ?? null
     });
+    this.stagedRuntimes.set(handle, runtime);
     command.onFinished.addOne(() => {
+      this.stagedRuntimes.delete(handle);
       this.byScene.set(scene, runtime);
       this.classificationByScene.set(scene, classification);
       this.recoveryGeometry.set(scene, Object.freeze([...source.geometries]));
@@ -428,6 +432,7 @@ export class GpuRenderWorld {
       }
     });
     command.onAborted.addOne(() => {
+      this.stagedRuntimes.delete(handle);
       this.destroyCounterSink(counterSink);
     });
     return handle;
@@ -438,9 +443,10 @@ export class GpuRenderWorld {
     scene: Scene,
     source: VirtualGeometrySceneSource,
     bindings: GeometryProductGpuBindingsV1,
-    command: ShadeGPUCommandContext
+    command: ShadeGPUCommandContext,
+    replacing = false
   ): GpuRenderWorldHandle {
-    if (this.byScene.has(scene)) {
+    if (this.byScene.has(scene) && (!replacing || this.releasingCommands.get(scene) !== command)) {
       throw new Error("Scene already has a GPU Render World registration");
     }
     if (source.geometryProfiles.length !== source.assetCount) {
@@ -475,6 +481,13 @@ export class GpuRenderWorld {
         hierarchyRasterWorkCapacity: source.hierarchyRasterWorkCapacity
       }
     );
+  }
+
+  /** Candidate is only visible to the submitting owner, never to frame lookup. */
+  previewStagedRuntime(handle: GpuRenderWorldHandle): GpuRenderWorldRuntime {
+    const runtime = this.stagedRuntimes.get(handle);
+    if (!runtime) throw new Error("GPU Render World handle has no staged runtime");
+    return runtime;
   }
 
   /** Registers an ordinary Scene adapter in the same GPU Render World owner. */
@@ -573,12 +586,14 @@ export class GpuRenderWorld {
       throw new Error("GPU Render World runtime must not be released with a queued patch");
     }
     this.releasingScenes.add(scene);
+    this.releasingCommands.set(scene, command);
     try {
       this.graphics.material_store.release(runtime.materialPublication, command);
       this.graphics.texture_residency.release(runtime.materials, command);
       this.graphics.gpu_scene.release(runtime.instanceHandle, command);
     } catch (error) {
       this.releasingScenes.delete(scene);
+      this.releasingCommands.delete(scene);
       throw error;
     }
     command.onFinished.addOne(() => {
@@ -593,7 +608,7 @@ export class GpuRenderWorld {
       };
       void this.graphics.device.queue.onSubmittedWorkDone().then(destroy, destroy);
     });
-    command.onAborted.addOne(() => this.releasingScenes.delete(scene));
+    command.onAborted.addOne(() => { this.releasingScenes.delete(scene); this.releasingCommands.delete(scene); });
     return runtime.assetHandles;
   }
 
@@ -790,6 +805,7 @@ export class GpuRenderWorld {
     this.byScene.clear();
     this.pendingPatches.clear();
     this.releasingScenes.clear();
+    this.releasingCommands.clear();
     this.classificationByScene.clear();
     this.ordinaryAdapters.clear();
     this.recoveryGeometry.clear();

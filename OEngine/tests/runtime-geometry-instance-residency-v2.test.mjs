@@ -474,6 +474,46 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
   scene.destroy();
 });
 
+test("GpuScene same-command replacement reuses the released range without duplicating a free slot", () => {
+  const writes = [];
+  const device = fakeDevice();
+  const scene = new GpuScene(device, {
+    publicationIdentity: () => Object.freeze({ slot: 3, generation: 9 })
+  });
+  const source = (count) => ({
+    count,
+    geometryHandles: [{}],
+    geometryIndices: new Uint32Array(count),
+    materialHandles: new Uint32Array(count),
+    currentTransforms: identityMatrices(count),
+    boundsSpheres: new Float32Array(count * 4).fill(1)
+  });
+  const initialCommand = new SceneCommand(device, writes);
+  const initial = scene.instantiate(source(4), initialCommand);
+  initialCommand.finish();
+
+  const replacementCommand = new SceneCommand(device, writes);
+  scene.release(initial, replacementCommand);
+  const replacement = scene.instantiate(source(2), replacementCommand);
+  replacementCommand.finish();
+  assert.equal(scene.range(replacement).start, 1);
+  assert.equal(scene.evidence().activeInstanceCount, 2);
+
+  const releaseReplacement = new SceneCommand(device, writes);
+  scene.release(replacement, releaseReplacement);
+  releaseReplacement.finish();
+  const firstCommand = new SceneCommand(device, writes);
+  const first = scene.instantiate(source(1), firstCommand);
+  firstCommand.finish();
+  const secondCommand = new SceneCommand(device, writes);
+  const second = scene.instantiate(source(1), secondCommand);
+  secondCommand.finish();
+  assert.doesNotThrow(() => scene.range(first));
+  assert.notEqual(scene.range(second).start, scene.range(first).start,
+    "a stale duplicate free slot must not overwrite a later live instance");
+  scene.destroy();
+});
+
 function staticPbrBox() {
   const box = buildBoxSourceGeometry(2, 4, 6);
   const attributes = [...box.attributes.values()].map((stream) => ({

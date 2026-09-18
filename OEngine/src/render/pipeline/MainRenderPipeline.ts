@@ -1024,7 +1024,8 @@ export class MainRenderPipeline {
     scene: Scene,
     source: VirtualGeometrySceneSource,
     residency: VirtualGeometryResidency,
-    streamingRuntime: GeometryPageStreamingRuntimeV1 | null = null
+    streamingRuntime: GeometryPageStreamingRuntimeV1 | null = null,
+    beforeSubmit?: () => void
   ): Promise<GpuRenderWorldHandle> {
     const storageBufferLimit = Number(this.device.limits.maxStorageBuffersPerShaderStage);
     if (!Number.isFinite(storageBufferLimit) ||
@@ -1045,6 +1046,7 @@ export class MainRenderPipeline {
       this._graphics,
       "Renderer/GpuRenderWorld/residency-transaction"
     );
+    let stagedPublication: Readonly<GpuRenderWorldShadingPublication> | null = null;
     try {
       const handle = this._graphics.render_world.stageVirtualProduct(
         scene,
@@ -1052,6 +1054,14 @@ export class MainRenderPipeline {
         residency.bindings(),
         command
       );
+      const staged = this._graphics.render_world.previewStagedRuntime(handle);
+      await this._sparseShadingPublications.reconcile(
+        staged.shadingPublication,
+        this.createSparseShadingPublicationContext(staged),
+        this._frame_count
+      );
+      stagedPublication = staged.shadingPublication;
+      beforeSubmit?.();
       command.finish();
       await command.submitted;
       const runtime = this._graphics.render_world.runtime(scene);
@@ -1063,14 +1073,13 @@ export class MainRenderPipeline {
         sceneSource: source,
         streamingEnabled: streamingRuntime !== null
       }));
-      await this._sparseShadingPublications.reconcile(
-        runtime.shadingPublication,
-        this.createSparseShadingPublicationContext(runtime),
-        this._frame_count
-      );
       return handle;
     } catch (error) {
       if (!command.closed) command.abort(error);
+      if (!command.wasSubmitted && stagedPublication !== null) {
+        try { await this._sparseShadingPublications.release(stagedPublication, this._frame_count); }
+        catch (rollbackError) { throw new AggregateError([error, rollbackError], "Product Scene stage and sparse rollback failed"); }
+      }
       throw error;
     }
   }
@@ -1096,47 +1105,85 @@ export class MainRenderPipeline {
     mapSource: ProductSceneSourceMapper,
     options: ProductSceneOptions = {}
   ): Promise<ProductSceneHandles> {
-    const admission = new GeometryProductAdmissionController(this.device);
     let state: ProductSceneState | undefined;
-    let initial: GeometryProductAdmissionTransaction | undefined;
-    let swapTail: Promise<void> = Promise.resolve();
+    let firstHandle: GpuRenderWorldHandle | undefined;
+    const retirementBoundaries = new Map<number, { previousGeneration: number; completion: Promise<void> }>();
+    let retirementTail: Promise<void> = Promise.resolve();
+    let publicationTail: Promise<void> = Promise.resolve();
+    const admission = new GeometryProductAdmissionController(this.device, async (candidate, previous) => {
+      if (previous === undefined) {
+        const residency = candidate.residency;
+        const streaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, residency);
+        try {
+          const mapped = mapSource({ residency, descriptor: residency.descriptor });
+          options.onMaterials?.(mapped.materials);
+          candidate.publishGpuRecord();
+          firstHandle = await this.uploadVirtualGeometryScene(scene, mapped.source, residency, streaming, () => {
+            if (candidate.state !== "ready-to-activate") throw new Error("Product candidate was cancelled before Scene submit");
+          });
+          candidate.markSceneSubmitted();
+          state = { residency, streaming, source: mapped.source, materials: mapped.materials };
+        } catch (error) {
+          streaming?.destroy();
+          if (this._graphics.render_world.runtime(scene) !== null) {
+            try { await this.releaseVirtualGeometryScene(scene); }
+            catch (rollbackError) { throw new AggregateError([error, rollbackError], "Initial Product publication and rollback failed"); }
+          }
+          throw error;
+        }
+      } else {
+        if (!state) throw new Error("Product replacement has no published Scene state");
+        const previousGeneration = state.residency.productGeneration;
+        const publication = publicationTail.then(() => this.swapProductScene(scene, state!, candidate, mapSource, options, (completion) => {
+          retirementBoundaries.set(candidate.generation, { previousGeneration, completion });
+        }));
+        publicationTail = publication;
+        await publication;
+      }
+    });
     admission.onActivated((transaction) => {
-      // The first activation is published below; every later one is a richer
-      // replacement that must be swapped in rather than cooked and discarded.
-      if (transaction === initial || state === undefined) return;
-      const current = state;
-      swapTail = swapTail
-        .then(() => this.swapProductScene(scene, admission, current, transaction, mapSource, options))
-        .catch(() => undefined);
+      const retirement = retirementBoundaries.get(transaction.generation);
+      if (!retirement) return;
+      retirementBoundaries.delete(transaction.generation);
+      retirementTail = retirementTail.then(() => retirement.completion).then(
+        () => admission.retireReplaced(retirement.previousGeneration),
+        () => admission.retireReplaced(retirement.previousGeneration)
+      );
     });
     const consuming = admission.consume(provider, options.signal);
     consuming.catch(() => undefined);
     await waitForActiveProduct(admission, options.signal);
     const active = admission.active;
     if (!active || active.state !== "active") throw new Error("Geometry Product admission did not activate");
-    initial = active;
-    const residency = active.residency;
-    const streaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, residency);
-    try {
-      const mapped = mapSource({ residency, descriptor: residency.descriptor });
-      options.onMaterials?.(mapped.materials);
-      const handle = await this.uploadVirtualGeometryScene(scene, mapped.source, residency, streaming);
-      state = { residency, streaming, source: mapped.source, materials: mapped.materials };
-      const published = state;
-      return Object.freeze({
-        handle,
-        admission,
-        settled: () => swapTail,
-        current: () => Object.freeze({ residency: published.residency, streaming: published.streaming, source: published.source, materials: published.materials }),
-        get residency() { return published.residency; },
-        get streaming() { return published.streaming; },
-        get source() { return published.source; },
-        get materials() { return published.materials; }
-      });
-    } catch (error) {
-      streaming?.destroy();
-      throw error;
-    }
+    if (!state || !firstHandle) throw new Error("Geometry Product admission activated without a Scene publication");
+    const published = state;
+    const settlePublished = async (): Promise<void> => {
+      const initialEvidence = admission.evidence();
+      if (initialEvidence.replacements > 0 || initialEvidence.state === "failed" || initialEvidence.state === "cancelled") {
+        await publicationTail;
+        await retirementTail;
+        return;
+      }
+      while (true) {
+        await new Promise((resolve) => setTimeout(resolve, 8));
+        const evidence = admission.evidence();
+        if (evidence.replacements > initialEvidence.replacements || evidence.state === "complete" || evidence.state === "failed" || evidence.state === "cancelled") {
+          await publicationTail;
+          await retirementTail;
+          return;
+        }
+      }
+    };
+    return Object.freeze({
+      handle: firstHandle,
+      admission,
+      settled: settlePublished,
+      current: () => Object.freeze({ residency: published.residency, streaming: published.streaming, source: published.source, materials: published.materials }),
+      get residency() { return published.residency; },
+      get streaming() { return published.streaming; },
+      get source() { return published.source; },
+      get materials() { return published.materials; }
+    });
   }
 
   /**
@@ -1170,34 +1217,73 @@ export class MainRenderPipeline {
   }
 
   /**
-   * Publishes a richer revision atomically: the scene is released under a
-   * submission-safe boundary, re-staged against the new residency, and only
-   * then is the previous revision retired. A failed publish keeps the scene on
-   * the previous revision.
+   * Encodes release and candidate stage in one submission. Until finish, frame
+   * lookup still points at the previous runtime; abort restores its ownership.
    */
   private async swapProductScene(
     scene: Scene,
-    admission: GeometryProductAdmissionController,
     state: ProductSceneState,
     next: GeometryProductAdmissionTransaction,
     mapSource: ProductSceneSourceMapper,
-    options: ProductSceneOptions
+    options: ProductSceneOptions,
+    onCommitted: (retirementCompletion: Promise<void>) => void
   ): Promise<void> {
     const previous = { residency: state.residency, streaming: state.streaming };
     const nextResidency = next.residency;
+    const oldRuntime = this._graphics.render_world.runtime(scene);
+    if (!oldRuntime) throw new Error("Product replacement requires the old Scene publication");
+    const mapped = mapSource({ residency: nextResidency, descriptor: nextResidency.descriptor });
+    options.onMaterials?.(mapped.materials);
     const nextStreaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, nextResidency);
+    const command = ShadeGPUCommandContext.create(this._graphics, "Renderer/GpuRenderWorld/residency-transaction");
+    let sparseSwap: import("./SparseShadingPublicationCoordinator.js").PreparedSparseShadingPublication | undefined;
+    let sparseCommitted = false;
     try {
-      await this.releaseVirtualGeometryScene(scene);
-      const mapped = mapSource({ residency: nextResidency, descriptor: nextResidency.descriptor });
-      options.onMaterials?.(mapped.materials);
-      await this.uploadVirtualGeometryScene(scene, mapped.source, nextResidency, nextStreaming);
-      previous.streaming?.destroy();
-      admission.retireReplaced();
+      nextStreaming?.registerProduct(nextResidency.sourceForStreaming());
+      if (this._visibilityFeature) {
+        this._visibilityFeature.release(oldRuntime, command);
+        this._transparencyFeature?.releasePacked(oldRuntime, command);
+        this._shadowFeatures.releaseRenderWorld(scene, oldRuntime, command);
+      }
+      const handles = this._graphics.render_world.release(scene, command);
+      this._graphics.assets.releaseMany(handles, command);
+      this._views.releaseScene(scene, command);
+      this._shadowFeatures.release(scene, command);
+      this._environments.release(scene, command);
+      const handle = this._graphics.render_world.stageVirtualProduct(
+        scene, mapped.source, nextResidency.bindings(), command, true
+      );
+      const candidateRuntime = this._graphics.render_world.previewStagedRuntime(handle);
+      sparseSwap = await this._sparseShadingPublications.prepareSceneSwap(
+        candidateRuntime.shadingPublication,
+        this.createSparseShadingPublicationContext(candidateRuntime)
+      );
+      if (next.state !== "ready-to-activate") throw new Error("Product replacement was cancelled before Scene submit");
+      next.publishGpuRecord();
+      command.finish();
+      await command.submitted;
+      sparseSwap.commit(this._frame_count);
+      sparseCommitted = true;
+      next.markSceneSubmitted();
+      this._virtualProductScenes.set(scene, Object.freeze({
+        residency: nextResidency,
+        streamingRuntime: nextStreaming,
+        source: nextResidency.sourceForStreaming(),
+        sceneSource: mapped.source,
+        streamingEnabled: nextStreaming !== null
+      }));
       state.residency = nextResidency;
       state.streaming = nextStreaming;
       state.source = mapped.source;
       state.materials = mapped.materials;
+      // The previous Product's page banks remain charged until queue idle.
+      onCommitted(command.gpuDone.then(
+        () => { previous.streaming?.destroy(); },
+        () => { previous.streaming?.destroy(); }
+      ));
     } catch (error) {
+      if (!command.closed) command.abort(error);
+      if (!sparseCommitted) sparseSwap?.abort();
       nextStreaming?.destroy();
       throw error;
     }
@@ -5519,8 +5605,8 @@ async function waitForActiveProduct(
     const active = controller.active;
     if (active?.state === "active") return;
     const evidence = controller.evidence();
-    if (evidence.state === "failed" || evidence.state === "cancelled") {
-      throw new Error(evidence.failure ?? "Web Cook Product admission did not activate");
+    if (evidence.state === "failed" || evidence.state === "cancelled" || evidence.state === "complete") {
+      throw new Error(evidence.failure ?? evidence.lastRejection ?? "Web Cook Product admission did not activate");
     }
     await new Promise((resolve) => setTimeout(resolve, 8));
   }

@@ -5,6 +5,7 @@ import {
 } from "./GeometryDemandReadbackRing.js";
 import { GeometryPageSchedulerV1, type GeometryPageSchedulerEvidenceV1, type GeometryPageSchedulerOptionsV1 } from "./GeometryPageScheduler.js";
 import { GEOMETRY_PAGE_LOCATION_PINNED, VirtualGeometryResidency, type VirtualGeometryResidencyEvidenceV1 } from "./VirtualGeometryResidency.js";
+import { unpackGeometryPageDemandHeaderV1, unpackGeometryPageDemandV1 } from "./GeometryPageDemandAbiV1.js";
 
 export interface GeometryPageStreamingRuntimeOptionsV1 {
   readonly scheduler?: GeometryPageSchedulerV1;
@@ -156,6 +157,7 @@ export class GeometryPageStreamingRuntimeV1 {
     for (const result of results) {
       try {
         this.#scheduler.ingestDemandReadback(result.bytes, nowMs);
+        this.recordResidencyFeedback(result.bytes, result.frameIndex);
         consumedReadbacks++;
       } catch {
         malformedReadbacks++;
@@ -166,6 +168,7 @@ export class GeometryPageStreamingRuntimeV1 {
     for (const result of shadowResults) {
       try {
         this.#scheduler.ingestDemandReadback(result.bytes, nowMs);
+        this.recordResidencyFeedback(result.bytes, result.frameIndex);
         consumedReadbacks++;
       } catch {
         malformedReadbacks++;
@@ -183,6 +186,18 @@ export class GeometryPageStreamingRuntimeV1 {
       uploadedBytes
     });
     return this.#lastPoll;
+  }
+
+  private recordResidencyFeedback(bytes: ArrayBuffer, frameIndex: number): void {
+    const view = new Uint8Array(bytes);
+    const header = unpackGeometryPageDemandHeaderV1(view);
+    for (let index = 0; index < Math.min(header.attempted, header.capacity); index++) {
+      const demand = unpackGeometryPageDemandV1(view, 16 + index * 16);
+      if (demand.productGeneration !== this.#residency.productGeneration ||
+          demand.productTableSlot !== this.#residency.productTableSlot ||
+          demand.pageId >= this.#residency.descriptor.pageRecords.byteLength / 32) continue;
+      this.#residency.recordDemand(demand.pageId, frameIndex, demand.currentViewMissing || demand.shadow, demand.predictive);
+    }
   }
 
   /** Couples a submission completion token to the delayed frame poll. */

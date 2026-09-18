@@ -214,6 +214,73 @@ async function countLitPixels(target: Renderer, targetScene: Scene, targetCamera
   }
   return { region, litPixels };
 }
+setInterval(updateMetrics, 500);
+
+async function verifyFailedReplacement(
+  target: Renderer,
+  targetCamera: PerspectiveCamera,
+  baseline: WebCookedSceneHandles["current"] extends () => infer T ? T : never,
+  failure: "mapping" | "staging"
+): Promise<Record<string, unknown>> {
+  setStatus(`injecting failed ${failure} replacement: create`);
+  const testScene = new Scene();
+  const light = new DirectionalLight(); light.intensity = 3; testScene.add(light);
+  const retained = baseline.residency.sourceForStreaming();
+  const firstDescriptor = { ...retained.descriptor, replaces: undefined };
+  const first = { descriptor: firstDescriptor, readPage: (pageId: number, signal?: AbortSignal) => retained.readPage(pageId, signal), release: () => undefined };
+  const nextDescriptor = {
+    ...retained.descriptor,
+    revision: retained.descriptor.revision + 1,
+    replaces: { productId: retained.descriptor.productId.slice(), revision: retained.descriptor.revision }
+  };
+  let candidateReleases = 0;
+  const candidate = {
+    descriptor: nextDescriptor,
+    async readPage(pageId: number, signal?: AbortSignal) {
+      const page = await retained.readPage(pageId, signal);
+      return { ...page, revision: nextDescriptor.revision };
+    },
+    release() { candidateReleases++; }
+  };
+  async function* revisions() { yield first; yield candidate; }
+  const uploaded = await target.uploadProductScene(testScene, { revisions }, ({ descriptor }) => {
+    if (descriptor.revision === nextDescriptor.revision) {
+      if (failure === "mapping") throw new Error("injected Product mapping failure");
+      return { source: { ...baseline.source, geometryProfiles: [] }, materials: baseline.materials };
+    }
+    return { source: baseline.source, materials: baseline.materials };
+  }, { stream: false });
+  setStatus(`injecting failed ${failure} replacement: published bootstrap`);
+  try {
+    const before = await countLitPixels(target, testScene, targetCamera, 256);
+    let failureMessage = "";
+    try { await uploaded.settled(); }
+    catch (error) { failureMessage = error instanceof Error ? error.message : String(error); }
+    setStatus(`injecting failed ${failure} replacement: settled ${failureMessage}`);
+    if (!failureMessage.includes(failure === "mapping" ? "mapping failure" : "profile count")) {
+      throw new Error(`${failure} failure was swallowed: ${failureMessage}`);
+    }
+    const after = await countLitPixels(target, testScene, targetCamera, 256);
+    const active = uploaded.current();
+    if (active.residency.productGeneration !== uploaded.admission.active?.generation ||
+        active.residency.descriptor.revision !== retained.descriptor.revision ||
+        before.litPixels < 64 || after.litPixels < 64 || candidateReleases !== 1) {
+      throw new Error(`${failure} failure did not preserve the previous Product pixels/generation and release the candidate`);
+    }
+    return {
+      failureMessage,
+      before,
+      after,
+      activeGeneration: active.residency.productGeneration,
+      activeRevision: active.residency.descriptor.revision,
+      candidateReleases,
+      budget: active.residency.evidence()
+    };
+  } finally {
+    await target.releaseVirtualGeometryScene(testScene);
+    uploaded.admission.retireActive(); uploaded.admission.retireReplaced();
+  }
+}
 
 /** Runner-driven S5 validation: atomic richer-revision replacement, then a safe eviction. */
 async function runValidation(): Promise<void> {
@@ -244,6 +311,10 @@ async function runValidation(): Promise<void> {
     // Replacement: the background richer revision must swap the bootstrap out.
     // Keep rendering while the CookSession finishes the richer revision.
     for (let frame = 0; frame < 1800 && handles.admission.evidence().replacements < 1; frame++) {
+      const admission = handles.admission.evidence();
+      if (admission.state === "failed" || admission.state === "cancelled") {
+        throw new Error(admission.failure ?? admission.lastRejection ?? "richer Product publication failed");
+      }
       target.render(camera, scene, 1 / 60);
       await nextFrame();
     }
@@ -295,6 +366,9 @@ async function runValidation(): Promise<void> {
     if (!refined) throw new Error("residency never refined on the active revision");
     if (candidates.length > 0 && residencyAfterEvict >= residentAfterRefine) throw new Error("retired pages were not released from residency");
     if (evictCoverage.litPixels < 64) throw new Error(`eviction lost the scene (${evictCoverage.litPixels} lit pixels)`);
+
+    controller.addEvidence("failedReplacementMapping", await verifyFailedReplacement(target, camera, replacement, "mapping"));
+    controller.addEvidence("failedReplacementStaging", await verifyFailedReplacement(target, camera, replacement, "staging"));
 
     controller.transition("draining");
     await target.device.queue.onSubmittedWorkDone();
