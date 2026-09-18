@@ -303,7 +303,11 @@ device loss 丢弃全部 GPU publication 与 pending upload，重建 device/pipe
 
 当前状态（2026-09-18）：replacement 与 eviction 已在 `virtual-product-replacement`（ADR-0014 宿主，accepted）验证：richer CookSession revision 原子替换 bootstrap（`replacements 1`、generation 1→2、revision 0→1、换版全程 5600+ lit pixels），active revision 在真实 GPU demand 下细化（382→383），随后 4 个非 pinned 候选页跨 `onSubmittedWorkDone` 边界驱逐到 379 页（`evictedPages 4`），驱逐后 17400 lit pixels、0 GPU error。
 
-device loss 腿**未完成且不声明**。已修一个真 bug：`GpuRenderWorld.recoveryScenes()` 把 Virtual Product 场景当作 packed 场景返回（`geometries: []`），恢复时在 `SceneResidencyManifest` 抛 `requires geometry packages`；现在 Product 场景只由 `checkpoint.products` 循环从保留的 Product source 重建。修后恢复会死锁，根因有两层：(1) `WebCookCoordinator.requestPages` 对 `activationPageIds` 一律 `continue`，activation cut 在 GPU 副本被 `abandonForDeviceLoss` 后无法重读；(2) coordinator 的 output credit 窗口（token 数受限）会被第二个尚未被消费的 Product revision 的缓冲页占满，于是卡在该 revision credit 窗口边界的下一页上，而等待方又占着该窗口不再读取。实测（Dungeon）：`bufferedPages` 始终等于整个 credit 窗口（32/32，改 128 后 128/128），被读 revision 精确停在窗口边界，该页永无 `PageReady`。把 activation 页改成“cut 完整流出后允许重发”会让 S4 demand 回归（`residentPages 374 -> 374`），已回滚。正确修法要改 per-revision credit/buffer ownership，而不是请求快路径。
+device loss 腿**未完成且不声明**。已修一个真 bug：`GpuRenderWorld.recoveryScenes()` 把 Virtual Product 场景当作 packed 场景返回（`geometries: []`），恢复时在 `SceneResidencyManifest` 抛 `requires geometry packages`；现在 Product 场景只由 `checkpoint.products` 循环从保留的 Product source 重建。修后恢复仍无法重建 activation cut：`WebCookCoordinator.requestPages` 对 `activationPageIds` 一律 `continue`，GPU 副本被 `abandonForDeviceLoss` 释放后这些页无法重读。
+
+该缺陷已可 headless 复现与锁定：`tests/web-cook-activation-reserve.test.mjs` 的 3 个 todo case 记录必需行为（activation 页重读恰好投递一次、重读前后 credit 守恒、未请求的页不得被重发）；同文件 2 个通过的 case 证明 **provider 侧无需改造**：已消费的页可重读且不留下缓冲（`bufferedPages 0`、每次投递恰好返还 1 credit），且当另一个 revision 占满整个缓冲窗口时，被请求的页仍能送达（请求页自带 reader，不占缓冲）。目前没有证据支持“credit 被占满导致死锁”或需要重做 per-revision buffer ownership。
+
+两个已排除的方法：(1) 在 `requestPages` 里直接重发（未 gated）会产生重复投递；(2) 改成“activation cut 完整流出后允许重发”会让 `glb-web-product` 的 demand 阶段停止细化（`residentPages 374 -> 374`）。方案 (2) 必须先从 demand 计数器（而非布尔断言）重新诊断，再关闭这个 gate。
 
 ### S6 · Offline 第二路线 production parity
 
