@@ -6,16 +6,12 @@ import {
   PerspectiveCamera,
   Renderer,
   Scene,
-  ShadeDrawSide,
-  ShadeTransparencyMode,
-  StandardShadeMaterial,
   createDefaultWebCookWorker,
+  createWebCookSceneSource,
   load_gltf_web_product,
   type WebCookRuntimeAsset,
-  type VirtualGeometryGeometryProfile,
   type VirtualGeometrySceneSource
 } from "../../../../OEngine/src/index.ts";
-import type { WebCookSceneCatalogSnapshot } from "../../../../OEngine/src/assets/web-cook/WebCookClient.ts";
 import dungeonSourceUrl from "../../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
 import { createValidationController } from "../../host/protocol.ts";
 import { attachGpuErrorCollection } from "../../host/webgpu.ts";
@@ -148,7 +144,7 @@ async function loadModel(): Promise<void> {
     if (!catalog || !transaction || transaction.state !== "active") throw new Error(admission.evidence().lastRejection ?? "No active Web Product revision was admitted");
     scene = new Scene();
     const product = transaction.residency;
-    const sceneSource = buildSceneSource(catalog, product.descriptor);
+    const sceneSource = createWebCookSceneSource(catalog, product.descriptor).source;
     streaming = new GeometryPageStreamingRuntimeV1(renderer!.device, product);
     await renderer!.uploadVirtualGeometryScene(scene, sceneSource, product, streaming);
     camera = new PerspectiveCamera();
@@ -206,66 +202,6 @@ function frameScene(source: VirtualGeometrySceneSource): void {
   camera.transform.position.set(center.x, center.y, center.z + radius * 2.5);
   camera.transform.lookAt(center); camera.update(); controls?.update();
 }
-
-function buildSceneSource(catalog: WebCookSceneCatalogSnapshot, descriptor: Readonly<{ assetRecords: Uint8Array }>): VirtualGeometrySceneSource {
-  const assetCount = descriptor.assetRecords.byteLength / 128;
-  if (assetCount === 0 || catalog.primitives.length !== assetCount) throw new Error("The browser Product asset dictionary must match the GLB primitive order");
-  const instances = catalog.instances.map(item => ({ ...item, worldMatrix: Float32Array.from(item.worldMatrix) }));
-  const instanceByNode = new Map(instances.map(item => [item.nodeIndex, item]));
-  const materials: StandardShadeMaterial[] = [];
-  const materialForIndex = new Map<number, StandardShadeMaterial>();
-  const materialFor = (index: number, value: Readonly<Record<string, unknown>>): number => {
-    const key = index === 0xffffffff ? 0 : index;
-    if (!materialForIndex.has(key)) {
-      const material = new StandardShadeMaterial();
-      const base = tuple(value.baseColorFactor, 4, [1, 1, 1, 1]);
-      material.diffuse_color.set(base[0]!, base[1]!, base[2]!, base[3]!);
-      material.metallic_factor = scalar(value.metallicFactor, 0); material.roughness_factor = scalar(value.roughnessFactor, 1);
-      const emissive = tuple(value.emissiveFactor, 3, [0, 0, 0]); material.emissive_factor.set(emissive[0]!, emissive[1]!, emissive[2]!);
-      material.alpha_cutoff = scalar(value.alphaCutoff, 0.5); material.is_unlit = value.unlit === true;
-      material.draw_side = value.doubleSided === true ? ShadeDrawSide.Double : ShadeDrawSide.Front;
-      material.transparency_mode = value.alphaMode === "MASK" ? ShadeTransparencyMode.AlphaTested : value.alphaMode === "BLEND" ? ShadeTransparencyMode.Transparent : ShadeTransparencyMode.Opaque;
-      materialForIndex.set(key, material); materials[key] = material;
-    }
-    return key;
-  };
-  const transforms: number[] = [], geometryIndices: number[] = [], materialIndices: number[] = [], bounds: number[] = [];
-  const geometryProfiles: VirtualGeometryGeometryProfile[] = [];
-  const assetView = new DataView(descriptor.assetRecords.buffer, descriptor.assetRecords.byteOffset, descriptor.assetRecords.byteLength);
-  // The Web cooker emits one Product asset per canonical material domain in the
-  // catalog's stable primitive order, so assetIndex addresses catalog.primitives[assetIndex].
-  for (let assetIndex = 0; assetIndex < catalog.primitives.length; assetIndex++) {
-    const primitive = catalog.primitives[assetIndex]!;
-    const materialIndex = materialFor(primitive.materialIndex, primitive.material);
-    geometryProfiles.push({
-      hasAuthoredVertexColor: primitive.attributeSemantics.includes("COLOR_0"),
-      hasUv0: primitive.attributeSemantics.includes("TEXCOORD_0"),
-      hasUv1: primitive.attributeSemantics.includes("TEXCOORD_1"),
-      hasUv2: false,
-      hasNormal: true,
-      hasTangent: primitive.attributeSemantics.includes("TANGENT")
-    });
-    const assetBase = assetIndex * 128;
-    const center = [assetView.getFloat32(assetBase + 32, true), assetView.getFloat32(assetBase + 36, true), assetView.getFloat32(assetBase + 40, true)];
-    const localRadius = assetView.getFloat32(assetBase + 44, true);
-    for (const nodeIndex of primitive.instanceNodeIndices) {
-      const instance = instanceByNode.get(nodeIndex); if (!instance) throw new Error(`Product instance node ${nodeIndex} is missing from GLB catalog`);
-      transforms.push(...instance.worldMatrix); geometryIndices.push(assetIndex); materialIndices.push(materialIndex);
-      const m = instance.worldMatrix; const worldCenter = [m[0]! * center[0]! + m[4]! * center[1]! + m[8]! * center[2]! + m[12]!, m[1]! * center[0]! + m[5]! * center[1]! + m[9]! * center[2]! + m[13]!, m[2]! * center[0]! + m[6]! * center[1]! + m[10]! * center[2]! + m[14]!];
-      const scale = Math.max(Math.hypot(m[0]!, m[1]!, m[2]!), Math.hypot(m[4]!, m[5]!, m[6]!), Math.hypot(m[8]!, m[9]!, m[10]!));
-      bounds.push(worldCenter[0]!, worldCenter[1]!, worldCenter[2]!, localRadius * scale);
-    }
-  }
-  for (let index = 0; index < materials.length; index++) {
-    if (materials[index]) continue;
-    materials[index] = new StandardShadeMaterial();
-  }
-  const capacity = Math.min(65535, Math.max(256, assetCount * 16));
-  return { materials, geometryProfiles, assetCount, hierarchyMaxDepth: 64, hierarchyTraversalCapacity: capacity, hierarchyVisibleClusterCapacity: capacity, hierarchyRasterWorkCapacity: capacity, count: geometryIndices.length, geometryIndices: Uint32Array.from(geometryIndices), materialIndices: Uint32Array.from(materialIndices), currentTransforms: Float32Array.from(transforms), boundsSpheres: Float32Array.from(bounds) };
-}
-
-function tuple(value: unknown, length: number, fallback: readonly number[]): readonly number[] { return Array.isArray(value) && value.length === length && value.every(item => typeof item === "number" && Number.isFinite(item)) ? value : fallback; }
-function scalar(value: unknown, fallback: number): number { return typeof value === "number" && Number.isFinite(value) ? value : fallback; }
 
 /** Runner-driven validation host; manual use keeps the buttons and orbit controls. */
 async function runValidation(): Promise<void> {

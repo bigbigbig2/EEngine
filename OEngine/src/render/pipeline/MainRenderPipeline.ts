@@ -142,6 +142,9 @@ import {
   VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE
 } from "../../gpu/VirtualGeometryResidency.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
+import { GeometryProductAdmissionController } from "../../gpu/GeometryProductAdmission.js";
+import type { WebCookRuntimeAsset } from "../../assets/web-cook/WebCookRuntimeAsset.js";
+import { createWebCookSceneSource } from "../../assets/web-cook/WebCookSceneSource.js";
 import {
   createPackedSceneSourceFromScene,
   type SceneGeometryAssetBinding
@@ -1021,6 +1024,52 @@ export class MainRenderPipeline {
   async releaseVirtualGeometryScene(scene: Scene): Promise<void> {
     await this.releasePackedScene(scene);
     this._virtualProductScenes.delete(scene);
+  }
+
+  /**
+   * Runtime-first `load(scene.glb)` route: opens a Web CookSession, admits the
+   * first complete Product revision, and publishes it through the shared
+   * GpuRenderWorld/Visibility path. The Promise resolves once the activation
+   * cut is resident; later Product revisions refine in place.
+   */
+  async uploadWebCookedScene(
+    scene: Scene,
+    asset: WebCookRuntimeAsset,
+    options: {
+      readonly signal?: AbortSignal;
+      readonly stream?: boolean;
+      readonly fitHeight?: number;
+      readonly fitBase?: readonly [number, number, number];
+      /** Runs after catalog materials are mapped and before GPU publication. */
+      readonly onMaterials?: (materials: readonly import("../../material/StandardShadeMaterial.js").StandardShadeMaterial[]) => void;
+    } = {}
+  ): Promise<{
+    readonly handle: GpuRenderWorldHandle;
+    readonly admission: GeometryProductAdmissionController;
+    readonly residency: VirtualGeometryResidency;
+    readonly streaming: GeometryPageStreamingRuntimeV1 | null;
+    readonly source: VirtualGeometrySceneSource;
+    readonly materials: readonly import("../../material/StandardShadeMaterial.js").StandardShadeMaterial[];
+  }> {
+    const admission = new GeometryProductAdmissionController(this.device);
+    const consuming = admission.consume(asset, options.signal);
+    consuming.catch(() => undefined);
+    await waitForActiveProduct(admission, options.signal);
+    const active = admission.active;
+    if (!active || active.state !== "active") throw new Error("Web Cook Product admission did not activate");
+    const catalog = asset.catalog;
+    if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
+    const residency = active.residency;
+    const streaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, residency);
+    try {
+      const mapped = createWebCookSceneSource(catalog, residency.descriptor, { fitHeight: options.fitHeight, fitBase: options.fitBase });
+      options.onMaterials?.(mapped.materials);
+      const handle = await this.uploadVirtualGeometryScene(scene, mapped.source, residency, streaming);
+      return Object.freeze({ handle, admission, residency, streaming, source: mapped.source, materials: mapped.materials });
+    } catch (error) {
+      streaming?.destroy();
+      throw error;
+    }
   }
 
   /**
@@ -5323,5 +5372,22 @@ function validateRendererWgslLanguageFeatures(gpu: GPU): void {
       `WebGPU 2026 Desktop requires WGSL language feature '${WGSL_EXT_TEXTURE_FORMATS_TIER1}' ` +
       "for Tier 1 storage texture formats"
     );
+  }
+}
+
+/** Waits for the first active Web Cook Product revision without blocking a frame. */
+async function waitForActiveProduct(
+  controller: GeometryProductAdmissionController,
+  signal?: AbortSignal
+): Promise<void> {
+  while (true) {
+    if (signal?.aborted) throw signal.reason ?? new Error("Web Cook Product load was aborted");
+    const active = controller.active;
+    if (active?.state === "active") return;
+    const evidence = controller.evidence();
+    if (evidence.state === "failed" || evidence.state === "cancelled") {
+      throw new Error(evidence.failure ?? "Web Cook Product admission did not activate");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 8));
   }
 }

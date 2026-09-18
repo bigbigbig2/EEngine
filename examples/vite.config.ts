@@ -30,6 +30,11 @@ function collectExamplePages(directory: string): Record<string, string> {
 
 export default defineConfig({
   root: examplesRoot,
+  server: {
+    fs: {
+      allow: [examplesRoot, resolve(examplesRoot, "../OEngine")]
+    }
+  },
   build: {
     outDir: resolve(examplesRoot, "examples-static"),
     emptyOutDir: true,

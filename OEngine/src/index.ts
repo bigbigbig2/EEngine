@@ -157,6 +157,11 @@ export type {
 export { WebCookClient } from "./assets/web-cook/WebCookClient.js";
 export type { WebCookClientEvidence, WebCookClientOptions } from "./assets/web-cook/WebCookClient.js";
 export { WebCookRuntimeAsset } from "./assets/web-cook/WebCookRuntimeAsset.js";
+export { createWebCookSceneSource } from "./assets/web-cook/WebCookSceneSource.js";
+export type {
+  WebCookSceneSourceOptions,
+  WebCookSceneSourceResult
+} from "./assets/web-cook/WebCookSceneSource.js";
 export { createWebCookWorker, createDefaultWebCookWorker } from "./assets/web-cook/WebCookWorkerFactory.js";
 export type {
   DefaultWebCookWorkerFactoryOptions,
