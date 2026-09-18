@@ -39,6 +39,9 @@ const metricsElement = document.querySelector<HTMLElement>("#metrics")!;
 const loadButton = document.querySelector<HTMLButtonElement>("#load")!;
 const cancelButton = document.querySelector<HTMLButtonElement>("#cancel")!;
 const reloadButton = document.querySelector<HTMLButtonElement>("#reload")!;
+// Manual use defaults to the multi-material Dungeon; the runner overrides this
+// from ?source=fixture|dungeon|<url> when it selects the case.
+urlInput.value = resolveValidationSource();
 
 let renderer: Renderer | undefined;
 let scene: Scene | undefined;
