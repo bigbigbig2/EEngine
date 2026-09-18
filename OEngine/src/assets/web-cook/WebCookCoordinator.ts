@@ -82,6 +82,8 @@ export class WebCookCoordinator {
   #failure: string | undefined;
   readonly #sourcePriorities = new Map<string, { readonly score: number; readonly cameraHintRevision: number }>();
   readonly #liveRevisions: WebCookProductRevision[] = [];
+  /** Revisions whose activation cut finished streaming; those pages re-emit. */
+  readonly #activationStreamed = new Map<string, boolean>();
   readonly #creditWaiters = new Set<() => void>();
   #emitTail: Promise<void> = Promise.resolve();
 
@@ -140,6 +142,7 @@ export class WebCookCoordinator {
           const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
           this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
           for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
+          this.markActivationStreamed(revision);
         }, (error) => {
           this.publish(this.header({ type: "RecoverableFailure", scope: "richer-product-revision", code: error.message, retryAfterMs: 0 }));
         });
@@ -160,6 +163,7 @@ export class WebCookCoordinator {
         const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
         this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
         for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
+        this.markActivationStreamed(revision);
         this.#completedUnits = units.length;
         this.#session.emit(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
         this.#state = "complete";
@@ -183,6 +187,7 @@ export class WebCookCoordinator {
           this.#liveRevisions.push(revision);
           this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
           for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
+          this.markActivationStreamed(revision);
           this.#completedUnits++;
           this.#session.emit(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
         }
@@ -201,19 +206,25 @@ export class WebCookCoordinator {
     this.#sourcePriorities.set(assetKey, Object.freeze({ score, cameraHintRevision }));
   }
 
-  /** Re-reads requested Product pages without mutating the immutable revision. */
+  /**
+   * Re-reads requested Product pages without mutating the immutable revision.
+   *
+   * A page the activation loop has not streamed yet stays with that loop, so it
+   * is never emitted twice. Once the cut has finished streaming, a request for
+   * an activation page means the consumer lost its copy - for example after
+   * `abandonForDeviceLoss` released the GPU banks - and it must be re-served.
+   */
   async requestPages(productId: Uint8Array, revision: number, pageIds: Uint32Array, _priority: number): Promise<void> {
     if (this.#state !== "cooking" && this.#state !== "complete") throw new Error(`WebCookCoordinator cannot request pages from '${this.#state}'`);
     if (productId.byteLength !== 32 || !Number.isInteger(revision) || revision < 0 || revision === 0xffffffff) throw new RangeError("Web Cook page request identity is invalid");
     const source = this.#liveRevisions.find(candidate => candidate.revision === revision && sameBytes(candidate.productId, productId));
     if (!source) throw new Error("Web Cook page request targets an unknown Product revision");
     const unique = [...new Set(pageIds)].sort((left, right) => left - right);
-    // Activation pages are streamed by cookBootstrap; re-emitting them here would
-    // race the activation loop for output credit and drop PageReady events.
     const activation = new Set<number>(decodeGeometryProductDescriptorBinaryV1(source.descriptor).activationPageIds);
+    const activationStreamed = this.#activationStreamed.get(revisionKey(source.productId, revision)) === true;
     for (const pageId of unique) {
       if (!Number.isInteger(pageId) || pageId < 0 || pageId === 0xffffffff || pageId >= source.pageCount) throw new RangeError("Web Cook page request targets an invalid page");
-      if (activation.has(pageId)) continue;
+      if (activation.has(pageId) && !activationStreamed) continue;
       await this.emitPage(source, pageId);
     }
   }
@@ -252,6 +263,10 @@ export class WebCookCoordinator {
     if (!this.publish(this.header({ type: "PageReady", productId: revision.productId.slice(), revision: revision.revision, pageId, decodedHash128: page.decodedHash128, bytes: page.bytes }))) throw new Error("Web Cook output credit changed before PageReady emission");
     this.#emittedPages++;
   }
+  /** Marks the activation cut of one revision fully streamed and re-readable. */
+  private markActivationStreamed(revision: WebCookProductRevision): void {
+    this.#activationStreamed.set(revisionKey(revision.productId, revision.revision), true);
+  }
   private async waitForOutputCredit(bytes: number): Promise<void> {
     while (!this.#session.canEmitPage(bytes)) {
       if (this.#abort.signal.aborted || this.#state === "disposed" || this.#state === "failed") throw this.#abort.signal.reason ?? new Error("Web Cook stopped while awaiting output credit");
@@ -268,3 +283,4 @@ export class WebCookCoordinator {
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean { if (left.byteLength !== right.byteLength) return false; for (let index = 0; index < left.byteLength; index++) if (left[index] !== right[index]) return false; return true; }
+function revisionKey(productId: Uint8Array, revision: number): string { return `${Array.from(productId, (value) => value.toString(16).padStart(2, "0")).join("")}:${revision}`; }

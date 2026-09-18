@@ -61,11 +61,6 @@ function makeCoordinator(product, { maxOutputBytes = PAGE_BYTES * 8, cook } = {}
   });
 }
 
-// ADR-0016 S5 open gate: requestPages drops every activationPageIds request, so a
-// device-loss activation-cut rebuild cannot be served. The three coordinator
-// cases below encode the required behaviour and stay todo until that is fixed.
-const RESERVE_TODO = { todo: "ADR-0016 S5: requestPages must re-serve an activation page the consumer lost" };
-
 const pageEvents = events => events.filter(event => event.type === "PageReady").map(event => event.pageId);
 
 /** Push-based CookSession event stream that never ends until `finish()`. */
@@ -78,13 +73,15 @@ function eventStream(header) {
   return { push, finish: () => { finished = true; finish(); }, iterable };
 }
 
-test("Web Cook coordinator drops an activation page re-read after the cut streamed", RESERVE_TODO, async () => {
+test("Web Cook coordinator re-serves an activation page re-read after the cut streamed", async () => {
   const product = productFixture();
   const coordinator = makeCoordinator(product);
   await coordinator.open("https://example.test/activation.glb");
   coordinator.grantOutputCredits(2, PAGE_BYTES * 2);
   await coordinator.cookBootstrap();
-  assert.deepEqual(pageEvents(coordinator.drainEvents()), [0, 1], "the activation cut streams once");
+  coordinator.drainEvents();
+  // The consumer consumed the cut, so its output credit is back with the session.
+  coordinator.returnOutputCredits(2, PAGE_BYTES * 2);
 
   // The consumer dropped its GPU copy (device loss). The provider must be able
   // to re-serve the activation page through the same request path.
@@ -93,13 +90,14 @@ test("Web Cook coordinator drops an activation page re-read after the cut stream
   coordinator.dispose();
 });
 
-test("Web Cook coordinator conserves output credit across an activation re-read", RESERVE_TODO, async () => {
+test("Web Cook coordinator conserves output credit across an activation re-read", async () => {
   const product = productFixture();
   const coordinator = makeCoordinator(product);
   await coordinator.open("https://example.test/credit.glb");
   coordinator.grantOutputCredits(3, PAGE_BYTES * 3);
   await coordinator.cookBootstrap();
   coordinator.drainEvents();
+  coordinator.returnOutputCredits(2, PAGE_BYTES * 2);
   await coordinator.requestPages(product.productId, product.revision, new Uint32Array([0, 1]), 0);
   const events = coordinator.drainEvents();
   assert.deepEqual(pageEvents(events), [0, 1]);
@@ -111,13 +109,14 @@ test("Web Cook coordinator conserves output credit across an activation re-read"
   coordinator.dispose();
 });
 
-test("Web Cook coordinator does not re-emit a page the consumer already holds", RESERVE_TODO, async () => {
+test("Web Cook coordinator does not re-emit a page the consumer already holds", async () => {
   const product = productFixture();
   const coordinator = makeCoordinator(product);
   await coordinator.open("https://example.test/precision.glb");
   coordinator.grantOutputCredits(2, PAGE_BYTES * 2);
   await coordinator.cookBootstrap();
   coordinator.drainEvents();
+  coordinator.returnOutputCredits(2, PAGE_BYTES * 2);
   await coordinator.requestPages(product.productId, product.revision, new Uint32Array([1]), 0);
   assert.deepEqual(pageEvents(coordinator.drainEvents()), [1], "only the requested page is emitted");
   coordinator.dispose();
@@ -177,4 +176,32 @@ test("Web Product provider keeps a second revision from stranding credit", async
   assert.deepEqual(requests.map(request => [request[0], request[1]]), [[1, 0], [1, 1]]);
   assert.equal(provider.evidence().bufferedPages, 1, "the occupied window does not block a requested page");
   firstOffered.release(); secondOffered.release(); provider.release(); stream.finish();
+});
+
+test("Web Product provider discards an unsolicited duplicate of a consumed page", async () => {
+  const product = productFixture();
+  const credits = [];
+  const stream = eventStream({ protocolVersion: 1, sessionId: "s-dup", sessionGeneration: 7 });
+  const provider = new WebCookProductProvider(stream.iterable, {
+    maxBufferedPages: 1,
+    maxBufferedBytes: PAGE_BYTES,
+    returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes])
+  });
+  const iterator = provider.revisions()[Symbol.asyncIterator]();
+  stream.push({ type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor) });
+  const offered = (await iterator.next()).value;
+  const ready = () => ({ type: "PageReady", productId: product.productId.slice(), revision: product.revision, pageId: 0, decodedHash128: product.hashes[0].subarray(0, 16), bytes: product.pages[0].buffer });
+  stream.push(ready());
+  await new Promise(resolve => setImmediate(resolve));
+  await offered.readPage(0);
+  // A re-served copy can race the in-flight original. Nobody waits for it and
+  // the consumer already has the page, so it must not hold buffer credit.
+  stream.push(ready());
+  await new Promise(resolve => setImmediate(resolve));
+  const evidence = provider.evidence();
+  assert.equal(evidence.deliveredPages, 1);
+  assert.equal(evidence.bufferedPages, 0, "the duplicate does not occupy the buffering window");
+  assert.equal(evidence.discardedPages, 1);
+  assert.equal(credits.length, 2, "both copies return their credit");
+  offered.release(); provider.release(); stream.finish();
 });

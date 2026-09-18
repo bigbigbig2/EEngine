@@ -2028,6 +2028,9 @@ export class MainRenderPipeline {
         entry.productGeneration,
         entry.productTableSlot
       );
+      // A rebuilt residency must re-publish its Product table record, otherwise
+      // the GPU traversal never sees the hierarchy of the restored Product.
+      residency.activatePublication();
       const streamingRuntime = entry.streamingEnabled
         ? new GeometryPageStreamingRuntimeV1(this.device, residency)
         : null;

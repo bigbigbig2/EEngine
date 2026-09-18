@@ -128,6 +128,8 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
 class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
   readonly #pages = new Map<number, GeometryPageProductV1>();
   readonly #waiters = new Map<number, Deferred<GeometryPageProductV1>>();
+  /** Pages already handed to the consumer; such a copy is re-readable. */
+  readonly #delivered = new Set<number>();
   #released = false;
   #finished = false;
   #failure: unknown;
@@ -138,7 +140,7 @@ class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
     if (this.#released) throw new Error("Web Product revision has been released");
     if (this.#failure) throw this.#failure;
     const ready = this.#pages.get(pageId);
-    if (ready) { this.#pages.delete(pageId); this.owner._deliverBufferedPage(ready.bytes.byteLength); return ready; }
+    if (ready) { this.#pages.delete(pageId); this.#delivered.add(pageId); this.owner._deliverBufferedPage(ready.bytes.byteLength); return ready; }
     if (this.#finished && !this.owner._hasPageRequester()) throw new Error(`Web Product stream ended before page ${pageId} arrived`);
     if (this.#waiters.has(pageId)) throw new Error(`Web Product page ${pageId} already has a pending reader`);
     const deferred = new Deferred<GeometryPageProductV1>();
@@ -156,14 +158,20 @@ class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
     if (this.#pages.has(event.pageId)) throw new Error(`Web Cook emitted duplicate page ${event.pageId}`);
     const page = Object.freeze({ productId: event.productId.slice(), revision: event.revision, pageId: event.pageId, decodedHash128: event.decodedHash128.slice(), bytes: event.bytes });
     const waiter = this.#waiters.get(event.pageId);
-    if (waiter) { this.#waiters.delete(event.pageId); this.owner._deliverIncomingPage(event.bytes.byteLength); waiter.resolve(page); return; }
+    if (waiter) { this.#waiters.delete(event.pageId); this.#delivered.add(event.pageId); this.owner._deliverIncomingPage(event.bytes.byteLength); waiter.resolve(page); return; }
+    if (this.#pages.has(event.pageId)) throw new Error(`Web Cook emitted duplicate page ${event.pageId}`);
+    // The consumer already received and consumed this page and nobody is waiting
+    // for a copy, so this is a re-read emission racing the in-flight original.
+    // Page content is immutable and hash-validated, so buffering the copy would
+    // only hold output credit that a later demand or recovery read needs.
+    if (this.#delivered.has(event.pageId)) { this.owner._discardPage(event.bytes.byteLength); return; }
     this.owner._reservePage(event.bytes.byteLength);
     this.#pages.set(event.pageId, page);
   }
 
   finish(): void { this.#finished = true; for (const [pageId, waiter] of this.#waiters) waiter.reject(new Error(`Web Product stream ended before page ${pageId} arrived`)); this.#waiters.clear(); }
   fail(error: unknown): void { this.#failure = error; for (const waiter of this.#waiters.values()) waiter.reject(error); this.#waiters.clear(); this.release(); }
-  release(): void { if (this.#released) return; this.#released = true; for (const page of this.#pages.values()) this.owner._discardBufferedPage(page.bytes.byteLength); this.#pages.clear(); for (const waiter of this.#waiters.values()) waiter.reject(new Error("Web Product revision released")); this.#waiters.clear(); this.owner._releaseSource(this); }
+  release(): void { if (this.#released) return; this.#released = true; this.#delivered.clear(); for (const page of this.#pages.values()) this.owner._discardBufferedPage(page.bytes.byteLength); this.#pages.clear(); for (const waiter of this.#waiters.values()) waiter.reject(new Error("Web Product revision released")); this.#waiters.clear(); this.owner._releaseSource(this); }
 }
 
 class Deferred<T> { readonly promise: Promise<T>; resolve!: (value: T) => void; reject!: (reason: unknown) => void; constructor() { this.promise = new Promise<T>((resolve, reject) => { this.resolve = resolve; this.reject = reject; }); } }

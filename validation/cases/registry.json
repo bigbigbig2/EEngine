@@ -514,6 +514,20 @@
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
+    },
+    "virtual-product-device-loss-v1": {
+      "resolution": [1280, 720],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0016-s5-product-device-loss-v1",
+      "features": ["web-cook", "glb-range", "product-admission", "product-residency", "product-device-loss-recovery", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
+      "seed": 1606,
+      "cameraPath": "web-glb-device-loss-recovery",
+      "warmupFrames": 1,
+      "sampleFrames": 5,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
     }
   },
   "cases": [
@@ -925,6 +939,34 @@
           "source": "console:warning",
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while the replacement device is captured.",
+          "ownerRequirement": "GEO-WEB-COOK"
+        }
+      ]
+    },
+    {
+      "id": "virtual-product-device-loss",
+      "route": "/src/cases/virtual-product-device-loss/index.html",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0016",
+      "requirements": ["GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME", "GEO-VIRTUAL-ABI"],
+      "workloadId": "virtual-product-device-loss-v1",
+      "profile": "smoke",
+      "timeoutMs": 240000,
+      "artifacts": ["result", "events", "screenshot"],
+      "changedPaths": [
+        "validation/src/cases/virtual-product-device-loss",
+        "OEngine/src/render/Renderer.ts",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
+        "OEngine/src/gpu/GpuRenderWorld.ts",
+        "OEngine/src/gpu/VirtualGeometryResidency.ts",
+        "OEngine/src/assets/web-cook"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while the recovered device is captured.",
           "ownerRequirement": "GEO-WEB-COOK"
         }
       ]
