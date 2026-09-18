@@ -206,6 +206,19 @@ schemaVersion + sourceIdentityKind + sourceIdentityHash + producerKind + produce
 
 只有 `content-sha256` 或经验证的 `strong-http-validator` 可以建立跨 session 持久 key；`session` identity 只能使用本次加载的内存 cache。descriptor 与 page 分开 journal；只有 descriptor 和其 activation pages 全部提交后，cache 才能宣称该 revision 可启动。部分 cache、quota failure 或 corruption 必须退回 Provider，不得影响 correctness。Web cache 不是 OEGPACK，除非另有完整 exporter 并通过 OEGPACK writer validation。
 
+## Web source-scene mapping metadata
+
+Web Runtime Cooker 可以在 `GeometryProductRevisionSourceV1` 上附带
+`sceneAssetIndices`。这是 Producer 到 Scene mapper 的来源映射元数据，不是
+Geometry Product 二进制 section，也不属于 ProductID。第 `i` 项表示 Product
+asset record `i` 对应的稳定 GLB catalog primitive。列表必须唯一、索引必须在
+catalog 范围内，并且长度必须等于 `assetCount`。
+
+Subset bootstrap 仍然必须是完整且不可变的 Product revision：自身的 asset
+table、hierarchy、Group/Page directory、activation pages 和 page hash 都要
+独立通过校验。后续完整 revision 通过 `replaces` 原子发布，不能向 active
+revision 追加未声明的 asset，也不能原地修改其 Group/Page identity。
+
 ## Validation
 
 - 两个独立 test producer 和 OEGPACK adapter 必须通过同一 descriptor/page conformance suite。

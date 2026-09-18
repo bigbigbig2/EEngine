@@ -8,7 +8,7 @@ import {
   encodeWebGeometryCookRecipeV1,
   type EmscriptenWebGeometryCookerModuleV1
 } from "./wasm/WebGeometryCookerAbi.js";
-import type { GlbByteRange, GlbCookPrimitive } from "../../loaders/gltf/streaming/GlbSceneCatalog.js";
+import type { GlbCookPrimitive } from "../../loaders/gltf/streaming/GlbSceneCatalog.js";
 import { prefetchCoalescedRanges, type CoalescedRangeReaderOptions } from "./CoalescedRangeReader.js";
 
 export const NYX_WEB_RUNTIME_PRODUCER_ID = "oengine-nyx-web-runtime";
@@ -60,7 +60,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   }
 
   async cookBootstrap(unit: GlbCookPrimitive, context: WebCookUnitContext): Promise<WebCookProductRevision> {
-    return this.cookDomains([unit], context);
+    return this.cookDomains([unit], context, [catalogIndexFor(unit, context)]);
   }
 
   async cookBootstrapBatch(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision> {
@@ -69,19 +69,29 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     // Re-sort on the catalog's stable key so a priority reorder cannot change
     // the published asset order the scene publication side maps against.
     const ordered = [...units].sort(compareCookPrimitiveOrder);
-    return this.cookDomains(ordered, context);
+    return this.cookDomains(ordered, context, ordered.map((unit, index) => catalogIndexFor(unit, context, index)));
   }
 
   private async canonicalizeDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<ArrayBuffer> {
     // Coalesce the bounded accessor ranges first so canonicalization reads from
     // memory instead of issuing one HTTP range per attribute (master doc S8.5).
-    const allRanges: GlbByteRange[] = [];
-    for (const unit of units) for (const range of unit.ranges) allRanges.push(range);
-    const reader = await prefetchCoalescedRanges(allRanges, range => context.readRange(range), context.signal, this.#rangeOptions);
-    const domains = [];
-    for (const unit of units) domains.push(await canonicalizeGlbPrimitiveV1(unit, reader));
+    const domains: Array<Awaited<ReturnType<typeof canonicalizeGlbPrimitiveV1>> | undefined> = new Array(units.length);
+    // Keep range ownership at unit granularity while allowing a bounded number
+    // of independent units to overlap. Results are written back by stable unit
+    // index, so changing concurrency cannot change Nyx canonical input order.
+    let nextUnit = 0;
+    const worker = async (): Promise<void> => {
+      while (true) {
+        const index = nextUnit++;
+        if (index >= units.length) return;
+        const unit = units[index]!;
+        const reader = await prefetchCoalescedRanges(unit.ranges, range => context.readRange(range), context.signal, this.#rangeOptions);
+        domains[index] = await canonicalizeGlbPrimitiveV1(unit, reader);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(this.#rangeOptions.concurrency, units.length) }, () => worker()));
     if (context.signal.aborted) throw context.signal.reason ?? new DOMException("The operation was aborted", "AbortError");
-    const canonicalInput = encodeWebCanonicalGeometryV1(domains);
+    const canonicalInput = encodeWebCanonicalGeometryV1(domains.map(domain => domain!));
     if (canonicalInput.byteLength > this.#maxCanonicalInputBytes) throw new Error(`canonical cook input exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
     return canonicalInput;
   }
@@ -91,7 +101,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     context: WebCookUnitContext,
     recipeInput: ArrayBuffer,
     revision: number,
-    replaces?: { readonly productId: Uint8Array; readonly revision: number }
+    replaces?: { readonly productId: Uint8Array; readonly revision: number },
+    sceneAssetIndices?: readonly number[]
   ): Promise<WasmGeometryProductRevisionV1> {
     return cookWasmGeometryProductRevisionV1(this.#module, canonicalInput, recipeInput, {
       producerId: NYX_WEB_RUNTIME_PRODUCER_ID,
@@ -100,13 +111,14 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       sourceIdentityHash: context.source.sourceIdentity.hash,
       revision,
       ...(replaces === undefined ? {} : { replaces }),
-      maxDecodedProductBytes: this.#maxDecodedProductBytes
+      maxDecodedProductBytes: this.#maxDecodedProductBytes,
+      sceneAssetIndices
     });
   }
 
-  private async cookDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WasmGeometryProductRevisionV1> {
+  private async cookDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext, sceneAssetIndices: readonly number[]): Promise<WasmGeometryProductRevisionV1> {
     const canonicalInput = await this.canonicalizeDomains(units, context);
-    return this.cookCanonical(canonicalInput, context, this.#recipeInput, 0);
+    return this.cookCanonical(canonicalInput, context, this.#recipeInput, 0, undefined, sceneAssetIndices);
   }
 
   async cookProgressive(
@@ -117,8 +129,20 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   ): Promise<void> {
     if (units.length === 0) throw new Error("Nyx Web Product requires at least one GLB primitive");
     const ordered = [...units].sort(compareCookPrimitiveOrder);
-    const canonicalInput = await this.canonicalizeDomains(ordered, context);
-    const bootstrap = await this.cookCanonical(canonicalInput, context, this.#bootstrapRecipeInput, 0);
+    const catalogIndex = new Map((context.catalog.primitives ?? []).map((unit, index) => [primitiveKey(unit), index]));
+    const bootstrapPairs = (context.bootstrapUnits === undefined || context.bootstrapUnits.length === 0
+      ? [{ unit: ordered[0]!, index: catalogIndex.get(primitiveKey(ordered[0]!)) ?? 0 }]
+      : context.bootstrapUnits.map((unit, index) => ({ unit, index: context.bootstrapAssetIndices?.[index] ?? catalogIndex.get(primitiveKey(unit)) ?? index })))
+      .sort((left, right) => compareCookPrimitiveOrder(left.unit, right.unit));
+    const bootstrapUnits = bootstrapPairs.map(pair => pair.unit);
+    const bootstrapIndices = bootstrapPairs.map(pair => pair.index);
+    if (bootstrapUnits.length !== bootstrapIndices.length || bootstrapIndices.some(index => !Number.isSafeInteger(index) || index < 0)) throw new RangeError("Nyx Web bootstrap asset mapping is invalid");
+    let bootstrapInput: ArrayBuffer | undefined = await this.canonicalizeDomains(bootstrapUnits, context);
+    const bootstrap = await this.cookCanonical(bootstrapInput, context, this.#bootstrapRecipeInput, 0, undefined, bootstrapIndices);
+    // The WASM ABI copies/owns its input before returning a revision. Drop the
+    // bootstrap canonical buffer before constructing the richer input so the
+    // two revisions do not overlap unnecessarily in the JS heap.
+    bootstrapInput = undefined;
     try {
       await onRevision(bootstrap);
     } catch (error) {
@@ -127,7 +151,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     }
     // A richer failure must not tear down the resident bootstrap revision.
     try {
-      const richer = await this.cookCanonical(canonicalInput, context, this.#recipeInput, 1, { productId: bootstrap.product.productId, revision: bootstrap.product.revision });
+      const canonicalInput = await this.canonicalizeDomains(ordered, context);
+      const richer = await this.cookCanonical(canonicalInput, context, this.#recipeInput, 1, { productId: bootstrap.product.productId, revision: bootstrap.product.revision }, ordered.map((unit, index) => catalogIndex.get(primitiveKey(unit)) ?? index));
       try {
         await onRevision(richer);
       } catch (error) {
@@ -142,4 +167,14 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
 
 function compareCookPrimitiveOrder(left: GlbCookPrimitive, right: GlbCookPrimitive): number {
   return left.nodeIndex - right.nodeIndex || left.meshIndex - right.meshIndex || left.primitiveIndex - right.primitiveIndex;
+}
+
+function primitiveKey(unit: GlbCookPrimitive): string { return `${unit.nodeIndex}:${unit.meshIndex}:${unit.primitiveIndex}`; }
+function catalogIndexFor(unit: GlbCookPrimitive, context: WebCookUnitContext, fallback = 0): number {
+  const primitives = context.catalog.primitives;
+  if (Array.isArray(primitives)) {
+    const index = primitives.findIndex(candidate => primitiveKey(candidate) === primitiveKey(unit));
+    if (index >= 0) return index;
+  }
+  return fallback;
 }

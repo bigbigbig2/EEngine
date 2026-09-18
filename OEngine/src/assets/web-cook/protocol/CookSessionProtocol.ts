@@ -1,3 +1,5 @@
+import { OEGPACK_V3_ASSET_STRIDE } from "../../GeometryAbiV3.js";
+
 export const WEB_COOK_PROTOCOL_VERSION = 1;
 export const WEB_COOK_PAGE_BYTES = 262144;
 
@@ -29,7 +31,7 @@ export type WebCookCommand =
 
 export type WebCookEvent =
   | (WebCookSessionHeader & { readonly type: "SceneCatalogReady"; readonly catalog: Readonly<Record<string, unknown>> })
-  | (WebCookSessionHeader & { readonly type: "RevisionOffered"; readonly descriptor: ArrayBuffer })
+  | (WebCookSessionHeader & { readonly type: "RevisionOffered"; readonly descriptor: ArrayBuffer; readonly sceneAssetIndices?: Uint32Array })
   | (WebCookSessionHeader & { readonly type: "PageReady"; readonly productId: Uint8Array; readonly revision: number; readonly pageId: number; readonly decodedHash128: Uint8Array; readonly bytes: ArrayBuffer })
   | (WebCookSessionHeader & { readonly type: "Progress"; readonly stage: string; readonly units: number; readonly bytes: number; readonly timings: Readonly<Record<string, number>> })
   | (WebCookSessionHeader & { readonly type: "RecoverableFailure"; readonly scope: string; readonly code: string; readonly retryAfterMs?: number })
@@ -85,7 +87,16 @@ export class WebCookSessionProtocol {
     if (this.#state !== "open") { this.#droppedLateMessages++; return false; }
     const max = this.#budgets?.maxQueuedEvents ?? 0;
     if (this.#events.length >= max) throw new RangeError("CookSession event queue capacity exceeded");
-    if (event.type === "RevisionOffered") decodeGeometryProductDescriptorBinaryV1(event.descriptor);
+    if (event.type === "RevisionOffered") {
+      const descriptor = decodeGeometryProductDescriptorBinaryV1(event.descriptor);
+      const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
+      if (event.sceneAssetIndices !== undefined &&
+          (event.sceneAssetIndices.length !== assetCount ||
+           new Set(event.sceneAssetIndices).size !== event.sceneAssetIndices.length ||
+           event.sceneAssetIndices.some(value => !Number.isInteger(value) || value < 0))) {
+        throw new RangeError("RevisionOffered sceneAssetIndices are invalid");
+      }
+    }
     if (event.type === "PageReady") {
       if (event.productId.byteLength !== 32 || !Number.isInteger(event.revision) || event.revision < 0 || event.revision === 0xffffffff) throw new RangeError("PageReady contains an invalid Product identity");
       if (!Number.isInteger(event.pageId) || event.pageId < 0 || event.pageId === 0xffffffff || event.bytes.byteLength !== WEB_COOK_PAGE_BYTES || event.decodedHash128.byteLength !== 16 || this.#creditsBlocks < 1 || this.#creditsBytes < event.bytes.byteLength) return false;

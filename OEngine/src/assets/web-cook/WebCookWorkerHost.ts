@@ -63,7 +63,11 @@ export class WebCookWorkerHost {
         const url = command.source.url;
         if (typeof url !== "string" || url.length === 0) throw new Error("OpenSource requires a URL source descriptor");
         await this.#coordinator.open(url);
-        this.#startCooking();
+        // Flush catalog metadata before starting any BIN/WASM work. The main
+        // thread can now inject camera/source priorities; the next task starts
+        // cooking only after those commands have crossed the Worker boundary.
+        this.#flushEvents();
+        setTimeout(() => this.#startCooking(), 0);
       } else if (command.type === "GrantOutputCredits") {
         this.#coordinator.grantOutputCredits(command.blockCount, command.bytes);
       } else if (command.type === "ReturnOutputCredits") {
@@ -117,7 +121,8 @@ export class WebCookWorkerHost {
       // send a copy instead of transferring the revision's buffer away.
       if (event.type === "RevisionOffered") {
         const descriptor = event.descriptor.slice(0);
-        this.#emit({ ...event, descriptor }, [descriptor]);
+        const sceneAssetIndices = event.sceneAssetIndices?.slice();
+        this.#emit({ ...event, descriptor, ...(sceneAssetIndices === undefined ? {} : { sceneAssetIndices }) }, [descriptor, ...(sceneAssetIndices === undefined ? [] : [sceneAssetIndices.buffer])]);
         continue;
       }
       if (event.type === "PageReady") { this.#emit(event, [event.bytes]); continue; }

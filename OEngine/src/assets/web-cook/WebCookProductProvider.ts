@@ -1,6 +1,7 @@
 import { decodeGeometryProductDescriptorBinaryV1 } from "../geometry-product/GeometryProductBinaryV1.js";
 import { decodeGeometryProductPageRecordV1, type GeometryPageProductV1, type GeometryProductProviderV1, type GeometryProductRevisionSourceV1 } from "../geometry-product/GeometryProductV1.js";
 import type { WebCookEvent } from "./protocol/CookSessionProtocol.js";
+import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
 
 export interface WebCookProductProviderOptions {
   readonly maxBufferedPages: number;
@@ -84,7 +85,18 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
       const descriptor = decodeGeometryProductDescriptorBinaryV1(event.descriptor);
       const key = productKey(descriptor.productId, descriptor.revision);
       if (this.#sources.has(key)) throw new Error("Web Cook offered a duplicate Product revision");
-      const source = new LiveWebCookRevisionSource(descriptor, this);
+      const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
+      if (event.sceneAssetIndices !== undefined &&
+          (event.sceneAssetIndices.length !== assetCount ||
+           new Set(event.sceneAssetIndices).size !== event.sceneAssetIndices.length ||
+           event.sceneAssetIndices.some(value => !Number.isInteger(value) || value < 0))) {
+        throw new Error("Web Cook revision sceneAssetIndices do not match its Product asset table");
+      }
+      const source = new LiveWebCookRevisionSource(
+        descriptor,
+        this,
+        event.sceneAssetIndices === undefined ? undefined : Object.freeze([...event.sceneAssetIndices])
+      );
       this.#sources.set(key, source);
       this.#offeredRevisions++;
       this.#revisions.push(source);
@@ -133,7 +145,11 @@ class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
   #released = false;
   #finished = false;
   #failure: unknown;
-  constructor(readonly descriptor: ReturnType<typeof decodeGeometryProductDescriptorBinaryV1>, readonly owner: WebCookProductProvider) {}
+  constructor(
+    readonly descriptor: ReturnType<typeof decodeGeometryProductDescriptorBinaryV1>,
+    readonly owner: WebCookProductProvider,
+    readonly sceneAssetIndices?: readonly number[]
+  ) {}
 
   async readPage(pageId: number, signal?: AbortSignal): Promise<GeometryPageProductV1> {
     decodeGeometryProductPageRecordV1(this.descriptor, pageId);

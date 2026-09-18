@@ -1,12 +1,17 @@
 import { buildGlbSceneCatalog, type GlbByteRange, type GlbCookPrimitive, type GlbSceneCatalog } from "../../loaders/gltf/streaming/GlbSceneCatalog.js";
 import { openGlbRangeSource, type GlbRangeReadableSource, type GlbRangeSourceOptions } from "../../loaders/gltf/streaming/GlbRangeSource.js";
 import { decodeGeometryProductDescriptorBinaryV1 } from "../geometry-product/GeometryProductBinaryV1.js";
+import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
 import { WebCookSessionProtocol, WEB_COOK_PAGE_BYTES, WEB_COOK_PROTOCOL_VERSION, type WebCookBudgets, type WebCookEvent, type WebCookRuntimeProfile } from "./protocol/CookSessionProtocol.js";
 
 export interface WebCookUnitContext {
   readonly source: GlbRangeReadableSource;
   readonly catalog: GlbSceneCatalog;
   readonly signal: AbortSignal;
+  /** Priority-selected units allowed to form the first complete Product cut. */
+  readonly bootstrapUnits?: readonly GlbCookPrimitive[];
+  /** Stable catalog indices matching bootstrapUnits. */
+  readonly bootstrapAssetIndices?: readonly number[];
   readRange(range: { readonly bufferIndex: number; readonly byteOffset: number; readonly byteLength: number }): Promise<ArrayBuffer>;
 }
 
@@ -21,6 +26,8 @@ export interface WebCookProductRevision {
   readonly productId: Uint8Array;
   readonly revision: number;
   readonly pageCount: number;
+  /** Catalog primitive indices represented by this revision's asset table. */
+  readonly sceneAssetIndices?: readonly number[];
   readPage(pageId: number): Promise<WebCookProductPage>;
   release(): void;
 }
@@ -55,6 +62,10 @@ export interface WebCookCoordinatorOptions {
   readonly cooker: WebRuntimeCooker;
   /** Invoked after each queued session event so the Worker can flush before awaiting output credit. */
   readonly onEvent?: () => void;
+  /** Number of priority-selected catalog units in the first Product cut. */
+  readonly bootstrapUnitCount?: number;
+  /** Optional source-byte cap for the first cut; the full refinement is separately bounded by the cooker. */
+  readonly bootstrapMaxSourceBytes?: number;
 }
 
 export interface WebCookCoordinatorEvidence {
@@ -65,6 +76,10 @@ export interface WebCookCoordinatorEvidence {
   readonly emittedPages: number;
   readonly sourceBytes: number;
   readonly peakUnitBytes: number;
+  readonly bootstrapUnits: number;
+  readonly bootstrapSourceBytes: number;
+  readonly refinementSourceBytes: number;
+  readonly firstRevisionMs?: number;
   readonly failure?: string;
 }
 
@@ -80,6 +95,11 @@ export class WebCookCoordinator {
   #emittedPages = 0;
   #peakUnitBytes = 0;
   #failure: string | undefined;
+  #bootstrapUnits = 0;
+  #bootstrapSourceBytes = 0;
+  #refinementSourceBytes = 0;
+  #firstRevisionAt: number | undefined;
+  #cookStartedAt = 0;
   readonly #sourcePriorities = new Map<string, { readonly score: number; readonly cameraHintRevision: number }>();
   readonly #liveRevisions: WebCookProductRevision[] = [];
   /** Revisions whose activation cut finished streaming; those pages re-emit. */
@@ -115,7 +135,7 @@ export class WebCookCoordinator {
         // any geometry page is copied out of the Worker.
         scenes: this.#catalog.scenes.slice(),
         instances: this.#catalog.instances.map(instance => ({ nodeIndex: instance.nodeIndex, meshIndex: instance.meshIndex, worldMatrix: Array.from(instance.worldMatrix) })),
-        primitives: this.#catalog.primitives.map(primitive => ({ nodeIndex: primitive.nodeIndex, instanceNodeIndices: primitive.instanceNodeIndices.slice(), meshIndex: primitive.meshIndex, primitiveIndex: primitive.primitiveIndex, materialIndex: primitive.materialIndex, material: primitive.material, attributeSemantics: Object.keys(primitive.attributes), vertexCount: primitive.vertexCount, triangleCount: primitive.triangleCount }))
+        primitives: this.#catalog.primitives.map((primitive, index) => ({ assetKey: primitiveKey(primitive), catalogIndex: index, nodeIndex: primitive.nodeIndex, instanceNodeIndices: primitive.instanceNodeIndices.slice(), meshIndex: primitive.meshIndex, primitiveIndex: primitive.primitiveIndex, materialIndex: primitive.materialIndex, material: primitive.material, attributeSemantics: Object.keys(primitive.attributes), vertexCount: primitive.vertexCount, triangleCount: primitive.triangleCount, boundsMin: primitive.boundsMin.slice(), boundsMax: primitive.boundsMax.slice(), boundsSphere: primitive.boundsSphere.slice() }))
       } }));
       this.#state = "cooking";
       return this.#catalog;
@@ -127,54 +147,69 @@ export class WebCookCoordinator {
 
   async cookBootstrap(): Promise<void> {
     if (this.#state !== "cooking") throw new Error(`WebCookCoordinator cannot cook from '${this.#state}'`);
+    this.#cookStartedAt = Date.now();
     try {
       const source = this.#source!, catalog = this.#catalog!;
-      const units = [...catalog.primitives].sort((left, right) => this.priorityFor(right) - this.priorityFor(left) || left.nodeIndex - right.nodeIndex || left.meshIndex - right.meshIndex || left.primitiveIndex - right.primitiveIndex);
+      const units = [...catalog.primitives].sort((left, right) => this.priorityFor(right) - this.priorityFor(left) || comparePrimitiveOrder(left, right));
+      const bootstrapUnits = this.selectBootstrapUnits(units);
+      const catalogIndex = new Map(catalog.primitives.map((unit, index) => [primitiveKey(unit), index]));
+      const bootstrapAssetIndices = bootstrapUnits.map(unit => catalogIndex.get(primitiveKey(unit))!);
+      this.#bootstrapUnits = bootstrapUnits.length;
+      this.#bootstrapSourceBytes = estimateSourceBytes(bootstrapUnits);
+      this.#refinementSourceBytes = estimateSourceBytes(units);
+      if (this.#options.bootstrapMaxSourceBytes !== undefined && this.#bootstrapSourceBytes > this.#options.bootstrapMaxSourceBytes) {
+        throw new Error(`visible-first bootstrap source exceeds bootstrapMaxSourceBytes=${this.#options.bootstrapMaxSourceBytes}`);
+      }
       const progressive = this.#options.cooker.cookProgressive;
       if (progressive) {
-        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
-        const estimated = units.reduce((sum, unit) => sum + unit.ranges.reduce((inner, range) => inner + range.byteLength, 0), 0);
-        this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
-        if (estimated > this.#options.budgets.maxWasmBytes) throw new Error(`cook source exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
+        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
+        this.#peakUnitBytes = Math.max(this.#peakUnitBytes, this.#bootstrapSourceBytes);
+        if (this.#bootstrapSourceBytes > this.#options.budgets.maxWasmBytes) throw new Error(`bootstrap cook source exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
         await progressive.call(this.#options.cooker, units, context, async (revision) => {
           this.validateRevision(revision);
           this.#liveRevisions.push(revision);
           const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
-          this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
+          this.#completedUnits = revision.revision === 0 ? bootstrapUnits.length : units.length;
+          if (this.#firstRevisionAt === undefined) this.#firstRevisionAt = Date.now() - this.#cookStartedAt;
+          this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
           for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
           this.markActivationStreamed(revision);
+          this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: {} }));
         }, (error) => {
           this.publish(this.header({ type: "RecoverableFailure", scope: "richer-product-revision", code: error.message, retryAfterMs: 0 }));
         });
-        this.#completedUnits = units.length;
-        this.publish(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
         this.#state = "complete";
         return;
       }
       const batchCooker = this.#options.cooker.cookBootstrapBatch;
       if (batchCooker) {
-        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
-        const estimated = units.reduce((sum, unit) => sum + unit.ranges.reduce((inner, range) => inner + range.byteLength, 0), 0);
+        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
+        const estimated = this.#bootstrapSourceBytes;
         this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
         if (estimated > this.#options.budgets.maxWasmBytes) throw new Error(`cook source exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
-        const revision = await batchCooker.call(this.#options.cooker, units, context);
+        const revision = await batchCooker.call(this.#options.cooker, bootstrapUnits, context);
         this.validateRevision(revision);
         this.#liveRevisions.push(revision);
         const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
-        this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
+        this.#completedUnits = bootstrapUnits.length;
+        this.#firstRevisionAt = Date.now() - this.#cookStartedAt;
+        this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
         for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
         this.markActivationStreamed(revision);
-        this.#completedUnits = units.length;
-        this.#session.emit(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
+        this.publish(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
         this.#state = "complete";
         return;
       }
-      const concurrency = Math.min(this.#options.budgets.maxConcurrentWorkers, units.length);
-      for (let begin = 0; begin < units.length; begin += concurrency) {
+      // A non-progressive producer is an explicit bootstrap-only fallback. It
+      // cannot safely publish one Product per unit because those revisions have
+      // no replacement/scene identity contract for a partial catalog.
+      if (units.length > bootstrapUnits.length) throw new Error("Web Cook producer must implement cookProgressive for multi-unit visible-first loading");
+      const concurrency = Math.min(this.#options.budgets.maxConcurrentWorkers, bootstrapUnits.length);
+      for (let begin = 0; begin < bootstrapUnits.length; begin += concurrency) {
         if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");
-        const batch = units.slice(begin, begin + concurrency);
+        const batch = bootstrapUnits.slice(begin, begin + concurrency);
         const cooked = await Promise.all(batch.map(async unit => {
-          const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
+          const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
           const estimated = unit.ranges.reduce((sum, range) => sum + range.byteLength, 0);
           this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
           if (estimated > this.#options.budgets.maxWasmBytes) throw new Error(`cook unit exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
@@ -185,7 +220,7 @@ export class WebCookCoordinator {
         for (const { revision, estimated } of cooked) {
           const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
           this.#liveRevisions.push(revision);
-          this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor }));
+          this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
           for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
           this.markActivationStreamed(revision);
           this.#completedUnits++;
@@ -234,19 +269,40 @@ export class WebCookCoordinator {
   drainEvents(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] { return this.#session.drain(maxEvents); }
   cancel(reason = new Error("Web Cook was cancelled")): void { if (this.#state === "disposed" || this.#state === "complete") return; this.#abort.abort(reason); this.#state = "cancelled"; for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.accept(this.header({ type: "CancelScope", scope: "session" })); }
   dispose(): void { if (this.#state === "disposed") return; this.#abort.abort(new Error("Web Cook session disposed")); for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#source?.release(); this.#source = undefined; this.#catalog = undefined; this.#state = "disposed"; this.#session.accept(this.header({ type: "DisposeSession" })); }
-  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
+  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, bootstrapUnits: this.#bootstrapUnits, bootstrapSourceBytes: this.#bootstrapSourceBytes, refinementSourceBytes: this.#refinementSourceBytes, ...(this.#firstRevisionAt === undefined ? {} : { firstRevisionMs: this.#firstRevisionAt }), ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
 
   private fail(error: unknown): void { this.#failure = error instanceof Error ? error.message : String(error); this.#state = this.#abort.signal.aborted ? "cancelled" : "failed"; for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.fail(this.#failure); this.#source?.release(); this.#source = undefined; }
   private validateRevision(revision: WebCookProductRevision): void {
     if (revision.productId.byteLength !== 32 || !Number.isInteger(revision.revision) || revision.revision < 0 || revision.revision === 0xffffffff || !Number.isInteger(revision.pageCount) || revision.pageCount <= 0) throw new Error("Web Cook revision identity/count is invalid");
     const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
     if (descriptor.revision !== revision.revision || !sameBytes(descriptor.productId, revision.productId) || descriptor.pageRecords.byteLength / 32 !== revision.pageCount) throw new Error("Web Cook descriptor and revision identity/count disagree");
+    if (revision.sceneAssetIndices !== undefined) {
+      const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
+      if (revision.sceneAssetIndices.length !== assetCount || new Set(revision.sceneAssetIndices).size !== assetCount || revision.sceneAssetIndices.some(index => !Number.isSafeInteger(index) || index < 0)) throw new Error("Web Cook revision sceneAssetIndices are invalid");
+    }
   }
   private priorityFor(unit: GlbCookPrimitive): number {
     const keys = [`${unit.nodeIndex}:${unit.meshIndex}:${unit.primitiveIndex}`, `${unit.meshIndex}:${unit.primitiveIndex}`, `${unit.nodeIndex}`];
     let score = 0;
     for (const key of keys) score = Math.max(score, this.#sourcePriorities.get(key)?.score ?? 0);
     return score;
+  }
+  private selectBootstrapUnits(units: readonly GlbCookPrimitive[]): readonly GlbCookPrimitive[] {
+    const configured = this.#options.bootstrapUnitCount ?? 1;
+    if (!Number.isSafeInteger(configured) || configured <= 0) throw new RangeError("bootstrapUnitCount must be a positive safe integer");
+    const selected: GlbCookPrimitive[] = [];
+    const maxBytes = this.#options.bootstrapMaxSourceBytes;
+    for (const unit of units) {
+      if (selected.length >= configured) break;
+      const nextBytes = estimateSourceBytes([...selected, unit]);
+      if (maxBytes !== undefined && nextBytes > maxBytes) {
+        if (selected.length === 0) throw new Error(`visible-first bootstrap source exceeds bootstrapMaxSourceBytes=${maxBytes}`);
+        break;
+      }
+      selected.push(unit);
+    }
+    if (selected.length === 0) throw new Error("Web Cook catalog contains no bootstrap unit");
+    return Object.freeze(selected);
   }
   private emitPage(revision: WebCookProductRevision, pageId: number): Promise<void> {
     // Activation streaming and RequestPages can both emit; serialize so credit
@@ -284,3 +340,11 @@ export class WebCookCoordinator {
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean { if (left.byteLength !== right.byteLength) return false; for (let index = 0; index < left.byteLength; index++) if (left[index] !== right[index]) return false; return true; }
 function revisionKey(productId: Uint8Array, revision: number): string { return `${Array.from(productId, (value) => value.toString(16).padStart(2, "0")).join("")}:${revision}`; }
+function estimateSourceBytes(units: readonly GlbCookPrimitive[]): number {
+  const ranges = new Map<string, GlbByteRange>();
+  for (const unit of units) for (const range of unit.ranges) ranges.set(`${range.bufferIndex}:${range.byteOffset}:${range.byteLength}`, range);
+  return [...ranges.values()].reduce((sum, range) => sum + range.byteLength, 0);
+}
+
+function primitiveKey(unit: GlbCookPrimitive): string { return `${unit.nodeIndex}:${unit.meshIndex}:${unit.primitiveIndex}`; }
+function comparePrimitiveOrder(left: GlbCookPrimitive, right: GlbCookPrimitive): number { return left.nodeIndex - right.nodeIndex || left.meshIndex - right.meshIndex || left.primitiveIndex - right.primitiveIndex; }

@@ -69,6 +69,8 @@ export interface GeometryPageProductV1 {
 
 export interface GeometryProductRevisionSourceV1 {
   readonly descriptor: GeometryProductDescriptorV1;
+  /** Optional source-scene asset mapping for bounded shard Products. */
+  readonly sceneAssetIndices?: readonly number[];
   readPage(pageId: number, signal?: AbortSignal): Promise<GeometryPageProductV1>;
   release(): void;
 }

@@ -30,6 +30,8 @@ export interface WasmGeometryProductRevisionV1 {
   readonly productId: Uint8Array;
   readonly revision: number;
   readonly pageCount: number;
+  /** Catalog primitive indices represented by this revision's asset table. */
+  readonly sceneAssetIndices?: readonly number[];
   readPage(pageId: number): Promise<GeometryPageProductV1>;
   release(): void;
 }
@@ -41,6 +43,7 @@ export interface WasmGeometryProductIdentifyInputV1 {
   readonly sourceIdentityHash: Uint8Array;
   readonly revision: number;
   readonly replaces?: Readonly<{ productId: Uint8Array; revision: number }>;
+  readonly sceneAssetIndices?: readonly number[];
 }
 
 /**
@@ -115,7 +118,7 @@ export async function cookWasmGeometryProductRevisionV1(
       vertexFormats: sections.vertexFormats
     });
     assertGeometryProductDescriptorV1(descriptor);
-    return new WasmGeometryProductRevision(result, descriptor);
+    return new WasmGeometryProductRevision(result, descriptor, options.sceneAssetIndices);
   } catch (error) {
     result.release();
     throw error;
@@ -127,14 +130,16 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
   readonly productId: Uint8Array;
   readonly revision: number;
   readonly pageCount: number;
+  readonly sceneAssetIndices?: readonly number[];
   #result: WebGeometryCookWasmResultV1 | undefined;
 
-  constructor(result: WebGeometryCookWasmResultV1, readonly product: GeometryProductDescriptorV1) {
+  constructor(result: WebGeometryCookWasmResultV1, readonly product: GeometryProductDescriptorV1, sceneAssetIndices?: readonly number[]) {
     this.#result = result;
     this.descriptor = encodeGeometryProductDescriptorBinaryV1(product);
     this.productId = product.productId.slice();
     this.revision = product.revision;
     this.pageCount = result.pageCount;
+    this.sceneAssetIndices = sceneAssetIndices === undefined ? undefined : Object.freeze([...sceneAssetIndices]);
   }
 
   async readPage(pageId: number): Promise<GeometryPageProductV1> {

@@ -9,28 +9,34 @@ import {
 } from "../geometry-product/VirtualGeometrySceneSourceV1.js";
 import type { WebCookSceneCatalogSnapshot } from "./WebCookClient.js";
 import type { VirtualGeometryGeometryProfile } from "../../gpu/GpuRenderWorld.js";
+import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
 
-export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1;
+export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1 & {
+  /** Catalog primitive indices represented by the Product asset table. */
+  readonly sceneAssetIndices?: readonly number[];
+};
 export type WebCookSceneSourceResult = VirtualGeometrySceneSourceResultV1;
 
 /**
  * Web Runtime Cooker producer adapter: maps a Cook catalog revision plus the
  * Product asset dictionary onto the producer-neutral Scene source builder.
  *
- * The Web cooker emits exactly one Product asset per canonical material domain
- * in the catalog's stable primitive order, so `assetIndex` addresses
- * `catalog.primitives[assetIndex]`. The adapter only reads the catalog snapshot
- * and the immutable descriptor tables; framing and instance records come from
- * the shared `VirtualGeometrySceneSourceV1` builder.
+ * The Web cooker emits one Product asset per canonical domain. A subset
+ * bootstrap carries an explicit catalog-index mapping; the mapping is metadata
+ * only and never changes the immutable Product binary ABI.
  */
 export function createWebCookSceneSource(
   catalog: WebCookSceneCatalogSnapshot,
   descriptor: Readonly<Pick<GeometryProductDescriptorV1, "assetRecords">>,
   options: WebCookSceneSourceOptions = {}
 ): WebCookSceneSourceResult {
-  const assetCount = descriptor.assetRecords.byteLength / 128;
-  if (assetCount === 0 || catalog.primitives.length !== assetCount) {
-    throw new Error("The Web Cook Product asset dictionary must match the GLB primitive order");
+  const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
+  if (assetCount === 0) throw new Error("The Web Cook Product asset dictionary must not be empty");
+  const catalogIndices = options.sceneAssetIndices === undefined
+    ? Array.from({ length: assetCount }, (_, index) => index)
+    : [...options.sceneAssetIndices];
+  if (catalogIndices.length !== assetCount || new Set(catalogIndices).size !== catalogIndices.length || catalogIndices.some(index => !Number.isSafeInteger(index) || index < 0 || index >= catalog.primitives.length)) {
+    throw new Error("The Web Cook Product sceneAssetIndices do not identify a unique catalog subset");
   }
   const instanceByNode = new Map(catalog.instances.map(item => [item.nodeIndex, item]));
   const materials: StandardShadeMaterial[] = [];
@@ -55,8 +61,8 @@ export function createWebCookSceneSource(
   };
   const profiles: VirtualGeometryGeometryProfile[] = [];
   const instances: VirtualGeometrySceneInstanceV1[] = [];
-  for (let assetIndex = 0; assetIndex < catalog.primitives.length; assetIndex++) {
-    const primitive = catalog.primitives[assetIndex]!;
+  for (let assetIndex = 0; assetIndex < assetCount; assetIndex++) {
+    const primitive = catalog.primitives[catalogIndices[assetIndex]!]!;
     const materialIndex = materialFor(primitive.materialIndex, primitive.material);
     profiles.push({
       hasAuthoredVertexColor: primitive.attributeSemantics.includes("COLOR_0"),

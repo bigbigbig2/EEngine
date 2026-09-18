@@ -628,7 +628,7 @@ const MAIN_HISTORY_REPRESENTATION_REVISION = 1;
  * manifest) that only exists once the revision is frozen.
  */
 export interface ProductSceneSourceMapper {
-  (revision: Readonly<{ residency: VirtualGeometryResidency; descriptor: GeometryProductDescriptorV1 }>): VirtualGeometrySceneSourceResultV1;
+  (revision: Readonly<{ residency: VirtualGeometryResidency; descriptor: GeometryProductDescriptorV1; source: GeometryProductRevisionSourceV1 }>): VirtualGeometrySceneSourceResultV1;
 }
 
 export interface ProductSceneOptions {
@@ -1115,7 +1115,7 @@ export class MainRenderPipeline {
         const residency = candidate.residency;
         const streaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, residency);
         try {
-          const mapped = mapSource({ residency, descriptor: residency.descriptor });
+          const mapped = mapSource({ residency, descriptor: residency.descriptor, source: candidate.source });
           options.onMaterials?.(mapped.materials);
           candidate.publishGpuRecord();
           firstHandle = await this.uploadVirtualGeometryScene(scene, mapped.source, residency, streaming, () => {
@@ -1199,7 +1199,7 @@ export class MainRenderPipeline {
     return this.uploadProductScene(scene, asset, (revision) => {
       const catalog = asset.catalog;
       if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
-      return createWebCookSceneSource(catalog, revision.descriptor, { fitHeight: options.fitHeight, fitBase: options.fitBase });
+      return createWebCookSceneSource(catalog, revision.descriptor, { fitHeight: options.fitHeight, fitBase: options.fitBase, sceneAssetIndices: revision.source.sceneAssetIndices });
     }, options);
   }
 
@@ -1232,7 +1232,7 @@ export class MainRenderPipeline {
     const nextResidency = next.residency;
     const oldRuntime = this._graphics.render_world.runtime(scene);
     if (!oldRuntime) throw new Error("Product replacement requires the old Scene publication");
-    const mapped = mapSource({ residency: nextResidency, descriptor: nextResidency.descriptor });
+    const mapped = mapSource({ residency: nextResidency, descriptor: nextResidency.descriptor, source: next.source });
     options.onMaterials?.(mapped.materials);
     const nextStreaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, nextResidency);
     const command = ShadeGPUCommandContext.create(this._graphics, "Renderer/GpuRenderWorld/residency-transaction");

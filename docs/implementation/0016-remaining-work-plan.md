@@ -59,6 +59,18 @@ Web GLB/glTF 与 Native OEGPACK 是两个 Producer，而不是两个 Renderer。
 
 退出：慢速/高 RTT 的多 asset GLB 中，首个 Product/像素先于非可见资产 Range/Cook 完成；同 source/recipe 的优先级变化不改变产品语义，改变并行度不破坏已声明确定性；巨大 primitive 峰值与 TTFMF 有记录；取消后无滞留 Range/WASM/output。通过 source/coalescing/protocol/identity targeted tests 和至少一个真实浏览器 visible-first case，报告 catalog、bootstrap、first meaningful frame 与各 owner peak。
 
+### S2 实现检查点（2026-09-19）
+
+Web 主路线现在会在启动 Cook 前发布 catalog metadata，按优先级选择有界的
+bootstrap unit 集合，按 unit 合并/获取 range，并把明确的
+`sceneAssetIndices` 元数据贯穿 Worker -> Product provider -> Scene mapper。
+Subset revision 仍是完整不可变 Product，后续 richer revision 通过原子
+replacement 替换。Nyx cooker 阶段没有删减。2026-09-19 的真实 Chrome 多 asset
+visible-first case 已通过；artifact 记录了 798 个 catalog primitive、首个
+bootstrap activation、revision 1 replacement 和 replacement 后 demand 像素。
+正式 milestone 仍需在干净提交上重跑，并补齐 source/WASM/output owner 峰值的
+统一报告。
+
 ### 第三步：补齐 glTF 来源、作者材质与 Texture Mode A 生产连接
 
 目标：默认产品支持声明范围内的 GLB、`.gltf` 外部资源和本地 File/Blob；材质/纹理不是“看得见三角形即可”，特别是 `MASK` 的最低可采样纹理表示与 geometry activation 同步。Mode A 只声明网络/上传渐进，不声明物理显存节省。

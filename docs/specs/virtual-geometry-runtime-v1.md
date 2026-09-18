@@ -181,6 +181,14 @@ readback 使用至少双缓冲的延迟 ring，不在生成该 feedback 的帧�
 
 descriptor 尚未 offer 时，Web Provider 以 source-local priority 工作；descriptor offer 后，稳定 PageID demand 可以提升其 cook unit。两类 priority 在 Provider 内汇合，但 CPU scheduler 不向 GPU 暴露尚不存在的 PageID。
 
+### Web source priority and catalog handshake
+
+Web source priority 是 descriptor 生成前的调度信号。它结合 bounds、依赖、
+camera hint 和 age 选择 catalog asset/shard；在 Product descriptor 存在之前，
+不得从 GPU Page demand 伪造该优先级。Worker 必须在启动 Cook 前 flush
+`SceneCatalogReady`，让主线程有机会注入初始 camera priority。未选中的 source
+range 不能成为首个 active bootstrap revision 的等待条件。
+
 ### I/O、Worker 与 upload
 
 - HTTP OEGPACK source 使用精确 `206 Content-Range`、identity content encoding 和精确长度；GLB source 的 Range fallback 由 Provider 处理。

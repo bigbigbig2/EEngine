@@ -173,6 +173,23 @@ four fixed page-bank bindings and therefore require an explicit
 `maxStorageBuffersPerShaderStage >= 14` capability request before admission;
 the residency now pre-allocates every bank the Product page table can reach.
 
+## 2026-09-19 Web S2 实现检查点
+
+Web source path 现在具备 catalog-first handshake 和有界 visible-first
+bootstrap 调度。`GlbSceneCatalog` 发布稳定 primitive key、保守 bounds 和
+catalog index；`WebCookWorkerHost` 在启动 Cook 前 flush 这些 metadata；
+`WebCookClient` 可以注入初始 source priority。`NyxWebRuntimeCooker` 仍执行
+完整 Nyx canonical 与 WASM cook 阶段，按 unit 的 range 合并只限制 source
+reader 的占用。`sceneAssetIndices` 作为 Web-only mapping metadata 校验并传输，
+`MainRenderPipeline` 映射 subset revision 时不会把它当成完整 catalog。
+DEV typecheck、test build、cooker/coordinator/provider/worker/admission targeted
+tests，以及双 primitive visible-first coordinator test 已通过。2026-09-19
+真实 Chrome 多 asset visible-first case 已通过：catalog 为 798 个 primitive，
+首个 bootstrap Product 先激活，随后 revision 1 通过 `replaces` 原子替换；首帧
+与 replacement 后 demand capture 均有有效像素，未观察到 recoverable Cook failure。
+浏览器 artifact 仍标记为 dirty diagnostic-only，不能替代干净提交上的正式
+milestone 证据。
+
 ## Mode A texture update
 
 TextureResidency now allocates the complete logical texture once, uploads a

@@ -18,6 +18,9 @@ export interface GlbCookAccessor {
   readonly componentCount: number;
   readonly count: number;
   readonly normalized: boolean;
+  /** Optional glTF accessor bounds, validated and only present for POSITION. */
+  readonly min?: readonly number[];
+  readonly max?: readonly number[];
 }
 
 export interface GlbCookMaterialDomain {
@@ -45,6 +48,10 @@ export interface GlbCookPrimitive {
   readonly indices?: GlbCookAccessor;
   readonly material: GlbCookMaterialDomain;
   readonly ranges: readonly GlbByteRange[];
+  /** Conservative local-space bounds copied from POSITION accessor min/max. */
+  readonly boundsMin: readonly [number, number, number];
+  readonly boundsMax: readonly [number, number, number];
+  readonly boundsSphere: readonly [number, number, number, number];
 }
 
 export interface GlbSceneCatalog {
@@ -131,7 +138,8 @@ export function buildGlbSceneCatalog(source: GlbRangeReadableSource): GlbSceneCa
       for (const accessor of Object.values(attributes)) addRange(ranges, accessor);
       if (indices) addRange(ranges, indices);
       const material = materialInfo(document.materials ?? [], primitive.material);
-      primitives.push(Object.freeze({ nodeIndex: instanceNodeIndices[0]!, instanceNodeIndices, meshIndex, primitiveIndex, materialIndex: material.materialIndex, mode, vertexCount: position.count, triangleCount: (indices?.count ?? position.count) / 3, attributes: Object.freeze(attributes) as GlbCookPrimitive["attributes"], ...(indices ? { indices } : {}), material, ranges: Object.freeze([...ranges.values()].sort(compareRange)) }));
+      const bounds = positionBounds(position, meshIndex, primitiveIndex);
+      primitives.push(Object.freeze({ nodeIndex: instanceNodeIndices[0]!, instanceNodeIndices, meshIndex, primitiveIndex, materialIndex: material.materialIndex, mode, vertexCount: position.count, triangleCount: (indices?.count ?? position.count) / 3, attributes: Object.freeze(attributes) as GlbCookPrimitive["attributes"], ...(indices ? { indices } : {}), material, ranges: Object.freeze([...ranges.values()].sort(compareRange)), ...bounds }));
     });
   }
   return Object.freeze({ schemaVersion: 1, sourceIdentityHash: source.sourceIdentity.hash, scenes: Object.freeze(sceneRoots), primitives: Object.freeze(primitives.sort((a, b) => a.nodeIndex - b.nodeIndex || a.meshIndex - b.meshIndex || a.primitiveIndex - b.primitiveIndex)), instances: Object.freeze([...instanceByNode.values()].sort((a, b) => a.nodeIndex - b.nodeIndex)), sourceBytes: source.byteLength });
@@ -140,7 +148,7 @@ export function buildGlbSceneCatalog(source: GlbRangeReadableSource): GlbSceneCa
 interface GltfCatalogDocument { buffers?: GltfBuffer[]; bufferViews?: GltfBufferView[]; accessors?: GltfAccessor[]; nodes?: GltfNode[]; meshes?: GltfMesh[]; scenes?: GltfScene[]; materials?: GltfMaterial[] }
 interface GltfBuffer { byteLength?: unknown; uri?: unknown }
 interface GltfBufferView { buffer?: unknown; byteOffset?: unknown; byteLength?: unknown; byteStride?: unknown }
-interface GltfAccessor { bufferView?: unknown; byteOffset?: unknown; componentType?: unknown; count?: unknown; type?: unknown; normalized?: unknown; sparse?: unknown }
+interface GltfAccessor { bufferView?: unknown; byteOffset?: unknown; componentType?: unknown; count?: unknown; type?: unknown; normalized?: unknown; sparse?: unknown; min?: unknown; max?: unknown }
 interface GltfNode { mesh?: number; skin?: number; children?: number[]; matrix?: unknown; translation?: unknown; rotation?: unknown; scale?: unknown }
 interface GltfMesh { primitives: GltfPrimitive[] }
 interface GltfPrimitive { attributes: Record<string, number>; indices?: number; material?: number; mode?: number; targets?: unknown[]; extensions?: { KHR_draco_mesh_compression?: unknown } }
@@ -167,7 +175,31 @@ function accessorInfo(accessors: readonly GltfAccessor[], views: readonly GltfBu
   const byteLength = (accessor.count as number) === 0 ? 0 : ((accessor.count as number) - 1) * stride + elementBytes;
   if (!Number.isSafeInteger(offset) || !Number.isSafeInteger(byteLength) || offset < 0 || accessorOffset < 0 || offset % componentBytes !== 0 || accessorOffset + byteLength > (view.byteLength as number) || offset + byteLength > (buffer.byteLength as number)) throw new Error(`GLB accessor ${index} range exceeds its bufferView or violates component alignment`);
   if (accessor.normalized !== undefined && typeof accessor.normalized !== "boolean") throw new Error(`GLB accessor ${index} normalized is not boolean`);
-  return Object.freeze({ accessorIndex: index, count: accessor.count as number, componentCount, componentType: accessor.componentType as GlbCookAccessor["componentType"], normalized: accessor.normalized === true, byteStride: stride, bufferIndex: view.buffer as number, byteOffset: offset, byteLength });
+  const min = accessor.min === undefined ? undefined : finiteBounds(accessor.min, componentCount, `GLB accessor ${index} min`);
+  const max = accessor.max === undefined ? undefined : finiteBounds(accessor.max, componentCount, `GLB accessor ${index} max`);
+  if ((min === undefined) !== (max === undefined)) throw new Error(`GLB accessor ${index} must provide both min and max bounds`);
+  if (min !== undefined && max !== undefined && min.some((value, axis) => value > max[axis]!)) throw new Error(`GLB accessor ${index} bounds are inverted`);
+  return Object.freeze({ accessorIndex: index, count: accessor.count as number, componentCount, componentType: accessor.componentType as GlbCookAccessor["componentType"], normalized: accessor.normalized === true, byteStride: stride, bufferIndex: view.buffer as number, byteOffset: offset, byteLength, ...(min === undefined ? {} : { min, max }) });
+}
+
+function finiteBounds(value: unknown, count: number, label: string): readonly number[] {
+  if (!Array.isArray(value) || value.length !== count || value.some(item => typeof item !== "number" || !Number.isFinite(item))) throw new Error(`${label} must contain ${count} finite numbers`);
+  return Object.freeze(value.slice()) as readonly number[];
+}
+
+function positionBounds(accessor: GlbCookAccessor, meshIndex: number, primitiveIndex: number): Pick<GlbCookPrimitive, "boundsMin" | "boundsMax" | "boundsSphere"> {
+  // glTF allows POSITION min/max to be omitted. Keep planning conservative in
+  // that case; the cooker still derives the authoritative Product bounds from
+  // the canonical POSITION stream.
+  if (accessor.min === undefined || accessor.max === undefined || accessor.min.length !== 3 || accessor.max.length !== 3) {
+    const extent = Number.MAX_VALUE / 4;
+    return Object.freeze({ boundsMin: Object.freeze([-extent, -extent, -extent] as const), boundsMax: Object.freeze([extent, extent, extent] as const), boundsSphere: Object.freeze([0, 0, 0, extent * Math.sqrt(3)] as const) });
+  }
+  const min = [accessor.min[0]!, accessor.min[1]!, accessor.min[2]!] as const;
+  const max = [accessor.max[0]!, accessor.max[1]!, accessor.max[2]!] as const;
+  const center: [number, number, number] = [(min[0] + max[0]) * 0.5, (min[1] + max[1]) * 0.5, (min[2] + max[2]) * 0.5];
+  const radius = Math.hypot(max[0] - center[0], max[1] - center[1], max[2] - center[2]);
+  return Object.freeze({ boundsMin: Object.freeze(min), boundsMax: Object.freeze(max), boundsSphere: Object.freeze([center[0], center[1], center[2], radius] as const) });
 }
 
 function requireAttributeShape(accessor: GlbCookAccessor, components: number, semantic: string, mesh: number, primitive: number, count = accessor.count): void { if (accessor.componentCount !== components || accessor.count !== count) throw new Error(`GLB primitive ${mesh}:${primitive} ${semantic} shape/count is invalid`); }

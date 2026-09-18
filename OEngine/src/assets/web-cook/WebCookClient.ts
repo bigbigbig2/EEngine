@@ -23,6 +23,8 @@ export interface WebCookSceneCatalogSnapshot {
     readonly worldMatrix: readonly number[];
   }[];
   readonly primitives: readonly {
+    readonly assetKey: string;
+    readonly catalogIndex: number;
     readonly nodeIndex: number;
     readonly instanceNodeIndices: readonly number[];
     readonly meshIndex: number;
@@ -32,6 +34,9 @@ export interface WebCookSceneCatalogSnapshot {
     readonly attributeSemantics: readonly string[];
     readonly vertexCount: number;
     readonly triangleCount: number;
+    readonly boundsMin: readonly number[];
+    readonly boundsMax: readonly number[];
+    readonly boundsSphere: readonly number[];
   }[];
 }
 
@@ -51,6 +56,8 @@ export interface WebCookClientOptions {
   readonly ledger?: WebCookBudgetLedger;
   /** Admission priority used when the ledger is saturated. */
   readonly priority?: number;
+  /** Applied immediately after catalog metadata arrives, before BIN cooking. */
+  readonly initialSourcePriorities?: readonly { readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number }[];
 }
 
 export interface WebCookClientEvidence {
@@ -62,6 +69,7 @@ export interface WebCookClientEvidence {
   readonly catalogReady: boolean;
   readonly progressEvents: number;
   readonly recoverableFailures: number;
+  readonly recoverableFailureCodes: readonly string[];
   readonly budget?: WebCookBudgetEvidence;
 }
 
@@ -81,6 +89,7 @@ export class WebCookClient implements GeometryProductProviderV1 {
   #catalog: WebCookSceneCatalogSnapshot | undefined;
   #progressEvents = 0;
   #recoverableFailures = 0;
+  readonly #recoverableFailureCodes: string[] = [];
   readonly #admission = new AbortController();
   #lease: WebCookBudgetLease | undefined;
   #reservedOutputBytes = 0;
@@ -100,10 +109,11 @@ export class WebCookClient implements GeometryProductProviderV1 {
       returnOutputCredits: (blockCount, bytes) => this.#returnOutputCredits(blockCount, bytes),
       onSceneCatalogReady: catalog => {
         this.#catalog = catalog as unknown as WebCookSceneCatalogSnapshot;
+        for (const priority of this.#options.initialSourcePriorities ?? []) this.setSourcePriority(priority.assetKey, priority.score, priority.cameraHintRevision);
         this.#options.onSceneCatalogReady?.(this.#catalog);
       },
       onProgress: () => { this.#progressEvents++; },
-      onRecoverableFailure: () => { this.#recoverableFailures++; },
+      onRecoverableFailure: failure => { this.#recoverableFailures++; this.#recoverableFailureCodes.push(`${failure.scope}:${failure.code}`); },
       requestPage: (productId, revision, pageId) => this.requestPages(productId, revision, new Uint32Array([pageId]), 0)
     });
   }
@@ -209,6 +219,7 @@ export class WebCookClient implements GeometryProductProviderV1 {
       catalogReady: this.#catalog !== undefined,
       progressEvents: this.#progressEvents,
       recoverableFailures: this.#recoverableFailures,
+      recoverableFailureCodes: Object.freeze(this.#recoverableFailureCodes.slice()),
       ...(this.#options.ledger === undefined ? {} : { budget: this.#options.ledger.evidence() })
     });
   }
@@ -265,4 +276,7 @@ function validateOptions(options: WebCookClientOptions): void {
   for (const [name, value] of Object.entries(options.budgets ?? {})) if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
   if (!Number.isInteger(options.initialOutputPageCredits) || options.initialOutputPageCredits <= 0) throw new RangeError("initialOutputPageCredits must be positive");
   if (options.initialOutputPageCredits > options.budgets.maxQueuedEvents || options.initialOutputPageCredits * WEB_COOK_PAGE_BYTES > options.budgets.maxOutputBytes) throw new RangeError("initial output credits exceed the session budget");
+  for (const priority of options.initialSourcePriorities ?? []) {
+    if (!priority.assetKey || !Number.isFinite(priority.score) || !Number.isInteger(priority.cameraHintRevision) || priority.cameraHintRevision < 0) throw new RangeError("initial source priority is invalid");
+  }
 }

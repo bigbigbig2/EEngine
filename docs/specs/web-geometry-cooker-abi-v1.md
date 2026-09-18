@@ -117,6 +117,25 @@ Page record 布局严格复用 `Geometry Product V1`：decoded SHA-256 前 16 by
 
 该表只覆盖 S2 producer。`GeometryStreaming`、`DAGCull` 和 `VBufferMesh` 的 request/fallback/GPU consumer 映射仍由 Virtual Geometry Runtime 切片交付，不能由本 ABI 的存在推断完成。
 
+## Visible-first source scheduling
+
+`SceneCatalogReady` 必须在 JSON/catalog 校验完成后、任何选中 BIN range
+canonicalize 之前发出。catalog primitive entry 携带稳定的 `assetKey`、catalog
+index、保守 POSITION bounds 和 source ranges。`SetSourcePriority(assetKey,
+score, cameraHintRevision)` 只影响 source unit 的排序；它不是 GPU Page
+demand，也不能引用尚未 offer 的 descriptor。
+
+首个 revision 由有界的 selected unit/shard 集合生成。Range 合并和
+canonicalize 完成一个 unit 后必须释放该 unit 的 source reader，再获取下一个
+unit。非 progressive producer 只能明确发布 bootstrap-only cut；多 unit Web
+主路线必须实现 `cookProgressive`，不能在没有 `replaces`/Scene mapping 合同
+时发布互相独立的局部 Product。Nyx 的 meshlet、Group、seam/attribute-lock、
+simplify/refine/error、hierarchy 和 Page 阶段保持不变，变化只限于 Worker、
+range 与 WASM 的任务编排。
+
+`RevisionOffered.sceneAssetIndices` 与 descriptor 一起传输，并按 descriptor
+asset count 校验；它不能编码进 Product 二进制 section。
+
 ## Failure and lifecycle
 
 - canonical corruption、非 finite 数据、非法 material/attribute flags、越界 index、recipe mismatch、预算不足或 Nyx validation failure：返回失败，不产生 handle/page/descriptor。

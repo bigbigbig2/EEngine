@@ -1,14 +1,14 @@
 import {
   DirectionalLight,
-  GeometryPageStreamingRuntimeV1,
-  GeometryProductAdmissionController,
   OrbitControls,
   PerspectiveCamera,
   Renderer,
   Scene,
   createDefaultWebCookWorker,
-  createWebCookSceneSource,
   load_gltf_web_product,
+  type GeometryPageStreamingRuntimeV1,
+  type GeometryProductAdmissionController,
+  type ProductSceneHandles,
   type VirtualGeometryResidency,
   type WebCookRuntimeAsset,
   type VirtualGeometrySceneSource
@@ -45,6 +45,7 @@ let scene: Scene | undefined;
 let camera: PerspectiveCamera | undefined;
 let controls: OrbitControls | undefined;
 let asset: WebCookRuntimeAsset | undefined;
+let productHandles: ProductSceneHandles | undefined;
 let admission: GeometryProductAdmissionController | undefined;
 let streaming: GeometryPageStreamingRuntimeV1 | undefined;
 let residency: VirtualGeometryResidency | undefined;
@@ -138,24 +139,16 @@ async function loadModel(): Promise<void> {
       maxBufferedPages: 32,
       maxBufferedBytes: 32 * 262144
     });
-    admission = new GeometryProductAdmissionController(renderer!.device);
     setStatus("reading GLB JSON and cooking Nyx Product...");
-    // The live CookSession stays open for refinement, so admission streams
-    // revisions instead of resolving once. React to the first active revision
-    // instead of awaiting the whole session.
-    const admitted = admission.consume(asset, loadAbort.signal);
-    admitted.catch(() => undefined);
-    await waitForActiveRevision(admission, loadAbort.signal);
-    if (ticket !== operation || loadAbort.signal.aborted) return;
-    const catalog = asset.catalog;
-    const transaction = admission.active;
-    if (!catalog || !transaction || transaction.state !== "active") throw new Error(admission.evidence().lastRejection ?? "No active Web Product revision was admitted");
     scene = new Scene();
-    const product = transaction.residency;
-    const sceneSource = createWebCookSceneSource(catalog, product.descriptor).source;
-    streaming = new GeometryPageStreamingRuntimeV1(renderer!.device, product);
-    residency = product;
-    await renderer!.uploadVirtualGeometryScene(scene, sceneSource, product, streaming);
+    // Use the unified Product owner so bootstrap subset publication and richer
+    // replacement both update Scene/GPU/Sparse-Shading atomically.
+    productHandles = await renderer!.uploadWebCookedScene(scene, asset, { signal: loadAbort.signal });
+    admission = productHandles.admission;
+    streaming = productHandles.streaming ?? undefined;
+    residency = productHandles.residency;
+    const sceneSource = productHandles.source;
+    if (ticket !== operation || loadAbort.signal.aborted) return;
     camera = new PerspectiveCamera();
     camera.near = 0.01;
     camera.transform.position.set(0, 0, 3);
@@ -192,6 +185,7 @@ async function releaseModel(): Promise<void> {
   if (renderer && scene) await renderer.releaseVirtualGeometryScene(scene).catch(() => undefined);
   scene = undefined; camera = undefined;
   streaming?.destroy(); streaming = undefined; residency = undefined; sceneBounds = undefined;
+  productHandles = undefined;
   if (admission?.active) { admission.retireActive(); admission.retireReplaced(); }
   admission = undefined;
   asset?.dispose(); asset = undefined;
@@ -275,6 +269,23 @@ async function runValidation(): Promise<void> {
     });
     if (litPixels < 64) throw new Error(`Web GLB Product shaded too few lit pixels (${litPixels}/${region * region})`);
 
+    // The first frame is intentionally allowed to come from the bounded
+    // bootstrap subset. Wait for the richer immutable replacement before the
+    // legacy demand/ancestor checks so those checks do not mistake an
+    // intentionally partial bootstrap for a lost page.
+    if (asset !== undefined) {
+      const refinementDeadline = performance.now() + 60000;
+      while ((admission?.evidence().replacements ?? 0) < 1 && performance.now() < refinementDeadline) await nextFrame();
+      controller.addEvidence("cook", asset.evidence());
+      controller.addEvidence("admission-after-refinement", admission?.evidence() ?? null);
+      if ((admission?.evidence().replacements ?? 0) < 1) throw new Error("Web GLB Product richer replacement was not activated within the validation window");
+      // ProductSceneHandles exposes live getters. Refresh the local aliases
+      // only after the atomic replacement has committed so demand targets the
+      // active revision rather than the retired bootstrap runtime.
+      streaming = productHandles?.streaming ?? undefined;
+      residency = productHandles?.residency;
+    }
+
     // S4 demand evidence. Move the camera close so the traversal wants finer
     // LODs than the resident activation cut, then prove the GPU demand reaches
     // the delayed scheduler, refines residency, and keeps an ancestor visible.
@@ -318,6 +329,7 @@ async function runValidation(): Promise<void> {
       if (luminance > 0.02) demandLitPixels++;
     }
     controller.addEvidence("demandCoverage", { region, litPixels: demandLitPixels, sampledPixels: region * region });
+    controller.addEvidence("cook-final", asset?.evidence() ?? null);
     if (demandLitPixels < 64) throw new Error(`ancestor fallback lost the scene during demand (${demandLitPixels} lit pixels)`);
 
     controller.transition("draining");

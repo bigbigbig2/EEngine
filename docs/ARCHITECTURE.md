@@ -50,6 +50,16 @@ Runtime Asset 是设备无关事实；GPU owner 由 Renderer/device 生命周期
 ## 不属于本页
 
 二进制字段偏移和状态机写入 spec；活跃切片和退出条件写入 implementation；完成度和风险写入 STATUS；算法来源写入 porting ledger。
+## Web visible-first 调度检查点（2026-09-19）
+
+Web Runtime Cooker 现在把 catalog ready 与 source cooking 分开。Worker 在启动
+Cook 前 flush catalog，让 camera/source priority 能选择有界 bootstrap unit。
+catalog entry 暴露稳定 asset key 和保守 bounds。按 unit 的 range 合并会在
+canonicalize 后释放 source reader，未选 asset 不再是首个 cut 的隐含依赖。
+Subset Product 携带经过校验的 `sceneAssetIndices`，统一 Scene mapper 只为
+当前 revision 构建实例。完整 refinement 是带 `replaces` 的新不可变 Product，
+不是原地追加 DAG。这里是 S2 实现检查点，不是浏览器 milestone 证据。
+
 ## Product Runtime Status (2026-09-18)
 
 Geometry Product V1 now has a live internal consumer in the unified GPU path:
