@@ -275,14 +275,17 @@ async function runValidation(): Promise<void> {
     }
 
     // Source failure must surface unchanged instead of silently changing quality.
+    // The probe points at a served but invalid pack so the failure is a format
+    // rejection, not a browser network error.
     let failure = "none";
     try {
-      await load_oegpack_product({ kind: "http-range", url: "/assets/oengine/offline-product-a/missing.oegpack" });
+      await load_oegpack_product({ kind: "http-range", url: "/assets/oengine/offline-product-a/scene.oescene" });
     } catch (error) {
       failure = error instanceof Error ? error.message : String(error);
     }
     controller.addEvidence("sourceFailure", { failure });
     if (failure === "none") throw new Error("Offline source failure was silently accepted");
+    if (!/magic/iu.test(failure)) throw new Error(`Offline source failure did not report the pack format: ${failure}`);
 
     // Replacement: publish the second pre-cooked Product over the first one.
     urlInput.value = PRODUCT_B_MANIFEST;
