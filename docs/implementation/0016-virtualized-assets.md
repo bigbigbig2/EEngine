@@ -372,7 +372,7 @@ reported as capability errors; they never silently enter the V2 path.
 
 | Nyx source function / entry | Current production implementation | Retained semantics | WebGPU/runtime difference | Evidence in this cut |
 | --- | --- | --- | --- | --- |
-| `MeshletBuilder::Build`, `BuildLOD0Meshlets`, `BuildMeshletsFromIndices`, `GeneratePositionRemap`, `GroupMeshlets`, `BuildVertexLocksByGroups`, `SimplifyGroup`, `SerializeGroup`, `BuildStreamingData`, `BuildHierarchy`, `ValidateBuild` | `NyxWebRuntimeCooker.cookBootstrapBatch` -> `canonicalizeGlbPrimitiveV1` -> pinned Emscripten cooker -> `GeometryProductDescriptorV1` | Canonical domain identity, attribute-aware input, meshlet/group/LOD/refine/error/hierarchy/page stages and immutable activation cut remain in the WASM producer; mixed material domains are rejected rather than merged incorrectly | JS performs bounded Range reads; WASM owns cook memory; Product bytes use OEngine little-endian V3 decoded pages instead of Nyx DX12 memory layout | `nyx-web-runtime-cooker.test.mjs`, `glb-primitive-canonicalizer.test.mjs`, Product validator |
+| `MeshletBuilder::Build`, `BuildLOD0Meshlets`, `BuildMeshletsFromIndices`, `GeneratePositionRemap`, `GroupMeshlets`, `BuildVertexLocksByGroups`, `SimplifyGroup`, `SerializeGroup`, `BuildStreamingData`, `BuildHierarchy`, `ValidateBuild` | `NyxWebRuntimeCooker.cookBootstrapBatch` -> `canonicalizeGlbPrimitiveV1` -> pinned Emscripten cooker -> `GeometryProductDescriptorV1` | Canonical domain identity, attribute-aware input, meshlet/group/LOD/refine/error/hierarchy/page stages and immutable activation cut remain in the WASM producer; each canonical material domain becomes an independent Product asset (asset index == domain index == catalog primitive index), so different mesh/material primitives stay independently addressable and are never merged | JS performs bounded Range reads; WASM owns cook memory; Product bytes use OEngine little-endian V3 decoded pages instead of Nyx DX12 memory layout | `nyx-web-runtime-cooker.test.mjs`, `glb-primitive-canonicalizer.test.mjs`, Product validator |
 | `GeometryStreaming::Initialize`, `PinRootPages`, `Update`, `SyncMemoryAndAddressTable`, `EnqueueAsyncLoad`, `OnPageIOComplete`, `ImmediateEvict` | `GeometryProductAdmissionController`, `VirtualGeometryResidency`, `GeometryPageStreamingRuntimeV1`, `GeometryPageSchedulerV1` | Complete activation/bootstrap pin, delayed demand, bounded retry/upload, hash validation, generation checks, revoke-before-slot-reuse and ancestor fallback are preserved | WebGPU uses rotating MAP_READ readback rings and bank/slot buffers; retirement waits on a submission completion token | `geometry-product-admission.test.mjs`, `geometry-page-scheduler.test.mjs`, `geometry-page-streaming-runtime.test.mjs`; browser evidence pending |
 | `DAGCull::ProcessNodeBatch`, `ProcessMeshletBatch`, `computeMain` | `hierarchical_work_generation.ts`, `virtual_geometry_work.ts`, `PackedVisibilityPass` | GPU root seeding, hierarchy wavefront, frustum/HZB/SSE decisions, resident check, coarse fallback, refinement demand and bounded indirect reservation remain GPU-produced | WGSL replaces Slang wave intrinsics with existing work queues and explicit Product generation/page-location ABI | existing virtual geometry ABI/oracle cases; real GLB browser readback pending |
 | `VBufferMesh::BuildVertexOutput`, `meshMain`, `pixelMain` | `MeshletBucketRaster` Product decode path plus `VisibilityKey` and sparse shading consumers | Page-local vertex pulling, meshlet-local primitive identity and VisibilityKey material routing are consumed by the existing raster/shading path | WebGPU uses indirect indexed raster buckets instead of DX12 mesh shader dispatch; no second renderer is introduced | `virtual-product-production` synthetic Product case; real GLB screenshot/console evidence pending |
@@ -382,9 +382,12 @@ reported as capability errors; they never silently enter the V2 path.
 (`run:glb-web-product`) that also keeps its manual UI. It uses the real
 Worker/WASM cooker, the common Product admission/residency and
 `MainRenderPipeline`; it does not create a second renderer or a hand-authored
-triangle. The current revision reaches a complete single-asset bootstrap
-Product and passes in Chrome. Multi-material/multi-primitive mapping, richer
-revisions and demand feedback remain open.
+triangle. The current revision reaches a complete bootstrap Product and passes
+in Chrome for a single primitive. Multi-material/multi-mesh asset mapping is
+implemented in the cooker and scene publication, but the checked-in Emscripten
+artifact predates that C++ change and must be rebuilt with Emscripten SDK 6.0.9
+before the multi-asset Web path is active; richer revisions and demand feedback
+remain open.
 
 ## Slice dependency 与并行边界
 

@@ -95,6 +95,54 @@ std::vector<std::uint8_t> CanonicalCube() {
     return bytes;
 }
 
+std::vector<std::uint8_t> CanonicalTwoDomains() {
+    constexpr std::array<std::array<float, 3>, 8> positions = {{
+        {{-1.0f,-1.0f,-1.0f}}, {{1.0f,-1.0f,-1.0f}},
+        {{1.0f,1.0f,-1.0f}}, {{-1.0f,1.0f,-1.0f}},
+        {{-1.0f,-1.0f,1.0f}}, {{1.0f,-1.0f,1.0f}},
+        {{1.0f,1.0f,1.0f}}, {{-1.0f,1.0f,1.0f}}
+    }};
+    constexpr std::array<std::uint32_t, 36> indices = {{
+        0,2,1, 0,3,2, 4,5,6, 4,6,7, 0,1,5, 0,5,4,
+        1,2,6, 1,6,5, 2,3,7, 2,7,6, 3,0,4, 3,4,7
+    }};
+    constexpr std::size_t domainCount = 2u;
+    constexpr std::size_t domainVertexCount = positions.size();
+    constexpr std::size_t domainIndexCount = indices.size();
+    constexpr std::size_t vertexCount = domainVertexCount * domainCount;
+    constexpr std::size_t indexCount = domainIndexCount * domainCount;
+    constexpr std::size_t domainOffset = 128u;
+    constexpr std::size_t vertexOffset = AlignUp(domainOffset + domainCount * 32u, 16u);
+    constexpr std::size_t indexOffset = AlignUp(vertexOffset + vertexCount * 72u, 16u);
+    constexpr std::size_t totalBytes = AlignUp(indexOffset + indexCount * 4u, 16u);
+    std::vector<std::uint8_t> bytes(totalBytes, 0u);
+    const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
+    std::copy(magic, magic + 8u, bytes.begin());
+    U32(bytes, 8u, 1u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 20u, domainCount); U32(bytes, 24u, vertexCount); U32(bytes, 28u, indexCount);
+    U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
+    U32(bytes, 44u, 72u); U32(bytes, 48u, 32u);
+    for (std::size_t domain = 0u; domain < domainCount; ++domain) {
+        const std::size_t at = domainOffset + domain * 32u;
+        U32(bytes, at, std::uint32_t(7u + domain));
+        U32(bytes, at + 4u, kMeshletOpaque | kMeshletCastsShadow);
+        U16(bytes, at + 8u, kAttributePosition);
+        U16(bytes, at + 10u, 1u);
+        U32(bytes, at + 12u, std::uint32_t(domain * domainVertexCount));
+        U32(bytes, at + 16u, std::uint32_t(domainVertexCount));
+        U32(bytes, at + 20u, std::uint32_t(domain * domainIndexCount));
+        U32(bytes, at + 24u, std::uint32_t(domainIndexCount));
+        for (std::size_t vertex = 0u; vertex < domainVertexCount; ++vertex) {
+            const std::size_t target = vertexOffset + (domain * domainVertexCount + vertex) * 72u;
+            for (std::size_t axis = 0u; axis < 3u; ++axis) F32(bytes, target + axis * 4u, positions[vertex][axis] + float(domain) * 4.0f);
+            F32(bytes, target + 24u, 1.0f); F32(bytes, target + 36u, 1.0f);
+            for (std::size_t channel = 0u; channel < 4u; ++channel) F32(bytes, target + 56u + channel * 4u, 1.0f);
+        }
+        for (std::size_t index = 0u; index < domainIndexCount; ++index) U32(bytes, indexOffset + (domain * domainIndexCount + index) * 4u, indices[index]);
+    }
+    return bytes;
+}
+
 std::string LastError() {
     const std::size_t size = oengine_web_geometry_cook_last_error_size();
     std::string value(size, '\0');
@@ -163,6 +211,17 @@ int main() {
         assert(Section(first, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, page) ==
                Section(second, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, page));
     }
+
+    // The Web profile emits one Product asset per canonical material domain so
+    // a GLB mesh's primitives stay independently addressable by instance.
+    const std::vector<std::uint8_t> twoDomains = CanonicalTwoDomains();
+    const std::uintptr_t multi = oengine_web_geometry_cook(
+        twoDomains.data(), twoDomains.size(), recipe.data(), recipe.size(),
+        8u * 1024u * 1024u);
+    if (!multi) throw std::runtime_error(LastError());
+    assert(Section(multi, OENGINE_WEB_COOK_SECTION_ASSET_RECORDS).size() == 256u);
+    assert(Section(multi, OENGINE_WEB_COOK_SECTION_ROOT_NODE_IDS).size() >= 8u);
+    oengine_web_geometry_cook_destroy(multi);
 
     std::vector<std::uint8_t> corrupt = canonical;
     U32(corrupt, 16u, std::uint32_t(corrupt.size() - 16u));

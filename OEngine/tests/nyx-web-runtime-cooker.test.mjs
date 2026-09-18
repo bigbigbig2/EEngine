@@ -17,13 +17,14 @@ function productSections() {
 }
 
 function fakeModule(sections) {
-  const heap = new Uint8Array(8 * 1024 * 1024); let next = 1024;
+  const heap = new Uint8Array(8 * 1024 * 1024); let next = 1024; let canonicalInput = null;
   return {
     HEAPU8: heap,
+    get canonicalInput() { return canonicalInput; },
     _malloc(bytes) { const at = next; next += bytes; return at; },
     _free() {},
     _oengine_web_geometry_cook_abi_version() { return 1; },
-    _oengine_web_geometry_cook() { return 1; },
+    _oengine_web_geometry_cook(address, bytes) { canonicalInput = heap.slice(address, address + bytes); return 1; },
     _oengine_web_geometry_cook_destroy() {},
     _oengine_web_geometry_cook_page_count() { return 1; },
     _oengine_web_geometry_cook_section_size(_handle, section, index) { return section === 9 ? (index === 0 ? sections.page.byteLength : 0) : (sections[section]?.byteLength ?? 0); },
@@ -54,13 +55,20 @@ test("Nyx Web Runtime Cooker assembles an immutable revision and validates trans
   await assert.rejects(() => revision.readPage(0), /released/i);
 });
 
-test("Nyx Web Runtime Cooker batches same-material GLB domains and rejects mixed domains", async () => {
+test("Nyx Web Runtime Cooker emits one asset per GLB domain in the catalog's stable order", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();
-  const cooker = new NyxWebRuntimeCooker(fakeModule(sections), { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
-  const second = { ...unit, nodeIndex: 1, instanceNodeIndices: [1] };
-  const revision = await cooker.cookBootstrapBatch([unit, second], cookContext);
+  const module = fakeModule(sections);
+  const cooker = new NyxWebRuntimeCooker(module, { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const second = { ...unit, nodeIndex: 1, instanceNodeIndices: [1], meshIndex: 3, materialIndex: 2, material: { ...unit.material, materialIndex: 2 } };
+  // Mixed material/mesh domains are admitted; they become independent Product assets.
+  const revision = await cooker.cookBootstrapBatch([second, unit], cookContext);
   assert.equal(revision.pageCount, 1);
+  const canonical = module.canonicalInput;
+  const view = new DataView(canonical.buffer, canonical.byteOffset, canonical.byteLength);
+  assert.equal(view.getUint32(20, true), 2, "canonical input carries one domain per unit");
+  const domainTable = view.getUint32(32, true);
+  assert.equal(view.getUint32(domainTable, true), 0, "node 0 domain sorts first regardless of input order");
+  assert.equal(view.getUint32(domainTable + 32, true), 2, "node 1 domain sorts second");
   revision.release();
-  await assert.rejects(() => cooker.cookBootstrapBatch([unit, { ...second, materialIndex: 2 }], cookContext), /one material domain/i);
-  await assert.rejects(() => cooker.cookBootstrapBatch([unit, { ...second, meshIndex: 3 }], cookContext), /one mesh/i);
+  await assert.rejects(() => cooker.cookBootstrapBatch([], cookContext), /at least one GLB primitive/i);
 });

@@ -278,8 +278,20 @@ std::unique_ptr<CookResult> Cook(
     GeometryCookRecipeV3 recipe = DecodeRecipe(recipeInput, recipeInputBytes);
     CanonicalGeometryAsset asset = DecodeCanonicalInput(canonicalInput, canonicalInputBytes);
     auto result = std::make_unique<CookResult>();
-    CookedAssetV3 cooked = CookGeometryAssetV3(asset, recipe, result->evidence);
-    result->product = AssembleDecodedGeometryProductV1({std::move(cooked)});
+    // The Web profile maps one canonical material domain to one Product asset so
+    // that each GLB mesh primitive stays independently addressable by instance
+    // geometry index. The Offline cooker keeps its own mesh-level asset
+    // granularity; Web and Offline are not required to share asset boundaries.
+    std::vector<CookedAssetV3> cooked;
+    cooked.reserve(asset.domains.size());
+    for (std::size_t domainIndex = 0u; domainIndex < asset.domains.size(); ++domainIndex) {
+        CanonicalGeometryAsset single;
+        single.sourceName = asset.sourceName + "#" + std::to_string(domainIndex);
+        single.domains.push_back(asset.domains[domainIndex]);
+        FinalizeCanonicalGeometryAssetV3(single);
+        cooked.push_back(CookGeometryAssetV3(single, recipe, result->evidence));
+    }
+    result->product = AssembleDecodedGeometryProductV1(std::move(cooked));
     const std::uint64_t decodedBytes =
         std::uint64_t(result->product.pages.size()) * kGeometryPageBytesV3;
     std::uint64_t bootstrapPayloadBytes = 0u;

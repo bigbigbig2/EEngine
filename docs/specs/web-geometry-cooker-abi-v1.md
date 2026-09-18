@@ -100,6 +100,8 @@ Section ID：
 | 9 | 256 KiB | decoded page；`index` 是 Product-local PageID |
 | 10 | 32 | cooked content manifest SHA-256；固定纳入每张 Product table 的 SHA-256 与每页完整 decoded SHA-256 |
 
+`assetCount` 等于 canonical input 的 domain count：Web profile 把每个 canonical material domain 映射为一个独立 Product asset，asset index == domain index == catalog primitive index。这样同一 GLB 的不同 mesh/primitive 可以由 instance geometry index 独立寻址，且不会把不同 material domain 合并进一个 asset。Offline cooker 保持自己的 mesh-level asset 粒度；Web 与 Offline 不要求共享 asset 边界、ID 或字节。
+
 Section 10 is producer-owned identity evidence. It is calculated before the opaque handle is returned, so the browser adapter can derive `ProductID` without copying the complete page set out of WASM. The manifest is domain-separated and ordered; it is not a replacement for per-page validation when a page is later copied. Unknown glTF attribute semantics are rejected before canonical input assembly; they are never silently dropped.
 
 Page record 布局严格复用 `Geometry Product V1`：decoded SHA-256 前 16 bytes、first Group、Group count、flags = 0、reserved = 0。WASM output budget 至少容纳一页；decoded pages 超过传入 budget，或 bootstrap Group payload bytes 超过 recipe bootstrap budget 时整体失败，不 offer descriptor。后者与 Native writer 的 recipe 语义一致；Product admission 仍需另按完整 pinned page bytes 预留 GPU budget。

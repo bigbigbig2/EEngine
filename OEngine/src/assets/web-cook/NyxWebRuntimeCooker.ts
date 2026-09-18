@@ -51,15 +51,11 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
 
   async cookBootstrapBatch(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision> {
     if (units.length === 0) throw new Error("Nyx Web Product requires at least one GLB primitive");
-    const material = units[0]!.materialIndex;
-    if (units.some(unit => unit.materialIndex !== material)) {
-      throw new Error("Web GLB Product currently requires one material domain per immutable Product; split the source or use an offline Product");
-    }
-    const mesh = units[0]!.meshIndex;
-    if (units.some(unit => unit.meshIndex !== mesh)) {
-      throw new Error("Web GLB Product currently requires one mesh per immutable Product; split the source or use an offline Product");
-    }
-    return this.cookDomains(units, context);
+    // Product asset index == canonical domain index == catalog primitive index.
+    // Re-sort on the catalog's stable key so a priority reorder cannot change
+    // the published asset order the scene publication side maps against.
+    const ordered = [...units].sort(compareCookPrimitiveOrder);
+    return this.cookDomains(ordered, context);
   }
 
   private async cookDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision> {
@@ -169,5 +165,9 @@ function encodeLengthPrefixed(fields: readonly Uint8Array[]): Uint8Array<ArrayBu
 }
 
 function textBytes(value: string): Uint8Array<ArrayBuffer> { return new TextEncoder().encode(value); }
+
+function compareCookPrimitiveOrder(left: GlbCookPrimitive, right: GlbCookPrimitive): number {
+  return left.nodeIndex - right.nodeIndex || left.meshIndex - right.meshIndex || left.primitiveIndex - right.primitiveIndex;
+}
 function checkedAdd(a: number, b: number): number { const value = a + b; if (!Number.isSafeInteger(value)) throw new RangeError("Product identity input exceeds safe integer range"); return value; }
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean { if (left.byteLength !== right.byteLength) return false; for (let index = 0; index < left.byteLength; index++) if (left[index] !== right[index]) return false; return true; }
