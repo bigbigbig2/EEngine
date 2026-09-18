@@ -1,4 +1,5 @@
 import type { GeometryProductProviderV1, GeometryProductRevisionSourceV1 } from "../geometry-product/GeometryProductV1.js";
+import type { WebCookBudgetEvidence, WebCookBudgetLease, WebCookBudgetLedger } from "./WebCookBudget.js";
 import {
   WEB_COOK_PAGE_BYTES,
   WEB_COOK_PROTOCOL_VERSION,
@@ -46,6 +47,10 @@ export interface WebCookClientOptions {
   readonly maxBufferedPages?: number;
   readonly maxBufferedBytes?: number;
   readonly onSceneCatalogReady?: (catalog: WebCookSceneCatalogSnapshot) => void;
+  /** Optional page-global ledger that caps sessions and live bytes across clients. */
+  readonly ledger?: WebCookBudgetLedger;
+  /** Admission priority used when the ledger is saturated. */
+  readonly priority?: number;
 }
 
 export interface WebCookClientEvidence {
@@ -57,6 +62,7 @@ export interface WebCookClientEvidence {
   readonly catalogReady: boolean;
   readonly progressEvents: number;
   readonly recoverableFailures: number;
+  readonly budget?: WebCookBudgetEvidence;
 }
 
 /**
@@ -75,6 +81,9 @@ export class WebCookClient implements GeometryProductProviderV1 {
   #catalog: WebCookSceneCatalogSnapshot | undefined;
   #progressEvents = 0;
   #recoverableFailures = 0;
+  readonly #admission = new AbortController();
+  #lease: WebCookBudgetLease | undefined;
+  #reservedOutputBytes = 0;
 
   constructor(options: WebCookClientOptions) {
     validateOptions(options);
@@ -106,7 +115,19 @@ export class WebCookClient implements GeometryProductProviderV1 {
   open(url: string): void {
     if (this.#state !== "created") throw new Error(`Web Cook client cannot open from '${this.#state}'`);
     if (!url || typeof url !== "string") throw new TypeError("Web Cook source URL must be a non-empty string");
+    this.#state = "open";
+    void this.#begin(url);
+  }
+
+  /** Waits for the page-global budget when present, then opens the session. */
+  async #begin(url: string): Promise<void> {
     try {
+      const ledger = this.#options.ledger;
+      if (ledger !== undefined) {
+        this.#lease = await ledger.acquireSession(this.#options.sessionId, this.#options.priority ?? 0, this.#admission.signal);
+        if (this.#state !== "open") return;
+      }
+      this.#reserveOutput(this.#options.initialOutputPageCredits * WEB_COOK_PAGE_BYTES);
       this.#send({
         type: "CreateSession",
         runtimeProfile: this.#options.runtimeProfile ?? "portable-single",
@@ -115,12 +136,12 @@ export class WebCookClient implements GeometryProductProviderV1 {
       });
       this.#send({ type: "GrantOutputCredits", blockCount: this.#options.initialOutputPageCredits, bytes: this.#options.initialOutputPageCredits * WEB_COOK_PAGE_BYTES });
       this.#send({ type: "OpenSource", source: { url } });
-      this.#state = "open";
     } catch (error) {
+      if (this.#state !== "open") return;
       this.#state = "failed";
+      this.#releaseBudget();
       this.#provider.release();
       this.#transport.close(true);
-      throw error;
     }
   }
 
@@ -156,8 +177,10 @@ export class WebCookClient implements GeometryProductProviderV1 {
 
   cancel(reason = "session"): void {
     if (this.#state !== "open") return;
+    this.#admission.abort(new Error("Web Cook session cancelled"));
     try { this.#send({ type: "CancelScope", scope: reason }); } finally {
       this.#state = "cancelled";
+      this.#releaseBudget();
       this.#provider.release();
       this.#transport.close(true);
     }
@@ -165,10 +188,12 @@ export class WebCookClient implements GeometryProductProviderV1 {
 
   dispose(): void {
     if (this.#state === "disposed") return;
+    this.#admission.abort(new Error("Web Cook session disposed"));
     try {
       if (this.#state === "open") this.#send({ type: "DisposeSession" });
     } finally {
       this.#state = "disposed";
+      this.#releaseBudget();
       this.#provider.release();
       this.#transport.close(true);
     }
@@ -183,7 +208,8 @@ export class WebCookClient implements GeometryProductProviderV1 {
       provider: this.#provider.evidence(),
       catalogReady: this.#catalog !== undefined,
       progressEvents: this.#progressEvents,
-      recoverableFailures: this.#recoverableFailures
+      recoverableFailures: this.#recoverableFailures,
+      ...(this.#options.ledger === undefined ? {} : { budget: this.#options.ledger.evidence() })
     });
   }
 
@@ -198,7 +224,33 @@ export class WebCookClient implements GeometryProductProviderV1 {
 
   #returnOutputCredits(blockCount: number, bytes: number): void {
     if (this.#state !== "open") return;
+    this.#releaseOutput(bytes);
     this.#send({ type: "ReturnOutputCredits", blockCount, bytes });
+  }
+
+  #reserveOutput(bytes: number): void {
+    const ledger = this.#options.ledger;
+    if (ledger === undefined || this.#lease === undefined) return;
+    if (!ledger.reserve(this.#lease, "output", bytes)) throw new Error("Web Cook global output budget is exhausted");
+    this.#reservedOutputBytes += bytes;
+  }
+
+  #releaseOutput(bytes: number): void {
+    const ledger = this.#options.ledger;
+    if (ledger === undefined || this.#lease === undefined) return;
+    const applied = Math.min(bytes, this.#reservedOutputBytes);
+    this.#reservedOutputBytes -= applied;
+    ledger.release(this.#lease, "output", applied);
+  }
+
+  #releaseBudget(): void {
+    const ledger = this.#options.ledger;
+    if (ledger !== undefined && this.#lease !== undefined) {
+      if (this.#reservedOutputBytes > 0) ledger.release(this.#lease, "output", this.#reservedOutputBytes);
+      this.#lease.release();
+    }
+    this.#reservedOutputBytes = 0;
+    this.#lease = undefined;
   }
 }
 

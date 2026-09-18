@@ -156,6 +156,13 @@ export type {
 } from "./assets/web-cook/WebCookProductProvider.js";
 export { WebCookClient } from "./assets/web-cook/WebCookClient.js";
 export type { WebCookClientEvidence, WebCookClientOptions } from "./assets/web-cook/WebCookClient.js";
+export { WebCookBudgetLedger } from "./assets/web-cook/WebCookBudget.js";
+export type {
+  WebCookBudgetEvidence,
+  WebCookBudgetKind,
+  WebCookBudgetLease,
+  WebCookGlobalBudgetLimits
+} from "./assets/web-cook/WebCookBudget.js";
 export { WebCookRuntimeAsset } from "./assets/web-cook/WebCookRuntimeAsset.js";
 export { createWebCookSceneSource } from "./assets/web-cook/WebCookSceneSource.js";
 export type {

@@ -8,6 +8,7 @@ import {
   PerspectiveCamera,
   Renderer,
   Scene,
+  WebCookBudgetLedger,
   type PackedGltfSource,
   type PackedSceneSource,
   type StandardShadeMaterial,
@@ -70,6 +71,8 @@ let comparisonExampleId = "rendering-lab";
 let geometryCacheKey: string | undefined;
 let geometryManifestUrl: string | undefined;
 let geometryRoute: "packed" | "web-product" = "packed";
+/** Page-global Web Cook budget shared by every Runtime-first load on this page. */
+const cookBudget = new WebCookBudgetLedger({ maxActiveSessions: 2, maxOutputBytes: 256 * 1024 * 1024, maxSourceBytes: 256 * 1024 * 1024, maxWasmBytes: 256 * 1024 * 1024 });
 let geometryPackages: GeometryPackagePipeline | undefined;
 const multiBinFixture = new URLSearchParams(window.location.search).get("multiBin") === "1";
 
@@ -219,6 +222,8 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
   const asset = load_gltf_web_product(modelUrl, {
     worker,
     runtimeProfile,
+    ledger: cookBudget,
+    priority: 1,
     sessionId: `rendering-lab-${crypto.randomUUID()}`,
     sessionGeneration: 1,
     budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 128 * 1024 * 1024, maxWasmBytes: 128 * 1024 * 1024, maxOutputBytes: 256 * 1024 * 1024, maxQueuedEvents: 1024 },
