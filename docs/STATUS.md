@@ -200,3 +200,8 @@ promotion counts. Alpha-mask packages keep the full chain for the current mip0
 coverage consumer. The independent Chrome component case now verifies tail and
 promoted sampling with GPU readback; production-path publication evidence remains
 open.
+## 0016 第三步检查（2026-09-19）
+
+第三步的 DEV 实现已完成：GLB/`.gltf`、外部 buffer/image、data URI、File/Blob、有界 Range/200 fallback、取消和 source identity；sparse/interleaved/normalized/non-indexed accessor；作者 PBR texture slot、UV transform、sampler、image metadata；以及 Web Product mapper 到 `TextureResidency`/`TextureBindingSet` 的异步原子接线。`extensionsRequired`、Draco、`EXT_meshopt_compression`、skin/morph 等未支持 profile 会明确失败。新增的 `glb-web-product-authored-texture` 真实 Chrome case 已在当前 dirty revision 下 diagnostic-only 通过：五个 PBR 槽位、`MASK`、TextureResidency resident page、runtime mip 和真实像素均有 artifact。
+
+本次没有宣称 S3 Runtime Validated 或 ADR Complete：clean revision 的 accepted 证据、纹理 promotion/失败换版/device-loss/feature-off artifact 仍待 validation host 完成；当前 authored case 是单三角形/单 page 的材质生产连接验证。Mode A 仍只表示网络读取和上传渐进，不表示物理显存节省。

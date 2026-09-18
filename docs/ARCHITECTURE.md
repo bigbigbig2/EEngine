@@ -64,3 +64,8 @@ Subset Product 携带经过校验的 `sceneAssetIndices`，统一 Scene mapper �
 
 Geometry Product V1 now has a live internal consumer in the unified GPU path:
 `GpuScene -> GpuRenderWorld -> hierarchy/work -> MeshletBucketRaster -> VisibilityKey -> Sparse Shading`. Packed CSM uses the same Product generation and resident banks. Real GLB/Offline browser cases and the Emscripten Worker artifact exist; their successful paths do not prove failure-atomic replacement, visible-first large-scene loading, authored-texture fidelity or final V2 cutover.
+## glTF 作者材质生产连接（第三步，2026-09-19）
+
+Web GLB/glTF source 已支持有界 Range/200 fallback、外部 buffer/image、data URI、File/Blob object URL、sparse accessor 和取消释放。`GlbSceneCatalog`/Web Cook catalog snapshot 只传播 image/texture/sampler/UV/PBR 元数据；image bytes 不进入 Geometry Product ABI。
+
+`Renderer.uploadWebCookedScene` 现在在 Product mapper 阶段异步读取并解码当前 revision 的 authored images，构造 `StandardShadeMaterial`/`ShadeTexture` 后进入既有 `GpuRenderWorld -> TextureResidency -> TextureBindingSet` 事务。mapper、decode、upload 或 submit 失败时不发布半状态。`validation` 已加入独立 authored-texture Chrome case，并在当前 dirty revision 下取得 diagnostic-only 通过：五个 PBR 槽位、UV transform、`MASK` 原子发布、TextureResidency resident page 和真实像素读回均有 artifact。promotion、失败换版、device-loss、feature-off 仍未形成第三步完整门禁；Mode A 也不代表物理显存节省。

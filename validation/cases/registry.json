@@ -52,6 +52,11 @@
       "layer": "L3",
       "description": "A bounded Web GLB CookSession produces a producer-neutral Product consumed by the production renderer"
     },
+    "GEO-AUTHORED-TEXTURE": {
+      "ownerAdr": "ADR-0016",
+      "layer": "L3",
+      "description": "Authored glTF PBR texture slots and MASK material state reach the production TextureResidency path"
+    },
     "TEX-MODE-A": {
       "ownerAdr": "ADR-0016",
       "layer": "L3",
@@ -501,6 +506,20 @@
       "timestampRequired": false,
       "independentRuns": 1
     },
+    "glb-web-product-authored-texture-v1": {
+      "resolution": [1280, 720],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0016-s3-authored-texture-v1",
+      "features": ["web-cook", "gltf-authored-material", "texture-residency", "mask-alpha-test", "product-admission", "meshlet-raster", "sparse-shading"],
+      "seed": 1603,
+      "cameraPath": "authored-texture-mask-triangle",
+      "warmupFrames": 1,
+      "sampleFrames": 4,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
     "virtual-product-replacement-v1": {
       "resolution": [1280, 720],
       "deviceScaleFactor": 1,
@@ -927,6 +946,34 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while the Web GLB Product device is captured.",
           "ownerRequirement": "GEO-WEB-COOK"
+        }
+      ]
+    },
+    {
+      "id": "glb-web-product-authored-texture",
+      "route": "/src/cases/glb-web-product/index.html?source=authored-texture&case=glb-web-product-authored-texture&workload=glb-web-product-authored-texture-v1",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0016",
+      "requirements": ["GEO-AUTHORED-TEXTURE", "GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME"],
+      "workloadId": "glb-web-product-authored-texture-v1",
+      "profile": "smoke",
+      "timeoutMs": 240000,
+      "artifacts": ["result", "events", "screenshot"],
+      "changedPaths": [
+        "validation/src/cases/glb-web-product",
+        "validation/cases/registry.json",
+        "OEngine/src/assets/web-cook",
+        "OEngine/src/loaders/gltf/streaming",
+        "OEngine/src/gpu/TextureResidency.ts",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while the authored texture Product device is captured.",
+          "ownerRequirement": "GEO-AUTHORED-TEXTURE"
         }
       ]
     },

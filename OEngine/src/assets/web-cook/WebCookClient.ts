@@ -9,6 +9,7 @@ import {
 } from "./protocol/CookSessionProtocol.js";
 import { WebCookProductProvider, type WebCookProductProviderEvidence } from "./WebCookProductProvider.js";
 import { WebCookWorkerTransport, type WebCookWorkerPort, type WebCookWorkerTransportEvidence } from "./WebCookWorkerTransport.js";
+import type { GlbRangeSourceOptions } from "../../loaders/gltf/streaming/GlbRangeSource.js";
 
 export interface WebCookSceneCatalogSnapshot {
   readonly schemaVersion: 1;
@@ -38,6 +39,17 @@ export interface WebCookSceneCatalogSnapshot {
     readonly boundsMax: readonly number[];
     readonly boundsSphere: readonly number[];
   }[];
+  readonly textures: readonly {
+    readonly textureIndex: number;
+    readonly sourceIndex: number;
+    readonly sampler: Readonly<{ magFilter?: number; minFilter?: number; wrapS?: number; wrapT?: number }>;
+  }[];
+  readonly images: readonly {
+    readonly imageIndex: number;
+    readonly mimeType?: string;
+    readonly uri?: string;
+    readonly bufferView?: Readonly<{ bufferIndex: number; byteOffset: number; byteLength: number }>;
+  }[];
 }
 
 export interface WebCookClientOptions {
@@ -58,6 +70,8 @@ export interface WebCookClientOptions {
   readonly priority?: number;
   /** Applied immediately after catalog metadata arrives, before BIN cooking. */
   readonly initialSourcePriorities?: readonly { readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number }[];
+  /** Main-thread source options used only for bounded authored-image preflight. */
+  readonly source?: GlbRangeSourceOptions;
 }
 
 export interface WebCookClientEvidence {

@@ -149,3 +149,12 @@ asset count 校验；它不能编码进 Product 二进制 section。
 - Negative oracle 覆盖 total length、normal declaration、non-finite vertex、index range、reserved/padding、recipe 和 output budget。
 - Native OEGPACK writer 必须消费同一个 `DecodedGeometryProductV1`，其既有 reopen/corruption/determinism tests 防止抽取时改变 Offline container。
 - S2 退出仍要求真实 Emscripten build、Dedicated Worker session、GLB Range canonicalizer、exclusive transfer、Product admission 与浏览器像素证据；native ABI oracle 不替代这些 Gate。
+## glTF 来源与作者纹理元数据（第三步）
+
+Web source profile 明确支持：GLB、JSON `.gltf`、相对/绝对外部 buffer、data URI、外部 image URI、image bufferView，以及本地 File/Blob（通过受控 object URL）。GLB 与外部 buffer/image 读取必须验证精确 `206 Content-Range`；服务器返回 `200` 时只能在声明长度与 `wholeSourceFallbackBytes` 同时满足时采用。所有读取都接受 `AbortSignal`，source identity、credential/CORS 初始化和 object URL 在取消/释放时失效并释放。
+
+Catalog 只传递 source identity、buffer/image range、URI、mimeType、texture/sampler 和 material slot 元数据，不把 image bytes 或 GPU 对象塞入 Geometry Product 二进制 ABI。`extensionsRequired` 中未登记的扩展必须拒绝；当前 profile 对 Draco、`EXT_meshopt_compression`、skin、morph 给出明确 capability/error，不得静默忽略或回退到 V2。
+
+Accessor canonicalizer 保留 interleaved、normalized、non-indexed 与 sparse base-less/patch 语义；sparse index 越界、重复、range 越界和非有限结果必须失败。作者材质的 base-color、metallic-roughness、normal、occlusion、emissive 槽位保留 UV set/offset/scale/rotation、sampler 与 MASK cutoff。纹理解码在 Product Scene mapper 阶段完成，随后只通过既有 `TextureResidency.stage()`、`TextureBindingSet` 和 `StandardShadeMaterial` 提交；任何 image/decode/sampler 失败都不得发布半纹理 Product。
+
+对于 `MASK`，只要材质声明 base-color texture，最低可采样 mip 必须和 geometry activation 一起进入同一 GPU command transaction；不可用时保留旧 active revision。Texture Mode A 仅表示网络读取、解码和上传的渐进顺序，不表示物理显存已经释放或节省。

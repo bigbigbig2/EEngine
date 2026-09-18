@@ -226,3 +226,8 @@ revision 追加未声明的 asset，也不能原地修改其 Group/Page identity
 - 同 producer identity 做不同 Worker/thread count 的 descriptor/page byte determinism；Web 与 Offline producer 不做跨 producer byte-equality 要求。
 - 真实浏览器证明 bootstrap revision 可独立出像素、richer revision 失败不影响旧 revision、成功替换不混用两代数据。
 - 提升为 candidate 前，补齐 descriptor 的二进制 Worker transport layout、WASM/TypeScript mirror、golden bytes 与版本拒绝测试。
+## Web glTF 材质引用边界（第三步）
+
+`sceneAssetIndices` 仍是 Product provider 到 Scene mapper 的只读元数据，不进入 Product 二进制 ABI。Web catalog 允许传递 glTF texture slot、UV transform、sampler、image URI/bufferView、mimeType 与 codec variant；image bytes 由 source owner 有界读取并在 mapper 阶段解码。Geometry Product 不保存 GPU texture handle，也不把未完成 image DAG 拼入 active revision。
+
+作者材质映射必须覆盖 base-color、metallic-roughness、normal、occlusion、emissive 及 `MASK` cutoff，并通过既有 `TextureResidency`/`TextureBindingSet` 完成原子 staging。Draco、`EXT_meshopt_compression`、skin、morph 等未支持 profile 必须拒绝；不能忽略 `extensionsRequired` 或静默回退 V2。Mode A 只表示网络/上传渐进，不作物理显存节省承诺。

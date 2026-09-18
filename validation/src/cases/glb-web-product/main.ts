@@ -4,6 +4,7 @@ import {
   PerspectiveCamera,
   Renderer,
   Scene,
+  ShadeTransparencyMode,
   createDefaultWebCookWorker,
   load_gltf_web_product,
   type GeometryPageStreamingRuntimeV1,
@@ -20,12 +21,83 @@ import { attachGpuErrorCollection } from "../../host/webgpu.ts";
 const FIXTURE_SOURCE_URL = "/assets/oengine/glb-web-product-v1.glb";
 const DUNGEON_SOURCE_URL = dungeonSourceUrl;
 
+type ValidationSource = string | Blob;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function createAuthoredTextureGltf(): Blob {
+  // A tiny, deterministic glTF keeps this case focused on the authored
+  // material path while still entering the production Web Cook/TextureResidency
+  // route. Every PBR slot intentionally references the same valid PNG.
+  const geometry = new ArrayBuffer(102);
+  const view = new DataView(geometry);
+  const positions = [[-1, -1, 0], [1, -1, 0], [0, 1, 0]];
+  const normals = [[0, 0, 1], [0, 0, 1], [0, 0, 1]];
+  const uvs = [[0, 0], [1, 0], [0.5, 1]];
+  let offset = 0;
+  for (const values of [...positions, ...normals]) for (const value of values) { view.setFloat32(offset, value, true); offset += 4; }
+  for (const values of uvs) for (const value of values) { view.setFloat32(offset, value, true); offset += 4; }
+  new Uint16Array(geometry, 96, 3).set([0, 1, 2]);
+  const bufferUri = `data:application/octet-stream;base64,${bytesToBase64(new Uint8Array(geometry))}`;
+  const pngUri = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEUlEQVR4nGN4lqjwH4QZYAwAVlYJmYv2m4IAAAAASUVORK5CYII=";
+  const document = {
+    asset: { version: "2.0" },
+    extensionsUsed: ["KHR_texture_transform"],
+    buffers: [{ byteLength: geometry.byteLength, uri: bufferUri }],
+    bufferViews: [
+      { buffer: 0, byteOffset: 0, byteLength: 36 },
+      { buffer: 0, byteOffset: 36, byteLength: 36 },
+      { buffer: 0, byteOffset: 72, byteLength: 24 },
+      { buffer: 0, byteOffset: 96, byteLength: 6 }
+    ],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [-1, -1, 0], max: [1, 1, 0] },
+      { bufferView: 1, componentType: 5126, count: 3, type: "VEC3" },
+      { bufferView: 2, componentType: 5126, count: 3, type: "VEC2" },
+      { bufferView: 3, componentType: 5123, count: 3, type: "SCALAR" }
+    ],
+    images: [{ uri: pngUri, mimeType: "image/png" }],
+    samplers: [{ magFilter: 9729, minFilter: 9987, wrapS: 10497, wrapT: 10497 }],
+    textures: [{ sampler: 0, source: 0 }],
+    materials: [{
+      pbrMetallicRoughness: {
+        baseColorFactor: [1, 1, 1, 1],
+        metallicFactor: 0.35,
+        roughnessFactor: 0.65,
+        baseColorTexture: { index: 0, texCoord: 0, extensions: { KHR_texture_transform: { offset: [0.1, 0.2], scale: [0.8, 0.7], rotation: 0.25 } } },
+        metallicRoughnessTexture: { index: 0, texCoord: 0 }
+      },
+      normalTexture: { index: 0, texCoord: 0, scale: 0.8 },
+      occlusionTexture: { index: 0, texCoord: 0, strength: 0.7 },
+      emissiveTexture: { index: 0, texCoord: 0 },
+      emissiveFactor: [0.1, 0.05, 0.03],
+      alphaMode: "MASK",
+      alphaCutoff: 0.5,
+      doubleSided: true
+    }],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 2 }, indices: 3, material: 0 }] }],
+    nodes: [{ mesh: 0 }],
+    scenes: [{ nodes: [0] }],
+    scene: 0
+  };
+  return new Blob([JSON.stringify(document)], { type: "model/gltf+json" });
+}
+
 /** `?source=fixture|dungeon|<url>`; the runner uses the multi-material dungeon by default. */
 function resolveValidationSource(): string {
   const requested = new URLSearchParams(window.location.search).get("source");
   if (requested === "fixture") return FIXTURE_SOURCE_URL;
+  if (requested === "authored-texture") return "authored-texture";
   if (requested === "dungeon" || requested === null) return DUNGEON_SOURCE_URL;
   return requested;
+}
+
+function resolveSourceValue(): ValidationSource {
+  return resolveValidationSource() === "authored-texture" ? createAuthoredTextureGltf() : resolveValidationSource();
 }
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
@@ -57,8 +129,12 @@ let errorCollection: ReturnType<typeof attachGpuErrorCollection> | undefined;
 let intentionalDeviceTeardown = false;
 let disposed = false;
 const runnerMode = new URLSearchParams(window.location.search).has("runId");
+const validationQuery = new URLSearchParams(window.location.search);
+const validationCaseId = validationQuery.get("case") ?? "glb-web-product";
+const validationWorkloadId = validationQuery.get("workload") ?? "glb-web-product-bootstrap-v1";
+const authoredTextureCase = validationCaseId === "glb-web-product-authored-texture";
 const controller = runnerMode
-  ? createValidationController({ caseId: "glb-web-product", workloadId: "glb-web-product-bootstrap-v1" }, disposeCase)
+  ? createValidationController({ caseId: validationCaseId, workloadId: validationWorkloadId }, disposeCase)
   : undefined;
 const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
@@ -95,7 +171,7 @@ async function ensureRenderer(): Promise<void> {
   Object.defineProperty(context, "configure", { configurable: true, value: (config: GPUCanvasConfiguration) => configure({ ...config, usage: (config.usage ?? GPUTextureUsage.RENDER_ATTACHMENT) | GPUTextureUsage.COPY_SRC }) });
   renderer = new Renderer({
     debug: false,
-    requiredLimits: { maxStorageBuffersPerShaderStage: 14 },
+    requiredLimits: { maxStorageBuffersPerShaderStage: authoredTextureCase ? 16 : 14 },
     renderSettings: { features: { shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false } }
   });
   await renderer.initialize({ context, pixelRatio: Math.min(window.devicePixelRatio || 1, 2) });
@@ -125,11 +201,11 @@ async function loadModel(): Promise<void> {
     const file = fileInput.files?.[0];
     if (localUrl) URL.revokeObjectURL(localUrl);
     localUrl = file ? URL.createObjectURL(file) : undefined;
-    const sourceUrl = localUrl ?? urlInput.value.trim();
-    if (!sourceUrl) throw new Error("GLB URL is empty");
+    const sourceValue = file ? (localUrl ?? urlInput.value.trim()) : resolveSourceValue();
+    if (typeof sourceValue === "string" && !sourceValue) throw new Error("GLB URL is empty");
     const runtimeProfile = new URLSearchParams(window.location.search).get("profile") === "isolated-pthreads" ? "isolated-pthreads" : "portable-single";
     const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile });
-    asset = load_gltf_web_product(sourceUrl, {
+    asset = load_gltf_web_product(sourceValue, {
       worker,
       runtimeProfile,
       sessionId: `glb-ui-${crypto.randomUUID()}`,
@@ -149,6 +225,33 @@ async function loadModel(): Promise<void> {
     residency = productHandles.residency;
     const sceneSource = productHandles.source;
     if (ticket !== operation || loadAbort.signal.aborted) return;
+    if (authoredTextureCase) {
+      const catalogPrimitive = asset.catalog?.primitives[0];
+      const material = productHandles.materials[0];
+      const catalogMaterial = catalogPrimitive?.material;
+      const baseColorSlot = catalogMaterial?.["baseColorTexture"];
+      const baseColorRecord = baseColorSlot && typeof baseColorSlot === "object" ? baseColorSlot as Readonly<Record<string, unknown>> : undefined;
+      const slots = ["baseColorTexture", "metallicRoughnessTexture", "normalTexture", "occlusionTexture", "emissiveTexture"] as const;
+      const catalogSlots = slots.filter(slot => catalogMaterial?.[slot] !== undefined);
+      const materialSlots = [material?.texture_albedo, material?.texture_orm, material?.texture_normal, material?.texture_occlusion, material?.texture_emissive];
+      controller?.addEvidence("authoredMaterial", {
+        alphaMode: catalogMaterial?.alphaMode ?? null,
+        alphaCutoff: catalogMaterial?.alphaCutoff ?? null,
+        catalogSlots,
+        materialTextureCount: materialSlots.filter(Boolean).length,
+        uv: baseColorRecord ? {
+          texCoord: baseColorRecord["texCoord"],
+          offset: baseColorRecord["offset"],
+          scale: baseColorRecord["scale"],
+          rotation: baseColorRecord["rotation"]
+        } : null,
+        textureResidency: productHandles.residency.evidence()
+      });
+      if (catalogSlots.length !== 5 || catalogMaterial?.alphaMode !== "MASK") throw new Error("Authored glTF catalog did not preserve all five PBR texture slots and MASK");
+      if (!material || material.transparency_mode !== ShadeTransparencyMode.AlphaTested || materialSlots.some(texture => texture === undefined)) {
+        throw new Error("Authored glTF material did not publish MASK and all five texture bindings atomically");
+      }
+    }
     camera = new PerspectiveCamera();
     camera.near = 0.01;
     camera.transform.position.set(0, 0, 3);
@@ -286,51 +389,53 @@ async function runValidation(): Promise<void> {
       residency = productHandles?.residency;
     }
 
-    // S4 demand evidence. Move the camera close so the traversal wants finer
-    // LODs than the resident activation cut, then prove the GPU demand reaches
-    // the delayed scheduler, refines residency, and keeps an ancestor visible.
-    if (streaming === undefined || residency === undefined || sceneBounds === undefined) {
-      throw new Error("Web GLB Product demand evidence requires a streaming runtime");
-    }
-    const residentBefore = residency.evidence().residentPages;
-    camera.transform.position.set(sceneBounds.center[0], sceneBounds.center[1], sceneBounds.center[2] + sceneBounds.radius * 0.6);
-    camera.update(); controls?.update();
-    let demandReached = false;
-    for (let frame = 0; frame < 480 && !demandReached; frame++) {
-      renderer.render(camera, scene, 1 / 60);
-      await nextFrame();
-      const evidence = streaming.evidence();
-      if (evidence.scheduler.requested > 0 && residency.evidence().residentPages > residentBefore) demandReached = true;
-    }
-    const demandEvidence = streaming.evidence();
-    const residentAfter = residency.evidence().residentPages;
-    controller.addEvidence("demand", {
-      scheduler: demandEvidence.scheduler,
-      readback: demandEvidence.readback,
-      residentBefore,
-      residentAfter
-    });
-    if (demandEvidence.scheduler.requested < 1) throw new Error("GPU page demand never reached the delayed scheduler");
-    if (residentAfter <= residentBefore) throw new Error(`GPU page demand did not refine resident pages (${residentBefore} -> ${residentAfter})`);
+    if (!authoredTextureCase) {
+      // S4 demand evidence. Move the camera close so the traversal wants finer
+      // LODs than the resident activation cut, then prove the GPU demand reaches
+      // the delayed scheduler, refines residency, and keeps an ancestor visible.
+      if (streaming === undefined || residency === undefined || sceneBounds === undefined) {
+        throw new Error("Web GLB Product demand evidence requires a streaming runtime");
+      }
+      const residentBefore = residency.evidence().residentPages;
+      camera.transform.position.set(sceneBounds.center[0], sceneBounds.center[1], sceneBounds.center[2] + sceneBounds.radius * 0.6);
+      camera.update(); controls?.update();
+      let demandReached = false;
+      for (let frame = 0; frame < 480 && !demandReached; frame++) {
+        renderer.render(camera, scene, 1 / 60);
+        await nextFrame();
+        const evidence = streaming.evidence();
+        if (evidence.scheduler.requested > 0 && residency.evidence().residentPages > residentBefore) demandReached = true;
+      }
+      const demandEvidence = streaming.evidence();
+      const residentAfter = residency.evidence().residentPages;
+      controller.addEvidence("demand", {
+        scheduler: demandEvidence.scheduler,
+        readback: demandEvidence.readback,
+        residentBefore,
+        residentAfter
+      });
+      if (demandEvidence.scheduler.requested < 1) throw new Error("GPU page demand never reached the delayed scheduler");
+      if (residentAfter <= residentBefore) throw new Error(`GPU page demand did not refine resident pages (${residentBefore} -> ${residentAfter})`);
 
-    // Ancestor fallback must keep the scene drawable while the finer page lands.
-    const demandCapture = renderer.requestLinearHdrCapture({
-      x: Math.max(0, Math.floor((canvas.width - region) / 2)),
-      y: Math.max(0, Math.floor((canvas.height - region) / 2)),
-      width: region,
-      height: region,
-      stage: "lighting"
-    });
-    for (let frame = 0; frame < 4; frame++) { renderer.render(camera, scene, 1 / 60); await nextFrame(); }
-    const demandReadback = await demandCapture;
-    let demandLitPixels = 0;
-    for (let index = 0; index + 3 < demandReadback.rgba.length; index += 4) {
-      const luminance = demandReadback.rgba[index]! * 0.2126 + demandReadback.rgba[index + 1]! * 0.7152 + demandReadback.rgba[index + 2]! * 0.0722;
-      if (luminance > 0.02) demandLitPixels++;
+      // Ancestor fallback must keep the scene drawable while the finer page lands.
+      const demandCapture = renderer.requestLinearHdrCapture({
+        x: Math.max(0, Math.floor((canvas.width - region) / 2)),
+        y: Math.max(0, Math.floor((canvas.height - region) / 2)),
+        width: region,
+        height: region,
+        stage: "lighting"
+      });
+      for (let frame = 0; frame < 4; frame++) { renderer.render(camera, scene, 1 / 60); await nextFrame(); }
+      const demandReadback = await demandCapture;
+      let demandLitPixels = 0;
+      for (let index = 0; index + 3 < demandReadback.rgba.length; index += 4) {
+        const luminance = demandReadback.rgba[index]! * 0.2126 + demandReadback.rgba[index + 1]! * 0.7152 + demandReadback.rgba[index + 2]! * 0.0722;
+        if (luminance > 0.02) demandLitPixels++;
+      }
+      controller.addEvidence("demandCoverage", { region, litPixels: demandLitPixels, sampledPixels: region * region });
+      if (demandLitPixels < 64) throw new Error(`ancestor fallback lost the scene during demand (${demandLitPixels} lit pixels)`);
     }
-    controller.addEvidence("demandCoverage", { region, litPixels: demandLitPixels, sampledPixels: region * region });
     controller.addEvidence("cook-final", asset?.evidence() ?? null);
-    if (demandLitPixels < 64) throw new Error(`ancestor fallback lost the scene during demand (${demandLitPixels} lit pixels)`);
 
     controller.transition("draining");
     await renderer.device.queue.onSubmittedWorkDone();

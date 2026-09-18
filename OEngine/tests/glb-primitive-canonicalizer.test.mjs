@@ -53,3 +53,22 @@ test("canonicalizer rejects non-finite and out-of-range indices", async () => {
   const indices = accessor(1, 36, 6, 2, 5123, 1, 3), bytes = new Uint8Array([0, 0, 1, 0, 3, 0]);
   await assert.rejects(() => canonicalizeGlbPrimitiveV1(unit({ indices, ranges: [accessor(0, 0, 48, 16, 5126, 3, 3), indices] }), reader(new Map([["0:48", new Uint8Array(48)], ["36:6", bytes]]))), /exceeds vertex count/i);
 });
+
+test("canonicalizer applies sparse base-less accessor patches", async () => {
+  const sparsePosition = accessor(0, 0, 0, 12, 5126, 3, 3);
+  sparsePosition.sparse = {
+    count: 2,
+    indices: { bufferIndex: 0, byteOffset: 0, byteLength: 2, byteStride: 1, componentType: 5121 },
+    values: { bufferIndex: 0, byteOffset: 2, byteLength: 24 }
+  };
+  const indices = accessor(1, 26, 3, 1, 5121, 1, 3);
+  const indexBytes = new Uint8Array([0, 1, 2]);
+  const values = new ArrayBuffer(24); const view = new DataView(values);
+  [[0, 0, 0], [1, 0, 0]].forEach((point, row) => point.forEach((value, component) => view.setFloat32(row * 12 + component * 4, value, true)));
+  const ranges = new Map([["0:2", new Uint8Array([0, 2])], ["2:24", new Uint8Array(values)], ["26:3", indexBytes]]);
+  const input = unit({ vertexCount: 3, triangleCount: 1, attributes: { POSITION: sparsePosition }, indices, ranges: [sparsePosition.sparse.indices, sparsePosition.sparse.values, indices] });
+  const domain = await canonicalizeGlbPrimitiveV1(input, reader(ranges));
+  assert.deepEqual([...domain.vertices.slice(0, 3)], [0, 0, 0]);
+  assert.deepEqual([...domain.vertices.slice(36, 39)], [1, 0, 0]);
+  assert.deepEqual([...domain.indices], [0, 1, 2]);
+});

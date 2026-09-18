@@ -37,7 +37,7 @@
       <div class="actions"><button id="load" type="button">Load</button><button id="cancel" type="button">Cancel</button><button id="reload" type="button">Reload</button></div>
       <pre id="status">idle</pre>
       <dl id="metrics"></dl>
-      <div class="hint">WebGPU requires HTTPS or localhost. GLB servers should support byte ranges, identity encoding, and CORS. The current Web Product profile admits static TRIANGLES GLB with embedded BIN, no skins, morphs, Draco, external buffers, or textures.</div>
+      <div class="hint">WebGPU requires HTTPS or localhost. GLB servers should support byte ranges, identity encoding, and CORS. The profile admits static TRIANGLES assets; unsupported skins, morphs, Draco and meshopt fail explicitly. Use <code>?source=authored-texture</code> to exercise the authored PBR/MASK path.</div>
     </aside>
     <script type="module" src="./main.ts"></script>
   </body>

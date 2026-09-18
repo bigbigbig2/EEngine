@@ -502,10 +502,10 @@ export async function load_gltf_packed(
  * handle. GPU admission and Scene publication remain explicit renderer calls.
  */
 export function load_gltf_web_product(
-  url: string,
+  source: string | Blob,
   options: WebCookClientOptions
 ): WebCookRuntimeAsset {
-  return WebCookRuntimeAsset.open(url, options);
+  return WebCookRuntimeAsset.open(source, options);
 }
 
 export type { GltfFileMap };

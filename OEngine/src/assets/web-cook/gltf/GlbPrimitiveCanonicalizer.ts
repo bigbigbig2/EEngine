@@ -46,17 +46,11 @@ export async function canonicalizeGlbPrimitiveV1(unit: GlbCookPrimitive, reader:
     const accessor = unit.attributes[semantic];
     if (!accessor) continue;
     requireAttributeEncoding(accessor, semantic, unit.vertexCount);
-    const bytes = await readExact(reader, accessor);
-    const view = new DataView(bytes);
+    const values = await readAccessorValues(accessor, reader);
     const layout = ATTRIBUTE_LAYOUT[semantic];
     for (let vertex = 0; vertex < accessor.count; vertex++) {
-      const source = vertex * accessor.byteStride;
       const target = vertex * WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS + layout.offset;
-      for (let component = 0; component < accessor.componentCount; component++) {
-        const value = readComponent(view, source + component * componentBytes(accessor.componentType), accessor.componentType, accessor.normalized);
-        if (!Number.isFinite(value)) throw new Error(`GLB ${semantic} accessor ${accessor.accessorIndex} contains non-finite data`);
-        vertices[target + component] = value;
-      }
+      for (let component = 0; component < accessor.componentCount; component++) vertices[target + component] = values[vertex * accessor.componentCount + component]!;
     }
     attributeMask |= layout.bit;
   }
@@ -86,15 +80,38 @@ export async function canonicalizeGlbPrimitiveV1(unit: GlbCookPrimitive, reader:
 
 async function decodeIndices(accessor: GlbCookAccessor, vertexCount: number, reader: GlbPrimitiveRangeReader): Promise<Uint32Array> {
   if (accessor.componentCount !== 1 || accessor.normalized || ![5121, 5123, 5125].includes(accessor.componentType) || accessor.byteStride !== componentBytes(accessor.componentType) || accessor.count === 0 || accessor.count % 3 !== 0) throw new Error("GLB index accessor encoding is invalid");
-  const bytes = await readExact(reader, accessor), view = new DataView(bytes), output = new Uint32Array(accessor.count);
-  for (let index = 0; index < accessor.count; index++) {
-    const at = index * accessor.byteStride;
-    const value = accessor.componentType === 5121 ? view.getUint8(at) : accessor.componentType === 5123 ? view.getUint16(at, true) : view.getUint32(at, true);
-    if (value >= vertexCount) throw new Error(`GLB index ${value} exceeds vertex count ${vertexCount}`);
-    output[index] = value;
-  }
+  const values = await readAccessorValues(accessor, reader), output = new Uint32Array(accessor.count);
+  for (let index = 0; index < accessor.count; index++) { const value = values[index]!; if (!Number.isInteger(value) || value < 0 || value >= vertexCount) throw new Error(`GLB index ${value} exceeds vertex count ${vertexCount}`); output[index] = value; }
   return output;
 }
+
+async function readAccessorValues(accessor: GlbCookAccessor, reader: GlbPrimitiveRangeReader): Promise<Float32Array> {
+  const output = new Float32Array(accessor.count * accessor.componentCount);
+  if (accessor.byteLength > 0) {
+    const bytes = await readExact(reader, accessor), view = new DataView(bytes);
+    for (let vertex = 0; vertex < accessor.count; vertex++) {
+      const source = vertex * accessor.byteStride;
+      for (let component = 0; component < accessor.componentCount; component++) output[vertex * accessor.componentCount + component] = readComponent(view, source + component * componentBytes(accessor.componentType), accessor.componentType, accessor.normalized);
+    }
+  }
+  if (!accessor.sparse) return validateFiniteValues(output, accessor);
+  const indicesBytes = await reader.readRange(accessor.sparse.indices);
+  const valuesBytes = await reader.readRange(accessor.sparse.values);
+  const indicesView = new DataView(indicesBytes), valuesView = new DataView(valuesBytes);
+  const indexBytes = componentBytes(accessor.sparse.indices.componentType), valueBytes = componentBytes(accessor.componentType);
+  const seen = new Set<number>();
+  for (let sparseIndex = 0; sparseIndex < accessor.sparse.count; sparseIndex++) {
+    const indexOffset = sparseIndex * indexBytes;
+    const target = accessor.sparse.indices.componentType === 5121 ? indicesView.getUint8(indexOffset) : accessor.sparse.indices.componentType === 5123 ? indicesView.getUint16(indexOffset, true) : indicesView.getUint32(indexOffset, true);
+    if (target >= accessor.count || seen.has(target)) throw new Error(`GLB accessor ${accessor.accessorIndex} sparse index is invalid`);
+    seen.add(target);
+    const valueOffset = sparseIndex * accessor.componentCount * valueBytes;
+    for (let component = 0; component < accessor.componentCount; component++) output[target * accessor.componentCount + component] = readComponent(valuesView, valueOffset + component * valueBytes, accessor.componentType, accessor.normalized);
+  }
+  return validateFiniteValues(output, accessor);
+}
+
+function validateFiniteValues(values: Float32Array, accessor: GlbCookAccessor): Float32Array { for (const value of values) if (!Number.isFinite(value)) throw new Error(`GLB accessor ${accessor.accessorIndex} contains non-finite data`); return values; }
 
 async function readExact(reader: GlbPrimitiveRangeReader, accessor: GlbCookAccessor): Promise<ArrayBuffer> {
   if (reader.signal?.aborted) throw reader.signal.reason ?? new DOMException("The operation was aborted", "AbortError");

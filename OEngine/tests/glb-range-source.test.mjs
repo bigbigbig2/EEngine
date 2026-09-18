@@ -29,3 +29,29 @@ test("GLB Range source accepts bounded 200 fallback and rejects over-budget fall
   assert.equal(source.sourceIdentity.kind, "strong-http-validator"); assert.equal(source.transferMode, "whole-source-fallback"); source.release();
   await assert.rejects(openGlbRangeSource("https://example.test/too-large.glb", { wholeSourceFallbackBytes: bytes.byteLength - 1, fetch: async () => new Response(bytes, { status: 200 }) }), /wholeSourceFallbackBytes/i);
 });
+
+test("JSON glTF source resolves data URI and external buffer ranges", async () => {
+  const dataBytes = new Uint8Array([9, 8, 7, 6]);
+  const externalBytes = new Uint8Array([1, 3, 5, 7, 9, 11]);
+  const json = JSON.stringify({ asset: { version: "2.0" }, buffers: [
+    { byteLength: dataBytes.byteLength, uri: `data:application/octet-stream;base64,${Buffer.from(dataBytes).toString("base64")}` },
+    { byteLength: externalBytes.byteLength, uri: "mesh.bin" }
+  ] });
+  const calls = [];
+  const source = await openGlbRangeSource("https://example.test/scene.gltf", {
+    wholeSourceFallbackBytes: 4096,
+    fetch: async (url, init) => {
+      calls.push([String(url), init.headers?.Range]);
+      if (String(url).endsWith("mesh.bin")) {
+        const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(match[1]); const end = Number(match[2]);
+        return new Response(externalBytes.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${externalBytes.byteLength}`, "Content-Encoding": "identity" } });
+      }
+      return new Response(new TextEncoder().encode(json), { status: 200, headers: { ETag: '"gltf-1"' } });
+    }
+  });
+  assert.equal(source.json.buffers.length, 2);
+  assert.deepEqual([...new Uint8Array(await source.readBufferRange(0, 1, 2))], [8, 7]);
+  assert.deepEqual([...new Uint8Array(await source.readBufferRange(1, 2, 3))], [5, 7, 9]);
+  assert.equal(calls.some(([url]) => url.endsWith("mesh.bin")), true);
+  source.release();
+});

@@ -11,7 +11,9 @@ function makeGlb() {
     bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }, { buffer: 0, byteOffset: 36, byteLength: 6 }],
     accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3" }, { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" }],
     meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }] }],
-    materials: [{ pbrMetallicRoughness: { baseColorFactor: [0.2, 0.4, 0.6, 1], metallicFactor: 0.25, roughnessFactor: 0.75 }, emissiveFactor: [0.1, 0.2, 0.3] }],
+    materials: [{ pbrMetallicRoughness: { baseColorFactor: [0.2, 0.4, 0.6, 1], metallicFactor: 0.25, roughnessFactor: 0.75, baseColorTexture: { index: 0, texCoord: 1 } }, emissiveFactor: [0.1, 0.2, 0.3] }],
+    images: [{ uri: "data:image/png;base64,AA==" }],
+    textures: [{ source: 0 }],
     nodes: [{ mesh: 0, translation: [2, 3, 4] }],
     scenes: [{ nodes: [0] }]
   };
@@ -38,6 +40,9 @@ test("GLB scene catalog is metadata-first and reports exact accessor ranges", as
   assert.equal(catalog.primitives[0].triangleCount, 1);
   assert.deepEqual([...catalog.instances[0].worldMatrix], [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 2, 3, 4, 1]);
   assert.deepEqual(catalog.primitives[0].material.baseColorFactor, [0.2, 0.4, 0.6, 1]);
+  assert.deepEqual(catalog.primitives[0].material.baseColorTexture, { textureIndex: 0, texCoord: 1, offset: [0, 0], scale: [1, 1], rotation: 0 });
+  assert.deepEqual(catalog.textures, [{ textureIndex: 0, sourceIndex: 0, sampler: {} }]);
+  assert.deepEqual(catalog.images, [{ imageIndex: 0, uri: "data:image/png;base64,AA==" }]);
   assert.equal(catalog.primitives[0].material.metallicFactor, 0.25);
   assert.deepEqual(catalog.primitives[0].ranges.map(range => [range.bufferIndex, range.byteOffset, range.byteLength]), [[0, 0, 36], [0, 36, 6]]);
   assert.deepEqual([...new Uint8Array(await source.readBufferRange(0, 36, 6))], [36, 37, 38, 39, 40, 41]);

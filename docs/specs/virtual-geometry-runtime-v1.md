@@ -226,3 +226,8 @@ Counter readback 必须有界且可以关闭；关闭诊断不能改变 correctn
 - source/corruption matrix覆盖 Web live provider 与 OEGPACK adapter，并证明 source 差异未进入 GPU consumer。
 - MILESTONE 在 ADR-0014 宿主中证明 `GPU desired LOD -> delayed demand readback -> async source/cook -> upload/publication -> GPU consumer`，缺页全过程由 ancestor/bootstrap 输出合法像素。
 - feature-off 证明无 heap、queue、readback、Worker、Pass 和独立 submit；性能结论使用固定 adapter、分辨率/DPR、画质、workload、warm-up 与 capability fingerprint。
+## glTF 作者材质与纹理发布门禁（第三步）
+
+Web Runtime 的 catalog 可以携带 glTF image/texture/sampler 与材质槽元数据，但这些字段不是 Geometry Product binary section，也不改变 ProductID、GroupID 或 PageID。Scene mapper 必须在 revision admission 前完成当前 asset subset 的 image 读取、codec 解码、sampler/UV 绑定和材质构造；失败、取消或超出 source 上限时拒绝该 candidate，旧 active revision 保持不变。
+
+材质发布只能复用 `StandardShadeMaterial`、`TextureResidency` 和 `TextureBindingSet`。`MASK` 材质声明 base-color texture 时，最低可采样 mip 与 geometry activation 同属一次 command transaction；不得先发布无纹理 geometry 再补写 active Product。Mode A 的渐进语义只覆盖 source/decode/upload 顺序，不代表物理显存释放。

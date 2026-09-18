@@ -135,7 +135,9 @@ export class WebCookCoordinator {
         // any geometry page is copied out of the Worker.
         scenes: this.#catalog.scenes.slice(),
         instances: this.#catalog.instances.map(instance => ({ nodeIndex: instance.nodeIndex, meshIndex: instance.meshIndex, worldMatrix: Array.from(instance.worldMatrix) })),
-        primitives: this.#catalog.primitives.map((primitive, index) => ({ assetKey: primitiveKey(primitive), catalogIndex: index, nodeIndex: primitive.nodeIndex, instanceNodeIndices: primitive.instanceNodeIndices.slice(), meshIndex: primitive.meshIndex, primitiveIndex: primitive.primitiveIndex, materialIndex: primitive.materialIndex, material: primitive.material, attributeSemantics: Object.keys(primitive.attributes), vertexCount: primitive.vertexCount, triangleCount: primitive.triangleCount, boundsMin: primitive.boundsMin.slice(), boundsMax: primitive.boundsMax.slice(), boundsSphere: primitive.boundsSphere.slice() }))
+        primitives: this.#catalog.primitives.map((primitive, index) => ({ assetKey: primitiveKey(primitive), catalogIndex: index, nodeIndex: primitive.nodeIndex, instanceNodeIndices: primitive.instanceNodeIndices.slice(), meshIndex: primitive.meshIndex, primitiveIndex: primitive.primitiveIndex, materialIndex: primitive.materialIndex, material: primitive.material, attributeSemantics: Object.keys(primitive.attributes), vertexCount: primitive.vertexCount, triangleCount: primitive.triangleCount, boundsMin: primitive.boundsMin.slice(), boundsMax: primitive.boundsMax.slice(), boundsSphere: primitive.boundsSphere.slice() })),
+        textures: this.#catalog.textures.map(texture => ({ textureIndex: texture.textureIndex, sourceIndex: texture.sourceIndex, sampler: { ...texture.sampler } })),
+        images: this.#catalog.images.map(image => ({ imageIndex: image.imageIndex, ...(image.mimeType === undefined ? {} : { mimeType: image.mimeType }), ...(image.uri === undefined ? {} : { uri: image.uri }), ...(image.bufferView === undefined ? {} : { bufferView: { ...image.bufferView } }) }))
       } }));
       this.#state = "cooking";
       return this.#catalog;
