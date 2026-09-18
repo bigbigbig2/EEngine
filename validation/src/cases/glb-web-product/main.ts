@@ -9,6 +9,7 @@ import {
   createDefaultWebCookWorker,
   createWebCookSceneSource,
   load_gltf_web_product,
+  type VirtualGeometryResidency,
   type WebCookRuntimeAsset,
   type VirtualGeometrySceneSource
 } from "../../../../OEngine/src/index.ts";
@@ -46,6 +47,8 @@ let controls: OrbitControls | undefined;
 let asset: WebCookRuntimeAsset | undefined;
 let admission: GeometryProductAdmissionController | undefined;
 let streaming: GeometryPageStreamingRuntimeV1 | undefined;
+let residency: VirtualGeometryResidency | undefined;
+let sceneBounds: { readonly center: readonly [number, number, number]; readonly radius: number } | undefined;
 let loadAbort: AbortController | undefined;
 let localUrl: string | undefined;
 let operation = 0;
@@ -151,6 +154,7 @@ async function loadModel(): Promise<void> {
     const product = transaction.residency;
     const sceneSource = createWebCookSceneSource(catalog, product.descriptor).source;
     streaming = new GeometryPageStreamingRuntimeV1(renderer!.device, product);
+    residency = product;
     await renderer!.uploadVirtualGeometryScene(scene, sceneSource, product, streaming);
     camera = new PerspectiveCamera();
     camera.near = 0.01;
@@ -162,6 +166,7 @@ async function loadModel(): Promise<void> {
     controls.pointer.start(); controls.keyboard.start();
     const light = new DirectionalLight(); light.intensity = 3; scene.add(light);
     frameScene(sceneSource);
+    sceneBounds = frameScene(sceneSource);
     resize();
     setStatus("ready: drag to orbit, wheel to zoom, arrow keys to pan");
   } catch (error) {
@@ -186,15 +191,15 @@ async function releaseModel(): Promise<void> {
   controls?.pointer.stop(); controls?.keyboard.stop(); controls = undefined;
   if (renderer && scene) await renderer.releaseVirtualGeometryScene(scene).catch(() => undefined);
   scene = undefined; camera = undefined;
-  streaming?.destroy(); streaming = undefined;
+  streaming?.destroy(); streaming = undefined; residency = undefined; sceneBounds = undefined;
   if (admission?.active) { admission.retireActive(); admission.retireReplaced(); }
   admission = undefined;
   asset?.dispose(); asset = undefined;
   updateMetrics();
 }
 
-function frameScene(source: VirtualGeometrySceneSource): void {
-  if (!camera) return;
+function frameScene(source: VirtualGeometrySceneSource): { readonly center: readonly [number, number, number]; readonly radius: number } | undefined {
+  if (!camera) return undefined;
   let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   for (let index = 0; index < source.count; index++) {
     const x = source.boundsSpheres[index * 4]!, y = source.boundsSpheres[index * 4 + 1]!, z = source.boundsSpheres[index * 4 + 2]!, radius = source.boundsSpheres[index * 4 + 3]!;
@@ -206,6 +211,7 @@ function frameScene(source: VirtualGeometrySceneSource): void {
   controls?.target.set(center.x, center.y, center.z);
   camera.transform.position.set(center.x, center.y, center.z + radius * 2.5);
   camera.transform.lookAt(center); camera.update(); controls?.update();
+  return { center: [center.x, center.y, center.z] as const, radius };
 }
 
 /** Runner-driven validation host; manual use keeps the buttons and orbit controls. */
@@ -268,6 +274,52 @@ async function runValidation(): Promise<void> {
       resolveRan: frameCounters["sparseShading.resolveRan"] ?? 0
     });
     if (litPixels < 64) throw new Error(`Web GLB Product shaded too few lit pixels (${litPixels}/${region * region})`);
+
+    // S4 demand evidence. Move the camera close so the traversal wants finer
+    // LODs than the resident activation cut, then prove the GPU demand reaches
+    // the delayed scheduler, refines residency, and keeps an ancestor visible.
+    if (streaming === undefined || residency === undefined || sceneBounds === undefined) {
+      throw new Error("Web GLB Product demand evidence requires a streaming runtime");
+    }
+    const residentBefore = residency.evidence().residentPages;
+    camera.transform.position.set(sceneBounds.center[0], sceneBounds.center[1], sceneBounds.center[2] + sceneBounds.radius * 0.6);
+    camera.update(); controls?.update();
+    let demandReached = false;
+    for (let frame = 0; frame < 480 && !demandReached; frame++) {
+      renderer.render(camera, scene, 1 / 60);
+      await nextFrame();
+      const evidence = streaming.evidence();
+      if (evidence.scheduler.requested > 0 && residency.evidence().residentPages > residentBefore) demandReached = true;
+    }
+    const demandEvidence = streaming.evidence();
+    const residentAfter = residency.evidence().residentPages;
+    controller.addEvidence("demand", {
+      scheduler: demandEvidence.scheduler,
+      readback: demandEvidence.readback,
+      residentBefore,
+      residentAfter
+    });
+    if (demandEvidence.scheduler.requested < 1) throw new Error("GPU page demand never reached the delayed scheduler");
+    if (residentAfter <= residentBefore) throw new Error(`GPU page demand did not refine resident pages (${residentBefore} -> ${residentAfter})`);
+
+    // Ancestor fallback must keep the scene drawable while the finer page lands.
+    const demandCapture = renderer.requestLinearHdrCapture({
+      x: Math.max(0, Math.floor((canvas.width - region) / 2)),
+      y: Math.max(0, Math.floor((canvas.height - region) / 2)),
+      width: region,
+      height: region,
+      stage: "lighting"
+    });
+    for (let frame = 0; frame < 4; frame++) { renderer.render(camera, scene, 1 / 60); await nextFrame(); }
+    const demandReadback = await demandCapture;
+    let demandLitPixels = 0;
+    for (let index = 0; index + 3 < demandReadback.rgba.length; index += 4) {
+      const luminance = demandReadback.rgba[index]! * 0.2126 + demandReadback.rgba[index + 1]! * 0.7152 + demandReadback.rgba[index + 2]! * 0.0722;
+      if (luminance > 0.02) demandLitPixels++;
+    }
+    controller.addEvidence("demandCoverage", { region, litPixels: demandLitPixels, sampledPixels: region * region });
+    if (demandLitPixels < 64) throw new Error(`ancestor fallback lost the scene during demand (${demandLitPixels} lit pixels)`);
+
     controller.transition("draining");
     await renderer.device.queue.onSubmittedWorkDone();
     controller.pass();
