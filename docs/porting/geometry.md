@@ -73,3 +73,26 @@
 - OEngine/WebGPU differences: 使用 OEngine Vec3/Transform3D 和 +Z camera convention；不会把 three.js 对象带入渲染热路径。
 - Fallback/lifecycle: input 只累计 delta；`dispose()` 移除事件；无 GPU allocation。
 - Local validation: controls unit tests；浏览器交互 Gate 等待 ADR-0014 的独立 `validation/` 宿主。
+
+## ADR-0016 · Nyx 移植验收 corpus
+
+§18.4 硬门禁的落点（允许布局/ID/压缩字节不同，几何合同必须一致）：
+
+- **source provenance**：见 `GEO-NYX-OEG3` / `GEO-NYX-WEB-COOKER` 的本地快照、核验日期与 SHA-256；CMake 与两个 build 脚本在编译前强制复核 7 个 Nyx 源 hash。
+- **function map**：同两条目的 Function map 表，逐函数对应到 OEngine native/WASM/WGSL 实现。
+- **invariant checklist**：`OEngine/tests/nyx-differential-corpus.test.mjs` 的 `assertNyxInvariants` 检查 meshlet 顶点/三角形上限、非空 Product、完整 bootstrap cut、有限 parent error、有序 asset bounds；`summarize()` 另外断言每个 Group 的 payload 完全落在一个 Page 内。
+- **differential corpus**：同一条确定性 GLB 分别由 **Native Offline Cooker（cgltf + native importer）** 与 **Web Runtime（Web canonicalizer + pinned WASM cooker）** cook，比较 recipe hash、asset/hierarchy/group 计数、bootstrap cut 大小、asset bounds（1e-3 容差）与 max meshlet 顶点/三角形；两者必须等价。
+- **negative corpus**：见下表。
+- **运行证据**：`validation/` 的 `run:glb-web-product`（真实 Dungeon GLB、Chrome、HDR 覆盖率断言、accepted）。
+
+| 负例 | 落点 |
+| --- | --- |
+| 非法 meshlet 上限 / 空 Product / 缺 bootstrap / 非有限 error / 反向 bounds | `nyx-differential-corpus.test.mjs` |
+| 跨页 Group | `nyx-differential-corpus.test.mjs` |
+| header/metadata/compressed bytes/logical link corruption | `oegpack-v3.test.mjs` |
+| stale generation / duplicate / retry / budget / abort | `geometry-page-scheduler.test.mjs`、`geometry-product-admission.test.mjs` |
+| overflow（output / readback / demand） | `web-cook-budget.test.mjs`、`geometry-page-demand-abi.test.mjs` |
+| 取消 / 回滚 / replacement / device-loss recovery | `geometry-product-admission.test.mjs`、`virtual-geometry-product.test.mjs` |
+| 缺页 fallback / eviction / retiring slot | `virtual-geometry-product.test.mjs`、`geometry-page-streaming-runtime.test.mjs` |
+
+**未完成（阻塞）**：真正的 “Native Nyx 参考输出” 尚未产出。`MeshletBuilder.cpp` 依赖整个 MiniEngine（`pch.h`、`Renderer.h`、`glTFLoader.h`、`TextureManager.h`、DX12/Slang 类型），当前仓库与构建环境无法产出可运行的 Nyx 参考二进制。因此 differential 的 “Nyx 参考” 一腿目前以**函数级映射 + 固定源 hash + 不变量 checklist** 代替，Native↔Web 等价性单独验证。补齐 Nyx 参考需要独立 MiniEngine Model harness 或抽取 Nyx 算法函数的 native 构建，属开放项。
