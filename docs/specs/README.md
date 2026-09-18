@@ -14,6 +14,7 @@ spec 是实现之间的精确合同，不负责解释长期取舍或报告进度
 ## 索引
 
 - [OEGPACK V3.0](./oegpack-v3.md) — candidate Offline container 与 V3 decoded profile。
+- [OEGPACK Scene Manifest V3](./oegpack-scene-manifest-v3.md) — candidate  pack/asset/instance 索引合同。
 - [Geometry Product V1](./geometry-product-v1.md) — draft producer-neutral descriptor/page/provider 合同。
 - [Virtual Geometry Runtime V1](./virtual-geometry-runtime-v1.md) — draft admission/residency/feedback/publication 合同。
 - [Web Geometry Cooker ABI V1](./web-geometry-cooker-abi-v1.md) — draft Dedicated Worker/WASM canonical input、recipe、Product section 与 ownership 合同。

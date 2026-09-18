@@ -18,7 +18,7 @@ const {
   decodeMeshletHeaderV3,
   OEGPACK_V3_PAGE_BYTES
 } = await import("../.test-dist/assets/GeometryAbiV3.js");
-const { GeometryBootstrapResidencyV3 } = await import("../.test-dist/gpu/GeometryBootstrapResidencyV3.js");
+const { GeometryProductAdmission } = await import("../.test-dist/gpu/GeometryProductAdmission.js");
 const { unpackGeometryProductMetadataHeapHeaderV1 } = await import("../.test-dist/gpu/GeometryProductGpuAbiV1.js");
 const {
   descriptorFromOegPack,
@@ -209,7 +209,10 @@ test("A8 bootstrap owner uploads fixed slots, resolves groups, and destroys ever
       writes.push({ buffer, offset, bytes: data.byteLength });
     } }
   };
-  const residency = await GeometryBootstrapResidencyV3.create(device, opened);
+  // The Offline bootstrap cut now goes through the shared Product admission and
+  // VirtualGeometryResidency owner; OEGPACK must not own a separate residency.
+  const transaction = new GeometryProductAdmission(device).offer(new OegPackProductRevisionSource(opened, descriptorFromOegPack(opened)));
+  const residency = await transaction.activate();
   // Admission owns three metadata writes: one heap initialization, one
   // activation product record, and one batched page-location table update.
   // The page-location table is the only write inside the ABI-declared region.

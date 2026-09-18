@@ -169,6 +169,33 @@ export type {
   WebCookSceneSourceOptions,
   WebCookSceneSourceResult
 } from "./assets/web-cook/WebCookSceneSource.js";
+export { load_oegpack_product, OegPackProductAsset } from "./assets/geometry-product/OegPackProductAsset.js";
+export type {
+  OegPackProductAssetEvidenceV1,
+  OegPackProductAssetOptions,
+  OegPackProductSourceSelectionV3
+} from "./assets/geometry-product/OegPackProductAsset.js";
+export { createOegPackSceneSource } from "./assets/geometry-product/OegPackSceneSourceV1.js";
+export {
+  OEGPACK_SCENE_MANIFEST_SCHEMA_V3,
+  OegPackSceneManifestError,
+  parseOegPackSceneManifestV3,
+  resolveOegPackScenePackUrlV3
+} from "./assets/geometry-product/OegPackSceneManifestV3.js";
+export type {
+  OegPackSceneManifestAssetV3,
+  OegPackSceneManifestInstanceV3,
+  OegPackSceneManifestPackV3,
+  OegPackSceneManifestV3
+} from "./assets/geometry-product/OegPackSceneManifestV3.js";
+export {
+  buildVirtualGeometrySceneSourceV1
+} from "./assets/geometry-product/VirtualGeometrySceneSourceV1.js";
+export type {
+  VirtualGeometrySceneInstanceV1,
+  VirtualGeometrySceneSourceOptionsV1,
+  VirtualGeometrySceneSourceResultV1
+} from "./assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 export { createWebCookWorker, createDefaultWebCookWorker } from "./assets/web-cook/WebCookWorkerFactory.js";
 export type {
   DefaultWebCookWorkerFactoryOptions,
@@ -416,6 +443,14 @@ export {
   type TemporalRuntimeEvidence,
   type TextureResidencyEvidence
 } from "./render/Renderer.js";
+export type {
+  OegPackSceneOptions,
+  ProductSceneHandles,
+  ProductSceneOptions,
+  ProductSceneSourceMapper,
+  ProductSceneState,
+  WebCookedSceneOptions
+} from "./render/pipeline/MainRenderPipeline.js";
 export {
   DEFAULT_RENDERER_CONFIG,
   mergeRendererConfig,

@@ -53,6 +53,33 @@ never re-emitted, a consumed page is re-readable without buffering anything, a
 requested page is still served while another revision occupies the whole
 buffering window, and an unsolicited duplicate of a consumed page is discarded.
 
+S6 Offline parity update (2026-09-18): `run:virtual-product-offline` now proves the
+offline second route on the current revision (accepted). `load_oegpack_product`
+opens a pre-cooked `.oegpack` from either an HTTP Range source or an in-memory
+source, and `Renderer.uploadOegPackScene` publishes it through the same
+`Geometry Product admission -> VirtualGeometryResidency -> streaming -> Visibility`
+path as the Web route; the fork between producers is now only the provider and
+the scene mapper. `Renderer.uploadProductScene` is the single shared facade, the
+Web entry is a thin adapter over it, and the generic
+`buildVirtualGeometrySceneSourceV1` builder is shared by both mappers.
+
+Evidence on the committed OEGPACK fixtures: range and memory selection produce
+the same Product identity, the same activation cut and the same GPU topology
+counters, and both shade 64105 lit pixels in the 256x256 linear-HDR probe; a
+missing pack fails explicitly with "server did not honor byte range (404)" and
+publishes nothing; a replacement from pack A to pack B switches Product identity
+with continuous output (64105 -> 64102 lit pixels); GPU demand refines residency
+1 -> 5 pages (`requested 21`, `deduplicated 9`, `failed 0`, `retries 0`) and the
+close camera keeps 65536/65536 lit pixels. The Offline bootstrap cut now
+traverses the shared residency owner, so the OEGPACK-specific
+`GeometryBootstrapResidencyV3` adapter is deleted.
+
+A new `docs/specs/oegpack-scene-manifest-v3.md` freezes the `scene.oescene`
+contract that the Native cooker writes and the runtime reads, and
+`tests/oegpack-offline-product.test.mjs` pins strict manifest parsing with a
+negative corpus, memory/HTTP-Range selection, explicit source failure, the
+manifest-to-scene mapping and cross-pack rejection.
+
 Implementation update (2026-09-17): virtual geometry now has a bounded GPU
 demand copy in the existing Packed Visibility submission, scheduler-coupled
 revoke/retire eviction with pinned and age-aware selection, automatic delayed
@@ -93,7 +120,7 @@ evidence remains open.
 | --- | --- | --- | --- |
 | Geometry Product V1 | in progress | 已落地 producer-neutral TS descriptor/page/provider mirror、严格 table/tree/bootstrap/activation validator、OEGPACK -> Product adapter，以及 Product-aware hierarchy/work/raster 接线；Product 现已进入统一 main/shadow consumer（VisibilityKey、Sparse Shading、Packed CSM depth），主视图与 CSM 均具备 UV0/UV1 与 TextureBindingSet alpha-mask 采样；`virtual-product-production` 与真实 GLB 的 `glb-web-product`（Dungeon，798 mesh/25 material）均已在当前 revision 的 Chrome 上 `accepted`；`glb-web-product` 已改为 256x256 HDR 覆盖率断言，并有 Native Offline <-> Web 结构化 differential 与不变量/负例 corpus；bank heap 已按 Product 总页数预分配 | 完成 demand/residency 与 lifecycle 的浏览器 MILESTONE，随后再补 transport/golden 后冻结候选 spec |
 | Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、带 source/WASM/output budget、取消与 whole-page credit lease 的 `WebCookCoordinator`、generation-filtered Dedicated Worker transport、CPU/WASM-only `WebCookWorkerHost`、异步 Emscripten module queueing 的 `WebCookWorkerEntry`、live Product provider，以及 container-neutral decoded Product assembly；S2b 已交付完整有界 GLB primitive canonicalization（interleaved/normalized/index/material/defaults）、Nyx Web Runtime Cooker adapter、Product content-manifest identity 与 page hash 校验、canonicalizer/credit pause/adapter tests。Emscripten 6.0.9 module/wasm artifact 已入库并经 `createDefaultWebCookWorker`/`WebCookWorkerEntrypoint` 接入 Dedicated Worker；`WebCookClient`/`WebCookRuntimeAsset`/`load_gltf_web_product` + `Renderer.uploadWebCookedScene` 是运行时 facade；`RequestPages` 已路由到 Worker；`glb-web-product`（真实 Dungeon GLB）已在 Chrome `accepted`。已加入 Range coalescing、progressive bootstrap + richer revision（含原子 release→re-stage→retire 替换）、page-global `WebCookBudgetLedger` 与 per-domain 并行 cook；pthread 变体已构建但 pool 握手未闭环，默认仍 `portable-single` | 完成 pthread/portable-pool、真实 GLB demand 端到端浏览器证据；不得把 native ABI oracle、Node fake module 或 TypeScript tests 视为 S2/S3 Runtime 完成 |
-| 0016-A Offline/OEGPACK | implemented, validation open | native cooker、OEGPACK V3 parser、range source、页校验和 bootstrap residency proof 已存在；OEGPACK Product adapter 已通过共同 production consumer 接线 | 用 ADR-0014 浏览器证据验证并冻结候选 spec |
+| 0016-A Offline/OEGPACK | implemented, S6 parity accepted | native cooker、OEGPACK V3 parser、range/memory source、页校验与 bootstrap cut 已存在；OEGPACK Product adapter 已通过共同 production consumer 接线；`load_oegpack_product` + `Renderer.uploadOegPackScene` 与 Web 路线共用同一 admission/residency/Visibility 路径，`virtual-product-offline` 已在 Chrome accepted（range/memory 平价 64105 lit pixels、source failure 显式报错、A→B 替换连续、demand 1→5 页）；`scene.oescene` 合同已入 spec，OEGPACK 专用 bootstrap residency adapter 已删除 | 补 transport/golden 后冻结候选 spec，并做 S7 consumer cutover |
 | 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag、统一 frame completion 自动 poll/upload、保留 identity 的 device-loss residency 重建与 Product revision 原子替换已接线；bank heap 改按 Product 总页数预分配（修复 demand 上传新建未绑定 bank 导致的黑屏），并新增 Native↔Web differential / invariant / negative corpus；`glb-web-product` 已在 Chrome 里跑通 GPU demand 证据：实际相机靠近触发 desired page 缺失，GPU demand → delayed readback ring → scheduler（requested 2121、deduplicated 80）→ provider → upload → residency residentPages 374→375，且 ancestor fallback 保持画面（demand coverage 17394 lit pixels、0 GPU error）；`virtual-product-replacement` 已 accepted：richer revision 原子替换（generation 1→2、revision 0→1、换版后 5600+ lit pixels）+ demand 细化（382→383）+ 跨提交边界 evict（4 候选→379、evictedPages 4、17400 lit pixels）；`virtual-product-device-loss` 已 accepted：intentional device loss → 新 adapter/device → 从保留 Product source 重建全部场景（5640 → 5610 lit pixels、selectedClusters 474、visibleInstances 798、0 GPU error）| 补 transport/golden 后冻结候选 spec |
 | 0016-C renderer cutover | in progress | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity，并可在 device-loss 后按原 generation/table slot 重建 publication；普通 Scene adapter/V2 owner 仍保留 | 完成 Product recovery checkpoint 的真实浏览器验证、删除旧 V2 owner/path，并用 ADR-0014 浏览器证据验证统一 consumer |
 | 0016-D texture modes | Mode A implemented, diagnostic validation passed | TextureResidency allocates the complete logical chain, uploads a cooked mip tail first, clamps sampling to the available range, and promotes higher mips through a stable logical handle; the independent Chrome component case read back the expected tail and promoted colors, and this does not claim physical VRAM savings | Obtain production-path browser evidence for progressive publication; only after allocation evidence decide whether Mode B/Virtual Texturing merits a separate ADR |
@@ -115,7 +142,7 @@ evidence remains open.
 
 ## 下一步
 
-1. 补 S6 Offline parity 与 transport/golden，再冻结候选 spec。
+1. 做 S7 Geometry consumer cutover：迁移 `GpuAssetStore`/`GpuRenderWorld` recovery、asset publication 与 shadow consumer，删除 V2 `GeometryAssetPackage`/upload/consumer 与生产调用，并完成 source/compiled/browser 三层 legacy 审计。
 2. 完成 Web Cooker 的 `isolated-pthreads` pool 握手与 `portable-pool` + shard assembly。
 3. 产出 §18.4 的 Native Nyx 参考 harness（独立 MiniEngine Model harness 或抽取 Nyx 算法函数的 native 构建）。
 4. 做 S6 Offline parity，然后 S7 cutover + 删除旧 V2 owner/path，并完成 source / compiled graph-shader / browser counter 三层审计。

@@ -1,0 +1,12 @@
+{
+  "schema": "oengine-scene-v3",
+  "packs": [
+    {"packId":"880a82f452dfa57dbcfabd54f33fd3de468328410bc637091660c81c2a77b7e6","uri":"geometry-880a82f452dfa57dbcfa.oegpack"}
+  ],
+  "assets": [
+    {"assetId":"86befbc1dab08a186eeae5153ef926dbdbbced5aa4526dd06dfc642d9ab1dc32","pack":0,"assetRecordIndex":0}
+  ],
+  "instances": [
+    {"asset":0,"materialBindingTable":0,"flags":0,"transform":[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]}
+  ]
+}

@@ -21,7 +21,8 @@
     "run:virtual-product-production": "node src/runner/run-case.mjs virtual-product-production",
     "run:glb-web-product": "node src/runner/run-case.mjs glb-web-product",
     "run:virtual-product-replacement": "node src/runner/run-case.mjs virtual-product-replacement",
-    "run:virtual-product-device-loss": "node src/runner/run-case.mjs virtual-product-device-loss"
+    "run:virtual-product-device-loss": "node src/runner/run-case.mjs virtual-product-device-loss",
+    "run:virtual-product-offline": "node src/runner/run-case.mjs virtual-product-offline"
   },
   "devDependencies": {
     "@types/node": "22.20.2",

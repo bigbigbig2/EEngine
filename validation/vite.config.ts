@@ -33,7 +33,8 @@ export default defineConfig({
         "virtual-product-production": resolve(root, "src/cases/virtual-product-production/index.html"),
         "glb-web-product": resolve(root, "src/cases/glb-web-product/index.html"),
         "virtual-product-replacement": resolve(root, "src/cases/virtual-product-replacement/index.html"),
-        "virtual-product-device-loss": resolve(root, "src/cases/virtual-product-device-loss/index.html")
+        "virtual-product-device-loss": resolve(root, "src/cases/virtual-product-device-loss/index.html"),
+        "virtual-product-offline": resolve(root, "src/cases/virtual-product-offline/index.html")
       }
     }
   }

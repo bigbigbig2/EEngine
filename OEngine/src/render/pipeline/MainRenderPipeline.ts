@@ -148,6 +148,10 @@ import type { WebCookRuntimeAsset } from "../../assets/web-cook/WebCookRuntimeAs
 import type { WebCookSceneCatalogSnapshot } from "../../assets/web-cook/WebCookClient.js";
 import type { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import { createWebCookSceneSource } from "../../assets/web-cook/WebCookSceneSource.js";
+import { createOegPackSceneSource } from "../../assets/geometry-product/OegPackSceneSourceV1.js";
+import type { OegPackProductAsset } from "../../assets/geometry-product/OegPackProductAsset.js";
+import type { GeometryProductDescriptorV1, GeometryProductProviderV1 } from "../../assets/geometry-product/GeometryProductV1.js";
+import type { VirtualGeometrySceneSourceResultV1 } from "../../assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import {
   createPackedSceneSourceFromScene,
   type SceneGeometryAssetBinding
@@ -618,33 +622,52 @@ const MAIN_HISTORY_REPRESENTATION_REVISION = 1;
  * 它负责初始化 WebGPU 资源，并在每一帧依次组织场景同步、GPU 可见性、
  * 材质展开、直接/间接光照、时域处理、后处理以及最终输出。
  */
-export interface WebCookedSceneOptions {
+/**
+ * One System Scene source mapper. The facade calls it with the revision that
+ * just activated, so a mapper may read producer state (a Cook catalog, a scene
+ * manifest) that only exists once the revision is frozen.
+ */
+export interface ProductSceneSourceMapper {
+  (revision: Readonly<{ residency: VirtualGeometryResidency; descriptor: GeometryProductDescriptorV1 }>): VirtualGeometrySceneSourceResultV1;
+}
+
+export interface ProductSceneOptions {
   readonly signal?: AbortSignal;
   readonly stream?: boolean;
-  readonly fitHeight?: number;
-  readonly fitBase?: readonly [number, number, number];
-  /** Runs after catalog materials are mapped and before GPU publication. */
+  /** Runs after the revision is mapped and before GPU publication. */
   readonly onMaterials?: (materials: readonly StandardShadeMaterial[]) => void;
 }
 
-export interface WebCookedSceneState {
+export interface ProductSceneState {
   residency: VirtualGeometryResidency;
   streaming: GeometryPageStreamingRuntimeV1 | null;
   source: VirtualGeometrySceneSource;
   materials: readonly StandardShadeMaterial[];
 }
 
-export interface WebCookedSceneHandles {
+export interface ProductSceneHandles {
   readonly handle: GpuRenderWorldHandle;
   readonly admission: GeometryProductAdmissionController;
   /** Resolves once any queued richer-revision swap has settled. */
   readonly settled: () => Promise<void>;
   /** Live view of the currently published Product revision. */
-  readonly current: () => Readonly<WebCookedSceneState>;
+  readonly current: () => Readonly<ProductSceneState>;
   readonly residency: VirtualGeometryResidency;
   readonly streaming: GeometryPageStreamingRuntimeV1 | null;
   readonly source: VirtualGeometrySceneSource;
   readonly materials: readonly StandardShadeMaterial[];
+}
+
+export interface WebCookedSceneOptions extends ProductSceneOptions {
+  /** Framing applied by the Web Cook catalog mapper. */
+  readonly fitHeight?: number;
+  readonly fitBase?: readonly [number, number, number];
+}
+
+export interface OegPackSceneOptions extends ProductSceneOptions {
+  /** Framing applied by the Offline scene manifest mapper. */
+  readonly fitHeight?: number;
+  readonly fitBase?: readonly [number, number, number];
 }
 
 export class MainRenderPipeline {
@@ -1059,18 +1082,22 @@ export class MainRenderPipeline {
   }
 
   /**
-   * Runtime-first `load(scene.glb)` route: opens a Web CookSession, admits the
-   * first complete Product revision, and publishes it through the shared
-   * GpuRenderWorld/Visibility path. The Promise resolves once the activation
+   * Publishes a Geometry Product Scene from any producer.
+   *
+   * This is the single entry shared by the Web Runtime Cooker route and the
+   * Native Offline (OEGPACK) route: the fork between producers happens in the
+   * provider and the mapper, never in admission, residency, streaming, visibility
+   * or the swap/lifecycle machinery. The Promise resolves once the activation
    * cut is resident; later Product revisions refine in place.
    */
-  async uploadWebCookedScene(
+  async uploadProductScene(
     scene: Scene,
-    asset: WebCookRuntimeAsset,
-    options: WebCookedSceneOptions = {}
-  ): Promise<WebCookedSceneHandles> {
+    provider: GeometryProductProviderV1,
+    mapSource: ProductSceneSourceMapper,
+    options: ProductSceneOptions = {}
+  ): Promise<ProductSceneHandles> {
     const admission = new GeometryProductAdmissionController(this.device);
-    let state: WebCookedSceneState | undefined;
+    let state: ProductSceneState | undefined;
     let initial: GeometryProductAdmissionTransaction | undefined;
     let swapTail: Promise<void> = Promise.resolve();
     admission.onActivated((transaction) => {
@@ -1079,21 +1106,19 @@ export class MainRenderPipeline {
       if (transaction === initial || state === undefined) return;
       const current = state;
       swapTail = swapTail
-        .then(() => this.swapWebCookedProduct(scene, admission, current, transaction, asset, options))
+        .then(() => this.swapProductScene(scene, admission, current, transaction, mapSource, options))
         .catch(() => undefined);
     });
-    const consuming = admission.consume(asset, options.signal);
+    const consuming = admission.consume(provider, options.signal);
     consuming.catch(() => undefined);
     await waitForActiveProduct(admission, options.signal);
     const active = admission.active;
-    if (!active || active.state !== "active") throw new Error("Web Cook Product admission did not activate");
+    if (!active || active.state !== "active") throw new Error("Geometry Product admission did not activate");
     initial = active;
-    const catalog = asset.catalog;
-    if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
     const residency = active.residency;
     const streaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, residency);
     try {
-      const mapped = createWebCookSceneSource(catalog, residency.descriptor, { fitHeight: options.fitHeight, fitBase: options.fitBase });
+      const mapped = mapSource({ residency, descriptor: residency.descriptor });
       options.onMaterials?.(mapped.materials);
       const handle = await this.uploadVirtualGeometryScene(scene, mapped.source, residency, streaming);
       state = { residency, streaming, source: mapped.source, materials: mapped.materials };
@@ -1115,27 +1140,55 @@ export class MainRenderPipeline {
   }
 
   /**
+   * Runtime-first `load(scene.glb)` route: opens a Web CookSession, admits the
+   * first complete Product revision, and publishes it through the shared
+   * GpuRenderWorld/Visibility path.
+   */
+  async uploadWebCookedScene(
+    scene: Scene,
+    asset: WebCookRuntimeAsset,
+    options: WebCookedSceneOptions = {}
+  ): Promise<ProductSceneHandles> {
+    return this.uploadProductScene(scene, asset, (revision) => {
+      const catalog = asset.catalog;
+      if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
+      return createWebCookSceneSource(catalog, revision.descriptor, { fitHeight: options.fitHeight, fitBase: options.fitBase });
+    }, options);
+  }
+
+  /**
+   * Offline second route: admits a pre-cooked OEGPACK Product and publishes it
+   * through the same admission, residency, streaming and visibility path as the
+   * Web route. Only the provider and the scene mapper differ.
+   */
+  async uploadOegPackScene(
+    scene: Scene,
+    asset: OegPackProductAsset,
+    options: OegPackSceneOptions = {}
+  ): Promise<ProductSceneHandles> {
+    return this.uploadProductScene(scene, asset, () => createOegPackSceneSource(asset, { fitHeight: options.fitHeight, fitBase: options.fitBase }), options);
+  }
+
+  /**
    * Publishes a richer revision atomically: the scene is released under a
    * submission-safe boundary, re-staged against the new residency, and only
    * then is the previous revision retired. A failed publish keeps the scene on
    * the previous revision.
    */
-  private async swapWebCookedProduct(
+  private async swapProductScene(
     scene: Scene,
     admission: GeometryProductAdmissionController,
-    state: WebCookedSceneState,
+    state: ProductSceneState,
     next: GeometryProductAdmissionTransaction,
-    asset: WebCookRuntimeAsset,
-    options: WebCookedSceneOptions
+    mapSource: ProductSceneSourceMapper,
+    options: ProductSceneOptions
   ): Promise<void> {
-    const catalog = asset.catalog;
-    if (!catalog) return;
     const previous = { residency: state.residency, streaming: state.streaming };
     const nextResidency = next.residency;
     const nextStreaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, nextResidency);
     try {
       await this.releaseVirtualGeometryScene(scene);
-      const mapped = createWebCookSceneSource(catalog, nextResidency.descriptor, { fitHeight: options.fitHeight, fitBase: options.fitBase });
+      const mapped = mapSource({ residency: nextResidency, descriptor: nextResidency.descriptor });
       options.onMaterials?.(mapped.materials);
       await this.uploadVirtualGeometryScene(scene, mapped.source, nextResidency, nextStreaming);
       previous.streaming?.destroy();
