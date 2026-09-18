@@ -157,8 +157,11 @@ export type {
 export { WebCookClient } from "./assets/web-cook/WebCookClient.js";
 export type { WebCookClientEvidence, WebCookClientOptions } from "./assets/web-cook/WebCookClient.js";
 export { WebCookRuntimeAsset } from "./assets/web-cook/WebCookRuntimeAsset.js";
-export { createWebCookWorker } from "./assets/web-cook/WebCookWorkerFactory.js";
-export type { WebCookWorkerFactoryOptions } from "./assets/web-cook/WebCookWorkerFactory.js";
+export { createWebCookWorker, createDefaultWebCookWorker } from "./assets/web-cook/WebCookWorkerFactory.js";
+export type {
+  DefaultWebCookWorkerFactoryOptions,
+  WebCookWorkerFactoryOptions
+} from "./assets/web-cook/WebCookWorkerFactory.js";
 export {
   GeometryProductAdmissionController
 } from "./gpu/GeometryProductAdmission.js";

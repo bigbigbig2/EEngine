@@ -19,6 +19,7 @@ const {
   OEGPACK_V3_PAGE_BYTES
 } = await import("../.test-dist/assets/GeometryAbiV3.js");
 const { GeometryBootstrapResidencyV3 } = await import("../.test-dist/gpu/GeometryBootstrapResidencyV3.js");
+const { unpackGeometryProductMetadataHeapHeaderV1 } = await import("../.test-dist/gpu/GeometryProductGpuAbiV1.js");
 const {
   descriptorFromOegPack,
   OegPackProductRevisionSource,
@@ -199,16 +200,26 @@ test("A8 bootstrap owner uploads fixed slots, resolves groups, and destroys ever
   assert.ok(!reached.includes(0), "bootstrap cut must refine-reach every group without holes");
   const writes = [];
   const buffers = [];
+  const metadataHeapWrites = [];
   const device = {
     limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 },
     createBuffer(descriptor) { const buffer = { descriptor, destroyed: false, destroy() { this.destroyed = true; } }; buffers.push(buffer); return buffer; },
-    queue: { writeBuffer(buffer, offset, data) { writes.push({ buffer, offset, bytes: data.byteLength }); } }
+    queue: { writeBuffer(buffer, offset, data) {
+      if (buffers[0] === buffer && offset === 0) metadataHeapWrites.push(new Uint8Array(data.buffer, data.byteOffset, data.byteLength).slice());
+      writes.push({ buffer, offset, bytes: data.byteLength });
+    } }
   };
   const residency = await GeometryBootstrapResidencyV3.create(device, opened);
+  // Admission owns three metadata writes: one heap initialization, one
+  // activation product record, and one batched page-location table update.
+  // The page-location table is the only write inside the ABI-declared region.
+  assert.equal(metadataHeapWrites.length, 1, "Product admission initializes the metadata heap exactly once");
+  const metadataBuffer = buffers[0];
+  const pageLocationByteOffset = unpackGeometryProductMetadataHeapHeaderV1(metadataHeapWrites[0]).pageLocationWordOffset * 4;
   const pageWrites = writes.filter(write => write.bytes === 262144);
-  const locationTableWrites = writes.filter(write => write.bytes !== 262144);
+  const pageLocationWrites = writes.filter(write => write.buffer === metadataBuffer && write.offset === pageLocationByteOffset);
   assert.equal(pageWrites.length, new Set(opened.bootstrapPageIds).size);
-  assert.equal(locationTableWrites.length, 1, "Product admission publishes one page-location table update");
+  assert.equal(pageLocationWrites.length, 1, "Product admission publishes one batched page-location table update");
   assert.ok(pageWrites.every(write => write.offset % 262144 === 0));
   for (let groupId = 0; groupId < opened.groups.length; groupId++) {
     const expected = new Set(opened.bootstrapPageIds).has(opened.groups[groupId].pageId);

@@ -15,6 +15,10 @@ import {
   type VirtualGeometrySceneSource
 } from "../../../../OEngine/src/index.ts";
 import type { WebCookSceneCatalogSnapshot } from "../../../../OEngine/src/assets/web-cook/WebCookClient.ts";
+import { createValidationController } from "../../host/protocol.ts";
+import { attachGpuErrorCollection } from "../../host/webgpu.ts";
+
+const DEFAULT_FIXTURE_URL = "/assets/oengine/glb-web-product-v1.glb";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 const urlInput = document.querySelector<HTMLInputElement>("#url")!;
@@ -35,6 +39,14 @@ let streaming: GeometryPageStreamingRuntimeV1 | undefined;
 let loadAbort: AbortController | undefined;
 let localUrl: string | undefined;
 let operation = 0;
+let errorCollection: ReturnType<typeof attachGpuErrorCollection> | undefined;
+let intentionalDeviceTeardown = false;
+let disposed = false;
+const runnerMode = new URLSearchParams(window.location.search).has("runId");
+const controller = runnerMode
+  ? createValidationController({ caseId: "glb-web-product", workloadId: "glb-web-product-bootstrap-v1" }, disposeCase)
+  : undefined;
+const nextFrame = (): Promise<void> => new Promise((resolve) => requestAnimationFrame(() => resolve()));
 
 function setStatus(value: string): void { statusElement.textContent = value; }
 function number(value: number | undefined): string { return value === undefined ? "-" : value.toLocaleString(); }
@@ -110,8 +122,12 @@ async function loadModel(): Promise<void> {
     });
     admission = new GeometryProductAdmissionController(renderer!.device);
     setStatus("reading GLB JSON and cooking Nyx Product...");
-    const consume = admission.consume(asset, loadAbort.signal);
-    await consume;
+    // The live CookSession stays open for refinement, so admission streams
+    // revisions instead of resolving once. React to the first active revision
+    // instead of awaiting the whole session.
+    const admitted = admission.consume(asset, loadAbort.signal);
+    admitted.catch(() => undefined);
+    await waitForActiveRevision(admission, loadAbort.signal);
     if (ticket !== operation || loadAbort.signal.aborted) return;
     const catalog = asset.catalog;
     const transaction = admission.active;
@@ -136,6 +152,18 @@ async function loadModel(): Promise<void> {
   } catch (error) {
     if (ticket === operation) setStatus(`error: ${error instanceof Error ? error.message : String(error)}`);
     await releaseModel();
+    if (runnerMode) throw error;
+  }
+}
+
+async function waitForActiveRevision(controller: GeometryProductAdmissionController, signal: AbortSignal): Promise<void> {
+  while (true) {
+    if (signal.aborted) throw signal.reason ?? new Error("Web GLB Product load was aborted");
+    const active = controller.active;
+    if (active?.state === "active") return;
+    const evidence = controller.evidence();
+    if (evidence.state === "failed" || evidence.state === "cancelled") throw new Error(evidence.failure ?? "Web GLB Product admission did not activate");
+    await new Promise((resolve) => setTimeout(resolve, 16));
   }
 }
 
@@ -217,9 +245,70 @@ function buildSceneSource(catalog: WebCookSceneCatalogSnapshot, descriptor: Read
 function tuple(value: unknown, length: number, fallback: readonly number[]): readonly number[] { return Array.isArray(value) && value.length === length && value.every(item => typeof item === "number" && Number.isFinite(item)) ? value : fallback; }
 function scalar(value: unknown, fallback: number): number { return typeof value === "number" && Number.isFinite(value) ? value : fallback; }
 
+/** Runner-driven validation host; manual use keeps the buttons and orbit controls. */
+async function runValidation(): Promise<void> {
+  if (controller === undefined) return;
+  try {
+    controller.transition("negotiating");
+    urlInput.value = DEFAULT_FIXTURE_URL;
+    await loadModel();
+    if (!renderer || !scene || !camera) throw new Error(statusElement.textContent ?? "Web GLB Product did not load");
+    renderer.profiler.configure({ enabled: true, warmupFrames: 0, gpuSampleInterval: 1, gpuCounterSampleInterval: 1, historyCapacity: 16 });
+    renderer.profiler.setMode("deep-capture");
+    errorCollection = attachGpuErrorCollection(renderer.device, controller, () => intentionalDeviceTeardown);
+    controller.addEvidence("catalog", asset?.catalog ?? null);
+    controller.addEvidence("admission", admission?.evidence() ?? null);
+    const active = admission?.active;
+    controller.addEvidence("residency", active?.state === "active" ? active.residency.evidence() : null);
+    controller.transition("ready");
+    controller.transition("warming");
+    let rendered = false;
+    for (let attempt = 0; attempt < 240 && !rendered; attempt++) { rendered = renderer.render(camera, scene, 1 / 60); if (!rendered) await nextFrame(); }
+    if (!rendered) throw new Error("Web GLB Product did not produce a renderable frame");
+    controller.transition("sampling");
+    let latest: unknown;
+    let sampled: Record<string, number> | undefined;
+    for (let frame = 0; frame < 120; frame++) {
+      renderer.render(camera, scene, 1 / 60);
+      await nextFrame();
+      latest = renderer.profiler.latest;
+      const gpuCounters = (latest as { gpuCounters?: { sampled?: boolean; values?: Record<string, number> } } | null)?.gpuCounters;
+      if (gpuCounters?.sampled && gpuCounters.values) { sampled = gpuCounters.values; break; }
+    }
+    const frameCounters = (latest as { counters?: Record<string, number> } | null)?.counters ?? {};
+    controller.addEvidence("frame", latest ?? null);
+    controller.addEvidence("streaming", streaming?.evidence() ?? null);
+    const sampledVisible = (sampled?.geometryVisiblePixels ?? 0) + (sampled?.visibleInstances ?? 0);
+    if (sampledVisible < 1 && ((frameCounters["hzb.outputPixels"] ?? 0) < 1 || (frameCounters["sparseShading.resolveRan"] ?? 0) < 1)) {
+      throw new Error("Web GLB Product produced no visible Product instance");
+    }
+    if (!active || active.state !== "active" || active.residency.evidence().residentPages < 1) throw new Error("Web GLB Product activation cut is not resident");
+    controller.transition("draining");
+    await renderer.device.queue.onSubmittedWorkDone();
+    controller.pass();
+  } catch (error) {
+    controller.fail(error instanceof Error ? error.stack ?? error.message : String(error));
+  }
+}
+
+async function disposeCase(): Promise<Record<string, unknown>> {
+  intentionalDeviceTeardown = true;
+  disposed = true;
+  await releaseModel();
+  renderer?.destroy();
+  renderer = undefined;
+  await errorCollection?.lost.catch(() => undefined);
+  errorCollection?.remove();
+  errorCollection = undefined;
+  return { rendererDestroyed: true, deviceIntentionallyDestroyed: intentionalDeviceTeardown };
+}
+
 function animate(): void {
+  if (disposed) return;
   controls?.update(1 / 60);
-  if (renderer && scene && camera) renderer.render(camera, scene, 1 / 60);
+  // Runner mode renders from runValidation() only, so the demand readback ring
+  // is not submitted twice per display frame.
+  if (!runnerMode && renderer && scene && camera) renderer.render(camera, scene, 1 / 60);
   updateMetrics(); requestAnimationFrame(animate);
 }
 
@@ -228,3 +317,4 @@ reloadButton.addEventListener("click", () => { void loadModel(); });
 cancelButton.addEventListener("click", () => { loadAbort?.abort(new Error("cancelled by user")); asset?.cancel("user-cancelled"); setStatus("cancelled"); });
 window.addEventListener("resize", resize);
 void animate();
+if (runnerMode) void runValidation();

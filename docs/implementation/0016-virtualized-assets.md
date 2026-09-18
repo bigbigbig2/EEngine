@@ -40,7 +40,7 @@ OEGPACK -> Offline adapter ─────┘          |
 
 ## Nyx 移植工作流（强制）
 
-本实施的几何、层次和 streaming 算法不允许重新设计简化版。唯一移植基线是用户提供的本地快照 `D:\Nyx-main`（核验日期 2026-09-16）；该目录无可验证 `.git` metadata，因此不把声明的 `moonlovelj/Nyx@bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b` 当作已验证 commit。实现分支必须在提交前重新计算下表 hash，发生变化就暂停并重新审查：
+本实施的几何、层次和 streaming 算法不允许重新设计简化版。唯一移植基线是用户提供的本地 Nyx 只读快照（核验日期 2026-09-16）；该目录无可验证 `.git` metadata，因此不把声明的 `moonlovelj/Nyx@bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b` 当作已验证 commit。实现分支必须在提交前重新计算下表 hash，发生变化就暂停并重新审查：
 
 | Nyx source | SHA-256 | 移植任务 | 主要落点 |
 | --- | --- | --- | --- |

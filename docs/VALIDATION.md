@@ -39,7 +39,7 @@
 
 正式比较必须固定 adapter、浏览器、canvas/internal resolution、DPR、画质、feature set、workload、seed、camera path、warm-up、采样帧与 cadence。报告绝对 GPU P50/P95、关键 phase、CPU build/submit、submit 数、counter 和按 owner 内存；GPU timestamp 不可用时标记 unavailable，不能用 CPU 时间冒充。
 
-产品目标是 1920x1080、DPR 1、60 FPS（16.667 ms GPU），在固定条件证据完成前统一标记未证明。相对性能改善必须有同条件 A/B；仅做当前能力验收时可以只报告绝对结果，但不得声称“改善”。
+产品目标是 1920x1080、DPR 1、60 FPS（16.667 ms GPU），在固定条件证据完成前统一标记未证明。相对性能改善必须有同条件 A/B；仅做当前能力验收时可以只报告绝对结果，但不得声称“改善”。旧 baseline 冻结、新旧版本 A/B、删除前后比较和相对收益门禁已以 `closed / requirement-removed` 关闭，不再作为当前验收前置条件。
 
 当前预算上限：resident 512 MiB、transient 256 MiB、history 128 MiB、shadow atlas 128 MiB、upload 8 MiB/frame、readback 256 KiB/frame。按 owner 统计，不重复计数。
 

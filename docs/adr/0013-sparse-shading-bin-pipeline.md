@@ -16,4 +16,4 @@ ShadingProgram、material/texture routing 和 bind-group closure 必须随 `GpuR
 
 ## Verification
 
-验证 Visibility -> classifier -> active-bin indirect consumer、exactly-once、容量/overflow、revision closure、patch/relocation、device loss、feature-off、旧 backend 零残留及正式浏览器 PERF；当前 gate 见 [STATUS](../STATUS.md)。
+验证 Visibility -> classifier -> active-bin indirect consumer、exactly-once、容量/overflow、revision closure、patch/relocation、device loss、feature-off、旧 backend 零残留及正式浏览器 PERF；当前 gate 见 [STATUS](../STATUS.md)。历史 baseline 冻结、Step 6 formal A/B、删除前后比较与相对收益门禁已以 `closed / requirement-removed` 关闭，不再阻塞验收，也不等待补测。

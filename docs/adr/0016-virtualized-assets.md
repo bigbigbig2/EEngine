@@ -19,7 +19,7 @@ OEngine 的 Web 产品入口需要继续保持 `load("scene.glb")` / `load("scen
 - 已发布 revision 内的 hierarchy、Group、Page identity 不可变。快速 bootstrap 是独立且完整可绘制的 revision；后续 refinement 通过已冻结 identity 的 page 补齐，或通过新 revision 的完整准入和原子替换完成。
 - `ProductID + revision` 是 GroupID/PageID 的作用域。Web 与 Offline 产物不得按局部 ID 混拼；新 revision 只有在合法 activation cut 已 resident 后才能切换，旧 revision 在提交安全边界后退休。
 - Web cache、OPFS、GPU decompression、Virtual Texturing 和 microtriangle software raster 均不是 correctness 基线；只有证据证明必要时再独立引入。
-- Nyx 是本架构的算法移植来源。Web 与 Native 不要求共用源码，但 Meshlet/Group/LOD simplification、hierarchy/DAG、page streaming、resident fallback 和 meshlet-local visibility 必须从用户提供的 `D:\Nyx-main` 源函数/Shader 逐项移植；不得用自研简化算法、只保留概念或删除中间阶段。允许变化的仅是 WASM/WGSL/WebGPU 资源、I/O、地址表示和生命周期适配。
+- Nyx 是本架构的算法移植来源。Web 与 Native 不要求共用源码，但 Meshlet/Group/LOD simplification、hierarchy/DAG、page streaming、resident fallback 和 meshlet-local visibility 必须从用户提供的本地 Nyx 只读快照源函数/Shader 逐项移植；不得用自研简化算法、只保留概念或删除中间阶段。允许变化的仅是 WASM/WGSL/WebGPU 资源、I/O、地址表示和生命周期适配。
 
 本决策由四个子决策细化：A 管理 Offline Cooker/OEGPACK；B 管理生产者无关的 admission/residency；C 管理唯一 renderer 的消费与切换；D 区分纹理网络渐进与真实物理 residency。
 

@@ -47,6 +47,11 @@
       "layer": "L3",
       "description": "Product metadata, hierarchy, Group, Page and Meshlet generation/range checks execute on GPU"
     },
+    "GEO-WEB-COOK": {
+      "ownerAdr": "ADR-0016",
+      "layer": "L3",
+      "description": "A bounded Web GLB CookSession produces a producer-neutral Product consumed by the production renderer"
+    },
     "TEX-MODE-A": {
       "ownerAdr": "ADR-0016",
       "layer": "L3",
@@ -481,6 +486,20 @@
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
+    },
+    "glb-web-product-bootstrap-v1": {
+      "resolution": [1280, 720],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0016-s2-web-glb-bootstrap-v1",
+      "features": ["web-cook", "glb-range", "product-admission", "product-residency", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
+      "seed": 1602,
+      "cameraPath": "web-glb-bootstrap-grid",
+      "warmupFrames": 1,
+      "sampleFrames": 5,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
     }
   },
   "cases": [
@@ -837,6 +856,35 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while the Product production device is captured.",
           "ownerRequirement": "GEO-VIRTUAL-ABI"
+        }
+      ]
+    },
+    {
+      "id": "glb-web-product",
+      "route": "/src/cases/glb-web-product/index.html",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0016",
+      "requirements": ["GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME"],
+      "workloadId": "glb-web-product-bootstrap-v1",
+      "profile": "smoke",
+      "timeoutMs": 240000,
+      "artifacts": ["result", "events", "screenshot"],
+      "changedPaths": [
+        "validation/src/cases/glb-web-product",
+        "validation/public/assets/oengine",
+        "OEngine/src/assets/web-cook",
+        "OEngine/src/loaders/gltf/streaming",
+        "OEngine/src/gpu/GeometryProductAdmission.ts",
+        "OEngine/src/gpu/VirtualGeometryResidency.ts",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while the Web GLB Product device is captured.",
+          "ownerRequirement": "GEO-WEB-COOK"
         }
       ]
     }

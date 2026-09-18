@@ -14,7 +14,7 @@ V1 profile 复用 [OEGPACK V3](./oegpack-v3.md) 的 decoded Group/Meshlet payloa
 
 ## Nyx Provenance 与移植合同
 
-V1 的几何生产算法必须以用户提供的本地 Nyx 快照 `D:\Nyx-main` 为来源，而不是另行设计一个“类似 Nanite”的简化算法。当前可核验基线是快照日期 2026-09-16 及以下文件 SHA-256；目录没有 `.git` metadata，`moonlovelj/Nyx@bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b` 仅是声明身份，不是本地已验证 commit：
+V1 的几何生产算法必须以用户提供的本地 Nyx 只读快照为来源，而不是另行设计一个“类似 Nanite”的简化算法。当前可核验基线是快照日期 2026-09-16 及以下文件 SHA-256；目录没有 `.git` metadata，`moonlovelj/Nyx@bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b` 仅是声明身份，不是本地已验证 commit：
 
 | Nyx source | SHA-256 | V1 required mapping |
 | --- | --- | --- |

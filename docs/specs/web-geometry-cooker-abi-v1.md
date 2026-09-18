@@ -4,7 +4,9 @@ Status: draft
 
 Owners: `oengine-web-geometry-cooker`、Dedicated Worker glue、Web CookSession
 
-Version/Compatibility: ABI major 1；未知 version、非 canonical section offset、非零 reserved/padding 或未知 flag 必须拒绝，不做 best-effort 解码。
+## Version/Compatibility
+
+ABI major 1；未知 version、非 canonical section offset、非零 reserved/padding 或未知 flag 必须拒绝，不做 best-effort 解码。
 
 ## Contract
 
