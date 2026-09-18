@@ -376,12 +376,15 @@ reported as capability errors; they never silently enter the V2 path.
 | `GeometryStreaming::Initialize`, `PinRootPages`, `Update`, `SyncMemoryAndAddressTable`, `EnqueueAsyncLoad`, `OnPageIOComplete`, `ImmediateEvict` | `GeometryProductAdmissionController`, `VirtualGeometryResidency`, `GeometryPageStreamingRuntimeV1`, `GeometryPageSchedulerV1` | Complete activation/bootstrap pin, delayed demand, bounded retry/upload, hash validation, generation checks, revoke-before-slot-reuse and ancestor fallback are preserved | WebGPU uses rotating MAP_READ readback rings and bank/slot buffers; retirement waits on a submission completion token | `geometry-product-admission.test.mjs`, `geometry-page-scheduler.test.mjs`, `geometry-page-streaming-runtime.test.mjs`; browser evidence pending |
 | `DAGCull::ProcessNodeBatch`, `ProcessMeshletBatch`, `computeMain` | `hierarchical_work_generation.ts`, `virtual_geometry_work.ts`, `PackedVisibilityPass` | GPU root seeding, hierarchy wavefront, frustum/HZB/SSE decisions, resident check, coarse fallback, refinement demand and bounded indirect reservation remain GPU-produced | WGSL replaces Slang wave intrinsics with existing work queues and explicit Product generation/page-location ABI | existing virtual geometry ABI/oracle cases; real GLB browser readback pending |
 | `VBufferMesh::BuildVertexOutput`, `meshMain`, `pixelMain` | `MeshletBucketRaster` Product decode path plus `VisibilityKey` and sparse shading consumers | Page-local vertex pulling, meshlet-local primitive identity and VisibilityKey material routing are consumed by the existing raster/shading path | WebGPU uses indirect indexed raster buckets instead of DX12 mesh shader dispatch; no second renderer is introduced | `virtual-product-production` synthetic Product case; real GLB screenshot/console evidence pending |
-| `ModelConvert::WalkGraph`, `ParallelCompileMeshes`, `BuildModel`, `SaveModel` | `GlbSceneCatalog` + `WebCookRuntimeAsset` catalog callback + `glb-web-product` validation host | Node instances, world transforms, material factors and primitive ownership are carried into one immutable scene publication | JSON metadata is transferred as structured data; GPU scene arrays are built only at explicit admission/publication | `glb-scene-catalog.test.mjs`, `web-cook-coordinator.test.mjs`; manual browser run pending |
+| `ModelConvert::WalkGraph`, `ParallelCompileMeshes`, `BuildModel`, `SaveModel` | `GlbSceneCatalog` + `WebCookRuntimeAsset` catalog callback + `glb-web-product` validation host | Node instances, world transforms, material factors and primitive ownership are carried into one immutable scene publication | JSON metadata is transferred as structured data; GPU scene arrays are built only at explicit admission/publication | `glb-scene-catalog.test.mjs`, `web-cook-coordinator.test.mjs`; `glb-web-product` Chrome bootstrap case accepted |
 
-The standalone manual host is `validation/src/cases/glb-web-product`. It uses
-the real Worker/WASM cooker, common Product admission/residency and
+`validation/src/cases/glb-web-product` is a registered automated case
+(`run:glb-web-product`) that also keeps its manual UI. It uses the real
+Worker/WASM cooker, the common Product admission/residency and
 `MainRenderPipeline`; it does not create a second renderer or a hand-authored
-triangle. Runtime/browser validation remains an explicit user-operated gate.
+triangle. The current revision reaches a complete single-asset bootstrap
+Product and passes in Chrome. Multi-material/multi-primitive mapping, richer
+revisions and demand feedback remain open.
 
 ## Slice dependency 与并行边界
 
