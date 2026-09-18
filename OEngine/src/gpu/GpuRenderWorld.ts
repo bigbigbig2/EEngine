@@ -608,7 +608,10 @@ export class GpuRenderWorld {
 
   /** Device-independent committed checkpoint; queued patches remain queued. */
   recoveryScenes() {
-    return [...this.byScene.values()].map((runtime) => {
+    // Virtual Product scenes carry no geometry packages; the dedicated product
+    // recovery loop restores them from the retained Product source instead.
+    const scenes = [...this.byScene.values()].filter((runtime) => runtime.sourceKind !== "virtual-product");
+    return scenes.map((runtime) => {
       const classification = this.classificationByScene.get(runtime.scene)!;
       const geometries = this.recoveryGeometry.get(runtime.scene)!;
       const adapter = this.ordinaryAdapters.get(runtime.scene);
