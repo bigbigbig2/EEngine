@@ -16,10 +16,20 @@ import {
   type VirtualGeometrySceneSource
 } from "../../../../OEngine/src/index.ts";
 import type { WebCookSceneCatalogSnapshot } from "../../../../OEngine/src/assets/web-cook/WebCookClient.ts";
+import dungeonSourceUrl from "../../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
 import { createValidationController } from "../../host/protocol.ts";
 import { attachGpuErrorCollection } from "../../host/webgpu.ts";
 
-const DEFAULT_FIXTURE_URL = "/assets/oengine/glb-web-product-v1.glb";
+const FIXTURE_SOURCE_URL = "/assets/oengine/glb-web-product-v1.glb";
+const DUNGEON_SOURCE_URL = dungeonSourceUrl;
+
+/** `?source=fixture|dungeon|<url>`; the runner uses the multi-material dungeon by default. */
+function resolveValidationSource(): string {
+  const requested = new URLSearchParams(window.location.search).get("source");
+  if (requested === "fixture") return FIXTURE_SOURCE_URL;
+  if (requested === "dungeon" || requested === null) return DUNGEON_SOURCE_URL;
+  return requested;
+}
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 const urlInput = document.querySelector<HTMLInputElement>("#url")!;
@@ -258,7 +268,7 @@ async function runValidation(): Promise<void> {
   if (controller === undefined) return;
   try {
     controller.transition("negotiating");
-    urlInput.value = DEFAULT_FIXTURE_URL;
+    urlInput.value = resolveValidationSource();
     await loadModel();
     if (!renderer || !scene || !camera) throw new Error(statusElement.textContent ?? "Web GLB Product did not load");
     renderer.profiler.configure({ enabled: true, warmupFrames: 0, gpuSampleInterval: 1, gpuCounterSampleInterval: 1, historyCapacity: 16 });

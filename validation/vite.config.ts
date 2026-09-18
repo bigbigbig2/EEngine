@@ -10,7 +10,7 @@ export default defineConfig({
     host: "127.0.0.1",
     port: 4178,
     strictPort: true,
-    fs: { allow: [root, resolve(root, "../OEngine")] }
+    fs: { allow: [root, resolve(root, "../OEngine"), resolve(root, "../examples")] }
   },
   build: {
     target: "es2022",

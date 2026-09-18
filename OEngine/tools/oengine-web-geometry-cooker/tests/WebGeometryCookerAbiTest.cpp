@@ -95,7 +95,7 @@ std::vector<std::uint8_t> CanonicalCube() {
     return bytes;
 }
 
-std::vector<std::uint8_t> CanonicalTwoDomains() {
+std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount) {
     constexpr std::array<std::array<float, 3>, 8> positions = {{
         {{-1.0f,-1.0f,-1.0f}}, {{1.0f,-1.0f,-1.0f}},
         {{1.0f,1.0f,-1.0f}}, {{-1.0f,1.0f,-1.0f}},
@@ -106,20 +106,19 @@ std::vector<std::uint8_t> CanonicalTwoDomains() {
         0,2,1, 0,3,2, 4,5,6, 4,6,7, 0,1,5, 0,5,4,
         1,2,6, 1,6,5, 2,3,7, 2,7,6, 3,0,4, 3,4,7
     }};
-    constexpr std::size_t domainCount = 2u;
-    constexpr std::size_t domainVertexCount = positions.size();
-    constexpr std::size_t domainIndexCount = indices.size();
-    constexpr std::size_t vertexCount = domainVertexCount * domainCount;
-    constexpr std::size_t indexCount = domainIndexCount * domainCount;
-    constexpr std::size_t domainOffset = 128u;
-    constexpr std::size_t vertexOffset = AlignUp(domainOffset + domainCount * 32u, 16u);
-    constexpr std::size_t indexOffset = AlignUp(vertexOffset + vertexCount * 72u, 16u);
-    constexpr std::size_t totalBytes = AlignUp(indexOffset + indexCount * 4u, 16u);
+    const std::size_t domainVertexCount = positions.size();
+    const std::size_t domainIndexCount = indices.size();
+    const std::size_t vertexCount = domainVertexCount * domainCount;
+    const std::size_t indexCount = domainIndexCount * domainCount;
+    const std::size_t domainOffset = 128u;
+    const std::size_t vertexOffset = AlignUp(domainOffset + domainCount * 32u, 16u);
+    const std::size_t indexOffset = AlignUp(vertexOffset + vertexCount * 72u, 16u);
+    const std::size_t totalBytes = AlignUp(indexOffset + indexCount * 4u, 16u);
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
     U32(bytes, 8u, 1u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
-    U32(bytes, 20u, domainCount); U32(bytes, 24u, vertexCount); U32(bytes, 28u, indexCount);
+    U32(bytes, 20u, std::uint32_t(domainCount)); U32(bytes, 24u, std::uint32_t(vertexCount)); U32(bytes, 28u, std::uint32_t(indexCount));
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 32u);
     for (std::size_t domain = 0u; domain < domainCount; ++domain) {
@@ -214,7 +213,7 @@ int main() {
 
     // The Web profile emits one Product asset per canonical material domain so
     // a GLB mesh's primitives stay independently addressable by instance.
-    const std::vector<std::uint8_t> twoDomains = CanonicalTwoDomains();
+    const std::vector<std::uint8_t> twoDomains = CanonicalDomains(2u);
     const std::uintptr_t multi = oengine_web_geometry_cook(
         twoDomains.data(), twoDomains.size(), recipe.data(), recipe.size(),
         8u * 1024u * 1024u);
@@ -222,6 +221,17 @@ int main() {
     assert(Section(multi, OENGINE_WEB_COOK_SECTION_ASSET_RECORDS).size() == 256u);
     assert(Section(multi, OENGINE_WEB_COOK_SECTION_ROOT_NODE_IDS).size() >= 8u);
     oengine_web_geometry_cook_destroy(multi);
+
+    // A multi-mesh GLB can exceed the 255 vertex-format limit of a single merged
+    // asset. Each domain must therefore stay its own asset.
+    constexpr std::size_t manyDomains = 260u;
+    const std::vector<std::uint8_t> many = CanonicalDomains(manyDomains);
+    const std::uintptr_t manyHandle = oengine_web_geometry_cook(
+        many.data(), many.size(), recipe.data(), recipe.size(),
+        64u * 1024u * 1024u);
+    if (!manyHandle) throw std::runtime_error(LastError());
+    assert(Section(manyHandle, OENGINE_WEB_COOK_SECTION_ASSET_RECORDS).size() == manyDomains * 128u);
+    oengine_web_geometry_cook_destroy(manyHandle);
 
     std::vector<std::uint8_t> corrupt = canonical;
     U32(corrupt, 16u, std::uint32_t(corrupt.size() - 16u));
