@@ -113,7 +113,11 @@ export class VirtualGeometryResidency {
 
   async #fillActivationCut(): Promise<void> {
     const pages = [...this.#descriptor.activationPageIds];
-    const bankCount = Math.ceil(pages.length / OEGPACK_V3_SLOTS_PER_BANK);
+    // GPU bindings are captured once at publication, so every bank that demand
+    // upload can ever reach must exist before the Product is published. Size the
+    // heap from the Product's total page count, not just the activation cut.
+    const totalPageCount = this.#descriptor.pageRecords.byteLength / 32;
+    const bankCount = virtualGeometryRequiredBankCount(totalPageCount, pages.length);
     if (bankCount > 4) throw new RangeError("Geometry Product activation cut exceeds the 512 MiB resident budget");
     for (let bank = 0; bank < bankCount; bank++) this.#banks.push(this.device.createBuffer({ label: `OEngine Geometry Product V1 bank ${bank}`, size: OEGPACK_V3_GEOMETRY_BANK_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }));
     for (let index = 0; index < pages.length; index++) {
@@ -217,8 +221,7 @@ export class VirtualGeometryResidency {
     if (this.#pageLocations.has(page.pageId)) return;
     if (this.#retiringLocations.has(page.pageId)) throw new Error("Geometry Product page is retiring and cannot be re-uploaded yet");
     const slot = this.#acquireSlot();
-    if (!slot) throw new Error("Geometry Product resident heap is full; page must remain queued");
-    this.device.queue.writeBuffer(this.#banks[slot.bankIndex]!, slot.slotIndex * OEGPACK_V3_PAGE_BYTES, new Uint8Array(page.bytes));
+    if (!slot) throw new Error("Geometry Product resident heap is full; page must remain queued");    this.device.queue.writeBuffer(this.#banks[slot.bankIndex]!, slot.slotIndex * OEGPACK_V3_PAGE_BYTES, new Uint8Array(page.bytes));
     const location = Object.freeze({ bankIndex: slot.bankIndex, slotIndex: slot.slotIndex, productGeneration: this.#productGeneration, flags: GEOMETRY_PAGE_LOCATION_RESIDENT });
     this.#pageLocations.set(page.pageId, location); this.#slotOwners.set(slotKey(slot.bankIndex, slot.slotIndex), page.pageId); this.#uploadedBytes += OEGPACK_V3_PAGE_BYTES;
     this.#pageLastUsed.set(page.pageId, 0);
@@ -250,6 +253,18 @@ export class VirtualGeometryResidency {
  * creation when they admit a Product scene.
  */
 export const VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE = 14;
+
+/**
+ * Banks the residency must allocate before publication. GPU bindings are
+ * captured once, so every slot that later demand upload can reach has to exist
+ * up front; sizing from the activation cut alone silently loses refinement
+ * pages in unbound banks.
+ */
+export function virtualGeometryRequiredBankCount(totalPageCount: number, activationPageCount: number): number {
+  const total = Math.min(4, Math.ceil(totalPageCount / OEGPACK_V3_SLOTS_PER_BANK));
+  const activation = Math.ceil(activationPageCount / OEGPACK_V3_SLOTS_PER_BANK);
+  return Math.max(activation, total);
+}
 
 function slotKey(bankIndex: number, slotIndex: number): string { return `${bankIndex}:${slotIndex}`; }
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean { if (a.byteLength !== b.byteLength) return false; for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false; return true; }

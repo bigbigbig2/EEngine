@@ -8,7 +8,7 @@ const {
   assertGeometryProductDescriptorV1,
   validateGeometryProductDescriptorV1
 } = await import("../.test-dist/assets/geometry-product/GeometryProductV1.js");
-const { VirtualGeometryResidency } = await import("../.test-dist/gpu/VirtualGeometryResidency.js");
+const { VirtualGeometryResidency, virtualGeometryRequiredBankCount } = await import("../.test-dist/gpu/VirtualGeometryResidency.js");
 
 function fixture() {
   const page = new Uint8Array(262144);
@@ -79,4 +79,14 @@ test("Product-aware residency selects only aged, non-pinned pages for eviction",
   residency.touchPage(0, 3);
   assert.deepEqual(residency.selectEvictionCandidates(10, 524288, 0), [1]);
   residency.destroy();
+});
+
+test("Product residency pre-allocates every bank its page table can reach", () => {
+  assert.equal(virtualGeometryRequiredBankCount(1, 1), 1);
+  assert.equal(virtualGeometryRequiredBankCount(512, 512), 1);
+  assert.equal(virtualGeometryRequiredBankCount(513, 1), 2, "a demand page past the activation cut still needs its bank bound");
+  assert.equal(virtualGeometryRequiredBankCount(811, 374), 2, "Dungeon-style product");
+  assert.equal(virtualGeometryRequiredBankCount(2048, 10), 4);
+  assert.equal(virtualGeometryRequiredBankCount(2049, 10), 4, "the resident heap stays bounded to four banks");
+  assert.equal(virtualGeometryRequiredBankCount(3000, 3000), 6, "an over-budget activation cut is rejected by the caller");
 });
