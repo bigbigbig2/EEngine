@@ -627,15 +627,24 @@ export interface WebCookedSceneOptions {
   readonly onMaterials?: (materials: readonly StandardShadeMaterial[]) => void;
 }
 
+export interface WebCookedSceneState {
+  residency: VirtualGeometryResidency;
+  streaming: GeometryPageStreamingRuntimeV1 | null;
+  source: VirtualGeometrySceneSource;
+  materials: readonly StandardShadeMaterial[];
+}
+
 export interface WebCookedSceneHandles {
   readonly handle: GpuRenderWorldHandle;
   readonly admission: GeometryProductAdmissionController;
+  /** Resolves once any queued richer-revision swap has settled. */
+  readonly settled: () => Promise<void>;
+  /** Live view of the currently published Product revision. */
+  readonly current: () => Readonly<WebCookedSceneState>;
   readonly residency: VirtualGeometryResidency;
   readonly streaming: GeometryPageStreamingRuntimeV1 | null;
   readonly source: VirtualGeometrySceneSource;
   readonly materials: readonly StandardShadeMaterial[];
-  /** Resolves once any queued richer-revision swap has settled. */
-  readonly settled: () => Promise<void>;
 }
 
 export class MainRenderPipeline {
@@ -1061,16 +1070,16 @@ export class MainRenderPipeline {
     options: WebCookedSceneOptions = {}
   ): Promise<WebCookedSceneHandles> {
     const admission = new GeometryProductAdmissionController(this.device);
-    let published: { residency: VirtualGeometryResidency; streaming: GeometryPageStreamingRuntimeV1 | null } | undefined;
+    let state: WebCookedSceneState | undefined;
     let initial: GeometryProductAdmissionTransaction | undefined;
     let swapTail: Promise<void> = Promise.resolve();
     admission.onActivated((transaction) => {
       // The first activation is published below; every later one is a richer
       // replacement that must be swapped in rather than cooked and discarded.
-      if (transaction === initial || published === undefined) return;
-      const previous = published;
+      if (transaction === initial || state === undefined) return;
+      const current = state;
       swapTail = swapTail
-        .then(() => this.swapWebCookedProduct(scene, admission, previous, transaction, asset, options))
+        .then(() => this.swapWebCookedProduct(scene, admission, current, transaction, asset, options))
         .catch(() => undefined);
     });
     const consuming = admission.consume(asset, options.signal);
@@ -1087,8 +1096,18 @@ export class MainRenderPipeline {
       const mapped = createWebCookSceneSource(catalog, residency.descriptor, { fitHeight: options.fitHeight, fitBase: options.fitBase });
       options.onMaterials?.(mapped.materials);
       const handle = await this.uploadVirtualGeometryScene(scene, mapped.source, residency, streaming);
-      published = { residency, streaming };
-      return Object.freeze({ handle, admission, residency, streaming, source: mapped.source, materials: mapped.materials, settled: () => swapTail });
+      state = { residency, streaming, source: mapped.source, materials: mapped.materials };
+      const published = state;
+      return Object.freeze({
+        handle,
+        admission,
+        settled: () => swapTail,
+        current: () => Object.freeze({ residency: published.residency, streaming: published.streaming, source: published.source, materials: published.materials }),
+        get residency() { return published.residency; },
+        get streaming() { return published.streaming; },
+        get source() { return published.source; },
+        get materials() { return published.materials; }
+      });
     } catch (error) {
       streaming?.destroy();
       throw error;
@@ -1104,13 +1123,14 @@ export class MainRenderPipeline {
   private async swapWebCookedProduct(
     scene: Scene,
     admission: GeometryProductAdmissionController,
-    previous: { residency: VirtualGeometryResidency; streaming: GeometryPageStreamingRuntimeV1 | null },
+    state: WebCookedSceneState,
     next: GeometryProductAdmissionTransaction,
     asset: WebCookRuntimeAsset,
     options: WebCookedSceneOptions
   ): Promise<void> {
     const catalog = asset.catalog;
     if (!catalog) return;
+    const previous = { residency: state.residency, streaming: state.streaming };
     const nextResidency = next.residency;
     const nextStreaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, nextResidency);
     try {
@@ -1120,6 +1140,10 @@ export class MainRenderPipeline {
       await this.uploadVirtualGeometryScene(scene, mapped.source, nextResidency, nextStreaming);
       previous.streaming?.destroy();
       admission.retireReplaced();
+      state.residency = nextResidency;
+      state.streaming = nextStreaming;
+      state.source = mapped.source;
+      state.materials = mapped.materials;
     } catch (error) {
       nextStreaming?.destroy();
       throw error;

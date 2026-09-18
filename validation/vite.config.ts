@@ -31,7 +31,8 @@ export default defineConfig({
         "sparse-shading-candidate": resolve(root, "src/cases/sparse-shading-candidate/index.html"),
         "sparse-shading-production": resolve(root, "src/cases/sparse-shading-production/index.html"),
         "virtual-product-production": resolve(root, "src/cases/virtual-product-production/index.html"),
-        "glb-web-product": resolve(root, "src/cases/glb-web-product/index.html")
+        "glb-web-product": resolve(root, "src/cases/glb-web-product/index.html"),
+        "virtual-product-replacement": resolve(root, "src/cases/virtual-product-replacement/index.html")
       }
     }
   }

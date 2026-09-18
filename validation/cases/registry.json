@@ -500,6 +500,20 @@
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
+    },
+    "virtual-product-replacement-v1": {
+      "resolution": [1280, 720],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0016-s5-product-replacement-v1",
+      "features": ["web-cook", "glb-range", "product-admission", "product-residency", "product-replacement", "product-eviction", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
+      "seed": 1605,
+      "cameraPath": "web-glb-replacement-refine-evict",
+      "warmupFrames": 1,
+      "sampleFrames": 5,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
     }
   },
   "cases": [
@@ -884,6 +898,33 @@
           "source": "console:warning",
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while the Web GLB Product device is captured.",
+          "ownerRequirement": "GEO-WEB-COOK"
+        }
+      ]
+    },
+    {
+      "id": "virtual-product-replacement",
+      "route": "/src/cases/virtual-product-replacement/index.html",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0016",
+      "requirements": ["GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME", "GEO-VIRTUAL-ABI"],
+      "workloadId": "virtual-product-replacement-v1",
+      "profile": "smoke",
+      "timeoutMs": 240000,
+      "artifacts": ["result", "events", "screenshot"],
+      "changedPaths": [
+        "validation/src/cases/virtual-product-replacement",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
+        "OEngine/src/gpu/GeometryProductAdmission.ts",
+        "OEngine/src/gpu/VirtualGeometryResidency.ts",
+        "OEngine/src/gpu/GeometryPageStreamingRuntime.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while the replacement device is captured.",
           "ownerRequirement": "GEO-WEB-COOK"
         }
       ]
