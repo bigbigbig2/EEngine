@@ -143,7 +143,10 @@ import {
 } from "../../gpu/VirtualGeometryResidency.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 import { GeometryProductAdmissionController } from "../../gpu/GeometryProductAdmission.js";
+import type { GeometryProductAdmissionTransaction } from "../../gpu/GeometryProductAdmission.js";
 import type { WebCookRuntimeAsset } from "../../assets/web-cook/WebCookRuntimeAsset.js";
+import type { WebCookSceneCatalogSnapshot } from "../../assets/web-cook/WebCookClient.js";
+import type { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import { createWebCookSceneSource } from "../../assets/web-cook/WebCookSceneSource.js";
 import {
   createPackedSceneSourceFromScene,
@@ -615,6 +618,26 @@ const MAIN_HISTORY_REPRESENTATION_REVISION = 1;
  * 它负责初始化 WebGPU 资源，并在每一帧依次组织场景同步、GPU 可见性、
  * 材质展开、直接/间接光照、时域处理、后处理以及最终输出。
  */
+export interface WebCookedSceneOptions {
+  readonly signal?: AbortSignal;
+  readonly stream?: boolean;
+  readonly fitHeight?: number;
+  readonly fitBase?: readonly [number, number, number];
+  /** Runs after catalog materials are mapped and before GPU publication. */
+  readonly onMaterials?: (materials: readonly StandardShadeMaterial[]) => void;
+}
+
+export interface WebCookedSceneHandles {
+  readonly handle: GpuRenderWorldHandle;
+  readonly admission: GeometryProductAdmissionController;
+  readonly residency: VirtualGeometryResidency;
+  readonly streaming: GeometryPageStreamingRuntimeV1 | null;
+  readonly source: VirtualGeometrySceneSource;
+  readonly materials: readonly StandardShadeMaterial[];
+  /** Resolves once any queued richer-revision swap has settled. */
+  readonly settled: () => Promise<void>;
+}
+
 export class MainRenderPipeline {
   context!: GPUCanvasContext;
   device!: GPUDevice;
@@ -1035,28 +1058,27 @@ export class MainRenderPipeline {
   async uploadWebCookedScene(
     scene: Scene,
     asset: WebCookRuntimeAsset,
-    options: {
-      readonly signal?: AbortSignal;
-      readonly stream?: boolean;
-      readonly fitHeight?: number;
-      readonly fitBase?: readonly [number, number, number];
-      /** Runs after catalog materials are mapped and before GPU publication. */
-      readonly onMaterials?: (materials: readonly import("../../material/StandardShadeMaterial.js").StandardShadeMaterial[]) => void;
-    } = {}
-  ): Promise<{
-    readonly handle: GpuRenderWorldHandle;
-    readonly admission: GeometryProductAdmissionController;
-    readonly residency: VirtualGeometryResidency;
-    readonly streaming: GeometryPageStreamingRuntimeV1 | null;
-    readonly source: VirtualGeometrySceneSource;
-    readonly materials: readonly import("../../material/StandardShadeMaterial.js").StandardShadeMaterial[];
-  }> {
+    options: WebCookedSceneOptions = {}
+  ): Promise<WebCookedSceneHandles> {
     const admission = new GeometryProductAdmissionController(this.device);
+    let published: { residency: VirtualGeometryResidency; streaming: GeometryPageStreamingRuntimeV1 | null } | undefined;
+    let initial: GeometryProductAdmissionTransaction | undefined;
+    let swapTail: Promise<void> = Promise.resolve();
+    admission.onActivated((transaction) => {
+      // The first activation is published below; every later one is a richer
+      // replacement that must be swapped in rather than cooked and discarded.
+      if (transaction === initial || published === undefined) return;
+      const previous = published;
+      swapTail = swapTail
+        .then(() => this.swapWebCookedProduct(scene, admission, previous, transaction, asset, options))
+        .catch(() => undefined);
+    });
     const consuming = admission.consume(asset, options.signal);
     consuming.catch(() => undefined);
     await waitForActiveProduct(admission, options.signal);
     const active = admission.active;
     if (!active || active.state !== "active") throw new Error("Web Cook Product admission did not activate");
+    initial = active;
     const catalog = asset.catalog;
     if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
     const residency = active.residency;
@@ -1065,9 +1087,41 @@ export class MainRenderPipeline {
       const mapped = createWebCookSceneSource(catalog, residency.descriptor, { fitHeight: options.fitHeight, fitBase: options.fitBase });
       options.onMaterials?.(mapped.materials);
       const handle = await this.uploadVirtualGeometryScene(scene, mapped.source, residency, streaming);
-      return Object.freeze({ handle, admission, residency, streaming, source: mapped.source, materials: mapped.materials });
+      published = { residency, streaming };
+      return Object.freeze({ handle, admission, residency, streaming, source: mapped.source, materials: mapped.materials, settled: () => swapTail });
     } catch (error) {
       streaming?.destroy();
+      throw error;
+    }
+  }
+
+  /**
+   * Publishes a richer revision atomically: the scene is released under a
+   * submission-safe boundary, re-staged against the new residency, and only
+   * then is the previous revision retired. A failed publish keeps the scene on
+   * the previous revision.
+   */
+  private async swapWebCookedProduct(
+    scene: Scene,
+    admission: GeometryProductAdmissionController,
+    previous: { residency: VirtualGeometryResidency; streaming: GeometryPageStreamingRuntimeV1 | null },
+    next: GeometryProductAdmissionTransaction,
+    asset: WebCookRuntimeAsset,
+    options: WebCookedSceneOptions
+  ): Promise<void> {
+    const catalog = asset.catalog;
+    if (!catalog) return;
+    const nextResidency = next.residency;
+    const nextStreaming = options.stream === false ? null : new GeometryPageStreamingRuntimeV1(this.device, nextResidency);
+    try {
+      await this.releaseVirtualGeometryScene(scene);
+      const mapped = createWebCookSceneSource(catalog, nextResidency.descriptor, { fitHeight: options.fitHeight, fitBase: options.fitBase });
+      options.onMaterials?.(mapped.materials);
+      await this.uploadVirtualGeometryScene(scene, mapped.source, nextResidency, nextStreaming);
+      previous.streaming?.destroy();
+      admission.retireReplaced();
+    } catch (error) {
+      nextStreaming?.destroy();
       throw error;
     }
   }

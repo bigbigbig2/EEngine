@@ -86,6 +86,9 @@ async function ensureRenderer(): Promise<void> {
   if (!globalThis.isSecureContext || !navigator.gpu) throw new Error("WebGPU requires a secure context and navigator.gpu");
   const context = canvas.getContext("webgpu");
   if (!context) throw new Error("WebGPU canvas context is unavailable");
+  // The validation case reads the shaded result back, which needs COPY_SRC.
+  const configure = context.configure.bind(context);
+  Object.defineProperty(context, "configure", { configurable: true, value: (config: GPUCanvasConfiguration) => configure({ ...config, usage: (config.usage ?? GPUTextureUsage.RENDER_ATTACHMENT) | GPUTextureUsage.COPY_SRC }) });
   renderer = new Renderer({
     debug: false,
     requiredLimits: { maxStorageBuffersPerShaderStage: 14 },
@@ -238,11 +241,33 @@ async function runValidation(): Promise<void> {
     const frameCounters = (latest as { counters?: Record<string, number> } | null)?.counters ?? {};
     controller.addEvidence("frame", latest ?? null);
     controller.addEvidence("streaming", streaming?.evidence() ?? null);
-    const sampledVisible = (sampled?.geometryVisiblePixels ?? 0) + (sampled?.visibleInstances ?? 0);
-    if (sampledVisible < 1 && ((frameCounters["hzb.outputPixels"] ?? 0) < 1 || (frameCounters["sparseShading.resolveRan"] ?? 0) < 1)) {
-      throw new Error("Web GLB Product produced no visible Product instance");
-    }
     if (!active || active.state !== "active" || active.residency.evidence().residentPages < 1) throw new Error("Web GLB Product activation cut is not resident");
+    // Real pixel evidence. Counters alone pass on a black frame, which is how a
+    // lost page bank went unnoticed before.
+    const region = Math.max(8, Math.min(256, canvas.width, canvas.height));
+    const capture = renderer.requestLinearHdrCapture({
+      x: Math.max(0, Math.floor((canvas.width - region) / 2)),
+      y: Math.max(0, Math.floor((canvas.height - region) / 2)),
+      width: region,
+      height: region,
+      stage: "lighting"
+    });
+    for (let frame = 0; frame < 4; frame++) { renderer.render(camera, scene, 1 / 60); await nextFrame(); }
+    const readback = await capture;
+    let litPixels = 0;
+    for (let index = 0; index + 3 < readback.rgba.length; index += 4) {
+      const luminance = readback.rgba[index]! * 0.2126 + readback.rgba[index + 1]! * 0.7152 + readback.rgba[index + 2]! * 0.0722;
+      if (luminance > 0.02) litPixels++;
+    }
+    controller.addEvidence("coverage", {
+      region,
+      litPixels,
+      sampledPixels: region * region,
+      gpuCounters: sampled ?? null,
+      hzbPixels: frameCounters["hzb.outputPixels"] ?? 0,
+      resolveRan: frameCounters["sparseShading.resolveRan"] ?? 0
+    });
+    if (litPixels < 64) throw new Error(`Web GLB Product shaded too few lit pixels (${litPixels}/${region * region})`);
     controller.transition("draining");
     await renderer.device.queue.onSubmittedWorkDone();
     controller.pass();

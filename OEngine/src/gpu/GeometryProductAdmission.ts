@@ -76,11 +76,22 @@ export class GeometryProductAdmissionController {
   #failure: string | undefined;
   #lastRejection: string | undefined;
   readonly #schedulers = new Set<GeometryPageSchedulerV1>();
+  readonly #activatedListeners = new Set<(transaction: GeometryProductAdmissionTransaction) => void>();
 
   constructor(device: GPUDevice) { this.#admission = new GeometryProductAdmission(device); }
 
   get active(): GeometryProductAdmissionTransaction | undefined { return this.#active; }
   get admission(): GeometryProductAdmission { return this.#admission; }
+
+  /**
+   * Observes every activation, including replacements, so a renderer owner can
+   * publish the new revision before the previous one is retired. Listener
+   * failures never fail admission.
+   */
+  onActivated(listener: (transaction: GeometryProductAdmissionTransaction) => void): () => void {
+    this.#activatedListeners.add(listener);
+    return () => this.#activatedListeners.delete(listener);
+  }
 
   /** Registers the active Product for demand scheduling without transferring source ownership. */
   registerActiveProduct(scheduler: GeometryPageSchedulerV1): void {
@@ -179,6 +190,9 @@ export class GeometryProductAdmissionController {
             this.#active = transaction;
           }
           this.#activated++;
+          for (const listener of this.#activatedListeners) {
+            try { listener(transaction); } catch { /* a publish failure must not fail admission */ }
+          }
         } catch (error) {
           this.#rejected++;
           this.#lastRejection = error instanceof Error ? error.message : String(error);
