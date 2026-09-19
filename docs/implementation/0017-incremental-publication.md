@@ -71,6 +71,8 @@ Owners: Web Runtime Cooker、Geometry Cooker WASM ABI、Geometry Product admissi
 
 这四个缺陷在既有 `glb-web-product` case 上不显现：该 case 的 output credit 只有 32 且停在首帧附近，既跑不到替换后的材质映射，也跑不到 plan-backed 页的重复 demand。后两条已补回归测试（wasm 产物上的「transfer 后重读同一页」与 async mapper 上的「跨 revision 共享贴图」），前者在回退修复时会失败，确认测试有牙齿。
 
+第四步退出条件已满足：revision `fd33257`（工作区 clean）上该 case 取得 `evidenceStatus: accepted`，证据为 ADR-0014 宿主采集的真实 Chrome 153 运行，具体数值归档在该 runId 的 `result.json` 与 `screenshot.png` 中。该次运行的关键读数：activation cut 24/53 页全 resident，替换 `replacements 1` / `activated 2` / `rejected 0` / `activeGeneration 2`，demand `requested 330` / `deduplicated 12` / `failed 0` / `residentBefore 374` → `residentAfter 375`，coverage 17394 lit pixels，cook 终态 `state open` / `transport.failures 0` / `provider.failures 0` / `recoverableFailures 0`，`errors` 为空。注意 demand 侧的 `requested` 与 `discardedPages` 随帧时序与相机停留时长变化，引用时必须注明是单次观测；cut 页数、覆盖率与 `replacements` 是跨 revision 可复现的。
+
 退出条件：clean revision 上取得 accepted 级浏览器证据；文档与当前 ABI、identity 语义一致。
 
 ## Shared gates
