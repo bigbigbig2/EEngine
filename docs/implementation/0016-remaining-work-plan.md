@@ -137,3 +137,11 @@ bootstrap activation、revision 1 replacement 和 replacement 后 demand 像素�
 3. 默认只跑 `npm run typecheck`、命中的 targeted tests 和构建；跨 GPU publication、材质保真或 consumer cutover 时集中运行对应 `validation/` 浏览器 MILESTONE。`npm ci`、全套重测试及正式 PERF 仅按 `VALIDATION.md` 的触发条件执行。
 4. 每阶段提交前检查 `git diff`、实际 producer→consumer、feature-off、budget/overflow/counter、失败/取消/device-loss；设计对照无偏且命中验证通过才提交。提交应对应一个上述完整交付阶段，可在阶段内使用少量可回退的中间提交，但不把类名/空接口当阶段完成。
 5. S9 持久 cache 和 Texture Mode B/Virtual Texturing 暂不进入上述必做链；只有重复 Cook/source 或真实物理 texture allocation 的固定 workload 证据证明瓶颈后，另行立项和验收。
+
+### S5 当前进度（2026-09-19）
+
+已完成：七项 Nyx 源 hash/function map、OEngine producer/consumer 映射、WGSL 语义与 GPU counter 静态门禁，以及独立原版 harness。`build-nyx-reference-harness.mjs` 在只读临时目录编译原版 `MeshletBuilder.cpp`，真实覆盖空输入拒绝、确定性、meshlet/group/hierarchy、bounds、infinity sentinel、attribute seam lock 与 sloppy simplification fallback；同一 seam corpus 的原版结果与 Web Runtime 结构化结果逐项对照。`build-nyx-model-convert-reference-harness.mjs` 抽取并运行原版 `WalkGraph`、`ParallelCompileMeshes`、`BuildModel`，验证 preorder/world transform、camera/mesh ownership、共享 mesh 去重、scene 拒绝和临时源排队清理；`SaveModel` 的 DX12 文件映射保留原版接受、zero-draw、越页写入和 cleanup 分支 source-audit，未把平台字节布局冒充 WebGPU oracle。原版 `DAGCull.slang`/`VBufferMesh.slang` 由 Nyx 自带 Slang 2026.10 编译到 SPIR-V 并做 entry-point/reflection 检查。
+
+三腿 differential 现在覆盖原版 Nyx -> OEngine Native -> OEngine Web 的 Product 结构、meshlet/triangle 数、refine link、error/bounds、DAG 可达性、Page 独立、bootstrap identity、材质边界和 deterministic sections/pages；negative corpus 覆盖 malformed Product、cross-page Group、overflow、stale、cancel。真实 Chrome `virtual-product-production` artifact 覆盖两页 bootstrap、缺页 demand、resident ancestor fallback、GPU producer/consumer、VisibilityKey identity；`virtual-geometry-component` artifact 注入容量 1 的真实 WebGPU queue，读回 attempted=2、written=0、overflow=2、invalid=1、draw.instanceCount=0，证明 bounded overflow fail-closed。
+
+本步已达到实现与验证退出条件，`npm run audit:nyx-function-map` 与 `nyx-function-map.test.mjs` 返回 `externalAlgorithmComplete: true`。边界仍明确：未运行原版 DX12 MiniEngine 整体工程，也不比较 DX12/WebGPU 字节布局；`SaveModel` 的 Windows 文件映射只做原版分支审计，OEngine 的跨 owner stale/cancel/page 负例承担对应生命周期验证。这不等于第六步 consumer cutover 或第七步用户界面/PERF 完成。

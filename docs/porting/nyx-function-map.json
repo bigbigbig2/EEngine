@@ -1,0 +1,178 @@
+{
+  "schemaVersion": 1,
+  "sourceRoot": "D:/Nyx-main",
+  "upstream": "user-provided local Nyx snapshot (read-only)",
+  "license": "MIT (Nyx/MiniEngine)",
+  "sourceFiles": [
+    {
+      "path": "MiniEngine/Model/MeshletBuilder.cpp",
+      "sha256": "b749346382b0f9a1574f0c0566a2860bff2acfbc6521df6f153a42653c81e84a",
+      "symbols": ["Build", "BuildLOD0Meshlets", "BuildMeshletsFromIndices", "GeneratePositionRemap", "GroupMeshlets", "BuildVertexLocksByGroups", "SimplifyGroup", "SerializeGroup", "BuildStreamingData", "BuildHierarchy", "ValidateBuild"]
+    },
+    {
+      "path": "MiniEngine/Model/ModelConvert.cpp",
+      "sha256": "8bdf016e0f36e70f0c1aa46d679ab0e1b4f57ea30e0748a6549675620cc8a059",
+      "symbols": ["WalkGraph", "ParallelCompileMeshes", "BuildModel", "SaveModel"]
+    },
+    {
+      "path": "MiniEngine/Model/MeshletStructs.h",
+      "sha256": "1edfaa25d2e12067b98d93599142b110e2509be96471fa09a00b029484ef9b23",
+      "symbols": ["MeshletHeader", "GroupHeader", "HierarchyNode", "GroupDataLocation"]
+    },
+    {
+      "path": "MiniEngine/Model/GeometryStreaming.cpp",
+      "sha256": "acb3aa4786eb6367e92b99e9e295c83e0aade516d59578f23ff38496f838a072",
+      "symbols": ["Initialize", "PinRootPages", "Update", "SyncMemoryAndAddressTable", "EnqueueAsyncLoad", "OnPageIOComplete", "ImmediateEvict"]
+    },
+    {
+      "path": "MiniEngine/Model/GeometryStreaming.h",
+      "sha256": "4bee73ffc0c29ad7670bb7c5ac1567a281b3f33271adfc534d834dc88897c264",
+      "symbols": ["Initialize", "PinRootPages", "Update", "GroupDataLocation"]
+    },
+    {
+      "path": "MiniEngine/Model/Shaders/DAGCull.slang",
+      "sha256": "6534dd8794248d693acd07488653a625df3b4fac11117f96537a43857dcfee7e",
+      "symbols": ["ProcessNodeBatch", "ProcessMeshletBatch", "computeMain"]
+    },
+    {
+      "path": "MiniEngine/Model/Shaders/VBufferMesh.slang",
+      "sha256": "9f374a2437d5ab939ae4d98289c150097bdab17305191ff97abf3fd1d13c621d",
+      "symbols": ["BuildVertexOutput", "meshMain", "pixelMain"]
+    }
+  ],
+  "referenceHarness": {
+    "status": "verified-source-harnesses",
+    "kind": "original-nyx-model-harness",
+    "reason": "MeshletBuilder.cpp, ModelConvert WalkGraph/ParallelCompileMeshes/BuildModel, and the original DAGCull/VBufferMesh Slang entry points are independently compiled or reflected from the pinned Nyx bytes. SaveModel keeps its original acceptance, zero-draw, page-boundary, and temporary-cleanup branches source-audited because the remaining DX12 file-mapping ABI is platform-specific; OEngine lifecycle negative corpus covers the corresponding fail-closed contract.",
+    "requiredResolution": "No remaining Step 5 resolution. SaveModel native file-mapping execution remains an explicit platform boundary and is not claimed as a WebGPU byte/layout oracle.",
+    "notExternalAlgorithmComplete": false
+  },
+  "mappings": [
+    {
+      "id": "meshlet-build-pipeline",
+      "source": "MiniEngine/Model/MeshletBuilder.cpp",
+      "sourceSymbols": ["Build", "BuildLOD0Meshlets", "BuildMeshletsFromIndices", "GeneratePositionRemap", "GroupMeshlets", "BuildVertexLocksByGroups", "SimplifyGroup", "SerializeGroup", "BuildStreamingData", "BuildHierarchy", "ValidateBuild"],
+      "implementation": ["OEngine/tools/oengine-asset-core/src/geometry/GeometryCooker.cpp", "OEngine/tools/oengine-web-geometry-cooker/src/WebGeometryCookerAbi.cpp", "OEngine/src/assets/web-cook/NyxWebRuntimeCooker.ts"],
+      "consumer": ["OEngine/src/assets/geometry-product/GeometryProductV1.ts", "OEngine/src/gpu/VirtualGeometryResidency.ts", "OEngine/src/render/HierarchicalWorkGenerator.ts"],
+      "retainedInvariants": ["meshlet vertex and triangle caps", "position remap and seam/attribute locks", "group simplification with fallback", "parent error propagation", "hierarchy and page construction", "validation rejects malformed output"],
+      "webgpuAdaptation": "WASM/Native producers emit OEngine V3 decoded pages; GPU consumers use Product heap and page locations instead of Nyx DX12 addresses.",
+      "fallback": "Unsupported glTF capability or invalid canonical input is rejected; no simplified triangle chunker is used.",
+      "oracle": ["OEngine/tests/nyx-differential-corpus.test.mjs", "OEngine/tests/nyx-function-map.test.mjs"],
+      "status": "verified"
+    },
+    {
+      "id": "scene-conversion",
+      "source": "MiniEngine/Model/ModelConvert.cpp",
+      "sourceSymbols": ["WalkGraph", "ParallelCompileMeshes", "BuildModel", "SaveModel"],
+      "implementation": ["OEngine/src/loaders/gltf/streaming/GlbSceneCatalog.ts", "OEngine/src/assets/web-cook/WebCookSceneSource.ts", "OEngine/tools/oengine-asset-core/src/import/GltfImporter.cpp"],
+      "consumer": ["OEngine/src/assets/web-cook/WebCookCoordinator.ts", "OEngine/src/gpu/GeometryProductAdmission.ts"],
+      "retainedInvariants": ["node instance ownership", "world transform propagation", "primitive/material identity", "deterministic asset ordering"],
+      "webgpuAdaptation": "Catalog metadata is structured data; GPU scene arrays are created only at explicit Product admission.",
+      "fallback": "Unsupported extensionsRequired and compression/skin/morph profiles fail with capability errors.",
+      "oracle": ["OEngine/tests/web-cook-scene-source.test.mjs", "OEngine/tests/web-cook-visible-first.test.mjs"],
+      "status": "verified"
+    },
+    {
+      "id": "product-layout",
+      "source": "MiniEngine/Model/MeshletStructs.h",
+      "sourceSymbols": ["MeshletHeader", "GroupHeader", "HierarchyNode", "GroupDataLocation"],
+      "implementation": ["OEngine/src/assets/GeometryAbiV3.ts", "OEngine/src/assets/geometry-product/GeometryProductV1.ts", "OEngine/src/gpu/GeometryProductGpuAbiV1.ts"],
+      "consumer": ["OEngine/src/gpu/VirtualGeometryResidency.ts", "OEngine/src/shaders/virtual_geometry_product.ts"],
+      "retainedInvariants": ["bounds and geometric error fields", "stable group/page identity", "generation checked before bank reads", "page-local payload"],
+      "webgpuAdaptation": "Little-endian V3 records and four bounded storage banks replace native struct/address layout.",
+      "fallback": "Record range, generation, page and group validation fails closed.",
+      "oracle": ["OEngine/tests/geometry-product-binary.test.mjs", "OEngine/tests/virtual-geometry-product.test.mjs"],
+      "status": "verified"
+    },
+    {
+      "id": "geometry-streaming",
+      "source": "MiniEngine/Model/GeometryStreaming.cpp",
+      "sourceSymbols": ["Initialize", "PinRootPages", "Update", "SyncMemoryAndAddressTable", "EnqueueAsyncLoad", "OnPageIOComplete", "ImmediateEvict"],
+      "implementation": ["OEngine/src/gpu/VirtualGeometryResidency.ts", "OEngine/src/gpu/GeometryPageStreamingRuntime.ts", "OEngine/src/gpu/GeometryPageScheduler.ts"],
+      "consumer": ["OEngine/src/render/HierarchicalWorkGenerator.ts", "OEngine/src/shaders/meshlet_bucket_visibility.ts"],
+      "retainedInvariants": ["root pin/bootstrap activation", "delayed demand feedback", "generation-safe page publication", "revoke-before-reuse", "resident ancestor fallback", "independent page validation"],
+      "webgpuAdaptation": "MAP_READ copy rings and submission retirement replace DX12 readback/fence APIs; page bank slots remain bounded.",
+      "fallback": "Missing or stale pages retain a resident ancestor and emit bounded demand; no CPU final visible list is built.",
+      "oracle": ["OEngine/tests/geometry-page-streaming-runtime.test.mjs", "OEngine/tests/geometry-page-scheduler.test.mjs", "validation/src/cases/virtual-product-replacement/main.ts"],
+      "status": "verified"
+    },
+    {
+      "id": "dag-process-node",
+      "source": "MiniEngine/Model/Shaders/DAGCull.slang",
+      "sourceSymbols": ["ProcessNodeBatch"],
+      "implementation": ["OEngine/src/shaders/hierarchical_work_generation.ts", "OEngine/src/render/HierarchicalWorkGenerator.ts"],
+      "consumer": ["OEngine/src/render/passes/PackedVisibilityPass.ts"],
+      "retainedInvariants": ["root seeding and wavefront child traversal", "frustum/HZB tests", "SSE/error refinement", "bounded all-or-nothing queue reservation", "overflow counters"],
+      "webgpuAdaptation": "Explicit workgroup atomics and indirect rounds replace Slang wave intrinsics and DispatchMesh.",
+      "fallback": "HZB uncertainty fails open; queue overflow emits ancestor/fallback work and a counter.",
+      "oracle": ["OEngine/tests/nyx-function-map.test.mjs", "validation/src/cases/virtual-product-production/main.ts"],
+      "status": "verified"
+    },
+    {
+      "id": "dag-process-meshlet",
+      "source": "MiniEngine/Model/Shaders/DAGCull.slang",
+      "sourceSymbols": ["ProcessMeshletBatch"],
+      "implementation": ["OEngine/src/shaders/hierarchical_work_generation.ts", "OEngine/src/render/HierarchicalWorkGenerator.ts"],
+      "consumer": ["OEngine/src/render/MeshletBucketRaster.ts", "OEngine/src/render/passes/PackedVisibilityPass.ts"],
+      "retainedInvariants": ["meshlet leaf visibility", "resident page check", "page demand and ancestor fallback", "meshlet identity preservation"],
+      "webgpuAdaptation": "VisibleCluster/MeshletRasterWork records feed bounded standard indirect buckets rather than a mesh shader dispatch.",
+      "fallback": "Non-resident leaf remains represented by a resident ancestor; invalid generation is rejected.",
+      "oracle": ["OEngine/tests/geometry-page-demand-abi.test.mjs", "OEngine/tests/nyx-function-map.test.mjs"],
+      "status": "verified"
+    },
+    {
+      "id": "dag-compute-main",
+      "source": "MiniEngine/Model/Shaders/DAGCull.slang",
+      "sourceSymbols": ["computeMain"],
+      "implementation": ["OEngine/src/shaders/hierarchical_work_generation.ts"],
+      "consumer": ["OEngine/src/render/HierarchicalWorkGenerator.ts"],
+      "retainedInvariants": ["workgroup barriers", "queue header counters", "bounded dispatch extent", "GPU producer to indirect consumer"],
+      "webgpuAdaptation": "WGSL @compute workgroup size 64 and explicit barriers replace HLSL group synchronization.",
+      "fallback": "Feature-off removes HZB bindings and passes; overflow is recorded and never silently truncates.",
+      "oracle": ["OEngine/tests/nyx-function-map.test.mjs", "OEngine/tests/geometry-work-truth.test.mjs"],
+      "status": "verified"
+    },
+    {
+      "id": "vbuffer-build-vertex",
+      "source": "MiniEngine/Model/Shaders/VBufferMesh.slang",
+      "sourceSymbols": ["BuildVertexOutput"],
+      "implementation": ["OEngine/src/shaders/meshlet_bucket_visibility.ts", "OEngine/src/shaders/virtual_geometry_product.ts"],
+      "consumer": ["OEngine/src/render/MeshletBucketRaster.ts", "OEngine/src/render/passes/SparseShadingResolvePass.ts"],
+      "retainedInvariants": ["page-local vertex decode", "world/view projection", "meshlet-local primitive identity", "material routing"],
+      "webgpuAdaptation": "Product bank word loads and standard vertex pulling replace native mesh shader payload/address loads.",
+      "fallback": "Invalid product/page/vertex format emits no primitive and increments validation diagnostics.",
+      "oracle": ["OEngine/tests/nyx-function-map.test.mjs", "validation/src/cases/virtual-product-production/main.ts"],
+      "status": "verified"
+    },
+    {
+      "id": "vbuffer-mesh-main",
+      "source": "MiniEngine/Model/Shaders/VBufferMesh.slang",
+      "sourceSymbols": ["meshMain"],
+      "implementation": ["OEngine/src/shaders/meshlet_bucket_visibility.ts"],
+      "consumer": ["OEngine/src/render/MeshletBucketRaster.ts"],
+      "retainedInvariants": ["bounded vertex/primitive emission", "front-face and two-sided behavior", "VisibilityKey identity"],
+      "webgpuAdaptation": "Fixed drawIndirect buckets replace mesh shader output counts; padding vertices are explicitly counted.",
+      "fallback": "Invalid or padding triangles are rejected while preserving the work item identity.",
+      "oracle": ["OEngine/tests/geometry-product-gpu-abi.test.mjs", "OEngine/tests/nyx-function-map.test.mjs"],
+      "status": "verified"
+    },
+    {
+      "id": "vbuffer-pixel-main",
+      "source": "MiniEngine/Model/Shaders/VBufferMesh.slang",
+      "sourceSymbols": ["pixelMain"],
+      "implementation": ["OEngine/src/shaders/meshlet_bucket_visibility.ts", "OEngine/src/gpu/GpuVisibilityKeyAbi.ts"],
+      "consumer": ["OEngine/src/render/passes/SparseShadingResolvePass.ts", "OEngine/src/gpu/GpuVisibilityKeyAbi.ts"],
+      "retainedInvariants": ["alpha-test decision", "primitive identity and depth", "two-sided/material routing"],
+      "webgpuAdaptation": "WGSL fragment outputs write VisibilityKey/depth MRT consumed by the existing material and sparse shading path.",
+      "fallback": "Unsupported material texture or invalid key fails closed and is counted; no silent opaque fallback.",
+      "oracle": ["OEngine/tests/packed-render-world-contract.test.mjs", "validation/src/cases/glb-web-product/main.ts"],
+      "status": "verified"
+    }
+  ],
+  "gpuEvidence": {
+    "counterSource": "OEngine/src/debug/GpuFrameCounters.ts",
+    "requiredCounters": ["geometryNodesTested", "geometryClustersAccepted", "geometryMeshletsSelected", "geometryQueueBytes", "meshletQueueAttempted", "meshletQueueWritten", "meshletQueueConsumed", "meshletQueueOverflow", "invalidVisibilityKeys", "queueOverflowMask"],
+    "semanticChecks": ["HZB/SSE rejection is visible in rejectedHzb and hierarchy counters", "page demand/ancestor fallback is visible in GeometryPageStreamingRuntime evidence", "bounded queue overflow is non-zero only for injected capacity pressure", "primitive identity is checked by VisibilityKey validation and readback"],
+    "browserCases": ["validation/src/cases/virtual-product-production/main.ts", "validation/src/cases/virtual-product-replacement/main.ts", "validation/src/cases/virtual-geometry-component/main.ts", "validation/src/cases/glb-web-product/main.ts"]
+  }
+}

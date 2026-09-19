@@ -37,7 +37,7 @@ function writeF32(view: DataView, at: number, values: readonly number[]): void {
   values.forEach((value, index) => view.setFloat32(at + index * 4, value, true));
 }
 
-/** A complete one-page V3 Product cut; all raster bytes remain page-local. */
+/** A two-page Product cut: page zero is the bootstrap, page one is a deliberate missing-page demand target. */
 async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
   const page = new Uint8Array(262144);
   const view = new DataView(page.buffer);
@@ -74,7 +74,8 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
     });
     view.setUint16(at, q[0]!, true); view.setUint16(at + 2, q[1]!, true); view.setUint16(at + 4, q[2]!, true);
   });
-  const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", page));
+  const pages = [page, page.slice()];
+  const hashes = await Promise.all(pages.map(async (value) => new Uint8Array(await crypto.subtle.digest("SHA-256", value))));
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
     schemaVersion: 1,
     productId: new Uint8Array(32).fill(0x41),
@@ -90,14 +91,14 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
     assetRecords: encodeAssetRecordsV3([{
       assetId: "4141414141414141414141414141414141414141414141414141414141414141",
       boundsSphere: [0, 0, 0, 1], boundsMin: [-0.8, -0.8, -0.1], boundsMax: [0.8, 0.8, 0.1],
-      rootNodeBegin: 0, rootNodeCount: 1, hierarchyBegin: 0, hierarchyCount: 1,
-      groupBegin: 0, groupCount: 1, bootstrapPageBegin: 0, bootstrapPageCount: 1,
-      sourceTriangleCount: 1, leafMeshletCount: 1, totalMeshletCount: 1, flags: 0
+      rootNodeBegin: 0, rootNodeCount: 1, hierarchyBegin: 0, hierarchyCount: 3,
+      groupBegin: 0, groupCount: 2, bootstrapPageBegin: 0, bootstrapPageCount: 1,
+      sourceTriangleCount: 2, leafMeshletCount: 2, totalMeshletCount: 2, flags: 0
     }]),
     rootNodeIds: new Uint32Array([0]),
-  hierarchyNodes: (() => { const bytes = new Uint8Array(48), node = new DataView(bytes.buffer); writeF32(node, 0, [0, 0, 0, 1]); writeF32(node, 16, [-0.8, -0.8, -0.1]); writeF32(node, 28, [0.8, 0.8, 0.1]); node.setFloat32(40, 100, true); node.setUint32(44, 1, true); return bytes; })(),
-    groupDirectory: (() => { const bytes = new Uint8Array(16), group = new DataView(bytes.buffer); group.setUint32(0, 0, true); group.setUint32(4, 0, true); group.setUint32(8, 152, true); group.setUint32(12, 1, true); return bytes; })(),
-    pageRecords: encodeGeometryProductPageRecordsV1([{ decodedHash128: hash.subarray(0, 16), firstGroup: 0, groupCount: 1, flags: 0, reserved: 0 }]),
+  hierarchyNodes: (() => { const bytes = new Uint8Array(48 * 3), node = new DataView(bytes.buffer); for (const at of [0, 48, 96]) { writeF32(node, at, [0, 0, 0, 1]); writeF32(node, at + 16, [-0.8, -0.8, -0.1]); writeF32(node, at + 28, [0.8, 0.8, 0.1]); node.setFloat32(at + 40, 100, true); } node.setUint32(44, (2 << 28) | (1 << 1), true); node.setUint32(48 + 44, 1, true); node.setUint32(96 + 44, 3, true); return bytes; })(),
+    groupDirectory: (() => { const bytes = new Uint8Array(32), group = new DataView(bytes.buffer); group.setUint32(0, 0, true); group.setUint32(4, 0, true); group.setUint32(8, 152, true); group.setUint32(12, 1, true); group.setUint32(16, 1, true); group.setUint32(20, 0, true); group.setUint32(24, 152, true); return bytes; })(),
+    pageRecords: encodeGeometryProductPageRecordsV1([{ decodedHash128: hashes[0]!.subarray(0, 16), firstGroup: 0, groupCount: 1, flags: 0, reserved: 0 }, { decodedHash128: hashes[1]!.subarray(0, 16), firstGroup: 1, groupCount: 1, flags: 0, reserved: 0 }]),
     bootstrapPageIds: new Uint32Array([0]),
     vertexFormats: encodeVertexFormatsV3([{ strideBytes: 8, attributeMask: 3, positionOffset: 0, normalOffset: 0, tangentOffset: 0xff, uv0Offset: 0xff, uv1Offset: 0xff, colorOffset: 0xff }]),
     activationPageIds: new Uint32Array([0])
@@ -108,8 +109,8 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
     async readPage(pageId: number, signal?: AbortSignal) {
       if (released) throw new Error("Product source has been released");
       if (signal?.aborted) throw signal.reason ?? new Error("Product page read cancelled");
-      if (pageId !== 0) throw new RangeError("Product fixture contains one page");
-      return Object.freeze({ productId: descriptor.productId.slice(), revision: descriptor.revision, pageId, decodedHash128: hash.subarray(0, 16).slice(), bytes: page.slice().buffer });
+      if (pageId !== 0 && pageId !== 1) throw new RangeError("Product fixture contains two pages");
+      return Object.freeze({ productId: descriptor.productId.slice(), revision: descriptor.revision, pageId, decodedHash128: hashes[pageId]!.subarray(0, 16).slice(), bytes: pages[pageId]!.slice().buffer });
     },
     release() { released = true; }
   });
@@ -134,7 +135,7 @@ try {
   residency.activatePublication();
   const openedDescriptor = residency.descriptor;
   const geometryProfiles = [{ hasAuthoredVertexColor: false, hasUv0: false, hasUv1: false, hasUv2: false, hasNormal: true, hasTangent: false }] as const;
-  await renderer.uploadVirtualGeometryScene(scene, { materials: [material], geometryProfiles, assetCount: 1, hierarchyMaxDepth: 1, hierarchyTraversalCapacity: 4, hierarchyVisibleClusterCapacity: 4, hierarchyRasterWorkCapacity: 4, count: 1, geometryIndices: new Uint32Array([0]), materialIndices: new Uint32Array([0]), currentTransforms: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]), boundsSpheres: new Float32Array([0, 0, 0, 1]) }, residency);
+  await renderer.uploadVirtualGeometryScene(scene, { materials: [material], geometryProfiles, assetCount: 1, hierarchyMaxDepth: 2, hierarchyTraversalCapacity: 8, hierarchyVisibleClusterCapacity: 8, hierarchyRasterWorkCapacity: 8, count: 1, geometryIndices: new Uint32Array([0]), materialIndices: new Uint32Array([0]), currentTransforms: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]), boundsSpheres: new Float32Array([0, 0, 0, 1]) }, residency);
   requireValue(openedDescriptor.activationPageIds.length === 1 && residency.evidence().residentPages === 1, "Product activation cut was not resident");
   const camera = new PerspectiveCamera(); camera.near = 0.05; camera.aspect = 1280 / 720; camera.transform.position.set(0, 0, 4); camera.transform.lookAt({ x: 0, y: 0, z: 0 }); camera.update();
   controller.transition("ready"); controller.transition("warming");
@@ -145,10 +146,28 @@ try {
   const scoped = await withGpuErrorScopes(renderer.device, "Product production frame", async () => capture);
   const result = await scoped.value; let maximumError = 0; for (let i = 0; i < result.rgba.length; i++) maximumError = Math.max(maximumError, Math.abs(result.rgba[i]! - [0.12, 0.52, 0.92, 1][i % 4]!));
   const evidence = { residency: residency.evidence(), publication: renderer.sparseShadingPublicationEvidence(), frame: renderer.profiler.latest, graph: renderer.mainFrameGraphEvidence(), gpuErrors: scoped.errors };
+  const counters = (evidence.frame as { gpuCounters?: { values?: Record<string, number> } } | null)?.gpuCounters?.values ?? {};
+  const demandFrameBytes = ((evidence.frame as { uploads?: { labels?: Record<string, number> } } | null)?.uploads?.labels?.["HierarchicalWorkGenerator/demand-frame"] ?? 0);
   controller.addEvidence("readback", { expected: [0.12, 0.52, 0.92, 1], rgba: [...result.rgba], maximumError, evidence });
+  controller.addEvidence("demandFallback", {
+    bootstrapResidentPages: evidence.residency.residentPages,
+    missingPageId: 1,
+    demandFrameBytes,
+    hierarchyNodesTested: counters["geometryNodesTested"] ?? 0,
+    clustersAccepted: counters["geometryClustersAccepted"] ?? 0,
+    traversalQueueReservations: counters["traversalQueueReservations"] ?? 0,
+    invalidVisibilityKeys: counters["invalidVisibilityKeys"] ?? 0,
+    queueOverflowMask: counters["queueOverflowMask"] ?? 0
+  });
   requireValue(maximumError <= 0.01, `Product raster HDR mismatch (${maximumError})`);
   requireValue(evidence.residency.residentPages === 1 && evidence.residency.uploadedBytes === 262144, "Product residency evidence is incomplete");
   requireValue((evidence.publication.activePublicationRevision ?? 0) > 0, "Product shading publication did not commit");
+  requireValue((counters["geometryNodesTested"] ?? 0) >= 3, "GPU hierarchy did not test the root and both Group nodes");
+  requireValue((counters["geometryClustersAccepted"] ?? 0) >= 1, "GPU hierarchy did not accept the resident bootstrap Group");
+  requireValue(evidence.residency.residentPages === 1 && demandFrameBytes >= 4 && (counters["traversalQueueReservations"] ?? 0) >= 2, "missing page demand/ancestor traversal evidence is incomplete");
+  requireValue((counters["geometryQueueBytes"] ?? 0) > 0 && (counters["geometryMeshletWorksProduced"] ?? 0) > 0, "GPU meshlet work producer evidence is incomplete");
+  requireValue((counters["invalidVisibilityKeys"] ?? 0) === 0, "GPU emitted an invalid primitive VisibilityKey");
+  requireValue((counters["queueOverflowMask"] ?? 0) === 0 && (counters["meshletQueueOverflow"] ?? 0) === 0, "bounded GPU queue overflowed unexpectedly");
   requireValue(scoped.errors.length === 0, JSON.stringify(scoped.errors));
   status.textContent = "passed"; controller.transition("draining"); await renderer.device.queue.onSubmittedWorkDone(); controller.pass();
 } catch (error) { controller.fail(error instanceof Error ? error.stack ?? error.message : String(error)); }
