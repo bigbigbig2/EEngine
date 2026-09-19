@@ -158,7 +158,13 @@ export class WebCookClient implements GeometryProductProviderV1 {
       const ledger = this.#options.ledger;
       if (ledger !== undefined) {
         this.#lease = await ledger.acquireSession(this.#options.sessionId, this.#options.priority ?? 0, this.#admission.signal);
-        if (this.#state !== "open") return;
+        if (this.#state !== "open") {
+          // A waiter can be granted concurrently with cancel/dispose. Do not
+          // strand the lease when the state transition wins that race.
+          this.#lease.release();
+          this.#lease = undefined;
+          return;
+        }
         // Reserve the configured WASM/canonical-input ceiling before source
         // work starts so concurrent sessions cannot overcommit the page cap.
         this.#reserveWasm(this.#options.budgets.maxWasmBytes);
