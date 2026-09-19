@@ -48,3 +48,12 @@ The per-domain cook loop is parallelized with the same bounded batching as the
 native writer. The runtime profile is opt-in (`?profile=isolated-pthreads`) and
 still requires browser validation: the Emscripten pthread module does not
 yet finish pool initialization inside the app's Dedicated Worker.
+
+This specialization ships its own pair of artifacts and must be rebuilt
+whenever the C++ sources change, exactly like the single-threaded pair above.
+The current artifact carries the ADR-0017 two-phase ABI (`abi_version == 2`):
+
+```text
+threads/oengine-web-geometry-cooker.mjs   SHA-256 f9e70f44cd2ab7d3ebfd7ae575a742a931ed113103fc33a8935c6848abde1ce5
+threads/oengine-web-geometry-cooker.wasm  SHA-256 68051c0f0e839d4fec11c1826aa4359215e7a38301e1ebe4c68fe98733f058c7
+```
