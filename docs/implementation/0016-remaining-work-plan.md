@@ -4,7 +4,7 @@ Status: active
 
 Owners: Web Runtime Cooker、Geometry Product admission/residency、GpuRenderWorld/MainRenderPipeline、glTF/材质与纹理、Nyx 移植验证、validation host
 
-审查快照：2026-09-18，OEngine `64f346d`，本地 Nyx `D:\Nyx-main`。本页是针对当前 revision 的活跃执行清单，不是新的 ADR 或 ABI。设计目标以 [ADR-0016 研究母稿](../others/虚拟化资产系统/EEngine_ADR-0016_Nyx_WebGPU2026_虚拟化资源加载与GPU驱动终极架构提案.md)为本次对照基线；已生效的产品、WebGPU、精确格式和验收约束仍分别由 `PRODUCT.md`、`WEBGPU.md`、`docs/specs/` 和 `VALIDATION.md` 管理。本次未阅读 ADR-0016 子文档。
+审查快照：2026-09-19，OEngine `20c4757`，本地 Nyx 工作副本（绝对路径不入库，由 harness 参数或环境变量解析）。本页是针对当前 revision 的活跃执行清单，不是新的 ADR 或 ABI。设计目标以 [ADR-0016 研究母稿](../others/虚拟化资产系统/EEngine_ADR-0016_Nyx_WebGPU2026_虚拟化资源加载与GPU驱动终极架构提案.md)作为移植对照的参考，它不是规范来源；已生效的产品、WebGPU、精确格式和验收约束仍分别由 `PRODUCT.md`、`WEBGPU.md`、`docs/specs/` 和 `VALIDATION.md` 管理。
 
 ## Outcome
 
@@ -14,7 +14,7 @@ S6 已在当前 revision 完成并通过收口门禁。公开 `load_gltf()` 默�
 
 本次 cutover 的边界必须保留：`GeometryAssetPackage`、`GeometryCooker`、`GpuAssetStore` 等仍被 shader/oracle/底层 ABI 或测试引用的模块只作为内部验证/兼容实现保留，不再是公开生产入口；公开入口不导出 `load_gltf_packed`、`cookGeometryAssetPackage` 或 `openGeometryAssetPackage`。这不是把“类仍存在”写成 V2 生产路径，也不宣称旧 oracle 已被删除。
 
-当前 revision 的验证证据：Product/Web Cook targeted、packed/render-world 与 cutover audit、shadow contract、public export audit 均通过；Chrome `glb-web-product`、`sparse-shading-production`、`virtual-product-production`、`virtual-product-offline`、`virtual-product-replacement` 和 `virtual-product-device-loss` 均通过。工作树未提交，因此这些浏览器 artifact 仍标记为 `diagnostic-only`，提交干净 revision 后需按 ADR-0014 重跑以获得 accepted 证据。
+当前 revision 的验证证据：Product/Web Cook targeted、packed/render-world 与 cutover audit、shadow contract、public export audit 均通过；Chrome `glb-web-product`、`sparse-shading-production`、`virtual-product-production`、`virtual-product-offline`、`virtual-product-replacement`、`virtual-product-device-loss` 和 `virtual-product-observer` 均通过。S6/S7 已提交到干净 revision `20c4757`，这些 artifact 的 `provenance.dirty` 为 false，可按 ADR-0014 记为 accepted；更早在 dirty 工作树上取得的 artifact 仍只作 `diagnostic-only`。
 
 S6 的明确剩余项转入后续工作：删除仍有真实内部消费者的 V2 oracle 前，必须先完成 source/compiled/browser 三层调用图审计；大场景 visible-first/TTFMF、正式 PERF、跨多 asset 的 source/canonical/WASM/output 峰值和用户模型验收属于 S7，不在本次 S6 完成声明内。
 
@@ -26,28 +26,28 @@ Web GLB/glTF 与 Native OEGPACK 是两个 Producer，而不是两个 Renderer。
 
 下列“浏览器已通过”取自 [STATUS](../STATUS.md) 记录和 `validation/` case 源码；本次审查没有重跑浏览器，也没有把历史 accepted 数值当作当前机器的新测量。
 
-审评结论：Producer-neutral Product、GPU owner 分离、统一 Main/Shadow/Visibility 消费方向正确，现有 Nyx 几何算法也不是仅有概念名称的占位。但“整场景一次 Cook”、失败换版先拆旧发布、跨会话预算未真实记账和按 Product 预建 bank 是结构性问题；它们不能靠增加 case 或提高超时阈值补救。以下计划优先改 owner/事务与调度结构，再扩大输入覆盖和执行 profile，最后才允许生产 cutover。
+审评结论（2026-09-18 快照；各项后续状态见下方分步检查点）：Producer-neutral Product、GPU owner 分离、统一 Main/Shadow/Visibility 消费方向正确，现有 Nyx 几何算法也不是仅有概念名称的占位。当时列出的四项结构性问题中，失败换版先拆旧发布、跨会话预算未真实记账、按 Product 预建 bank 已分别由第一步、第四步和设备级共享 slot pool 解决；“整场景一次 Cook”仍是未关门的差距，见下表 Web Cook 行。以下计划优先改 owner/事务与调度结构，再扩大输入覆盖和执行 profile，最后才允许生产 cutover。
 
 | 领域 | 已有的生产基础 | 尚未关门的差距 |
 | --- | --- | --- |
-| Product/Renderer | Web WASM artifact、Offline OEGPACK provider、共享 admission/residency、GPU hierarchy/work、主视图/CSM/Visibility/Sparse Shading 已有真实浏览器 case | 公开默认 GLB 与普通 Scene 未完成 cutover；V2 package/upload/consumer 仍活跃 |
+| Product/Renderer | Web WASM artifact、Offline OEGPACK provider、共享 admission/residency、GPU hierarchy/work、主视图/CSM/Visibility/Sparse Shading 已有真实浏览器 case；公开默认 GLB、普通 Scene 与 Offline selection 已完成 Product cutover | V2 package/upload/consumer 已退出公开生产入口，但仍作为内部 oracle/兼容 substrate 存在（`GpuRenderWorld.recoveryScenes()` 已排除 virtual-product 场景，因此 legacy 恢复分支当前不可达），物理删除待 source/compiled/browser 三层审计 |
 | Web Cook | GLB Range、Worker protocol、canonicalizer、Nyx C++ port、bootstrap + richer revision、逐页 credit | 实际 `cookProgressive` 一次 canonicalize **全部** primitive 与 Range，再对整场景 Cook 两次；source priority 没有带来按 asset 的首帧发布；巨大 primitive 无 shard |
 | GPU residency | demand→延迟 readback→scheduler→upload、ancestor fallback、原子换版/失败保旧/驱逐/device-loss 有 targeted 与真实浏览器证据；同设备共享固定 4-bank slot pool | 仍需后续多 Product 压力、demand overflow 与设备丢失下的浏览器证据；淘汰评分已有 request/visible/predictive/refetch/thrash 记账，但尚未完成大场景 PERF |
 | 预算/并行 | 单会话限制、output credit、全局 `WebCookBudgetLedger`、`portable-pool` ownership 与 generation failure recovery | source 目前按 source identity/byteLength 以 session 生命周期登记，WASM 按 configured max 保守登记；Range/canonical/WASM committed-peak 的细粒度 counter、浏览器多 Worker 压力和 pthread 部署 smoke 仍未闭环 |
 | glTF/材质/纹理 | GLB/glTF Range source、Blob/File、data URI、外部 buffer、sparse/interleaved/normalized/non-indexed、作者 PBR texture metadata、Texture Mode A 接线与独立 authored-texture Chrome case 均已落地；clean revision 已取得 accepted 证据 | Mode A 不代表物理显存节省；promotion/失败回滚/代际复用/容量与 feature-off 已有 targeted 合同，replacement/device-loss 复用共享 Product 浏览器门禁；Draco/meshopt/skin/morph 仍按 capability/error 拒绝；巨大 primitive shard 属于第二步遗留 |
 | Nyx 验收 | 本地 7 个关键 Nyx 文件 hash 匹配移植台账；本地 Cooker 真实调用 meshoptimizer build/partition/attribute-aware simplify；Native↔Web corpus 通过 | 两个 OEngine Producer 共用本地 C++ port，现有 differential 不是独立 Nyx 原版输出；GPU `DAGCull`/`VBufferMesh` 的逐入口行为、负例与真实 consumer 对照未齐 |
-| 验证/文档 | Dungeon、Offline、demand、replacement、eviction、device-loss case 已登记 | 现有像素 smoke 不是作者材质保真或大场景 TTFMF/PERF；`ARCHITECTURE.md`、`PIPELINE.md` 有已过时叙述，`STATUS.md` 下一步重复 S6 |
+| 验证/文档 | Dungeon、Offline、demand、replacement、eviction、device-loss、observer case 已登记；`documentation-system.test.mjs` 强制文档结构与无本机路径 | 现有像素 smoke 不是作者材质保真或大场景 TTFMF/PERF；`STATUS.md` 仍有按 Product 预分配 bank、`maxStorageBuffersPerShaderStage >= 14` 和 §18.4 参考输出未产出的过时表述，需在文档收尾统一 |
 
 需要优先处理的代码证据：
 
 - [WebCookCoordinator](../../OEngine/src/assets/web-cook/WebCookCoordinator.ts) 把整个 catalog 的 `units` 交给 `cookProgressive`；[NyxWebRuntimeCooker](../../OEngine/src/assets/web-cook/NyxWebRuntimeCooker.ts) 为全部 unit 预取并常驻 Range/canonical input。这违反母稿 §7.4/§15.1 的调度与首帧边界，不等于 Nyx 几何构建算法本身被简化。
 - [GeometryProductAdmission](../../OEngine/src/gpu/GeometryProductAdmission.ts) 现在保持 candidate `ready-to-activate`，由 Renderer 在 Scene/GPU/Sparse publication 提交成功后 commit；失败/取消保留旧 generation，错误传到 `settled()`。
 - [VirtualGeometryResidency](../../OEngine/src/gpu/VirtualGeometryResidency.ts) 使用同一 GPUDevice 的固定 4 x 128 MiB shared slot pool；`evidence()` 同时报告 bank capacity、metadata overhead、双 revision peak、pinned/retiring 与 eviction/thrash 统计。物理显存节省仍不得仅凭逻辑 residentBytes 宣称。
-- [WebCookClient](../../OEngine/src/assets/web-cook/WebCookClient.ts) 对 page-global ledger 只有 output reservation；[WebCookBudget](../../OEngine/src/assets/web-cook/WebCookBudget.ts) 的 source/WASM 限制在真实多会话路径中没有生产记账。
-- [GlbSceneCatalog](../../OEngine/src/loaders/gltf/streaming/GlbSceneCatalog.ts) 与 [WebCookSceneSource](../../OEngine/src/assets/web-cook/WebCookSceneSource.ts) 不传递作者纹理绑定；`MASK` 几何与最低可采样纹理表示的原子准入条件仍缺。
-- [load_gltf](../../OEngine/src/loaders/load_gltf.ts) 默认仍走 `GltfLoader.loadFromUrl()` 的完整 `arrayBuffer()`/旧 SceneBundle；新入口是显式的 `load_gltf_web_product()`。[SceneGeometryCanonicalizerV1](../../OEngine/src/assets/geometry-product/SceneGeometryCanonicalizerV1.ts) 是普通 Scene→Product 的 CPU/WASM seam，目前只有 targeted tests，尚非默认生产消费路径。
+- [WebCookClient](../../OEngine/src/assets/web-cook/WebCookClient.ts) 已把 page-global ledger 的 source/WASM reservation 接入 session admission、catalog source 生命周期和 fatal/cancel/dispose 清理（见第四步检查点）；Range cache/canonical input/WASM committed-peak 的细粒度 counter 仍是待补项。
+- [GlbSceneCatalog](../../OEngine/src/loaders/gltf/streaming/GlbSceneCatalog.ts) 与 Web Product catalog snapshot 现已传递 image/texture/sampler/UV/PBR 元数据，Web Scene mapper 在 admission 前异步解码并原子接入 `TextureResidency`/`TextureBindingSet`（见第三步检查点）；image bytes 不进入 Geometry Product ABI。
+- [load_gltf](../../OEngine/src/loaders/load_gltf.ts) 默认已走 `createDefaultWebCookWorker` → `load_gltf_web_product` → `WebCookRuntimeAsset`，不再走完整 `arrayBuffer()`/旧 SceneBundle。[SceneGeometryCanonicalizerV1](../../OEngine/src/assets/geometry-product/SceneGeometryCanonicalizerV1.ts) 已是普通 Scene→Product 的默认生产路径，但 `cookSceneGeometryProductV1` 仍在调用线程同步执行 WASM cook，尚未接到显式 Worker/asset owner。
 
-## Slices：按较大的交付阶段推进
+## Slices
 
 以下七步是完整可运行结果，不把每个文件或单个测试当成一步。每步都先核对母稿相关章节与 Nyx 函数映射，再修改代码；完成后回头做设计对照、命中 DEV 验证和必要的集中浏览器 MILESTONE，满足退出条件才提交该阶段。未达门禁时保留“in progress”，不为赶进度绕过正确性。
 
@@ -142,9 +142,9 @@ bootstrap activation、revision 1 replacement 和 replacement 后 demand 像素�
 
 #### 第七步当前检查点（2026-09-19）
 
-已完成独立 `virtual-product-observer` 宿主、Vite MPA 入口与 registry workload/case 注册。Web GLB 和 Offline OEGPACK 在同一页面选择，Web 支持 URL/File/Blob 与三个 runtime profile，Offline 支持 manifest URL 的 HTTP Range/memory 选择；页面暴露取消、替换、相机 close/cut、断源和设备恢复动作，并显示 catalog、bootstrap、revision/generation、source/WASM/output budget、residency/streaming、材质状态、GPU capability/error 与 HDR readback。runner 的默认路径是小型 bounded Web smoke，故只能作为功能/观察证据；真实用户大模型、TTFMF、跨 asset 峰值和正式 PERF 尚未验证，提交干净 revision 后必须重新运行以获得 accepted artifact。
+已完成独立 `virtual-product-observer` 宿主、Vite MPA 入口与 registry workload/case 注册。Web GLB 和 Offline OEGPACK 在同一页面选择，Web 支持 URL/File/Blob 与三个 runtime profile，Offline 支持 manifest URL 的 HTTP Range/memory 选择；页面暴露取消、替换、相机 close/cut、断源和设备恢复动作，并显示 catalog、bootstrap、revision/generation、source/WASM/output budget、residency/streaming、材质状态、GPU capability/error 与 HDR readback。该 case 已在干净 revision `20c4757` 上取得 accepted artifact，但 runner 默认只跑 `smoke` profile 的小型 bounded Web smoke（128×128 readback，gate 只校验 freshness/identity/browserErrors/pageOutcome/disposed/artifacts，不含 demand/fallback/overflow/residency 断言），因此只作功能与观察证据；真实用户大模型、TTFMF、跨 asset 峰值和正式 PERF 仍未验证。
 
-## Shared gates 与提交规则
+## Shared gates
 
 1. 每阶段交付前，对照母稿 §4/§7–§10/§12–§18 和本页相应条目，列出保留的 Nyx 阶段、OEngine 平台差异与未覆盖项目。发现严重差异或当前简化实现时直接重构/删除，不以注释或未来 TODO 代替。
 2. 修改共享 Product、GPU location、demand、Worker 或二进制字段时先更新 spec、TS/WGSL/WASM mirror 与 golden/negative tests；不得并行发明第二 ABI 或第二 Renderer。

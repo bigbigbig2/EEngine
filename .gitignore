@@ -15,6 +15,7 @@ validation/artifacts/*
 validation/temp-*.png
 .grok/
 .codex-temp/
+.workbuddy-ai/
 .three.js/
 temp
 OEngine/tools/oengine-asset-core/build/
