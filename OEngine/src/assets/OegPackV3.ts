@@ -110,7 +110,14 @@ export interface OegPackV3 {
   readonly pages: readonly GeometryPageDirectoryV3[];
   readonly vertexFormats: readonly VertexFormatRecordV3[];
   readonly bootstrapPageIds: Uint32Array;
-  readPage(pageId: number): Promise<Uint8Array>;
+  readPage(pageId: number): Promise<OegPackDecodedPageV3>;
+}
+
+/** Decoded page plus the whole-page digest. The digest is an integrity probe for this transport,
+ *  not the page identity carried by the page directory (which rolls up Group payloads). */
+export interface OegPackDecodedPageV3 {
+  readonly bytes: Uint8Array;
+  readonly decodedPageHash128: string;
 }
 
 export async function openOegPackV3(source: RangeReadablePackV3): Promise<OegPackV3> {
@@ -145,16 +152,18 @@ export async function openOegPackV3(source: RangeReadablePackV3): Promise<OegPac
   validateMetadata(header, assets, rootNodeIndices, hierarchy, groups, pages, vertexFormats, bootstrapPageIds);
   return Object.freeze({
     source, header, assets, rootNodeIndices, hierarchy, hierarchyBytes, groups, pages, vertexFormats, bootstrapPageIds,
-    async readPage(pageId: number): Promise<Uint8Array> {
+    async readPage(pageId: number): Promise<OegPackDecodedPageV3> {
       assertIndex(pageId, pages.length, "pageId");
       const page = pages[pageId]!;
       const encoded = new Uint8Array(await source.read(page.compressedFileOffset, page.compressedBytes));
       if (crc32(encoded) !== page.compressedChecksum) throw new OegPackV3Error(`page ${pageId} compressed checksum mismatch`);
       const decoded = page.codec === 0 ? encoded.slice() : decodeLz4Block(encoded, page.decodedBytes);
       if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES) throw new OegPackV3Error(`page ${pageId} did not decode to 256 KiB`);
-      if ((await sha256Hex(decoded)).slice(0, 32) !== page.decodedContentHash128) throw new OegPackV3Error(`page ${pageId} decoded hash mismatch`);
       validateDecodedPage(pageId, decoded, groups, vertexFormats);
-      return decoded;
+      // The page directory carries the page *identity* (rolled up from Group payloads), not a
+      // digest of the whole page bytes. Whole-page digest is returned alongside so consumers that
+      // want an integrity probe can compare it against a value they recorded at production time.
+      return { bytes: decoded, decodedPageHash128: (await sha256Hex(decoded)) };
     }
   });
 }

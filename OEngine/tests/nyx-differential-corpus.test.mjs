@@ -138,7 +138,7 @@ async function cookWithNativeOffline(glb) {
   const pack = await openOegPackV3(new MemoryRangeReadablePackV3(new Uint8Array(await readFile(join(output, packName)))));
   const descriptor = descriptorFromOegPack(pack);
   const pages = [];
-  for (let pageId = 0; pageId < pack.pages.length; pageId++) pages.push(new Uint8Array(await pack.readPage(pageId)));
+  for (let pageId = 0; pageId < pack.pages.length; pageId++) pages.push(new Uint8Array((await pack.readPage(pageId)).bytes));
   return { descriptor, pages };
 }
 

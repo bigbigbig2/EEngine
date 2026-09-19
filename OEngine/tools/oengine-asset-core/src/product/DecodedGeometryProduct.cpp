@@ -11,11 +11,48 @@
 #include <stdexcept>
 
 namespace oengine::asset {
+
+std::array<std::uint8_t, 16> ComputeGeometryPageIdentityV1(
+    const std::vector<std::uint32_t>& groupIds,
+    const std::vector<std::uint32_t>& payloadBytes,
+    const std::vector<Hash256>& payloadDigests) {
+    if (groupIds.size() != payloadBytes.size() ||
+        groupIds.size() != payloadDigests.size()) {
+        throw std::runtime_error("page identity inputs must have equal length");
+    }
+    if (groupIds.empty()) {
+        throw std::runtime_error("page identity requires at least one group");
+    }
+    Sha256Builder builder;
+    builder.Add(std::string("OENGINE-GEOMETRY-PAGE-IDENTITY-V1"));
+    const auto addU32 = [&builder](std::uint32_t value) {
+        const std::uint8_t bytes[4] = {
+            std::uint8_t(value), std::uint8_t(value >> 8u),
+            std::uint8_t(value >> 16u), std::uint8_t(value >> 24u)};
+        builder.Add(bytes, sizeof(bytes));
+    };
+    addU32(std::uint32_t(groupIds.size()));
+    for (std::size_t index = 0u; index < groupIds.size(); ++index) {
+        if (index > 0u && groupIds[index] <= groupIds[index - 1u]) {
+            throw std::runtime_error("page identity groups must be strictly ascending");
+        }
+        addU32(groupIds[index]);
+        addU32(payloadBytes[index]);
+        builder.Add(payloadDigests[index].data(), payloadDigests[index].size());
+    }
+    const Hash256 identity = builder.Finish();
+    std::array<std::uint8_t, 16> output{};
+    std::copy(identity.begin(), identity.begin() + output.size(), output.begin());
+    return output;
+}
+
 namespace {
 
 struct PendingPage {
     std::vector<std::uint8_t> decoded = std::vector<std::uint8_t>(kGeometryPageBytesV3, 0u);
     std::vector<std::uint32_t> groups;
+    /** Per-Group payload digest, parallel to `groups`, used for page identity. */
+    std::vector<Hash256> groupDigests;
     std::uint32_t usedBytes = 0u;
     std::uint8_t lodLevel = 0u;
     bool bootstrap = false;
@@ -59,14 +96,23 @@ void PatchAssetForProduct(
     for (std::uint32_t& root : asset.rootNodeIndices) root += nodeBase;
 }
 
-}  // namespace
-
-DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
-    std::vector<CookedAssetV3> cooked) {
+/**
+ * Shared packing core for both the monolithic and the two-phase paths.
+ *
+ * Page layout, Group assignment, page identity and the activation cut are
+ * decided here and nowhere else, so a plan produced by the descriptor stage and
+ * a product produced by the monolithic path cannot drift. `materializePages`
+ * only controls whether 256 KiB payload buffers are actually filled.
+ */
+DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
+    std::vector<CookedAssetV3> cooked,
+    std::vector<SerializedGroupV3>* retainedGroups,
+    bool materializePages) {
     if (cooked.empty()) throw std::runtime_error("decoded Geometry Product has no assets");
 
-    DecodedGeometryProductV1 product;
+    DecodedGeometryProductPlanV1 product;
     std::vector<SerializedGroupV3> serializedGroups;
+    std::vector<SerializedGroupV3> retained;
     std::vector<std::vector<std::uint32_t>> assetBootstrapPages(cooked.size());
     for (std::size_t assetIndex = 0u; assetIndex < cooked.size(); ++assetIndex) {
         CookedAssetV3& asset = cooked[assetIndex];
@@ -156,12 +202,15 @@ DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
         if (offset + group.bytes.size() > kGeometryPageBytesV3) {
             throw std::runtime_error("group does not fit in an empty decoded page");
         }
-        std::copy(group.bytes.begin(), group.bytes.end(), page.decoded.begin() + offset);
+        if (materializePages) {
+            std::copy(group.bytes.begin(), group.bytes.end(), page.decoded.begin() + offset);
+        }
         GeometryGroupDirectoryV3& directory = product.groups[groupId];
         directory.offsetInDecodedPage = offset;
         directory.payloadBytes = std::uint32_t(group.bytes.size());
         directory.flags = group.flags;
         page.groups.push_back(groupId);
+        page.groupDigests.push_back(Sha256(group.bytes));
         page.usedBytes = offset + directory.payloadBytes;
     }
 
@@ -176,16 +225,23 @@ DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
     for (std::uint32_t pageId = 0u; pageId < pendingPages.size(); ++pageId) {
         PendingPage& pending = pendingPages[pageId];
         for (std::uint32_t group : pending.groups) product.groups[group].pageId = pageId;
-        DecodedGeometryPageV1 page;
-        page.bytes = std::move(pending.decoded);
-        const Hash256 hash = Sha256(page.bytes);
-        std::copy(hash.begin(), hash.begin() + page.decodedHash128.size(), page.decodedHash128.begin());
+        DecodedGeometryPagePlanV1 page;
+        // Page identity is rolled up from the page's Group payloads, not from the
+        // packed page buffer. This keeps identity stable under padding and lets a
+        // producer freeze it before any payload buffer exists.
+        std::vector<std::uint32_t> identityPayloadBytes;
+        identityPayloadBytes.reserve(pending.groups.size());
+        for (std::uint32_t group : pending.groups) {
+            identityPayloadBytes.push_back(product.groups[group].payloadBytes);
+        }
+        page.decodedHash128 = ComputeGeometryPageIdentityV1(
+            pending.groups, identityPayloadBytes, pending.groupDigests);
         page.firstGroup = pending.groups.front();
         page.groupCount = std::uint32_t(pending.groups.size());
         page.usedBytes = pending.usedBytes;
         page.lodLevel = pending.lodLevel;
         page.bootstrap = pending.bootstrap;
-        product.pages.push_back(std::move(page));
+        product.pages.push_back(page);
         if (pending.bootstrap) {
             for (std::size_t assetIndex = 0u; assetIndex < product.assets.size(); ++assetIndex) {
                 const GeometryAssetRecordV3& asset = product.assets[assetIndex];
@@ -211,6 +267,96 @@ DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
         if (asset.bootstrapPageCount == 0u) {
             throw std::runtime_error("asset has no complete bootstrap page cut");
         }
+    }
+    if (retainedGroups) *retainedGroups = std::move(serializedGroups);
+    if (retained.empty()) retained.shrink_to_fit();
+    return product;
+}
+
+}  // namespace
+
+DecodedGeometryProductPlanV1 PlanDecodedGeometryProductV1(
+    std::vector<CookedAssetV3> cooked,
+    std::vector<SerializedGroupV3>& retainedGroups) {
+    DecodedGeometryProductPlanV1 plan = PackDecodedGeometryProductV1(
+        std::move(cooked), &retainedGroups, /*materializePages=*/false);
+    if (retainedGroups.size() != plan.groups.size()) {
+        throw std::runtime_error("planned Geometry Product lost Group payloads");
+    }
+    return plan;
+}
+
+DecodedGeometryPageV1 MaterializeDecodedGeometryPageV1(
+    const DecodedGeometryProductPlanV1& plan,
+    const std::vector<SerializedGroupV3>& retainedGroups,
+    std::uint32_t pageId) {
+    if (pageId >= plan.pages.size()) {
+        throw std::runtime_error("decoded page index is out of range");
+    }
+    const DecodedGeometryPagePlanV1& planned = plan.pages[pageId];
+    if (planned.groupCount == 0u) {
+        throw std::runtime_error("planned decoded page has no groups");
+    }
+    const std::uint32_t lastGroup = planned.firstGroup + planned.groupCount - 1u;
+    if (lastGroup >= retainedGroups.size()) {
+        throw std::runtime_error("planned decoded page references an unknown group");
+    }
+    DecodedGeometryPageV1 page;
+    page.bytes.assign(kGeometryPageBytesV3, 0u);
+    std::vector<std::uint32_t> identityGroupIds;
+    std::vector<std::uint32_t> identityPayloadBytes;
+    std::vector<Hash256> identityPayloadDigests;
+    identityGroupIds.reserve(planned.groupCount);
+    identityPayloadBytes.reserve(planned.groupCount);
+    identityPayloadDigests.reserve(planned.groupCount);
+    for (std::uint32_t groupId = planned.firstGroup; groupId <= lastGroup; ++groupId) {
+        const GeometryGroupDirectoryV3& directory = plan.groups[groupId];
+        if (directory.pageId != pageId) {
+            throw std::runtime_error("planned decoded page owns a non-contiguous group range");
+        }
+        const SerializedGroupV3& group = retainedGroups[groupId];
+        if (group.bytes.size() != directory.payloadBytes) {
+            throw std::runtime_error("retained Group payload bytes do not match the plan");
+        }
+        const std::uint32_t offset = directory.offsetInDecodedPage;
+        if (std::uint64_t(offset) + directory.payloadBytes > page.bytes.size()) {
+            throw std::runtime_error("planned Group payload escapes its decoded page");
+        }
+        std::copy(group.bytes.begin(), group.bytes.end(), page.bytes.begin() + offset);
+        identityGroupIds.push_back(groupId);
+        identityPayloadBytes.push_back(directory.payloadBytes);
+        identityPayloadDigests.push_back(Sha256(group.bytes));
+    }
+    const std::array<std::uint8_t, 16> identity = ComputeGeometryPageIdentityV1(
+        identityGroupIds, identityPayloadBytes, identityPayloadDigests);
+    if (identity != planned.decodedHash128) {
+        throw std::runtime_error("materialized page identity does not match the plan");
+    }
+    page.decodedHash128 = identity;
+    page.firstGroup = planned.firstGroup;
+    page.groupCount = planned.groupCount;
+    page.usedBytes = planned.usedBytes;
+    page.lodLevel = planned.lodLevel;
+    page.bootstrap = planned.bootstrap;
+    return page;
+}
+
+DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
+    std::vector<CookedAssetV3> cooked) {
+    std::vector<SerializedGroupV3> retained;
+    DecodedGeometryProductPlanV1 plan = PackDecodedGeometryProductV1(
+        std::move(cooked), &retained, /*materializePages=*/true);
+    DecodedGeometryProductV1 product;
+    product.assets = std::move(plan.assets);
+    product.roots = std::move(plan.roots);
+    product.hierarchy = std::move(plan.hierarchy);
+    product.groups = std::move(plan.groups);
+    product.formats = std::move(plan.formats);
+    product.bootstrapPages = std::move(plan.bootstrapPages);
+    product.pages.reserve(plan.pages.size());
+    for (std::uint32_t pageId = 0u; pageId < plan.pages.size(); ++pageId) {
+        product.pages.push_back(
+            MaterializeDecodedGeometryPageV1(plan, retained, pageId));
     }
     return product;
 }

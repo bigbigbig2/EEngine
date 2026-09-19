@@ -43,7 +43,7 @@ export type WebCookCommand =
 export type WebCookEvent =
   | (WebCookSessionHeader & { readonly type: "SceneCatalogReady"; readonly catalog: Readonly<Record<string, unknown>> })
   | (WebCookSessionHeader & { readonly type: "RevisionOffered"; readonly descriptor: ArrayBuffer; readonly sceneAssetIndices?: Uint32Array })
-  | (WebCookSessionHeader & { readonly type: "PageReady"; readonly productId: Uint8Array; readonly revision: number; readonly pageId: number; readonly decodedHash128: Uint8Array; readonly bytes: ArrayBuffer })
+  | (WebCookSessionHeader & { readonly type: "PageReady"; readonly productId: Uint8Array; readonly revision: number; readonly pageId: number; readonly decodedHash128: Uint8Array; readonly decodedPageHash128: Uint8Array; readonly bytes: ArrayBuffer })
   | (WebCookSessionHeader & { readonly type: "Progress"; readonly stage: string; readonly units: number; readonly bytes: number; readonly timings: Readonly<Record<string, number>> })
   | (WebCookSessionHeader & { readonly type: "RecoverableFailure"; readonly scope: string; readonly code: string; readonly retryAfterMs?: number })
   | (WebCookSessionHeader & { readonly type: "FatalSessionFailure"; readonly code: string; readonly diagnostics?: Readonly<Record<string, unknown>> });
@@ -110,7 +110,7 @@ export class WebCookSessionProtocol {
     }
     if (event.type === "PageReady") {
       if (event.productId.byteLength !== 32 || !Number.isInteger(event.revision) || event.revision < 0 || event.revision === 0xffffffff) throw new RangeError("PageReady contains an invalid Product identity");
-      if (!Number.isInteger(event.pageId) || event.pageId < 0 || event.pageId === 0xffffffff || event.bytes.byteLength !== WEB_COOK_PAGE_BYTES || event.decodedHash128.byteLength !== 16 || this.#creditsBlocks < 1 || this.#creditsBytes < event.bytes.byteLength) return false;
+      if (!Number.isInteger(event.pageId) || event.pageId < 0 || event.pageId === 0xffffffff || event.bytes.byteLength !== WEB_COOK_PAGE_BYTES || event.decodedHash128.byteLength !== 16 || event.decodedPageHash128.byteLength !== 16 || this.#creditsBlocks < 1 || this.#creditsBytes < event.bytes.byteLength) return false;
       this.#creditsBlocks--; this.#creditsBytes -= event.bytes.byteLength;
       this.#outstandingBlocks++; this.#outstandingBytes += event.bytes.byteLength;
     }

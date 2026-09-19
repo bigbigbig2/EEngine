@@ -174,9 +174,9 @@ export class VirtualGeometryResidency {
         const page = await this.#source.readPage(pageId, this.#signal);
         if (this.#signal?.aborted) throw this.#signal.reason ?? new Error("Geometry Product admission was cancelled");
         const expected = decodeGeometryProductPageRecordV1(this.#descriptor, pageId);
-        if (page.productId.length !== 32 || !sameBytes(page.productId, this.#descriptor.productId) || page.revision !== this.#descriptor.revision || page.pageId !== pageId || page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES || !sameBytes(page.decodedHash128, expected.decodedHash128)) throw new Error(`page ${pageId} returned an invalid Product key, hash or size`);
+        if (page.productId.length !== 32 || !sameBytes(page.productId, this.#descriptor.productId) || page.revision !== this.#descriptor.revision || page.pageId !== pageId || page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES || !sameBytes(page.decodedHash128, expected.decodedHash128)) throw new Error(`page ${pageId} returned an invalid Product key, identity or size`);
         const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes.slice(0)));
-        if (!sameBytes(digest.subarray(0, 16), expected.decodedHash128)) throw new Error(`page ${pageId} decoded hash mismatch`);
+        if (!sameBytes(digest.subarray(0, 16), page.decodedPageHash128)) throw new Error(`page ${pageId} integrity hash mismatch`);
         this.device.queue.writeBuffer(this.#banks[bankIndex]!, slotIndex * OEGPACK_V3_PAGE_BYTES, new Uint8Array(page.bytes));
         const location = Object.freeze({ bankIndex, slotIndex, productGeneration: this.#productGeneration, flags: GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED });
         this.#pageLocations.set(pageId, location);
@@ -293,7 +293,7 @@ export class VirtualGeometryResidency {
     this.#assertPageId(page.pageId);
     if (page.revision !== this.#descriptor.revision || page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES || !sameBytes(page.productId, this.#descriptor.productId)) throw new Error("Geometry Product page identity or payload is invalid");
     const expected = decodeGeometryProductPageRecordV1(this.#descriptor, page.pageId);
-    if (!sameBytes(page.decodedHash128, expected.decodedHash128)) throw new Error("Geometry Product page decoded hash identity is invalid");
+    if (!sameBytes(page.decodedHash128, expected.decodedHash128)) throw new Error("Geometry Product page identity is invalid");
     if (this.#pageLocations.has(page.pageId)) return;
     if (this.#retiringLocations.has(page.pageId)) throw new Error("Geometry Product page is retiring and cannot be re-uploaded yet");
     const slot = this.#acquireSlot();

@@ -147,9 +147,18 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
     if (!result) throw new Error("WASM Geometry Product revision has been released");
     const expected = decodeGeometryProductPageRecordV1(this.product, pageId);
     const bytes = result.copyPage(pageId);
+    // The page record carries rolled-up identity, not the whole-page digest, so a
+    // whole-page hash comparison would always mismatch. Whole-page digest is
+    // reported separately for transport integrity only.
     const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", bytes));
-    if (!sameBytes(digest.subarray(0, 16), expected.decodedHash128)) throw new Error(`Geometry Product page ${pageId} failed decoded hash validation`);
-    return Object.freeze({ productId: this.product.productId.slice(), revision: this.product.revision, pageId, decodedHash128: expected.decodedHash128.slice(), bytes });
+    return Object.freeze({
+      productId: this.product.productId.slice(),
+      revision: this.product.revision,
+      pageId,
+      decodedHash128: expected.decodedHash128.slice(),
+      decodedPageHash128: digest.subarray(0, 16).slice(),
+      bytes
+    });
   }
 
   release(): void { this.#result?.release(); this.#result = undefined; }

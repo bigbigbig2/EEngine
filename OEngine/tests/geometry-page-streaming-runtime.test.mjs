@@ -74,7 +74,7 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
     descriptor,
     async readPage(pageId) {
       return { productId: productId.slice(), revision: 0, pageId,
-        decodedHash128: hash.subarray(0, 16), bytes: page.slice().buffer };
+        decodedHash128: hash.subarray(0, 16), decodedPageHash128: hash.subarray(0, 16), bytes: page.slice().buffer };
     },
     release() {}
   };
@@ -110,7 +110,7 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
 
 test("streaming runtime revokes pages before the settled submission boundary", async () => {
   const descriptor = { pageRecords: new Uint8Array(160), decodedPageBytes: 262144, productId: new Uint8Array(32).fill(4), revision: 0 };
-  const page = { productId: descriptor.productId.slice(), revision: 0, pageId: 4, decodedHash128: new Uint8Array(16), bytes: new ArrayBuffer(262144) };
+  const page = { productId: descriptor.productId.slice(), revision: 0, pageId: 4, decodedHash128: new Uint8Array(16), decodedPageHash128: new Uint8Array(16), bytes: new ArrayBuffer(262144) };
   const source = { descriptor, async readPage() { return page; }, release() {} };
   const events = [];
   const residency = {
@@ -156,7 +156,7 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
     descriptor,
     readPage(_pageId, signal) {
       signal.addEventListener("abort", () => { aborted = true; resolveRead?.(); }, { once: true });
-      return new Promise((resolve) => { resolveRead = () => resolve({ productId: descriptor.productId.slice(), revision: 0, pageId: 0, decodedHash128: hash.subarray(0, 16), bytes: page.slice().buffer }); });
+      return new Promise((resolve) => { resolveRead = () => resolve({ productId: descriptor.productId.slice(), revision: 0, pageId: 0, decodedHash128: hash.subarray(0, 16), decodedPageHash128: hash.subarray(0, 16), bytes: page.slice().buffer }); });
     },
     release() {}
   };

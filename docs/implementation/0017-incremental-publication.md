@@ -30,6 +30,8 @@ Owners: Web Runtime Cooker、Geometry Cooker WASM ABI、Geometry Product admissi
 
 执行：定义上卷输入（每 Group 的 payload 摘要、页内 offset 与 length、GroupID 顺序），选择固定且可复现的上卷算法并写入 spec 与 producer version。保留整页摘要作为传输与存储完整性校验，但不再作为 identity 来源。变更 `AssembleDecodedGeometryProductV1` 使 identity 在 payload 生成之前即可计算，同时保持全局 best-fit 装箱与 stable sort 的确定性。产出 golden bytes 固定 identity，并证明单体式路径在改动前后对同一输入得到相同 identity。
 
+已落地：`ComputeGeometryPageIdentityV1` 采用域分隔 SHA-256，输入为 `u32` 组数与按 GroupID 严格升序的 `(GroupID, payloadBytes, payloadDigest)` 三元组；非升序、重复、长度不匹配与空页均拒绝。`AssembleDecodedGeometryProductV1` 在装箱时收集每 Group payload 摘要，identity 不再读取整页 buffer。整页摘要不进 descriptor，改由 `GeometryPageProductV1.decodedPageHash128` 随页交付，消费者自行重算比对。OEGPACK V3 writer 的 `VerifyPack` 同步改为按上卷算法重算并比对 `decodedContentHash128`；identity 与整页摘要的分离贯穿 WASM、OEGPACK、scheduler、residency 与 Web Cook 协议。
+
 退出条件：identity 上卷算法被 spec 冻结；golden 测试覆盖 identity 与整页完整性校验的分离（篡改 payload 改变 identity 或被抓，篡改 padding 不改变 identity）；不同线程数下 identity 可复现。
 
 ### 第二步：扩展 Geometry Cooker 两阶段 ABI

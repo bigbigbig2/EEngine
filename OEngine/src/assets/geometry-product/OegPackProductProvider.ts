@@ -54,13 +54,12 @@ export class OegPackProductRevisionSource implements GeometryProductRevisionSour
     const recordOffset = pageId * 32;
     if (!Number.isInteger(pageId) || pageId < 0 || recordOffset + 32 > this.descriptor.pageRecords.byteLength) throw new RangeError("Geometry Product pageId is out of range");
     const expectedHash = this.descriptor.pageRecords.slice(recordOffset, recordOffset + 16);
-    const decoded = await this.pack.readPage(pageId);
+    const page = await this.pack.readPage(pageId);
     throwIfAborted(signal);
+    const decoded = page.bytes;
     if (decoded.byteLength !== OEGPACK_V3_PAGE_BYTES) throw new Error("OEGPACK adapter returned a non-256 KiB page");
-    const actual = new Uint8Array(await crypto.subtle.digest("SHA-256", decoded.slice().buffer as ArrayBuffer));
-    for (let index = 0; index < 16; index++) if (actual[index] !== expectedHash[index]) throw new Error(`Geometry Product page ${pageId} hash mismatch`);
     const bytes = decoded.slice().buffer;
-    return Object.freeze({ productId: this.descriptor.productId.slice(), revision: this.descriptor.revision, pageId, decodedHash128: expectedHash, bytes });
+    return Object.freeze({ productId: this.descriptor.productId.slice(), revision: this.descriptor.revision, pageId, decodedHash128: expectedHash, decodedPageHash128: Uint8Array.from(page.decodedPageHash128.slice(0, 32).match(/../gu)!, value => Number.parseInt(value, 16)), bytes });
   }
   release(): void { this.#released = true; }
 }

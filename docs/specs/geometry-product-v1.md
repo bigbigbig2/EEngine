@@ -101,15 +101,17 @@ activationPageIds: sorted unique u32 array
 
 | Byte | 类型 | 字段 |
 | ---: | --- | --- |
-| 0 | `u8[16]` | decoded page SHA-256 前 128 bit |
+| 0 | `u8[16]` | page identity 前 128 bit（由 Group payload 上卷，见下） |
 | 16 | `u32` | first GroupID |
 | 20 | `u32` | group count |
 | 24 | `u32` | flags；V1 必须为 0 |
 | 28 | `u32` | reserved；必须为 0 |
 
-`GeometryProductPageRecordV1` 的 page identity 由该页承载的 Group payload 按 GroupID 升序的确定性上卷得出，而不是由整页 bytes 单独决定。上卷输入为每个 Group 的 payload 摘要与其在页内的 offset/length，上卷算法必须是可复现的固定算法并冻结在 producer version 中。整页 `bytes` 的稳定摘要仍必须可被 Runtime 校验，用于检测传输或存储损坏；它不参与 identity 推导。
+`GeometryProductPageRecordV1` 的 page identity 由该页承载的 Group payload 按 GroupID 升序的确定性上卷得出，而不是由整页 bytes 单独决定。上卷输入为每个 Group 的 GroupID、payload 字节数与 payload 摘要，按 GroupID 严格升序排列；GroupID 非升序、重复或缺失时必须拒绝。上卷算法必须是可复现的固定算法并冻结在 producer version 中。
 
 该定义使 page identity 可以在 payload 产生之前计算，从而支持 descriptor 先于 payload 冻结。同一 Producer 对同一输入必须在单体式与两阶段两种执行路径下得到相同 identity。identity 算法变化必须视为 producer version 与 runtime profile 变化，不得在同一 profile 内静默切换。
+
+整页 decoded bytes 的稳定摘要不进入 descriptor，因为 descriptor 冻结时 payload 尚不存在。Producer 必须在交付每一页时同时给出该页 bytes 的稳定摘要；Runtime 收到后自行重算并比对，用于检测传输或存储损坏。该摘要不是 page identity，缺失或不符时必须视为该页交付失败。
 
 #### Descriptor binary transport
 
@@ -170,10 +172,13 @@ interface GeometryPageProductV1 {
   readonly productId: Uint8Array; // 32 B
   readonly revision: number;
   readonly pageId: number;
-  readonly decodedHash: Uint8Array; // 16 B
+  readonly decodedHash: Uint8Array; // 16 B, page identity (rolled up from Group payloads)
+  readonly decodedPageHash: Uint8Array; // 16 B, whole-page digest for integrity only
   readonly bytes: ArrayBuffer; // exactly 262144 B, exclusive ownership
 }
 ```
+
+`decodedHash` 必须与 descriptor page record 的 identity 一致，消费者据此确认页身份。`decodedPageHash` 是该页 `bytes` 的稳定摘要，只用于完整性校验；它不得被当作 identity，也不得与 descriptor 中的 identity 比较。两者缺失或语义互换都必须视为交付失败。
 
 `revisions()` 只能 yield 已冻结 descriptor。live provider 可以先 yield bootstrap revision，再在后台 yield richer revision；一个 revision yield 后任何表、ID、hash 或 activation cut 都不可修改。
 
@@ -250,7 +255,7 @@ revision 追加未声明的 asset，也不能原地修改其 Group/Page identity
 - 同 producer identity 做不同 Worker/thread count 的 descriptor/page byte determinism；Web 与 Offline producer 不做跨 producer byte-equality 要求。
 - 真实浏览器证明 bootstrap revision 可独立出像素、richer revision 失败不影响旧 revision、成功替换不混用两代数据。
 - 采用方式 1 的 Producer 必须额外证明：descriptor 阶段不产生 payload 即可冻结完整 ID graph；其 PageID、Group 归属与 activation cut 与单体式路径逐字节一致；payload 阶段按 PageID 的乱序、重复、并发与取消推进均正确，且未声明 PageID 的推进被拒绝。
-- page identity 上卷必须与整页完整性校验分别测试：篡改页内 Group payload 必须改变 identity 或被完整性校验捕获，篡改页内 padding 不得改变 identity。
+- page identity 上卷必须与整页完整性校验分别测试：篡改页内 Group payload 必须改变 identity 或被完整性校验捕获，篡改页内 padding 不得改变 identity；把完整性摘要当作 identity、或把 identity 当作完整性摘要，都必须在测试中被捕获。
 - 提升为 candidate 前，补齐 descriptor 的二进制 Worker transport layout、WASM/TypeScript mirror、golden bytes 与版本拒绝测试。
 ## Web glTF 材质引用边界（第三步）
 

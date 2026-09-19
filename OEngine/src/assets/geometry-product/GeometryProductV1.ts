@@ -63,7 +63,18 @@ export interface GeometryPageProductV1 {
   readonly productId: Uint8Array;
   readonly revision: number;
   readonly pageId: number;
+  /**
+   * Page identity rolled up from the page's Group payloads. This is the value
+   * recorded in the descriptor page record and is what a consumer matches on.
+   * It is computable before the page payload exists.
+   */
   readonly decodedHash128: Uint8Array;
+  /**
+   * Digest of the whole decoded page buffer, used only to detect transport or
+   * storage corruption. It is not page identity and is deliberately absent from
+   * the descriptor, because it can only be computed once the payload exists.
+   */
+  readonly decodedPageHash128: Uint8Array;
   readonly bytes: ArrayBuffer;
 }
 

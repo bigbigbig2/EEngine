@@ -448,11 +448,15 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
             const int result = LZ4_decompress_safe(reinterpret_cast<const char*>(encoded), reinterpret_cast<char*>(decoded.data()), int(page.compressedBytes), int(decoded.size()));
             if (result != int(decoded.size())) throw std::runtime_error("LZ4 page does not decode to exactly 256 KiB");
         } else throw std::runtime_error("unsupported page codec");
-        const Hash256 decodedHash = Sha256(decoded);
-        if (!std::equal(decodedHash.begin(), decodedHash.begin() + 16u, page.decodedContentHash128)) throw std::runtime_error("decoded page hash mismatch");
+        // Page identity is rolled up from the page's Group payloads and checked
+        // once those payloads are located below; there is deliberately no
+        // whole-page digest assertion here.
         std::uint32_t groupsOnPage = 0u;
         std::uint32_t minimumGroup = kInvalidId;
         bool pageContainsBootstrap = false;
+        std::vector<std::uint32_t> identityGroupIds;
+        std::vector<std::uint32_t> identityPayloadBytes;
+        std::vector<Hash256> identityPayloadDigests;
         for (std::uint32_t groupId = 0u; groupId < groups.size(); ++groupId) {
             const GeometryGroupDirectoryV3& directory = groups[groupId];
             if (directory.pageId != pageId) continue;
@@ -463,6 +467,10 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
             pageContainsBootstrap = pageContainsBootstrap || (directory.flags & kGroupBootstrap) != 0u;
             if (directory.pageId != pageId || directory.offsetInDecodedPage % 16u != 0u || directory.offsetInDecodedPage + directory.payloadBytes > decoded.size()) throw std::runtime_error("group page mapping is invalid");
             if (directory.payloadBytes < sizeof(GroupHeaderV3)) throw std::runtime_error("group payload is too small");
+            identityGroupIds.push_back(groupId);
+            identityPayloadBytes.push_back(directory.payloadBytes);
+            identityPayloadDigests.push_back(Sha256(
+                decoded.data() + directory.offsetInDecodedPage, directory.payloadBytes));
             GroupHeaderV3 group{}; DecodeRecordV3(decoded.data() + directory.offsetInDecodedPage, &group);
             if (group.payloadBytes != directory.payloadBytes || group.meshletCount == 0u || group.meshletCount > 128u || group.vertexFormatId >= formats.size()) throw std::runtime_error("group header is invalid");
             for (float value : group.boundsSphere) if (!std::isfinite(value)) throw std::runtime_error("group sphere is non-finite");
@@ -490,6 +498,13 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
         }
         if (groupsOnPage != page.groupCount || minimumGroup != page.firstGroup) throw std::runtime_error("page group summary is inconsistent");
         if (((page.flags & kGroupBootstrap) != 0u) != pageContainsBootstrap) throw std::runtime_error("page bootstrap summary is inconsistent");
+        // Page identity is recomputed from the page's Group payloads and must
+        // match the value recorded in the pack directory.
+        const std::array<std::uint8_t, 16> pageIdentity = ComputeGeometryPageIdentityV1(
+            identityGroupIds, identityPayloadBytes, identityPayloadDigests);
+        if (!std::equal(pageIdentity.begin(), pageIdentity.end(), page.decodedContentHash128)) {
+            throw std::runtime_error("decoded page identity mismatch");
+        }
     }
     if (previousEnd != bytes.size()) throw std::runtime_error("pack has trailing or unindexed page bytes");
     if (verifyPages) {

@@ -119,7 +119,12 @@ test("S1 OEGPACK adapter emits a producer-neutral Product V1 descriptor and excl
   const source = new OegPackProductRevisionSource(opened, descriptor);
   const page = await source.readPage(descriptor.activationPageIds[0]);
   assert.equal(page.bytes.byteLength, 262144);
-  assert.deepEqual([...createHash("sha256").update(new Uint8Array(page.bytes)).digest().subarray(0, 16)], [...descriptor.pageRecords.slice(descriptor.activationPageIds[0] * 32, descriptor.activationPageIds[0] * 32 + 16)]);
+  const activationRecord = descriptor.pageRecords.slice(descriptor.activationPageIds[0] * 32, descriptor.activationPageIds[0] * 32 + 16);
+  // Identity travels in the descriptor; the whole-page digest is delivered with the page and must
+  // stay independent from it (ADR-0017: identity is rolled up from Group payloads, not page bytes).
+  assert.deepEqual([...page.decodedHash128], [...activationRecord]);
+  assert.deepEqual([...page.decodedPageHash128], [...new Uint8Array(createHash("sha256").update(new Uint8Array(page.bytes)).digest()).subarray(0, 16)]);
+  assert.notDeepEqual([...page.decodedHash128], [...page.decodedPageHash128]);
   source.release();
   await assert.rejects(source.readPage(descriptor.activationPageIds[0]), /released/i);
 });
@@ -129,7 +134,7 @@ test("page independence: every group on an arbitrary page decodes from page-loca
   const { bytes } = await packBytes(cooked.output);
   const opened = await openOegPackV3(new MemoryRangeReadablePackV3(bytes));
   const pageId = opened.pages.length - 1;
-  const page = await opened.readPage(pageId);
+  const page = (await opened.readPage(pageId)).bytes;
   const groups = opened.groups.map((group, id) => ({ group, id })).filter(({ group }) => group.pageId === pageId);
   assert.ok(groups.length > 0);
   for (const { group } of groups) {
@@ -184,7 +189,7 @@ test("A8 bootstrap owner uploads fixed slots, resolves groups, and destroys ever
   for (let groupId = 0; groupId < opened.groups.length; groupId++) {
     const directory = opened.groups[groupId];
     let page = decodedPages.get(directory.pageId);
-    if (!page) { page = await opened.readPage(directory.pageId); decodedPages.set(directory.pageId, page); }
+    if (!page) { page = (await opened.readPage(directory.pageId)).bytes; decodedPages.set(directory.pageId, page); }
     const groupView = new DataView(page.buffer, page.byteOffset + directory.offsetInDecodedPage, directory.payloadBytes);
     const group = decodeGroupHeaderV3(groupView);
     for (let meshletIndex = 0; meshletIndex < group.meshletCount; meshletIndex++) {
@@ -261,11 +266,14 @@ test("corruption in header, metadata, compressed bytes, and logical links fails 
   await rewriteMetadataHash(badCompressedSize);
   await assert.rejects(openOegPackV3(new MemoryRangeReadablePackV3(badCompressedSize)), /page 0 directory/i);
 
-  const badDecodedHash = bytes.slice();
-  badDecodedHash[pageDirectoryOffset + 32] ^= 1;
-  await rewriteMetadataHash(badDecodedHash);
-  const openedBadDecodedHash = await openOegPackV3(new MemoryRangeReadablePackV3(badDecodedHash));
-  await assert.rejects(openedBadDecodedHash.readPage(0), /decoded hash/i);
+  const badDecodedPayload = bytes.slice();
+  const badDecodedPayloadDirectory = Number(new DataView(badDecodedPayload.buffer).getBigUint64(104, true));
+  const badDecodedPayloadOffset = Number(new DataView(badDecodedPayload.buffer).getBigUint64(badDecodedPayloadDirectory, true));
+  const firstGroupOffsetInPage = new DataView(badDecodedPayload.buffer).getUint32(Number(new DataView(badDecodedPayload.buffer).getBigUint64(96, true)) + 16, true);
+  badDecodedPayload[badDecodedPayloadOffset + firstGroupOffsetInPage + 40] ^= 1;
+  await rewriteMetadataHash(badDecodedPayload);
+  const openedBadDecodedPayload = await openOegPackV3(new MemoryRangeReadablePackV3(badDecodedPayload));
+  await assert.rejects(openedBadDecodedPayload.readPage(0), /checksum/i);
 
   const badGroup = bytes.slice();
   const view = new DataView(badGroup.buffer);
@@ -286,7 +294,7 @@ test("corruption in header, metadata, compressed bytes, and logical links fails 
   let refined;
   for (let groupId = 0; groupId < rawOpened.groups.length && !refined; groupId++) {
     const directory = rawOpened.groups[groupId];
-    const page = await rawOpened.readPage(directory.pageId);
+    const page = (await rawOpened.readPage(directory.pageId)).bytes;
     const group = decodeGroupHeaderV3(new DataView(page.buffer, page.byteOffset + directory.offsetInDecodedPage, directory.payloadBytes));
     for (let meshletIndex = 0; meshletIndex < group.meshletCount; meshletIndex++) {
       const meshlet = decodeMeshletHeaderV3(new DataView(page.buffer, page.byteOffset + directory.offsetInDecodedPage, directory.payloadBytes), group.meshletHeaderOffset + meshletIndex * 48);
@@ -301,8 +309,20 @@ test("corruption in header, metadata, compressed bytes, and logical links fails 
   const rawPayloadOffset = Number(badRefineView.getBigUint64(rawPageDirectory, true));
   badRefineView.setUint32(rawPayloadOffset + refined.directory.offsetInDecodedPage + refined.refineOffset, refined.groupId, true);
   const rawPageBytes = badRefine.subarray(rawPayloadOffset, rawPayloadOffset + OEGPACK_V3_PAGE_BYTES);
-  const decodedDigest = createHash("sha256").update(rawPageBytes).digest();
-  badRefine.set(decodedDigest.subarray(0, 16), rawPageDirectory + 32);
+  // Re-derive the page identity from the (corrupted) Group payloads so the pack stays
+  // structurally valid and the failure surfaces from the refinement-LOD check, not from identity.
+  const identityGroupIds = [];
+  const identityPayloadBytes = [];
+  const identityPayloadDigests = [];
+  for (const directory of rawOpened.groups) {
+    if (directory.pageId !== refined.pageId) continue;
+    const payload = badRefine.subarray(rawPayloadOffset + directory.offsetInDecodedPage, rawPayloadOffset + directory.offsetInDecodedPage + directory.payloadBytes);
+    identityGroupIds.push(dirIndex(rawOpened, directory));
+    identityPayloadBytes.push(directory.payloadBytes);
+    identityPayloadDigests.push(new Uint8Array(createHash("sha256").update(payload).digest()));
+  }
+  assert.ok(identityGroupIds.length > 0, "refine corruption fixture page must own at least one group");
+  badRefine.set(await pageIdentityV1(identityGroupIds, identityPayloadBytes, identityPayloadDigests), rawPageDirectory + 32);
   badRefineView.setUint32(rawPageDirectory + 48, crc32(rawPageBytes), true);
   await rewriteMetadataHash(badRefine);
   const badRefinePath = join(fixtureRoot, "bad-refine.oegpack"); await writeFile(badRefinePath, badRefine);
@@ -310,6 +330,27 @@ test("corruption in header, metadata, compressed bytes, and logical links fails 
   assert.notEqual(validate.status, 0);
   assert.match(validate.stderr, /refinement LOD is not strictly finer/i);
 });
+
+/** Mirrors the ADR-0017 page identity rollup: domain-separated SHA-256 over strictly ascending
+ *  (GroupID, payloadBytes, payloadDigest) triples, truncated to 16 bytes. */
+async function pageIdentityV1(groupIds, payloadBytes, payloadDigests) {
+  assert.equal(groupIds.length, payloadBytes.length);
+  assert.equal(groupIds.length, payloadDigests.length);
+  assert.ok(groupIds.length > 0, "a page identity needs at least one group");
+  for (let index = 1; index < groupIds.length; index++) assert.ok(groupIds[index] > groupIds[index - 1], "group ids must be strictly ascending");
+  const parts = [new TextEncoder().encode("OENGINE-GEOMETRY-PAGE-IDENTITY-V1")];
+  const count = new Uint8Array(4); new DataView(count.buffer).setUint32(0, groupIds.length, true); parts.push(count);
+  for (let index = 0; index < groupIds.length; index++) {
+    const id = new Uint8Array(4); new DataView(id.buffer).setUint32(0, groupIds[index], true); parts.push(id);
+    const size = new Uint8Array(4); new DataView(size.buffer).setUint32(0, payloadBytes[index], true); parts.push(size);
+    parts.push(payloadDigests[index]);
+  }
+  const joined = new Uint8Array(parts.reduce((sum, part) => sum + part.byteLength, 0));
+  let at = 0; for (const part of parts) { joined.set(part, at); at += part.byteLength; }
+  return new Uint8Array(createHash("sha256").update(joined).digest()).subarray(0, 16);
+}
+
+function dirIndex(opened, directory) { return opened.groups.indexOf(directory); }
 
 async function rewriteMetadataHash(bytes) {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -394,4 +435,6 @@ function buildFixtureGlb({ distinctMaterialIds = false } = {}) {
 }
 
 // Updated only when an intentional ABI/algorithm/recipe change is reviewed.
-const GOLDEN_PACK_SHA256 = "4f68db668a787382091b6bffe8599f602eb90014df1ca647734f50b83d31497f";
+// 2026-09-19: page identity is now rolled up from Group payloads (ADR-0017 step 1) instead of
+// being the SHA-256 of the whole decoded page, so every pack byte stream changes.
+const GOLDEN_PACK_SHA256 = "dbb720fac611344a84c07162d99bd487a62fe687033ee4b02fe49c5488efbacc";

@@ -40,7 +40,7 @@ test("Product-aware residency uploads activation pages with generation-tagged lo
   const { descriptor, page } = fixture();
   const writes = [], buffers = [];
   const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { const b = { d, destroyed: false, destroy() { this.destroyed = true; } }; buffers.push(b); return b; }, queue: { writeBuffer(buffer, offset, bytes) { writes.push({ buffer, offset, bytes: bytes.byteLength }); } } };
-  const source = { descriptor, async readPage(pageId) { return { productId: descriptor.productId.slice(), revision: descriptor.revision, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() { this.released = true; } };
+  const source = { descriptor, async readPage(pageId) { return { productId: descriptor.productId.slice(), revision: descriptor.revision, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), decodedPageHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() { this.released = true; } };
   const residency = await VirtualGeometryResidency.create(device, source, 7);
   assert.equal(writes.filter(write => write.bytes === 262144).length, 1); assert.equal(writes.find(write => write.bytes === 262144).offset, 0);
   assert.deepEqual(residency.pageLocation(0), { bankIndex: 0, slotIndex: 0, productGeneration: 7, flags: 3 });
@@ -56,9 +56,9 @@ test("Product-aware residency delays reuse of a retiring slot", async () => {
   const pageRecords = new Uint8Array(64); pageRecords.set(descriptor.pageRecords); pageRecords.set(descriptor.pageRecords.slice(0, 16), 32); const pv = new DataView(pageRecords.buffer); pv.setUint32(52, 0, true); pv.setUint32(56, 0, true);
   const product = { ...descriptor, pageRecords };
   const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { const b = { d, destroyed: false, destroy() { this.destroyed = true; } }; buffers.push(b); return b; }, queue: { writeBuffer() {} } };
-  const source = { descriptor: product, async readPage(pageId) { return { productId: product.productId.slice(), revision: product.revision, pageId, decodedHash128: product.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() {} };
+  const source = { descriptor: product, async readPage(pageId) { return { productId: product.productId.slice(), revision: product.revision, pageId, decodedHash128: product.pageRecords.slice(0, 16), decodedPageHash128: product.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() {} };
   const residency = await VirtualGeometryResidency.create(device, source, 8);
-  const demanded = { productId: product.productId.slice(), revision: product.revision, pageId: 1, decodedHash128: product.pageRecords.slice(32, 48), bytes: page.slice().buffer };
+  const demanded = { productId: product.productId.slice(), revision: product.revision, pageId: 1, decodedHash128: product.pageRecords.slice(32, 48), decodedPageHash128: product.pageRecords.slice(32, 48), bytes: page.slice().buffer };
   residency.uploadPage(demanded); residency.beginRetirePage(1); assert.equal(residency.evidence().retiringPages, 1); assert.throws(() => residency.uploadPage(demanded), /retiring/);
   residency.completeRetirePage(1); residency.uploadPage(demanded); assert.equal(residency.pageLocation(1).flags, 1); assert.equal(residency.evidence().pinnedPages, 1); assert.equal(residency.evidence().retiringPages, 0); residency.destroy();
 });
@@ -69,9 +69,9 @@ test("Product-aware residency selects only aged, non-pinned pages for eviction",
   const pv = new DataView(pageRecords.buffer); pv.setUint32(52, 0, true); pv.setUint32(56, 0, true);
   const product = { ...descriptor, pageRecords };
   const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { const b = { d, destroy() {} }; buffers.push(b); return b; }, queue: { writeBuffer() {} } };
-  const source = { descriptor: product, async readPage(pageId) { return { productId: product.productId.slice(), revision: product.revision, pageId, decodedHash128: product.pageRecords.slice(pageId * 32, pageId * 32 + 16), bytes: page.slice().buffer }; }, release() {} };
+  const source = { descriptor: product, async readPage(pageId) { return { productId: product.productId.slice(), revision: product.revision, pageId, decodedHash128: product.pageRecords.slice(pageId * 32, pageId * 32 + 16), decodedPageHash128: product.pageRecords.slice(pageId * 32, pageId * 32 + 16), bytes: page.slice().buffer }; }, release() {} };
   const residency = await VirtualGeometryResidency.create(device, source, 9);
-  const demanded = { productId: product.productId.slice(), revision: product.revision, pageId: 1, decodedHash128: product.pageRecords.slice(32, 48), bytes: page.slice().buffer };
+  const demanded = { productId: product.productId.slice(), revision: product.revision, pageId: 1, decodedHash128: product.pageRecords.slice(32, 48), decodedPageHash128: product.pageRecords.slice(32, 48), bytes: page.slice().buffer };
   residency.uploadPage(demanded);
   assert.deepEqual(residency.selectEvictionCandidates(1, 262144, 2), []);
   residency.touchPage(1, 1);
@@ -85,7 +85,7 @@ test("Product-aware residency selects only aged, non-pinned pages for eviction",
 test("Product residency shares four immutable banks across simultaneous revisions", async () => {
   const { descriptor, page } = fixture();
   const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { return { d, destroyed: false, destroy() { this.destroyed = true; } }; }, queue: { writeBuffer() {} } };
-  const source = () => ({ descriptor, async readPage(pageId) { return { productId: descriptor.productId.slice(), revision: 0, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() {} });
+  const source = () => ({ descriptor, async readPage(pageId) { return { productId: descriptor.productId.slice(), revision: 0, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), decodedPageHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() {} });
   const old = await VirtualGeometryResidency.create(device, source(), 1);
   const next = await VirtualGeometryResidency.create(device, source(), 2);
   assert.equal(old.evidence().bankCount, 4);
@@ -105,9 +105,9 @@ test("eviction weighs GPU request/visibility, prediction and refetch cost; recor
   for (const at of [32, 64]) { recordView.setUint32(at + 16, 0, true); recordView.setUint32(at + 20, 0, true); }
   const product = { ...descriptor, pageRecords: records };
   const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { return { d, destroy() {} }; }, queue: { writeBuffer() {} } };
-  const source = { descriptor: product, async readPage(pageId) { return { productId: product.productId.slice(), revision: 0, pageId, decodedHash128: records.slice(pageId * 32, pageId * 32 + 16), bytes: page.slice().buffer }; }, release() {} };
+  const source = { descriptor: product, async readPage(pageId) { return { productId: product.productId.slice(), revision: 0, pageId, decodedHash128: records.slice(pageId * 32, pageId * 32 + 16), decodedPageHash128: records.slice(pageId * 32, pageId * 32 + 16), bytes: page.slice().buffer }; }, release() {} };
   const residency = await VirtualGeometryResidency.create(device, source);
-  const upload = (pageId) => residency.uploadPage({ productId: product.productId.slice(), revision: 0, pageId, decodedHash128: records.slice(pageId * 32, pageId * 32 + 16), bytes: page.slice().buffer });
+  const upload = (pageId) => residency.uploadPage({ productId: product.productId.slice(), revision: 0, pageId, decodedHash128: records.slice(pageId * 32, pageId * 32 + 16), decodedPageHash128: records.slice(pageId * 32, pageId * 32 + 16), bytes: page.slice().buffer });
   upload(1); upload(2);
   residency.recordDemand(2, 10, true, false, 4);
   assert.deepEqual(residency.selectEvictionCandidates(12, 262144, 2), [1]);

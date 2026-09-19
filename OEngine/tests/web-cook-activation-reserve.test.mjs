@@ -47,7 +47,7 @@ function revisionHandle(product) {
     productId: product.productId,
     revision: product.revision,
     pageCount: 2,
-    async readPage(pageId) { return { pageId, decodedHash128: product.hashes[pageId].subarray(0, 16), bytes: product.pages[pageId].buffer }; },
+    async readPage(pageId) { return { pageId, decodedHash128: product.hashes[pageId].subarray(0, 16), decodedPageHash128: product.hashes[pageId].subarray(0, 16), bytes: product.pages[pageId].buffer }; },
     release() {}
   };
 }
@@ -130,7 +130,7 @@ test("Web Product provider serves a re-read after the first transfer was consume
     maxBufferedPages: 1,
     maxBufferedBytes: PAGE_BYTES,
     returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]),
-    requestPage: (productId, revision, pageId) => { requests.push([revision, pageId]); stream.push({ type: "PageReady", productId: productId.slice(), revision, pageId, decodedHash128: product.hashes[pageId].subarray(0, 16), bytes: product.pages[pageId].buffer }); }
+    requestPage: (productId, revision, pageId) => { requests.push([revision, pageId]); stream.push({ type: "PageReady", productId: productId.slice(), revision, pageId, decodedHash128: product.hashes[pageId].subarray(0, 16), decodedPageHash128: product.hashes[pageId].subarray(0, 16), bytes: product.pages[pageId].buffer }); }
   });
   const iterator = provider.revisions()[Symbol.asyncIterator]();
   stream.push({ type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor) });
@@ -156,7 +156,7 @@ test("Web Product provider keeps a second revision from stranding credit", async
     maxBufferedPages: 1,
     maxBufferedBytes: PAGE_BYTES,
     returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]),
-    requestPage: (productId, revision, pageId) => { requests.push([revision, pageId]); const source = byRevision.get(revision); stream.push({ type: "PageReady", productId: productId.slice(), revision, pageId, decodedHash128: source.hashes[pageId].subarray(0, 16), bytes: source.pages[pageId].buffer }); }
+    requestPage: (productId, revision, pageId) => { requests.push([revision, pageId]); const source = byRevision.get(revision); stream.push({ type: "PageReady", productId: productId.slice(), revision, pageId, decodedHash128: source.hashes[pageId].subarray(0, 16), decodedPageHash128: source.hashes[pageId].subarray(0, 16), bytes: source.pages[pageId].buffer }); }
   });
   const iterator = provider.revisions()[Symbol.asyncIterator]();
   stream.push({ type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(first.descriptor) });
@@ -166,7 +166,7 @@ test("Web Product provider keeps a second revision from stranding credit", async
   const secondOffered = (await iterator.next()).value;
   // Activation streaming of the second revision arrives before its consumer
   // starts reading, so it occupies the whole buffering window.
-  stream.push({ type: "PageReady", productId: second.productId.slice(), revision: second.revision, pageId: 0, decodedHash128: second.hashes[0].subarray(0, 16), bytes: second.pages[0].buffer });
+  stream.push({ type: "PageReady", productId: second.productId.slice(), revision: second.revision, pageId: 0, decodedHash128: second.hashes[0].subarray(0, 16), decodedPageHash128: second.hashes[0].subarray(0, 16), bytes: second.pages[0].buffer });
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(provider.evidence().bufferedPages, 1, "the second revision occupies the buffering window");
   // The first revision must still be re-readable although the window is full:
@@ -190,7 +190,7 @@ test("Web Product provider discards an unsolicited duplicate of a consumed page"
   const iterator = provider.revisions()[Symbol.asyncIterator]();
   stream.push({ type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor) });
   const offered = (await iterator.next()).value;
-  const ready = () => ({ type: "PageReady", productId: product.productId.slice(), revision: product.revision, pageId: 0, decodedHash128: product.hashes[0].subarray(0, 16), bytes: product.pages[0].buffer });
+  const ready = () => ({ type: "PageReady", productId: product.productId.slice(), revision: product.revision, pageId: 0, decodedHash128: product.hashes[0].subarray(0, 16), decodedPageHash128: product.hashes[0].subarray(0, 16), bytes: product.pages[0].buffer });
   stream.push(ready());
   await new Promise(resolve => setImmediate(resolve));
   await offered.readPage(0);

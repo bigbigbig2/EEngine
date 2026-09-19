@@ -29,7 +29,7 @@ test("Web Cook coordinator bounds source work and emits credited Product events"
   const coordinator = new WebCookCoordinator("session-a", 1, {
     budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 1024, maxOutputBytes: 262144, maxQueuedEvents: 8 },
     source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); fetched.push([start, end]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
-    cooker: { async cookBootstrap(unit, context) { for (const range of unit.ranges) await context.readRange(range); return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { assert.equal(pageId, 0); return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} }; } }
+    cooker: { async cookBootstrap(unit, context) { for (const range of unit.ranges) await context.readRange(range); return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { assert.equal(pageId, 0); return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} }; } }
   });
   await coordinator.open("https://example.test/scene.glb"); coordinator.grantOutputCredits(1, 262144); await coordinator.cookBootstrap();
   assert.equal(coordinator.evidence().state, "complete"); assert.equal(coordinator.evidence().completedUnits, 1); assert.ok(fetched.length >= 5);
@@ -41,7 +41,7 @@ test("Web Cook coordinator waits for a whole page lease before copying output", 
   const coordinator = new WebCookCoordinator("session-credit", 1, {
     budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 1024, maxOutputBytes: 262144, maxQueuedEvents: 8 },
     source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
-    cooker: { async cookBootstrap() { return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { reads++; return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() { released++; } }; } }
+    cooker: { async cookBootstrap() { return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { reads++; return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() { released++; } }; } }
   });
   await coordinator.open("https://example.test/credit.glb");
   let settled = false;
@@ -64,7 +64,7 @@ test("Web Cook coordinator prefers the whole-source immutable batch entry", asyn
     source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
     cooker: {
       async cookBootstrap() { unitCalls++; throw new Error("unit cooker should not be selected"); },
-      async cookBootstrapBatch(units) { batchCalls++; assert.equal(units.length, 1); return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} }; }
+      async cookBootstrapBatch(units) { batchCalls++; assert.equal(units.length, 1); return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} }; }
     }
   });
   await coordinator.open("https://example.test/batch.glb"); coordinator.grantOutputCredits(1, 262144); await coordinator.cookBootstrap();

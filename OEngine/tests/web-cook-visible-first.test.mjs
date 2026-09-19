@@ -55,7 +55,7 @@ test("Web Cook visible-first selects one prioritized primitive before reading th
         assert.equal(units.length, 2);
         assert.equal(context.bootstrapUnits.length, 1);
         for (const range of context.bootstrapUnits[0].ranges) await context.readRange(range);
-        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 0, pageCount: 1, sceneAssetIndices: [1], async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 0, pageCount: 1, sceneAssetIndices: [1], async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
       }
     }
   });
@@ -87,7 +87,7 @@ test("Web Cook progress heartbeat never claims units the producer has not delive
         // Mirror the real producer: revision 0 is the bootstrap cut, revision 1
         // the richer replacement. The coordinator keys the reported unit count
         // off that number, so both must be distinct.
-        const revision = (number, replaces) => ({ descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: number, ...(replaces === undefined ? {} : { replaces }) }), productId: product.productId, revision: number, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        const revision = (number, replaces) => ({ descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: number, ...(replaces === undefined ? {} : { replaces }) }), productId: product.productId, revision: number, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
         await onRevision(revision(0));
         for (let tick = 0; tick < 8; tick++) {
           await new Promise(resolve => setTimeout(resolve, 60));
@@ -139,7 +139,7 @@ test("Web Cook progress heartbeat gives up instead of failing a saturated queue"
     bootstrapUnitCount: 1,
     cooker: {
       async cookProgressive(units, context, onRevision) {
-        const revision = (number, replaces) => ({ descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: number, ...(replaces === undefined ? {} : { replaces }) }), productId: product.productId, revision: number, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        const revision = (number, replaces) => ({ descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: number, ...(replaces === undefined ? {} : { replaces }) }), productId: product.productId, revision: number, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
         await onRevision(revision(0));
         await new Promise(resolve => setTimeout(resolve, 500));
         await onRevision(revision(1, { productId: product.productId, revision: 0 }));

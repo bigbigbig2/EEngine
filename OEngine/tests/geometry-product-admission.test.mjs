@@ -22,7 +22,7 @@ function makeFixture() {
 test("GeometryProductAdmission exposes explicit activation states and rollback", async () => {
   const { descriptor, page } = makeFixture(); const buffers = [], writes = [];
   const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { const b = { d, destroy() { this.destroyed = true; } }; buffers.push(b); return b; }, queue: { writeBuffer(buffer, offset, data) { writes.push({ buffer, offset, bytes: new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength ?? data.byteLength).slice() }); } } };
-  let released = false; const source = { descriptor, async readPage(pageId) { return { productId: descriptor.productId, revision: 0, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() { released = true; } };
+  let released = false; const source = { descriptor, async readPage(pageId) { return { productId: descriptor.productId, revision: 0, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), decodedPageHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() { released = true; } };
   const admission = new GeometryProductAdmission(device); const transaction = admission.offer(source); assert.equal(transaction.state, "offered");
   await transaction.activate(); assert.equal(transaction.state, "active"); assert.equal(admission.evidence().active, 1);
   const productWrites = writes.filter(write => write.buffer === transaction.residency.bindings().productTable && write.bytes.byteLength === 64); assert.deepEqual(productWrites.map(write => new DataView(write.bytes.buffer).getUint32(4, true)), [1]);
@@ -32,7 +32,7 @@ test("GeometryProductAdmission exposes explicit activation states and rollback",
 test("non-zero ProductTableSlot addresses the matching sparse table record", async () => {
   const { descriptor, page } = makeFixture(); const writes = [];
   const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { return { d, destroy() {} }; }, queue: { writeBuffer(buffer, offset, data) { writes.push({ buffer, offset, bytes: new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength ?? data.byteLength).slice() }); } } };
-  const source = () => ({ descriptor, async readPage(pageId) { return { productId: descriptor.productId, revision: 0, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() {} });
+  const source = () => ({ descriptor, async readPage(pageId) { return { productId: descriptor.productId, revision: 0, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), decodedPageHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() {} });
   const admission = new GeometryProductAdmission(device); admission.offer(source()).cancel();
   const transaction = admission.offer(source()); await transaction.activate();
   assert.equal(transaction.productTableSlot, 1);
@@ -62,7 +62,7 @@ test("cancel during asynchronous activation prevents late Product publication", 
   const device = { limits: { maxBufferSize: 256 * 1024 * 1024, maxStorageBufferBindingSize: 128 * 1024 * 1024 }, createBuffer(d) { return { d, destroy() { this.destroyed = true; } }; }, queue: { writeBuffer(buffer, offset, data) { writes.push({ buffer, offset, bytes: new Uint8Array(data.buffer ?? data, data.byteOffset ?? 0, data.byteLength ?? data.byteLength).slice() }); } } };
   let finishRead; const readPending = new Promise(resolve => { finishRead = resolve; }); let releaseCount = 0; let receivedSignal;
   const admission = new GeometryProductAdmission(device);
-  const transaction = admission.offer({ descriptor, async readPage(pageId, signal) { receivedSignal = signal; await readPending; return { productId: descriptor.productId, revision: 0, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() { releaseCount++; } });
+  const transaction = admission.offer({ descriptor, async readPage(pageId, signal) { receivedSignal = signal; await readPending; return { productId: descriptor.productId, revision: 0, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), decodedPageHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer }; }, release() { releaseCount++; } });
   const activation = transaction.activate();
   await Promise.resolve(); assert.ok(receivedSignal); transaction.cancel(); finishRead();
   await assert.rejects(activation, /cancelled/);
@@ -89,7 +89,7 @@ function sourceFor(descriptor, page, { fail = false } = {}) {
     async readPage(pageId, signal) {
       if (fail) throw new Error("richer revision failed");
       if (signal?.aborted) throw signal.reason;
-      return { productId: descriptor.productId.slice(), revision: descriptor.revision, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer };
+      return { productId: descriptor.productId.slice(), revision: descriptor.revision, pageId, decodedHash128: descriptor.pageRecords.slice(0, 16), decodedPageHash128: descriptor.pageRecords.slice(0, 16), bytes: page.slice().buffer };
     },
     release() { released++; },
     get released() { return released; }
@@ -168,7 +168,7 @@ test("controller cancellation aborts the in-flight activation and releases its s
   const started = new Promise(resolve => { markStarted = resolve; });
   const source = {
     descriptor: fixture.descriptor,
-    async readPage(pageId, signal) { markStarted(); await pending; if (signal?.aborted) throw signal.reason; return { productId: fixture.descriptor.productId, revision: 0, pageId, decodedHash128: fixture.descriptor.pageRecords.slice(0, 16), bytes: fixture.page.slice().buffer }; },
+    async readPage(pageId, signal) { markStarted(); await pending; if (signal?.aborted) throw signal.reason; return { productId: fixture.descriptor.productId, revision: 0, pageId, decodedHash128: fixture.descriptor.pageRecords.slice(0, 16), decodedPageHash128: fixture.descriptor.pageRecords.slice(0, 16), bytes: fixture.page.slice().buffer }; },
     release() { releaseCount++; }
   };
   async function* provider() { yield source; }
@@ -187,7 +187,7 @@ test("active Product recovery rebuilds GPU residency without releasing the CPU s
   let reads = 0;
   const source = {
     descriptor: fixture.descriptor,
-    async readPage(pageId) { reads++; return { productId: fixture.descriptor.productId.slice(), revision: 0, pageId, decodedHash128: fixture.descriptor.pageRecords.slice(0, 16), bytes: fixture.page.slice().buffer }; },
+    async readPage(pageId) { reads++; return { productId: fixture.descriptor.productId.slice(), revision: 0, pageId, decodedHash128: fixture.descriptor.pageRecords.slice(0, 16), decodedPageHash128: fixture.descriptor.pageRecords.slice(0, 16), bytes: fixture.page.slice().buffer }; },
     release() { this.released = (this.released ?? 0) + 1; }
   };
   async function* provider() { yield source; }

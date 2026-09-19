@@ -173,9 +173,9 @@ class LiveWebCookRevisionSource implements GeometryProductRevisionSourceV1 {
   acceptPage(event: Extract<WebCookEvent, { type: "PageReady" }>): void {
     if (this.#released) { this.owner._discardPage(event.bytes.byteLength); return; }
     const expected = decodeGeometryProductPageRecordV1(this.descriptor, event.pageId);
-    if (!sameBytes(event.productId, this.descriptor.productId) || event.revision !== this.descriptor.revision || event.decodedHash128.byteLength !== 16 || !sameBytes(event.decodedHash128, expected.decodedHash128) || event.bytes.byteLength !== this.descriptor.decodedPageBytes) throw new Error("Web Cook page does not match its immutable Product descriptor");
+    if (!sameBytes(event.productId, this.descriptor.productId) || event.revision !== this.descriptor.revision || event.decodedHash128.byteLength !== 16 || !sameBytes(event.decodedHash128, expected.decodedHash128) || event.decodedPageHash128.byteLength !== 16 || event.bytes.byteLength !== this.descriptor.decodedPageBytes) throw new Error("Web Cook page does not match its immutable Product descriptor");
     if (this.#pages.has(event.pageId)) throw new Error(`Web Cook emitted duplicate page ${event.pageId}`);
-    const page = Object.freeze({ productId: event.productId.slice(), revision: event.revision, pageId: event.pageId, decodedHash128: event.decodedHash128.slice(), bytes: event.bytes });
+    const page = Object.freeze({ productId: event.productId.slice(), revision: event.revision, pageId: event.pageId, decodedHash128: event.decodedHash128.slice(), decodedPageHash128: event.decodedPageHash128.slice(), bytes: event.bytes });
     const waiter = this.#waiters.get(event.pageId);
     if (waiter) { this.#waiters.delete(event.pageId); this.#delivered.add(event.pageId); this.owner._deliverIncomingPage(event.bytes.byteLength); waiter.resolve(page); return; }
     if (this.#pages.has(event.pageId)) throw new Error(`Web Cook emitted duplicate page ${event.pageId}`);

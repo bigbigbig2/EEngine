@@ -25,7 +25,7 @@ test("Web Product provider preserves metadata events and page ownership", async 
     yield { ...header, type: "SceneCatalogReady", catalog: { primitiveCount: 1, mutable: { rejected: true } } };
     yield { ...header, type: "Progress", stage: "bootstrap", units: 1, bytes: 12, timings: { cook: 1 } };
     yield { ...header, type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor) };
-    yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
+    yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), decodedPageHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
   }
   const provider = new WebCookProductProvider(events(), { maxBufferedPages: 1, maxBufferedBytes: 262144, returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]), onSceneCatalogReady: catalog => catalogs.push(catalog), onProgress: value => progress.push(value) });
   const iterator = provider.revisions()[Symbol.asyncIterator](); const offered = await iterator.next(); assert.equal(offered.done, false);
@@ -41,7 +41,7 @@ test("Web Product provider reaches the shared Geometry Product admission and res
   async function* events() {
     const header = { protocolVersion: 1, sessionId: "s3", sessionGeneration: 4 };
     yield { ...header, type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor) };
-    yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
+    yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), decodedPageHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
   }
   const provider = new WebCookProductProvider(events(), { maxBufferedPages: 1, maxBufferedBytes: 262144, returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]) });
   const device = {
@@ -67,7 +67,7 @@ test("Web Product provider asks the Worker for a page after a consumed transfer"
     const header = { protocolVersion: 1, sessionId: "s4", sessionGeneration: 5 };
     yield { ...header, type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor) };
     await pending;
-    yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
+    yield { ...header, type: "PageReady", productId: value.productId.slice(), revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), decodedPageHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
   }
   const provider = new WebCookProductProvider(events(), { maxBufferedPages: 1, maxBufferedBytes: 262144, returnOutputCredits: (blocks, bytes) => credits.push([blocks, bytes]), requestPage: (productId, revision, pageId) => { requests.push([productId, revision, pageId]); pushEvent(); } });
   const iterator = provider.revisions()[Symbol.asyncIterator]();

@@ -2,6 +2,7 @@
 
 #include "oengine_asset/GeometryAbi.h"
 #include "oengine_asset/GeometryCookRecipe.h"
+#include "oengine_asset/DecodedGeometryProduct.h"
 #include "oengine_asset/Hash.h"
 
 #include <algorithm>
@@ -162,7 +163,84 @@ std::vector<std::uint8_t> Section(
 
 }  // namespace
 
+/**
+ * Page identity must depend on Group payload content and order only. These
+ * cases pin the two properties the incremental publication design relies on:
+ * identity is computable from payload digests alone, and it is independent of
+ * any page-level packing or padding.
+ */
+void AssertPageIdentityRollup() {
+    const std::vector<std::uint32_t> groupIds{4u, 7u, 9u};
+    const std::vector<std::uint32_t> payloadBytes{128u, 256u, 64u};
+    const std::vector<Hash256> digests{
+        Sha256(std::string("payload-a")),
+        Sha256(std::string("payload-b")),
+        Sha256(std::string("payload-c"))};
+
+    const std::array<std::uint8_t, 16> baseline =
+        ComputeGeometryPageIdentityV1(groupIds, payloadBytes, digests);
+
+    // Deterministic across repeated evaluation.
+    assert(ComputeGeometryPageIdentityV1(groupIds, payloadBytes, digests) == baseline);
+
+    // Sensitive to payload content: changing one Group payload digest changes identity.
+    std::vector<Hash256> mutatedDigests = digests;
+    mutatedDigests[1] = Sha256(std::string("payload-b-mutated"));
+    assert(ComputeGeometryPageIdentityV1(groupIds, payloadBytes, mutatedDigests) != baseline);
+
+    // Sensitive to payload length.
+    std::vector<std::uint32_t> mutatedBytes = payloadBytes;
+    mutatedBytes[2] = 65u;
+    assert(ComputeGeometryPageIdentityV1(groupIds, mutatedBytes, digests) != baseline);
+
+    // Order-sensitive: the same Group set in a different ascending order that
+    // carries different payloads is a different page.
+    const std::vector<std::uint32_t> reorderedIds{5u, 8u, 9u};
+    const std::vector<std::uint32_t> reorderedBytes{256u, 128u, 64u};
+    const std::vector<Hash256> reorderedDigests{digests[1], digests[0], digests[2]};
+    assert(ComputeGeometryPageIdentityV1(reorderedIds, reorderedBytes, reorderedDigests) != baseline);
+
+    // Non-ascending GroupID order is rejected rather than silently normalised.
+    bool descendingRejected = false;
+    try {
+        ComputeGeometryPageIdentityV1({7u, 4u, 9u}, reorderedBytes, reorderedDigests);
+    } catch (const std::runtime_error&) {
+        descendingRejected = true;
+    }
+    assert(descendingRejected);
+
+    // Duplicate GroupID is rejected as well.
+    bool duplicateRejected = false;
+    try {
+        ComputeGeometryPageIdentityV1({4u, 4u, 9u}, payloadBytes, digests);
+    } catch (const std::runtime_error&) {
+        duplicateRejected = true;
+    }
+    assert(duplicateRejected);
+
+    // Mismatched input lengths are rejected.
+    bool lengthRejected = false;
+    try {
+        ComputeGeometryPageIdentityV1(groupIds, payloadBytes, {digests[0]});
+    } catch (const std::runtime_error&) {
+        lengthRejected = true;
+    }
+    assert(lengthRejected);
+
+    // An empty page is not addressable.
+    bool emptyRejected = false;
+    try {
+        ComputeGeometryPageIdentityV1({}, {}, {});
+    } catch (const std::runtime_error&) {
+        emptyRejected = true;
+    }
+    assert(emptyRejected);
+
+    std::cout << "page identity rollup: ok" << std::endl;
+}
+
 int main() {
+    AssertPageIdentityRollup();
     assert(oengine_web_geometry_cook_abi_version() == 1u);
     const std::vector<std::uint8_t> canonical = CanonicalCube();
     const std::vector<std::uint8_t> recipe = Recipe();
@@ -194,8 +272,12 @@ int main() {
     for (std::uint32_t page = 0u; page < pageCount; ++page) {
         const std::vector<std::uint8_t> pageBytes = Section(first, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, page);
         assert(pageBytes.size() == kGeometryPageBytesV3);
-        const Hash256 hash = Sha256(pageBytes);
-        assert(std::equal(hash.begin(), hash.begin() + 16u, pageRecords.begin() + page * 32u));
+        // Page identity is rolled up from Group payloads, so it is deliberately
+        // NOT the whole-page digest. Both must stay independently verifiable.
+        const Hash256 wholePageHash = Sha256(pageBytes);
+        assert(!std::equal(
+            wholePageHash.begin(), wholePageHash.begin() + 16u,
+            pageRecords.begin() + page * 32u));
         assert(U32(pageRecords, page * 32u + 20u) > 0u);
         assert(U32(pageRecords, page * 32u + 24u) == 0u);
         assert(U32(pageRecords, page * 32u + 28u) == 0u);

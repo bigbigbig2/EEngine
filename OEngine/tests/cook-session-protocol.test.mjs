@@ -13,9 +13,9 @@ test("CookSession protocol enforces generation, state and output credits", () =>
   session.accept({ ...header, type: "GrantOutputCredits", blockCount: 1, bytes: WEB_COOK_PAGE_BYTES });
   assert.throws(() => session.accept({ ...header, type: "GrantOutputCredits", blockCount: 1, bytes: WEB_COOK_PAGE_BYTES }), /budget/i);
   const bytes = new ArrayBuffer(WEB_COOK_PAGE_BYTES);
-  assert.equal(session.emit({ ...header, type: "PageReady", productId: new Uint8Array(32), revision: 0, pageId: 0, decodedHash128: new Uint8Array(16), bytes }), true);
+  assert.equal(session.emit({ ...header, type: "PageReady", productId: new Uint8Array(32), revision: 0, pageId: 0, decodedHash128: new Uint8Array(16), decodedPageHash128: new Uint8Array(16), bytes }), true);
   assert.equal(session.evidence().outstandingOutputBlocks, 1);
-  assert.equal(session.emit({ ...header, type: "PageReady", productId: new Uint8Array(32), revision: 0, pageId: 1, decodedHash128: new Uint8Array(16), bytes }), false);
+  assert.equal(session.emit({ ...header, type: "PageReady", productId: new Uint8Array(32), revision: 0, pageId: 1, decodedHash128: new Uint8Array(16), decodedPageHash128: new Uint8Array(16), bytes }), false);
   assert.throws(() => session.returnOutputCredits(2, WEB_COOK_PAGE_BYTES * 2), /outstanding/i);
   session.returnOutputCredits(1, WEB_COOK_PAGE_BYTES);
   assert.throws(() => session.returnOutputCredits(1, WEB_COOK_PAGE_BYTES), /outstanding/i);
