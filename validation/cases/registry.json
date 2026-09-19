@@ -271,6 +271,21 @@
       "ownerAdr": "ADR-0013",
       "layer": "L4",
       "description": "Public Renderer re-negotiates a new device and rebuilds the complete CPU scene without old GPU resources"
+    },
+    "GEO-INCREMENTAL-PUBLICATION": {
+      "ownerAdr": "ADR-0017",
+      "layer": "L3",
+      "description": "A plan-backed revision freezes its descriptor before its payloads exist, streams only its activation cut, and produces remaining pages on GPU demand"
+    },
+    "GEO-PROVISIONAL-IDENTITY": {
+      "ownerAdr": "ADR-0017",
+      "layer": "L3",
+      "description": "A descriptor-only revision carries a provisional ProductID scoped to the current load while its replacement chain stays intact"
+    },
+    "GEO-ACTIVATION-CUT": {
+      "ownerAdr": "ADR-0017",
+      "layer": "L3",
+      "description": "A revision is not activated until its whole activation cut is declared by the descriptor and fully resident"
     }
   },
   "profiles": {
@@ -351,11 +366,17 @@
       "independentRuns": 1
     },
     "virtual-geometry-component-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0016-product-work-abi-v1",
-      "features": ["core-features-and-limits", "product-v1-metadata-decode"],
+      "features": [
+        "core-features-and-limits",
+        "product-v1-metadata-decode"
+      ],
       "seed": 16016,
       "cameraPath": "none",
       "warmupFrames": 1,
@@ -365,11 +386,16 @@
       "independentRuns": 1
     },
     "texture-residency-component-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0016-mode-a-texture-v1",
-      "features": ["core-features-and-limits"],
+      "features": [
+        "core-features-and-limits"
+      ],
       "seed": 16017,
       "cameraPath": "none",
       "warmupFrames": 1,
@@ -484,11 +510,21 @@
       "independentRuns": 1
     },
     "virtual-product-production-correctness-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0016-s1-product-raster-v1",
-      "features": ["product-admission", "product-page", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
+      "features": [
+        "product-admission",
+        "product-page",
+        "hierarchy-work",
+        "meshlet-raster",
+        "visibility-key",
+        "sparse-shading"
+      ],
       "seed": 1601,
       "cameraPath": "single-product-triangle",
       "warmupFrames": 1,
@@ -498,11 +534,23 @@
       "independentRuns": 1
     },
     "glb-web-product-bootstrap-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0016-s2-web-glb-bootstrap-v1",
-      "features": ["web-cook", "glb-range", "product-admission", "product-residency", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
+      "features": [
+        "web-cook",
+        "glb-range",
+        "product-admission",
+        "product-residency",
+        "hierarchy-work",
+        "meshlet-raster",
+        "visibility-key",
+        "sparse-shading"
+      ],
       "seed": 1602,
       "cameraPath": "web-glb-bootstrap-grid",
       "warmupFrames": 1,
@@ -512,11 +560,22 @@
       "independentRuns": 1
     },
     "glb-web-product-authored-texture-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0016-s3-authored-texture-v1",
-      "features": ["web-cook", "gltf-authored-material", "texture-residency", "mask-alpha-test", "product-admission", "meshlet-raster", "sparse-shading"],
+      "features": [
+        "web-cook",
+        "gltf-authored-material",
+        "texture-residency",
+        "mask-alpha-test",
+        "product-admission",
+        "meshlet-raster",
+        "sparse-shading"
+      ],
       "seed": 1603,
       "cameraPath": "authored-texture-mask-triangle",
       "warmupFrames": 1,
@@ -526,11 +585,25 @@
       "independentRuns": 1
     },
     "virtual-product-replacement-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0016-s5-product-replacement-v1",
-      "features": ["web-cook", "glb-range", "product-admission", "product-residency", "product-replacement", "product-eviction", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
+      "features": [
+        "web-cook",
+        "glb-range",
+        "product-admission",
+        "product-residency",
+        "product-replacement",
+        "product-eviction",
+        "hierarchy-work",
+        "meshlet-raster",
+        "visibility-key",
+        "sparse-shading"
+      ],
       "seed": 1605,
       "cameraPath": "web-glb-replacement-refine-evict",
       "warmupFrames": 1,
@@ -540,11 +613,24 @@
       "independentRuns": 1
     },
     "virtual-product-device-loss-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0016-s5-product-device-loss-v1",
-      "features": ["web-cook", "glb-range", "product-admission", "product-residency", "product-device-loss-recovery", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
+      "features": [
+        "web-cook",
+        "glb-range",
+        "product-admission",
+        "product-residency",
+        "product-device-loss-recovery",
+        "hierarchy-work",
+        "meshlet-raster",
+        "visibility-key",
+        "sparse-shading"
+      ],
       "seed": 1606,
       "cameraPath": "web-glb-device-loss-recovery",
       "warmupFrames": 1,
@@ -554,11 +640,24 @@
       "independentRuns": 1
     },
     "virtual-product-offline-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0016-s6-offline-parity-v1",
-      "features": ["oegpack-range", "oegpack-memory", "product-admission", "product-residency", "product-replacement", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
+      "features": [
+        "oegpack-range",
+        "oegpack-memory",
+        "product-admission",
+        "product-residency",
+        "product-replacement",
+        "hierarchy-work",
+        "meshlet-raster",
+        "visibility-key",
+        "sparse-shading"
+      ],
       "seed": 1607,
       "cameraPath": "oegpack-offline-source-parity-demand",
       "warmupFrames": 1,
@@ -568,13 +667,53 @@
       "independentRuns": 1
     },
     "virtual-product-observer-v1": {
-      "resolution": [1280, 720],
+      "resolution": [
+        1280,
+        720
+      ],
       "deviceScaleFactor": 1,
       "renderScale": 1,
       "quality": "adr-0016-s7-user-observer-smoke-v1",
-      "features": ["web-cook", "oegpack-range", "product-admission", "visible-first-bootstrap", "camera-demand", "gpu-readback", "device-recovery"],
+      "features": [
+        "web-cook",
+        "oegpack-range",
+        "product-admission",
+        "visible-first-bootstrap",
+        "camera-demand",
+        "gpu-readback",
+        "device-recovery"
+      ],
       "seed": 1607,
       "cameraPath": "bootstrap-camera-close-camera-cut",
+      "warmupFrames": 1,
+      "sampleFrames": 5,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
+    "glb-incremental-publication-v1": {
+      "resolution": [
+        1280,
+        720
+      ],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0017-s4-incremental-publication-v1",
+      "features": [
+        "web-cook",
+        "glb-range",
+        "product-admission",
+        "product-residency",
+        "plan-backed-revision",
+        "activation-cut",
+        "page-demand",
+        "hierarchy-work",
+        "meshlet-raster",
+        "visibility-key",
+        "sparse-shading"
+      ],
+      "seed": 1704,
+      "cameraPath": "web-glb-incremental-demand-dolly",
       "warmupFrames": 1,
       "sampleFrames": 5,
       "sampleCadence": 1,
@@ -676,11 +815,17 @@
       "kind": "component",
       "buildTarget": "host",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-VIRTUAL-ABI"],
+      "requirements": [
+        "GEO-VIRTUAL-ABI"
+      ],
       "workloadId": "virtual-geometry-component-v1",
       "profile": "smoke",
       "timeoutMs": 60000,
-      "artifacts": ["result", "events", "readback"],
+      "artifacts": [
+        "result",
+        "events",
+        "readback"
+      ],
       "changedPaths": [
         "validation/src/cases/virtual-geometry-component",
         "OEngine/src/gpu/GeometryProductGpuAbiV1.ts",
@@ -702,11 +847,18 @@
       "kind": "component",
       "buildTarget": "host",
       "ownerAdr": "ADR-0016",
-      "requirements": ["TEX-MODE-A"],
+      "requirements": [
+        "TEX-MODE-A"
+      ],
       "workloadId": "texture-residency-component-v1",
       "profile": "smoke",
       "timeoutMs": 60000,
-      "artifacts": ["result", "events", "screenshot", "readback"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot",
+        "readback"
+      ],
       "changedPaths": [
         "validation/src/cases/texture-residency-component",
         "OEngine/src/assets/TextureAssetPackage.ts",
@@ -914,11 +1066,19 @@
       "kind": "production",
       "buildTarget": "production",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-VIRTUAL-ABI", "GEO-BOOTSTRAP-CONSUME"],
+      "requirements": [
+        "GEO-VIRTUAL-ABI",
+        "GEO-BOOTSTRAP-CONSUME"
+      ],
       "workloadId": "virtual-product-production-correctness-v1",
       "profile": "smoke",
       "timeoutMs": 180000,
-      "artifacts": ["result", "events", "screenshot", "readback"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot",
+        "readback"
+      ],
       "changedPaths": [
         "validation/src/cases/virtual-product-production",
         "OEngine/src/render/pipeline/MainRenderPipeline.ts",
@@ -945,11 +1105,18 @@
       "kind": "production",
       "buildTarget": "production",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME"],
+      "requirements": [
+        "GEO-WEB-COOK",
+        "GEO-BOOTSTRAP-CONSUME"
+      ],
       "workloadId": "glb-web-product-bootstrap-v1",
       "profile": "smoke",
       "timeoutMs": 240000,
-      "artifacts": ["result", "events", "screenshot"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
       "changedPaths": [
         "validation/src/cases/glb-web-product",
         "validation/public/assets/oengine",
@@ -974,11 +1141,19 @@
       "kind": "production",
       "buildTarget": "production",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-AUTHORED-TEXTURE", "GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME"],
+      "requirements": [
+        "GEO-AUTHORED-TEXTURE",
+        "GEO-WEB-COOK",
+        "GEO-BOOTSTRAP-CONSUME"
+      ],
       "workloadId": "glb-web-product-authored-texture-v1",
       "profile": "smoke",
       "timeoutMs": 240000,
-      "artifacts": ["result", "events", "screenshot"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
       "changedPaths": [
         "validation/src/cases/glb-web-product",
         "validation/cases/registry.json",
@@ -1002,11 +1177,19 @@
       "kind": "production",
       "buildTarget": "production",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME", "GEO-AUTHORED-TEXTURE"],
+      "requirements": [
+        "GEO-WEB-COOK",
+        "GEO-BOOTSTRAP-CONSUME",
+        "GEO-AUTHORED-TEXTURE"
+      ],
       "workloadId": "glb-web-product-bootstrap-v1",
       "profile": "smoke",
       "timeoutMs": 240000,
-      "artifacts": ["result", "events", "screenshot"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
       "changedPaths": [
         "validation/src/cases/glb-web-product",
         "validation/cases/registry.json",
@@ -1032,11 +1215,19 @@
       "kind": "production",
       "buildTarget": "production",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME", "GEO-AUTHORED-TEXTURE"],
+      "requirements": [
+        "GEO-WEB-COOK",
+        "GEO-BOOTSTRAP-CONSUME",
+        "GEO-AUTHORED-TEXTURE"
+      ],
       "workloadId": "glb-web-product-bootstrap-v1",
       "profile": "smoke",
       "timeoutMs": 240000,
-      "artifacts": ["result", "events", "screenshot"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
       "changedPaths": [
         "validation/src/cases/glb-web-product",
         "validation/cases/registry.json",
@@ -1063,11 +1254,19 @@
       "kind": "production",
       "buildTarget": "production",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME", "GEO-VIRTUAL-ABI"],
+      "requirements": [
+        "GEO-WEB-COOK",
+        "GEO-BOOTSTRAP-CONSUME",
+        "GEO-VIRTUAL-ABI"
+      ],
       "workloadId": "virtual-product-replacement-v1",
       "profile": "smoke",
       "timeoutMs": 240000,
-      "artifacts": ["result", "events", "screenshot"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
       "changedPaths": [
         "validation/src/cases/virtual-product-replacement",
         "OEngine/src/render/pipeline/MainRenderPipeline.ts",
@@ -1090,11 +1289,19 @@
       "kind": "production",
       "buildTarget": "production",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME", "GEO-VIRTUAL-ABI"],
+      "requirements": [
+        "GEO-WEB-COOK",
+        "GEO-BOOTSTRAP-CONSUME",
+        "GEO-VIRTUAL-ABI"
+      ],
       "workloadId": "virtual-product-device-loss-v1",
       "profile": "smoke",
       "timeoutMs": 240000,
-      "artifacts": ["result", "events", "screenshot"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
       "changedPaths": [
         "validation/src/cases/virtual-product-device-loss",
         "OEngine/src/render/Renderer.ts",
@@ -1118,11 +1325,18 @@
       "kind": "production",
       "buildTarget": "production",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-VIRTUAL-ABI", "GEO-BOOTSTRAP-CONSUME"],
+      "requirements": [
+        "GEO-VIRTUAL-ABI",
+        "GEO-BOOTSTRAP-CONSUME"
+      ],
       "workloadId": "virtual-product-offline-v1",
       "profile": "smoke",
       "timeoutMs": 240000,
-      "artifacts": ["result", "events", "screenshot"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
       "changedPaths": [
         "validation/src/cases/virtual-product-offline",
         "validation/public/assets/oengine/offline-product-a",
@@ -1145,11 +1359,20 @@
       "kind": "production",
       "buildTarget": "production",
       "ownerAdr": "ADR-0016",
-      "requirements": ["GEO-USER-VALIDATION", "GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME"],
+      "requirements": [
+        "GEO-USER-VALIDATION",
+        "GEO-WEB-COOK",
+        "GEO-BOOTSTRAP-CONSUME"
+      ],
       "workloadId": "virtual-product-observer-v1",
       "profile": "smoke",
       "timeoutMs": 240000,
-      "artifacts": ["result", "events", "screenshot", "readback"],
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot",
+        "readback"
+      ],
       "changedPaths": [
         "validation/src/cases/virtual-product-observer",
         "validation/cases/registry.json",
@@ -1167,6 +1390,46 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while the observer captures adapter identity.",
           "ownerRequirement": "GEO-USER-VALIDATION"
+        }
+      ]
+    },
+    {
+      "id": "glb-incremental-publication",
+      "route": "/src/cases/glb-incremental-publication/index.html",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0017",
+      "requirements": [
+        "GEO-INCREMENTAL-PUBLICATION",
+        "GEO-PROVISIONAL-IDENTITY",
+        "GEO-ACTIVATION-CUT"
+      ],
+      "workloadId": "glb-incremental-publication-v1",
+      "profile": "smoke",
+      "timeoutMs": 300000,
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
+      "changedPaths": [
+        "validation/src/cases/glb-incremental-publication",
+        "validation/cases/registry.json",
+        "validation/package.json",
+        "OEngine/src/assets/web-cook",
+        "OEngine/src/assets/geometry-product",
+        "OEngine/src/gpu/GeometryPageScheduler.ts",
+        "OEngine/src/gpu/GeometryPageStreamingRuntime.ts",
+        "OEngine/src/gpu/GeometryProductAdmission.ts",
+        "OEngine/src/gpu/VirtualGeometryResidency.ts",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while the incremental publication case captures the device.",
+          "ownerRequirement": "GEO-INCREMENTAL-PUBLICATION"
         }
       ]
     }

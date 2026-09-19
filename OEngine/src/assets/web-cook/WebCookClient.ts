@@ -241,11 +241,23 @@ export class WebCookClient implements GeometryProductProviderV1 {
     const client = this;
     return {
       async *[Symbol.asyncIterator](): AsyncIterator<GeometryProductRevisionSourceV1> {
-        try {
-          for await (const revision of revisions) yield revision;
-        } catch (error) {
-          if (client.#state === "open") client.#state = "failed";
-          throw error;
+        // `next()` is the producer stream; everything after it is the
+        // consumer's body. They must be attributed differently: an error from
+        // the producer means the session is dead, while an error thrown by the
+        // consumer - for example a renderer publish callback that failed - is
+        // the consumer's own problem and must not terminate a healthy session
+        // for every later revision.
+        const iterator = revisions[Symbol.asyncIterator]();
+        while (true) {
+          let result: IteratorResult<GeometryProductRevisionSourceV1>;
+          try {
+            result = await iterator.next();
+          } catch (error) {
+            if (client.#state === "open") client.#state = "failed";
+            throw error;
+          }
+          if (result.done) return;
+          yield result.value;
         }
       }
     };

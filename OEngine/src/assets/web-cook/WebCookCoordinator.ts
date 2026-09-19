@@ -418,7 +418,7 @@ export class WebCookCoordinator {
     await this.waitForOutputCredit(WEB_COOK_PAGE_BYTES);
     if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");
     const page = await revision.readPage(pageId);
-    if (page.pageId !== pageId || page.bytes.byteLength !== WEB_COOK_PAGE_BYTES) throw new Error("Web Cook producer returned the wrong page");
+    if (page.pageId !== pageId || page.bytes.byteLength !== WEB_COOK_PAGE_BYTES) throw new Error(`Web Cook producer returned the wrong page (revision ${revision.revision}, requested page ${pageId}, got page ${page.pageId} with ${page.bytes.byteLength} bytes, expected ${WEB_COOK_PAGE_BYTES})`);
     if (!this.publish(this.header({ type: "PageReady", productId: revision.productId.slice(), revision: revision.revision, pageId, decodedHash128: page.decodedHash128, decodedPageHash128: page.decodedPageHash128, bytes: page.bytes }))) throw new Error("Web Cook output credit changed before PageReady emission");
     this.#emittedPages++;
   }

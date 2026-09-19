@@ -1,6 +1,7 @@
 /** Main render-pipeline owner: feature order, graph recipe, cache, and evidence. */
 
 import { ChangeSignal } from "../../core/Signal.js";
+import type { ShadeTexture } from "../../texture/ShadeTexture.js";
 import { WGSL_EXT_TEXTURE_FORMATS_TIER1 } from "../../core/WebGPUTypes.js";
 import type {
   Brick4LightMapPackageV1,
@@ -1229,10 +1230,14 @@ export class MainRenderPipeline {
     asset: WebCookRuntimeAsset,
     options: WebCookedSceneOptions = {}
   ): Promise<ProductSceneHandles> {
+    // One cache for the whole scene lifetime. A replacement revision maps the
+    // same authored images while the outgoing revision is still resident; sharing
+    // the decoded textures keeps a size class from having to hold both copies.
+    const textureCache = new Map<number, Promise<ShadeTexture>>();
     return this.uploadProductScene(scene, asset, async (revision) => {
       const catalog = asset.catalog;
       if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
-      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { fitHeight: options.fitHeight, fitBase: options.fitBase, sceneAssetIndices: revision.source.sceneAssetIndices });
+      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { fitHeight: options.fitHeight, fitBase: options.fitBase, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache });
     }, options);
   }
 

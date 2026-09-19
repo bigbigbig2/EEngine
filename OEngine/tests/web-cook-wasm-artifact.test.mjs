@@ -103,3 +103,34 @@ test("checked-in Web geometry artifact publishes a descriptor before any payload
   }
 });
 
+
+test("plan-backed revision re-reads a page after its first buffer was transferred", async () => {
+  const { planWasmGeometryProductRevisionV1 } = await import("../.test-dist/assets/geometry-product/WasmGeometryProductV1.js");
+  const module = await loadArtifact();
+  const revision = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), encodeWebGeometryCookRecipeV1(), {
+    producerId: "oengine-test",
+    producerVersion: "two-phase-reread-v1",
+    sourceIdentityKind: "content-sha256",
+    sourceIdentityHash: new Uint8Array(32),
+    revision: 0,
+    maxDecodedProductBytes: 8 * 262144
+  });
+  try {
+    // Consumers transfer the page buffer across a Worker boundary, which
+    // detaches it for everyone still holding a reference - including the
+    // producer's own cache. Every re-read has to return the full payload again,
+    // so this transfers each buffer before asking for the page once more.
+    let payload;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const page = await revision.readPage(0);
+      assert.equal(page.bytes.byteLength, 262144, `read ${attempt} must return the full payload`);
+      const current = new Uint8Array(page.bytes.slice(0));
+      if (payload !== undefined) assert.deepEqual(current, payload, `read ${attempt} must be byte-identical`);
+      payload = current;
+      structuredClone(page.bytes, { transfer: [page.bytes] });
+      assert.equal(page.bytes.byteLength, 0, "the transferred buffer must be detached");
+    }
+  } finally {
+    revision.release();
+  }
+});

@@ -60,6 +60,17 @@ Owners: Web Runtime Cooker、Geometry Cooker WASM ABI、Geometry Product admissi
 
 执行：新增或扩展 validation case，证明首帧后几何持续上线、GPU demand 正确消费增量 page、activation cut 不完整时不激活、payload 阶段失败不影响已上线 page。按 ADR-0014 保存真实浏览器、console、GPU diagnostics 与截图证据。同步校正 `STATUS.md` 与既有 implementation 中关于 cook 发布粒度的过时表述。
 
+已落地：新增 validation case `glb-incremental-publication`（`validation/src/cases/glb-incremental-publication/`），复用 Rendering Lab 的 `examples/assets/three/rendering-lab/dungeon_warkarma.glb` 作为输入，在 ADR-0014 宿主上采集真实 Chrome 证据。四条断言分别对应本步四个证明点：activation cut 必须在 demand 之前完整 resident 且不得覆盖模型全部 page（否则增量不可观测），richer revision 必须落地，GPU demand 必须到达延迟调度器并把 resident page 数推高，demand 期间画面必须仍可绘制且 `WebCookClientEvidence.recoverableFailures` 必须为 0。case 附带 `activationCut`、`demand`、`residency` 三组证据写入 `evidence`，便于用数值复现结论；cook 侧把 `initialOutputPageCredits` 与 `maxBufferedPages` 提到 256、`maxOutputBytes` 提到 256 MiB，避免第三步已知的 credit 上限成为观测瓶颈。`STATUS.md` 与相关文档中「后台 cook 完整 richer revision 后原子替换」的表述同步校正为 descriptor 先冻结、activation cut 先产出、其余 page 由 demand 增量产出。
+
+新 case 在首次运行中暴露出四个此前被既有 case 掩盖的产物缺陷，已随本步一并修复：
+
+- `WebCookRuntimeAsset.readImageSource` 用 cook session 的 `state !== "open"` 作为贴图可用性判据，但贴图字节来自该 handle 自己的 GLB range source，与 cook session 生死无关；替换 revision 在 cook 已 `complete` 之后仍要映射材质，于是正常流程被判死（症状为 `Web Cook image source is unavailable in 'failed' state`，并把整个 cook 记为一次 provider failure）。改为按真正的失效条件判断：只有 `cancel` 或 `dispose` 之后才拒绝读图。
+- `WebCookClient.revisions()` 的 `for await` catch 把消费者循环体抛出的错误也算成 session fatal，把上一条的局部失败放大成整个 session failed。改为只把 producer 侧 `iterator.next()` 的错误判为 fatal，消费者错误照常向调用方传播。
+- 替换期同一张 authored 贴图被前后两个 revision 各解码并驻留一份，把 2048px 纹理 bank 撑到 33 层，超过 `GPU_TEXTURE_BANK_MAX_CAPACITIES` 的 32 层策略上限（设备侧 `maxTextureArrayLayers` 远高于此，所以是策略而非硬件限制）。因为 `TextureResidency` 是引用计数、`release()` 只在计数归零时释放，改为在同一场景生命周期内按 image index 共享 `ShadeTexture`。
+- `PageReady` 事件经 `postMessage(event, [event.bytes])` 转移了 payload 的 ArrayBuffer，而 `WasmPlanPageSource` 把同一个 buffer 既当缓存又当交付物，导致缓存被 detach，同一页第二次被 demand 时返回 0 字节（症状为 coordinator 报 `got page ... with 0 bytes`，demand 侧表现为大量 failed 且 resident 页数不增长）。改为缓存持 master copy、每次交付 `slice(0)` 得到的独立副本。单体式路径不受影响，因为它的 payload 已全量物化、每次都是拷贝。
+
+这四个缺陷在既有 `glb-web-product` case 上不显现：该 case 的 output credit 只有 32 且停在首帧附近，既跑不到替换后的材质映射，也跑不到 plan-backed 页的重复 demand。后两条已补回归测试（wasm 产物上的「transfer 后重读同一页」与 async mapper 上的「跨 revision 共享贴图」），前者在回退修复时会失败，确认测试有牙齿。
+
 退出条件：clean revision 上取得 accepted 级浏览器证据；文档与当前 ABI、identity 语义一致。
 
 ## Shared gates

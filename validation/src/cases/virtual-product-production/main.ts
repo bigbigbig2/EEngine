@@ -110,7 +110,7 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
       if (released) throw new Error("Product source has been released");
       if (signal?.aborted) throw signal.reason ?? new Error("Product page read cancelled");
       if (pageId !== 0 && pageId !== 1) throw new RangeError("Product fixture contains two pages");
-      return Object.freeze({ productId: descriptor.productId.slice(), revision: descriptor.revision, pageId, decodedHash128: hashes[pageId]!.subarray(0, 16).slice(), bytes: pages[pageId]!.slice().buffer });
+      return Object.freeze({ productId: descriptor.productId.slice(), revision: descriptor.revision, pageId, decodedHash128: hashes[pageId]!.subarray(0, 16).slice(), decodedPageHash128: hashes[pageId]!.subarray(0, 16).slice(), bytes: pages[pageId]!.slice().buffer });
     },
     release() { released = true; }
   });

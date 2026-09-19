@@ -213,7 +213,11 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
   copyPage(pageId: number): ArrayBuffer | null {
     if (this.#released) throw new Error("WASM Geometry Product plan has been released");
     const cached = this.#produced.get(pageId);
-    if (cached) return cached;
+    // The cache holds this producer's master copy. Consumers transfer the buffer
+    // they are given, which detaches it, so every read must hand out an
+    // independent copy: re-reading an already produced page has to return the
+    // full payload rather than a detached, zero-length buffer.
+    if (cached) return cached.slice(0);
     let status: number;
     let bytes: ArrayBuffer | null;
     try {
@@ -227,7 +231,7 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
     }
     if (status !== WEB_GEOMETRY_COOK_PAGE_READY || bytes === null) return null;
     this.#produced.set(pageId, bytes);
-    return bytes;
+    return bytes.slice(0);
   }
 
   release(): void { if (this.#released) return; this.#released = true; this.#produced.clear(); this.#plan.release(); }

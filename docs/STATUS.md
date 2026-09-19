@@ -20,7 +20,9 @@ material) through the pinned Emscripten Worker cooker, the shared Product
 admission and `MainRenderPipeline`, and is accepted on the current revision with
 a 256x256 linear-HDR coverage assertion (5610/65536 lit pixels), so a black
 frame can no longer pass. The route offers a complete coarse bootstrap revision
-first, cooks a richer revision in the background and swaps it atomically
+first, freezes the richer revision's descriptor ahead of its payload, streams
+that revision's activation cut, then produces the remaining pages on GPU demand
+inside the same revision; the revision still swaps atomically
 (release -> re-stage -> retire), coalesces GLB accessor ranges, parallelizes the
 per-domain cook, and enforces a page-global session/source/WASM/output budget
 ledger. A residency defect that appended a page bank after publication, and
@@ -36,6 +38,37 @@ the bootstrap atomically (replacements 1, generation 1 -> 2, revision 0 -> 1,
 under real GPU demand (382 -> 383 pages), and that demand-loaded pages retire
 across a submission boundary (4 candidates, 379 resident pages, evictedPages 4,
 17400 lit pixels afterwards, no GPU error).
+
+S5 incremental-publication update (2026-09-19): `run:glb-incremental-publication`
+adds the ADR-0017 case. It loads the Rendering Lab Dungeon
+(`examples/assets/three/rendering-lab/dungeon_warkarma.glb`) and asserts the
+increment contract directly instead of inferring it from a swap: the bootstrap
+activation cut must be fully resident before any demand arrives and must cover
+fewer pages than the model owns, and the richer revision's pages must keep
+arriving through the GPU demand path (`scheduler.requested >= 1`) with
+`residentPages` strictly increasing. The scene must stay drawable during demand
+(256x256 linear-HDR coverage floor) and
+`WebCookClientEvidence.recoverableFailures` must stay 0, which is the criterion
+for "a payload-stage failure does not disturb already published pages".
+Cook credits are raised to `initialOutputPageCredits 256` /
+`maxBufferedPages 256` / `maxOutputBytes 256 MiB` in this case so the known
+step-3 credit ceiling cannot bottleneck the measurement.
+
+Building that case surfaced four product defects that the existing cases had been
+masking, all fixed on this revision: (1) image-source availability was keyed off
+the cook session state instead of the handle's own lifetime, so the replacement
+revision's material mapping was rejected after the cook had legitimately reached
+`complete`; (2) `WebCookClient.revisions()` treated a consumer-side throw as a
+fatal session error, amplifying (1) into a whole-session failure; (3) the
+replacement window decoded and residentiated every authored texture twice,
+pushing the 2048px texture bank to 33 layers over its 32-layer policy ceiling,
+now shared per image index for the scene lifetime; (4) `PageReady` transfers its
+payload ArrayBuffer while the plan-backed page source was using the same buffer
+as its cache, so a re-demand of an already produced page returned 0 bytes, now
+fixed by handing out `slice(0)` copies. Defects (1) and (2) never fire on
+`glb-web-product` because its 32-page credit window stops before the replacement
+mapping, and (4) never fires on the monolithic path because its payload is fully
+materialised up front.
 
 S5 device-loss update (2026-09-18): `run:virtual-product-device-loss` now closes the
 last S5 leg on the current revision (accepted). An intentional `GPUDevice.destroy()`
@@ -133,9 +166,9 @@ evidence remains open.
 | 部分 | 状态 | 当前事实 | 下一出口 |
 | --- | --- | --- | --- |
 | Geometry Product V1 | in progress | 已落地 producer-neutral TS descriptor/page/provider mirror、严格 table/tree/bootstrap/activation validator、OEGPACK -> Product adapter，以及 Product-aware hierarchy/work/raster 接线；Product 现已进入统一 main/shadow consumer（VisibilityKey、Sparse Shading、Packed CSM depth），主视图与 CSM 均具备 UV0/UV1 与 TextureBindingSet alpha-mask 采样；`virtual-product-production` 与真实 GLB 的 `glb-web-product`（Dungeon，798 mesh/25 material）均已在当前 revision 的 Chrome 上 `accepted`；`glb-web-product` 已改为 256x256 HDR 覆盖率断言，并有 Native Offline <-> Web 结构化 differential 与不变量/负例 corpus；GPU 几何页已改为 Device 级共享 `GeometryProductSlotPool`（4 × 128 MiB bank、256 KiB 页、2048 slot），不再按 Product 预分配 | 完成 demand/residency 与 lifecycle 的浏览器 MILESTONE，随后再补 transport/golden 后冻结候选 spec |
-| Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、source/WASM/output budget、取消与 whole-page credit lease、generation-filtered Dedicated Worker transport、CPU/WASM-only Worker host、异步 Emscripten module queueing、live Product provider、Range coalescing、progressive bootstrap + richer revision 与 per-domain cook。`portable-pool` 已实现固定 session ownership、crash generation invalidation 和 replacement Worker；`WebCookClient` 已把 source/WASM/output reservation 接入真实生命周期；`isolated-pthreads` 具备显式 cross-origin isolation/SAB capability gate，fallback 可观测；真实 Dungeon GLB 仍在 Chrome `accepted` | 尚需浏览器多 Worker 压力、pthread artifact 部署 smoke、source/canonical/WASM committed-peak 细粒度计数与后续 consumer cutover；不得把 Node fake module 或 TypeScript tests 视为 Runtime 完成 |
+| Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、source/WASM/output budget、取消与 whole-page credit lease、generation-filtered Dedicated Worker transport、CPU/WASM-only Worker host、异步 Emscripten module queueing、live Product provider、Range coalescing、progressive bootstrap + richer revision 与 per-domain cook；bootstrap 仍走单体式 `cookCanonical`（首帧必须完整 resident），richer revision 走两阶段 `planCanonical`，即 descriptor 先冻结、activation cut 先产出、其余 page 按 GPU demand 在同 revision 内增量产出。`portable-pool` 已实现固定 session ownership、crash generation invalidation 和 replacement Worker；`WebCookClient` 已把 source/WASM/output reservation 接入真实生命周期；`isolated-pthreads` 具备显式 cross-origin isolation/SAB capability gate，fallback 可观测；真实 Dungeon GLB 仍在 Chrome `accepted` | 尚需浏览器多 Worker 压力、pthread artifact 部署 smoke、source/canonical/WASM committed-peak 细粒度计数与后续 consumer cutover；不得把 Node fake module 或 TypeScript tests 视为 Runtime 完成 |
 | 0016-A Offline/OEGPACK | implemented, S6 parity accepted | native cooker、OEGPACK V3 parser、range/memory source、页校验与 bootstrap cut 已存在；OEGPACK Product adapter 已通过共同 production consumer 接线；`load_oegpack_product` + `Renderer.uploadOegPackScene` 与 Web 路线共用同一 admission/residency/Visibility 路径，`virtual-product-offline` 已在 Chrome accepted（range/memory 平价 64105 lit pixels、source failure 显式报错、A→B 替换连续、demand 1→5 页）；`scene.oescene` 合同已入 spec，OEGPACK 专用 bootstrap residency adapter 已删除 | 补 transport/golden 后冻结候选 spec，并做 S7 consumer cutover |
-| 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag、统一 frame completion 自动 poll/upload、保留 identity 的 device-loss residency 重建与 Product revision 原子替换已接线；bank heap 改为 Device 级共享 `GeometryProductSlotPool`（`VirtualGeometryResidency` 通过 `retain()` 共享 4 × 128 MiB bank，替代按 Product 预分配，修复 demand 上传新建未绑定 bank 导致的黑屏），并新增 Native↔Web differential / invariant / negative corpus；`glb-web-product` 已在 Chrome 里跑通 GPU demand 证据：实际相机靠近触发 desired page 缺失，GPU demand → delayed readback ring → scheduler（requested 2121、deduplicated 80）→ provider → upload → residency residentPages 374→375，且 ancestor fallback 保持画面（demand coverage 17394 lit pixels、0 GPU error）；`virtual-product-replacement` 已 accepted：richer revision 原子替换（generation 1→2、revision 0→1、换版后 5600+ lit pixels）+ demand 细化（382→383）+ 跨提交边界 evict（4 候选→379、evictedPages 4、17400 lit pixels）；`virtual-product-device-loss` 已 accepted：intentional device loss → 新 adapter/device → 从保留 Product source 重建全部场景（5640 → 5610 lit pixels、selectedClusters 474、visibleInstances 798、0 GPU error）| 补 transport/golden 后冻结候选 spec |
+| 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag、统一 frame completion 自动 poll/upload、保留 identity 的 device-loss residency 重建与 Product revision 原子替换已接线；page 何时被产生现在是可调度维度（ADR-0017 两阶段 producer），但 admission/residency/eviction/demand 回读/预算这套消费侧分层未变；bank heap 改为 Device 级共享 `GeometryProductSlotPool`（`VirtualGeometryResidency` 通过 `retain()` 共享 4 × 128 MiB bank，替代按 Product 预分配，修复 demand 上传新建未绑定 bank 导致的黑屏），并新增 Native↔Web differential / invariant / negative corpus；`glb-web-product` 已在 Chrome 里跑通 GPU demand 证据：实际相机靠近触发 desired page 缺失，GPU demand → delayed readback ring → scheduler（requested 2121、deduplicated 80）→ provider → upload → residency residentPages 374→375，且 ancestor fallback 保持画面（demand coverage 17394 lit pixels、0 GPU error）；`virtual-product-replacement` 已 accepted：richer revision 原子替换（generation 1→2、revision 0→1、换版后 5600+ lit pixels）+ demand 细化（382→383）+ 跨提交边界 evict（4 候选→379、evictedPages 4、17400 lit pixels）；`virtual-product-device-loss` 已 accepted：intentional device loss → 新 adapter/device → 从保留 Product source 重建全部场景（5640 → 5610 lit pixels、selectedClusters 474、visibleInstances 798、0 GPU error）；`glb-incremental-publication`：activation cut 完整性、demand 驱动增量产出与 payload 阶段失败隔离均已在真实 Chrome 上 passed，待 clean revision 复采以取得 accepted 级证据；该 case 同时暴露并修复了贴图可用性判据、消费者错误归属、替换期贴图重复驻留、plan-backed page buffer 被 transfer detach 四个缺陷 | 补 transport/golden 后冻结候选 spec |
 | 0016-C renderer cutover | implemented, S6 diagnostic complete | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity，并可在 device-loss 后按原 generation/table slot 重建 publication；默认 `load_gltf()`、普通 Scene、Offline selection 和 examples/validation consumer 均已切换，公开 V2 production symbols 已删除 | 在 clean commit 上重跑 ADR-0014 milestone；完成仍有内部消费者的旧 oracle source/compiled/browser 三层审计后再删除 |
 | 0016-D texture modes | Mode A implemented, diagnostic validation passed | TextureResidency allocates the complete logical chain, uploads a cooked mip tail first, clamps sampling to the available range, and promotes higher mips through a stable logical handle; the independent Chrome component case read back the expected tail and promoted colors, and this does not claim physical VRAM savings | Obtain production-path browser evidence for progressive publication; only after allocation evidence decide whether Mode B/Virtual Texturing merits a separate ADR |
 
@@ -194,7 +227,8 @@ reader 的占用。`sceneAssetIndices` 作为 Web-only mapping metadata 校验�
 DEV typecheck、test build、cooker/coordinator/provider/worker/admission targeted
 tests，以及双 primitive visible-first coordinator test 已通过。2026-09-19
 真实 Chrome 多 asset visible-first case 已通过：catalog 为 798 个 primitive，
-首个 bootstrap Product 先激活，随后 revision 1 通过 `replaces` 原子替换；首帧
+首个 bootstrap Product 先激活，随后 revision 1 先冻结 descriptor、stream
+activation cut，其余 page 由 GPU demand 在同 revision 内增量产出；首帧
 与 replacement 后 demand capture 均有有效像素，未观察到 recoverable Cook failure。
 浏览器 artifact 仍标记为 dirty diagnostic-only，不能替代干净提交上的正式
 milestone 证据。

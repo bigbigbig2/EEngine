@@ -16,6 +16,8 @@ export class WebCookRuntimeAsset implements GeometryProductProviderV1 {
   #ownedObjectUrl: string | undefined;
   #imageSource: GlbRangeReadableSource | undefined;
   #imageBlocksPending: Promise<ReadonlyMap<string, Uint8Array> | undefined> | undefined;
+  /** Set by `cancel`/`dispose`; the only thing that invalidates image reads. */
+  #released = false;
 
   private constructor(url: string, client: WebCookClient, sourceOptions: WebCookClientOptions["source"], ownedObjectUrl?: string) {
     this.#url = url;
@@ -58,9 +60,17 @@ export class WebCookRuntimeAsset implements GeometryProductProviderV1 {
    * Authored images are usually packed contiguously, so the first request plans
    * a single span covering every bufferView-backed image and later requests are
    * served from that block instead of issuing one HTTP range each.
+   *
+   * Image bytes are read from this handle's own GLB range source, not from the
+   * CookSession: the cook finishing must not make textures unreadable. A
+   * revision replacement maps its materials after the producer has already
+   * handed the revision over, so keying availability on the session state would
+   * fail a perfectly healthy replacement. The real prerequisites are the
+   * catalog (it declares which images exist) and this handle still owning a
+   * readable source, which `dispose`/`cancel` revoke through `#released`.
    */
   async readImageSource(imageIndex: number, signal?: AbortSignal): Promise<{ readonly bytes: ArrayBuffer; readonly mimeType?: string }> {
-    if (this.#client.state !== "open") throw new Error(`Web Cook image source is unavailable in '${this.#client.state}' state`);
+    if (this.#released) throw new Error("Web Cook image source has been released");
     const image = this.#client.catalog?.images.find(value => value.imageIndex === imageIndex);
     if (!image) throw new RangeError(`Web Cook image ${imageIndex} is not declared by the catalog`);
     if (image.bufferView !== undefined) {
@@ -136,8 +146,8 @@ export class WebCookRuntimeAsset implements GeometryProductProviderV1 {
     this.#client.setSourcePriority(assetKey, score, cameraHintRevision);
   }
 
-  cancel(reason = "asset-cancelled"): void { try { this.#client.cancel(reason); } finally { this.#releaseImageSource(); this.#revokeObjectUrl(); } }
-  dispose(): void { try { this.#client.dispose(); } finally { this.#releaseImageSource(); this.#revokeObjectUrl(); } }
+  cancel(reason = "asset-cancelled"): void { this.#released = true; try { this.#client.cancel(reason); } finally { this.#releaseImageSource(); this.#revokeObjectUrl(); } }
+  dispose(): void { this.#released = true; try { this.#client.dispose(); } finally { this.#releaseImageSource(); this.#revokeObjectUrl(); } }
   evidence(): WebCookClientEvidence { return this.#client.evidence(); }
 
   #revokeObjectUrl(): void { if (this.#ownedObjectUrl !== undefined) { URL.revokeObjectURL(this.#ownedObjectUrl); this.#ownedObjectUrl = undefined; } }

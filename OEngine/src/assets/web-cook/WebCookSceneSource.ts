@@ -16,6 +16,17 @@ import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
 export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1 & {
   /** Catalog primitive indices represented by the Product asset table. */
   readonly sceneAssetIndices?: readonly number[];
+  /**
+   * Shared decode/residency cache for authored textures, keyed by texture index.
+   *
+   * A Product replacement maps the same authored images a second time while the
+   * previous revision is still resident. Without sharing, both revisions hold
+   * distinct `ShadeTexture` objects for identical bytes, which doubles the
+   * texture layers a bank must hold and can exhaust a size class outright.
+   * Texture residency is reference counted, so a shared texture stays resident
+   * until the last revision using it is released.
+   */
+  readonly textureCache?: Map<number, Promise<ShadeTexture>>;
 };
 export type WebCookSceneSourceResult = VirtualGeometrySceneSourceResultV1;
 export type WebCookImageReader = (imageIndex: number, signal?: AbortSignal) => Promise<{ readonly bytes: ArrayBuffer; readonly mimeType?: string }>;
@@ -101,7 +112,7 @@ export async function createWebCookSceneSourceAsync(
   if (assetCount === 0) throw new Error("The Web Cook Product asset dictionary must not be empty");
   const catalogIndices = sceneAssetIndices(catalog, assetCount, options.sceneAssetIndices);
   const materialByIndex = new Map<number, StandardShadeMaterial>();
-  const textureByIndex = new Map<number, Promise<ShadeTexture>>();
+  const textureByIndex = options.textureCache ?? new Map<number, Promise<ShadeTexture>>();
   const textureFor = (textureIndex: number): Promise<ShadeTexture> => {
     let pending = textureByIndex.get(textureIndex);
     if (!pending) {
