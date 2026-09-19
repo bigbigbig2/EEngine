@@ -106,7 +106,7 @@ export function createSparseShadingShaderVariant(
     frameTypesWgsl(descriptor, fastUnlit),
     frameBindingsWgsl(descriptor, diagnostics),
     identityWgsl(descriptor, diagnostics),
-    specialization.reconstructTriangle ? geometryWgsl() : "",
+    specialization.reconstructTriangle ? geometryWgsl(descriptor.virtualGeometry) : "",
     usesTextures ? textureWgsl(descriptor) : "",
     specialization.lit ? lightingWgsl(
       descriptor.shadowSamplingEnabled,
@@ -297,12 +297,17 @@ fn sparse_material_identity_valid(record: ${materialType}) -> bool {
 ${textureRoute}`;
 }
 
-function geometryWgsl(): string {
-  return /* wgsl */ `
-${GPU_INSTANCE_RECORD_WGSL}
-const SPARSE_GEOMETRY_WORDS: u32 = 60u;
-const SPARSE_MESHLET_WORDS: u32 = 28u;
-
+/**
+ * Emits the geometry reconstruction helpers.
+ *
+ * The virtual-product half of this block reads `virtual_product_metadata` and
+ * `virtual_product_bank_0..3`, which the pipeline contract only declares when
+ * the descriptor is specialized for virtual geometry. Emitting that half into
+ * a `reconstructTriangle` program without those bindings produced WGSL with
+ * unresolved values, so both halves are keyed off the same specialization.
+ */
+function geometryWgsl(virtualGeometry: boolean): string {
+  const virtualProductWgsl = virtualGeometry ? /* wgsl */ `
 ${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
 
 fn sparse_virtual_bank_word(bank: u32, word: u32) -> u32 {
@@ -363,7 +368,8 @@ fn sparse_virtual_position(work: OEngineMeshletRasterWork, vertex: u32) -> vec3f
     f32(sparse_virtual_u8(location.bank_index, at + 2u) | (sparse_virtual_u8(location.bank_index, at + 3u) << 8u)),
     f32(sparse_virtual_u8(location.bank_index, at + 4u) | (sparse_virtual_u8(location.bank_index, at + 5u) << 8u))) / 65535.0;
   return mix(meshlet.bounds_min, meshlet.bounds_max, q);
-}
+}` : "";
+  const reconstructForWorkWgsl = virtualGeometry ? /* wgsl */ `
 fn sparse_work_is_virtual(work: OEngineMeshletRasterWork) -> bool {
   return (work.packed_profile_lod & 0xffu) == ${GPU_MESHLET_DECODE_PROFILE.VirtualGeometryProductV1}u;
 }
@@ -378,7 +384,20 @@ fn sparse_meshlet_vertices_for_work(work: OEngineMeshletRasterWork, meshlet_base
 fn sparse_position_for_work(work: OEngineMeshletRasterWork, geometry_base: u32, vertex: u32) -> vec3f {
   if (sparse_work_is_virtual(work)) { return sparse_virtual_position(work, vertex); }
   return sparse_position(geometry_base, vertex);
+}` : /* wgsl */ `
+fn sparse_meshlet_vertices_for_work(work: OEngineMeshletRasterWork, meshlet_base: u32, primitive: u32) -> vec3u {
+  return sparse_meshlet_vertices(meshlet_base, primitive);
 }
+fn sparse_position_for_work(work: OEngineMeshletRasterWork, geometry_base: u32, vertex: u32) -> vec3f {
+  return sparse_position(geometry_base, vertex);
+}`;
+  return /* wgsl */ `
+${GPU_INSTANCE_RECORD_WGSL}
+const SPARSE_GEOMETRY_WORDS: u32 = 60u;
+const SPARSE_MESHLET_WORDS: u32 = 28u;
+${virtualProductWgsl}
+${reconstructForWorkWgsl}
+
 
 fn sparse_meta_u32(base: u32, field: u32) -> u32 { return asset_metadata_heap[base + field]; }
 fn sparse_meta_f32(base: u32, field: u32) -> f32 { return bitcast<f32>(sparse_meta_u32(base, field)); }
