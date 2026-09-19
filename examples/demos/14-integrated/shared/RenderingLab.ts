@@ -9,7 +9,7 @@ import {
   Scene,
   WebCookBudgetLedger,
   type StandardShadeMaterial,
-  type VirtualGeometrySceneSource
+  type ProductSceneHandles
 } from "../../../../OEngine/src/index.ts";
 
 import { PerformancePanel } from "./PerformancePanel.ts";
@@ -38,6 +38,7 @@ interface LabScene {
   readonly geometryCount: number;
   readonly materials: readonly StandardShadeMaterial[];
   readonly bounds: Bounds;
+  readonly handles: ProductSceneHandles;
 }
 
 const DEFAULT_MODEL_URL = new URL(
@@ -133,11 +134,13 @@ async function start(): Promise<void> {
   const lab = await loadWebProductLab(activeRenderer, activeScene);
   if (disposed) return;
 
-  const activeCamera = createCamera(activeRenderer, lab.bounds);
+  let sceneBounds = lab.bounds;
+  let refinedCameraApplied = false;
+  const activeCamera = createCamera(activeRenderer, sceneBounds);
   controls = new OrbitControls(activeCamera, canvas);
-  controls.target.set(...lab.bounds.center);
-  controls.minDistance = Math.max(0.25, lab.bounds.radius * 0.1);
-  controls.maxDistance = lab.bounds.radius * 12;
+  controls.target.set(...sceneBounds.center);
+  controls.minDistance = Math.max(0.25, sceneBounds.radius * 0.1);
+  controls.maxDistance = sceneBounds.radius * 12;
   controls.enableDamping = true;
   controls.update(0);
 
@@ -146,21 +149,42 @@ async function start(): Promise<void> {
     comparisonExampleId,
     scene: { model: `${modelName}${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: lab.count, geometries: lab.geometryCount, materials: lab.materials.length },
     resetCamera: () => {
-      activeCamera.transform.position.set(lab.bounds.center[0] + lab.bounds.radius * 1.5, lab.bounds.center[1] + lab.bounds.radius * 0.8, lab.bounds.center[2] + lab.bounds.radius * 1.8);
-      controls!.target.set(...lab.bounds.center);
+      activeCamera.transform.position.set(sceneBounds.center[0] + sceneBounds.radius * 1.5, sceneBounds.center[1] + sceneBounds.radius * 0.8, sceneBounds.center[2] + sceneBounds.radius * 1.8);
+      activeCamera.transform.lookAt({ x: sceneBounds.center[0], y: sceneBounds.center[1], z: sceneBounds.center[2] });
+      controls!.target.set(...sceneBounds.center);
       controls!.reset();
       activeRenderer.indicate_view_change();
     }
   });
   startResizeObserver(activeRenderer, activeCamera);
 
+  // Web Cook intentionally publishes a drawable bootstrap before the richer
+  // revision is ready. Refit the observer once the atomic Product replacement
+  // commits; otherwise the camera remains framed to the first primitive.
+  void lab.handles.settled().then(() => {
+    if (disposed || refinedCameraApplied) return;
+    const current = lab.handles.current();
+    if (current.source.count <= lab.count && current.source.assetCount <= lab.geometryCount) return;
+    refinedCameraApplied = true;
+    sceneBounds = computeSphereBounds(current.source);
+    activeCamera.near = Math.max(0.01, sceneBounds.radius / 5000);
+    activeCamera.far = Math.max(100, sceneBounds.radius * 24);
+    activeCamera.transform.position.set(sceneBounds.center[0] + sceneBounds.radius * 1.5, sceneBounds.center[1] + sceneBounds.radius * 0.8, sceneBounds.center[2] + sceneBounds.radius * 1.8);
+    activeCamera.transform.lookAt({ x: sceneBounds.center[0], y: sceneBounds.center[1], z: sceneBounds.center[2] });
+    controls?.target.set(...sceneBounds.center);
+    if (controls) {
+      controls.minDistance = Math.max(0.25, sceneBounds.radius * 0.1);
+      controls.maxDistance = sceneBounds.radius * 12;
+      controls.reset();
+    }
+    performancePanel?.updateScene({ model: `${modelName}${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: current.source.count, geometries: current.source.assetCount, materials: current.materials.length });
+    activeRenderer.indicate_view_change();
+    setLoading("Ready", `${current.source.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"} · richer Product revision active`, 1);
+  }).catch(showFatalError);
+
   status.dataset.state = "ready";
   setLoading("Ready", `${lab.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"}${multiBinFixture ? " · multi-bin fixture" : ""} · performance panel ready`, 1);
   startFrameLoop(activeRenderer, activeScene, activeCamera);
-}
-
-function emptyLab(): LabScene {
-  return { count: 0, geometryCount: 0, materials: [], bounds: { min: [0, 0, 0], max: [0, 0, 0], center: [0, 0, 0], radius: 1 } };
 }
 
 /** Runtime-first path: GLB -> Web Worker/WASM CookSession -> shared Product admission. */
@@ -186,10 +210,10 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
     fitBase: [0, -1, 0],
     onMaterials: (materials) => { if (variant === "basic") for (const material of materials) material.is_unlit = true; }
   });
-  return { count: handles.source.count, geometryCount: handles.source.assetCount, materials: handles.materials, bounds: computeSphereBounds(handles.source) };
+  return { count: handles.source.count, geometryCount: handles.source.assetCount, materials: handles.materials, bounds: computeSphereBounds(handles.source), handles };
 }
 
-function computeSphereBounds(source: VirtualGeometrySceneSource): Bounds {
+function computeSphereBounds(source: { readonly count: number; readonly boundsSpheres: Float32Array; readonly boundsMin?: Float32Array; readonly boundsMax?: Float32Array }): Bounds {
   const minimum = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
   const maximum = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
   if (source.boundsMin !== undefined && source.boundsMax !== undefined) {

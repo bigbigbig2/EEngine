@@ -114,6 +114,13 @@ export class PerformancePanel {
     this.paint();
   }
 
+  /** Refreshes the displayed scene identity after a richer Product revision replaces bootstrap. */
+  updateScene(scene: PanelOptions["scene"]): void {
+    Object.assign(this.options.scene, scene);
+    this.lastConditions = "";
+    this.paint();
+  }
+
   private get busy(): boolean { return this.state === "warming" || this.state === "sampling" || this.state === "draining"; }
 
   conditions() {
