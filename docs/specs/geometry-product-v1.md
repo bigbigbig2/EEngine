@@ -12,6 +12,8 @@ V1 profile 复用 [OEGPACK V3](./oegpack-v3.md) 的 decoded Group/Meshlet payloa
 
 本 spec 冻结字段、作用域、状态和校验语义。跨 Worker 的二进制 descriptor transport 使用下述 `GeometryProductDescriptorBinaryV1`；任何 producer 必须生成 canonical offsets，Runtime 必须拒绝 alias、越界、非零 reserved 和 trailing bytes。WASM mirror 与 golden oracle 仍是 candidate gate。
 
+V1 同时冻结 page identity 的推导语义与两阶段 cook 的对外可分离推进语义，使 descriptor 可以先于 page payload 冻结。Producer 可以选择只实现单体式 cook 并通过 `replaces` 发布完整 revision，但一旦声明支持同 revision 内按 demand 补页，就必须满足本 spec 的两阶段 ABI 与 identity 确定性要求。
+
 ## Nyx Provenance 与移植合同
 
 V1 的几何生产算法必须以用户提供的本地 Nyx 只读快照为来源，而不是另行设计一个“类似 Nanite”的简化算法。当前可核验基线是快照日期 2026-09-16 及以下文件 SHA-256；目录没有 `.git` metadata，`moonlovelj/Nyx@bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b` 仅是声明身份，不是本地已验证 commit：
@@ -105,6 +107,10 @@ activationPageIds: sorted unique u32 array
 | 24 | `u32` | flags；V1 必须为 0 |
 | 28 | `u32` | reserved；必须为 0 |
 
+`GeometryProductPageRecordV1` 的 page identity 由该页承载的 Group payload 按 GroupID 升序的确定性上卷得出，而不是由整页 bytes 单独决定。上卷输入为每个 Group 的 payload 摘要与其在页内的 offset/length，上卷算法必须是可复现的固定算法并冻结在 producer version 中。整页 `bytes` 的稳定摘要仍必须可被 Runtime 校验，用于检测传输或存储损坏；它不参与 identity 推导。
+
+该定义使 page identity 可以在 payload 产生之前计算，从而支持 descriptor 先于 payload 冻结。同一 Producer 对同一输入必须在单体式与两阶段两种执行路径下得到相同 identity。identity 算法变化必须视为 producer version 与 runtime profile 变化，不得在同一 profile 内静默切换。
+
 #### Descriptor binary transport
 
 `GeometryProductDescriptorBinaryV1` 使用 little-endian、256-byte header，magic 为 ASCII `OEGP`（字节 `4f 45 47 50`）。所有 section 起点按 16 byte 对齐，section 之间的 padding 必须为 0；`totalBytes` 必须等于最后一个 section 对齐后的长度，不允许 trailing bytes。固定表 stride 沿用本 spec：Asset 128、root `u32` 4、Hierarchy 48、Group 16、Page 32、VertexFormat 16、activation/bootstrap PageID 4。字符串是非空 UTF-8 bytes、不带 NUL；`producerId` 解码后仍须满足 printable ASCII。
@@ -184,6 +190,12 @@ V1 允许两种方式：
 
 禁止在已 offer 的 revision 内重排 Group/Page、修改 hierarchy、改变 page hash、追加未声明 PageID，或把 Web 与 Offline revision 的 page 拼接。新 revision 失败时当前 active revision 保持可用。
 
+方式 1 要求 Producer 的 cook 具备两阶段能力。descriptor 阶段必须在未产生任何 page payload 的前提下冻结全部 identity、page 装箱与 activation cut；payload 阶段按 PageID 增量产生字节。两阶段之间的状态必须可被消费侧观察，使“PageID 已声明但 payload 未产出”与“PageID 不存在”可区分：前者是合法的待产出页，后者必须被拒绝。
+
+descriptor 阶段与 payload 阶段必须满足同一确定性要求：相同输入、相同 producer identity 与 recipe 必须得到相同 PageID 分配、相同 Group 归属、相同 identity 与相同激活 cut，与两阶段是否被拆开执行无关。
+
+未实现两阶段的 Producer 仍可使用方式 2，此时每个 revision 都必须是自洽的完整 revision。
+
 ### Web Runtime Cooker 内部边界
 
 CookSession、source cook priority、Worker 消息和 WASM allocator 不属于公共 Product ABI，但映射到 Provider 时必须满足：
@@ -194,6 +206,18 @@ CookSession、source cook priority、Worker 消息和 WASM allocator 不属于�
 - 普通 WASM linear memory 不能直接转移，必须复制到独占 `ArrayBuffer`；SharedArrayBuffer/pthread specialization 也不产生 ownership transfer；
 - GPU object 不跨 Worker 边界，默认由 render/GPU owner 上传；
 - pthread/SAB specialization 要求 `crossOriginIsolated` 和受控共享内存；非隔离多 Worker specialization 必须产生相同 Product 合同。
+
+### 两阶段 Cooker ABI
+
+选择方式 1 的 Producer 必须通过两阶段 ABI 暴露 cook，且该 ABI 必须能表达以下状态与操作：
+
+- descriptor 阶段完成后，必须可在不触发 payload 产生的前提下查询 page 数量、每个 PageID 的 identity、page 到 Group 的映射以及 activation cut；
+- payload 阶段必须支持按 PageID 单独推进，且必须容忍乱序推进、重复推进与并发推进；
+- 已完成 phase 的 PageID 必须可重复取回，且在同一个 descriptor 生命周期内返回 byte-identical 结果；
+- 对 descriptor 未声明的 PageID 的推进请求必须被拒绝，不得按需扩张 ID graph；
+- descriptor 阶段与 payload 阶段的失败必须可区分，且任一阶段失败都不得污染已经产出的 page。
+
+ABI 变更必须递增版本号。旧版本 consumer 必须被显式拒绝，不得静默回退到单体式 cook 语义。两阶段 ABI 的实现可以在内部沿用单体式算法并按需取用结果，但对外必须满足上述可分离推进语义，且不得改变本 spec 与 Nyx 移植合同要求的任何几何输出。
 
 ### Cache key
 
@@ -225,6 +249,8 @@ revision 追加未声明的 asset，也不能原地修改其 Group/Page identity
 - 覆盖非法 ID/range/stride/reserved、树环、跨页 Group、hash 不符、错误 page 长度、activation cut 不完整、重复/乱序 page、取消和迟到结果。
 - 同 producer identity 做不同 Worker/thread count 的 descriptor/page byte determinism；Web 与 Offline producer 不做跨 producer byte-equality 要求。
 - 真实浏览器证明 bootstrap revision 可独立出像素、richer revision 失败不影响旧 revision、成功替换不混用两代数据。
+- 采用方式 1 的 Producer 必须额外证明：descriptor 阶段不产生 payload 即可冻结完整 ID graph；其 PageID、Group 归属与 activation cut 与单体式路径逐字节一致；payload 阶段按 PageID 的乱序、重复、并发与取消推进均正确，且未声明 PageID 的推进被拒绝。
+- page identity 上卷必须与整页完整性校验分别测试：篡改页内 Group payload 必须改变 identity 或被完整性校验捕获，篡改页内 padding 不得改变 identity。
 - 提升为 candidate 前，补齐 descriptor 的二进制 Worker transport layout、WASM/TypeScript mirror、golden bytes 与版本拒绝测试。
 ## Web glTF 材质引用边界（第三步）
 

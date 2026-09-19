@@ -32,3 +32,4 @@ ADR 只保存跨模块、长期且仍有解释价值的决策。它不承担规�
 - [0016-B · Geometry Product Admission 与 Virtual Geometry Residency](./0016-b-virtual-geometry-residency.md)
 - [0016-C · Virtual Geometry 生产消费与原子切换](./0016-c-v3-geometry-consumption.md)
 - [0016-D · Progressive Texture Delivery 与 Physical Residency](./0016-d-progressive-texture-residency.md)
+- [0017 · Geometry Product 增量发布与页身份解耦](./0017-incremental-geometry-product-publication.md)
