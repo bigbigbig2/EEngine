@@ -412,7 +412,11 @@ export class VirtualGeometryResidency {
  * new global sparse-shading baseline; callers must request it before device
  * creation when they admit a Product scene.
  */
-export const VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE = 14;
+// Product traversal plus the current single-bin material/shadow publication
+// consumes fifteen storage-buffer bindings in its highest consumer variant;
+// request the next aligned device limit so pipeline layout validation cannot
+// succeed at admission and fail later during shader creation.
+export const VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE = 16;
 
 function slotKey(bankIndex: number, slotIndex: number): string { return `${bankIndex}:${slotIndex}`; }
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean { if (a.byteLength !== b.byteLength) return false; for (let i = 0; i < a.byteLength; i++) if (a[i] !== b[i]) return false; return true; }

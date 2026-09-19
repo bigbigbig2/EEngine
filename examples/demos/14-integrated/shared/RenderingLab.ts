@@ -2,20 +2,16 @@ import {
   DirectionalLight,
   createDefaultWebCookWorker,
   load_environment_map,
-  load_gltf_packed,
-  load_gltf_web_product,
+  load_gltf,
   OrbitControls,
   PerspectiveCamera,
   Renderer,
   Scene,
   WebCookBudgetLedger,
-  type PackedGltfSource,
-  type PackedSceneSource,
   type StandardShadeMaterial,
   type VirtualGeometrySceneSource
 } from "../../../../OEngine/src/index.ts";
 
-import { GeometryPackagePipeline } from "./GeometryPackagePipeline.ts";
 import { PerformancePanel } from "./PerformancePanel.ts";
 import "./performance-panel.css";
 
@@ -28,8 +24,6 @@ export interface RenderingLabOptions {
   readonly comparisonExampleId?: string;
   readonly geometryCacheKey?: string;
   readonly geometryManifestUrl?: string;
-  /** `web-product` routes geometry through the Runtime-first Web Cooker; `packed` keeps the V2 path. */
-  readonly geometryRoute?: "packed" | "web-product";
 }
 
 type Bounds = {
@@ -70,10 +64,8 @@ let modelLabel = "Dungeon by Warkarma";
 let comparisonExampleId = "rendering-lab";
 let geometryCacheKey: string | undefined;
 let geometryManifestUrl: string | undefined;
-let geometryRoute: "packed" | "web-product" = "packed";
-/** Page-global Web Cook budget shared by every Runtime-first load on this page. */
+/** Page-global Web Cook budget shared by every Product load on this page. */
 const cookBudget = new WebCookBudgetLedger({ maxActiveSessions: 2, maxOutputBytes: 256 * 1024 * 1024, maxSourceBytes: 256 * 1024 * 1024, maxWasmBytes: 256 * 1024 * 1024 });
-let geometryPackages: GeometryPackagePipeline | undefined;
 const multiBinFixture = new URLSearchParams(window.location.search).get("multiBin") === "1";
 
 async function start(): Promise<void> {
@@ -87,15 +79,7 @@ async function start(): Promise<void> {
   setLoading("Renderer", "Initializing WebGPU...", 0.04);
   const activeRenderer = new Renderer({
     debug: false,
-    ...(geometryRoute === "web-product" ? { requiredLimits: { maxStorageBuffersPerShaderStage: 14 } } : {}),
-    ...(geometryManifestUrl === undefined ? {} : {
-      textureMaxResolution: 256 as const,
-      textureBankMaxCapacities: [64, 40, 72, 160, 288] as const,
-      geometryResidency: {
-        maxUploadBytes: 640 * 1024 * 1024,
-        maxResidentBytes: 1024 * 1024 * 1024
-      }
-    }),
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     renderSettings: {
       features: {
         shadows: variant === "full",
@@ -118,8 +102,8 @@ async function start(): Promise<void> {
     pixelRatio: window.devicePixelRatio
   });
   rendererReady = true;
-  activeRenderer.packed_visibility_cone_enabled = geometryManifestUrl === undefined;
-  activeRenderer.packed_visibility_hzb_enabled = geometryManifestUrl === undefined;
+  activeRenderer.packed_visibility_cone_enabled = true;
+  activeRenderer.packed_visibility_hzb_enabled = true;
   activeRenderer.packed_visibility_sse_threshold = 4;
   if (disposed) return;
 
@@ -146,9 +130,7 @@ async function start(): Promise<void> {
     activeScene.addChild(sun);
   }
 
-  const lab = geometryRoute === "web-product"
-    ? await loadWebProductLab(activeRenderer, activeScene)
-    : await loadPackedLab(activeRenderer, activeScene);
+  const lab = await loadWebProductLab(activeRenderer, activeScene);
   if (disposed) return;
 
   const activeCamera = createCamera(activeRenderer, lab.bounds);
@@ -181,45 +163,12 @@ function emptyLab(): LabScene {
   return { count: 0, geometryCount: 0, materials: [], bounds: { min: [0, 0, 0], max: [0, 0, 0], center: [0, 0, 0], radius: 1 } };
 }
 
-/** V2 path: full glTF object graph, Worker geometry cooking, GeometryAssetPackage upload. */
-async function loadPackedLab(activeRenderer: Renderer, activeScene: Scene): Promise<LabScene> {
-  setLoading("Assets", `Loading ${modelLabel}...`, 0.1);
-  const imported = await load_gltf_packed(modelUrl);
-  if (disposed) return emptyLab();
-  if (variant === "basic") {
-    for (const material of imported.materials) material.is_unlit = true;
-  }
-  if (multiBinFixture && imported.materials.length > 0) {
-    const materialIndex = imported.materialIndices.find((index) => index >= 0) ?? 0;
-    const fixtureMaterial = imported.materials[materialIndex];
-    if (fixtureMaterial === undefined) throw new Error(`Multi-bin fixture material ${materialIndex} is unavailable`);
-    if (variant === "full") {
-      // Keep the full scene's PBR materials and introduce one real UnlitTexture
-      // association through the normal material ABI.
-      fixtureMaterial.is_unlit = true;
-    } else {
-      // Basic normally only has UnlitFactor associations; make one referenced
-      // material PBR so the fixture exercises a second program identity.
-      fixtureMaterial.is_unlit = false;
-    }
-  }
-  const packed = await createRenderingLab(imported);
-  if (disposed) return emptyLab();
-  setLoading(
-    "GPU residency",
-    `Uploading ${packed.source.geometries.length} geometry packages, ${packed.source.materials.length} materials, and ${packed.source.count} instances...`,
-    0.9
-  );
-  await activeRenderer.uploadPackedScene(activeScene, packed.source);
-  return { count: packed.source.count, geometryCount: packed.source.geometries.length, materials: packed.source.materials, bounds: packed.bounds };
-}
-
 /** Runtime-first path: GLB -> Web Worker/WASM CookSession -> shared Product admission. */
 async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): Promise<LabScene> {
   setLoading("Assets", `Loading ${modelLabel} via Web Runtime Cooker...`, 0.1);
   const runtimeProfile = new URLSearchParams(window.location.search).get("profile") === "isolated-pthreads" ? "isolated-pthreads" : "portable-single";
   const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 128 * 1024 * 1024, maxDecodedProductBytes: 512 * 1024 * 1024, runtimeProfile });
-  const asset = load_gltf_web_product(modelUrl, {
+  const asset = load_gltf(modelUrl, {
     worker,
     runtimeProfile,
     ledger: cookBudget,
@@ -264,126 +213,6 @@ function computeSphereBounds(source: VirtualGeometrySceneSource): Bounds {
     center,
     radius: Math.max(1, 0.5 * Math.hypot(maximum[0]! - minimum[0]!, maximum[1]! - minimum[1]!, maximum[2]! - minimum[2]!))
   });
-}
-
-async function createRenderingLab(imported: PackedGltfSource): Promise<{
-  readonly source: PackedSceneSource;
-  readonly bounds: Bounds;
-}> {
-  geometryPackages = new GeometryPackagePipeline();
-  const geometries = await geometryPackages.prepare(imported.geometries, {
-    cacheKey: geometryCacheKey,
-    manifestUrl: geometryManifestUrl,
-    onProgress: ({ stage, completed, total }) => {
-      const label = stage === "pre-cooked"
-        ? "Loading pre-cooked geometry packages"
-        : stage === "cache"
-          ? "Restoring cached geometry packages"
-          : "Building meshlets and renderable LOD hierarchy in a Worker";
-      setLoading(
-        stage === "cook" ? "Geometry cooking" : "Geometry packages",
-        `${label} ${completed}/${total}...`,
-        0.18 + completed / Math.max(1, total) * 0.68
-      );
-    }
-  });
-  const currentTransforms = fitPackedTransforms(imported, 5.4, [0, -1, 0]);
-
-  return Object.freeze({
-    source: Object.freeze({
-      geometries,
-      materials: imported.materials,
-      count: imported.geometryIndices.length,
-      geometryIndices: imported.geometryIndices,
-      materialIndices: imported.materialIndices,
-      currentTransforms,
-      previousTransforms: currentTransforms.slice(),
-      boundsSpheres: imported.boundsSpheres,
-      boundsMin: imported.boundsMin,
-      boundsMax: imported.boundsMax,
-      flags: imported.flags,
-      debugIds: imported.debugIds
-    }),
-    bounds: Object.freeze(computeWorldBounds(imported, currentTransforms))
-  });
-}
-
-function fitPackedTransforms(
-  source: PackedGltfSource,
-  targetHeight: number,
-  targetBase: readonly [number, number, number]
-): Float32Array {
-  const bounds = computeWorldBounds(source);
-  const height = Math.max(1e-5, bounds.max[1] - bounds.min[1]);
-  const scale = targetHeight / height;
-  const targetCenter: readonly [number, number, number] = [
-    targetBase[0],
-    targetBase[1] + (bounds.center[1] - bounds.min[1]) * scale,
-    targetBase[2]
-  ];
-  const output = source.transforms.slice();
-  for (let offset = 0; offset < output.length; offset += 16) {
-    for (let column = 0; column < 3; column++) {
-      for (let row = 0; row < 3; row++) {
-        const element = offset + column * 4 + row;
-        output[element] = output[element]! * scale;
-      }
-    }
-    output[offset + 12] = targetCenter[0] + (output[offset + 12]! - bounds.center[0]) * scale;
-    output[offset + 13] = targetCenter[1] + (output[offset + 13]! - bounds.center[1]) * scale;
-    output[offset + 14] = targetCenter[2] + (output[offset + 14]! - bounds.center[2]) * scale;
-  }
-  return output;
-}
-
-function computeWorldBounds(source: PackedGltfSource, transformedTransforms = source.transforms): Bounds {
-  const minimum = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
-  const maximum = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
-  for (let instance = 0; instance < source.geometryIndices.length; instance++) {
-    const boundsOffset = instance * 3;
-    const matrixOffset = instance * 16;
-    for (let corner = 0; corner < 8; corner++) {
-      const localX = corner & 1 ? source.boundsMax[boundsOffset]! : source.boundsMin[boundsOffset]!;
-      const localY = corner & 2 ? source.boundsMax[boundsOffset + 1]! : source.boundsMin[boundsOffset + 1]!;
-      const localZ = corner & 4 ? source.boundsMax[boundsOffset + 2]! : source.boundsMin[boundsOffset + 2]!;
-      const worldX = transformedTransforms[matrixOffset]! * localX +
-        transformedTransforms[matrixOffset + 4]! * localY +
-        transformedTransforms[matrixOffset + 8]! * localZ +
-        transformedTransforms[matrixOffset + 12]!;
-      const worldY = transformedTransforms[matrixOffset + 1]! * localX +
-        transformedTransforms[matrixOffset + 5]! * localY +
-        transformedTransforms[matrixOffset + 9]! * localZ +
-        transformedTransforms[matrixOffset + 13]!;
-      const worldZ = transformedTransforms[matrixOffset + 2]! * localX +
-        transformedTransforms[matrixOffset + 6]! * localY +
-        transformedTransforms[matrixOffset + 10]! * localZ +
-        transformedTransforms[matrixOffset + 14]!;
-      minimum[0] = Math.min(minimum[0]!, worldX);
-      minimum[1] = Math.min(minimum[1]!, worldY);
-      minimum[2] = Math.min(minimum[2]!, worldZ);
-      maximum[0] = Math.max(maximum[0]!, worldX);
-      maximum[1] = Math.max(maximum[1]!, worldY);
-      maximum[2] = Math.max(maximum[2]!, worldZ);
-    }
-  }
-  const center: [number, number, number] = [
-    (minimum[0]! + maximum[0]!) * 0.5,
-    (minimum[1]! + maximum[1]!) * 0.5,
-    (minimum[2]! + maximum[2]!) * 0.5
-  ];
-  return {
-    min: minimum as [number, number, number],
-    max: maximum as [number, number, number],
-    center,
-    radius: Math.max(
-      1,
-      0.5 * Math.hypot(
-        maximum[0]! - minimum[0]!,
-        maximum[1]! - minimum[1]!,
-        maximum[2]! - minimum[2]!
-      )
-    )
-  };
 }
 
 function createCamera(activeRenderer: Renderer, bounds: Bounds): PerspectiveCamera {
@@ -464,7 +293,6 @@ function dispose(): void {
   resizeObserver?.disconnect();
   performancePanel?.dispose();
   controls?.dispose();
-  geometryPackages?.dispose();
   if (rendererReady) renderer?.destroy();
   canvas.getContext("webgpu")?.unconfigure();
 }
@@ -489,9 +317,5 @@ export function startRenderingLab(
     (selectedVariant === "basic" ? "rendering-lab" : "rendering-lab-basic");
   geometryCacheKey = options.geometryCacheKey;
   geometryManifestUrl = options.geometryManifestUrl;
-  const routeOverride = new URLSearchParams(window.location.search).get("route");
-  geometryRoute = routeOverride === "packed" || routeOverride === "web-product"
-    ? routeOverride
-    : (options.geometryRoute ?? (selectedVariant === "basic" ? "web-product" : "packed"));
   start().catch(showFatalError);
 }

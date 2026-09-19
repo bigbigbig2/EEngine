@@ -84,7 +84,7 @@ async function ensureRenderer(): Promise<void> {
   Object.defineProperty(context, "configure", { configurable: true, value: (config: GPUCanvasConfiguration) => configure({ ...config, usage: (config.usage ?? GPUTextureUsage.RENDER_ATTACHMENT) | GPUTextureUsage.COPY_SRC }) });
   renderer = new Renderer({
     debug: false,
-    requiredLimits: { maxStorageBuffersPerShaderStage: 14 },
+    requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     renderSettings: { features: { shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false } }
   });
   await renderer.initialize({ context, pixelRatio: Math.min(window.devicePixelRatio || 1, 2) });

@@ -1,20 +1,18 @@
 # OEngine 当前状态
 
-Audit correction (2026-09-18, `64f346d`): the accepted browser cases below
-prove successful Product publication, GPU demand, replacement, eviction and
-device-loss paths, not failure-atomic replacement or large-scene visible-first
-loading. Current `swapProductScene` releases the old Scene before the new one
-is staged and does not restore it on failure; the Web progressive cooker
-canonicalizes all catalog primitives before its first Product offer; the
-page-global ledger now reserves source/WASM/output in the client lifecycle,
-but source/canonical/WASM committed-peak accounting remains conservative and
-needs measured multi-session evidence. The per-Product 128 MiB bank allocation
-also needs a global capacity ledger and measured memory evidence. These open
-defects and the seven larger delivery stages are tracked in
+S6 consumer cutover（2026-09-19）已完成：默认 `load_gltf()`、普通 Scene、Offline selection、examples/validation consumer、主视图/阴影/Visibility 和 device-loss recovery 均走 Product Runtime；当前 revision 的 replacement 与 device-loss Chrome case 已通过。`GeometryAssetPackage`、`GeometryCooker`、`GpuAssetStore` 等仍被内部 shader/oracle/ABI/test 引用的代码保留为内部验证资产，公开 entry 已移除 V2 production symbols。由于工作树尚未提交，本轮浏览器 artifact 仍是 `diagnostic-only`；提交干净 revision 后需重跑正式 milestone。
+
+Historical audit correction (2026-09-18, `64f346d`): the accepted browser
+cases at that revision proved successful Product publication, GPU demand,
+replacement, eviction and device-loss paths, but not failure-atomic
+replacement or large-scene visible-first loading. The S6 revision supersedes
+that snapshot: replacement failures are now covered by the current browser
+case, the default public entry and unified consumer are cut over, while
+large-scene visible-first loading and measured source/canonical/WASM peaks
+remain S7 work. The seven delivery stages and their evidence are tracked in
 [0016 remaining-work plan](./implementation/0016-remaining-work-plan.md).
-Earlier “atomic” and “per-domain parallel” wording on this page describes
-intended or successful-path behavior, not closed gates; S4 source/WASM
-reservation is covered by the checkpoint below.
+Earlier “atomic” and “per-domain parallel” wording below should be read against
+the dated revision that introduced it; current S6 evidence is recorded above.
 
 Implementation update (2026-09-18): the Runtime-first Web route now runs a real
 GLB end to end. `run:glb-web-product` drives the Dungeon (798 mesh / 25
@@ -138,7 +136,7 @@ evidence remains open.
 | Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、source/WASM/output budget、取消与 whole-page credit lease、generation-filtered Dedicated Worker transport、CPU/WASM-only Worker host、异步 Emscripten module queueing、live Product provider、Range coalescing、progressive bootstrap + richer revision 与 per-domain cook。`portable-pool` 已实现固定 session ownership、crash generation invalidation 和 replacement Worker；`WebCookClient` 已把 source/WASM/output reservation 接入真实生命周期；`isolated-pthreads` 具备显式 cross-origin isolation/SAB capability gate，fallback 可观测；真实 Dungeon GLB 仍在 Chrome `accepted` | 尚需浏览器多 Worker 压力、pthread artifact 部署 smoke、source/canonical/WASM committed-peak 细粒度计数与后续 consumer cutover；不得把 Node fake module 或 TypeScript tests 视为 Runtime 完成 |
 | 0016-A Offline/OEGPACK | implemented, S6 parity accepted | native cooker、OEGPACK V3 parser、range/memory source、页校验与 bootstrap cut 已存在；OEGPACK Product adapter 已通过共同 production consumer 接线；`load_oegpack_product` + `Renderer.uploadOegPackScene` 与 Web 路线共用同一 admission/residency/Visibility 路径，`virtual-product-offline` 已在 Chrome accepted（range/memory 平价 64105 lit pixels、source failure 显式报错、A→B 替换连续、demand 1→5 页）；`scene.oescene` 合同已入 spec，OEGPACK 专用 bootstrap residency adapter 已删除 | 补 transport/golden 后冻结候选 spec，并做 S7 consumer cutover |
 | 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag、统一 frame completion 自动 poll/upload、保留 identity 的 device-loss residency 重建与 Product revision 原子替换已接线；bank heap 改按 Product 总页数预分配（修复 demand 上传新建未绑定 bank 导致的黑屏），并新增 Native↔Web differential / invariant / negative corpus；`glb-web-product` 已在 Chrome 里跑通 GPU demand 证据：实际相机靠近触发 desired page 缺失，GPU demand → delayed readback ring → scheduler（requested 2121、deduplicated 80）→ provider → upload → residency residentPages 374→375，且 ancestor fallback 保持画面（demand coverage 17394 lit pixels、0 GPU error）；`virtual-product-replacement` 已 accepted：richer revision 原子替换（generation 1→2、revision 0→1、换版后 5600+ lit pixels）+ demand 细化（382→383）+ 跨提交边界 evict（4 候选→379、evictedPages 4、17400 lit pixels）；`virtual-product-device-loss` 已 accepted：intentional device loss → 新 adapter/device → 从保留 Product source 重建全部场景（5640 → 5610 lit pixels、selectedClusters 474、visibleInstances 798、0 GPU error）| 补 transport/golden 后冻结候选 spec |
-| 0016-C renderer cutover | in progress | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity，并可在 device-loss 后按原 generation/table slot 重建 publication；普通 Scene adapter/V2 owner 仍保留 | 完成 Product recovery checkpoint 的真实浏览器验证、删除旧 V2 owner/path，并用 ADR-0014 浏览器证据验证统一 consumer |
+| 0016-C renderer cutover | implemented, S6 diagnostic complete | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity，并可在 device-loss 后按原 generation/table slot 重建 publication；默认 `load_gltf()`、普通 Scene、Offline selection 和 examples/validation consumer 均已切换，公开 V2 production symbols 已删除 | 在 clean commit 上重跑 ADR-0014 milestone；完成仍有内部消费者的旧 oracle source/compiled/browser 三层审计后再删除 |
 | 0016-D texture modes | Mode A implemented, diagnostic validation passed | TextureResidency allocates the complete logical chain, uploads a cooked mip tail first, clamps sampling to the available range, and promotes higher mips through a stable logical handle; the independent Chrome component case read back the expected tail and promoted colors, and this does not claim physical VRAM savings | Obtain production-path browser evidence for progressive publication; only after allocation evidence decide whether Mode B/Virtual Texturing merits a separate ADR |
 
 详细交付切片见 [implementation/0016-virtualized-assets.md](./implementation/0016-virtualized-assets.md)。
@@ -158,7 +156,7 @@ evidence remains open.
 
 ## 下一步
 
-1. 做 S7 Geometry consumer cutover：迁移 `GpuAssetStore`/`GpuRenderWorld` recovery、asset publication 与 shadow consumer，删除 V2 `GeometryAssetPackage`/upload/consumer 与生产调用，并完成 source/compiled/browser 三层 legacy 审计。
+1. 做 S7 Geometry oracle deletion audit：对仍被 shader/ABI/test 引用的 `GeometryAssetPackage`/`GeometryCooker`/`GpuAssetStore` 做 source/compiled/browser 三层调用图审计，确认无真实生产消费者后再删除；不得把内部 oracle 当作公开 fallback。
 2. 补 `portable-pool`/多 asset shard assembly 的浏览器压力与 source/WASM committed-peak 细粒度证据，并在 clean commit 上重跑 pthread deployment smoke。
 3. 产出 §18.4 的 Native Nyx 参考 harness（独立 MiniEngine Model harness 或抽取 Nyx 算法函数的 native 构建）。
 4. S6 Offline production parity 的成功路径已 accepted；继续补同 workload 对照和 source-selection 边界，再在失败事务、Nyx 对照与入口切换门禁通过后执行 S7 V2 删除和三层 legacy 审计。

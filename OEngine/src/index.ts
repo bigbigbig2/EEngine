@@ -196,6 +196,16 @@ export type {
   VirtualGeometrySceneSourceOptionsV1,
   VirtualGeometrySceneSourceResultV1
 } from "./assets/geometry-product/VirtualGeometrySceneSourceV1.js";
+export {
+  canonicalizeSceneGeometryV1,
+  cookSceneGeometryProductV1
+} from "./assets/geometry-product/SceneGeometryCanonicalizerV1.js";
+export type {
+  SceneGeometryCanonicalizationV1,
+  SceneGeometryProductOptions,
+  CookedSceneGeometryProductV1
+} from "./assets/geometry-product/SceneGeometryCanonicalizerV1.js";
+export { createDefaultWebGeometryCookerModule } from "./assets/web-cook/wasm/WebGeometryCookerAbi.js";
 export { createWebCookWorker, createWebCookWorkerPool, createDefaultWebCookWorker } from "./assets/web-cook/WebCookWorkerFactory.js";
 export type {
   DefaultWebCookWorkerFactoryOptions,
@@ -310,52 +320,8 @@ export type {
   RuntimeAssetValidationReport,
   RuntimeAssetValidationSeverity
 } from "./assets/RuntimeAssetPackage.js";
-export {
-  GEOMETRY_ASSET_SCHEMA_VERSION,
-  GEOMETRY_COOKER_VERSION,
-  GEOMETRY_BVH8_NODE_STRIDE,
-  GEOMETRY_CLUSTER_FLAGS,
-  GEOMETRY_CLUSTER_RECORD_STRIDE,
-  GEOMETRY_DIRECTORY_FLAGS,
-  GEOMETRY_VISIBILITY_PATH_MASK,
-  GEOMETRY_DIRECTORY_RECORD_STRIDE,
-  GEOMETRY_INVALID_INDEX,
-  GEOMETRY_MATERIAL_RANGE_STRIDE,
-  GEOMETRY_MESHLET_RECORD_STRIDE,
-  GEOMETRY_SECTION_TYPES,
-  GEOMETRY_VERTEX_PROFILE,
-  GEOMETRY_VERTEX_STREAM_FLAGS,
-  GEOMETRY_VERTEX_STREAM_DESCRIPTOR_STRIDE,
-  GeometryAssetPackageError,
-  decodeGeometryColor,
-  decodeGeometryNormal,
-  decodeGeometryPosition,
-  decodeGeometryTangent,
-  decodeGeometryUv,
-  geometryVisibilityPathFlag,
-  geometryVisibilityPathFromFlags,
-  openGeometryAssetPackage,
-  recommendGeometryVisibilityPath
-} from "./assets/GeometryAssetPackage.js";
-export type {
-  GeometryAssetPackage,
-  GeometryAssetValidationReport,
-  GeometryBvh8Node,
-  GeometryClusterRecord,
-  GeometryDirectoryRecord,
-  GeometryMaterialRangeRecord,
-  GeometryMeshletAlphaMode,
-  GeometryMeshletRecord,
-  GeometryVisibilityPath,
-  GeometryVertexDataType,
-  GeometryVertexStreamDescriptor
-} from "./assets/GeometryAssetPackage.js";
-export { cookGeometryAssetPackage } from "./geometry/GeometryCooker.js";
-export type {
-  GeometryCookEvidence,
-  GeometryCookResult,
-  GeometryCookTiming
-} from "./geometry/GeometryCooker.js";
+// GeometryAssetPackage/GeometryCooker remain test/tool oracle modules only;
+// production consumers enter through the Product ABI below.
 export {
   DEFAULT_GEOMETRY_WORK_BUDGET,
   GeometryAdaptiveSseController,
@@ -368,10 +334,6 @@ export type {
   GeometryWorkSample
 } from "./render/GeometryWorkBudget.js";
 export type {
-  AssetHandle,
-  AssetResidencyEvidence
-} from "./gpu/GpuAssetStore.js";
-export type {
   GpuSceneEvidence,
   InstanceMaterialPatch,
   InstancePatchBatch,
@@ -383,24 +345,6 @@ export type {
   InstanceTransformPatch
 } from "./gpu/GpuScene.js";
 export { INSTANCE_SOURCE_FLAGS } from "./gpu/GpuScene.js";
-export {
-  createInstanceSourceFromScene,
-  createPackedSceneSourceFromScene
-} from "./gpu/GpuSceneAdapter.js";
-export type {
-  AdaptedSceneSource,
-  SceneGeometryAssetBinding,
-  SceneInstanceAdapterOptions
-} from "./gpu/GpuSceneAdapter.js";
-export type {
-  GpuRenderWorldEvidence,
-  GpuRenderWorldHandle,
-  PackedSceneMaterialPatch,
-  PackedScenePatchBatch,
-  PackedSceneSource,
-  VirtualGeometryGeometryProfile,
-  VirtualGeometrySceneSource
-} from "./gpu/GpuRenderWorld.js";
 export type { GraphicsOwnerCreationEvidence } from "./gpu/GraphicsContext.js";
 export type {
   WebGpuApiProbes,
@@ -549,8 +493,8 @@ export { create_frame_loop } from "./render/create_frame_loop.js";
 export { deserialize_scene } from "./loaders/deserialize_scene.js";
 export { load_environment_avif } from "./loaders/load_environment_avif.js";
 export { load_environment_map } from "./loaders/load_environment_map.js";
-export { load_gltf, load_gltf_packed, load_gltf_web_product } from "./loaders/load_gltf.js";
-export type { PackedGltfSource } from "./loaders/load_gltf.js";
+export { load_gltf, load_gltf_web_product } from "./loaders/load_gltf.js";
+export type { LoadGltfOptions } from "./loaders/load_gltf.js";
 export { load_scene_from_url } from "./loaders/load_scene_from_url.js";
 export { openGlbRangeSource } from "./loaders/gltf/streaming/GlbRangeSource.js";
 export type { GlbBufferDescriptor, GlbRangeReadableSource, GlbRangeSourceOptions, GlbSourceIdentity } from "./loaders/gltf/streaming/GlbRangeSource.js";

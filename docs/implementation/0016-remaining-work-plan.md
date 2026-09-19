@@ -8,6 +8,16 @@ Owners: Web Runtime Cooker、Geometry Product admission/residency、GpuRenderWor
 
 ## Outcome
 
+## S6 收口（2026-09-19）
+
+S6 已在当前 revision 完成并通过收口门禁。公开 `load_gltf()` 默认进入 Web Product Runtime；`load_gltf_web_product()`、普通 Scene、Offline/OEGPACK 和 device-loss recovery 共用 Product admission/residency 与统一 Main/Shadow/Visibility consumer。basic-scene、sparse-shading-production、Rendering Lab 和 validation cases 已迁移到 `canonicalizeSceneGeometryV1 -> cookSceneGeometryProductV1 -> uploadCookedSceneProduct`，旧 GeometryPackage worker/pipeline 已删除。
+
+本次 cutover 的边界必须保留：`GeometryAssetPackage`、`GeometryCooker`、`GpuAssetStore` 等仍被 shader/oracle/底层 ABI 或测试引用的模块只作为内部验证/兼容实现保留，不再是公开生产入口；公开入口不导出 `load_gltf_packed`、`cookGeometryAssetPackage` 或 `openGeometryAssetPackage`。这不是把“类仍存在”写成 V2 生产路径，也不宣称旧 oracle 已被删除。
+
+当前 revision 的验证证据：Product/Web Cook targeted、packed/render-world 与 cutover audit、shadow contract、public export audit 均通过；Chrome `glb-web-product`、`sparse-shading-production`、`virtual-product-production`、`virtual-product-offline`、`virtual-product-replacement` 和 `virtual-product-device-loss` 均通过。工作树未提交，因此这些浏览器 artifact 仍标记为 `diagnostic-only`，提交干净 revision 后需按 ADR-0014 重跑以获得 accepted 证据。
+
+S6 的明确剩余项转入后续工作：删除仍有真实内部消费者的 V2 oracle 前，必须先完成 source/compiled/browser 三层调用图审计；大场景 visible-first/TTFMF、正式 PERF、跨多 asset 的 source/canonical/WASM/output 峰值和用户模型验收属于 S7，不在本次 S6 完成声明内。
+
 Web GLB/glTF 与 Native OEGPACK 是两个 Producer，而不是两个 Renderer。它们从 Geometry Product admission 开始共享 GPU residency、GPU hierarchy/work、主视图和阴影 Visibility、Sparse Shading、replacement/eviction/device-loss 生命周期。Web 主入口以有界、visible-first 的 CookSession 尽早发布独立可绘制的 immutable bootstrap Product；丰富版通过完整新 revision 替换，不改写已发布的 Group/Page。普通 Scene、公开加载入口和最终生产 consumer 完成 Product cutover 后删除 V2 geometry 生产路径。
 
 “完成”的必要条件是 Nyx 算法的源函数/Shader entry point、决策分支和不变量得到可追溯移植与下游消费证明，而不是语言、图形 API、内存布局或输出字节逐行相同；平台限制若无法保持核心语义，暂停相应切片请求方向确认，不用简化实现顶替。

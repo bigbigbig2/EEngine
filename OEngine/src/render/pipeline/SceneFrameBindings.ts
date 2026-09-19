@@ -25,7 +25,7 @@ export function resolveFrameSceneOwners<
   if (runtime === null) {
     throw new Error(
       `Scene ${scene.id ?? "<unknown>"} has no GPU Render World registration; ` +
-      "call uploadScene() with cooked geometry packages before render()"
+      "call uploadProductScene(), uploadWebCookedScene(), or uploadOegPackScene() before render()"
     );
   }
   const environment = environments.obtain(scene);

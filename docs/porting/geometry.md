@@ -1,5 +1,9 @@
 # Geometry
 
+## S6 consumer mapping (2026-09-19)
+
+S6 changes only production ownership and entry topology; it does not replace or shorten the Nyx geometry stages. `load_gltf()` now reaches the Web Product Runtime, while `GeometryAssetPackage`/`GeometryCooker` symbols that remain in the tree are explicitly internal oracle/ABI/test consumers. The public entry audit and the browser replacement/device-loss cases prove the Product publication and recovery consumers; they do not claim that every retained oracle module is a production route or that the original DX12 byte layout is reproduced.
+
 ## GEO-NYX-OEG3 · Nyx Native Geometry Cooker / Runtime Page ABI
 
 - Local owner/source: `OEngine/tools/oengine-asset-core/`、`OEngine/src/assets/GeometryAbiV3.ts`、`OEngine/src/assets/OegPackV3.ts`、`OEngine/src/assets/geometry-product/OegPackProductAsset.ts`、`OEngine/src/assets/geometry-product/OegPackSceneManifestV3.ts`、`OEngine/src/gpu/VirtualGeometryResidency.ts`、`OEngine/src/shaders/oegpack_v3_decode.ts`。

@@ -37,7 +37,44 @@ import {
   parsePunctualLight
 } from "./gltf/gltfLights.js";
 import { WebCookRuntimeAsset } from "../assets/web-cook/WebCookRuntimeAsset.js";
-import type { WebCookClientOptions } from "../assets/web-cook/WebCookClient.js";
+import type { WebCookClientOptions, WebCookSceneCatalogSnapshot } from "../assets/web-cook/WebCookClient.js";
+import { createDefaultWebCookWorker } from "../assets/web-cook/WebCookWorkerFactory.js";
+import type { WebCookWorkerPort } from "../assets/web-cook/WebCookWorkerTransport.js";
+import { WebCookBudgetLedger } from "../assets/web-cook/WebCookBudget.js";
+import type { WebCookBudgets, WebCookRuntimeProfile } from "../assets/web-cook/protocol/CookSessionProtocol.js";
+import type { GlbRangeSourceOptions } from "./gltf/streaming/GlbRangeSource.js";
+
+/** Options for the public Product-first glTF facade. */
+export interface LoadGltfOptions {
+  readonly worker?: WebCookWorkerPort;
+  readonly sessionId?: string;
+  readonly sessionGeneration?: number;
+  readonly runtimeProfile?: WebCookRuntimeProfile;
+  readonly budgets?: Partial<WebCookBudgets>;
+  readonly recipe?: Readonly<Record<string, unknown>>;
+  readonly initialOutputPageCredits?: number;
+  readonly maxBufferedPages?: number;
+  readonly maxBufferedBytes?: number;
+  readonly ledger?: WebCookBudgetLedger;
+  readonly priority?: number;
+  readonly initialSourcePriorities?: readonly { readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number }[];
+  readonly source?: GlbRangeSourceOptions;
+  readonly onSceneCatalogReady?: (catalog: WebCookSceneCatalogSnapshot) => void;
+}
+
+const DEFAULT_LOAD_GLTF_BUDGETS: WebCookBudgets = Object.freeze({
+  maxConcurrentWorkers: 1,
+  maxSourceBytes: 128 * 1024 * 1024,
+  maxWasmBytes: 128 * 1024 * 1024,
+  maxOutputBytes: 256 * 1024 * 1024,
+  maxQueuedEvents: 1024
+});
+const DEFAULT_LOAD_GLTF_LEDGER = new WebCookBudgetLedger({
+  maxActiveSessions: 4,
+  maxOutputBytes: 512 * 1024 * 1024,
+  maxSourceBytes: 512 * 1024 * 1024,
+  maxWasmBytes: 512 * 1024 * 1024
+});
 
 function buildSceneBundle(doc: GltfDocument): SceneBundle {
   const nodes = doc.nodes!;
@@ -471,22 +508,53 @@ function mergeSourceGeometryGroup(
 }
 
 /**
- * 从 URL 加载 glTF/GLB，并返回可直接加入场景的节点、动画及关联资源集合。
+ * Public Product-first glTF facade.
+ *
+ * The facade owns only the Worker/Product provider. GPU admission and Scene
+ * publication remain explicit `Renderer.uploadWebCookedScene` operations.
+ * This keeps the public load path out of the legacy full-array-buffer
+ * SceneBundle/V2 geometry route.
  */
-export async function load_gltf(
-  url: string,
-  { fileMap }: { fileMap?: GltfFileMap } = {}
-): Promise<SceneBundle> {
-  const n = new GltfLoader();
-  if (fileMap) n.fileMap = fileMap;
-  const doc = await n.loadFromUrl(url);
-  return buildSceneBundle(doc);
+export function load_gltf(
+  source: string | Blob,
+  options: LoadGltfOptions = {}
+): WebCookRuntimeAsset {
+  const budgets: WebCookBudgets = Object.freeze({
+    ...DEFAULT_LOAD_GLTF_BUDGETS,
+    ...(options.budgets ?? {})
+  });
+  const worker = options.worker ?? createDefaultWebCookWorker({
+    maxCanonicalInputBytes: budgets.maxSourceBytes,
+    maxDecodedProductBytes: budgets.maxOutputBytes,
+    runtimeProfile: options.runtimeProfile,
+    maxWorkers: budgets.maxConcurrentWorkers
+  });
+  const sessionId = options.sessionId ?? `load-gltf-${crypto.randomUUID()}`;
+  const sessionGeneration = options.sessionGeneration ?? 1;
+  const initialOutputPageCredits = options.initialOutputPageCredits ?? 64;
+  return load_gltf_web_product(source, {
+    worker,
+    sessionId,
+    sessionGeneration,
+    runtimeProfile: options.runtimeProfile,
+    budgets,
+    recipe: options.recipe,
+    initialOutputPageCredits,
+    maxBufferedPages: options.maxBufferedPages ?? initialOutputPageCredits,
+    maxBufferedBytes: options.maxBufferedBytes ?? initialOutputPageCredits * 262144,
+    ledger: options.ledger ?? DEFAULT_LOAD_GLTF_LEDGER,
+    priority: options.priority,
+    initialSourcePriorities: options.initialSourcePriorities,
+    source: options.source,
+    onSceneCatalogReady: options.onSceneCatalogReady
+  });
 }
 
 /**
  * Loads glTF into the R2 device-independent Packed seam. Expensive Meshlet,
  * hierarchy and BVH generation remains the Geometry Cooker responsibility.
  */
+/** @internal Legacy oracle/tool route; not exported from the public package. */
 export async function load_gltf_packed(
   url: string,
   { fileMap }: { fileMap?: GltfFileMap } = {}

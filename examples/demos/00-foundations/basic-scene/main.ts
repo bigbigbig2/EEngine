@@ -1,14 +1,13 @@
 import {
   BoxGeometry,
+  cookSceneGeometryProductV1,
+  createDefaultWebGeometryCookerModule,
   Mesh,
   OrbitControls,
   PerspectiveCamera,
   Renderer,
   Scene,
   StandardShadeMaterial,
-  buildBoxSourceGeometry,
-  cookGeometryAssetPackage,
-  createGeometryCookRecipe
 } from "../../../../OEngine/src/index.ts";
 
 function requireElement<T extends Element>(selector: string): T {
@@ -58,12 +57,6 @@ async function start(): Promise<void> {
 
   const scene = new Scene();
   const cubeGeometry = new BoxGeometry(1.5, 1.5, 1.5);
-  const recipe = createGeometryCookRecipe();
-  const cubeAsset = await cookGeometryAssetPackage(
-    buildBoxSourceGeometry(1.5, 1.5, 1.5),
-    recipe
-  );
-
   const cubeMaterial = new StandardShadeMaterial();
   cubeMaterial.is_unlit = true;
   cubeMaterial.diffuse_color.set(0.12, 0.52, 0.92, 1);
@@ -72,9 +65,14 @@ async function start(): Promise<void> {
   cube.name = "Unlit Cube";
   scene.add(cube);
 
-  await renderer.uploadScene(scene, [
-    { geometry: cubeGeometry, asset: cubeAsset.asset }
-  ]);
+  const cooker = await createDefaultWebGeometryCookerModule();
+  const cooked = await cookSceneGeometryProductV1(scene, {
+    module: cooker,
+    producerId: "oengine-basic-scene",
+    producerVersion: "s6-product-cutover",
+    maxDecodedProductBytes: 64 * 1024 * 1024
+  });
+  await renderer.uploadCookedSceneProduct(scene, cooked);
 
   const camera = new PerspectiveCamera();
   camera.near = 0.05;

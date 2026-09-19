@@ -109,7 +109,10 @@ export function buildGlbSceneCatalog(source: GlbRangeReadableSource): GlbSceneCa
   const document = json as GltfCatalogDocument;
   const requiredExtensions = document.extensionsRequired ?? [];
   if (!Array.isArray(requiredExtensions) || requiredExtensions.some(value => typeof value !== "string")) throw new Error("GLB extensionsRequired must be an array of strings");
-  const supportedRequired = new Set(["KHR_texture_transform", "KHR_materials_unlit"]);
+  // EXT_texture_webp is decoded by the same browser createImageBitmap path as
+  // PNG/JPEG payloads; keeping it in the catalog contract lets the Dungeon GLB
+  // reach Product admission instead of failing before any source Range.
+  const supportedRequired = new Set(["KHR_texture_transform", "KHR_materials_unlit", "EXT_texture_webp"]);
   for (const extension of requiredExtensions) if (!supportedRequired.has(extension)) throw new Error(`GLB requires unsupported extension '${extension}'`);
   const nodes = document.nodes ?? [];
   const meshes = document.meshes ?? [];
@@ -196,7 +199,7 @@ interface GltfPrimitive { attributes: Record<string, number>; indices?: number; 
 interface GltfScene { nodes?: number[] }
 interface GltfTextureInfo { index?: unknown; texCoord?: unknown; extensions?: { KHR_texture_transform?: { offset?: unknown; scale?: unknown; rotation?: unknown; texCoord?: unknown } } }
 interface GltfMaterial { alphaMode?: unknown; doubleSided?: unknown; pbrMetallicRoughness?: { baseColorFactor?: unknown; metallicFactor?: unknown; roughnessFactor?: unknown; baseColorTexture?: GltfTextureInfo; metallicRoughnessTexture?: GltfTextureInfo }; normalTexture?: GltfTextureInfo & { scale?: unknown }; occlusionTexture?: GltfTextureInfo & { strength?: unknown }; emissiveTexture?: GltfTextureInfo; emissiveFactor?: unknown; alphaCutoff?: unknown; extensions?: { KHR_materials_unlit?: unknown } }
-interface GltfTexture { source?: unknown; sampler?: unknown }
+interface GltfTexture { source?: unknown; sampler?: unknown; extensions?: { EXT_texture_webp?: { source?: unknown } } }
 interface GltfImage { uri?: unknown; bufferView?: unknown; mimeType?: unknown }
 interface GltfSampler { magFilter?: unknown; minFilter?: unknown; wrapS?: unknown; wrapT?: unknown }
 
@@ -325,13 +328,14 @@ function textureSlot(info: GltfTextureInfo | undefined, textures: readonly GltfT
 
 function textureInfos(document: GltfCatalogDocument): readonly GlbCookTextureInfo[] {
   return Object.freeze((document.textures ?? []).map((texture, index) => {
-    if (!Number.isSafeInteger(texture.source) || (texture.source as number) < 0) {
+    const source = texture.source ?? texture.extensions?.EXT_texture_webp?.source;
+    if (!Number.isSafeInteger(source) || (source as number) < 0) {
       throw new Error(`GLB texture ${index} source is invalid`);
     }
     if (texture.sampler !== undefined && (!Number.isSafeInteger(texture.sampler) || (texture.sampler as number) < 0)) {
       throw new Error(`GLB texture ${index} sampler is invalid`);
     }
-    const image = (document.images ?? [])[texture.source as number];
+    const image = (document.images ?? [])[source as number];
     if (!image) throw new Error(`GLB texture ${index} image source is missing`);
     const sampler = texture.sampler === undefined ? {} : (document.samplers ?? [])[texture.sampler as number];
     if (texture.sampler !== undefined && !sampler) throw new Error(`GLB texture ${index} references missing sampler ${texture.sampler}`);
@@ -341,7 +345,7 @@ function textureInfos(document: GltfCatalogDocument): readonly GlbCookTextureInf
     if (sampler?.wrapT !== undefined && ![33071, 33648, 10497].includes(sampler.wrapT as number)) throw new Error(`GLB texture ${index} sampler wrapT is invalid`);
     return Object.freeze({
       textureIndex: index,
-      sourceIndex: texture.source as number,
+      sourceIndex: source as number,
       sampler: Object.freeze({
         ...(sampler?.magFilter === undefined ? {} : { magFilter: sampler.magFilter as number }),
         ...(sampler?.minFilter === undefined ? {} : { minFilter: sampler.minFilter as number }),

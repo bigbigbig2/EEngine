@@ -119,7 +119,7 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
 try {
   controller.transition("negotiating");
   requireValue(navigator.gpu && window.isSecureContext, "WebGPU secure context unavailable");
-  renderer = new Renderer({ debug: false, requiredLimits: { maxStorageBuffersPerShaderStage: 14 }, renderSettings: { features: { shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false } } });
+  renderer = new Renderer({ debug: false, requiredLimits: { maxStorageBuffersPerShaderStage: 16 }, renderSettings: { features: { shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false } } });
   const context = canvas.getContext("webgpu"); requireValue(context, "WebGPU canvas context unavailable");
   const configure = context.configure.bind(context); Object.defineProperty(context, "configure", { configurable: true, value: (config: GPUCanvasConfiguration) => configure({ ...config, usage: (config.usage ?? GPUTextureUsage.RENDER_ATTACHMENT) | GPUTextureUsage.COPY_SRC }) });
   await renderer.initialize({ context, pixelRatio: 1 });

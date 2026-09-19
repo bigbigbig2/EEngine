@@ -83,6 +83,8 @@ export interface VirtualGeometryGeometryProfile {
 }
 
 export interface VirtualGeometrySceneSource {
+  /** Optional CPU Scene identity for explicit transform/material patching. */
+  readonly meshes?: readonly Mesh[];
   readonly materials: readonly StandardShadeMaterial[];
   readonly geometryProfiles: readonly Readonly<VirtualGeometryGeometryProfile>[];
   readonly assetCount: number;
@@ -121,6 +123,7 @@ export interface GpuRenderWorldEvidence {
   readonly sceneCount: number;
   readonly packedSourceCount: number;
   readonly ordinarySceneAdapterCount: number;
+  readonly virtualProductSceneCount: number;
   readonly ordinaryScenePatchCount: number;
   readonly ordinarySceneStableFrameCount: number;
   readonly ordinarySceneFullResyncRequiredCount: number;
@@ -470,7 +473,7 @@ export class GpuRenderWorld {
       },
       [],
       command,
-      undefined,
+      source.meshes,
       {
         bindings,
         assetCount: source.assetCount,
@@ -781,11 +784,13 @@ export class GpuRenderWorld {
       hierarchyVisibleClusterCapacity += runtime.hierarchyVisibleClusterCapacity;
       hierarchyRasterWorkCapacity += runtime.hierarchyRasterWorkCapacity;
     }
+    const runtimes = [...this.byScene.values()];
     return Object.freeze({
       schemaVersion: 3,
       sceneCount: this.byScene.size,
-      packedSourceCount: this.byScene.size - this.ordinaryAdapters.size,
-      ordinarySceneAdapterCount: this.ordinaryAdapters.size,
+      packedSourceCount: runtimes.filter((runtime) => runtime.sourceKind === "packed").length,
+      ordinarySceneAdapterCount: runtimes.filter((runtime) => runtime.sourceKind === "ordinary-scene").length,
+      virtualProductSceneCount: runtimes.filter((runtime) => runtime.sourceKind === "virtual-product").length,
       ordinaryScenePatchCount: this.ordinaryScenePatchCount,
       ordinarySceneStableFrameCount: this.ordinarySceneStableFrameCount,
       ordinarySceneFullResyncRequiredCount: this.ordinarySceneFullResyncRequiredCount,

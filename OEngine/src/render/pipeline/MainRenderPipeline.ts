@@ -149,6 +149,8 @@ import type { WebCookSceneCatalogSnapshot } from "../../assets/web-cook/WebCookC
 import type { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import { createWebCookSceneSourceAsync } from "../../assets/web-cook/WebCookSceneSource.js";
 import { createOegPackSceneSource } from "../../assets/geometry-product/OegPackSceneSourceV1.js";
+import { buildVirtualGeometrySceneSourceV1 } from "../../assets/geometry-product/VirtualGeometrySceneSourceV1.js";
+import type { CookedSceneGeometryProductV1 } from "../../assets/geometry-product/SceneGeometryCanonicalizerV1.js";
 import type { OegPackProductAsset } from "../../assets/geometry-product/OegPackProductAsset.js";
 import type { GeometryProductDescriptorV1, GeometryProductProviderV1 } from "../../assets/geometry-product/GeometryProductV1.js";
 import type { VirtualGeometrySceneSourceResultV1 } from "../../assets/geometry-product/VirtualGeometrySceneSourceV1.js";
@@ -991,8 +993,8 @@ export class MainRenderPipeline {
   }
 
   /**
-   * Uploads already-cooked packages and one compact Instance set as explicit
-   * one-shot tool commands. Stable render frames never repeat this work.
+   * @internal Legacy V2 oracle/tool route. Production callers must use
+   * uploadProductScene(), uploadWebCookedScene(), or uploadOegPackScene().
    */
   async uploadPackedScene(
     scene: Scene,
@@ -1002,9 +1004,9 @@ export class MainRenderPipeline {
   }
 
   /**
-   * Registers an ordinary Application Scene through the unified GPU Render
-   * World. Geometry must already be cooked; the renderer never cooks in the
-   * frame loop and the adapter owns no GPU resources.
+   * @internal Legacy V2 compatibility/oracle route. Ordinary production
+   * Scenes must be cooked with cookSceneGeometryProductV1() and published via
+   * uploadCookedSceneProduct().
    */
   async uploadScene(
     scene: Scene,
@@ -1012,6 +1014,37 @@ export class MainRenderPipeline {
   ): Promise<GpuRenderWorldHandle> {
     const adapted = createPackedSceneSourceFromScene(scene, geometryAssets);
     return this.uploadRenderWorldSource(scene, adapted.source, adapted.meshes);
+  }
+
+  /**
+   * Publishes an ordinary CPU Scene that has already been canonicalized and
+   * cooked by the Product WASM path. This is the replacement for the old
+   * GeometryAssetPackage Scene adapter; admission, residency, shadow and
+   * recovery remain the same Product path used by Web and OEGPACK producers.
+   */
+  async uploadCookedSceneProduct(
+    scene: Scene,
+    cooked: CookedSceneGeometryProductV1,
+    options: Readonly<{ fitHeight?: number; fitBase?: readonly [number, number, number]; signal?: AbortSignal }> = {}
+  ): Promise<ProductSceneHandles> {
+    const sourceMapper: ProductSceneSourceMapper = ({ descriptor }) => {
+      if (options.signal?.aborted) throw options.signal.reason ?? new DOMException("The operation was aborted", "AbortError");
+      const mapped = buildVirtualGeometrySceneSourceV1(
+        descriptor.assetRecords,
+        cooked.canonicalization.profiles,
+        cooked.canonicalization.instances,
+        cooked.canonicalization.materials,
+        { fitHeight: options.fitHeight, fitBase: options.fitBase }
+      );
+      return Object.freeze({
+        materials: mapped.materials,
+        source: Object.freeze({
+          ...mapped.source,
+          meshes: Object.freeze([...scene.instances.instances])
+        })
+      });
+    };
+    return this.uploadProductScene(scene, cooked.provider, sourceMapper, { signal: options.signal });
   }
 
   /**
@@ -1326,7 +1359,7 @@ export class MainRenderPipeline {
     return this._environments.get(scene)?.volumetric_light_map.evidence() ?? null;
   }
 
-  /** Explicit structural full-resync for add/remove or geometry changes. */
+  /** @internal Legacy V2 structural full-resync; Product revisions replace it. */
   async resyncScene(
     scene: Scene,
     geometryAssets: readonly SceneGeometryAssetBinding[]
@@ -2121,7 +2154,7 @@ export class MainRenderPipeline {
         source: state.source,
         productGeneration: state.residency.productGeneration,
         productTableSlot: state.residency.productTableSlot,
-        sceneSource: state.sceneSource,
+        sceneSource: refreshProductSceneSourceForRecovery(scene, state.sceneSource),
         streamingEnabled: state.streamingEnabled
       });
       // The old device is already lost. Retain the external Product source,
@@ -2217,7 +2250,7 @@ export class MainRenderPipeline {
     if (registeredRuntime === null) {
       throw new Error(
         `Scene ${scene.id ?? "<unknown>"} has no GPU Render World registration; ` +
-        "call uploadScene() with cooked geometry packages before render()"
+        "call uploadProductScene(), uploadWebCookedScene(), or uploadOegPackScene() before render()"
       );
     }
     const nextShadingPublication =
@@ -5593,6 +5626,38 @@ function validateRendererWgslLanguageFeatures(gpu: GPU): void {
       "for Tier 1 storage texture formats"
     );
   }
+}
+
+/**
+ * Rebuilds only the CPU instance columns for a Product-backed Scene before a
+ * device-loss restore. Product pages and identity stay untouched; this is the
+ * same explicit transform/material patch truth that the live adapter consumes.
+ */
+function refreshProductSceneSourceForRecovery(
+  scene: Scene,
+  source: VirtualGeometrySceneSource
+): VirtualGeometrySceneSource {
+  const meshes = source.meshes;
+  if (meshes === undefined) return source;
+  scene.updateMatrices();
+  if (meshes.length !== source.count) {
+    throw new Error(`Product Scene recovery mesh count ${meshes.length} does not match source count ${source.count}`);
+  }
+  const currentTransforms = new Float32Array(source.count * 16);
+  const materialIndices = new Uint32Array(source.count);
+  for (let index = 0; index < meshes.length; index++) {
+    currentTransforms.set(meshes[index]!.transform_global.matrix, index * 16);
+    const materialIndex = source.materials.indexOf(meshes[index]!.material as StandardShadeMaterial);
+    if (materialIndex < 0) throw new Error(`Product Scene recovery mesh ${meshes[index]!.id} uses a material outside the Product dictionary`);
+    materialIndices[index] = materialIndex;
+  }
+  return Object.freeze({
+    ...source,
+    meshes,
+    materialIndices,
+    currentTransforms,
+    previousTransforms: currentTransforms.slice()
+  });
 }
 
 /** Waits for the first active Web Cook Product revision without blocking a frame. */

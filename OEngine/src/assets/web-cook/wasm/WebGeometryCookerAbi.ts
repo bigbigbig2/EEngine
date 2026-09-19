@@ -77,6 +77,25 @@ export interface EmscriptenWebGeometryCookerModuleV1 {
   _oengine_web_geometry_cook_copy_last_error(output: number, outputBytes: number): number;
 }
 
+/**
+ * Creates the pinned Nyx-derived cooker for an explicit main-thread/tool
+ * Product cook. Runtime GLB loading continues to use the bounded Worker
+ * factory; this helper is reserved for procedural Scene and validation paths
+ * that deliberately own the cook call.
+ */
+export async function createDefaultWebGeometryCookerModule(): Promise<EmscriptenWebGeometryCookerModuleV1> {
+  const moduleUrl = new URL("./vendor/oengine-web-geometry-cooker.mjs", import.meta.url);
+  const wasmUrl = new URL("./vendor/oengine-web-geometry-cooker.wasm", import.meta.url);
+  const loaded = await import(/* @vite-ignore */ moduleUrl.href) as {
+    default?: (options?: Readonly<Record<string, unknown>>) => Promise<EmscriptenWebGeometryCookerModuleV1>;
+  };
+  const factory = loaded.default;
+  if (factory === undefined) throw new Error("Web geometry cooker module has no default factory");
+  return factory({
+    locateFile: (file: string) => file.endsWith(".wasm") ? wasmUrl.href : new URL(file, moduleUrl).href
+  });
+}
+
 export function encodeWebCanonicalGeometryV1(domains: readonly WebCanonicalGeometryDomainV1[]): ArrayBuffer {
   if (domains.length === 0 || domains.length > 0xffffffff) throw new RangeError("canonical geometry requires a non-empty u32 domain count");
   let vertexCount = 0, indexCount = 0;

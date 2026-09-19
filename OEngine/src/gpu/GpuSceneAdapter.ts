@@ -32,10 +32,10 @@ export interface AdaptedSceneSource {
 }
 
 /**
- * Converts an ordinary Application Scene into the same device-independent
- * source accepted by the authoritative GPU Render World. This function owns
- * no GPU object and never invokes the cooker: callers must supply validated,
- * already-cooked packages explicitly.
+ * Legacy ordinary-Scene adapter for the pre-Product package path. New public
+ * loading and Product Scene publication must use SceneGeometryCanonicalizerV1
+ * plus Renderer.uploadCookedSceneProduct; this adapter remains only for
+ * compatibility/oracle callers until the final V2 owner deletion slice.
  */
 export function createPackedSceneSourceFromScene(
   scene: Scene,

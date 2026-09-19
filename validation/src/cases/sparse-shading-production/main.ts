@@ -1,6 +1,6 @@
 import {
   BoxGeometry, Mesh, PerspectiveCamera, Renderer, Scene, StandardShadeMaterial,
-  buildBoxSourceGeometry, cookGeometryAssetPackage, createGeometryCookRecipe
+  cookSceneGeometryProductV1, createDefaultWebGeometryCookerModule
 } from "../../../../OEngine/src/index.ts";
 import { createValidationController } from "../../host/protocol.ts";
 import { attachGpuErrorCollection, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits, withGpuErrorScopes } from "../../host/webgpu.ts";
@@ -99,7 +99,7 @@ try {
   controller.transition("negotiating");
   if (!navigator.gpu || !window.isSecureContext) controller.unsupported("WebGPU secure context unavailable");
   else {
-    renderer = new Renderer({ debug: false, renderSettings: { features: OFF } });
+    renderer = new Renderer({ debug: false, requiredLimits: { maxStorageBuffersPerShaderStage: 16 }, renderSettings: { features: OFF } });
     const context = canvas.getContext("webgpu");
     require(context, "WebGPU canvas context unavailable");
     const configureCanvas = context.configure.bind(context);
@@ -111,7 +111,6 @@ try {
     renderer.resize(1280, 720);
     const scene = new Scene();
     const geometry = new BoxGeometry(1.5, 1.5, 1.5);
-    const cooked = await cookGeometryAssetPackage(buildBoxSourceGeometry(1.5, 1.5, 1.5), createGeometryCookRecipe());
     const material = new StandardShadeMaterial();
     material.is_unlit = true;
     material.diffuse_color.set(0.12, 0.52, 0.92, 1);
@@ -135,7 +134,14 @@ try {
     const classifierMesh = Mesh.from(geometry, classifierMaterial);
     classifierMesh.transform_local.position.set(200, 0, 0);
     scene.add(classifierMesh);
-    await renderer.uploadScene(scene, [{ geometry, asset: cooked.asset }]);
+    const cooker = await createDefaultWebGeometryCookerModule();
+    const cooked = await cookSceneGeometryProductV1(scene, {
+      module: cooker,
+      producerId: "oengine-sparse-shading-production",
+      producerVersion: "s6-product-cutover",
+      maxDecodedProductBytes: 64 * 1024 * 1024
+    });
+    await renderer.uploadCookedSceneProduct(scene, cooked);
     const camera = new PerspectiveCamera();
     camera.near = 0.05; camera.aspect = 1280 / 720;
     camera.transform.position.set(0, 0, 4); camera.transform.lookAt({ x: 0, y: 0, z: 0 }); camera.update();

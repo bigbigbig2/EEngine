@@ -21,7 +21,7 @@ source asset
 | --- | --- | --- |
 | Runtime Asset | `src/assets`、`src/loaders` | 设备无关 package、内容身份、校验、range read 和 codec preparation |
 | OEGPACK V3 / Geometry Product | `GeometryAbiV3.ts`、`OegPackV3.ts`、`assets/geometry-product/` | V3 metadata/page 解析、producer-neutral descriptor/page validation、OEGPACK Product adapter；Offline 已经共享 admission/residency 和 production Visibility consumer |
-| Web Runtime Cooker | `loaders/gltf/streaming/`、`assets/web-cook/`、`tools/oengine-web-geometry-cooker/` | GLB Range/catalog、CookSession whole-page credit、GLB primitive canonicalizer、Nyx C++/Emscripten WASM artifact、Dedicated Worker 与 live Product provider；真实 GLB 已经进入共同 GPU consumer，但当前仍以整场景 canonicalize/cook 为首个 Product 的前置条件 |
+| Web Runtime Cooker | `loaders/gltf/streaming/`、`assets/web-cook/`、`tools/oengine-web-geometry-cooker/` | GLB Range/catalog、CookSession whole-page credit、GLB primitive canonicalizer、Nyx C++/Emscripten WASM artifact、Dedicated Worker 与 live Product provider；公开 `load_gltf()` 和普通 Scene 已进入共同 Product consumer |
 | GPU 资产 | `GpuAssetStore.ts`、`TextureResidency.ts`、`VirtualGeometryResidency.ts` | GPU allocation、稳定 handle/generation、Product activation/page heap、demand/readback/upload/eviction；失败换版原子性与全局 bank 容量尚待重构 |
 | Scene 与实例 | `GpuScene.ts`、`GpuRenderWorld.ts` | Packed instance、显式 patch、资产/材质关联与原子 publication |
 | GPU 工作/可见性 | `GpuWorkGenerationAbi.ts`、`GpuVisibilityKeyAbi.ts` 及 work/visibility owners | hierarchy/culling、容量和 overflow、indirect work、VisibilityKey |
@@ -35,7 +35,7 @@ source asset
 
 Runtime Asset 是设备无关事实；GPU owner 由 Renderer/device 生命周期控制。Loader、Scene 临时对象和 FrameGraph 外部引用不得隐式延长 GPU 资源寿命。
 
-生产几何目前有 Product 与旧 V2 package 两种资产来源，二者都进入现有 GPU hierarchy/work/visibility 主管线，不另建 renderer backend。Web WASM 与 Offline OEGPACK Product 已有真实浏览器 consumer 证据；普通 Scene 和默认 `load_gltf()` 仍需 cutover，随后删除 V2 geometry owner/路径。具体开放问题见 [0016 后续计划](./implementation/0016-remaining-work-plan.md)。
+生产几何的公开来源是 Web/Offline Geometry Product，二者进入同一 GPU hierarchy/work/visibility 主管线，不另建 renderer backend。旧 V2 geometry package 仅保留在内部 oracle、shader ABI 和底层测试边界；普通 Scene 与默认 `load_gltf()` 已完成 Product cutover。具体开放问题见 [0016 后续计划](./implementation/0016-remaining-work-plan.md)。
 
 纹理生产路径目前是 TextureAssetPackage V2 + GPU-native variants/KTX2 preparation + `TextureResidency` + 有界 `TextureBindingSet`。Mode A 已在该所有权模型内实现，并由独立 Chrome component case 以 GPU readback 验证 tail/promoted sampling：完整逻辑纹理一次分配、先上传 mip tail、按可用 mip clamp 采样并通过稳定逻辑句柄 promotion；这不等同于真实物理显存释放，也不等同于 production-path 完成。Mode B/Virtual Texturing 仍需独立的 allocation 证据和 spec，不以“V3”名义重写已经有效的材质和绑定体系。
 
@@ -64,6 +64,12 @@ Subset Product 携带经过校验的 `sceneAssetIndices`，统一 Scene mapper �
 
 Geometry Product V1 now has a live internal consumer in the unified GPU path:
 `GpuScene -> GpuRenderWorld -> hierarchy/work -> MeshletBucketRaster -> VisibilityKey -> Sparse Shading`. Packed CSM uses the same Product generation and resident banks. Real GLB/Offline browser cases, the Emscripten Worker artifact and the accepted authored-texture case exist; these do not prove visible-first large-scene PERF or final V2 cutover.
+
+## S6 Consumer Cutover (2026-09-19)
+
+The current public loading path is Product-first: `load_gltf()` opens the Web Product Runtime, and the Web and Offline/OEGPACK producers publish through the same Product admission, residency, scene mapping, main/shadow visibility and device-loss recovery path. The migrated examples and validation cases no longer construct or upload the legacy GeometryPackage route. Public exports are audited to exclude `load_gltf_packed`, `cookGeometryAssetPackage` and `openGeometryAssetPackage`.
+
+Legacy `GeometryAssetPackage`, `GeometryCooker` and related GPU store code remain only where an internal shader/oracle/ABI test still consumes them. They are not public production entry points and are not a second renderer. Removing those remaining modules is a separate source/compiled/browser audit gate, not a condition silently satisfied by their continued existence.
 ## glTF 作者材质生产连接（第三步，2026-09-19）
 
 Web GLB/glTF source 已支持有界 Range/200 fallback、外部 buffer/image、data URI、File/Blob object URL、sparse accessor 和取消释放。`GlbSceneCatalog`/Web Cook catalog snapshot 只传播 image/texture/sampler/UV/PBR 元数据；image bytes 不进入 Geometry Product ABI。
