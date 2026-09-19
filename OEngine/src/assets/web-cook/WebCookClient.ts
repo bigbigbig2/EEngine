@@ -3,6 +3,7 @@ import type { WebCookBudgetEvidence, WebCookBudgetLease, WebCookBudgetLedger } f
 import {
   WEB_COOK_PAGE_BYTES,
   WEB_COOK_PROTOCOL_VERSION,
+  type WebCookBootstrapOptions,
   type WebCookBudgets,
   type WebCookCommand,
   type WebCookRuntimeProfile
@@ -70,6 +71,8 @@ export interface WebCookClientOptions {
   readonly priority?: number;
   /** Applied immediately after catalog metadata arrives, before BIN cooking. */
   readonly initialSourcePriorities?: readonly { readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number }[];
+  /** Bounds the first Product cut. Omit both fields to use the automatic selection. */
+  readonly bootstrap?: WebCookBootstrapOptions;
   /** Main-thread source options used only for bounded authored-image preflight. */
   readonly source?: GlbRangeSourceOptions;
 }
@@ -174,7 +177,8 @@ export class WebCookClient implements GeometryProductProviderV1 {
         type: "CreateSession",
         runtimeProfile: this.#options.runtimeProfile ?? "portable-single",
         recipe: this.#options.recipe ?? {},
-        budgets: this.#options.budgets
+        budgets: this.#options.budgets,
+        ...(this.#options.bootstrap === undefined ? {} : { bootstrap: this.#options.bootstrap })
       });
       this.#send({ type: "GrantOutputCredits", blockCount: this.#options.initialOutputPageCredits, bytes: this.#options.initialOutputPageCredits * WEB_COOK_PAGE_BYTES });
       this.#send({ type: "OpenSource", source: { url } });
@@ -331,4 +335,8 @@ function validateOptions(options: WebCookClientOptions): void {
   for (const priority of options.initialSourcePriorities ?? []) {
     if (!priority.assetKey || !Number.isFinite(priority.score) || !Number.isInteger(priority.cameraHintRevision) || priority.cameraHintRevision < 0) throw new RangeError("initial source priority is invalid");
   }
+  const bootstrap = options.bootstrap;
+  if (bootstrap?.unitCount !== undefined && (!Number.isSafeInteger(bootstrap.unitCount) || bootstrap.unitCount <= 0)) throw new RangeError("bootstrap unitCount must be a positive safe integer");
+  if (bootstrap?.maxSourceBytes !== undefined && (!Number.isSafeInteger(bootstrap.maxSourceBytes) || bootstrap.maxSourceBytes <= 0)) throw new RangeError("bootstrap maxSourceBytes must be a positive safe integer");
+  if (bootstrap?.maxSourceBytes !== undefined && bootstrap.maxSourceBytes > options.budgets.maxWasmBytes) throw new RangeError("bootstrap maxSourceBytes exceeds the session WASM budget");
 }

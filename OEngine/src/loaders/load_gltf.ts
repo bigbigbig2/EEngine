@@ -41,7 +41,7 @@ import type { WebCookClientOptions, WebCookSceneCatalogSnapshot } from "../asset
 import { createDefaultWebCookWorker } from "../assets/web-cook/WebCookWorkerFactory.js";
 import type { WebCookWorkerPort } from "../assets/web-cook/WebCookWorkerTransport.js";
 import { WebCookBudgetLedger } from "../assets/web-cook/WebCookBudget.js";
-import type { WebCookBudgets, WebCookRuntimeProfile } from "../assets/web-cook/protocol/CookSessionProtocol.js";
+import type { WebCookBudgets, WebCookBootstrapOptions, WebCookRuntimeProfile } from "../assets/web-cook/protocol/CookSessionProtocol.js";
 import type { GlbRangeSourceOptions } from "./gltf/streaming/GlbRangeSource.js";
 
 /** Options for the public Product-first glTF facade. */
@@ -58,6 +58,8 @@ export interface LoadGltfOptions {
   readonly ledger?: WebCookBudgetLedger;
   readonly priority?: number;
   readonly initialSourcePriorities?: readonly { readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number }[];
+  /** Bounds the first Product cut; omit to use the visibility-driven automatic selection. */
+  readonly bootstrap?: WebCookBootstrapOptions;
   readonly source?: GlbRangeSourceOptions;
   readonly onSceneCatalogReady?: (catalog: WebCookSceneCatalogSnapshot) => void;
 }
@@ -545,6 +547,7 @@ export function load_gltf(
     ledger: options.ledger ?? DEFAULT_LOAD_GLTF_LEDGER,
     priority: options.priority,
     initialSourcePriorities: options.initialSourcePriorities,
+    bootstrap: options.bootstrap,
     source: options.source,
     onSceneCatalogReady: options.onSceneCatalogReady
   });

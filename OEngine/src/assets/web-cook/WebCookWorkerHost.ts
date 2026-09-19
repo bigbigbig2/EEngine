@@ -94,10 +94,13 @@ export class WebCookWorkerHost {
     if (this.#coordinator || this.#running) throw new Error("Web Cook Worker already owns a session");
     this.#sessionId = command.sessionId;
     this.#generation = command.sessionGeneration;
+    const bootstrap = command.bootstrap;
     this.#coordinator = new WebCookCoordinator(command.sessionId, command.sessionGeneration, {
       budgets: command.budgets,
       runtimeProfile: command.runtimeProfile,
       recipe: command.recipe,
+      ...(bootstrap?.unitCount === undefined ? {} : { bootstrapUnitCount: bootstrap.unitCount }),
+      ...(bootstrap?.maxSourceBytes === undefined ? {} : { bootstrapMaxSourceBytes: bootstrap.maxSourceBytes }),
       source: this.#options.source,
       cooker: this.#options.cooker,
       onEvent: () => this.#flushEvents()

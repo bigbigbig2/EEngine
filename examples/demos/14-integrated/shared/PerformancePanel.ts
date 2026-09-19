@@ -8,7 +8,7 @@ interface PanelOptions {
   canvas: HTMLCanvasElement;
   variant: "basic" | "full";
   comparisonExampleId: string;
-  scene: { model: string; instances: number; geometries: number; materials: number };
+  scene: { model: string; instances: number; geometries: number; materials: number; refining?: boolean };
   resetCamera: () => void;
 }
 type Conditions = ReturnType<PerformancePanel["conditions"]>;
@@ -322,7 +322,7 @@ export class PerformancePanel {
     const adapter = Object.values(condition.adapter ?? {}).filter((value) => typeof value === "string" && value).join(" · ") || "未提供 adapter identity";
     this.view("conditions", keyValues([
       ["GPU", adapter], ["Internal / Output", `${condition.internalExtent.join("×")} / ${condition.outputExtent.join("×")}`],
-      ["CSS / DPR", `${condition.cssExtent.join("×")} / ${condition.dpr}`], ["模型实例 / 几何 / 材质", `${condition.scene.instances} / ${condition.scene.geometries} / ${condition.scene.materials}`],
+      ["CSS / DPR", `${condition.cssExtent.join("×")} / ${condition.dpr}`], ["模型实例 / 几何 / 材质", `${condition.scene.instances} / ${condition.scene.geometries} / ${condition.scene.materials}${condition.scene.refining === true ? " · 精化中" : ""}`],
       ["视角 position", condition.camera.position.map((n) => n.toFixed(3)).join(", ")], ["视角 target", condition.camera.target.map((n) => n.toFixed(3)).join(", ")],
       ["GPU / Counter cadence", `每 ${condition.instrumentation.gpuInterval} / ${condition.instrumentation.counterInterval} 帧`],
       ["GPU timestamp", this.options.renderer.profiler.gpuTimestampAvailable ? "可用" : "不可用"], ["统计窗口", this.result ? "已完成记录（固定）" : `最近 ${frames.length} 帧`]

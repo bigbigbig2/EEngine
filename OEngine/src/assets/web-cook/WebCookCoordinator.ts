@@ -2,7 +2,7 @@ import { buildGlbSceneCatalog, type GlbByteRange, type GlbCookPrimitive, type Gl
 import { openGlbRangeSource, type GlbRangeReadableSource, type GlbRangeSourceOptions } from "../../loaders/gltf/streaming/GlbRangeSource.js";
 import { decodeGeometryProductDescriptorBinaryV1 } from "../geometry-product/GeometryProductBinaryV1.js";
 import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
-import { WebCookSessionProtocol, WEB_COOK_PAGE_BYTES, WEB_COOK_PROTOCOL_VERSION, type WebCookBudgets, type WebCookEvent, type WebCookRuntimeProfile } from "./protocol/CookSessionProtocol.js";
+import { WebCookSessionProtocol, WEB_COOK_PAGE_BYTES, WEB_COOK_PROTOCOL_VERSION, type WebCookBootstrapOptions, type WebCookBudgets, type WebCookEvent, type WebCookRuntimeProfile } from "./protocol/CookSessionProtocol.js";
 
 export interface WebCookUnitContext {
   readonly source: GlbRangeReadableSource;
@@ -62,10 +62,12 @@ export interface WebCookCoordinatorOptions {
   readonly cooker: WebRuntimeCooker;
   /** Invoked after each queued session event so the Worker can flush before awaiting output credit. */
   readonly onEvent?: () => void;
-  /** Number of priority-selected catalog units in the first Product cut. */
+  /** Explicit unit count for the first Product cut; overrides the automatic selection. */
   readonly bootstrapUnitCount?: number;
-  /** Optional source-byte cap for the first cut; the full refinement is separately bounded by the cooker. */
+  /** Explicit source-byte cap for the first cut; the full refinement is separately bounded by the cooker. */
   readonly bootstrapMaxSourceBytes?: number;
+  /** Optional automatic selector. When present it chooses the first cut; the byte cap still applies. */
+  readonly selectBootstrap?: (catalog: GlbSceneCatalog) => readonly GlbCookPrimitive[];
 }
 
 export interface WebCookCoordinatorEvidence {
@@ -159,6 +161,11 @@ export class WebCookCoordinator {
       this.#bootstrapUnits = bootstrapUnits.length;
       this.#bootstrapSourceBytes = estimateSourceBytes(bootstrapUnits);
       this.#refinementSourceBytes = estimateSourceBytes(units);
+      // The automatic selection is bounded by its own byte cap even when the
+      // caller did not configure one; an explicit count stays caller-governed.
+      if (this.#options.bootstrapUnitCount === undefined && this.#bootstrapSourceBytes > DEFAULT_BOOTSTRAP_SOURCE_BYTES) {
+        throw new Error(`automatic visible-first bootstrap exceeds ${DEFAULT_BOOTSTRAP_SOURCE_BYTES} bytes`);
+      }
       if (this.#options.bootstrapMaxSourceBytes !== undefined && this.#bootstrapSourceBytes > this.#options.bootstrapMaxSourceBytes) {
         throw new Error(`visible-first bootstrap source exceeds bootstrapMaxSourceBytes=${this.#options.bootstrapMaxSourceBytes}`);
       }
@@ -290,12 +297,19 @@ export class WebCookCoordinator {
     return score;
   }
   private selectBootstrapUnits(units: readonly GlbCookPrimitive[]): readonly GlbCookPrimitive[] {
-    const configured = this.#options.bootstrapUnitCount ?? 1;
-    if (!Number.isSafeInteger(configured) || configured <= 0) throw new RangeError("bootstrapUnitCount must be a positive safe integer");
-    const selected: GlbCookPrimitive[] = [];
+    const custom = this.#options.selectBootstrap;
+    const configured = custom ? undefined : this.#options.bootstrapUnitCount;
+    if (configured !== undefined && (!Number.isSafeInteger(configured) || configured <= 0)) throw new RangeError("bootstrapUnitCount must be a positive safe integer");
     const maxBytes = this.#options.bootstrapMaxSourceBytes;
-    for (const unit of units) {
-      if (selected.length >= configured) break;
+    // An explicit unit count keeps the original "first N priority units"
+    // contract so a caller can still pin an exact cut.
+    const candidates = configured !== undefined
+      ? units.slice(0, configured)
+      : custom
+        ? [...custom(this.#catalog!)].sort(comparePrimitiveOrder)
+        : defaultBootstrapSelection(units);
+    const selected: GlbCookPrimitive[] = [];
+    for (const unit of candidates) {
       const nextBytes = estimateSourceBytes([...selected, unit]);
       if (maxBytes !== undefined && nextBytes > maxBytes) {
         if (selected.length === 0) throw new Error(`visible-first bootstrap source exceeds bootstrapMaxSourceBytes=${maxBytes}`);
@@ -350,3 +364,43 @@ function estimateSourceBytes(units: readonly GlbCookPrimitive[]): number {
 
 function primitiveKey(unit: GlbCookPrimitive): string { return `${unit.nodeIndex}:${unit.meshIndex}:${unit.primitiveIndex}`; }
 function comparePrimitiveOrder(left: GlbCookPrimitive, right: GlbCookPrimitive): number { return left.nodeIndex - right.nodeIndex || left.meshIndex - right.meshIndex || left.primitiveIndex - right.primitiveIndex; }
+
+/**
+ * Bounded budget for the automatic first cut. The bootstrap revision only needs
+ * to make the scene legible while refinement converges, so it is capped by both
+ * a primitive count and the canonical source it may pull.
+ */
+const DEFAULT_BOOTSTRAP_UNIT_LIMIT = 24;
+const DEFAULT_BOOTSTRAP_SOURCE_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Chooses the automatic first cut.
+ *
+ * The catalog is ordered by node/mesh/primitive, which has no relation to
+ * visibility: node 0 can be a single pillar while the surrounding level lives in
+ * later nodes. Ordering by spatial coverage instead makes the first frame carry
+ * the scene's extent rather than one arbitrary primitive. Units whose glTF
+ * POSITION bounds are unavailable are treated as worst-case coverage and sorted
+ * last by catalog order, which keeps legacy assets deterministic.
+ */
+function defaultBootstrapSelection(units: readonly GlbCookPrimitive[]): readonly GlbCookPrimitive[] {
+  if (units.length <= DEFAULT_BOOTSTRAP_UNIT_LIMIT) return units;
+  const ranked = units.map((unit, index) => ({ unit, index, coverage: bootstrapCoverage(unit) }));
+  ranked.sort((left, right) => right.coverage - left.coverage || left.index - right.index);
+  const selected = ranked.slice(0, DEFAULT_BOOTSTRAP_UNIT_LIMIT).map(entry => entry.unit);
+  selected.sort(comparePrimitiveOrder);
+  return selected;
+}
+
+function bootstrapCoverage(unit: GlbCookPrimitive): number {
+  const min = unit.boundsMin, max = unit.boundsMax;
+  // POSITION min/max are optional in glTF. Missing bounds mean unknown extent,
+  // not zero extent, so they must never outrank a measured primitive.
+  for (let axis = 0; axis < 3; axis++) {
+    const low = min[axis]!, high = max[axis]!;
+    if (!Number.isFinite(low) || !Number.isFinite(high) || high < low) return -1;
+  }
+  const extent = Math.max(max[0]! - min[0]!, max[1]! - min[1]!, max[2]! - min[2]!);
+  if (!(extent > 0)) return 0;
+  return extent * unit.instanceNodeIndices.length;
+}

@@ -19,8 +19,19 @@ export interface WebCookBudgets {
   readonly maxQueuedEvents: number;
 }
 
+/**
+ * Bounds the first Product cut. `unitCount` selects how many
+ * priority-ordered catalog units the bootstrap revision covers; `maxSourceBytes`
+ * caps its canonical source. Both are optional so the producer can fall back to
+ * the visibility-driven default.
+ */
+export interface WebCookBootstrapOptions {
+  readonly unitCount?: number;
+  readonly maxSourceBytes?: number;
+}
+
 export type WebCookCommand =
-  | (WebCookSessionHeader & { readonly type: "CreateSession"; readonly runtimeProfile: WebCookRuntimeProfile; readonly recipe: Readonly<Record<string, unknown>>; readonly budgets: WebCookBudgets })
+  | (WebCookSessionHeader & { readonly type: "CreateSession"; readonly runtimeProfile: WebCookRuntimeProfile; readonly recipe: Readonly<Record<string, unknown>>; readonly budgets: WebCookBudgets; readonly bootstrap?: WebCookBootstrapOptions })
   | (WebCookSessionHeader & { readonly type: "OpenSource"; readonly source: Readonly<Record<string, unknown>> })
   | (WebCookSessionHeader & { readonly type: "SetSourcePriority"; readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number })
   | (WebCookSessionHeader & { readonly type: "RequestPages"; readonly productId: Uint8Array; readonly revision: number; readonly pageIds: Uint32Array; readonly priority: number })
@@ -66,7 +77,7 @@ export class WebCookSessionProtocol {
 
   accept(command: WebCookCommand): void {
     this.validateHeader(command);
-    if (command.type === "CreateSession") { this.requireState("created"); this.#budgets = validateBudgets(command.budgets); this.#state = "open"; return; }
+    if (command.type === "CreateSession") { this.requireState("created"); this.#budgets = validateBudgets(command.budgets); validateBootstrapOptions(command.bootstrap); this.#state = "open"; return; }
     if (command.type === "OpenSource") { this.requireState("open"); this.#sourceOpened = true; return; }
     if (command.type === "GrantOutputCredits") {
       this.requireState("open");
@@ -124,5 +135,10 @@ export class WebCookSessionProtocol {
 }
 
 function validateBudgets(budgets: WebCookBudgets): WebCookBudgets { for (const [name, value] of Object.entries(budgets)) if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`); return Object.freeze({ ...budgets }); }
+function validateBootstrapOptions(bootstrap: WebCookBootstrapOptions | undefined): void {
+  if (bootstrap === undefined) return;
+  if (bootstrap.unitCount !== undefined && (!Number.isSafeInteger(bootstrap.unitCount) || bootstrap.unitCount <= 0)) throw new RangeError("bootstrap unitCount must be a positive safe integer");
+  if (bootstrap.maxSourceBytes !== undefined && (!Number.isSafeInteger(bootstrap.maxSourceBytes) || bootstrap.maxSourceBytes <= 0)) throw new RangeError("bootstrap maxSourceBytes must be a positive safe integer");
+}
 function maxOutputBytes(events: readonly WebCookEvent[]): number { return events.reduce((sum, event) => sum + (event.type === "PageReady" ? event.bytes.byteLength : 0), 0); }
 import { decodeGeometryProductDescriptorBinaryV1 } from "../../geometry-product/GeometryProductBinaryV1.js";

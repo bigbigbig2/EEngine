@@ -9,7 +9,9 @@ import {
   Scene,
   WebCookBudgetLedger,
   type StandardShadeMaterial,
-  type ProductSceneHandles
+  type ProductSceneHandles,
+  type WebCookRuntimeAsset,
+  type WebCookSceneCatalogSnapshot
 } from "../../../../OEngine/src/index.ts";
 
 import { PerformancePanel } from "./PerformancePanel.ts";
@@ -22,8 +24,6 @@ export interface RenderingLabOptions {
   readonly modelName?: string;
   readonly modelLabel?: string;
   readonly comparisonExampleId?: string;
-  readonly geometryCacheKey?: string;
-  readonly geometryManifestUrl?: string;
 }
 
 type Bounds = {
@@ -63,8 +63,6 @@ let modelUrl = DEFAULT_MODEL_URL;
 let modelName = "dungeon_warkarma.glb";
 let modelLabel = "Dungeon by Warkarma";
 let comparisonExampleId = "rendering-lab";
-let geometryCacheKey: string | undefined;
-let geometryManifestUrl: string | undefined;
 /** Page-global Web Cook budget shared by every Product load on this page. */
 const cookBudget = new WebCookBudgetLedger({ maxActiveSessions: 2, maxOutputBytes: 256 * 1024 * 1024, maxSourceBytes: 256 * 1024 * 1024, maxWasmBytes: 256 * 1024 * 1024 });
 const multiBinFixture = new URLSearchParams(window.location.search).get("multiBin") === "1";
@@ -147,7 +145,7 @@ async function start(): Promise<void> {
   performancePanel = new PerformancePanel({
     renderer: activeRenderer, camera: activeCamera, controls, canvas, variant,
     comparisonExampleId,
-    scene: { model: `${modelName}${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: lab.count, geometries: lab.geometryCount, materials: lab.materials.length },
+    scene: { model: `${modelName}${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: lab.count, geometries: lab.geometryCount, materials: lab.materials.length, refining: true },
     resetCamera: () => {
       activeCamera.transform.position.set(sceneBounds.center[0] + sceneBounds.radius * 1.5, sceneBounds.center[1] + sceneBounds.radius * 0.8, sceneBounds.center[2] + sceneBounds.radius * 1.8);
       activeCamera.transform.lookAt({ x: sceneBounds.center[0], y: sceneBounds.center[1], z: sceneBounds.center[2] });
@@ -177,7 +175,7 @@ async function start(): Promise<void> {
       controls.maxDistance = sceneBounds.radius * 12;
       controls.reset();
     }
-    performancePanel?.updateScene({ model: `${modelName}${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: current.source.count, geometries: current.source.assetCount, materials: current.materials.length });
+    performancePanel?.updateScene({ model: `${modelName}${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: current.source.count, geometries: current.source.assetCount, materials: current.materials.length, refining: false });
     activeRenderer.indicate_view_change();
     setLoading("Ready", `${current.source.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"} · richer Product revision active`, 1);
   }).catch(showFatalError);
@@ -192,6 +190,11 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
   setLoading("Assets", `Loading ${modelLabel} via Web Runtime Cooker...`, 0.1);
   const runtimeProfile = new URLSearchParams(window.location.search).get("profile") === "isolated-pthreads" ? "isolated-pthreads" : "portable-single";
   const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 128 * 1024 * 1024, maxDecodedProductBytes: 512 * 1024 * 1024, runtimeProfile });
+  // The catalog arrives before any BIN byte is read, so the first cut can be
+  // ranked by what the default view actually sees instead of catalog order. The
+  // Worker keeps a catalog-ready window open, so these priorities still cross
+  // the boundary before cooking starts.
+  let sourcePriorities: readonly CatalogPriority[] | undefined;
   const asset = load_gltf(modelUrl, {
     worker,
     runtimeProfile,
@@ -202,8 +205,10 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
     budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 128 * 1024 * 1024, maxWasmBytes: 128 * 1024 * 1024, maxOutputBytes: 256 * 1024 * 1024, maxQueuedEvents: 1024 },
     initialOutputPageCredits: 64,
     maxBufferedPages: 64,
-    maxBufferedBytes: 64 * 262144
+    maxBufferedBytes: 64 * 262144,
+    onSceneCatalogReady: (catalog) => { sourcePriorities = rankCatalogByVisibility(catalog); }
   });
+  if (sourcePriorities !== undefined) applyCatalogPriorities(asset, sourcePriorities);
   setLoading("GPU residency", "Cooking and uploading the Web Product...", 0.4);
   const handles = await activeRenderer.uploadWebCookedScene(activeScene, asset, {
     fitHeight: 5.4,
@@ -213,8 +218,108 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
   return { count: handles.source.count, geometryCount: handles.source.assetCount, materials: handles.materials, bounds: computeSphereBounds(handles.source), handles };
 }
 
-function computeSphereBounds(source: { readonly count: number; readonly boundsSpheres: Float32Array; readonly boundsMin?: Float32Array; readonly boundsMax?: Float32Array }): Bounds {
+interface CatalogPriority {
+  readonly assetKey: string;
+  readonly score: number;
+  readonly cameraHintRevision: number;
+}
+
+/**
+ * Ranks catalog primitives by how much of the default view they occupy.
+ *
+ * The observer starts on the scene centre looking down the canonical `-Z`
+ * diagonal, so ranking by projected size puts the level's mass into the first
+ * cut instead of whichever primitive happens to sort first. Scores stay in
+ * `[0, 1]` and unmeasured bounds score zero so a priority can never reorder
+ * around unknown geometry.
+ */
+function rankCatalogByVisibility(catalog: WebCookSceneCatalogSnapshot): readonly CatalogPriority[] {
+  if (catalog.primitives.length === 0) return Object.freeze([]);
   const minimum = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
+  const maximum = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
+  for (const primitive of catalog.primitives) {
+    for (let axis = 0; axis < 3; axis++) {
+      minimum[axis] = Math.min(minimum[axis]!, primitive.boundsMin[axis]!);
+      maximum[axis] = Math.max(maximum[axis]!, primitive.boundsMax[axis]!);
+    }
+  }
+  const center: [number, number, number] = [(minimum[0]! + maximum[0]!) * 0.5, (minimum[1]! + maximum[1]!) * 0.5, (minimum[2]! + maximum[2]!) * 0.5];
+  const radius = Math.max(1, 0.5 * Math.hypot(maximum[0]! - minimum[0]!, maximum[1]! - minimum[1]!, maximum[2]! - minimum[2]!));
+  const eye: [number, number, number] = [center[0] + radius * 1.5, center[1] + radius * 0.8, center[2] + radius * 1.8];
+  const forward = normalize([center[0] - eye[0], center[1] - eye[1], center[2] - eye[2]]);
+  const instanceMatrices = new Map<number, Float32Array>();
+  for (const instance of catalog.instances) instanceMatrices.set(instance.nodeIndex, Float32Array.from(instance.worldMatrix));
+  const priorities: CatalogPriority[] = [];
+  for (const primitive of catalog.primitives) {
+    const score = projectedCoverage(primitive, instanceMatrices, eye, forward, radius);
+    if (score > 0) priorities.push(Object.freeze({ assetKey: primitive.assetKey, score, cameraHintRevision: 0 }));
+  }
+  priorities.sort((left, right) => right.score - left.score || (left.assetKey < right.assetKey ? -1 : left.assetKey > right.assetKey ? 1 : 0));
+  return Object.freeze(priorities);
+}
+
+function projectedCoverage(
+  primitive: WebCookSceneCatalogSnapshot["primitives"][number],
+  instanceMatrices: ReadonlyMap<number, Float32Array>,
+  eye: readonly [number, number, number],
+  forward: readonly [number, number, number],
+  sceneRadius: number
+): number {
+  for (let axis = 0; axis < 3; axis++) {
+    if (!Number.isFinite(primitive.boundsMin[axis]) || !Number.isFinite(primitive.boundsMax[axis])) return 0;
+  }
+  const localCenter: [number, number, number] = [
+    0.5 * (primitive.boundsMin[0]! + primitive.boundsMax[0]!),
+    0.5 * (primitive.boundsMin[1]! + primitive.boundsMax[1]!),
+    0.5 * (primitive.boundsMin[2]! + primitive.boundsMax[2]!)
+  ];
+  const localRadius = 0.5 * Math.hypot(
+    primitive.boundsMax[0]! - primitive.boundsMin[0]!,
+    primitive.boundsMax[1]! - primitive.boundsMin[1]!,
+    primitive.boundsMax[2]! - primitive.boundsMin[2]!
+  );
+  if (!(localRadius > 0)) return 0;
+  const matrix = instanceMatrices.get(primitive.instanceNodeIndices[0] ?? primitive.nodeIndex);
+  const worldCenter = matrix === undefined ? localCenter : transformPoint(matrix, localCenter);
+  const toCenter: [number, number, number] = [worldCenter[0] - eye[0], worldCenter[1] - eye[1], worldCenter[2] - eye[2]];
+  const distance = Math.max(localRadius, Math.hypot(toCenter[0], toCenter[1], toCenter[2]));
+  // Behind the observer is still worth cooking (the camera orbits), but it must
+  // not outrank what the default view already shows.
+  const facing = (toCenter[0] * forward[0] + toCenter[1] * forward[1] + toCenter[2] * forward[2]) / distance;
+  const angular = localRadius / distance;
+  const reference = sceneRadius > 0 ? sceneRadius : localRadius;
+  const normalized = Math.min(1, angular / Math.max(1e-6, reference / Math.max(localRadius, 1e-6)));
+  return Math.min(1, normalized * (0.5 + 0.5 * Math.max(0, facing)));
+}
+
+function transformPoint(matrix: Float32Array, point: readonly [number, number, number]): [number, number, number] {
+  return [
+    matrix[0]! * point[0] + matrix[4]! * point[1] + matrix[8]! * point[2] + matrix[12]!,
+    matrix[1]! * point[0] + matrix[5]! * point[1] + matrix[9]! * point[2] + matrix[13]!,
+    matrix[2]! * point[0] + matrix[6]! * point[1] + matrix[10]! * point[2] + matrix[14]!
+  ];
+}
+
+function normalize(vector: readonly [number, number, number]): [number, number, number] {
+  const length = Math.hypot(vector[0], vector[1], vector[2]);
+  if (!(length > 0)) return [0, 0, -1];
+  return [vector[0] / length, vector[1] / length, vector[2] / length];
+}
+
+function applyCatalogPriorities(asset: WebCookRuntimeAsset, priorities: readonly CatalogPriority[]): void {
+  for (const priority of priorities) {
+    try {
+      asset.setSourcePriority(priority.assetKey, priority.score, priority.cameraHintRevision);
+    } catch {
+      // The catalog-ready window can already be closed on a fast worker; the
+      // automatic bootstrap selection still bounds the first cut, so a late
+      // priority is a lost optimisation rather than a load failure.
+      return;
+    }
+  }
+}
+
+function computeSphereBounds(source: { readonly count: number; readonly boundsSpheres: Float32Array; readonly boundsMin?: Float32Array; readonly boundsMax?: Float32Array }): Bounds {  const minimum = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
   const maximum = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
   if (source.boundsMin !== undefined && source.boundsMax !== undefined) {
     for (let index = 0; index < source.count; index++) {
@@ -339,7 +444,5 @@ export function startRenderingLab(
   modelLabel = options.modelLabel ?? "Dungeon by Warkarma";
   comparisonExampleId = options.comparisonExampleId ??
     (selectedVariant === "basic" ? "rendering-lab" : "rendering-lab-basic");
-  geometryCacheKey = options.geometryCacheKey;
-  geometryManifestUrl = options.geometryManifestUrl;
   start().catch(showFatalError);
 }

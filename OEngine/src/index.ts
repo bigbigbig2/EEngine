@@ -164,6 +164,8 @@ export type {
   WebCookGlobalBudgetLimits
 } from "./assets/web-cook/WebCookBudget.js";
 export { WebCookRuntimeAsset } from "./assets/web-cook/WebCookRuntimeAsset.js";
+export type { WebCookSceneCatalogSnapshot } from "./assets/web-cook/WebCookClient.js";
+export type { WebCookBootstrapOptions } from "./assets/web-cook/protocol/CookSessionProtocol.js";
 export { createWebCookSceneSource, createWebCookSceneSourceAsync } from "./assets/web-cook/WebCookSceneSource.js";
 export type {
   WebCookSceneSourceOptions,
