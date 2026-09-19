@@ -168,7 +168,7 @@ evidence remains open.
 
 `portable-pool` 已实现为真实 Dedicated Worker pool：CookSession generation 固定绑定 Worker，Worker 崩溃或 `messageerror` 只使所属 generation 失效并发布 `FatalSessionFailure`，失效 generation 不复用 descriptor/page，slot 会补建 replacement Worker。`WebCookClient` 已把 page-global ledger 的 source/WASM reservation 接入 session admission、catalog source 生命周期和 fatal/cancel/dispose 清理，output/source/WASM 三类 owner 的峰值、拒绝与等待计数可从 evidence 观察。`isolated-pthreads` 选择现在经过显式 `crossOriginIsolated`/`SharedArrayBuffer` capability gate；不满足时报告 portable fallback，不把 fallback 冒充 pthread。
 
-S4 当前验证为 OEngine typecheck/build:test、Web Cook budget/client/host/pool/multi-session targeted tests（17/17）。4-session pressure 覆盖 active/waiting session、priority admission、cancel/dispose race 与 source/WASM/output peak，发现并修复了等待 lease 在 dispose 竞态下泄漏的问题。portable-pool 与 isolated-pthreads 均有浏览器 smoke；尚未把浏览器多 asset 压力和 source/WASM committed-peak 细粒度计数标记为 Runtime Validated，这些仍是后续 workload/PERF 证据。
+S4 当前验证为 OEngine typecheck/build:test、Web Cook budget/client/host/pool/multi-session targeted tests（17/17）。4-session pressure 覆盖 active/waiting session、priority admission、cancel/dispose race 与 source/WASM/output peak，发现并修复了等待 lease 在 dispose 竞态下泄漏的问题。`glb-web-product-portable-pool` 与 `glb-web-product-isolated-pthreads` 均已在 clean commit 上 browser accepted；浏览器多 asset 压力和 source/WASM committed-peak 细粒度计数仍属于后续 workload/PERF 证据，不作为 S4 correctness/ownership 阻塞项。
 
 ## 2026-09-17 Product S1 checkpoint
 
