@@ -21,11 +21,12 @@ That oracle proves producer ABI, Nyx algorithm execution, negative validation an
 
 The checked-in browser artifact under `src/assets/web-cook/wasm/vendor/` was
 built with Emscripten SDK 6.0.9 (release `f04ea239d533260dd1db760dd2d668d5f9a88d6b`)
-using the command above and the pinned Nyx hashes enforced by CMake:
+using the command above and the pinned Nyx hashes enforced by CMake. The current
+artifact carries the ADR-0017 two-phase ABI (`abi_version == 2`):
 
 ```text
-oengine-web-geometry-cooker.mjs   SHA-256 93c183863acb85e7c9550e14cf19cf5d6510c9b4fec177630b444cccbc8118d8
-oengine-web-geometry-cooker.wasm  SHA-256 20febf54211716a3da77e476caf8201170cf76aff4bed71bc4eb45a299d9959c
+oengine-web-geometry-cooker.mjs   SHA-256 5cf28e82cc67741e6d2a8fd2e29f8c2c6a3354066e7f753d753d727d443f0383
+oengine-web-geometry-cooker.wasm  SHA-256 f897341e45c3c0c62883f1a74bb9e933f09585948d00e0684a842a3fa6d928be
 ```
 
 The cooker emits one Product asset per canonical material domain, so a

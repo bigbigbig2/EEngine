@@ -34,7 +34,8 @@ test("Web geometry canonical and recipe ABIs are deterministic and canonical", (
   const canonical = abi.encodeWebCanonicalGeometryV1([cubeDomain()]);
   const view = new DataView(canonical), bytes = new Uint8Array(canonical);
   assert.equal(new TextDecoder().decode(bytes.subarray(0, 7)), "OEWGCAN");
-  assert.equal(view.getUint32(8, true), 1);
+  assert.equal(abi.WEB_GEOMETRY_COOKER_ABI_VERSION, 2);
+  assert.equal(view.getUint32(8, true), 2);
   assert.equal(view.getUint32(12, true), 128);
   assert.equal(view.getUint32(16, true), canonical.byteLength);
   assert.equal(view.getUint32(20, true), 1);
@@ -46,17 +47,33 @@ test("Web geometry canonical and recipe ABIs are deterministic and canonical", (
   assert.equal(view.getUint32(44, true), 72);
   assert.equal(view.getUint32(48, true), 32);
   assert.equal(canonical.byteLength, 880);
-  assert.equal(createHash("sha256").update(bytes).digest("hex"), "ef3d47d2ca6e355184bc540928ca0663910c27d3bbdac0d43187ed998e4df822");
+  // Golden freeze of the fixture encoding itself: pins the exact byte layout
+  // (including the ABI version word) so an accidental fixture edit cannot mask
+  // a real cooker regression.
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), "bf445f9207ee9a3a76a7656bbc1a31aaac36efab1c64dea489423d84f28e6a29");
 
   const recipe = abi.encodeWebGeometryCookRecipeV1(), recipeView = new DataView(recipe);
   assert.equal(new TextDecoder().decode(new Uint8Array(recipe, 0, 7)), "OEWGRCP");
-  assert.equal(recipeView.getUint32(8, true), 1);
+  assert.equal(recipeView.getUint32(8, true), 2);
   assert.equal(recipeView.getUint32(12, true), 96);
   assert.equal(recipeView.getUint32(16, true), 64);
   assert.equal(recipeView.getUint32(52, true), 3);
   assert.equal(recipeView.getUint32(68, true), 8);
   assert.equal(recipeView.getUint32(72, true), 18);
-  assert.equal(createHash("sha256").update(new Uint8Array(recipe)).digest("hex"), "43d244b5d0453b36e076d340ee8cc8ef69550fbc9265eb6959b70cdbda85e44c");
+  assert.equal(createHash("sha256").update(new Uint8Array(recipe)).digest("hex"), "4c7311b0954eb9592036cb3e135464e1001e11949876dfe4de9460179c5db01b");
+});
+
+test("Two-phase ABI exposes the descriptor stage before any payload exists", () => {
+  // The payload-stage result codes are part of the frozen ABI surface.
+  assert.equal(abi.WEB_GEOMETRY_COOK_PAGE_READY, 1);
+  assert.equal(abi.WEB_GEOMETRY_COOK_PAGE_PENDING, 2);
+  assert.equal(abi.WEB_GEOMETRY_COOK_PAGE_UNDECLARED, 3);
+  // The plan entry point must exist alongside the monolithic one so a caller
+  // can freeze the ID graph without paying for payload production.
+  assert.equal(typeof abi.planWebGeometryWasmV1, "function");
+  assert.equal(typeof abi.cookWebGeometryWasmV1, "function");
+  assert.equal(typeof abi.WebGeometryCookWasmPlanV1, "function");
+  assert.equal(typeof abi.WebGeometryCookWasmResultV1, "function");
 });
 
 test("Web geometry canonical ABI rejects alias-prone and invalid input", () => {

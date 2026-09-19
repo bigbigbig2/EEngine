@@ -21,7 +21,7 @@ namespace {
 
 using namespace oengine::asset;
 
-constexpr std::uint32_t kAbiVersion = 1u;
+constexpr std::uint32_t kAbiVersion = 2u;
 /** Upper bound on per-cook worker threads; the pthread pool is sized the same. */
 [[maybe_unused]] constexpr std::uint32_t kMaxCookThreads = 8u;
 constexpr std::uint32_t kCanonicalHeaderBytes = 128u;
@@ -35,7 +35,16 @@ constexpr std::uint16_t kDomainGenerateNormals = 1u << 0u;
 thread_local std::string gLastError;
 
 struct CookResult {
-    DecodedGeometryProductV1 product;
+    /** Descriptor-stage skeleton: final IDs and layout, no page payloads. */
+    DecodedGeometryProductPlanV1 plan;
+    /** Group payloads retained for on-demand page materialisation. */
+    std::vector<SerializedGroupV3> retainedGroups;
+    /**
+     * Per-PageID materialised payload. A null entry means "declared but not yet
+     * produced"; pageCount is always plan.pages.size(), so a page is PENDING
+     * rather than out of range until it is produced.
+     */
+    std::vector<std::shared_ptr<const DecodedGeometryPageV1>> pages;
     CookEvidenceV3 evidence;
     Hash256 recipeHash{};
     Hash256 contentManifestHash{};
@@ -46,6 +55,10 @@ struct CookResult {
     std::vector<std::uint8_t> pageRecords;
     std::vector<std::uint8_t> bootstrapPageIds;
     std::vector<std::uint8_t> vertexFormats;
+
+    std::uint32_t pageCount() const {
+        return std::uint32_t(plan.pages.size());
+    }
 };
 
 void AddU32(Sha256Builder& hash, std::uint32_t value) {
@@ -283,6 +296,7 @@ std::vector<std::uint8_t> EncodeRecords(const std::vector<T>& records) {
     return output;
 }
 
+/** Descriptor stage: freeze the ID graph without materialising any page payload. */
 std::unique_ptr<CookResult> Cook(
     const std::uint8_t* canonicalInput, std::size_t canonicalInputBytes,
     const std::uint8_t* recipeInput, std::size_t recipeInputBytes,
@@ -325,10 +339,12 @@ std::unique_ptr<CookResult> Cook(
         }
     }
     for (const CookEvidenceV3& item : domainEvidence) AddEvidence(result->evidence, item);
-    result->product = AssembleDecodedGeometryProductV1(std::move(cooked));    const std::uint64_t decodedBytes =
-        std::uint64_t(result->product.pages.size()) * kGeometryPageBytesV3;
+    result->plan = PlanDecodedGeometryProductV1(std::move(cooked), result->retainedGroups);
+    result->pages.assign(result->plan.pages.size(), nullptr);
+    const std::uint64_t decodedBytes =
+        std::uint64_t(result->plan.pages.size()) * kGeometryPageBytesV3;
     std::uint64_t bootstrapPayloadBytes = 0u;
-    for (const GeometryGroupDirectoryV3& group : result->product.groups) {
+    for (const GeometryGroupDirectoryV3& group : result->plan.groups) {
         if ((group.flags & kGroupBootstrap) != 0u) {
             bootstrapPayloadBytes += group.payloadBytes;
         }
@@ -338,38 +354,64 @@ std::unique_ptr<CookResult> Cook(
         throw std::runtime_error("decoded Geometry Product exceeds admitted budget");
     }
     result->recipeHash = Sha256(CanonicalRecipeJson(recipe));
-    result->assetRecords = EncodeRecords(result->product.assets);
-    result->rootNodeIds = EncodeRecords(result->product.roots);
-    result->hierarchyNodes = EncodeRecords(result->product.hierarchy);
-    result->groupDirectory = EncodeRecords(result->product.groups);
-    result->bootstrapPageIds = EncodeRecords(result->product.bootstrapPages);
-    result->vertexFormats = EncodeRecords(result->product.formats);
-    result->pageRecords.resize(result->product.pages.size() * 32u, 0u);
-    for (std::size_t pageIndex = 0u; pageIndex < result->product.pages.size(); ++pageIndex) {
-        const DecodedGeometryPageV1& page = result->product.pages[pageIndex];
+    result->assetRecords = EncodeRecords(result->plan.assets);
+    result->rootNodeIds = EncodeRecords(result->plan.roots);
+    result->hierarchyNodes = EncodeRecords(result->plan.hierarchy);
+    result->groupDirectory = EncodeRecords(result->plan.groups);
+    result->bootstrapPageIds = EncodeRecords(result->plan.bootstrapPages);
+    result->vertexFormats = EncodeRecords(result->plan.formats);
+    result->pageRecords.resize(result->plan.pages.size() * 32u, 0u);
+    for (std::size_t pageIndex = 0u; pageIndex < result->plan.pages.size(); ++pageIndex) {
+        const DecodedGeometryPagePlanV1& page = result->plan.pages[pageIndex];
         std::uint8_t* record = result->pageRecords.data() + pageIndex * 32u;
         std::copy(page.decodedHash128.begin(), page.decodedHash128.end(), record);
         WriteU32(record, 16u, page.firstGroup);
         WriteU32(record, 20u, page.groupCount);
     }
+    return result;
+}
+
+/**
+ * Payload stage for one PageID.
+ *
+ * The content manifest covers whole-page digests, so it can only be final once
+ * every declared page exists. Sealing materialises all still-pending pages and
+ * then computes the manifest; this is the same value the monolithic path
+ * reports, because page layout and identity are decided by the plan.
+ */
+void SealContentManifest(CookResult& result) {
+    std::vector<Hash256> pageDigests(result.plan.pages.size());
+    for (std::uint32_t pageId = 0u; pageId < result.plan.pages.size(); ++pageId) {
+        result.pages[pageId] = std::make_shared<const DecodedGeometryPageV1>(
+            MaterializeDecodedGeometryPageV1(result.plan, result.retainedGroups, pageId));
+        pageDigests[pageId] = Sha256(result.pages[pageId]->bytes);
+    }
     Sha256Builder contentManifest;
     contentManifest.Add("OENGINE-WEB-GEOMETRY-CONTENT-MANIFEST-V1");
-    AddManifestPart(contentManifest, 1u, result->assetRecords);
-    AddManifestPart(contentManifest, 2u, result->rootNodeIds);
-    AddManifestPart(contentManifest, 3u, result->hierarchyNodes);
-    AddManifestPart(contentManifest, 4u, result->groupDirectory);
-    AddManifestPart(contentManifest, 5u, result->pageRecords);
-    AddManifestPart(contentManifest, 6u, result->bootstrapPageIds);
-    AddManifestPart(contentManifest, 7u, result->vertexFormats);
+    AddManifestPart(contentManifest, 1u, result.assetRecords);
+    AddManifestPart(contentManifest, 2u, result.rootNodeIds);
+    AddManifestPart(contentManifest, 3u, result.hierarchyNodes);
+    AddManifestPart(contentManifest, 4u, result.groupDirectory);
+    AddManifestPart(contentManifest, 5u, result.pageRecords);
+    AddManifestPart(contentManifest, 6u, result.bootstrapPageIds);
+    AddManifestPart(contentManifest, 7u, result.vertexFormats);
     AddU32(contentManifest, 8u);
-    AddU64(contentManifest, result->product.pages.size());
-    for (std::size_t pageIndex = 0u; pageIndex < result->product.pages.size(); ++pageIndex) {
-        const Hash256 pageHash = Sha256(result->product.pages[pageIndex].bytes);
+    AddU64(contentManifest, result.plan.pages.size());
+    for (std::size_t pageIndex = 0u; pageIndex < pageDigests.size(); ++pageIndex) {
         AddU32(contentManifest, std::uint32_t(pageIndex));
-        contentManifest.Add(pageHash.data(), pageHash.size());
+        contentManifest.Add(pageDigests[pageIndex].data(), pageDigests[pageIndex].size());
     }
-    result->contentManifestHash = contentManifest.Finish();
-    return result;
+    result.contentManifestHash = contentManifest.Finish();
+}
+
+/** Ensures one declared page exists. Returns false for an out-of-range PageID. */
+bool EnsurePageMaterialized(CookResult& result, std::uint32_t pageId) {
+    if (pageId >= result.plan.pages.size()) return false;
+    if (!result.pages[pageId]) {
+        result.pages[pageId] = std::make_shared<const DecodedGeometryPageV1>(
+            MaterializeDecodedGeometryPageV1(result.plan, result.retainedGroups, pageId));
+    }
+    return true;
 }
 
 const std::vector<std::uint8_t>* Section(
@@ -408,9 +450,81 @@ std::uintptr_t oengine_web_geometry_cook(
     std::uint64_t maxDecodedProductBytes) {
     try {
         gLastError.clear();
+        // The monolithic entry point stays a complete, self-contained cook: it
+        // plans the Product and then materialises every page, so it reports the
+        // same recipe hash, content manifest and page bytes it always did.
+        std::unique_ptr<CookResult> result = Cook(
+            canonicalInput, canonicalInputBytes, recipeInput, recipeInputBytes,
+            maxDecodedProductBytes);
+        SealContentManifest(*result);
+        return reinterpret_cast<std::uintptr_t>(result.release());
+    } catch (const std::exception& error) {
+        SetError(error);
+        return 0u;
+    }
+}
+
+std::uintptr_t oengine_web_geometry_cook_plan(
+    const std::uint8_t* canonicalInput, std::size_t canonicalInputBytes,
+    const std::uint8_t* recipeInput, std::size_t recipeInputBytes,
+    std::uint64_t maxDecodedProductBytes) {
+    try {
+        gLastError.clear();
+        // Descriptor stage: freeze the ID graph and leave every page PENDING.
+        // No payload buffer is materialised here, which is the whole point of
+        // the two-phase ABI (ADR-0017).
         return reinterpret_cast<std::uintptr_t>(Cook(
             canonicalInput, canonicalInputBytes, recipeInput, recipeInputBytes,
             maxDecodedProductBytes).release());
+    } catch (const std::exception& error) {
+        SetError(error);
+        return 0u;
+    }
+}
+
+std::uint32_t oengine_web_geometry_cook_produce_page(
+    std::uintptr_t handle, std::uint32_t pageId,
+    std::uint8_t* output, std::size_t outputBytes) {
+    try {
+        gLastError.clear();
+        CookResult& result = *Result(handle);
+        if (pageId >= result.plan.pages.size()) {
+            // Never extend the ID graph for an undeclared PageID.
+            return OENGINE_WEB_COOK_PAGE_UNDECLARED;
+        }
+        if (!result.pages[pageId]) {
+            if (!output || outputBytes != kGeometryPageBytesV3) {
+                // A pending page reports PENDING; the caller may retry with a
+                // correctly sized destination.
+                return OENGINE_WEB_COOK_PAGE_PENDING;
+            }
+            EnsurePageMaterialized(result, pageId);
+        }
+        if (!output || outputBytes != kGeometryPageBytesV3) {
+            throw std::runtime_error(
+                "Web geometry cook page destination must be exactly one decoded page");
+        }
+        std::copy(
+            result.pages[pageId]->bytes.begin(),
+            result.pages[pageId]->bytes.end(), output);
+        return OENGINE_WEB_COOK_PAGE_READY;
+    } catch (const std::exception& error) {
+        SetError(error);
+        return 0u;
+    }
+}
+
+std::uint32_t oengine_web_geometry_cook_page_status(
+    std::uintptr_t handle, std::uint32_t pageId) {
+    try {
+        gLastError.clear();
+        const CookResult& result = *Result(handle);
+        if (pageId >= result.plan.pages.size()) {
+            return OENGINE_WEB_COOK_PAGE_UNDECLARED;
+        }
+        return result.pages[pageId]
+            ? OENGINE_WEB_COOK_PAGE_READY
+            : OENGINE_WEB_COOK_PAGE_PENDING;
     } catch (const std::exception& error) {
         SetError(error);
         return 0u;
@@ -435,10 +549,10 @@ std::size_t oengine_web_geometry_cook_section_size(
             return result.contentManifestHash.size();
         }
         if (section == OENGINE_WEB_COOK_SECTION_PAGE_BYTES) {
-            if (index >= result.product.pages.size()) {
+            if (index >= result.plan.pages.size()) {
                 throw std::runtime_error("decoded page index is out of range");
             }
-            return result.product.pages[index].bytes.size();
+            return kGeometryPageBytesV3;
         }
         const std::vector<std::uint8_t>* bytes = Section(result, section, index);
         if (!bytes) throw std::runtime_error("unknown Web geometry cook section");
@@ -466,11 +580,15 @@ std::uint32_t oengine_web_geometry_cook_copy_section(
             begin = result.contentManifestHash.data();
             required = result.contentManifestHash.size();
         } else if (section == OENGINE_WEB_COOK_SECTION_PAGE_BYTES) {
-            if (index >= result.product.pages.size()) {
+            if (index >= result.plan.pages.size()) {
                 throw std::runtime_error("decoded page index is out of range");
             }
-            begin = result.product.pages[index].bytes.data();
-            required = result.product.pages[index].bytes.size();
+            if (!result.pages[index]) {
+                throw std::runtime_error(
+                    "decoded page payload is not produced yet; use the payload stage");
+            }
+            begin = result.pages[index]->bytes.data();
+            required = result.pages[index]->bytes.size();
         } else {
             const std::vector<std::uint8_t>* bytes = Section(result, section, index);
             if (!bytes) throw std::runtime_error("unknown Web geometry cook section");
@@ -491,7 +609,7 @@ std::uint32_t oengine_web_geometry_cook_copy_section(
 std::uint32_t oengine_web_geometry_cook_page_count(std::uintptr_t handle) {
     try {
         gLastError.clear();
-        const std::size_t count = Result(handle)->product.pages.size();
+        const std::size_t count = Result(handle)->plan.pages.size();
         if (count > std::numeric_limits<std::uint32_t>::max()) {
             throw std::runtime_error("decoded page count exceeds u32");
         }

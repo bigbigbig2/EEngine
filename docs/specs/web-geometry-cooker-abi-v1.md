@@ -6,13 +6,13 @@ Owners: `oengine-web-geometry-cooker`、Dedicated Worker glue、Web CookSession
 
 ## Version/Compatibility
 
-ABI major 1；未知 version、非 canonical section offset、非零 reserved/padding 或未知 flag 必须拒绝，不做 best-effort 解码。
+ABI major 2；未知 version、非 canonical section offset、非零 reserved/padding 或未知 flag 必须拒绝，不做 best-effort 解码。major 1 的 consumer 必须显式拒绝 major 2 的模块，major 2 的 consumer 必须显式拒绝 major 1 的模块：两阶段的 handle 语义与 identity 定义都改变了，静默接受会让 consumer 把 descriptor-stage handle 当作已完整物化的 Product。
 
 ## Contract
 
 本 ABI 只跨 `Dedicated Worker TypeScript <-> browser-first WASM` 边界。它把一个或多个已经按 glTF 语义 canonicalize 的 material domain 交给 Nyx geometry builder，并返回 `Geometry Product V1` 的 `oengine-vg-v1-v3-decoded` tables/pages。它不接受路径或 URL，不读取虚拟文件系统，不生成 OEGPACK，不创建 GPU object，也不拥有 Runtime publication。
 
-所有整数和 f32 都是 little-endian。所有 offset 从输入 buffer 起点计算；section 按下述顺序紧密排列并 16-byte 对齐；padding 必须为零。计数、offset 和总长度是 u32，任何乘加溢出均拒绝。
+cook 分两个可分离阶段。descriptor 阶段只冻结完整 ID graph（page count、每 PageID identity、page-to-Group 映射、activation cut），不产生任何 page payload；payload 阶段按 PageID 推进并把已就绪的页拷出。两阶段必须共用同一份装箱与 identity 推导实现，因此对同一输入，单体式入口与两阶段入口必须在 descriptor section 和逐页 payload 上 byte-identical。所有整数和 f32 都是 little-endian。所有 offset 从输入 buffer 起点计算；section 按下述顺序紧密排列并 16-byte 对齐；padding 必须为零。计数、offset 和总长度是 u32，任何乘加溢出均拒绝。
 
 ### Canonical input header
 
@@ -21,7 +21,7 @@ Header 固定 128 bytes：
 | Byte | Type | Field |
 | ---: | --- | --- |
 | 0..7 | `u8[8]` | `OEWGCAN\0` |
-| 8 | `u32` | ABI version = 1 |
+| 8 | `u32` | ABI version = 2 |
 | 12 | `u32` | header bytes = 128 |
 | 16 | `u32` | total bytes，含末尾 16-byte padding |
 | 20 | `u32` | domain count，必须非零 |
@@ -55,7 +55,7 @@ Domain 必须按表顺序完整 partition vertex/index tables，不允许 alias�
 
 ### Recipe input
 
-Recipe 固定 96 bytes，magic 为 `OEWGRCP\0`，version = 1，bytes = 96。其余字段按顺序为：
+Recipe 固定 96 bytes，magic 为 `OEWGRCP\0`，version = 2，bytes = 96。其余字段按顺序为：
 
 ```text
 16 meshletMaxVertices u32
@@ -104,7 +104,19 @@ Section ID：
 
 Section 10 is producer-owned identity evidence. It is calculated before the opaque handle is returned, so the browser adapter can derive `ProductID` without copying the complete page set out of WASM. The manifest is domain-separated and ordered; it is not a replacement for per-page validation when a page is later copied. Unknown glTF attribute semantics are rejected before canonical input assembly; they are never silently dropped.
 
-Page record 布局严格复用 `Geometry Product V1`：decoded SHA-256 前 16 bytes、first Group、Group count、flags = 0、reserved = 0。WASM output budget 至少容纳一页；decoded pages 超过传入 budget，或 bootstrap Group payload bytes 超过 recipe bootstrap budget 时整体失败，不 offer descriptor。后者与 Native writer 的 recipe 语义一致；Product admission 仍需另按完整 pinned page bytes 预留 GPU budget。
+Page record 布局严格复用 `Geometry Product V1`：page identity 前 16 bytes（由该页 Group payload 按升序上卷得到，见 `docs/specs/geometry-product-v1.md`）、first Group、Group count、flags = 0、reserved = 0。identity 必须能在 payload 存在之前算出来，因此它不依赖 padding 或字节偏移；整页 SHA-256 只用于传输/存储完整性校验，随页交付而不是写进 descriptor。WASM output budget 至少容纳一页；decoded pages 超过传入 budget，或 bootstrap Group payload bytes 超过 recipe bootstrap budget 时整体失败，不 offer descriptor。后者与 Native writer 的 recipe 语义一致；Product admission 仍需另按完整 pinned page bytes 预留 GPU budget。
+
+### 两阶段入口
+
+除单体式 `oengine_web_geometry_cook()` 外，ABI 提供三个入口，必须在头文件与 TypeScript 镜像中同步存在：
+
+- `oengine_web_geometry_cook_plan()`：descriptor 阶段。冻结完整 ID graph 并返回 handle；handle 支持全部只读查询（section size、page count、descriptor sections）。section 9（PAGE_BYTES）在 descriptor 阶段不得返回 payload——查询它会报告该页尚未产出，而不是返回半页数据。
+- `oengine_web_geometry_cook_produce_page()`：payload 阶段。推进一个 PageID；必须容忍乱序、重复与交错调用。重复产出同一 PageID 必须返回 byte-identical payload。
+- `oengine_web_geometry_cook_page_status()`：只报告就绪状态，不产生任何东西。
+
+两个入口共用一个状态码集合：`READY = 1`（payload 已产出并拷出）、`PENDING = 2`（descriptor 已声明该 PageID 但 payload 尚未产出）、`UNDECLARED = 3`（descriptor 从未声明该 PageID）。`UNDECLARED` 必须被拒绝且不得扩张 ID graph——不能因为 consumer 请求了一个未知 PageID 就改变 page count 或任何 descriptor section。`PENDING` 与 `UNDECLARED` 都不得写 destination buffer。
+
+content manifest（section 10）覆盖每页完整 decoded SHA-256，因此它在 descriptor 阶段物理上不可能存在。单体式入口在返回前完成全部 payload，故其 manifest 有效；两阶段 handle 在 payload 全部产出前不得把 manifest 当作已就绪证据使用。
 
 ## Nyx function map
 
@@ -147,6 +159,8 @@ asset count 校验；它不能编码进 Product 二进制 section。
 
 - Native ABI oracle 与 TypeScript encoder 使用同一 cube canonical/recipe bytes SHA-256，并验证两次 cook 的所有 tables/pages byte-identical。
 - Negative oracle 覆盖 total length、normal declaration、non-finite vertex、index range、reserved/padding、recipe 和 output budget。
+- 两阶段 oracle 覆盖：descriptor 阶段冻结全部 ID graph、descriptor section 与单体式逐字节一致、plan 的全部 PageID 起始为 `PENDING`、倒序产出、重复产出 byte-identical、`UNDECLARED` 被拒绝且不写 destination、不扩张 page count、补齐后逐页与单体式比对、两次 plan 的 ID graph 一致。
+- 已签入的 Emscripten 产物必须真实执行两阶段入口：产物测试从真实 wasm 验证 `abi_version == 2`、descriptor-before-payload、乱序与重复产出、`UNDECLARED` 语义，以及与单体式逐页 byte-identical。
 - Native OEGPACK writer 必须消费同一个 `DecodedGeometryProductV1`，其既有 reopen/corruption/determinism tests 防止抽取时改变 Offline container。
 - S2 退出仍要求真实 Emscripten build、Dedicated Worker session、GLB Range canonicalizer、exclusive transfer、Product admission 与浏览器像素证据；native ABI oracle 不替代这些 Gate。
 ## glTF 来源与作者纹理元数据（第三步）

@@ -40,6 +40,8 @@ Owners: Web Runtime Cooker、Geometry Cooker WASM ABI、Geometry Product admissi
 
 执行：新增 descriptor 阶段入口，使其返回可在无 payload 前提下查询 page 数量、page identity、page 到 Group 映射与 activation cut 的 handle。新增 payload 阶段入口，支持按 PageID 推进并返回该页字节，保证已完成 PageID 可重复取回且 byte-identical。显式表达「PageID 已声明但 payload 未产出」状态，使消费侧可与「PageID 不存在」区分。对未声明 PageID 的推进请求返回错误而非扩张 ID graph。递增 `kAbiVersion` 并让旧版本 consumer 显式失败。同步更新 TypeScript 侧镜像与 descriptor binary transport 的版本拒绝测试。
 
+已落地：`kAbiVersion` 递增到 2，`OengineWebGeometryCookPageStatusV1` 定义 `READY`/`PENDING`/`UNDECLARED`，并新增 `oengine_web_geometry_cook_plan`、`oengine_web_geometry_cook_produce_page`、`oengine_web_geometry_cook_page_status` 三个导出入口。装箱与 identity 推导抽成共享核心 `PackDecodedGeometryProductV1`，单体式与两阶段走同一条路径，`DecodedGeometryProductPlanV1` 承载无 payload 的 descriptor 阶段结果，`MaterializeDecodedGeometryPageV1` 在物化时重算 identity 并与 plan 比对，防止两阶段漂移。TypeScript 镜像同步到版本 2 并提供 `planWebGeometryWasmV1` 与 `WebGeometryCookWasmPlanV1.producePage/pageStatus/produceAll`。已签入的 Emscripten 产物用 SDK 6.0.9 重新构建并刷新哈希，产物测试在真实 wasm 上验证 descriptor-before-payload、乱序与重复产出、`UNDECLARED` 语义，以及与单体式逐页 byte-identical。
+
 退出条件：C++ ABI 测试覆盖两阶段分离、乱序/重复/并发推进、未声明 PageID 拒绝、阶段失败隔离；TypeScript 镜像与 C++ 行为一致；旧 ABI 版本被显式拒绝。
 
 ### 第三步：Producer 侧切到两阶段调度

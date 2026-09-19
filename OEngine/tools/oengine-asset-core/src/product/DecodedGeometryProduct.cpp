@@ -112,7 +112,6 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
 
     DecodedGeometryProductPlanV1 product;
     std::vector<SerializedGroupV3> serializedGroups;
-    std::vector<SerializedGroupV3> retained;
     std::vector<std::vector<std::uint32_t>> assetBootstrapPages(cooked.size());
     for (std::size_t assetIndex = 0u; assetIndex < cooked.size(); ++assetIndex) {
         CookedAssetV3& asset = cooked[assetIndex];
@@ -269,7 +268,6 @@ DecodedGeometryProductPlanV1 PackDecodedGeometryProductV1(
         }
     }
     if (retainedGroups) *retainedGroups = std::move(serializedGroups);
-    if (retained.empty()) retained.shrink_to_fit();
     return product;
 }
 
@@ -346,6 +344,15 @@ DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
     std::vector<SerializedGroupV3> retained;
     DecodedGeometryProductPlanV1 plan = PackDecodedGeometryProductV1(
         std::move(cooked), &retained, /*materializePages=*/true);
+    // Materialise every page before `plan` is consumed by the moves below:
+    // MaterializeDecodedGeometryPageV1 reads plan.pages and plan.groups, and the
+    // monolithic path must not observe a half-moved plan.
+    std::vector<DecodedGeometryPageV1> pages;
+    pages.reserve(plan.pages.size());
+    for (std::uint32_t pageId = 0u; pageId < plan.pages.size(); ++pageId) {
+        pages.push_back(
+            MaterializeDecodedGeometryPageV1(plan, retained, pageId));
+    }
     DecodedGeometryProductV1 product;
     product.assets = std::move(plan.assets);
     product.roots = std::move(plan.roots);
@@ -353,11 +360,7 @@ DecodedGeometryProductV1 AssembleDecodedGeometryProductV1(
     product.groups = std::move(plan.groups);
     product.formats = std::move(plan.formats);
     product.bootstrapPages = std::move(plan.bootstrapPages);
-    product.pages.reserve(plan.pages.size());
-    for (std::uint32_t pageId = 0u; pageId < plan.pages.size(); ++pageId) {
-        product.pages.push_back(
-            MaterializeDecodedGeometryPageV1(plan, retained, pageId));
-    }
+    product.pages = std::move(pages);
     return product;
 }
 

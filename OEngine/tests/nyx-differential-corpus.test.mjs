@@ -282,13 +282,44 @@ test("Product passes the Nyx invariant checklist and page independence", async (
   assertNyxInvariants(summarize(web.sections, web.pages));
   assertHierarchyAndBootstrap(web.sections);
 
-  const pageView = new DataView(web.sections.pageRecords.buffer, web.sections.pageRecords.byteOffset, web.sections.pageRecords.byteLength);
+  // Page identity is rolled up from the page's Group payloads, so it can be
+  // frozen in the descriptor before any payload buffer exists. It is
+  // deliberately NOT the whole-page digest; the two are verified separately.
+  const groupView = new DataView(web.sections.groupDirectory.buffer, web.sections.groupDirectory.byteOffset, web.sections.groupDirectory.byteLength);
+  const pageGroups = web.pages.map(() => []);
+  for (let group = 0; group < web.sections.groupDirectory.byteLength / 16; group++) {
+    pageGroups[groupView.getUint32(group * 16, true)].push(group);
+  }
   for (let page = 0; page < web.pages.length; page++) {
-    const expected = createHash("sha256").update(web.pages[page]).digest();
+    const identity = rollupPageIdentity(pageGroups[page], groupView, web.pages[page]);
     const record = web.sections.pageRecords.subarray(page * 32, page * 32 + 16);
-    assert.deepEqual([...record], [...expected.subarray(0, 16)], `page ${page} decoded hash must match its record`);
+    assert.deepEqual([...record], [...identity], `page ${page} identity must be the rollup of its Groups`);
+    // Integrity stays a separate, independently checkable property.
+    const wholePage = new Uint8Array(createHash("sha256").update(web.pages[page]).digest()).subarray(0, 16);
+    assert.notDeepEqual([...record], [...wholePage], `page ${page} identity must not be the whole-page digest`);
   }
 });
+
+/**
+ * Mirrors `ComputeGeometryPageIdentityV1`: a domain-separated digest over the
+ * page's GroupIDs in strictly ascending order, each paired with its payload
+ * length and payload digest. Padding and byte offsets must not participate.
+ */
+function rollupPageIdentity(groupIds, groupView, page) {
+  const hash = createHash("sha256");
+  hash.update("OENGINE-GEOMETRY-PAGE-IDENTITY-V1");
+  const groupCount = Buffer.alloc(4); groupCount.writeUInt32LE(groupIds.length);
+  hash.update(groupCount);
+  for (const group of [...groupIds].sort((left, right) => left - right)) {
+    const offset = groupView.getUint32(group * 16 + 4, true), payload = groupView.getUint32(group * 16 + 8, true);
+    const groupId = Buffer.alloc(4); groupId.writeUInt32LE(group);
+    const payloadBytes = Buffer.alloc(4); payloadBytes.writeUInt32LE(payload);
+    hash.update(groupId);
+    hash.update(payloadBytes);
+    hash.update(createHash("sha256").update(page.subarray(offset, offset + payload)).digest());
+  }
+  return new Uint8Array(hash.digest()).subarray(0, 16);
+}
 
 test("Original Nyx MeshletBuilder is an independent semantic oracle", async () => {
   const reference = runNyxReferenceHarness();

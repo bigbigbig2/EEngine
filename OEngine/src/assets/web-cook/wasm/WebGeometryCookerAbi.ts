@@ -3,7 +3,7 @@ import {
   type GeometryCookRecipeV3
 } from "../../GeometryCookRecipe.js";
 
-export const WEB_GEOMETRY_COOKER_ABI_VERSION = 1;
+export const WEB_GEOMETRY_COOKER_ABI_VERSION = 2;
 export const WEB_GEOMETRY_CANONICAL_HEADER_BYTES = 128;
 export const WEB_GEOMETRY_CANONICAL_DOMAIN_BYTES = 32;
 export const WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS = 18;
@@ -40,6 +40,13 @@ const enum Section {
   ContentManifestHash = 10
 }
 
+/** Result codes for the two-phase payload stage (ADR-0017). */
+export const WEB_GEOMETRY_COOK_PAGE_READY = 1;
+/** The descriptor declares this PageID but its payload is not produced yet. */
+export const WEB_GEOMETRY_COOK_PAGE_PENDING = 2;
+/** The descriptor does not declare this PageID; the ID graph is not extended. */
+export const WEB_GEOMETRY_COOK_PAGE_UNDECLARED = 3;
+
 export interface WebCanonicalGeometryDomainV1 {
   readonly materialId: number;
   readonly meshletFlags: number;
@@ -69,6 +76,9 @@ export interface EmscriptenWebGeometryCookerModuleV1 {
   _free(address: number): void;
   _oengine_web_geometry_cook_abi_version(): number;
   _oengine_web_geometry_cook(canonical: number, canonicalBytes: number, recipe: number, recipeBytes: number, maxDecodedProductBytes: bigint): number;
+  _oengine_web_geometry_cook_plan(canonical: number, canonicalBytes: number, recipe: number, recipeBytes: number, maxDecodedProductBytes: bigint): number;
+  _oengine_web_geometry_cook_produce_page(handle: number, pageId: number, output: number, outputBytes: number): number;
+  _oengine_web_geometry_cook_page_status(handle: number, pageId: number): number;
   _oengine_web_geometry_cook_destroy(handle: number): void;
   _oengine_web_geometry_cook_section_size(handle: number, section: number, index: number): number;
   _oengine_web_geometry_cook_copy_section(handle: number, section: number, index: number, output: number, outputBytes: number): number;
@@ -185,8 +195,12 @@ export function encodeWebGeometryCookRecipeV1(input: Partial<GeometryCookRecipeV
   return bytes.buffer;
 }
 
-/** Owns a Product in WASM memory and copies pages only when output credit exists. */
-export class WebGeometryCookWasmResultV1 {
+/**
+ * Owns one WASM cooker handle and copies sections only when output credit
+ * exists. The handle may be a monolithic result, a descriptor-stage plan, or a
+ * payload-stage handle; the concrete subclass decides what the handle promises.
+ */
+export class WebGeometryCookWasmHandleV1 {
   readonly #module: EmscriptenWebGeometryCookerModuleV1;
   #handle: number;
   readonly pageCount: number;
@@ -225,7 +239,7 @@ export class WebGeometryCookWasmResultV1 {
 
   copyPage(pageId: number): ArrayBuffer {
     this.requireOpen();
-    if (!Number.isInteger(pageId) || pageId < 0 || pageId >= this.pageCount) throw new RangeError("Web geometry pageId is out of range");
+    this.requirePageId(pageId);
     const bytes = this.copySection(Section.PageBytes, pageId);
     if (bytes.byteLength !== WEB_GEOMETRY_PAGE_BYTES) throw new Error("Web geometry cooker emitted a non-256-KiB page");
     return bytes.buffer;
@@ -235,6 +249,13 @@ export class WebGeometryCookWasmResultV1 {
     if (this.#handle === 0) return;
     this.#module._oengine_web_geometry_cook_destroy(this.#handle);
     this.#handle = 0;
+  }
+
+  protected get module(): EmscriptenWebGeometryCookerModuleV1 { return this.#module; }
+  protected get handle(): number { this.requireOpen(); return this.#handle; }
+
+  protected requirePageId(pageId: number): void {
+    if (!Number.isInteger(pageId) || pageId < 0 || pageId >= this.pageCount) throw new RangeError("Web geometry pageId is out of range");
   }
 
   private copySection(section: Section, index = 0): Uint8Array<ArrayBuffer> {
@@ -255,7 +276,122 @@ export class WebGeometryCookWasmResultV1 {
   private requireOpen(): void { if (this.#handle === 0) throw new Error("Web geometry cook result is released"); }
 }
 
+/**
+ * Monolithic cook result: every page payload already exists, so
+ * `descriptorSections()` is complete and `copyPage` works for every PageID.
+ */
+export class WebGeometryCookWasmResultV1 extends WebGeometryCookWasmHandleV1 {}
+
+/** Outcome of one payload-stage advance. */
+export interface WebGeometryProducedPageV1 {
+  readonly status: number;
+  /** Present only when `status` is `WEB_GEOMETRY_COOK_PAGE_READY`. */
+  readonly bytes: ArrayBuffer | null;
+}
+
+/**
+ * Descriptor-stage handle of the two-phase ABI (ADR-0017).
+ *
+ * The ID graph — page count, per-PageID identity, page-to-Group mapping and the
+ * activation cut — is already frozen and readable here, but no page payload
+ * exists yet. Payloads are advanced one PageID at a time with
+ * {@link producePage}, which tolerates out-of-order, repeated and interleaved
+ * requests.
+ *
+ * `descriptorSections()` deliberately still exposes `contentManifestHash` as an
+ * all-zero placeholder: the digest covers every page payload, so a true value
+ * cannot exist until the payload stage has produced all pages.
+ */
+export class WebGeometryCookWasmPlanV1 extends WebGeometryCookWasmHandleV1 {
+  /**
+   * Reports readiness for one PageID without producing anything.
+   *
+   * A PageID the descriptor never declared is reported as
+   * `WEB_GEOMETRY_COOK_PAGE_UNDECLARED` rather than rejected here: refusing it
+   * is the ABI's contract, not a caller-side range check.
+   */
+  pageStatus(pageId: number): number {
+    if (!Number.isInteger(pageId) || pageId < 0) throw new RangeError("Web geometry pageId must be a non-negative integer");
+    return this.module._oengine_web_geometry_cook_page_status(this.handle, pageId);
+  }
+
+  /**
+   * Advances one PageID and copies its payload when it becomes ready.
+   *
+   * Declared pages may be produced in any order, and repeating a PageID returns
+   * the byte-identical payload. A PageID the descriptor never declared is
+   * reported as `WEB_GEOMETRY_COOK_PAGE_UNDECLARED` and does not extend the ID
+   * graph.
+   */
+  producePage(pageId: number): WebGeometryProducedPageV1 {
+    if (!Number.isInteger(pageId) || pageId < 0) throw new RangeError("Web geometry pageId must be a non-negative integer");
+    const module = this.module;
+    const address = module._malloc(WEB_GEOMETRY_PAGE_BYTES);
+    if (!address) throw new Error("Web geometry cooker page allocation failed");
+    try {
+      const status = module._oengine_web_geometry_cook_produce_page(this.handle, pageId, address, WEB_GEOMETRY_PAGE_BYTES);
+      if (status === WEB_GEOMETRY_COOK_PAGE_READY) {
+        const output = new Uint8Array(WEB_GEOMETRY_PAGE_BYTES);
+        output.set(module.HEAPU8.subarray(address, address + WEB_GEOMETRY_PAGE_BYTES));
+        return Object.freeze({ status, bytes: output.buffer });
+      }
+      if (status !== WEB_GEOMETRY_COOK_PAGE_PENDING && status !== WEB_GEOMETRY_COOK_PAGE_UNDECLARED) {
+        throw new Error(readLastError(module) || "Web geometry page production failed");
+      }
+      return Object.freeze({ status, bytes: null });
+    } finally {
+      module._free(address);
+    }
+  }
+
+  /**
+   * Produces every declared-but-pending page and returns how many were newly
+   * materialized. Use it to reach the monolithic state before reading
+   * `contentManifestHash`.
+   */
+  produceAll(): number {
+    let produced = 0;
+    for (let pageId = 0; pageId < this.pageCount; pageId++) {
+      if (this.pageStatus(pageId) === WEB_GEOMETRY_COOK_PAGE_PENDING) {
+        const page = this.producePage(pageId);
+        if (page.status === WEB_GEOMETRY_COOK_PAGE_READY) produced++;
+      }
+    }
+    return produced;
+  }
+}
+
 export function cookWebGeometryWasmV1(module: EmscriptenWebGeometryCookerModuleV1, canonicalInput: ArrayBuffer, recipeInput: ArrayBuffer, maxDecodedProductBytes: number): WebGeometryCookWasmResultV1 {
+  return withStagedInputs(module, canonicalInput, recipeInput, maxDecodedProductBytes, (canonicalAddress, recipeAddress) =>
+    new WebGeometryCookWasmResultV1(
+      module,
+      requireHandle(
+        module._oengine_web_geometry_cook(canonicalAddress, canonicalInput.byteLength, recipeAddress, recipeInput.byteLength, BigInt(maxDecodedProductBytes)),
+        module)));
+}
+
+/**
+ * Descriptor stage of the two-phase ABI (ADR-0017).
+ *
+ * Freezes the complete ID graph without producing any page payload, so the
+ * caller can publish the descriptor immediately and then advance payloads
+ * incrementally through {@link WebGeometryCookWasmPlanV1.producePage}.
+ */
+export function planWebGeometryWasmV1(module: EmscriptenWebGeometryCookerModuleV1, canonicalInput: ArrayBuffer, recipeInput: ArrayBuffer, maxDecodedProductBytes: number): WebGeometryCookWasmPlanV1 {
+  return withStagedInputs(module, canonicalInput, recipeInput, maxDecodedProductBytes, (canonicalAddress, recipeAddress) =>
+    new WebGeometryCookWasmPlanV1(
+      module,
+      requireHandle(
+        module._oengine_web_geometry_cook_plan(canonicalAddress, canonicalInput.byteLength, recipeAddress, recipeInput.byteLength, BigInt(maxDecodedProductBytes)),
+        module)));
+}
+
+function withStagedInputs<T>(
+  module: EmscriptenWebGeometryCookerModuleV1,
+  canonicalInput: ArrayBuffer,
+  recipeInput: ArrayBuffer,
+  maxDecodedProductBytes: number,
+  run: (canonicalAddress: number, recipeAddress: number) => T): T {
   if (module._oengine_web_geometry_cook_abi_version() !== WEB_GEOMETRY_COOKER_ABI_VERSION) throw new Error("Web geometry cooker ABI version mismatch");
   if (!(canonicalInput instanceof ArrayBuffer) || !(recipeInput instanceof ArrayBuffer) || recipeInput.byteLength !== WEB_GEOMETRY_RECIPE_BYTES) throw new TypeError("Web geometry cooker inputs are invalid");
   if (!Number.isSafeInteger(maxDecodedProductBytes) || maxDecodedProductBytes < WEB_GEOMETRY_PAGE_BYTES) throw new RangeError("maxDecodedProductBytes must admit at least one page");
@@ -268,13 +404,16 @@ export function cookWebGeometryWasmV1(module: EmscriptenWebGeometryCookerModuleV
   try {
     module.HEAPU8.set(new Uint8Array(canonicalInput), canonicalAddress);
     module.HEAPU8.set(new Uint8Array(recipeInput), recipeAddress);
-    const handle = module._oengine_web_geometry_cook(canonicalAddress, canonicalInput.byteLength, recipeAddress, recipeInput.byteLength, BigInt(maxDecodedProductBytes));
-    if (!handle) throw new Error(readLastError(module) || "Web geometry cook failed");
-    return new WebGeometryCookWasmResultV1(module, handle);
+    return run(canonicalAddress, recipeAddress);
   } finally {
     module._free(recipeAddress);
     module._free(canonicalAddress);
   }
+}
+
+function requireHandle(handle: number, module: EmscriptenWebGeometryCookerModuleV1): number {
+  if (!handle) throw new Error(readLastError(module) || "Web geometry cook failed");
+  return handle;
 }
 
 function readLastError(module: EmscriptenWebGeometryCookerModuleV1): string {

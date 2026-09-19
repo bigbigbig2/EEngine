@@ -47,7 +47,7 @@ std::vector<std::uint8_t> Recipe() {
     std::vector<std::uint8_t> bytes(96u, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','R','C','P',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 1u); U32(bytes, 12u, 96u);
+    U32(bytes, 8u, 2u); U32(bytes, 12u, 96u);
     U32(bytes, 16u, 64u); U32(bytes, 20u, 32u); U32(bytes, 24u, 128u);
     U32(bytes, 28u, 32u); F32(bytes, 32u, 0.0f); F32(bytes, 36u, 2.0f);
     F32(bytes, 40u, 0.5f); F32(bytes, 44u, 0.51f); F32(bytes, 48u, 0.85f);
@@ -76,7 +76,7 @@ std::vector<std::uint8_t> CanonicalCube() {
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 1u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 2u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, 1u); U32(bytes, 24u, positions.size()); U32(bytes, 28u, indices.size());
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 32u);
@@ -118,7 +118,7 @@ std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount) {
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 1u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 2u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, std::uint32_t(domainCount)); U32(bytes, 24u, std::uint32_t(vertexCount)); U32(bytes, 28u, std::uint32_t(indexCount));
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 32u);
@@ -239,13 +239,105 @@ void AssertPageIdentityRollup() {
     std::cout << "page identity rollup: ok" << std::endl;
 }
 
+/**
+ * ADR-0017 two-phase ABI: the descriptor stage must freeze the complete ID graph
+ * without producing payload, and the payload stage must tolerate out-of-order,
+ * repeated and undeclared PageIDs while reproducing the monolithic cook exactly.
+ */
+void AssertTwoPhaseParity(
+    const std::vector<std::uint8_t>& canonical,
+    const std::vector<std::uint8_t>& recipe) {
+    const std::uintptr_t monolithic = oengine_web_geometry_cook(
+        canonical.data(), canonical.size(), recipe.data(), recipe.size(), 8u * 1024u * 1024u);
+    if (!monolithic) throw std::runtime_error(LastError());
+    const std::uintptr_t planned = oengine_web_geometry_cook_plan(
+        canonical.data(), canonical.size(), recipe.data(), recipe.size(), 8u * 1024u * 1024u);
+    if (!planned) throw std::runtime_error(LastError());
+
+    const std::uint32_t pageCount = oengine_web_geometry_cook_page_count(planned);
+    assert(pageCount > 0u);
+    assert(pageCount == oengine_web_geometry_cook_page_count(monolithic));
+
+    // Descriptor stage must already freeze every descriptor-only section.
+    for (std::uint32_t section = OENGINE_WEB_COOK_SECTION_ASSET_RECORDS;
+         section <= OENGINE_WEB_COOK_SECTION_RECIPE_HASH; ++section) {
+        assert(Section(planned, section) == Section(monolithic, section));
+    }
+    assert(oengine_web_geometry_cook_section_size(
+        planned, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, 0u) == kGeometryPageBytesV3);
+
+    // Before any produce call every declared page is PENDING, not missing.
+    for (std::uint32_t page = 0u; page < pageCount; ++page) {
+        assert(oengine_web_geometry_cook_page_status(planned, page) ==
+               OENGINE_WEB_COOK_PAGE_PENDING);
+    }
+    // An undeclared PageID is refused and must not extend the ID graph.
+    assert(oengine_web_geometry_cook_page_status(planned, pageCount) ==
+           OENGINE_WEB_COOK_PAGE_UNDECLARED);
+    assert(oengine_web_geometry_cook_page_status(planned, pageCount + 4096u) ==
+           OENGINE_WEB_COOK_PAGE_UNDECLARED);
+    assert(oengine_web_geometry_cook_page_count(planned) == pageCount);
+
+    std::vector<std::uint8_t> page(kGeometryPageBytesV3, 0u);
+    const std::vector<std::uint8_t> monolithicPage =
+        Section(monolithic, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, 0u);
+
+    // Producing the last PageID first proves out-of-order production.
+    assert(oengine_web_geometry_cook_produce_page(
+        planned, pageCount - 1u, page.data(), page.size()) == OENGINE_WEB_COOK_PAGE_READY);
+    assert(page == Section(monolithic, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, pageCount - 1u));
+    assert(oengine_web_geometry_cook_page_status(planned, pageCount - 1u) ==
+           OENGINE_WEB_COOK_PAGE_READY);
+
+    // Producing undeclared ids must be refused and must leave the destination untouched.
+    std::fill(page.begin(), page.end(), std::uint8_t(0xa5));
+    assert(oengine_web_geometry_cook_produce_page(
+        planned, pageCount, page.data(), page.size()) == OENGINE_WEB_COOK_PAGE_UNDECLARED);
+    assert(std::all_of(page.begin(), page.end(), [](std::uint8_t value) {
+        return value == std::uint8_t(0xa5);
+    }));
+
+    // A repeated produce returns the byte-identical payload.
+    assert(oengine_web_geometry_cook_produce_page(
+        planned, pageCount - 1u, page.data(), page.size()) == OENGINE_WEB_COOK_PAGE_READY);
+    assert(page == Section(monolithic, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, pageCount - 1u));
+
+    // Fill the rest in ascending order and compare every page to the monolithic cook.
+    for (std::uint32_t pageIndex = 0u; pageIndex < pageCount; ++pageIndex) {
+        assert(oengine_web_geometry_cook_produce_page(
+            planned, pageIndex, page.data(), page.size()) == OENGINE_WEB_COOK_PAGE_READY);
+        assert(page == Section(monolithic, OENGINE_WEB_COOK_SECTION_PAGE_BYTES, pageIndex));
+    }
+    for (std::uint32_t pageIndex = 0u; pageIndex < pageCount; ++pageIndex) {
+        assert(oengine_web_geometry_cook_page_status(planned, pageIndex) ==
+               OENGINE_WEB_COOK_PAGE_READY);
+    }
+
+    // Two plans of the same input must agree on the whole ID graph.
+    const std::uintptr_t plannedAgain = oengine_web_geometry_cook_plan(
+        canonical.data(), canonical.size(), recipe.data(), recipe.size(), 8u * 1024u * 1024u);
+    if (!plannedAgain) throw std::runtime_error(LastError());
+    for (std::uint32_t section = OENGINE_WEB_COOK_SECTION_ASSET_RECORDS;
+         section <= OENGINE_WEB_COOK_SECTION_RECIPE_HASH; ++section) {
+        assert(Section(planned, section) == Section(plannedAgain, section));
+    }
+    oengine_web_geometry_cook_destroy(plannedAgain);
+    oengine_web_geometry_cook_destroy(planned);
+    oengine_web_geometry_cook_destroy(monolithic);
+}
+
 int main() {
     AssertPageIdentityRollup();
-    assert(oengine_web_geometry_cook_abi_version() == 1u);
+    assert(oengine_web_geometry_cook_abi_version() == 2u);
     const std::vector<std::uint8_t> canonical = CanonicalCube();
     const std::vector<std::uint8_t> recipe = Recipe();
-    assert(Hex(Sha256(canonical)) == "ef3d47d2ca6e355184bc540928ca0663910c27d3bbdac0d43187ed998e4df822");
-    assert(Hex(Sha256(recipe)) == "43d244b5d0453b36e076d340ee8cc8ef69550fbc9265eb6959b70cdbda85e44c");
+    // Golden freeze of the fixture encoding itself: these digests pin the exact
+    // recipe/canonical byte layout (including the ABI version word) so that any
+    // accidental edit to the fixture is caught before it can mask a real
+    // regression in the cooker.
+    assert(Hex(Sha256(canonical)) == "bf445f9207ee9a3a76a7656bbc1a31aaac36efab1c64dea489423d84f28e6a29");
+    assert(Hex(Sha256(recipe)) == "4c7311b0954eb9592036cb3e135464e1001e11949876dfe4de9460179c5db01b");
+    AssertTwoPhaseParity(canonical, recipe);
     const std::uintptr_t first = oengine_web_geometry_cook(
         canonical.data(), canonical.size(), recipe.data(), recipe.size(), 8u * 1024u * 1024u);
     if (!first) throw std::runtime_error(LastError());

@@ -23,7 +23,7 @@ function fakeModule(sections) {
     get canonicalInput() { return canonicalInput; },
     _malloc(bytes) { const at = next; next += bytes; return at; },
     _free() {},
-    _oengine_web_geometry_cook_abi_version() { return 1; },
+    _oengine_web_geometry_cook_abi_version() { return 2; },
     _oengine_web_geometry_cook(address, bytes) { canonicalInput = heap.slice(address, address + bytes); return 1; },
     _oengine_web_geometry_cook_destroy() {},
     _oengine_web_geometry_cook_page_count() { return 1; },
