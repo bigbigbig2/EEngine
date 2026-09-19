@@ -6,6 +6,10 @@ export interface GlbRangeSourceOptions {
   readonly init?: Omit<RequestInit, "headers">;
   /** Base URL used when a JSON glTF contains relative external resources. */
   readonly baseUrl?: string;
+  /** Maximum span pulled in one authored-image prefetch; defaults to 8 MiB. */
+  readonly imagePrefetchMaxBytes?: number;
+  /** Maximum unused gap tolerated inside one authored-image prefetch; defaults to 256 KiB. */
+  readonly imagePrefetchMaxGapBytes?: number;
 }
 
 export interface GlbRangeReadableSource {

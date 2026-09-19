@@ -9,7 +9,7 @@ import {
   type EmscriptenWebGeometryCookerModuleV1
 } from "./wasm/WebGeometryCookerAbi.js";
 import type { GlbCookPrimitive } from "../../loaders/gltf/streaming/GlbSceneCatalog.js";
-import { prefetchCoalescedRanges, type CoalescedRangeReaderOptions } from "./CoalescedRangeReader.js";
+import { prefetchCoalescedRangeGroups, type CoalescedRangeReaderOptions } from "./CoalescedRangeReader.js";
 
 export const NYX_WEB_RUNTIME_PRODUCER_ID = "oengine-nyx-web-runtime";
 export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi1-product-v1";
@@ -73,20 +73,20 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   }
 
   private async canonicalizeDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<ArrayBuffer> {
-    // Coalesce the bounded accessor ranges first so canonicalization reads from
-    // memory instead of issuing one HTTP range per attribute (master doc S8.5).
+    // Plan every unit's ranges in one pass. A GLB packs accessors contiguously,
+    // so per-unit planning turned one contiguous span into one HTTP range per
+    // unit; a global plan collapses it to the block count `maxBlockBytes` allows.
+    const groups = units.map(unit => unit.ranges);
+    const readers = await prefetchCoalescedRangeGroups(groups, range => context.readRange(range), context.signal, this.#rangeOptions);
     const domains: Array<Awaited<ReturnType<typeof canonicalizeGlbPrimitiveV1>> | undefined> = new Array(units.length);
-    // Keep range ownership at unit granularity while allowing a bounded number
-    // of independent units to overlap. Results are written back by stable unit
-    // index, so changing concurrency cannot change Nyx canonical input order.
+    // Results are written back by stable unit index, so changing concurrency
+    // cannot change Nyx canonical input order.
     let nextUnit = 0;
     const worker = async (): Promise<void> => {
       while (true) {
         const index = nextUnit++;
         if (index >= units.length) return;
-        const unit = units[index]!;
-        const reader = await prefetchCoalescedRanges(unit.ranges, range => context.readRange(range), context.signal, this.#rangeOptions);
-        domains[index] = await canonicalizeGlbPrimitiveV1(unit, reader);
+        domains[index] = await canonicalizeGlbPrimitiveV1(units[index]!, readers[index]!);
       }
     };
     await Promise.all(Array.from({ length: Math.min(this.#rangeOptions.concurrency, units.length) }, () => worker()));
