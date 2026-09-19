@@ -11,6 +11,7 @@ import {
   type StandardShadeMaterial,
   type ProductSceneHandles,
   type WebCookRuntimeAsset,
+  type WebCookProgress,
   type WebCookSceneCatalogSnapshot
 } from "../../../../OEngine/src/index.ts";
 
@@ -66,6 +67,10 @@ let comparisonExampleId = "rendering-lab";
 /** Page-global Web Cook budget shared by every Product load on this page. */
 const cookBudget = new WebCookBudgetLedger({ maxActiveSessions: 2, maxOutputBytes: 256 * 1024 * 1024, maxSourceBytes: 256 * 1024 * 1024, maxWasmBytes: 256 * 1024 * 1024 });
 const multiBinFixture = new URLSearchParams(window.location.search).get("multiBin") === "1";
+/** Elapsed-time ticker for the catalog window; cleared once the catalog lands. */
+let catalogTicker = 0;
+/** True between the bootstrap publication and the richer revision committing. */
+let refinementPending = false;
 
 async function start(): Promise<void> {
   if (navigator.gpu === undefined) {
@@ -164,6 +169,7 @@ async function start(): Promise<void> {
     const current = lab.handles.current();
     if (current.source.count <= lab.count && current.source.assetCount <= lab.geometryCount) return;
     refinedCameraApplied = true;
+    refinementPending = false;
     sceneBounds = computeSphereBounds(current.source);
     activeCamera.near = Math.max(0.01, sceneBounds.radius / 5000);
     activeCamera.far = Math.max(100, sceneBounds.radius * 24);
@@ -181,13 +187,29 @@ async function start(): Promise<void> {
   }).catch(showFatalError);
 
   status.dataset.state = "ready";
-  setLoading("Ready", `${lab.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"}${multiBinFixture ? " · multi-bin fixture" : ""} · performance panel ready`, 1);
+  // The bootstrap is drawable, but the richer revision is still cooking. Saying
+  // "Ready" at 100% here would be immediately contradicted by the refine
+  // heartbeat, so report the partial state until `settled()` lands.
+  if (refinementPending) {
+    setLoading("Ready", `${lab.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"} · refining full geometry...`, 0.55);
+  } else {
+    setLoading("Ready", `${lab.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"}${multiBinFixture ? " · multi-bin fixture" : ""} · performance panel ready`, 1);
+  }
   startFrameLoop(activeRenderer, activeScene, activeCamera);
 }
 
 /** Runtime-first path: GLB -> Web Worker/WASM CookSession -> shared Product admission. */
 async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): Promise<LabScene> {
-  setLoading("Assets", `Loading ${modelLabel} via Web Runtime Cooker...`, 0.1);
+  setLoading("Assets", `Reading ${modelLabel} catalog...`, 0.1);
+  // Nothing arrives between the first byte and the catalog: the worker reads the
+  // GLB header and JSON chunk before it can report any progress. Tick elapsed
+  // time so that window is visibly alive instead of frozen at 10%.
+  let catalogArrived = false;
+  const catalogStartedAt = Date.now();
+  catalogTicker = window.setInterval(() => {
+    if (disposed || catalogArrived) return;
+    setLoading("Assets", `Reading ${modelLabel} catalog — ${((Date.now() - catalogStartedAt) / 1000).toFixed(0)}s`, 0.15);
+  }, 250);
   const runtimeProfile = new URLSearchParams(window.location.search).get("profile") === "isolated-pthreads" ? "isolated-pthreads" : "portable-single";
   const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 128 * 1024 * 1024, maxDecodedProductBytes: 512 * 1024 * 1024, runtimeProfile });
   // The catalog arrives before any BIN byte is read, so the first cut can be
@@ -195,6 +217,7 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
   // Worker keeps a catalog-ready window open, so these priorities still cross
   // the boundary before cooking starts.
   let sourcePriorities: readonly CatalogPriority[] | undefined;
+  let cookStartedAt: number | undefined;
   const asset = load_gltf(modelUrl, {
     worker,
     runtimeProfile,
@@ -206,10 +229,24 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
     initialOutputPageCredits: 64,
     maxBufferedPages: 64,
     maxBufferedBytes: 64 * 262144,
-    onSceneCatalogReady: (catalog) => { sourcePriorities = rankCatalogByVisibility(catalog); }
+    onSceneCatalogReady: (catalog) => {
+      catalogArrived = true;
+      window.clearInterval(catalogTicker);
+      sourcePriorities = rankCatalogByVisibility(catalog);
+    },
+    onProgress: (progress) => {
+      catalogArrived = true;
+      window.clearInterval(catalogTicker);
+      cookStartedAt ??= Date.now();
+      // The first cut has been produced as soon as any unit is reported, so the
+      // refinement is pending from then until the richer revision commits.
+      if (progress.units > 0) refinementPending = true;
+      reportCookProgress(progress, Date.now() - cookStartedAt);
+    }
   });
   if (sourcePriorities !== undefined) applyCatalogPriorities(asset, sourcePriorities);
-  setLoading("GPU residency", "Cooking and uploading the Web Product...", 0.4);
+  // The progress stream owns this status line: overwriting it here would wipe
+  // whatever cook stage the worker has already reported.
   const handles = await activeRenderer.uploadWebCookedScene(activeScene, asset, {
     fitHeight: 5.4,
     fitBase: [0, -1, 0],
@@ -407,6 +444,33 @@ function setLoading(stage: string, detail: string, progress: number): void {
   statusProgress.style.width = `${Math.max(0, Math.min(1, progress)) * 100}%`;
 }
 
+/**
+ * Renders live cook progress while the Product is being produced.
+ *
+ * The refinement is a single opaque cooker call: it reports nothing until it
+ * finishes, so the cooked count sits at the bootstrap cut and then jumps to the
+ * full count in one step. The unit count is therefore always reported exactly
+ * as produced. To keep the bar from looking wedged during that opaque stretch,
+ * it crawls through the unconfirmed remainder against elapsed time and is
+ * capped below 1, so it can never claim the richer revision has landed.
+ */
+function reportCookProgress(progress: WebCookProgress, localElapsedMs: number): void {
+  if (disposed) return;
+  const total = progress.catalogPrimitives;
+  const elapsedMs = progress.elapsedMs ?? localElapsedMs;
+  const seconds = `${(elapsedMs / 1000).toFixed(0)}s`;
+  if (progress.stage === "bootstrap" || total === 0) {
+    setLoading("GPU residency", `Cooking the first cut — ${progress.units}${total > 0 ? ` of ${total}` : ""} geometries · ${seconds}`, 0.4);
+    return;
+  }
+  const confirmed = total > 0 ? Math.min(1, progress.units / total) : 0;
+  // Spend 55%-95% on confirmed units. Until the refinement reports in full, ease
+  // the remaining 95%-99% by elapsed time; the last 1% is held for the commit.
+  const creeping = confirmed >= 1 ? 0.99 : Math.min(0.99, 0.95 + (1 - Math.exp(-elapsedMs / 12000)) * 0.04);
+  const bar = confirmed >= 1 ? creeping : 0.55 + confirmed * 0.4;
+  setLoading("GPU residency", `Refining full geometry — ${progress.units} of ${total} cooked · ${seconds}`, bar);
+}
+
 function showFatalError(error: unknown): void {
   if (disposed) return;
   const message = error instanceof Error ? error.message : String(error);
@@ -419,6 +483,7 @@ function dispose(): void {
   if (disposed) return;
   disposed = true;
   cancelAnimationFrame(animationFrame);
+  window.clearInterval(catalogTicker);
   resizeObserver?.disconnect();
   performancePanel?.dispose();
   controls?.dispose();

@@ -65,6 +65,13 @@ export interface WebCookClientOptions {
   readonly maxBufferedPages?: number;
   readonly maxBufferedBytes?: number;
   readonly onSceneCatalogReady?: (catalog: WebCookSceneCatalogSnapshot) => void;
+  /**
+   * Reports cook progress while the Product is still being produced. `units` is
+   * the completed catalog primitive count against `catalogPrimitives`, so a
+   * caller can show "N / total" without guessing; `stage` distinguishes the
+   * first cut from the refinement that replaces it.
+   */
+  readonly onProgress?: (progress: WebCookProgress) => void;
   /** Optional page-global ledger that caps sessions and live bytes across clients. */
   readonly ledger?: WebCookBudgetLedger;
   /** Admission priority used when the ledger is saturated. */
@@ -75,6 +82,23 @@ export interface WebCookClientOptions {
   readonly bootstrap?: WebCookBootstrapOptions;
   /** Main-thread source options used only for bounded authored-image preflight. */
   readonly source?: GlbRangeSourceOptions;
+}
+
+export interface WebCookProgress {
+  /** `bootstrap` for the first cut, `refinement` for the revision that replaces it. */
+  readonly stage: string;
+  /** Catalog primitives whose geometry has been produced so far. */
+  readonly units: number;
+  /** Catalog primitive count, or 0 before the catalog is known. */
+  readonly catalogPrimitives: number;
+  /** Source bytes covered by `units`. */
+  readonly bytes: number;
+  /** Total source bytes the cook will cover once complete, or 0 while unknown. */
+  readonly totalBytes: number;
+  /** `units / catalogPrimitives`, or `undefined` before the catalog is known. */
+  readonly fraction?: number;
+  /** Real elapsed milliseconds for the current stage, when the producer reports it. */
+  readonly elapsedMs?: number;
 }
 
 export interface WebCookClientEvidence {
@@ -132,7 +156,25 @@ export class WebCookClient implements GeometryProductProviderV1 {
         for (const priority of this.#options.initialSourcePriorities ?? []) this.setSourcePriority(priority.assetKey, priority.score, priority.cameraHintRevision);
         this.#options.onSceneCatalogReady?.(this.#catalog);
       },
-      onProgress: () => { this.#progressEvents++; },
+      onProgress: progress => {
+        this.#progressEvents++;
+        if (this.#options.onProgress === undefined) return;
+        // The catalog arrives before cooking, so the denominator is real rather
+        // than an estimate. Before it lands the caller gets bytes only.
+        const catalogPrimitives = this.#catalog?.primitiveCount ?? 0;
+        const totalBytes = this.#catalog?.sourceBytes ?? 0;
+        const fraction = catalogPrimitives > 0 ? Math.min(1, progress.units / catalogPrimitives) : undefined;
+        const elapsedMs = progress.timings.elapsedMs;
+        this.#options.onProgress(Object.freeze({
+          stage: progress.stage,
+          units: progress.units,
+          catalogPrimitives,
+          bytes: progress.bytes,
+          totalBytes,
+          ...(fraction === undefined ? {} : { fraction }),
+          ...(elapsedMs === undefined ? {} : { elapsedMs })
+        }));
+      },
       onRecoverableFailure: failure => { this.#recoverableFailures++; this.#recoverableFailureCodes.push(`${failure.scope}:${failure.code}`); },
       onFatal: error => {
         if (this.#state !== "open") return;

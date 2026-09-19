@@ -71,3 +71,91 @@ test("Web Cook visible-first selects one prioritized primitive before reading th
   assert.ok(fetched.every(([start]) => start < glb.byteLength));
   coordinator.dispose();
 });
+
+test("Web Cook progress heartbeat never claims units the producer has not delivered", async () => {
+  // The refinement is one opaque cooker call, so between the bootstrap revision
+  // and the richer revision the coordinator has no new milestone to report. The
+  // heartbeat must keep `units` at the last delivered revision instead of
+  // jumping to the full catalog size, and must advance only elapsed time.
+  const glb = makeTwoPrimitiveGlb(), product = productFixture();
+  const coordinator = new WebCookCoordinator("progress-heartbeat", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 262144, maxQueuedEvents: 64 },
+    source: { fetch: async (_url, init) => { const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(match[1]), end = Number(match[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(units, context, onRevision) {
+        // Mirror the real producer: revision 0 is the bootstrap cut, revision 1
+        // the richer replacement. The coordinator keys the reported unit count
+        // off that number, so both must be distinct.
+        const revision = (number, replaces) => ({ descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: number, ...(replaces === undefined ? {} : { replaces }) }), productId: product.productId, revision: number, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        await onRevision(revision(0));
+        for (let tick = 0; tick < 8; tick++) {
+          await new Promise(resolve => setTimeout(resolve, 60));
+          coordinator.drainEvents();
+        }
+        await onRevision(revision(1, { productId: product.productId, revision: 0 }));
+      }
+    }
+  });
+  await coordinator.open("https://example.test/progress.glb");
+  const events = [];
+  coordinator.grantOutputCredits(1, 262144);
+  const cooking = coordinator.cookBootstrap();
+  // Consume and return page credit the way the real client does, so the second
+  // revision is not left waiting for a page lease.
+  const collector = setInterval(() => {
+    const drained = coordinator.drainEvents();
+    events.push(...drained);
+    for (const event of drained) if (event.type === "PageReady") coordinator.returnOutputCredits(1, 262144);
+  }, 20);
+  await cooking;
+  clearInterval(collector);
+  const tail = coordinator.drainEvents();
+  events.push(...tail);
+  for (const event of tail) if (event.type === "PageReady") coordinator.returnOutputCredits(1, 262144);
+  const progress = events.filter(event => event.type === "Progress");
+  assert.ok(progress.length >= 2, `expected heartbeat progress events, saw ${progress.length}`);
+  // The first Progress reports the bootstrap revision itself; everything before
+  // the final event is a heartbeat emitted while the refinement runs.
+  assert.equal(progress[0].stage, "bootstrap");
+  assert.equal(progress[0].units, 1);
+  for (const event of progress.slice(1, -1)) {
+    assert.equal(event.stage, "refinement");
+    assert.equal(event.units, 1, "heartbeat must not claim uncooked units");
+    assert.equal(typeof event.timings.elapsedMs, "number");
+  }
+  assert.equal(progress.at(-1).units, 2, "the final progress reports the full cook");
+  assert.equal(progress.at(-1).stage, "refinement");
+  coordinator.dispose();
+});
+
+test("Web Cook progress heartbeat gives up instead of failing a saturated queue", async () => {
+  // Heartbeats run on a timer, outside the cook's error path. A consumer that
+  // stops draining must cost progress ticks, not the whole session.
+  const glb = makeTwoPrimitiveGlb(), product = productFixture();
+  const coordinator = new WebCookCoordinator("progress-saturated", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 262144, maxQueuedEvents: 8 },
+    source: { fetch: async (_url, init) => { const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(match[1]), end = Number(match[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(units, context, onRevision) {
+        const revision = (number, replaces) => ({ descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: number, ...(replaces === undefined ? {} : { replaces }) }), productId: product.productId, revision: number, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        await onRevision(revision(0));
+        await new Promise(resolve => setTimeout(resolve, 500));
+        await onRevision(revision(1, { productId: product.productId, revision: 0 }));
+      }
+    }
+  });
+  await coordinator.open("https://example.test/saturated.glb");
+  coordinator.grantOutputCredits(1, 262144);
+  const cooking = coordinator.cookBootstrap();
+  // Drain pages but never progress: the queue must absorb the heartbeats.
+  const collector = setInterval(() => {
+    for (const event of coordinator.drainEvents()) if (event.type === "PageReady") coordinator.returnOutputCredits(1, 262144);
+  }, 20);
+  await cooking;
+  clearInterval(collector);
+  assert.equal(coordinator.evidence().state, "complete", "a saturated queue must not fail the cook");
+  assert.equal(coordinator.evidence().completedUnits, 2);
+  coordinator.dispose();
+});

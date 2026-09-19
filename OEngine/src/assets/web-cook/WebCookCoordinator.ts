@@ -174,19 +174,28 @@ export class WebCookCoordinator {
         const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
         this.#peakUnitBytes = Math.max(this.#peakUnitBytes, this.#bootstrapSourceBytes);
         if (this.#bootstrapSourceBytes > this.#options.budgets.maxWasmBytes) throw new Error(`bootstrap cook source exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
-        await progressive.call(this.#options.cooker, units, context, async (revision) => {
-          this.validateRevision(revision);
-          this.#liveRevisions.push(revision);
-          const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
-          this.#completedUnits = revision.revision === 0 ? bootstrapUnits.length : units.length;
-          if (this.#firstRevisionAt === undefined) this.#firstRevisionAt = Date.now() - this.#cookStartedAt;
-          this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
-          for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
-          this.markActivationStreamed(revision);
-          this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: {} }));
-        }, (error) => {
-          this.publish(this.header({ type: "RecoverableFailure", scope: "richer-product-revision", code: error.message, retryAfterMs: 0 }));
-        });
+        // The refinement is one opaque cooker call that can run for seconds, so a
+        // revision is not a fine-grained progress signal. Heartbeat real elapsed
+        // time while it runs: the UI can then show the cook is still alive
+        // instead of freezing at "0.4" until the replacement lands.
+        const heartbeat = this.#startProgressHeartbeat(units.length);
+        try {
+          await progressive.call(this.#options.cooker, units, context, async (revision) => {
+            this.validateRevision(revision);
+            this.#liveRevisions.push(revision);
+            const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
+            this.#completedUnits = revision.revision === 0 ? bootstrapUnits.length : units.length;
+            if (this.#firstRevisionAt === undefined) this.#firstRevisionAt = Date.now() - this.#cookStartedAt;
+            this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
+            for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
+            this.markActivationStreamed(revision);
+            this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: {} }));
+          }, (error) => {
+            this.publish(this.header({ type: "RecoverableFailure", scope: "richer-product-revision", code: error.message, retryAfterMs: 0 }));
+          });
+        } finally {
+          heartbeat();
+        }
         this.#state = "complete";
         return;
       }
@@ -241,6 +250,37 @@ export class WebCookCoordinator {
       this.fail(error);
       throw error;
     }
+  }
+
+  /**
+   * Emits periodic `Progress` heartbeats until the returned stop function runs.
+   *
+   * The cook's two revisions are the only producer-side milestones, and the
+   * refinement between them is opaque: `onRevision` fires only after the whole
+   * call returns. The heartbeat therefore reports `#completedUnits` verbatim -
+   * the count stays at the bootstrap cut while the refinement runs - and only
+   * adds an elapsed timer. Claiming the full unit count here would report work
+   * that has not been produced yet.
+   */
+  #startProgressHeartbeat(totalUnits: number): () => void {
+    const startedAt = Date.now();
+    const timer = setInterval(() => {
+      // Progress is informational, and this runs outside the cook's own error
+      // path. A saturated event queue must drop the tick rather than throw from
+      // a timer callback, which would fail the whole session.
+      try {
+        this.publish(this.header({
+          type: "Progress",
+          stage: "refinement",
+          units: this.#completedUnits,
+          bytes: this.#refinementSourceBytes,
+          timings: Object.freeze({ elapsedMs: Date.now() - startedAt, totalUnits })
+        }));
+      } catch {
+        // The consumer is not draining events; skip this heartbeat.
+      }
+    }, PROGRESS_HEARTBEAT_MS);
+    return () => { clearInterval(timer); };
   }
 
   /** Records source priority before or during a bounded cook session. */
@@ -372,6 +412,8 @@ function comparePrimitiveOrder(left: GlbCookPrimitive, right: GlbCookPrimitive):
  */
 const DEFAULT_BOOTSTRAP_UNIT_LIMIT = 24;
 const DEFAULT_BOOTSTRAP_SOURCE_BYTES = 16 * 1024 * 1024;
+/** Cadence for elapsed-time progress heartbeats during an opaque cook stage. */
+const PROGRESS_HEARTBEAT_MS = 250;
 
 /**
  * Chooses the automatic first cut.
