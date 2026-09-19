@@ -215,6 +215,23 @@ open.
 
 第三步现已具备实现与验证证据，但不等同于 ADR Complete：当前 authored case 是单三角形/单 page 的材质生产连接验证，replacement/device-loss 证据来自共享 Product 生命周期门禁；多材质、大场景和正式 PERF 仍未验证。Mode A 仍只表示网络读取和上传渐进，不表示物理显存节省。
 
+## 2026-09-19 clean revision 证据基线（a6b730a）
+
+本页补充 `a6b730a` 上的同 revision 浏览器证据基线。`validation/src/runner/run-case.mjs` 用 `git status --porcelain` 判定 `provenance.dirty`，任何未提交改动（含文档）都会把 artifact 降级为 `diagnostic-only`；因此此前记录在 dirty 工作树上的数值不能直接当作当前基准。下表数值均为 `dirty: false`、`evidenceStatus: accepted`。
+
+| Case | 关键数值 |
+| --- | --- |
+| `glb-web-product` | catalog 798 primitives、portable-single；coverage 256×256 litPixels 12023/65536、hzbPixels 225474；demandCoverage 31025/65536；demand scheduler requested 355 / deduplicated 12 / failed 0 / retries 0 / demandOverflow 0；residentBefore 374 → residentAfter 375；admission offered 2 / activated 1 / rejected 0 |
+| `virtual-product-production` | publication activeSceneRevision 1 / activePublicationRevision 2 |
+| `virtual-product-replacement` | bootstrap generation 1 / revision 0，随后原子换版 |
+| `virtual-product-device-loss` | generation 2 / revision 1、residentPages 419 / pinnedPages 374；litPixels 12418 → 12418 |
+| `virtual-product-offline` | range 与 memory 选择同 `productId`、同 activation cut |
+| `virtual-product-observer` | 128×128、5888 lit pixels ×2（bootstrap + cameraCut） |
+
+`glb-web-product` 与 `virtual-product-device-loss` 的覆盖率门禁是 `litPixels < 64` 才失败（见 `validation/src/cases/glb-web-product/main.ts` 第 377 行），所以更早记录的 5610 / 5640 是当时的**实测值**而不是门禁值；同一 case 在 `a6b730a` 上的实测值已明显高于它。引用这些数字时必须写明其 revision。
+
+`OEngine` 侧同一 revision：`npm run typecheck` 通过，`node --test tests/*.test.mjs` 414/414 通过。
+
 ## 2026-09-19 S7 用户模型观察器
 
 已新增 `validation/src/cases/virtual-product-observer` production case，并注册为 `virtual-product-observer-v1`。该页面统一承载 Web GLB/glTF 与 Offline OEGPACK 两条 producer，支持 URL、Web File/Blob、runtime profile、Load/Cancel/Replace、camera close/cut、source failure 和显式 device-loss recovery；两条 producer 都通过共享 Product admission/residency 与 Main/Visibility consumer。
