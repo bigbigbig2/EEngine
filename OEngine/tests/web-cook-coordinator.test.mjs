@@ -70,3 +70,150 @@ test("Web Cook coordinator prefers the whole-source immutable batch entry", asyn
   await coordinator.open("https://example.test/batch.glb"); coordinator.grantOutputCredits(1, 262144); await coordinator.cookBootstrap();
   assert.equal(batchCalls, 1); assert.equal(unitCalls, 0); assert.equal(coordinator.evidence().completedUnits, 1); coordinator.dispose();
 });
+
+test("Web Cook coordinator streams a plan-backed revision without materialising it up front", async () => {
+  // ADR-0017 third slice. The richer revision is offered with its descriptor
+  // frozen and its payloads still PENDING; the coordinator must publish the ID
+  // graph, stream only the activation cut, and leave every other page unproduced
+  // until GPU demand asks for it.
+  const glb = makeGlb(), product = productFixture();
+  const produced = [];
+  const richer = (revision, replaces) => ({
+    descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision, ...(replaces === undefined ? {} : { replaces }) }),
+    productId: product.productId,
+    revision,
+    pageCount: 1,
+    hasPendingPages: revision === 1,
+    async readPage(pageId) {
+      produced.push({ revision, pageId });
+      return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer };
+    },
+    release() {}
+  });
+  const coordinator = new WebCookCoordinator("session-plan", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 4 * 262144, maxQueuedEvents: 32 },
+    source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(_units, _context, onRevision) {
+        await onRevision(richer(0));
+        await onRevision(richer(1, { productId: product.productId, revision: 0 }));
+      }
+    }
+  });
+  await coordinator.open("https://example.test/plan.glb");
+  // Two activation cuts stream here, and a bare coordinator never returns a
+  // credit: only WebCookProductProvider does that, and only while a consumer
+  // drains `revisions()`. Budget one page per offered revision.
+  coordinator.grantOutputCredits(2, 2 * 262144);
+  await coordinator.cookBootstrap();
+  const events = coordinator.drainEvents();
+  const offered = events.filter(event => event.type === "RevisionOffered");
+  // Both descriptors are published, richer included, even though its payloads
+  // were never produced during the cook.
+  assert.equal(offered.length, 2);
+  assert.equal(offered[1].descriptor.byteLength > 0, true);
+  const pageReady = events.filter(event => event.type === "PageReady");
+  assert.deepEqual(pageReady.map(event => event.revision), [0, 1], "each revision streams exactly its activation cut");
+  assert.deepEqual(produced, [{ revision: 0, pageId: 0 }, { revision: 1, pageId: 0 }]);
+  coordinator.dispose();
+});
+
+test("Web Cook coordinator produces a pending page when GPU demand asks for it", async () => {
+  const glb = makeGlb(), product = productFixture();
+  const produced = [];
+  const richer = (revision, replaces) => ({
+    descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision, ...(replaces === undefined ? {} : { replaces }) }),
+    productId: product.productId,
+    revision,
+    pageCount: 1,
+    hasPendingPages: revision === 1,
+    async readPage(pageId) {
+      produced.push({ revision, pageId });
+      return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer };
+    },
+    release() {}
+  });
+  const coordinator = new WebCookCoordinator("session-demand", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 4 * 262144, maxQueuedEvents: 32 },
+    source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    bootstrapUnitCount: 1,
+    cooker: {
+      // Only the bootstrap cut is offered; page 0 stays PENDING in the richer
+      // revision so the demand path is what has to produce it.
+      async cookProgressive(_units, _context, onRevision) { await onRevision(richer(0)); }
+    }
+  });
+  await coordinator.open("https://example.test/demand.glb");
+  coordinator.grantOutputCredits(2, 2 * 262144);
+  await coordinator.cookBootstrap();
+  coordinator.drainEvents();
+  produced.length = 0;
+  // A demand for a page the activation cut already streamed is re-served; a
+  // demand for a still-pending page advances its payload stage.
+  await coordinator.requestPages(product.productId, 0, new Uint32Array([0]), 1);
+  assert.deepEqual(produced, [{ revision: 0, pageId: 0 }]);
+  const ready = coordinator.drainEvents().filter(event => event.type === "PageReady");
+  assert.equal(ready.length, 1);
+  assert.equal(ready[0].revision, 0);
+  coordinator.dispose();
+});
+
+
+test("Web Cook coordinator re-serves a streamed activation page and survives a cancel race", async () => {
+  // ADR-0017 third slice, third exit condition. A revision publishes its
+  // descriptor before its payloads are all produced, so the coordinator has to
+  // keep that already-published revision usable:
+  //
+  //  * a demand for an activation page whose cut has streamed is a re-read (the
+  //    consumer lost its copy) and must be re-served, and
+  //  * a cancel that loses the race to a completed cook must not tear down the
+  //    revision it already handed to the consumer.
+  const glb = makeGlb(), product = productFixture();
+  const produced = [];
+  const makeRevision = (revision, replaces) => ({
+    descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision, ...(replaces === undefined ? {} : { replaces }) }),
+    productId: product.productId,
+    revision,
+    pageCount: 1,
+    // The activation cut is streamed, but the descriptor may still declare
+    // payloads that no demand has reached yet.
+    hasPendingPages: true,
+    async readPage(pageId) {
+      produced.push({ revision, pageId });
+      return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer };
+    },
+    release() { produced.push({ released: revision }); }
+  });
+  const coordinator = new WebCookCoordinator("session-cache", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 8 * 262144, maxQueuedEvents: 32 },
+    source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(_units, _context, onRevision) {
+        await onRevision(makeRevision(0));
+        await onRevision(makeRevision(1, { productId: product.productId, revision: 0 }));
+      }
+    }
+  });
+  const ready = () => coordinator.drainEvents().filter(event => event.type === "PageReady").map(event => ({ revision: event.revision, pageId: event.pageId }));
+  await coordinator.open("https://example.test/cache.glb");
+  coordinator.grantOutputCredits(4, 4 * 262144);
+  await coordinator.cookBootstrap();
+  assert.deepEqual(ready(), [{ revision: 0, pageId: 0 }, { revision: 1, pageId: 0 }], "each revision streams exactly its activation cut");
+  // A demand for the replacing revision's activation page now that its cut has
+  // streamed is re-served: the page was published once, and the consumer asking
+  // again means it no longer holds it.
+  await coordinator.requestPages(product.productId, 1, new Uint32Array([0]), 1);
+  assert.deepEqual(ready(), [{ revision: 1, pageId: 0 }], "the demand re-serves the already streamed activation page");
+  // The cook already completed, so a later cancel is a no-op: it must not
+  // release a revision the consumer is still rendering from, and it must not
+  // turn a request that was legal a moment ago into a failure.
+  coordinator.cancel();
+  assert.equal(coordinator.evidence().state, "complete", "cancel cannot unwind a completed cook");
+  assert.deepEqual(produced, [{ revision: 0, pageId: 0 }, { revision: 1, pageId: 0 }, { revision: 1, pageId: 0 }], "cancel re-cooks nothing and releases nothing");
+  await coordinator.requestPages(product.productId, 1, new Uint32Array([0]), 1);
+  assert.deepEqual(ready(), [{ revision: 1, pageId: 0 }], "a completed revision keeps answering demand");
+  coordinator.dispose();
+  assert.deepEqual(produced.filter(entry => "released" in entry), [{ released: 0 }, { released: 1 }], "dispose releases every live revision");
+});

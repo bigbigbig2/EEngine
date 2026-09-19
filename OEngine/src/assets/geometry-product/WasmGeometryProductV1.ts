@@ -8,10 +8,13 @@ import {
   type GeometryPageProductV1
 } from "./GeometryProductV1.js";
 import {
-  WEB_GEOMETRY_PAGE_BYTES,
   cookWebGeometryWasmV1,
+  planWebGeometryWasmV1,
+  WEB_GEOMETRY_COOK_PAGE_READY,
+  WEB_GEOMETRY_PAGE_BYTES,
   type EmscriptenWebGeometryCookerModuleV1,
-  type WebGeometryCookWasmResultV1
+  type WebGeometryCookWasmHandleV1,
+  type WebGeometryCookWasmPlanV1
 } from "../web-cook/wasm/WebGeometryCookerAbi.js";
 
 /**
@@ -22,6 +25,11 @@ import {
  * runtime ordinary-Scene route - so Product identity, descriptor validation and
  * page re-readability cannot diverge between them. The module owns no GPU
  * object and never touches admission or residency.
+ *
+ * A revision may be built either from a monolithic cook, where every page
+ * payload already exists, or from the two-phase plan, where the descriptor is
+ * frozen while payloads are still PENDING. The interface is identical: callers
+ * only observe that `readPage` may do more work for a plan-backed revision.
  */
 export interface WasmGeometryProductRevisionV1 {
   readonly descriptor: ArrayBuffer;
@@ -32,6 +40,8 @@ export interface WasmGeometryProductRevisionV1 {
   readonly pageCount: number;
   /** Catalog primitive indices represented by this revision's asset table. */
   readonly sceneAssetIndices?: readonly number[];
+  /** True while at least one declared page payload has not been produced yet. */
+  readonly hasPendingPages: boolean;
   readPage(pageId: number): Promise<GeometryPageProductV1>;
   release(): void;
 }
@@ -86,43 +96,141 @@ export async function cookWasmGeometryProductRevisionV1(
 ): Promise<WasmGeometryProductRevisionV1> {
   const result = cookWebGeometryWasmV1(module, canonicalInput, recipeInput, options.maxDecodedProductBytes);
   try {
-    const sections = result.descriptorSections();
-    const productId = await deriveGeometryProductIdV1(
-      options.producerId,
-      options.producerVersion,
-      options.sourceIdentityKind,
-      options.sourceIdentityHash,
-      sections.recipeHash,
-      sections.contentManifestHash
-    );
-    const descriptor: GeometryProductDescriptorV1 = Object.freeze({
-      schemaVersion: 1,
-      productId,
-      revision: options.revision,
-      ...(options.replaces === undefined ? {} : { replaces: Object.freeze({ productId: options.replaces.productId.slice(), revision: options.replaces.revision }) }),
-      producerKind: "web-runtime",
-      producerId: options.producerId,
-      producerVersion: options.producerVersion,
-      sourceIdentityKind: options.sourceIdentityKind,
-      sourceIdentityHash: options.sourceIdentityHash,
-      recipeHash: sections.recipeHash,
-      runtimeProfile: GEOMETRY_PRODUCT_RUNTIME_PROFILE,
-      decodedPageBytes: WEB_GEOMETRY_PAGE_BYTES,
-      assetRecords: sections.assetRecords,
-      rootNodeIds: sections.rootNodeIds,
-      hierarchyNodes: sections.hierarchyNodes,
-      groupDirectory: sections.groupDirectory,
-      pageRecords: sections.pageRecords,
-      bootstrapPageIds: sections.bootstrapPageIds,
-      activationPageIds: sections.activationPageIds,
-      vertexFormats: sections.vertexFormats
-    });
-    assertGeometryProductDescriptorV1(descriptor);
-    return new WasmGeometryProductRevision(result, descriptor, options.sceneAssetIndices);
+    return await assembleWasmGeometryProductRevisionV1(result, options, new MonolithicPageSource(result));
   } catch (error) {
     result.release();
     throw error;
   }
+}
+
+/**
+ * Freezes the descriptor stage and returns a revision whose pages are still
+ * PENDING.
+ *
+ * Only the descriptor is materialised, so the caller can publish the complete ID
+ * graph immediately and let GPU demand decide which payloads are worth
+ * producing. `readPage` advances exactly the requested PageID and reuses it on
+ * later reads, so repeating a demand never re-cooks the page.
+ *
+ * The ProductID is derived from the recipe hash plus a zero content manifest:
+ * the real manifest covers every page payload, so it cannot exist at descriptor
+ * time. Plan-backed revisions therefore carry a provisional identity that is
+ * only valid under `oengine-nyx-web-runtime-plan-v1`. A producer that already
+ * produced all payloads must use the monolithic entry instead, which keeps the
+ * manifest-backed ProductID.
+ */
+export async function planWasmGeometryProductRevisionV1(
+  module: EmscriptenWebGeometryCookerModuleV1,
+  canonicalInput: ArrayBuffer,
+  recipeInput: ArrayBuffer,
+  options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>
+): Promise<WasmGeometryProductRevisionV1> {
+  const result = planWebGeometryWasmV1(module, canonicalInput, recipeInput, options.maxDecodedProductBytes);
+  try {
+    return await assembleWasmGeometryProductRevisionV1(result, options, new WasmPlanPageSource(result));
+  } catch (error) {
+    result.release();
+    throw error;
+  }
+}
+
+/** How one revision turns a PageID into bytes. */
+interface GeometryProductPageSourceV1 {
+  readonly hasPendingPages: boolean;
+  /** Produces (if needed) and returns one page payload, or null when undeclared. */
+  copyPage(pageId: number): ArrayBuffer | null;
+  release(): void;
+}
+
+async function assembleWasmGeometryProductRevisionV1(
+  result: WebGeometryCookWasmHandleV1,
+  options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>,
+  pageSource: GeometryProductPageSourceV1
+): Promise<WasmGeometryProductRevisionV1> {
+  const sections = result.descriptorSections();
+  const productId = await deriveGeometryProductIdV1(
+    options.producerId,
+    options.producerVersion,
+    options.sourceIdentityKind,
+    options.sourceIdentityHash,
+    sections.recipeHash,
+    sections.contentManifestHash
+  );
+  const descriptor: GeometryProductDescriptorV1 = Object.freeze({
+    schemaVersion: 1,
+    productId,
+    revision: options.revision,
+    ...(options.replaces === undefined ? {} : { replaces: Object.freeze({ productId: options.replaces.productId.slice(), revision: options.replaces.revision }) }),
+    producerKind: "web-runtime",
+    producerId: options.producerId,
+    producerVersion: options.producerVersion,
+    sourceIdentityKind: options.sourceIdentityKind,
+    sourceIdentityHash: options.sourceIdentityHash,
+    recipeHash: sections.recipeHash,
+    runtimeProfile: GEOMETRY_PRODUCT_RUNTIME_PROFILE,
+    decodedPageBytes: WEB_GEOMETRY_PAGE_BYTES,
+    assetRecords: sections.assetRecords,
+    rootNodeIds: sections.rootNodeIds,
+    hierarchyNodes: sections.hierarchyNodes,
+    groupDirectory: sections.groupDirectory,
+    pageRecords: sections.pageRecords,
+    bootstrapPageIds: sections.bootstrapPageIds,
+    activationPageIds: sections.activationPageIds,
+    vertexFormats: sections.vertexFormats
+  });
+  assertGeometryProductDescriptorV1(descriptor);
+  return new WasmGeometryProductRevision(pageSource, descriptor, options.sceneAssetIndices);
+}
+
+/** Monolithic handle: every payload already exists, so `copyPage` is a plain copy. */
+class MonolithicPageSource implements GeometryProductPageSourceV1 {
+  readonly hasPendingPages = false;
+  constructor(private readonly handle: WebGeometryCookWasmHandleV1) {}
+  copyPage(pageId: number): ArrayBuffer { return this.handle.copyPage(pageId); }
+  release(): void { this.handle.release(); }
+}
+
+/**
+ * Two-phase plan: payloads are advanced on demand and cached per PageID.
+ *
+ * A produced page is immutable, so a second request for the same PageID is
+ * served from the cache instead of re-running the payload stage. The cache is
+ * bounded by `maxDecodedProductBytes`, which the cook already treats as the
+ * ceiling for what one revision may hold resident.
+ */
+class WasmPlanPageSource implements GeometryProductPageSourceV1 {
+  readonly #plan: WebGeometryCookWasmPlanV1;
+  readonly #produced = new Map<number, ArrayBuffer>();
+  #released = false;
+
+  constructor(plan: WebGeometryCookWasmPlanV1) { this.#plan = plan; }
+
+  get hasPendingPages(): boolean {
+    if (this.#released) return false;
+    return this.#produced.size < this.#plan.pageCount;
+  }
+
+  copyPage(pageId: number): ArrayBuffer | null {
+    if (this.#released) throw new Error("WASM Geometry Product plan has been released");
+    const cached = this.#produced.get(pageId);
+    if (cached) return cached;
+    let status: number;
+    let bytes: ArrayBuffer | null;
+    try {
+      const produced = this.#plan.producePage(pageId);
+      status = produced.status;
+      bytes = produced.bytes;
+    } catch {
+      // Out-of-range PageIDs are static contract bugs that callers cannot retry,
+      // so report them the same way a missing declaration is reported.
+      return null;
+    }
+    if (status !== WEB_GEOMETRY_COOK_PAGE_READY || bytes === null) return null;
+    this.#produced.set(pageId, bytes);
+    return bytes;
+  }
+
+  release(): void { if (this.#released) return; this.#released = true; this.#produced.clear(); this.#plan.release(); }
 }
 
 class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
@@ -131,22 +239,25 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
   readonly revision: number;
   readonly pageCount: number;
   readonly sceneAssetIndices?: readonly number[];
-  #result: WebGeometryCookWasmResultV1 | undefined;
+  #source: GeometryProductPageSourceV1 | undefined;
 
-  constructor(result: WebGeometryCookWasmResultV1, readonly product: GeometryProductDescriptorV1, sceneAssetIndices?: readonly number[]) {
-    this.#result = result;
+  constructor(source: GeometryProductPageSourceV1, readonly product: GeometryProductDescriptorV1, sceneAssetIndices?: readonly number[]) {
+    this.#source = source;
     this.descriptor = encodeGeometryProductDescriptorBinaryV1(product);
     this.productId = product.productId.slice();
     this.revision = product.revision;
-    this.pageCount = result.pageCount;
+    this.pageCount = product.pageRecords.byteLength / 32;
     this.sceneAssetIndices = sceneAssetIndices === undefined ? undefined : Object.freeze([...sceneAssetIndices]);
   }
 
+  get hasPendingPages(): boolean { return this.#source?.hasPendingPages ?? false; }
+
   async readPage(pageId: number): Promise<GeometryPageProductV1> {
-    const result = this.#result;
-    if (!result) throw new Error("WASM Geometry Product revision has been released");
+    const source = this.#source;
+    if (!source) throw new Error("WASM Geometry Product revision has been released");
     const expected = decodeGeometryProductPageRecordV1(this.product, pageId);
-    const bytes = result.copyPage(pageId);
+    const bytes = source.copyPage(pageId);
+    if (bytes === null) throw new Error(`WASM Geometry Product page ${pageId} is not declared by the descriptor`);
     // The page record carries rolled-up identity, not the whole-page digest, so a
     // whole-page hash comparison would always mismatch. Whole-page digest is
     // reported separately for transport integrity only.
@@ -161,7 +272,7 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
     });
   }
 
-  release(): void { this.#result?.release(); this.#result = undefined; }
+  release(): void { this.#source?.release(); this.#source = undefined; }
 }
 
 function encodeLengthPrefixed(fields: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {

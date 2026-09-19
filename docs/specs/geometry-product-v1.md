@@ -12,7 +12,18 @@ V1 profile 复用 [OEGPACK V3](./oegpack-v3.md) 的 decoded Group/Meshlet payloa
 
 本 spec 冻结字段、作用域、状态和校验语义。跨 Worker 的二进制 descriptor transport 使用下述 `GeometryProductDescriptorBinaryV1`；任何 producer 必须生成 canonical offsets，Runtime 必须拒绝 alias、越界、非零 reserved 和 trailing bytes。WASM mirror 与 golden oracle 仍是 candidate gate。
 
-V1 同时冻结 page identity 的推导语义与两阶段 cook 的对外可分离推进语义，使 descriptor 可以先于 page payload 冻结。Producer 可以选择只实现单体式 cook 并通过 `replaces` 发布完整 revision，但一旦声明支持同 revision 内按 demand 补页，就必须满足本 spec 的两阶段 ABI 与 identity 确定性要求。
+V1 同时冻结 page identity 的推导语义与两阶段 cook 的对外可分离推进语义，使 descriptor 可以先于 page payload 冻结。Producer 可以选择只实现单体式 cook 并通过 `replaces` 发布完整 revision，但一旦声明支持同 revision 内按 demand 补页，就必须满足本 spec 的两阶段 ABI、identity 确定性与 provisional ProductID 作用域要求。
+
+## Provisional ProductID
+
+支持 descriptor-before-payload 的 producer 会用独立 `producerVersion` 与零 content manifest 推导 ProductID。该 ID 的合同是：
+
+- 同一 producer identity、source identity、recipe hash、runtime profile 与 revision 必须复现同一 provisional ProductID；
+- Provider 只可将其用于本次加载内的 revision key、demand 路由与替换判定，不得作为跨 session 持久 cache key，也不得与 manifest-backed ProductID 混用；
+- revision 的 `replaces` 指向被替换 revision 的完整 ProductID，替换链的身份由它维持，而不是由 provisional ID 的字节值维持；
+- consumer 必须仍按 `(ProductID, revision)` 定位 revision，provisional 与否不改变 demand、residency 与 eviction 的既有语义。
+
+Web Runtime Cooker 的 provisional producer version 由 `NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION` 导出；变更它会同时改变 provisional ProductID，因此必须视为 cache-invalidating 变更。
 
 ## Nyx Provenance 与移植合同
 
@@ -55,6 +66,7 @@ Provider 可以推迟 `readPage()` 的完成，或在其内部通过 I/O、decod
 - `recipeHash` 是 32-byte SHA-256。source 使用 `sourceIdentityKind + sourceIdentityHash[32]`，参与 cache/conformance，但不替代 ProductID。
 - `sourceIdentityKind` 为 `content-sha256`、`strong-http-validator` 或 `session`。Range 主路线不得为了得到 `content-sha256` 预先下载完整 GLB；有强 ETag/长度/最终 URL 时可规范化后 hash 为 `strong-http-validator`，否则使用当前 session 的随机 identity 并禁止跨 session 持久 cache。
 - 不同 producer 对同一 GLB 产生的局部 ID、hash、hierarchy 或 page bytes 无需相同，且不得混用。
+- descriptor 先于 payload 冻结的 producer 无法在 descriptor 阶段计算覆盖全部 payload 的 content manifest，因此该类 revision 的 ProductID 是 **provisional**：它由 recipe hash 加零 manifest 与独立 producer version 推导，只保证同一 producer identity、source identity、recipe hash 与 runtime profile 下可复现。Provider 必须把 provisional ProductID 的作用域限定在本次加载，不得据此做跨 session 持久 cache；替换链的稳定性由 descriptor 的 `replaces` 字段维持，它始终指向被替换 revision 的完整 ProductID。payload 已全量物化的 producer 必须使用 manifest-backed ProductID。
 
 ### Producer identity
 

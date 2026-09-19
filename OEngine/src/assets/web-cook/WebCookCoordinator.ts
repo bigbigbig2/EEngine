@@ -29,6 +29,13 @@ export interface WebCookProductRevision {
   readonly pageCount: number;
   /** Catalog primitive indices represented by this revision's asset table. */
   readonly sceneAssetIndices?: readonly number[];
+  /**
+   * True while the revision still has declared page payloads that have not been
+   * produced. A plan-backed revision publishes its descriptor before it is fully
+   * materialised, and the coordinator keeps the activation cut usable by
+   * advancing exactly the pages it is asked for.
+   */
+  readonly hasPendingPages?: boolean;
   readPage(pageId: number): Promise<WebCookProductPage>;
   release(): void;
 }
@@ -175,25 +182,34 @@ export class WebCookCoordinator {
         const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
         this.#peakUnitBytes = Math.max(this.#peakUnitBytes, this.#bootstrapSourceBytes);
         if (this.#bootstrapSourceBytes > this.#options.budgets.maxWasmBytes) throw new Error(`bootstrap cook source exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
-        // The refinement is one opaque cooker call that can run for seconds, so a
-        // revision is not a fine-grained progress signal. Heartbeat real elapsed
-        // time while it runs: the UI can then show the cook is still alive
-        // instead of freezing at "0.4" until the replacement lands.
+        // A revision is not a fine-grained progress signal: the cook between two
+        // revisions can run for seconds. Heartbeat real elapsed time while it
+        // runs: the UI can then show the cook is still alive instead of freezing
+        // at "0.4" until the replacement lands.
         const heartbeat = this.#startProgressHeartbeat(units.length);
+        // The producer may hand over a revision that is still streaming. The
+        // promise therefore resolves on the *first* revision's completion, so
+        // `cookBootstrap()` keeps its contract of returning only once the first
+        // activation cut is fully streamed, while a later revision keeps
+        // working in the background.
+        const firstRevision = deferred<void>();
+        let seenRevision = false;
         try {
-          await progressive.call(this.#options.cooker, units, context, async (revision) => {
-            this.validateRevision(revision);
-            this.#liveRevisions.push(revision);
-            const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
-            this.#completedUnits = revision.revision === 0 ? bootstrapUnits.length : units.length;
-            if (this.#firstRevisionAt === undefined) this.#firstRevisionAt = Date.now() - this.#cookStartedAt;
-            this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
-            for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
-            this.markActivationStreamed(revision);
-            this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: {} }));
+          await progressive.call(this.#options.cooker, units, context, (revision) => {
+            const isFirst = !seenRevision;
+            seenRevision = true;
+            const streamed = this.#acceptRevisionRevisions(revision, bootstrapUnits.length, units.length);
+            if (!isFirst) return streamed.catch(() => undefined);
+            // A failure while streaming the first cut is the caller's failure.
+            return streamed.then(
+              () => { firstRevision.resolve(); },
+              (error: unknown) => { firstRevision.reject(error); throw error; });
           }, (error) => {
             this.publish(this.header({ type: "RecoverableFailure", scope: "richer-product-revision", code: error.message, retryAfterMs: 0 }));
           });
+          // The producer returned without offering a first revision at all.
+          if (!seenRevision) throw new Error("Web Cook producer completed without offering a revision");
+          await firstRevision.promise;
         } finally {
           heartbeat();
         }
@@ -254,6 +270,29 @@ export class WebCookCoordinator {
   }
 
   /**
+   * Records one offered revision and streams its activation cut.
+   *
+   * The descriptor is published first, because the activation cut and every
+   * later GPU demand address pages through it. Only then are the cut's payloads
+   * produced: a plan-backed revision has not materialised them yet, so this loop
+   * is what actually advances the payload stage for the cut. `markActivationStreamed`
+   * runs after the loop, which is what lets `requestPages` take over re-reads.
+   */
+  #acceptRevisionRevisions(revision: WebCookProductRevision, bootstrapUnitCount: number, totalUnitCount: number): Promise<void> {
+    this.validateRevision(revision);
+    this.#liveRevisions.push(revision);
+    const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
+    this.#completedUnits = revision.revision === 0 ? bootstrapUnitCount : totalUnitCount;
+    if (this.#firstRevisionAt === undefined) this.#firstRevisionAt = Date.now() - this.#cookStartedAt;
+    this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
+    return (async () => {
+      for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
+      this.markActivationStreamed(revision);
+      this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: {} }));
+    })();
+  }
+
+  /**
    * Emits periodic `Progress` heartbeats until the returned stop function runs.
    *
    * The cook's two revisions are the only producer-side milestones, and the
@@ -292,7 +331,14 @@ export class WebCookCoordinator {
   }
 
   /**
-   * Re-reads requested Product pages without mutating the immutable revision.
+   * Produces and emits requested Product pages without mutating the immutable
+   * revision.
+   *
+   * This is the demand side of the two-phase ABI. A plan-backed revision has
+   * only produced its activation cut, so a request for a non-activation page is
+   * the first thing that advances that page's payload stage; a later request for
+   * the same PageID is served from the revision's own produced-page cache
+   * instead of re-cooking it.
    *
    * A page the activation loop has not streamed yet stays with that loop, so it
    * is never emitted twice. Once the cut has finished streaming, a request for
@@ -396,6 +442,15 @@ export class WebCookCoordinator {
 }
 
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean { if (left.byteLength !== right.byteLength) return false; for (let index = 0; index < left.byteLength; index++) if (left[index] !== right[index]) return false; return true; }
+function deferred<T>(): { readonly promise: Promise<T>; readonly resolve: (value: T) => void; readonly reject: (reason: unknown) => void } {
+  let resolve!: (value: T) => void, reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => { resolve = resolvePromise; reject = rejectPromise; });
+  // The completion barrier is awaited in `cookBootstrap`, but a rejection is
+  // also rethrown from the producer callback, and the two paths can race. This
+  // no-op handler keeps an unobserved rejection from surfacing as unhandled.
+  void promise.catch(() => undefined);
+  return { promise, resolve, reject };
+}
 function revisionKey(productId: Uint8Array, revision: number): string { return `${Array.from(productId, (value) => value.toString(16).padStart(2, "0")).join("")}:${revision}`; }
 function estimateSourceBytes(units: readonly GlbCookPrimitive[]): number {
   const ranges = new Map<string, GlbByteRange>();

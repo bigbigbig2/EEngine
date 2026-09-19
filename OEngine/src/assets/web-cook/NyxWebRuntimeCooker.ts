@@ -1,5 +1,5 @@
 import { createGeometryCookRecipeV3, type GeometryCookRecipeV3 } from "../GeometryCookRecipe.js";
-import { cookWasmGeometryProductRevisionV1, type WasmGeometryProductRevisionV1 } from "../geometry-product/WasmGeometryProductV1.js";
+import { cookWasmGeometryProductRevisionV1, planWasmGeometryProductRevisionV1, type WasmGeometryProductRevisionV1 } from "../geometry-product/WasmGeometryProductV1.js";
 import type { WebCookProductRevision, WebCookUnitContext, WebRuntimeCooker } from "./WebCookCoordinator.js";
 import { canonicalizeGlbPrimitiveV1 } from "./gltf/GlbPrimitiveCanonicalizer.js";
 import {
@@ -13,6 +13,15 @@ import { prefetchCoalescedRangeGroups, type CoalescedRangeReaderOptions } from "
 
 export const NYX_WEB_RUNTIME_PRODUCER_ID = "oengine-nyx-web-runtime";
 export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi1-product-v1";
+/**
+ * Producer version for plan-backed revisions.
+ *
+ * A plan-backed revision cannot carry the manifest-backed ProductID: the content
+ * manifest covers every page payload, so it does not exist while pages are still
+ * PENDING. Folding the phase into the version keeps the two phases from ever
+ * claiming the same identity for different evidence.
+ */
+export const NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi2-plan-v1";
 
 /**
  * Coarse bootstrap profile. It stops simplification earlier than the full
@@ -116,6 +125,36 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     });
   }
 
+  /**
+   * Freezes the descriptor without producing any page payload.
+   *
+   * This is the two-phase entry: the returned revision already carries the
+   * complete ID graph - page count, per-PageID identity, Group mapping and the
+   * activation cut - while every payload is still PENDING. The downstream
+   * coordinator publishes the descriptor and then produces only the activation
+   * cut, so a rich revision no longer has to be cooked in full before anything
+   * becomes visible.
+   */
+  private async planCanonical(
+    canonicalInput: ArrayBuffer,
+    context: WebCookUnitContext,
+    recipeInput: ArrayBuffer,
+    revision: number,
+    replaces?: { readonly productId: Uint8Array; readonly revision: number },
+    sceneAssetIndices?: readonly number[]
+  ): Promise<WasmGeometryProductRevisionV1> {
+    return planWasmGeometryProductRevisionV1(this.#module, canonicalInput, recipeInput, {
+      producerId: NYX_WEB_RUNTIME_PRODUCER_ID,
+      producerVersion: NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION,
+      sourceIdentityKind: context.source.sourceIdentity.kind,
+      sourceIdentityHash: context.source.sourceIdentity.hash,
+      revision,
+      ...(replaces === undefined ? {} : { replaces }),
+      maxDecodedProductBytes: this.#maxDecodedProductBytes,
+      sceneAssetIndices
+    });
+  }
+
   private async cookDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext, sceneAssetIndices: readonly number[]): Promise<WasmGeometryProductRevisionV1> {
     const canonicalInput = await this.canonicalizeDomains(units, context);
     return this.cookCanonical(canonicalInput, context, this.#recipeInput, 0, undefined, sceneAssetIndices);
@@ -138,6 +177,10 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     const bootstrapIndices = bootstrapPairs.map(pair => pair.index);
     if (bootstrapUnits.length !== bootstrapIndices.length || bootstrapIndices.some(index => !Number.isSafeInteger(index) || index < 0)) throw new RangeError("Nyx Web bootstrap asset mapping is invalid");
     let bootstrapInput: ArrayBuffer | undefined = await this.canonicalizeDomains(bootstrapUnits, context);
+    // The bootstrap cut is the only revision that must be fully resident before
+    // it is published: it is what the first frames show. It keeps the monolithic
+    // entry so its ProductID stays manifest-backed and every page is ready the
+    // moment the coordinator asks for it.
     const bootstrap = await this.cookCanonical(bootstrapInput, context, this.#bootstrapRecipeInput, 0, undefined, bootstrapIndices);
     // The WASM ABI copies/owns its input before returning a revision. Drop the
     // bootstrap canonical buffer before constructing the richer input so the
@@ -152,7 +195,18 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     // A richer failure must not tear down the resident bootstrap revision.
     try {
       const canonicalInput = await this.canonicalizeDomains(ordered, context);
-      const richer = await this.cookCanonical(canonicalInput, context, this.#recipeInput, 1, { productId: bootstrap.product.productId, revision: bootstrap.product.revision }, ordered.map((unit, index) => catalogIndex.get(primitiveKey(unit)) ?? index));
+      // The richer revision freezes its descriptor only. Its activation cut is
+      // produced as the coordinator streams it, and every remaining page is
+      // produced on demand inside the same revision instead of forcing a
+      // second, fully-materialised replacement.
+      const richer = await this.planCanonical(
+        canonicalInput,
+        context,
+        this.#recipeInput,
+        1,
+        { productId: bootstrap.product.productId, revision: bootstrap.product.revision },
+        ordered.map((unit, index) => catalogIndex.get(primitiveKey(unit)) ?? index)
+      );
       try {
         await onRevision(richer);
       } catch (error) {
