@@ -1,4 +1,5 @@
 import type { WebCookWorkerPort } from "./WebCookWorkerTransport.js";
+import { WebCookWorkerPool } from "./WebCookWorkerPool.js";
 import type { WebCookRuntimeProfile } from "./protocol/CookSessionProtocol.js";
 
 export interface WebCookWorkerFactoryOptions {
@@ -9,6 +10,8 @@ export interface WebCookWorkerFactoryOptions {
   readonly maxCanonicalInputBytes: number;
   readonly maxDecodedProductBytes: number;
   readonly createWorker?: (url: URL) => WebCookWorkerPort;
+  /** Number of Dedicated Workers used by portable-pool. Defaults to one. */
+  readonly maxWorkers?: number;
 }
 
 export interface DefaultWebCookWorkerFactoryOptions {
@@ -20,6 +23,25 @@ export interface DefaultWebCookWorkerFactoryOptions {
    * cross-origin isolated; otherwise the portable-single artifact is used.
    */
   readonly runtimeProfile?: WebCookRuntimeProfile;
+  readonly maxWorkers?: number;
+}
+
+export interface WebCookRuntimeProfileCapability {
+  readonly requested: WebCookRuntimeProfile;
+  readonly selected: WebCookRuntimeProfile;
+  readonly crossOriginIsolated: boolean;
+  readonly sharedArrayBuffer: boolean;
+  readonly fallbackReason?: "cross-origin-isolation-required" | "shared-array-buffer-unavailable";
+}
+
+/** Resolves the execution profile without ever claiming pthread support on an unisolated page. */
+export function resolveWebCookRuntimeProfile(requested: WebCookRuntimeProfile = "portable-single"): WebCookRuntimeProfileCapability {
+  const crossOriginIsolated = globalThis.crossOriginIsolated === true;
+  const sharedArrayBuffer = typeof globalThis.SharedArrayBuffer === "function";
+  if (requested !== "isolated-pthreads") return Object.freeze({ requested, selected: requested, crossOriginIsolated, sharedArrayBuffer });
+  if (!crossOriginIsolated) return Object.freeze({ requested, selected: "portable-single", crossOriginIsolated, sharedArrayBuffer, fallbackReason: "cross-origin-isolation-required" });
+  if (!sharedArrayBuffer) return Object.freeze({ requested, selected: "portable-single", crossOriginIsolated, sharedArrayBuffer, fallbackReason: "shared-array-buffer-unavailable" });
+  return Object.freeze({ requested, selected: "isolated-pthreads", crossOriginIsolated, sharedArrayBuffer });
 }
 
 /** Versioned browser-first cooker module built from the pinned Nyx sources. */
@@ -56,14 +78,27 @@ export function createWebCookWorker(options: WebCookWorkerFactoryOptions): WebCo
   return worker;
 }
 
+/** Starts a bounded pool of independent Dedicated Workers for portable-pool. */
+export function createWebCookWorkerPool(options: WebCookWorkerFactoryOptions): WebCookWorkerPort {
+  const maxWorkers = options.maxWorkers ?? 2;
+  if (!Number.isSafeInteger(maxWorkers) || maxWorkers <= 0) throw new RangeError("Web Cook Worker pool maxWorkers must be positive");
+  return new WebCookWorkerPool({
+    maxWorkers,
+    createWorker: () => createWebCookWorker({ ...options, maxWorkers: undefined })
+  });
+}
+
 /** Starts a Worker using the repository's real Emscripten cooker artifact. */
 export function createDefaultWebCookWorker(options: DefaultWebCookWorkerFactoryOptions): WebCookWorkerPort {
-  const useThreads = options.runtimeProfile === "isolated-pthreads" && globalThis.crossOriginIsolated === true;
-  return createWebCookWorker({
+  const capability = resolveWebCookRuntimeProfile(options.runtimeProfile ?? "portable-single");
+  const useThreads = capability.selected === "isolated-pthreads";
+  const factoryOptions = {
     ...options,
     wasmModuleUrl: useThreads ? DEFAULT_WEB_GEOMETRY_COOKER_THREADS_MODULE_URL : DEFAULT_WEB_GEOMETRY_COOKER_MODULE_URL,
     wasmBinaryUrl: useThreads ? DEFAULT_WEB_GEOMETRY_COOKER_THREADS_WASM_URL : DEFAULT_WEB_GEOMETRY_COOKER_WASM_URL
-  });
+  };
+  if (options.runtimeProfile === "portable-pool") return createWebCookWorkerPool(factoryOptions);
+  return createWebCookWorker(factoryOptions);
 }
 
 function defaultWebGeometryCookerModuleUrl(): URL {

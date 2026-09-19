@@ -10,6 +10,8 @@ export interface WebCookProductProviderOptions {
   readonly onSceneCatalogReady?: (catalog: Readonly<Record<string, unknown>>) => void;
   readonly onProgress?: (progress: { readonly stage: string; readonly units: number; readonly bytes: number; readonly timings: Readonly<Record<string, number>> }) => void;
   readonly onRecoverableFailure?: (failure: { readonly scope: string; readonly code: string; readonly retryAfterMs?: number }) => void;
+  /** Reports a terminal stream/transport failure to the owning client. */
+  readonly onFatal?: (error: unknown) => void;
   /** Requests a page again after a previous transfer was consumed. */
   readonly requestPage?: (productId: Uint8Array, revision: number, pageId: number) => void;
 }
@@ -77,6 +79,7 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
       this.#failures++;
       for (const source of this.#sources.values()) source.fail(error);
       this.#revisions.fail(error);
+      this.#options.onFatal?.(error);
     }
   }
 

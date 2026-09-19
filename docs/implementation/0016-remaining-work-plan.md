@@ -23,7 +23,7 @@ Web GLB/glTF 与 Native OEGPACK 是两个 Producer，而不是两个 Renderer。
 | Product/Renderer | Web WASM artifact、Offline OEGPACK provider、共享 admission/residency、GPU hierarchy/work、主视图/CSM/Visibility/Sparse Shading 已有真实浏览器 case | 公开默认 GLB 与普通 Scene 未完成 cutover；V2 package/upload/consumer 仍活跃 |
 | Web Cook | GLB Range、Worker protocol、canonicalizer、Nyx C++ port、bootstrap + richer revision、逐页 credit | 实际 `cookProgressive` 一次 canonicalize **全部** primitive 与 Range，再对整场景 Cook 两次；source priority 没有带来按 asset 的首帧发布；巨大 primitive 无 shard |
 | GPU residency | demand→延迟 readback→scheduler→upload、ancestor fallback、原子换版/失败保旧/驱逐/device-loss 有 targeted 与真实浏览器证据；同设备共享固定 4-bank slot pool | 仍需后续多 Product 压力、demand overflow 与设备丢失下的浏览器证据；淘汰评分已有 request/visible/predictive/refetch/thrash 记账，但尚未完成大场景 PERF |
-| 预算/并行 | 单会话限制、output credit、全局 `WebCookBudgetLedger` 类型与 session admission | 生产路径只登记 output 的全局 reserve，source/WASM 跨会话字节未登记；`portable-pool` 未实现，pthread pool/部署未闭环，Worker crash/OOM 证据不足 |
+| 预算/并行 | 单会话限制、output credit、全局 `WebCookBudgetLedger`、`portable-pool` ownership 与 generation failure recovery | source 目前按 source identity/byteLength 以 session 生命周期登记，WASM 按 configured max 保守登记；Range/canonical/WASM committed-peak 的细粒度 counter、浏览器多 Worker 压力和 pthread 部署 smoke 仍未闭环 |
 | glTF/材质/纹理 | GLB/glTF Range source、Blob/File、data URI、外部 buffer、sparse/interleaved/normalized/non-indexed、作者 PBR texture metadata、Texture Mode A 接线与独立 authored-texture Chrome case 均已落地；clean revision 已取得 accepted 证据 | Mode A 不代表物理显存节省；promotion/失败回滚/代际复用/容量与 feature-off 已有 targeted 合同，replacement/device-loss 复用共享 Product 浏览器门禁；Draco/meshopt/skin/morph 仍按 capability/error 拒绝；巨大 primitive shard 属于第二步遗留 |
 | Nyx 验收 | 本地 7 个关键 Nyx 文件 hash 匹配移植台账；本地 Cooker 真实调用 meshoptimizer build/partition/attribute-aware simplify；Native↔Web corpus 通过 | 两个 OEngine Producer 共用本地 C++ port，现有 differential 不是独立 Nyx 原版输出；GPU `DAGCull`/`VBufferMesh` 的逐入口行为、负例与真实 consumer 对照未齐 |
 | 验证/文档 | Dungeon、Offline、demand、replacement、eviction、device-loss case 已登记 | 现有像素 smoke 不是作者材质保真或大场景 TTFMF/PERF；`ARCHITECTURE.md`、`PIPELINE.md` 有已过时叙述，`STATUS.md` 下一步重复 S6 |
@@ -92,6 +92,18 @@ bootstrap activation、revision 1 replacement 和 replacement 后 demand 像素�
 执行：实现多 Dedicated Worker 的独立 asset/shard 分派、稳定合并和输出信用；完成 pthread pool 在应用 Worker 内的握手、SAB/COOP/COEP 与资源跨域部署验证，禁止 Worker×pthread 嵌套失控。把 `WebCookBudgetLedger` 的 source/WASM reservation 接到实际 Range cache、canonical input、WASM committed/peak 生命周期，而不只在测试里调用；拒绝/等待/取消的公平性、队列容量、超额策略和恢复必须可观测。Worker crash/OOM 使 generation 失效，不复用其页或 descriptor；重启后按 source identity 重建，不阻塞渲染帧。
 
 退出：多 session 压力下每项峰值不超过配置、credit 饱和时上游暂停、取消能释放所有 reservation；两种并行 profile 通过同一 conformance/negative corpus，故障不会发布 stale Product。先做 targeted tests 和部署 smoke，只有比较默认 profile 时才运行固定总线程预算的 PERF，不凭线程数推断性能。
+
+#### 第四步当前实现检查（2026-09-19）
+
+已完成本阶段的 portable 并行与跨会话预算切片：
+
+- `WebCookWorkerPool` 以 `sessionId:generation` 固定 ownership，把不同 session 分派到多个 Dedicated Worker；同一 generation 的命令不会迁移到其他 Worker。
+- Worker `error`/`messageerror` 只使其拥有的 generation 失效并发送带 session header 的 `FatalSessionFailure`；不会把一个 Worker 的故障广播成整个 pool 的 transport 失败。失效 generation 的 descriptor/page 不会重放；slot 会创建 replacement Worker，后续新 generation 可以继续使用池宽度。
+- `WebCookClient` 在 session admission 后预留 configured WASM/canonical ceiling，在 `SceneCatalogReady` 时登记 source bytes，并将 output/source/WASM reservation 在 cancel、dispose、source 超额、provider fatal 和 Worker failure 路径统一释放。账本 evidence 继续报告 peak/rejected/waiting/cancelled 计数。
+- `portable-pool` 已通过与 `portable-single` 相同的 transport/provider/client targeted conformance；validation 页面接受 `?profile=portable-pool`，并记录 requested/selected profile、`crossOriginIsolated`、`SharedArrayBuffer` 和 fallback reason。
+- `isolated-pthreads` 现在有显式 capability gate：只有 `crossOriginIsolated && SharedArrayBuffer` 才选择 pthread artifact；否则实际选择 `portable-single` 且报告 `cross-origin-isolation-required` 或 `shared-array-buffer-unavailable`，不伪装成 pthread 完成。validation Vite host 已提供 COOP/COEP headers，真实 pthread 资源握手仍需在目标浏览器上单独 smoke。
+
+本阶段保留的边界：source reservation 以当前 `GlbRangeSource` session 的 source identity/byteLength 作为 owner 生命周期，WASM reservation 以 session configured max 为保守上限；后续需要在真实多 asset workload 中补 Range cache/canonical input/WASM committed-peak 的细粒度 counter。`portable-pool`/single 的 Node targeted 证据已齐，浏览器多 Worker 与 isolated-pthreads 的 clean-commit deployment smoke 尚未作为本阶段完成证据。
 
 ### 第五步：完成 Nyx 函数级 differential 与 GPU 行为验收
 

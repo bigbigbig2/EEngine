@@ -6,13 +6,15 @@ device-loss paths, not failure-atomic replacement or large-scene visible-first
 loading. Current `swapProductScene` releases the old Scene before the new one
 is staged and does not restore it on failure; the Web progressive cooker
 canonicalizes all catalog primitives before its first Product offer; the
-page-global ledger reserves output bytes in production but not source/WASM
-bytes. The per-Product 128 MiB bank allocation also needs a global capacity
-ledger and measured memory evidence. These open defects and the seven larger
-delivery stages are tracked in
+page-global ledger now reserves source/WASM/output in the client lifecycle,
+but source/canonical/WASM committed-peak accounting remains conservative and
+needs measured multi-session evidence. The per-Product 128 MiB bank allocation
+also needs a global capacity ledger and measured memory evidence. These open
+defects and the seven larger delivery stages are tracked in
 [0016 remaining-work plan](./implementation/0016-remaining-work-plan.md).
-Earlier “atomic”, “per-domain parallel” and “page-global source/WASM” wording
-on this page describes intended or successful-path behavior, not closed gates.
+Earlier “atomic” and “per-domain parallel” wording on this page describes
+intended or successful-path behavior, not closed gates; S4 source/WASM
+reservation is covered by the checkpoint below.
 
 Implementation update (2026-09-18): the Runtime-first Web route now runs a real
 GLB end to end. `run:glb-web-product` drives the Dungeon (798 mesh / 25
@@ -133,7 +135,7 @@ evidence remains open.
 | 部分 | 状态 | 当前事实 | 下一出口 |
 | --- | --- | --- | --- |
 | Geometry Product V1 | in progress | 已落地 producer-neutral TS descriptor/page/provider mirror、严格 table/tree/bootstrap/activation validator、OEGPACK -> Product adapter，以及 Product-aware hierarchy/work/raster 接线；Product 现已进入统一 main/shadow consumer（VisibilityKey、Sparse Shading、Packed CSM depth），主视图与 CSM 均具备 UV0/UV1 与 TextureBindingSet alpha-mask 采样；`virtual-product-production` 与真实 GLB 的 `glb-web-product`（Dungeon，798 mesh/25 material）均已在当前 revision 的 Chrome 上 `accepted`；`glb-web-product` 已改为 256x256 HDR 覆盖率断言，并有 Native Offline <-> Web 结构化 differential 与不变量/负例 corpus；bank heap 已按 Product 总页数预分配 | 完成 demand/residency 与 lifecycle 的浏览器 MILESTONE，随后再补 transport/golden 后冻结候选 spec |
-| Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、带 source/WASM/output budget、取消与 whole-page credit lease 的 `WebCookCoordinator`、generation-filtered Dedicated Worker transport、CPU/WASM-only `WebCookWorkerHost`、异步 Emscripten module queueing 的 `WebCookWorkerEntry`、live Product provider，以及 container-neutral decoded Product assembly；S2b 已交付完整有界 GLB primitive canonicalization（interleaved/normalized/index/material/defaults）、Nyx Web Runtime Cooker adapter、Product content-manifest identity 与 page hash 校验、canonicalizer/credit pause/adapter tests。Emscripten 6.0.9 module/wasm artifact 已入库并经 `createDefaultWebCookWorker`/`WebCookWorkerEntrypoint` 接入 Dedicated Worker；`WebCookClient`/`WebCookRuntimeAsset`/`load_gltf_web_product` + `Renderer.uploadWebCookedScene` 是运行时 facade；`RequestPages` 已路由到 Worker；`glb-web-product`（真实 Dungeon GLB）已在 Chrome `accepted`。已加入 Range coalescing、progressive bootstrap + richer revision（含原子 release→re-stage→retire 替换）、page-global `WebCookBudgetLedger` 与 per-domain 并行 cook；pthread 变体已构建但 pool 握手未闭环，默认仍 `portable-single` | 完成 pthread/portable-pool、真实 GLB demand 端到端浏览器证据；不得把 native ABI oracle、Node fake module 或 TypeScript tests 视为 S2/S3 Runtime 完成 |
+| Web Runtime Cooker 主路线 | in progress | 已加入严格 206/有预算 200 fallback 的 GLB Range source、按 accessor 精确 Range 的 compact scene catalog/cook units、source/WASM/output budget、取消与 whole-page credit lease、generation-filtered Dedicated Worker transport、CPU/WASM-only Worker host、异步 Emscripten module queueing、live Product provider、Range coalescing、progressive bootstrap + richer revision 与 per-domain cook。`portable-pool` 已实现固定 session ownership、crash generation invalidation 和 replacement Worker；`WebCookClient` 已把 source/WASM/output reservation 接入真实生命周期；`isolated-pthreads` 具备显式 cross-origin isolation/SAB capability gate，fallback 可观测；真实 Dungeon GLB 仍在 Chrome `accepted` | 尚需浏览器多 Worker 压力、pthread artifact 部署 smoke、source/canonical/WASM committed-peak 细粒度计数与后续 consumer cutover；不得把 Node fake module 或 TypeScript tests 视为 Runtime 完成 |
 | 0016-A Offline/OEGPACK | implemented, S6 parity accepted | native cooker、OEGPACK V3 parser、range/memory source、页校验与 bootstrap cut 已存在；OEGPACK Product adapter 已通过共同 production consumer 接线；`load_oegpack_product` + `Renderer.uploadOegPackScene` 与 Web 路线共用同一 admission/residency/Visibility 路径，`virtual-product-offline` 已在 Chrome accepted（range/memory 平价 64105 lit pixels、source failure 显式报错、A→B 替换连续、demand 1→5 页）；`scene.oescene` 合同已入 spec，OEGPACK 专用 bootstrap residency adapter 已删除 | 补 transport/golden 后冻结候选 spec，并做 S7 consumer cutover |
 | 0016-B admission/residency | in progress | 已抽出 Product-aware `VirtualGeometryResidency`，带 product generation、activation/page upload、16 B location table、pinned/retiring evidence；已冻结 `GeometryPageDemandV1` 与 Product GPU location TS/WGSL mirror，并加入严格 hash-verified scheduler、8 MiB upload sink、主视图与 CSM 分离的延迟 readback ownership ring；S1 Product hierarchy/work/raster producer、统一 main/shadow consumer、shadow demand flag、统一 frame completion 自动 poll/upload、保留 identity 的 device-loss residency 重建与 Product revision 原子替换已接线；bank heap 改按 Product 总页数预分配（修复 demand 上传新建未绑定 bank 导致的黑屏），并新增 Native↔Web differential / invariant / negative corpus；`glb-web-product` 已在 Chrome 里跑通 GPU demand 证据：实际相机靠近触发 desired page 缺失，GPU demand → delayed readback ring → scheduler（requested 2121、deduplicated 80）→ provider → upload → residency residentPages 374→375，且 ancestor fallback 保持画面（demand coverage 17394 lit pixels、0 GPU error）；`virtual-product-replacement` 已 accepted：richer revision 原子替换（generation 1→2、revision 0→1、换版后 5600+ lit pixels）+ demand 细化（382→383）+ 跨提交边界 evict（4 候选→379、evictedPages 4、17400 lit pixels）；`virtual-product-device-loss` 已 accepted：intentional device loss → 新 adapter/device → 从保留 Product source 重建全部场景（5640 → 5610 lit pixels、selectedClusters 474、visibleInstances 798、0 GPU error）| 补 transport/golden 后冻结候选 spec |
 | 0016-C renderer cutover | in progress | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity，并可在 device-loss 后按原 generation/table slot 重建 publication；普通 Scene adapter/V2 owner 仍保留 | 完成 Product recovery checkpoint 的真实浏览器验证、删除旧 V2 owner/path，并用 ADR-0014 浏览器证据验证统一 consumer |
@@ -149,7 +151,7 @@ evidence remains open.
 - ADR-0013 的历史 baseline 冻结、Step 6 formal A/B、删除前后比较与相对收益门禁已以 `closed / requirement-removed` 关闭；当前 revision 的绝对 PERF 验收仍独立开放。
 - Geometry Product 与 Virtual Geometry Runtime 仍是 draft；Product validator/adapter 与 Product-aware bootstrap heap 已有 DEV 实现，V3 geometry 已接入统一 Visibility/Sparse/CSM consumer，且 `virtual-product-production`、真实 GLB 的 `glb-web-product`、`virtual-product-replacement` 与 `virtual-product-device-loss` 均已在 Chrome accepted。仍需补 transport/golden 后再冻结候选 spec，OEGPACK ABI 因此仍是 candidate。
 - S1 的 `virtual-product-production` 已在当前 revision 通过 Chrome HDR readback（`evidenceStatus: accepted`）；`virtual-geometry-component` 仍是 diagnostic-only 的 WGSL ABI 解码。两者都不替代真实 GLB/demand 证据，也不作为 S2/S3/S4 完成证据。
-- Web Cooker 的 pthread 变体已构建并接入 `?profile=isolated-pthreads`，但 pthread pool 在应用 Dedicated Worker 内的握手未闭环；`portable-pool` 仍需 shard assembly ABI；默认执行 profile 仍为 `portable-single`。cross-origin isolation 不是 correctness 前提。
+- Web Cooker 的 `portable-pool` 已具备 Dedicated Worker ownership、generation failure recovery 和 targeted conformance；pthread 变体已构建并由 `crossOriginIsolated && SharedArrayBuffer` capability gate 选择，validation host 提供 COOP/COEP headers，但真实 pthread artifact 握手和多 Worker 压力尚未取得 clean-commit 浏览器证据。cross-origin isolation 不是 correctness 前提。
 - ADR-0016 §18.4 的 “Native Nyx 参考输出” 尚未产出：上游 `MeshletBuilder.cpp` 依赖整个 MiniEngine（`pch.h`/`Renderer.h`/`glTFLoader.h`/DX12/Slang 类型），当前仓库无法构建可运行的 Nyx 参考二进制；该腿暂以函数级映射 + 固定源 hash + 不变量 checklist 代替，Native↔Web 等价性单独验证。
 - `shader-f16`、Immediate Data 与 Transient Attachment 没有生产 consumer；`primitive-index` 等 specialization 只按真实 capability 启用。
 - 普通 Scene adapter 不支持 `SkinnedMesh`；完整动画/蒙皮仍 deferred。
@@ -157,10 +159,16 @@ evidence remains open.
 ## 下一步
 
 1. 做 S7 Geometry consumer cutover：迁移 `GpuAssetStore`/`GpuRenderWorld` recovery、asset publication 与 shadow consumer，删除 V2 `GeometryAssetPackage`/upload/consumer 与生产调用，并完成 source/compiled/browser 三层 legacy 审计。
-2. 完成 Web Cooker 的 `isolated-pthreads` pool 握手与 `portable-pool` + shard assembly。
+2. 补 Web Cooker 的 `isolated-pthreads` pool 握手、`portable-pool`/多 asset shard assembly 的浏览器 smoke 与 source/WASM committed-peak 细粒度证据。
 3. 产出 §18.4 的 Native Nyx 参考 harness（独立 MiniEngine Model harness 或抽取 Nyx 算法函数的 native 构建）。
 4. S6 Offline production parity 的成功路径已 accepted；继续补同 workload 对照和 source-selection 边界，再在失败事务、Nyx 对照与入口切换门禁通过后执行 S7 V2 删除和三层 legacy 审计。
 5. 纹理先验证 Mode A 渐进传输的生产路径证据；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。
+
+## 2026-09-19 Web Cook S4 checkpoint
+
+`portable-pool` 已实现为真实 Dedicated Worker pool：CookSession generation 固定绑定 Worker，Worker 崩溃或 `messageerror` 只使所属 generation 失效并发布 `FatalSessionFailure`，失效 generation 不复用 descriptor/page，slot 会补建 replacement Worker。`WebCookClient` 已把 page-global ledger 的 source/WASM reservation 接入 session admission、catalog source 生命周期和 fatal/cancel/dispose 清理，output/source/WASM 三类 owner 的峰值、拒绝与等待计数可从 evidence 观察。`isolated-pthreads` 选择现在经过显式 `crossOriginIsolated`/`SharedArrayBuffer` capability gate；不满足时报告 portable fallback，不把 fallback 冒充 pthread。
+
+S4 当前验证为 OEngine typecheck/build:test、Web Cook budget/client/host/pool targeted tests（16/16）。尚未把浏览器多 Worker 压力、真实 pthread artifact 握手和 source/WASM committed-peak 细粒度计数标记为 Runtime Validated；这些仍是后续部署 smoke 与 workload 证据。
 
 ## 2026-09-17 Product S1 checkpoint
 

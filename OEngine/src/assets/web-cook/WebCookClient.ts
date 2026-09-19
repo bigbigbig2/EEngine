@@ -107,6 +107,8 @@ export class WebCookClient implements GeometryProductProviderV1 {
   readonly #admission = new AbortController();
   #lease: WebCookBudgetLease | undefined;
   #reservedOutputBytes = 0;
+  #reservedSourceBytes = 0;
+  #reservedWasmBytes = 0;
 
   constructor(options: WebCookClientOptions) {
     validateOptions(options);
@@ -123,11 +125,18 @@ export class WebCookClient implements GeometryProductProviderV1 {
       returnOutputCredits: (blockCount, bytes) => this.#returnOutputCredits(blockCount, bytes),
       onSceneCatalogReady: catalog => {
         this.#catalog = catalog as unknown as WebCookSceneCatalogSnapshot;
+        this.#reserveSource(this.#catalog.sourceBytes);
         for (const priority of this.#options.initialSourcePriorities ?? []) this.setSourcePriority(priority.assetKey, priority.score, priority.cameraHintRevision);
         this.#options.onSceneCatalogReady?.(this.#catalog);
       },
       onProgress: () => { this.#progressEvents++; },
       onRecoverableFailure: failure => { this.#recoverableFailures++; this.#recoverableFailureCodes.push(`${failure.scope}:${failure.code}`); },
+      onFatal: error => {
+        if (this.#state !== "open") return;
+        this.#state = "failed";
+        this.#releaseBudget();
+        this.#transport.close(true);
+      },
       requestPage: (productId, revision, pageId) => this.requestPages(productId, revision, new Uint32Array([pageId]), 0)
     });
   }
@@ -150,6 +159,9 @@ export class WebCookClient implements GeometryProductProviderV1 {
       if (ledger !== undefined) {
         this.#lease = await ledger.acquireSession(this.#options.sessionId, this.#options.priority ?? 0, this.#admission.signal);
         if (this.#state !== "open") return;
+        // Reserve the configured WASM/canonical-input ceiling before source
+        // work starts so concurrent sessions cannot overcommit the page cap.
+        this.#reserveWasm(this.#options.budgets.maxWasmBytes);
       }
       this.#reserveOutput(this.#options.initialOutputPageCredits * WEB_COOK_PAGE_BYTES);
       this.#send({
@@ -260,6 +272,22 @@ export class WebCookClient implements GeometryProductProviderV1 {
     this.#reservedOutputBytes += bytes;
   }
 
+  #reserveSource(bytes: number): void {
+    const ledger = this.#options.ledger;
+    if (ledger === undefined || this.#lease === undefined || this.#reservedSourceBytes !== 0) return;
+    if (!Number.isSafeInteger(bytes) || bytes < 0) throw new RangeError("Web Cook source byte count is invalid");
+    if (!ledger.reserve(this.#lease, "source", bytes)) throw new Error("Web Cook global source budget is exhausted");
+    this.#reservedSourceBytes = bytes;
+  }
+
+  #reserveWasm(bytes: number): void {
+    const ledger = this.#options.ledger;
+    if (ledger === undefined || this.#lease === undefined || this.#reservedWasmBytes !== 0) return;
+    if (!Number.isSafeInteger(bytes) || bytes < 0) throw new RangeError("Web Cook WASM byte count is invalid");
+    if (!ledger.reserve(this.#lease, "wasm", bytes)) throw new Error("Web Cook global WASM budget is exhausted");
+    this.#reservedWasmBytes = bytes;
+  }
+
   #releaseOutput(bytes: number): void {
     const ledger = this.#options.ledger;
     if (ledger === undefined || this.#lease === undefined) return;
@@ -272,9 +300,13 @@ export class WebCookClient implements GeometryProductProviderV1 {
     const ledger = this.#options.ledger;
     if (ledger !== undefined && this.#lease !== undefined) {
       if (this.#reservedOutputBytes > 0) ledger.release(this.#lease, "output", this.#reservedOutputBytes);
+      if (this.#reservedSourceBytes > 0) ledger.release(this.#lease, "source", this.#reservedSourceBytes);
+      if (this.#reservedWasmBytes > 0) ledger.release(this.#lease, "wasm", this.#reservedWasmBytes);
       this.#lease.release();
     }
     this.#reservedOutputBytes = 0;
+    this.#reservedSourceBytes = 0;
+    this.#reservedWasmBytes = 0;
     this.#lease = undefined;
   }
 }

@@ -196,11 +196,15 @@ export type {
   VirtualGeometrySceneSourceOptionsV1,
   VirtualGeometrySceneSourceResultV1
 } from "./assets/geometry-product/VirtualGeometrySceneSourceV1.js";
-export { createWebCookWorker, createDefaultWebCookWorker } from "./assets/web-cook/WebCookWorkerFactory.js";
+export { createWebCookWorker, createWebCookWorkerPool, createDefaultWebCookWorker } from "./assets/web-cook/WebCookWorkerFactory.js";
 export type {
   DefaultWebCookWorkerFactoryOptions,
-  WebCookWorkerFactoryOptions
+  WebCookWorkerFactoryOptions,
+  WebCookRuntimeProfileCapability
 } from "./assets/web-cook/WebCookWorkerFactory.js";
+export { resolveWebCookRuntimeProfile } from "./assets/web-cook/WebCookWorkerFactory.js";
+export { WebCookWorkerPool } from "./assets/web-cook/WebCookWorkerPool.js";
+export type { WebCookWorkerPoolOptions } from "./assets/web-cook/WebCookWorkerPool.js";
 export {
   GeometryProductAdmissionController
 } from "./gpu/GeometryProductAdmission.js";

@@ -6,6 +6,7 @@ import {
   Scene,
   ShadeTransparencyMode,
   createDefaultWebCookWorker,
+  resolveWebCookRuntimeProfile,
   load_gltf_web_product,
   type GeometryPageStreamingRuntimeV1,
   type GeometryProductAdmissionController,
@@ -132,7 +133,7 @@ const runnerMode = new URLSearchParams(window.location.search).has("runId");
 const validationQuery = new URLSearchParams(window.location.search);
 const validationCaseId = validationQuery.get("case") ?? "glb-web-product";
 const validationWorkloadId = validationQuery.get("workload") ?? "glb-web-product-bootstrap-v1";
-const authoredTextureCase = validationCaseId === "glb-web-product-authored-texture";
+const authoredTextureCase = validationCaseId === "glb-web-product-authored-texture" || validationQuery.get("source") === "authored-texture";
 const controller = runnerMode
   ? createValidationController({ caseId: validationCaseId, workloadId: validationWorkloadId }, disposeCase)
   : undefined;
@@ -203,7 +204,10 @@ async function loadModel(): Promise<void> {
     localUrl = file ? URL.createObjectURL(file) : undefined;
     const sourceValue = file ? (localUrl ?? urlInput.value.trim()) : resolveSourceValue();
     if (typeof sourceValue === "string" && !sourceValue) throw new Error("GLB URL is empty");
-    const runtimeProfile = new URLSearchParams(window.location.search).get("profile") === "isolated-pthreads" ? "isolated-pthreads" : "portable-single";
+    const profileQuery = new URLSearchParams(window.location.search).get("profile");
+    const requestedProfile = profileQuery === "isolated-pthreads" || profileQuery === "portable-pool" ? profileQuery : "portable-single";
+    const runtimeCapability = resolveWebCookRuntimeProfile(requestedProfile);
+    const runtimeProfile = runtimeCapability.selected;
     const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile });
     asset = load_gltf_web_product(sourceValue, {
       worker,
@@ -215,6 +219,7 @@ async function loadModel(): Promise<void> {
       maxBufferedPages: 32,
       maxBufferedBytes: 32 * 262144
     });
+    controller?.addEvidence("runtimeProfile", runtimeCapability);
     setStatus("reading GLB JSON and cooking Nyx Product...");
     scene = new Scene();
     // Use the unified Product owner so bootstrap subset publication and richer
