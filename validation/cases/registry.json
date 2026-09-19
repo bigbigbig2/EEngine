@@ -57,6 +57,11 @@
       "layer": "L3",
       "description": "Authored glTF PBR texture slots and MASK material state reach the production TextureResidency path"
     },
+    "GEO-USER-VALIDATION": {
+      "ownerAdr": "ADR-0016",
+      "layer": "L4",
+      "description": "A user-facing observer exercises Web/Offline Product loading, visible-first bootstrap, camera demand, replacement and recovery with bounded evidence"
+    },
     "TEX-MODE-A": {
       "ownerAdr": "ADR-0016",
       "layer": "L3",
@@ -556,6 +561,20 @@
       "features": ["oegpack-range", "oegpack-memory", "product-admission", "product-residency", "product-replacement", "hierarchy-work", "meshlet-raster", "visibility-key", "sparse-shading"],
       "seed": 1607,
       "cameraPath": "oegpack-offline-source-parity-demand",
+      "warmupFrames": 1,
+      "sampleFrames": 5,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
+    "virtual-product-observer-v1": {
+      "resolution": [1280, 720],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0016-s7-user-observer-smoke-v1",
+      "features": ["web-cook", "oegpack-range", "product-admission", "visible-first-bootstrap", "camera-demand", "gpu-readback", "device-recovery"],
+      "seed": 1607,
+      "cameraPath": "bootstrap-camera-close-camera-cut",
       "warmupFrames": 1,
       "sampleFrames": 5,
       "sampleCadence": 1,
@@ -1117,6 +1136,37 @@
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
           "reason": "Chrome stable emits this platform warning while the Offline Product device is captured.",
           "ownerRequirement": "GEO-VIRTUAL-ABI"
+        }
+      ]
+    },
+    {
+      "id": "virtual-product-observer",
+      "route": "/src/cases/virtual-product-observer/index.html",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0016",
+      "requirements": ["GEO-USER-VALIDATION", "GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME"],
+      "workloadId": "virtual-product-observer-v1",
+      "profile": "smoke",
+      "timeoutMs": 240000,
+      "artifacts": ["result", "events", "screenshot", "readback"],
+      "changedPaths": [
+        "validation/src/cases/virtual-product-observer",
+        "validation/cases/registry.json",
+        "validation/vite.config.ts",
+        "OEngine/src/assets/web-cook",
+        "OEngine/src/assets/geometry-product",
+        "OEngine/src/render/Renderer.ts",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
+        "OEngine/src/gpu/GeometryProductAdmission.ts",
+        "OEngine/src/gpu/VirtualGeometryResidency.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while the observer captures adapter identity.",
+          "ownerRequirement": "GEO-USER-VALIDATION"
         }
       ]
     }

@@ -57,6 +57,20 @@ Shadow、direct/indirect lighting、AO/GI/SSR、transparency、temporal 和 post
 - D：先区分纹理渐进传输与真实物理 residency；在现有 TextureAssetPackage/TextureResidency/TextureBindingSet 上推进，Virtual Texturing 不是基线。
 
 当前顺序和退出条件见 [0016 实施文档](./implementation/0016-virtualized-assets.md)。
+
+## S7 用户观察器路径（2026-09-19）
+
+`validation/src/cases/virtual-product-observer` 是第七步的独立浏览器宿主。其运行路径为：
+
+```text
+URL/File -> Web Cook 或 OEGPACK source
+         -> Product admission/residency
+         -> GpuRenderWorld / hierarchy-work / hardware visibility
+         -> Sparse Shading / lighting
+         -> bounded HDR readback + evidence artifact
+```
+
+同一界面覆盖 Web/Offline source、运行 profile、取消/替换、相机靠近与 cut、断源和设备恢复。页面显示 catalog、首个 bootstrap/first meaningful frame、revision/generation、budget、GPUBuffer/residency、demand/fallback/overflow、材质/纹理状态和 GPU/console 错误。自动 case 只运行小规模 bounded smoke 并保存 screenshot、readback、capability、revision/source evidence；它不替代 ADR-0014 的正式 milestone 或 PERF。
 ## Product Consumer Status (2026-09-18)
 
 The Product path now reaches the unified production graph through GPU-generated

@@ -25,7 +25,8 @@
     "run:glb-authored-texture": "node src/runner/run-case.mjs glb-web-product-authored-texture",
     "run:virtual-product-replacement": "node src/runner/run-case.mjs virtual-product-replacement",
     "run:virtual-product-device-loss": "node src/runner/run-case.mjs virtual-product-device-loss",
-    "run:virtual-product-offline": "node src/runner/run-case.mjs virtual-product-offline"
+    "run:virtual-product-offline": "node src/runner/run-case.mjs virtual-product-offline",
+    "run:virtual-product-observer": "node src/runner/run-case.mjs virtual-product-observer"
   },
   "devDependencies": {
     "@types/node": "22.20.2",

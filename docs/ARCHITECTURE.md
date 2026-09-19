@@ -75,3 +75,11 @@ Legacy `GeometryAssetPackage`, `GeometryCooker` and related GPU store code remai
 Web GLB/glTF source 已支持有界 Range/200 fallback、外部 buffer/image、data URI、File/Blob object URL、sparse accessor 和取消释放。`GlbSceneCatalog`/Web Cook catalog snapshot 只传播 image/texture/sampler/UV/PBR 元数据；image bytes 不进入 Geometry Product ABI。
 
 `Renderer.uploadWebCookedScene` 现在在 Product mapper 阶段异步读取并解码当前 revision 的 authored images，构造 `StandardShadeMaterial`/`ShadeTexture` 后进入既有 `GpuRenderWorld -> TextureResidency -> TextureBindingSet` 事务。mapper、decode、upload 或 submit 失败时不发布半状态。`validation` 的 authored-texture Chrome case 已在 clean commit 上 accepted：五个 PBR 槽位、UV transform、`MASK` 原子发布、TextureResidency resident page 和真实像素读回均有 artifact；41 个 targeted tests 另覆盖 Mode A promotion、失败回滚、代际复用、容量与 feature-off。Mode A 仍不代表物理显存节省。
+
+## S7 用户观察器与证据边界（2026-09-19）
+
+独立 `validation/src/cases/virtual-product-observer` 现在提供统一的模型观察界面。用户可以在同一页面选择 Web GLB/glTF 或 Offline OEGPACK，切换 `portable-single`、`portable-pool`、`isolated-pthreads` profile，输入 URL 或选择 Web File/Blob，并执行 Load、Cancel、Replace、断源、camera close、camera cut 和 device-loss recovery。Offline 本地文件若没有显式 `scene.oescene` manifest 会失败，不猜测 pack identity。
+
+观察器展示并写入 artifact 的是 catalog、bootstrap/first meaningful frame、Product revision/generation、source/WASM/output budget、GPU capability、resident/pinned/retiring、demand/fallback/overflow、材质数量、streaming/residency、GPU 错误和有限 HDR numeric readback。Web 与 Offline 仍只通过 `Renderer.uploadWebCookedScene`/`Renderer.uploadOegPackScene` 进入同一个 Product admission/residency/Visibility consumer；界面不创建第二条 renderer 管线。
+
+该 case 证明用户可复跑的功能和规模观察入口，不证明 60 FPS、物理显存节省或正式 PERF。正式 PERF 仍需在干净 revision、固定 adapter、1920x1080/DPR1、固定 workload/warm-up 和线程预算下，按 `VALIDATION.md` 单独执行。

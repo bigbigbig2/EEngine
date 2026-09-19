@@ -12,8 +12,7 @@ import {
   type GeometryProductAdmissionController,
   type ProductSceneHandles,
   type VirtualGeometryResidency,
-  type WebCookRuntimeAsset,
-  type VirtualGeometrySceneSource
+  type WebCookRuntimeAsset
 } from "../../../../OEngine/src/index.ts";
 import dungeonSourceUrl from "../../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
 import { createValidationController } from "../../host/protocol.ts";
@@ -300,7 +299,7 @@ async function releaseModel(): Promise<void> {
   updateMetrics();
 }
 
-function frameScene(source: VirtualGeometrySceneSource): { readonly center: readonly [number, number, number]; readonly radius: number } | undefined {
+function frameScene(source: { readonly count: number; readonly boundsSpheres: Float32Array }): { readonly center: readonly [number, number, number]; readonly radius: number } | undefined {
   if (!camera) return undefined;
   let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   for (let index = 0; index < source.count; index++) {

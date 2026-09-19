@@ -211,3 +211,9 @@ open.
 第三步已完成：GLB/`.gltf`、外部 buffer/image、data URI、File/Blob、有界 Range/200 fallback、取消和 source identity；sparse/interleaved/normalized/non-indexed accessor；作者 PBR texture slot、UV transform、sampler、image metadata；以及 Web Product mapper 到 `TextureResidency`/`TextureBindingSet` 的异步原子接线。`extensionsRequired`、Draco、`EXT_meshopt_compression`、skin/morph 等未支持 profile 会明确失败。`glb-web-product-authored-texture` 真实 Chrome case 已在 clean commit 上 accepted：五个 PBR 槽位、`MASK`、TextureResidency resident page、runtime mip 和真实像素均有 artifact；41 个 targeted tests 覆盖 Mode A promotion、失败回滚、代际复用、容量与 feature-off。
 
 第三步现已具备实现与验证证据，但不等同于 ADR Complete：当前 authored case 是单三角形/单 page 的材质生产连接验证，replacement/device-loss 证据来自共享 Product 生命周期门禁；多材质、大场景和正式 PERF 仍未验证。Mode A 仍只表示网络读取和上传渐进，不表示物理显存节省。
+
+## 2026-09-19 S7 用户模型观察器
+
+已新增 `validation/src/cases/virtual-product-observer` production case，并注册为 `virtual-product-observer-v1`。该页面统一承载 Web GLB/glTF 与 Offline OEGPACK 两条 producer，支持 URL、Web File/Blob、runtime profile、Load/Cancel/Replace、camera close/cut、source failure 和显式 device-loss recovery；两条 producer 都通过共享 Product admission/residency 与 Main/Visibility consumer。
+
+页面和 runner artifact 记录 catalog、bootstrap/first meaningful frame、revision/generation、source/WASM/output budget、GPU capability、GPUBuffer/residency、resident/pinned/retiring、demand/fallback/overflow、材质/纹理状态、GPU/console errors 以及有限 HDR numeric readback。Offline File 没有显式 manifest 时会拒绝，不会伪造 pack 来源。当前仅完成用户观察入口和 bounded smoke 设计；正式大场景 TTFMF、跨多 asset source/canonical/WASM/output 峰值、1920x1080 PERF 和 60 FPS/物理显存结论仍为“未验证”。

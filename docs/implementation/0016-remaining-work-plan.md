@@ -140,6 +140,10 @@ bootstrap activation、revision 1 replacement 和 replacement 后 demand 像素�
 
 退出：用户界面与手工脚本可独立复跑，case artifact 包含 revision、source hash、capability、截图/数值 readback、GPU diagnostics；未运行的用户/正式 PERF 项明确标记“未验证”，不宣称 60 FPS 或显存物理节省。所有完成事实写回权威文档后，删除实施文档中过时过程记录。
 
+#### 第七步当前检查点（2026-09-19）
+
+已完成独立 `virtual-product-observer` 宿主、Vite MPA 入口与 registry workload/case 注册。Web GLB 和 Offline OEGPACK 在同一页面选择，Web 支持 URL/File/Blob 与三个 runtime profile，Offline 支持 manifest URL 的 HTTP Range/memory 选择；页面暴露取消、替换、相机 close/cut、断源和设备恢复动作，并显示 catalog、bootstrap、revision/generation、source/WASM/output budget、residency/streaming、材质状态、GPU capability/error 与 HDR readback。runner 的默认路径是小型 bounded Web smoke，故只能作为功能/观察证据；真实用户大模型、TTFMF、跨 asset 峰值和正式 PERF 尚未验证，提交干净 revision 后必须重新运行以获得 accepted artifact。
+
 ## Shared gates 与提交规则
 
 1. 每阶段交付前，对照母稿 §4/§7–§10/§12–§18 和本页相应条目，列出保留的 Nyx 阶段、OEngine 平台差异与未覆盖项目。发现严重差异或当前简化实现时直接重构/删除，不以注释或未来 TODO 代替。
