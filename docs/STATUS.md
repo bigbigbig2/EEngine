@@ -151,7 +151,7 @@ evidence remains open.
 - ADR-0013 的历史 baseline 冻结、Step 6 formal A/B、删除前后比较与相对收益门禁已以 `closed / requirement-removed` 关闭；当前 revision 的绝对 PERF 验收仍独立开放。
 - Geometry Product 与 Virtual Geometry Runtime 仍是 draft；Product validator/adapter 与 Product-aware bootstrap heap 已有 DEV 实现，V3 geometry 已接入统一 Visibility/Sparse/CSM consumer，且 `virtual-product-production`、真实 GLB 的 `glb-web-product`、`virtual-product-replacement` 与 `virtual-product-device-loss` 均已在 Chrome accepted。仍需补 transport/golden 后再冻结候选 spec，OEGPACK ABI 因此仍是 candidate。
 - S1 的 `virtual-product-production` 已在当前 revision 通过 Chrome HDR readback（`evidenceStatus: accepted`）；`virtual-geometry-component` 仍是 diagnostic-only 的 WGSL ABI 解码。两者都不替代真实 GLB/demand 证据，也不作为 S2/S3/S4 完成证据。
-- Web Cooker 的 `portable-pool` 已具备 Dedicated Worker ownership、generation failure recovery 和 targeted conformance；pthread 变体已构建并由 `crossOriginIsolated && SharedArrayBuffer` capability gate 选择，validation host 提供 COOP/COEP headers，但真实 pthread artifact 握手和多 Worker 压力尚未取得 clean-commit 浏览器证据。cross-origin isolation 不是 correctness 前提。
+- Web Cooker 的 `portable-pool` 已具备 Dedicated Worker ownership、generation failure recovery 和 targeted conformance；pthread 变体已构建并由 `crossOriginIsolated && SharedArrayBuffer` capability gate 选择，validation host 提供 COOP/COEP headers，`glb-web-product-isolated-pthreads` authored-texture deployment smoke 已通过。该 smoke 是当前 dirty 工作树上的 diagnostic-only 证据，不是性能结论；cross-origin isolation 不是 correctness 前提。
 - ADR-0016 §18.4 的 “Native Nyx 参考输出” 尚未产出：上游 `MeshletBuilder.cpp` 依赖整个 MiniEngine（`pch.h`/`Renderer.h`/`glTFLoader.h`/DX12/Slang 类型），当前仓库无法构建可运行的 Nyx 参考二进制；该腿暂以函数级映射 + 固定源 hash + 不变量 checklist 代替，Native↔Web 等价性单独验证。
 - `shader-f16`、Immediate Data 与 Transient Attachment 没有生产 consumer；`primitive-index` 等 specialization 只按真实 capability 启用。
 - 普通 Scene adapter 不支持 `SkinnedMesh`；完整动画/蒙皮仍 deferred。
@@ -159,7 +159,7 @@ evidence remains open.
 ## 下一步
 
 1. 做 S7 Geometry consumer cutover：迁移 `GpuAssetStore`/`GpuRenderWorld` recovery、asset publication 与 shadow consumer，删除 V2 `GeometryAssetPackage`/upload/consumer 与生产调用，并完成 source/compiled/browser 三层 legacy 审计。
-2. 补 Web Cooker 的 `isolated-pthreads` pool 握手、`portable-pool`/多 asset shard assembly 的浏览器 smoke 与 source/WASM committed-peak 细粒度证据。
+2. 补 `portable-pool`/多 asset shard assembly 的浏览器压力与 source/WASM committed-peak 细粒度证据，并在 clean commit 上重跑 pthread deployment smoke。
 3. 产出 §18.4 的 Native Nyx 参考 harness（独立 MiniEngine Model harness 或抽取 Nyx 算法函数的 native 构建）。
 4. S6 Offline production parity 的成功路径已 accepted；继续补同 workload 对照和 source-selection 边界，再在失败事务、Nyx 对照与入口切换门禁通过后执行 S7 V2 删除和三层 legacy 审计。
 5. 纹理先验证 Mode A 渐进传输的生产路径证据；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。

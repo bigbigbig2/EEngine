@@ -1008,6 +1008,37 @@
       ]
     },
     {
+      "id": "glb-web-product-isolated-pthreads",
+      "route": "/src/cases/glb-web-product/index.html?source=authored-texture&profile=isolated-pthreads&case=glb-web-product-isolated-pthreads&workload=glb-web-product-bootstrap-v1",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0016",
+      "requirements": ["GEO-WEB-COOK", "GEO-BOOTSTRAP-CONSUME", "GEO-AUTHORED-TEXTURE"],
+      "workloadId": "glb-web-product-bootstrap-v1",
+      "profile": "smoke",
+      "timeoutMs": 240000,
+      "artifacts": ["result", "events", "screenshot"],
+      "changedPaths": [
+        "validation/src/cases/glb-web-product",
+        "validation/cases/registry.json",
+        "validation/vite.config.ts",
+        "validation/public/assets/oengine",
+        "OEngine/src/assets/web-cook",
+        "OEngine/src/loaders/gltf/streaming",
+        "OEngine/src/gpu/GeometryProductAdmission.ts",
+        "OEngine/src/gpu/VirtualGeometryResidency.ts",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while the isolated pthread Web GLB Product device is captured.",
+          "ownerRequirement": "GEO-WEB-COOK"
+        }
+      ]
+    },
+    {
       "id": "virtual-product-replacement",
       "route": "/src/cases/virtual-product-replacement/index.html",
       "kind": "production",

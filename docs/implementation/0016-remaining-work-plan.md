@@ -101,9 +101,9 @@ bootstrap activation、revision 1 replacement 和 replacement 后 demand 像素�
 - Worker `error`/`messageerror` 只使其拥有的 generation 失效并发送带 session header 的 `FatalSessionFailure`；不会把一个 Worker 的故障广播成整个 pool 的 transport 失败。失效 generation 的 descriptor/page 不会重放；slot 会创建 replacement Worker，后续新 generation 可以继续使用池宽度。
 - `WebCookClient` 在 session admission 后预留 configured WASM/canonical ceiling，在 `SceneCatalogReady` 时登记 source bytes，并将 output/source/WASM reservation 在 cancel、dispose、source 超额、provider fatal 和 Worker failure 路径统一释放。账本 evidence 继续报告 peak/rejected/waiting/cancelled 计数。
 - `portable-pool` 已通过与 `portable-single` 相同的 transport/provider/client targeted conformance；validation 页面接受 `?profile=portable-pool`，并记录 requested/selected profile、`crossOriginIsolated`、`SharedArrayBuffer` 和 fallback reason。
-- `isolated-pthreads` 现在有显式 capability gate：只有 `crossOriginIsolated && SharedArrayBuffer` 才选择 pthread artifact；否则实际选择 `portable-single` 且报告 `cross-origin-isolation-required` 或 `shared-array-buffer-unavailable`，不伪装成 pthread 完成。validation Vite host 已提供 COOP/COEP headers，真实 pthread 资源握手仍需在目标浏览器上单独 smoke。
+- `isolated-pthreads` 现在有显式 capability gate：只有 `crossOriginIsolated && SharedArrayBuffer` 才选择 pthread artifact；否则实际选择 `portable-single` 且报告 `cross-origin-isolation-required` 或 `shared-array-buffer-unavailable`，不伪装成 pthread 完成。validation Vite host 已提供 COOP/COEP headers，新增 `glb-web-product-isolated-pthreads` authored-texture smoke 已通过 Product/纹理/像素路径，证明目标 Worker/WASM artifact 在隔离宿主可握手启动（当前工作树 dirty，证据为 diagnostic-only，非性能结论）。
 
-本阶段保留的边界：source reservation 以当前 `GlbRangeSource` session 的 source identity/byteLength 作为 owner 生命周期，WASM reservation 以 session configured max 为保守上限；后续需要在真实多 asset workload 中补 Range cache/canonical input/WASM committed-peak 的细粒度 counter。`portable-pool`/single 的 Node targeted 证据已齐，浏览器多 Worker 与 isolated-pthreads 的 clean-commit deployment smoke 尚未作为本阶段完成证据。
+本阶段保留的边界：source reservation 以当前 `GlbRangeSource` session 的 source identity/byteLength 作为 owner 生命周期，WASM reservation 以 session configured max 为保守上限；后续需要在真实多 asset workload 中补 Range cache/canonical input/WASM committed-peak 的细粒度 counter。`portable-pool`/single 的 Node targeted 证据、portable-pool authored-texture browser smoke 与 isolated-pthreads deployment smoke 已齐，但浏览器多 asset 压力和 clean-commit formal PERF 仍未完成。
 
 ### 第五步：完成 Nyx 函数级 differential 与 GPU 行为验收
 
