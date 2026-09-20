@@ -29,7 +29,7 @@ Runtime Asset 与 GPU resource owner 继续分离。Loader、Worker、WASM heap�
 
 Runtime-first 不等于无界在线处理，也不承诺所有输入都能立即出图。大单 primitive、低性能 CPU、无合适浏览器部署能力或极低首帧目标仍可选择 Offline 路线。两条输入路线只能在 Geometry Product admission 之前分叉，不能分叉渲染器。
 
-精确跨 owner 合同进入 [Geometry Product V1](../specs/geometry-product-v1.md) 与 [Virtual Geometry Runtime V1](../specs/virtual-geometry-runtime-v1.md)；Nyx provenance、函数映射和反简化门禁进入 [0016 implementation](../implementation/0016-virtualized-assets.md)。研究母稿不再承担权威合同。
+精确跨 owner 合同进入 [Geometry Product V1](../specs/geometry-product-v1.md)、[Virtual Geometry Runtime V1](../specs/virtual-geometry-runtime-v1.md) 与 [Web CookSession Protocol V1](../specs/web-cook-session-protocol-v1.md)；Nyx provenance、函数映射和反简化门禁进入 [Geometry porting ledger](../porting/geometry.md)。研究母稿不再承担权威合同。
 
 ## Verification
 

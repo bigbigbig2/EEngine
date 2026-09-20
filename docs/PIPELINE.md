@@ -56,7 +56,7 @@ Shadow、direct/indirect lighting、AO/GI/SSR、transparency、temporal 和 post
 - C：active Product generation 已进入现有 main/shadow hierarchy/work/visibility；普通 Scene 与默认 `load_gltf()` 已完成 cutover，仍保留的旧模块只服务内部 oracle/ABI/test，不创建新 raster backend。
 - D：先区分纹理渐进传输与真实物理 residency；在现有 TextureAssetPackage/TextureResidency/TextureBindingSet 上推进，Virtual Texturing 不是基线。
 
-当前顺序和退出条件见 [0016 实施文档](./implementation/0016-virtualized-assets.md)。
+当前顺序和退出条件见 [0019 收敛切片](./implementation/0019-web-nyx-convergence.md)。
 
 ## S7 用户观察器路径（2026-09-19）
 

@@ -13,6 +13,4 @@ implementation 文档只协调仍在进行的跨 owner 交付，不是永久设�
 
 ## Active
 
-- [0016 · Virtualized Assets](./0016-virtualized-assets.md)
-- [0016 · 当前差距与后续交付计划](./0016-remaining-work-plan.md)
-- [0017 · Geometry Product 增量发布](./0017-incremental-publication.md)
+- [0019 · Web 版 Nyx 收敛切片](./0019-web-nyx-convergence.md)

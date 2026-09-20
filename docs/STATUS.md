@@ -9,8 +9,8 @@ replacement or large-scene visible-first loading. The S6 revision supersedes
 that snapshot: replacement failures are now covered by the current browser
 case, the default public entry and unified consumer are cut over, while
 large-scene visible-first loading and measured source/canonical/WASM peaks
-remain S7 work. The seven delivery stages and their evidence are tracked in
-[0016 remaining-work plan](./implementation/0016-remaining-work-plan.md).
+remain S7 work. The remaining delivery stages and their exit evidence are tracked in
+[0019 Web 版 Nyx 收敛切片](./implementation/0019-web-nyx-convergence.md).
 Earlier “atomic” and “per-domain parallel” wording below should be read against
 the dated revision that introduced it; current S6 evidence is recorded above.
 
@@ -178,7 +178,7 @@ evidence remains open.
 | 0016-C renderer cutover | implemented, S6 diagnostic complete | Product 已迁移到统一 main/shadow hierarchy/work/raster 与 GPU identity，并可在 device-loss 后按原 generation/table slot 重建 publication；默认 `load_gltf()`、普通 Scene、Offline selection 和 examples/validation consumer 均已切换，公开 V2 production symbols 已删除 | 在 clean commit 上重跑 ADR-0014 milestone；完成仍有内部消费者的旧 oracle source/compiled/browser 三层审计后再删除 |
 | 0016-D texture modes | Mode A implemented, diagnostic validation passed | TextureResidency allocates the complete logical chain, uploads a cooked mip tail first, clamps sampling to the available range, and promotes higher mips through a stable logical handle; the independent Chrome component case read back the expected tail and promoted colors, and this does not claim physical VRAM savings | Obtain production-path browser evidence for progressive publication; only after allocation evidence decide whether Mode B/Virtual Texturing merits a separate ADR |
 
-详细交付切片见 [implementation/0016-virtualized-assets.md](./implementation/0016-virtualized-assets.md)。
+详细交付切片见 [0019 Web 版 Nyx 收敛切片](./implementation/0019-web-nyx-convergence.md)。
 
 ## 开放 Gate
 
@@ -197,9 +197,10 @@ evidence remains open.
 
 1. 做 S7 Geometry oracle deletion audit：对仍被 shader/ABI/test 引用的 `GeometryAssetPackage`/`GeometryCooker`/`GpuAssetStore` 做 source/compiled/browser 三层调用图审计，确认无真实生产消费者后再删除；不得把内部 oracle 当作公开 fallback。
 2. 补 `portable-pool`/多 asset shard assembly 的浏览器压力与 source/WASM committed-peak 细粒度证据，并在 clean commit 上重跑 pthread deployment smoke。
-3. 产出 §18.4 的 Native Nyx 参考 harness（独立 MiniEngine Model harness 或抽取 Nyx 算法函数的 native 构建）。
-4. S6 Offline production parity 的成功路径已 accepted；继续补同 workload 对照和 source-selection 边界，再在失败事务、Nyx 对照与入口切换门禁通过后执行 S7 V2 删除和三层 legacy 审计。
-5. 纹理先验证 Mode A 渐进传输的生产路径证据；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。
+3. S6 Offline production parity 的成功路径已 accepted；继续补同 workload 对照和 source-selection 边界，再在失败事务与入口切换门禁通过后执行 S7 V2 删除和三层 legacy 审计。
+4. 纹理先验证 Mode A 渐进传输的生产路径证据；只有真实 allocation 证据支持时再实施 Mode B 或另立 Virtual Texturing ADR。
+
+ADR-0016 §18.4 的 Native Nyx 参考 harness 已由 `9ae29ed` 完成并记录在本页「开放 Gate」，不再是待办项。首帧发布模型、GPU fallback、activation transport 与运行配置的活跃切片、执行顺序和退出证据以 [0019 Web 版 Nyx 收敛切片](./implementation/0019-web-nyx-convergence.md) 为准。
 
 ## 2026-09-19 Web Cook S4 checkpoint
 
@@ -287,3 +288,17 @@ open.
 已新增 `validation/src/cases/virtual-product-observer` production case，并注册为 `virtual-product-observer-v1`。该页面统一承载 Web GLB/glTF 与 Offline OEGPACK 两条 producer，支持 URL、Web File/Blob、runtime profile、Load/Cancel/Replace、camera close/cut、source failure 和显式 device-loss recovery；两条 producer 都通过共享 Product admission/residency 与 Main/Visibility consumer。
 
 页面和 runner artifact 记录 catalog、bootstrap/first meaningful frame、revision/generation、source/WASM/output budget、GPU capability、GPUBuffer/residency、resident/pinned/retiring、demand/fallback/overflow、材质/纹理状态、GPU/console errors 以及有限 HDR numeric readback。Offline File 没有显式 manifest 时会拒绝，不会伪造 pack 来源。当前仅完成用户观察入口和 bounded smoke 设计；正式大场景 TTFMF、跨多 asset source/canonical/WASM/output 峰值、1920x1080 PERF 和 60 FPS/物理显存结论仍为“未验证”。
+
+## 2026-09-20 bootstrap 优先级证据与覆盖率基线校正
+
+新增 `glb-bootstrap-priority` production case（入口 `run:glb-bootstrap-priority`）：同一页面两次加载 Dungeon、同一相机与预算，run A 不设 `SetSourcePriority`（其 cut 即 coverage 前 24），run B 把 coverage 第二梯队（rank 24..47）提到最高优先级；两个 cut 按构造不相交，因此两次场景的实例指纹必须不同。在含 catalog 优先级握手改动的工作树上 `status: passed`：run A 指纹 `18-b9a8820e`（2307 lit pixels）、run B 指纹 `18-327892f7`（3220 lit pixels），两次均 24 实例 / 24 resident pages，零浏览器错误。**该 case 的牙齿已验证**：把相关引擎文件还原到 HEAD 后同一 case 失败，两条 run 的指纹相同（均为 `18-b9a8820e`），报错为“the priorities never reached the cooker”。此前没有任何 case 覆盖这条路径，所以该失效才能长期存活。因工作树带未提交改动，`evidenceStatus` 为 `diagnostic-only`。
+
+**校正**：本页「clean revision 证据基线」表把 `glb-web-product` 的 `coverage` 记为 12023/65536 并标注「跨 revision 可复现，可安全引用」。在 HEAD `70d1ea43` 上实测两次均为 **4212/65536**（原始工作树与含未提交改动皆然），该数值对当前 revision 已失效。引用任何覆盖率数字都必须写明 revision；上表不再声明该数字可跨 revision 引用。
+
+## 2026-09-20 加载取景改为 catalog 稳定
+
+`RenderingLab` 的加载取景现在由 catalog 一次性决定，Product publication 不再移动相机。新增 `webCookCatalogSceneBounds()` / `webCookCatalogSceneFraming()`（`OEngine/src/assets/web-cook/WebCookSceneBounds.ts`，已从 `src/index.ts` 导出）：后者返回可直接传给 scene mapper 的 `scale`/`offset` 与已 fit 的 bounds。`ProductSceneOptions` 现已暴露 `scale`/`offset`，`uploadWebCookedScene` 与 `uploadOegPackScene` 都转发。
+
+顺带修掉一个此前未被记录的缺陷：**`fitHeight` 是按被映射的 revision 解析的**，所以 bootstrap 子集与 richer revision 得到不同 scale，几何会在提交瞬间整体改变大小——这正是旧代码必须在 `settled()` 里重设相机的部分原因。改为从 catalog 解析 fit 并传显式 `scale`/`offset` 后，场景变换与 revision 无关。
+
+DEV：新增 `tests/web-cook-scene-bounds.test.mjs` 8/8；三个项目 typecheck 通过；全量 439/443（4 个失败为既有原生路径，缺 MinGW `g++`）。浏览器观察（`diagnostic-only`）：修复前 `视角 position` 在加载中从 `33.389, 21.207, 40.067` 跳到 `28.455, 16.876, 34.146`，修复后全程单值；截图确认 798/798/25 实例 resident、GPU Pass Sum 3.24 ms、60.0 FPS。该观察来自 `examples/`，按 ADR-0014 不构成 `accepted` 证据。

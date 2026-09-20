@@ -35,7 +35,7 @@ source asset
 
 Runtime Asset 是设备无关事实；GPU owner 由 Renderer/device 生命周期控制。Loader、Scene 临时对象和 FrameGraph 外部引用不得隐式延长 GPU 资源寿命。
 
-生产几何的公开来源是 Web/Offline Geometry Product，二者进入同一 GPU hierarchy/work/visibility 主管线，不另建 renderer backend。旧 V2 geometry package 仅保留在内部 oracle、shader ABI 和底层测试边界；普通 Scene 与默认 `load_gltf()` 已完成 Product cutover。具体开放问题见 [0016 后续计划](./implementation/0016-remaining-work-plan.md)。
+生产几何的公开来源是 Web/Offline Geometry Product，二者进入同一 GPU hierarchy/work/visibility 主管线，不另建 renderer backend。旧 V2 geometry package 仅保留在内部 oracle、shader ABI 和底层测试边界；普通 Scene 与默认 `load_gltf()` 已完成 Product cutover。具体开放问题见 [0019 收敛切片](./implementation/0019-web-nyx-convergence.md)。
 
 纹理生产路径目前是 TextureAssetPackage V2 + GPU-native variants/KTX2 preparation + `TextureResidency` + 有界 `TextureBindingSet`。Mode A 已在该所有权模型内实现，并由独立 Chrome component case 以 GPU readback 验证 tail/promoted sampling：完整逻辑纹理一次分配、先上传 mip tail、按可用 mip clamp 采样并通过稳定逻辑句柄 promotion；这不等同于真实物理显存释放，也不等同于 production-path 完成。Mode B/Virtual Texturing 仍需独立的 allocation 证据和 spec，不以“V3”名义重写已经有效的材质和绑定体系。
 
