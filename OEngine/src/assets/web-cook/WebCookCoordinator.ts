@@ -130,6 +130,12 @@ export class WebCookCoordinator {
   readonly #activationStreamed = new Map<string, boolean>();
   readonly #creditWaiters = new Set<() => void>();
   #emitTail: Promise<void> = Promise.resolve();
+  /** Phase durations, reported through `Progress.timings` so the load is not a black box. */
+  #openStartedAt = 0;
+  #catalogReadyMs = 0;
+  #refinementMs = 0;
+  #activationCreditWaitMs = 0;
+  #activationReadMs = 0;
 
   constructor(readonly sessionId: string, sessionGeneration: number, options: WebCookCoordinatorOptions) {
     this.#options = options;
@@ -143,6 +149,7 @@ export class WebCookCoordinator {
   async open(url: string): Promise<GlbSceneCatalog> {
     this.requireState("idle");
     this.#state = "opening";
+    this.#openStartedAt = Date.now();
     try {
       const source = await openGlbRangeSource(url, this.#options.source);
       this.#source = source;
@@ -163,6 +170,7 @@ export class WebCookCoordinator {
         textures: this.#catalog.textures.map(texture => ({ textureIndex: texture.textureIndex, sourceIndex: texture.sourceIndex, sampler: { ...texture.sampler } })),
         images: this.#catalog.images.map(image => ({ imageIndex: image.imageIndex, ...(image.mimeType === undefined ? {} : { mimeType: image.mimeType }), ...(image.uri === undefined ? {} : { uri: image.uri }), ...(image.bufferView === undefined ? {} : { bufferView: { ...image.bufferView } }) }))
       } }));
+      this.#catalogReadyMs = Date.now() - this.#openStartedAt;
       this.#state = "cooking";
       return this.#catalog;
     } catch (error) {
@@ -246,7 +254,7 @@ export class WebCookCoordinator {
         this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
         for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
         this.markActivationStreamed(revision);
-        this.publish(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
+        this.publish(this.header({ type: "Progress", stage: "bootstrap-cook", units: this.#completedUnits, bytes: estimated, timings: this.phaseTimings() }));
         this.#state = "complete";
         return;
       }
@@ -274,7 +282,7 @@ export class WebCookCoordinator {
           for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
           this.markActivationStreamed(revision);
           this.#completedUnits++;
-          this.#session.emit(this.header({ type: "Progress", stage: "bootstrap", units: this.#completedUnits, bytes: estimated, timings: {} }));
+          this.#session.emit(this.header({ type: "Progress", stage: "bootstrap-cook", units: this.#completedUnits, bytes: estimated, timings: this.phaseTimings() }));
         }
       }
       this.#state = "complete";
@@ -299,11 +307,12 @@ export class WebCookCoordinator {
     const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
     this.#completedUnits = revision.revision === 0 ? bootstrapUnitCount : totalUnitCount;
     if (this.#firstRevisionAt === undefined) this.#firstRevisionAt = Date.now() - this.#cookStartedAt;
+    else this.#refinementMs = Date.now() - this.#cookStartedAt - this.#firstRevisionAt;
     this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
     return (async () => {
       for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
       this.markActivationStreamed(revision);
-      this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: {} }));
+      this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap-cook" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: this.phaseTimings() }));
     })();
   }
 
@@ -329,7 +338,7 @@ export class WebCookCoordinator {
           stage: "refinement",
           units: this.#completedUnits,
           bytes: this.#refinementSourceBytes,
-          timings: Object.freeze({ elapsedMs: Date.now() - startedAt, totalUnits })
+          timings: Object.freeze({ ...this.phaseTimings(), elapsedMs: Date.now() - startedAt, totalUnits })
         }));
       } catch {
         // The consumer is not draining events; skip this heartbeat.
@@ -364,6 +373,25 @@ export class WebCookCoordinator {
    * an activation page means the consumer lost its copy - for example after
    * `abandonForDeviceLoss` released the GPU banks - and it must be re-served.
    */
+  /**
+   * The per-phase durations this session has measured so far, in milliseconds.
+   *
+   * Filled into `Progress.timings` so the load is not a black box: the caller
+   * can see how long the catalog, the first cut, the activation stream (split
+   * into output-credit wait and page read) and the richer refinement each took.
+   * A phase that has not run yet reports 0.
+   */
+  private phaseTimings(): Readonly<Record<string, number>> {
+    return Object.freeze({
+      catalogMs: this.#catalogReadyMs,
+      bootstrapCookMs: this.#firstRevisionAt ?? 0,
+      activationStreamMs: this.#activationCreditWaitMs + this.#activationReadMs,
+      activationCreditWaitMs: this.#activationCreditWaitMs,
+      activationReadMs: this.#activationReadMs,
+      refinementMs: this.#refinementMs
+    });
+  }
+
   async requestPages(productId: Uint8Array, revision: number, pageIds: Uint32Array, _priority: number): Promise<void> {
     if (this.#state !== "cooking" && this.#state !== "complete") throw new Error(`WebCookCoordinator cannot request pages from '${this.#state}'`);
     if (productId.byteLength !== 32 || !Number.isInteger(revision) || revision < 0 || revision === 0xffffffff) throw new RangeError("Web Cook page request identity is invalid");
@@ -438,9 +466,13 @@ export class WebCookCoordinator {
     return run;
   }
   private async emitPageNow(revision: WebCookProductRevision, pageId: number): Promise<void> {
+    const creditWaitStartedAt = Date.now();
     await this.waitForOutputCredit(WEB_COOK_PAGE_BYTES);
+    this.#activationCreditWaitMs += Date.now() - creditWaitStartedAt;
     if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");
+    const readStartedAt = Date.now();
     const page = await revision.readPage(pageId);
+    this.#activationReadMs += Date.now() - readStartedAt;
     if (page.pageId !== pageId || page.bytes.byteLength !== WEB_COOK_PAGE_BYTES) throw new Error(`Web Cook producer returned the wrong page (revision ${revision.revision}, requested page ${pageId}, got page ${page.pageId} with ${page.bytes.byteLength} bytes, expected ${WEB_COOK_PAGE_BYTES})`);
     if (!this.publish(this.header({ type: "PageReady", productId: revision.productId.slice(), revision: revision.revision, pageId, decodedHash128: page.decodedHash128, decodedPageHash128: page.decodedPageHash128, bytes: page.bytes }))) throw new Error("Web Cook output credit changed before PageReady emission");
     this.#emittedPages++;

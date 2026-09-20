@@ -117,8 +117,9 @@ test("Web Cook progress heartbeat never claims units the producer has not delive
   assert.ok(progress.length >= 2, `expected heartbeat progress events, saw ${progress.length}`);
   // The first Progress reports the bootstrap revision itself; everything before
   // the final event is a heartbeat emitted while the refinement runs.
-  assert.equal(progress[0].stage, "bootstrap");
+  assert.equal(progress[0].stage, "bootstrap-cook");
   assert.equal(progress[0].units, 1);
+  assert.equal(typeof progress[0].timings.bootstrapCookMs, "number");
   for (const event of progress.slice(1, -1)) {
     assert.equal(event.stage, "refinement");
     assert.equal(event.units, 1, "heartbeat must not claim uncooked units");
@@ -126,6 +127,7 @@ test("Web Cook progress heartbeat never claims units the producer has not delive
   }
   assert.equal(progress.at(-1).units, 2, "the final progress reports the full cook");
   assert.equal(progress.at(-1).stage, "refinement");
+  assert.equal(typeof progress.at(-1).timings.refinementMs, "number");
   coordinator.dispose();
 });
 

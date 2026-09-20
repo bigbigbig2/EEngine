@@ -206,6 +206,18 @@ GLB/glTF
 
 **删除目标**：删除 demo 中按 elapsed 时间伪造的进度爬升逻辑。
 
+**已落地（DEV，2026-09-20）**：
+
+- **profile 自动选择（引擎侧）**：`resolveWebCookRuntimeProfile()` 现在接受 `"auto"`，返回 `selected`（pthread → pool → single 的决策）与 `hardwareConcurrency`，并把回落原因区分成 `cross-origin-isolation-required` / `shared-array-buffer-unavailable` / `cross-origin-isolation-unavailable`。`createDefaultWebCookWorker()` 改为按 **resolved** profile 分支——修掉一个潜在缺陷：此前它用原始请求串判断 `portable-pool`，`auto` 解析成 pool 时会静默退化成单个 worker。
+- **阶段可见性**：coordinator 现在把真实分阶段耗时写进 `Progress.timings`（`catalogMs` / `bootstrapCookMs` / `activationStreamMs`（含 `activationCreditWaitMs` 与 `activationReadMs` 拆分）/ `refinementMs`），并把 `bootstrap` stage 更名为 `bootstrap-cook`。`WebCookProgress.timings` 新增并转发（此前 client 只透传 `elapsedMs`，把其余计时丢掉了）。约定写进 [Web CookSession Protocol V1](../specs/web-cook-session-protocol-v1.md) 的「Progress 阶段与计时」。
+- **demo**：进度条按真实阶段 + 真实耗时展示（`catalog / cook / activation / refine`），删除 `Math.exp` 伪造爬升；默认 `portable-single`，`auto`/`portable-pool`/`isolated-pthreads` 通过 `?profile=` 显式选择。
+
+**发现的一个真缺口（open）**：examples dev 宿主**是** cross-origin isolated 的，所以 `auto` 会解析成 `isolated-pthreads`；但 pthread cooker 在该宿主的 headless Chrome 里**初始化失败**（其 8 个 pthread worker spawn 后全部 close，不产出 catalog），导致整段加载静默卡死。因此 demo 不能把 `auto` 设为默认，只能显式 opt-in。pthread cooker 在 examples 宿主下的初始化失败本身尚未定位（可能是 headless 环境专属，也可能是真 bug），需要在 S3 的 profile 验证阶段一并排查。
+
+**DEV 验证**：`OEngine`/`examples`/`validation` 三处 typecheck 通过；`web-cook-worker-factory.test.mjs`（auto 在无 COI 环境绝不选 pthread、显式 pthread 回落带原因、具体 profile 原样解析）3/3，`web-cook-visible-first` 的 stage 断言更新为 `bootstrap-cook`，命中测试 27/27。
+
+**浏览器观察（`diagnostic-only`）**：demo 状态栏按序显示 `Reading catalog → Refining full geometry（catalog 0.0s · cook 0.2s · activation 0.8s · refine 0.6s）→ Ready`，无伪造进度；worker 仅 spawn 一个（portable-single）。附带结论：cook 合计约 2.6s，而「Ready」在约 6.4s 才出现，中间约 4s 花在 cook 之后 renderer 侧的 GPU upload/residency——这正是 S6/S4 要收的时间。
+
 ### S4 · Scene 稳定与 per-asset coarse activation（P1）
 
 **问题**：当前首帧只包含 24 / N 个 primitive，其余 asset 在 richer revision 提交前**根本不存在**；缺页 fallback 只能解决「asset 存在但目标 page 不 resident」，无法解决「asset 不在当前 Product 中」。

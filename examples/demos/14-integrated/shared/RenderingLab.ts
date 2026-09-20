@@ -6,6 +6,7 @@ import {
   OrbitControls,
   PerspectiveCamera,
   Renderer,
+  resolveWebCookRuntimeProfile,
   Scene,
   WebCookBudgetLedger,
   webCookCatalogSceneFraming,
@@ -214,8 +215,20 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
     if (disposed || catalogArrived) return;
     setLoading("Assets", `Reading ${modelLabel} catalog — ${((Date.now() - catalogStartedAt) / 1000).toFixed(0)}s`, 0.15);
   }, 250);
-  const runtimeProfile = new URLSearchParams(window.location.search).get("profile") === "isolated-pthreads" ? "isolated-pthreads" : "portable-single";
-  const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 128 * 1024 * 1024, maxDecodedProductBytes: 512 * 1024 * 1024, runtimeProfile });
+  // The demo defaults to the proven portable-single cooker. `auto`, a worker pool
+  // or the pthread cooker are opt-in via `?profile=`, because `auto` resolves to
+  // `isolated-pthreads` on this cross-origin-isolated host and that cooker fails
+  // to initialise in headless Chrome (its pthread workers spawn then close), so
+  // an unguarded auto default would hang the load. The resolved concrete profile
+  // is what the Worker session receives, never the requested `auto`.
+  const profileQuery = new URLSearchParams(window.location.search).get("profile");
+  const requestedProfile = profileQuery === "auto" || profileQuery === "portable-pool" || profileQuery === "isolated-pthreads" ? profileQuery : "portable-single";
+  const runtimeCapability = resolveWebCookRuntimeProfile(requestedProfile);
+  if (runtimeCapability.fallbackReason !== undefined) {
+    console.warn(`[rendering-lab] runtime profile fell back: ${runtimeCapability.requested} -> ${runtimeCapability.selected} (${runtimeCapability.fallbackReason})`);
+  }
+  const runtimeProfile = runtimeCapability.selected;
+  const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 128 * 1024 * 1024, maxDecodedProductBytes: 512 * 1024 * 1024, runtimeProfile: requestedProfile });
   // The catalog arrives before any BIN byte is read, so the first cut can be
   // ranked by what the default view actually sees instead of catalog order. The
   // Worker keeps a catalog-ready window open, so these priorities still cross
@@ -468,30 +481,43 @@ function setLoading(stage: string, detail: string, progress: number): void {
 }
 
 /**
- * Renders live cook progress while the Product is being produced.
+ * Reports real cook phases and their measured durations.
  *
- * The refinement is a single opaque cooker call: it reports nothing until it
- * finishes, so the cooked count sits at the bootstrap cut and then jumps to the
- * full count in one step. The unit count is therefore always reported exactly
- * as produced. To keep the bar from looking wedged during that opaque stretch,
- * it crawls through the unconfirmed remainder against elapsed time and is
- * capped below 1, so it can never claim the richer revision has landed.
+ * The refinement is a single opaque cooker call, so the cooked count sits at
+ * the bootstrap cut and then jumps to the full count in one step. The bar
+ * reflects that honestly: it holds at the first cut while that cooks, then
+ * follows the confirmed unit count of the richer revision. It never crawls on
+ * elapsed time alone - that fake made the whole load look like one opaque
+ * "refining" stretch. The Worker's per-phase timings now separate catalog,
+ * cook, activation and refinement.
  */
 function reportCookProgress(progress: WebCookProgress, localElapsedMs: number): void {
   if (disposed) return;
   const total = progress.catalogPrimitives;
   const elapsedMs = progress.elapsedMs ?? localElapsedMs;
   const seconds = `${(elapsedMs / 1000).toFixed(0)}s`;
-  if (progress.stage === "bootstrap" || total === 0) {
-    setLoading("GPU residency", `Cooking the first cut — ${progress.units}${total > 0 ? ` of ${total}` : ""} geometries · ${seconds}`, 0.4);
+  if (progress.stage === "bootstrap-cook" || total === 0) {
+    setLoading("First cut", `Cooking the first cut — ${progress.units}${total > 0 ? ` of ${total}` : ""} geometries · ${seconds}`, 0.4);
     return;
   }
   const confirmed = total > 0 ? Math.min(1, progress.units / total) : 0;
-  // Spend 55%-95% on confirmed units. Until the refinement reports in full, ease
-  // the remaining 95%-99% by elapsed time; the last 1% is held for the commit.
-  const creeping = confirmed >= 1 ? 0.99 : Math.min(0.99, 0.95 + (1 - Math.exp(-elapsedMs / 12000)) * 0.04);
-  const bar = confirmed >= 1 ? creeping : 0.55 + confirmed * 0.4;
-  setLoading("GPU residency", `Refining full geometry — ${progress.units} of ${total} cooked · ${seconds}`, bar);
+  const bar = progress.units >= total ? 0.99 : 0.4 + confirmed * 0.5;
+  setLoading("Refinement", `Refining full geometry — ${progress.units} of ${total} cooked · ${seconds}${phaseSummary(progress.timings)}`, bar);
+}
+
+/**
+ * Compacts the Worker's per-phase timings into one readable suffix.
+ *
+ * Only phases that have actually run are shown, so an early snapshot never
+ * claims a refinement time it has not measured yet.
+ */
+function phaseSummary(timings: Readonly<Record<string, number>>): string {
+  const parts: string[] = [];
+  for (const [key, label] of [["catalogMs", "catalog"], ["bootstrapCookMs", "cook"], ["activationStreamMs", "activation"], ["refinementMs", "refine"]] as const) {
+    const value = timings[key];
+    if (typeof value === "number" && value > 0) parts.push(`${label} ${(value / 1000).toFixed(1)}s`);
+  }
+  return parts.length > 0 ? ` · ${parts.join(" · ")}` : "";
 }
 
 function showFatalError(error: unknown): void {

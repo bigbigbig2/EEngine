@@ -85,7 +85,7 @@ export interface WebCookClientOptions {
 }
 
 export interface WebCookProgress {
-  /** `bootstrap` for the first cut, `refinement` for the revision that replaces it. */
+  /** `bootstrap-cook` for the first cut, `refinement` for the revision that replaces it. */
   readonly stage: string;
   /** Catalog primitives whose geometry has been produced so far. */
   readonly units: number;
@@ -99,6 +99,15 @@ export interface WebCookProgress {
   readonly fraction?: number;
   /** Real elapsed milliseconds for the current stage, when the producer reports it. */
   readonly elapsedMs?: number;
+  /**
+   * Per-phase durations reported by the producer.
+   *
+   * Keys are `catalogMs`, `bootstrapCookMs`, `activationStreamMs`,
+   * `activationCreditWaitMs`, `activationReadMs` and `refinementMs`, so the
+   * caller can see where a load spent its time instead of treating it as one
+   * opaque "refining" stretch.
+   */
+  readonly timings: Readonly<Record<string, number>>;
 }
 
 export interface WebCookClientEvidence {
@@ -189,7 +198,8 @@ export class WebCookClient implements GeometryProductProviderV1 {
           bytes: progress.bytes,
           totalBytes,
           ...(fraction === undefined ? {} : { fraction }),
-          ...(elapsedMs === undefined ? {} : { elapsedMs })
+          ...(elapsedMs === undefined ? {} : { elapsedMs }),
+          timings: progress.timings
         }));
       },
       onRecoverableFailure: failure => { this.#recoverableFailures++; this.#recoverableFailureCodes.push(`${failure.scope}:${failure.code}`); },

@@ -21,27 +21,48 @@ export interface DefaultWebCookWorkerFactoryOptions {
   /**
    * `isolated-pthreads` selects the pthread cooker when the document is
    * cross-origin isolated; otherwise the portable-single artifact is used.
+   * `auto` lets `resolveWebCookRuntimeProfile` pick pthreads, a worker pool or
+   * a single portable worker from the page's isolation and core count.
    */
-  readonly runtimeProfile?: WebCookRuntimeProfile;
+  readonly runtimeProfile?: WebCookRuntimeProfile | "auto";
   readonly maxWorkers?: number;
 }
 
 export interface WebCookRuntimeProfileCapability {
-  readonly requested: WebCookRuntimeProfile;
+  readonly requested: WebCookRuntimeProfile | "auto";
   readonly selected: WebCookRuntimeProfile;
   readonly crossOriginIsolated: boolean;
   readonly sharedArrayBuffer: boolean;
-  readonly fallbackReason?: "cross-origin-isolation-required" | "shared-array-buffer-unavailable";
+  readonly hardwareConcurrency: number;
+  readonly fallbackReason?: "cross-origin-isolation-required" | "shared-array-buffer-unavailable" | "cross-origin-isolation-unavailable";
 }
 
+/** Below this core count neither the pthread cooker nor the worker pool pays off. */
+const PROFILE_MINIMUM_CORES = 4;
+
 /** Resolves the execution profile without ever claiming pthread support on an unisolated page. */
-export function resolveWebCookRuntimeProfile(requested: WebCookRuntimeProfile = "portable-single"): WebCookRuntimeProfileCapability {
+export function resolveWebCookRuntimeProfile(requested: WebCookRuntimeProfile | "auto" = "portable-single"): WebCookRuntimeProfileCapability {
   const crossOriginIsolated = globalThis.crossOriginIsolated === true;
   const sharedArrayBuffer = typeof globalThis.SharedArrayBuffer === "function";
-  if (requested !== "isolated-pthreads") return Object.freeze({ requested, selected: requested, crossOriginIsolated, sharedArrayBuffer });
-  if (!crossOriginIsolated) return Object.freeze({ requested, selected: "portable-single", crossOriginIsolated, sharedArrayBuffer, fallbackReason: "cross-origin-isolation-required" });
-  if (!sharedArrayBuffer) return Object.freeze({ requested, selected: "portable-single", crossOriginIsolated, sharedArrayBuffer, fallbackReason: "shared-array-buffer-unavailable" });
-  return Object.freeze({ requested, selected: "isolated-pthreads", crossOriginIsolated, sharedArrayBuffer });
+  const hardwareConcurrency = typeof navigator !== "undefined" && typeof navigator.hardwareConcurrency === "number" && navigator.hardwareConcurrency > 0
+    ? Math.floor(navigator.hardwareConcurrency)
+    : 1;
+  const capability = (selected: WebCookRuntimeProfile, fallbackReason?: WebCookRuntimeProfileCapability["fallbackReason"]): WebCookRuntimeProfileCapability =>
+    Object.freeze({ requested, selected, crossOriginIsolated, sharedArrayBuffer, hardwareConcurrency, ...(fallbackReason === undefined ? {} : { fallbackReason }) });
+
+  if (requested === "auto") {
+    // Automatic selection. Prefer the pthread cooker only on an isolated page
+    // with enough cores; otherwise the bounded worker pool, then the single
+    // portable worker. A pool on an unisolated page is recorded with a
+    // cross-origin-isolation fallback so it is never mistaken for pthreads.
+    if (crossOriginIsolated && sharedArrayBuffer && hardwareConcurrency >= PROFILE_MINIMUM_CORES) return capability("isolated-pthreads");
+    if (hardwareConcurrency >= PROFILE_MINIMUM_CORES) return capability("portable-pool", crossOriginIsolated ? "shared-array-buffer-unavailable" : "cross-origin-isolation-unavailable");
+    return capability("portable-single");
+  }
+  if (requested !== "isolated-pthreads") return capability(requested);
+  if (!crossOriginIsolated) return capability("portable-single", "cross-origin-isolation-required");
+  if (!sharedArrayBuffer) return capability("portable-single", "shared-array-buffer-unavailable");
+  return capability("isolated-pthreads");
 }
 
 /** Versioned browser-first cooker module built from the pinned Nyx sources. */
@@ -91,13 +112,16 @@ export function createWebCookWorkerPool(options: WebCookWorkerFactoryOptions): W
 /** Starts a Worker using the repository's real Emscripten cooker artifact. */
 export function createDefaultWebCookWorker(options: DefaultWebCookWorkerFactoryOptions): WebCookWorkerPort {
   const capability = resolveWebCookRuntimeProfile(options.runtimeProfile ?? "portable-single");
-  const useThreads = capability.selected === "isolated-pthreads";
+  // Branch on the resolved profile, not the requested string: `auto` may have
+  // selected `portable-pool`, which must then actually start a pool.
+  const selected = capability.selected;
+  const useThreads = selected === "isolated-pthreads";
   const factoryOptions = {
     ...options,
     wasmModuleUrl: useThreads ? DEFAULT_WEB_GEOMETRY_COOKER_THREADS_MODULE_URL : DEFAULT_WEB_GEOMETRY_COOKER_MODULE_URL,
     wasmBinaryUrl: useThreads ? DEFAULT_WEB_GEOMETRY_COOKER_THREADS_WASM_URL : DEFAULT_WEB_GEOMETRY_COOKER_WASM_URL
   };
-  if (options.runtimeProfile === "portable-pool") return createWebCookWorkerPool(factoryOptions);
+  if (selected === "portable-pool") return createWebCookWorkerPool(factoryOptions);
   return createWebCookWorker(factoryOptions);
 }
 

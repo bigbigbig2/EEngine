@@ -302,3 +302,9 @@ open.
 顺带修掉一个此前未被记录的缺陷：**`fitHeight` 是按被映射的 revision 解析的**，所以 bootstrap 子集与 richer revision 得到不同 scale，几何会在提交瞬间整体改变大小——这正是旧代码必须在 `settled()` 里重设相机的部分原因。改为从 catalog 解析 fit 并传显式 `scale`/`offset` 后，场景变换与 revision 无关。
 
 DEV：新增 `tests/web-cook-scene-bounds.test.mjs` 8/8；三个项目 typecheck 通过；全量 439/443（4 个失败为既有原生路径，缺 MinGW `g++`）。浏览器观察（`diagnostic-only`）：修复前 `视角 position` 在加载中从 `33.389, 21.207, 40.067` 跳到 `28.455, 16.876, 34.146`，修复后全程单值；截图确认 798/798/25 实例 resident、GPU Pass Sum 3.24 ms、60.0 FPS。该观察来自 `examples/`，按 ADR-0014 不构成 `accepted` 证据。
+
+## 2026-09-20 运行时 profile 与加载阶段可见性
+
+`resolveWebCookRuntimeProfile()` 支持 `"auto"`（pthread → pool → single 决策），返回 `hardwareConcurrency` 与细化后的 fallback reason；`createDefaultWebCookWorker()` 改为按 resolved profile 分支（修掉 `auto`→pool 会静默退化为单 worker 的缺陷）。coordinator 把分阶段耗时写进 `Progress.timings`（`catalogMs`/`bootstrapCookMs`/`activationStreamMs` 含 credit-wait 与 read 拆分/`refinementMs`），`bootstrap` stage 更名 `bootstrap-cook`；`WebCookProgress.timings` 新增并转发；demo 删除 `Math.exp` 伪造进度、按真实阶段展示耗时，默认 `portable-single`。
+
+**待排查（open）**：examples dev 宿主是 cross-origin isolated，`auto` 会解析成 `isolated-pthreads`，但 pthread cooker 在该宿主 headless Chrome 里初始化失败（pthread worker spawn 后全部 close、不产出 catalog），导致加载静默卡死。demo 因此不把 `auto` 设为默认。**附带结论**：cook 合计约 2.6s，而 demo 约 6.4s 才「Ready」，中间约 4s 花在 cook 之后 renderer 侧的 GPU upload/residency——即 S6/S4 要收的时间。
