@@ -90,6 +90,13 @@ export interface WebCookCoordinatorEvidence {
   readonly bootstrapSourceBytes: number;
   readonly refinementSourceBytes: number;
   readonly firstRevisionMs?: number;
+  /**
+   * Priorities that arrived after the first cut was already chosen.
+   *
+   * A non-zero value means the caller's ranking could not influence the
+   * bootstrap revision, so the first frame was ranked by coverage instead.
+   */
+  readonly lateSourcePriorities: number;
   readonly failure?: string;
 }
 
@@ -110,6 +117,13 @@ export class WebCookCoordinator {
   #refinementSourceBytes = 0;
   #firstRevisionAt: number | undefined;
   #cookStartedAt = 0;
+  /**
+   * True once the automatic bootstrap selection has been computed. A priority
+   * that arrives after this point can no longer change the first cut, so it is
+   * counted instead of silently ignored.
+   */
+  #bootstrapSelected = false;
+  #lateSourcePriorities = 0;
   readonly #sourcePriorities = new Map<string, { readonly score: number; readonly cameraHintRevision: number }>();
   readonly #liveRevisions: WebCookProductRevision[] = [];
   /** Revisions whose activation cut finished streaming; those pages re-emit. */
@@ -164,6 +178,7 @@ export class WebCookCoordinator {
       const source = this.#source!, catalog = this.#catalog!;
       const units = [...catalog.primitives].sort((left, right) => this.priorityFor(right) - this.priorityFor(left) || comparePrimitiveOrder(left, right));
       const bootstrapUnits = this.selectBootstrapUnits(units);
+      this.#bootstrapSelected = true;
       const catalogIndex = new Map(catalog.primitives.map((unit, index) => [primitiveKey(unit), index]));
       const bootstrapAssetIndices = bootstrapUnits.map(unit => catalogIndex.get(primitiveKey(unit))!);
       this.#bootstrapUnits = bootstrapUnits.length;
@@ -327,6 +342,10 @@ export class WebCookCoordinator {
   setSourcePriority(assetKey: string, score: number, cameraHintRevision: number): void {
     if (this.#state !== "opening" && this.#state !== "cooking") throw new Error(`WebCookCoordinator cannot prioritize from '${this.#state}'`);
     if (!assetKey || !Number.isFinite(score) || !Number.isInteger(cameraHintRevision) || cameraHintRevision < 0) throw new RangeError("Web Cook source priority is invalid");
+    // The first cut is already chosen, so this priority cannot be honoured. It
+    // is still stored (a later revision may use it) but must be visible in
+    // evidence rather than looking like a successful ranking.
+    if (this.#bootstrapSelected) this.#lateSourcePriorities++;
     this.#sourcePriorities.set(assetKey, Object.freeze({ score, cameraHintRevision }));
   }
 
@@ -365,7 +384,7 @@ export class WebCookCoordinator {
   drainEvents(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] { return this.#session.drain(maxEvents); }
   cancel(reason = new Error("Web Cook was cancelled")): void { if (this.#state === "disposed" || this.#state === "complete") return; this.#abort.abort(reason); this.#state = "cancelled"; for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.accept(this.header({ type: "CancelScope", scope: "session" })); }
   dispose(): void { if (this.#state === "disposed") return; this.#abort.abort(new Error("Web Cook session disposed")); for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#source?.release(); this.#source = undefined; this.#catalog = undefined; this.#state = "disposed"; this.#session.accept(this.header({ type: "DisposeSession" })); }
-  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, bootstrapUnits: this.#bootstrapUnits, bootstrapSourceBytes: this.#bootstrapSourceBytes, refinementSourceBytes: this.#refinementSourceBytes, ...(this.#firstRevisionAt === undefined ? {} : { firstRevisionMs: this.#firstRevisionAt }), ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
+  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, bootstrapUnits: this.#bootstrapUnits, bootstrapSourceBytes: this.#bootstrapSourceBytes, refinementSourceBytes: this.#refinementSourceBytes, lateSourcePriorities: this.#lateSourcePriorities, ...(this.#firstRevisionAt === undefined ? {} : { firstRevisionMs: this.#firstRevisionAt }), ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
 
   private fail(error: unknown): void { this.#failure = error instanceof Error ? error.message : String(error); this.#state = this.#abort.signal.aborted ? "cancelled" : "failed"; for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.fail(this.#failure); this.#source?.release(); this.#source = undefined; }
   private validateRevision(revision: WebCookProductRevision): void {
@@ -393,8 +412,11 @@ export class WebCookCoordinator {
     const candidates = configured !== undefined
       ? units.slice(0, configured)
       : custom
-        ? [...custom(this.#catalog!)].sort(comparePrimitiveOrder)
-        : defaultBootstrapSelection(units);
+        // A custom selector's own order is the caller's expressed intent, so it
+        // is kept for the byte-cap walk below and only the chosen set is put
+        // back into catalog order for a deterministic result.
+        ? [...custom(this.#catalog!)]
+        : defaultBootstrapSelection(units, unit => this.priorityFor(unit));
     const selected: GlbCookPrimitive[] = [];
     for (const unit of candidates) {
       const nextBytes = estimateSourceBytes([...selected, unit]);
@@ -405,6 +427,7 @@ export class WebCookCoordinator {
       selected.push(unit);
     }
     if (selected.length === 0) throw new Error("Web Cook catalog contains no bootstrap unit");
+    selected.sort(comparePrimitiveOrder);
     return Object.freeze(selected);
   }
   private emitPage(revision: WebCookProductRevision, pageId: number): Promise<void> {
@@ -474,17 +497,23 @@ const PROGRESS_HEARTBEAT_MS = 250;
 /**
  * Chooses the automatic first cut.
  *
- * The catalog is ordered by node/mesh/primitive, which has no relation to
- * visibility: node 0 can be a single pillar while the surrounding level lives in
- * later nodes. Ordering by spatial coverage instead makes the first frame carry
- * the scene's extent rather than one arbitrary primitive. Units whose glTF
- * POSITION bounds are unavailable are treated as worst-case coverage and sorted
- * last by catalog order, which keeps legacy assets deterministic.
+ * The caller's `sourcePriorities` are a camera-aware ranking of the catalog and
+ * therefore dominate: the first frame should carry what the default view
+ * actually sees. Spatial coverage is the fallback for the common case where no
+ * priority was set, because the catalog's own order is node/mesh/primitive and
+ * has no relation to visibility: node 0 can be a single pillar while the
+ * surrounding level lives in later nodes. Catalog order settles the remaining
+ * ties, and units whose glTF POSITION bounds are unavailable score as
+ * worst-case coverage so a legacy asset stays deterministic.
+ *
+ * Ordering by priority here is not sufficient on its own: the caller's
+ * priorities only reach this function if the catalog handshake completed, which
+ * is why `CommitCatalogPriorities` exists on the Worker boundary.
  */
-function defaultBootstrapSelection(units: readonly GlbCookPrimitive[]): readonly GlbCookPrimitive[] {
+function defaultBootstrapSelection(units: readonly GlbCookPrimitive[], priorityOf: (unit: GlbCookPrimitive) => number): readonly GlbCookPrimitive[] {
   if (units.length <= DEFAULT_BOOTSTRAP_UNIT_LIMIT) return units;
-  const ranked = units.map((unit, index) => ({ unit, index, coverage: bootstrapCoverage(unit) }));
-  ranked.sort((left, right) => right.coverage - left.coverage || left.index - right.index);
+  const ranked = units.map((unit, index) => ({ unit, index, coverage: bootstrapCoverage(unit), priority: priorityOf(unit) }));
+  ranked.sort((left, right) => right.priority - left.priority || right.coverage - left.coverage || left.index - right.index);
   const selected = ranked.slice(0, DEFAULT_BOOTSTRAP_UNIT_LIMIT).map(entry => entry.unit);
   selected.sort(comparePrimitiveOrder);
   return selected;

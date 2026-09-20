@@ -286,6 +286,11 @@
       "ownerAdr": "ADR-0017",
       "layer": "L3",
       "description": "A revision is not activated until its whole activation cut is declared by the descriptor and fully resident"
+    },
+    "GEO-BOOTSTRAP-PRIORITY": {
+      "ownerAdr": "ADR-0016",
+      "layer": "L3",
+      "description": "The main thread's catalog-priority ranking crosses the Worker boundary before cooking starts and decides which primitives form the bootstrap cut"
     }
   },
   "profiles": {
@@ -555,6 +560,34 @@
       "cameraPath": "web-glb-bootstrap-grid",
       "warmupFrames": 1,
       "sampleFrames": 5,
+      "sampleCadence": 1,
+      "timestampRequired": false,
+      "independentRuns": 1
+    },
+    "glb-bootstrap-priority-v1": {
+      "resolution": [
+        1280,
+        720
+      ],
+      "deviceScaleFactor": 1,
+      "renderScale": 1,
+      "quality": "adr-0016-bootstrap-priority-ranking-v1",
+      "features": [
+        "web-cook",
+        "glb-range",
+        "product-admission",
+        "product-residency",
+        "catalog-priority",
+        "visible-first",
+        "hierarchy-work",
+        "meshlet-raster",
+        "visibility-key",
+        "sparse-shading"
+      ],
+      "seed": 1604,
+      "cameraPath": "web-glb-catalog-bounds-fixed",
+      "warmupFrames": 1,
+      "sampleFrames": 4,
       "sampleCadence": 1,
       "timestampRequired": false,
       "independentRuns": 1
@@ -1125,6 +1158,41 @@
         "OEngine/src/gpu/GeometryProductAdmission.ts",
         "OEngine/src/gpu/VirtualGeometryResidency.ts",
         "OEngine/src/render/pipeline/MainRenderPipeline.ts"
+      ],
+      "errorAllowlist": [
+        {
+          "source": "console:warning",
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "reason": "Chrome stable emits this platform warning while the Web GLB Product device is captured.",
+          "ownerRequirement": "GEO-WEB-COOK"
+        }
+      ]
+    },
+    {
+      "id": "glb-bootstrap-priority",
+      "route": "/src/cases/glb-bootstrap-priority/index.html",
+      "kind": "production",
+      "buildTarget": "production",
+      "ownerAdr": "ADR-0016",
+      "requirements": [
+        "GEO-WEB-COOK",
+        "GEO-BOOTSTRAP-CONSUME",
+        "GEO-BOOTSTRAP-PRIORITY"
+      ],
+      "workloadId": "glb-bootstrap-priority-v1",
+      "profile": "smoke",
+      "timeoutMs": 300000,
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
+      "changedPaths": [
+        "validation/src/cases/glb-bootstrap-priority",
+        "validation/cases/registry.json",
+        "OEngine/src/assets/web-cook",
+        "OEngine/src/loaders/gltf/streaming",
+        "examples/assets/three/rendering-lab"
       ],
       "errorAllowlist": [
         {

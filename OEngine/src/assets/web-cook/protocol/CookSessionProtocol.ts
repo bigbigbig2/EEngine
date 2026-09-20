@@ -33,6 +33,19 @@ export interface WebCookBootstrapOptions {
 export type WebCookCommand =
   | (WebCookSessionHeader & { readonly type: "CreateSession"; readonly runtimeProfile: WebCookRuntimeProfile; readonly recipe: Readonly<Record<string, unknown>>; readonly budgets: WebCookBudgets; readonly bootstrap?: WebCookBootstrapOptions })
   | (WebCookSessionHeader & { readonly type: "OpenSource"; readonly source: Readonly<Record<string, unknown>> })
+  /**
+   * Declares that the main thread has finished sending `SetSourcePriority` for
+   * the just-published catalog, so cooking may start.
+   *
+   * `SceneCatalogReady` reaches the main thread before any cook work begins, but
+   * the Worker cannot prove the priority commands have crossed the boundary:
+   * a timer only guesses. This command makes the handshake explicit, and the
+   * Worker still keeps a bounded deadline so a caller that sends no priorities
+   * is never held up. It is additive within the current protocol version: an
+   * implementation that does not recognise it simply falls back to the
+   * deadline, which is why no major version change is required.
+   */
+  | (WebCookSessionHeader & { readonly type: "CommitCatalogPriorities" })
   | (WebCookSessionHeader & { readonly type: "SetSourcePriority"; readonly assetKey: string; readonly score: number; readonly cameraHintRevision: number })
   | (WebCookSessionHeader & { readonly type: "RequestPages"; readonly productId: Uint8Array; readonly revision: number; readonly pageIds: Uint32Array; readonly priority: number })
   | (WebCookSessionHeader & { readonly type: "GrantOutputCredits"; readonly blockCount: number; readonly bytes: number })

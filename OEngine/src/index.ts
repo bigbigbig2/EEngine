@@ -165,6 +165,13 @@ export type {
 } from "./assets/web-cook/WebCookBudget.js";
 export { WebCookRuntimeAsset } from "./assets/web-cook/WebCookRuntimeAsset.js";
 export type { WebCookSceneCatalogSnapshot, WebCookProgress } from "./assets/web-cook/WebCookClient.js";
+export { webCookCatalogSceneBounds, webCookCatalogSceneFraming } from "./assets/web-cook/WebCookSceneBounds.js";
+export type {
+  WebCookCatalogSceneFramingOptionsV1,
+  WebCookCatalogSceneFramingV1,
+  WebCookSceneBoundsV1,
+  WebCookSceneBoundsSourceV1
+} from "./assets/web-cook/WebCookSceneBounds.js";
 export type { WebCookBootstrapOptions } from "./assets/web-cook/protocol/CookSessionProtocol.js";
 export { createWebCookSceneSource, createWebCookSceneSourceAsync } from "./assets/web-cook/WebCookSceneSource.js";
 export type {

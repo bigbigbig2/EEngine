@@ -159,3 +159,125 @@ test("Web Cook progress heartbeat gives up instead of failing a saturated queue"
   assert.equal(coordinator.evidence().completedUnits, 2);
   coordinator.dispose();
 });
+
+/**
+ * Builds a GLB with `primitiveCount` independent single-triangle meshes whose
+ * POSITION extents are `1, 2, ... primitiveCount`.
+ *
+ * Spatial coverage is therefore strictly monotonic in catalog index, which lets
+ * a test separate coverage ranking from caller priority ranking.
+ */
+function makePrimitiveGlb(primitiveCount) {
+  const STRIDE = 44;
+  const bufferViews = [], accessors = [], meshes = [], nodes = [];
+  for (let index = 0; index < primitiveCount; index++) {
+    bufferViews.push({ buffer: 0, byteOffset: index * STRIDE, byteLength: 36 });
+    bufferViews.push({ buffer: 0, byteOffset: index * STRIDE + 36, byteLength: 6 });
+    accessors.push({ bufferView: index * 2, componentType: 5126, count: 3, type: "VEC3", min: [0, 0, 0], max: [index + 1, 1, 0] });
+    accessors.push({ bufferView: index * 2 + 1, componentType: 5123, count: 3, type: "SCALAR" });
+    meshes.push({ primitives: [{ attributes: { POSITION: index * 2 }, indices: index * 2 + 1 }] });
+    nodes.push({ mesh: index });
+  }
+  const document = {
+    asset: { version: "2.0" },
+    buffers: [{ byteLength: primitiveCount * STRIDE }],
+    bufferViews, accessors, meshes, nodes,
+    scenes: [{ nodes: nodes.map((_, index) => index) }]
+  };
+  const encoded = new TextEncoder().encode(JSON.stringify(document));
+  const json = new Uint8Array(Math.ceil(encoded.byteLength / 4) * 4);
+  json.set(encoded); json.fill(0x20, encoded.byteLength);
+  const bin = new Uint8Array(primitiveCount * STRIDE);
+  const view = new DataView(bin.buffer);
+  for (let index = 0; index < primitiveCount; index++) {
+    const base = index * STRIDE, size = index + 1;
+    const vertices = [[0, 0, 0], [size, 0, 0], [0, 1, 0]];
+    for (let vertex = 0; vertex < 3; vertex++) {
+      for (let axis = 0; axis < 3; axis++) view.setFloat32(base + vertex * 12 + axis * 4, vertices[vertex][axis], true);
+    }
+    view.setUint16(base + 36, 0, true); view.setUint16(base + 38, 1, true); view.setUint16(base + 40, 2, true);
+  }
+  const bytes = new Uint8Array(12 + 8 + json.byteLength + 8 + bin.byteLength), header = new DataView(bytes.buffer);
+  header.setUint32(0, 0x46546c67, true); header.setUint32(4, 2, true); header.setUint32(8, bytes.byteLength, true);
+  header.setUint32(12, json.byteLength, true); header.setUint32(16, 0x4e4f534a, true); bytes.set(json, 20);
+  const binHeader = 20 + json.byteLength;
+  header.setUint32(binHeader, bin.byteLength, true); header.setUint32(binHeader + 4, 0x004e4942, true);
+  bytes.set(bin, binHeader + 8);
+  return bytes;
+}
+
+function makeRangeFetch(glb) {
+  return {
+    fetch: async (_url, init) => {
+      const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/);
+      const start = Number(match[1]), end = Number(match[2]);
+      return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } });
+    }
+  };
+}
+
+test("Web Cook automatic bootstrap ranks by caller priority before spatial coverage", async () => {
+  // `bootstrapUnitCount` is deliberately omitted. The automatic selection is the
+  // path the examples actually take, and it used to rank purely by spatial
+  // coverage, which made the caller's camera-aware priorities no more than a
+  // tie-break. Catalog index 0 has the smallest POSITION bounds, so coverage
+  // alone can never place it in a 24-unit cut taken from 30 primitives.
+  const primitiveCount = 30;
+  const glb = makePrimitiveGlb(primitiveCount);
+  const run = async promoteSmallest => {
+    const product = productFixture();
+    let cut = undefined;
+    const coordinator = new WebCookCoordinator(`priority-ranking-${promoteSmallest}`, 1, {
+      budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 262144, maxQueuedEvents: 64 },
+      source: makeRangeFetch(glb),
+      cooker: {
+        async cookProgressive(_units, context, onRevision) {
+          cut = [...context.bootstrapAssetIndices];
+          await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 0, pageCount: 1, sceneAssetIndices: [cut[0]], async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        }
+      }
+    });
+    await coordinator.open("https://example.test/priority-ranking.glb");
+    if (promoteSmallest) {
+      const catalog = coordinator.drainEvents().find(event => event.type === "SceneCatalogReady").catalog;
+      coordinator.setSourcePriority(catalog.primitives[0].assetKey, 100, 1);
+    }
+    coordinator.grantOutputCredits(1, 262144);
+    await coordinator.cookBootstrap();
+    const lateSourcePriorities = coordinator.evidence().lateSourcePriorities;
+    coordinator.dispose();
+    return { cut, lateSourcePriorities };
+  };
+
+  const byCoverage = await run(false);
+  const byPriority = await run(true);
+  assert.equal(byCoverage.cut.length, 24, "the automatic cut is bounded by the unit limit");
+  assert.equal(byCoverage.cut.includes(0), false, "coverage ranking cannot reach the smallest primitive");
+  assert.equal(byPriority.cut.includes(0), true, "a caller priority must promote the smallest primitive into the cut");
+  assert.equal(byPriority.cut.length, 24, "priority must displace a unit, not extend the cut");
+  assert.equal(byPriority.cut.includes(6), false, "the displaced unit is the lowest-priority, lowest-coverage one");
+  assert.equal(byPriority.lateSourcePriorities, 0, "a priority sent before cooking is not late");
+});
+
+test("Web Cook coordinator counts a priority that arrives after the first cut", async () => {
+  // A priority that lands once the cut is already chosen cannot change the first
+  // frame. It must be counted rather than looking like a successful ranking.
+  const glb = makeTwoPrimitiveGlb(), product = productFixture();
+  let coordinator = undefined;
+  coordinator = new WebCookCoordinator("late-priority", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 262144, maxQueuedEvents: 16 },
+    source: makeRangeFetch(glb),
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(_units, context, onRevision) {
+        coordinator.setSourcePriority(`${context.bootstrapUnits[0].nodeIndex}`, 50, 0);
+        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 0, pageCount: 1, sceneAssetIndices: [context.bootstrapAssetIndices[0]], async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+      }
+    }
+  });
+  await coordinator.open("https://example.test/late-priority.glb");
+  coordinator.grantOutputCredits(1, 262144);
+  await coordinator.cookBootstrap();
+  assert.equal(coordinator.evidence().lateSourcePriorities, 1, "a priority after selection must be counted");
+  coordinator.dispose();
+});

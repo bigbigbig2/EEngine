@@ -108,6 +108,14 @@ export interface WebCookClientEvidence {
   readonly transport: WebCookWorkerTransportEvidence;
   readonly provider: WebCookProductProviderEvidence;
   readonly catalogReady: boolean;
+  /**
+   * True once `CommitCatalogPriorities` was sent to the Worker.
+   *
+   * The Worker starts cooking on this commit, so a `false` value after the
+   * catalog landed means the first cut was ranked by the Worker's own fallback
+   * rather than by the caller's priorities.
+   */
+  readonly catalogPrioritiesCommitted: boolean;
   readonly progressEvents: number;
   readonly recoverableFailures: number;
   readonly recoverableFailureCodes: readonly string[];
@@ -128,6 +136,7 @@ export class WebCookClient implements GeometryProductProviderV1 {
   #state: WebCookClientEvidence["state"] = "created";
   #providerConsumed = false;
   #catalog: WebCookSceneCatalogSnapshot | undefined;
+  #prioritiesCommitted = false;
   #progressEvents = 0;
   #recoverableFailures = 0;
   readonly #recoverableFailureCodes: string[] = [];
@@ -154,7 +163,15 @@ export class WebCookClient implements GeometryProductProviderV1 {
         this.#catalog = catalog as unknown as WebCookSceneCatalogSnapshot;
         this.#reserveSource(this.#catalog.sourceBytes);
         for (const priority of this.#options.initialSourcePriorities ?? []) this.setSourcePriority(priority.assetKey, priority.score, priority.cameraHintRevision);
-        this.#options.onSceneCatalogReady?.(this.#catalog);
+        // The caller's hook is its one chance to rank the catalog against the
+        // default view, so the commit must follow it rather than the options
+        // above. It is in a `finally` so a throwing hook still opens the
+        // Worker's priority window instead of making it wait out the deadline.
+        try {
+          this.#options.onSceneCatalogReady?.(this.#catalog);
+        } finally {
+          this.#commitCatalogPriorities();
+        }
       },
       onProgress: progress => {
         this.#progressEvents++;
@@ -307,11 +324,25 @@ export class WebCookClient implements GeometryProductProviderV1 {
       transport: this.#transport.evidence(),
       provider: this.#provider.evidence(),
       catalogReady: this.#catalog !== undefined,
+      catalogPrioritiesCommitted: this.#prioritiesCommitted,
       progressEvents: this.#progressEvents,
       recoverableFailures: this.#recoverableFailures,
       recoverableFailureCodes: Object.freeze(this.#recoverableFailureCodes.slice()),
       ...(this.#options.ledger === undefined ? {} : { budget: this.#options.ledger.evidence() })
     });
+  }
+
+  /**
+   * Tells the Worker that the catalog ranking is final so cooking may start.
+   *
+   * Sent at most once per session. The Worker starts cooking on this commit, so
+   * repeating it is meaningless, and omitting it would cost the bounded window
+   * before cooking begins.
+   */
+  #commitCatalogPriorities(): void {
+    if (this.#prioritiesCommitted || this.#state !== "open") return;
+    this.#prioritiesCommitted = true;
+    this.#send({ type: "CommitCatalogPriorities" });
   }
 
   #send(command: WebCookClientCommand): void {

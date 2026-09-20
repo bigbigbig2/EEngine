@@ -639,6 +639,19 @@ export interface ProductSceneOptions {
   readonly stream?: boolean;
   /** Runs after the revision is mapped and before GPU publication. */
   readonly onMaterials?: (materials: readonly StandardShadeMaterial[]) => void;
+  /**
+   * Explicit uniform scale applied to every instance transform.
+   *
+   * Prefer this over `fitHeight` whenever the scene must not change size between
+   * revisions. `fitHeight` is resolved against the instances of whichever
+   * revision is being mapped, so a bootstrap subset and the richer revision that
+   * replaces it receive different scales and the geometry visibly resizes at the
+   * commit. Resolving the fit once from the whole catalog and passing the result
+   * as `scale`/`offset` makes the transform revision-independent.
+   */
+  readonly scale?: number;
+  /** World translation applied after `scale`. Must accompany a revision-independent fit. */
+  readonly offset?: readonly [number, number, number];
 }
 
 export interface ProductSceneState {
@@ -662,13 +675,24 @@ export interface ProductSceneHandles {
 }
 
 export interface WebCookedSceneOptions extends ProductSceneOptions {
-  /** Framing applied by the Web Cook catalog mapper. */
+  /**
+   * Framing applied by the Web Cook catalog mapper.
+   *
+   * Resolved against the revision being mapped, so a bootstrap subset and its
+   * richer replacement get different scales. Use `scale`/`offset` from
+   * `webCookCatalogSceneFraming` instead when the scene must hold its size.
+   */
   readonly fitHeight?: number;
   readonly fitBase?: readonly [number, number, number];
 }
 
 export interface OegPackSceneOptions extends ProductSceneOptions {
-  /** Framing applied by the Offline scene manifest mapper. */
+  /**
+   * Framing applied by the Offline scene manifest mapper.
+   *
+   * Same revision dependence as `WebCookedSceneOptions.fitHeight`; prefer
+   * `scale`/`offset` when a replacement revision must not resize the scene.
+   */
   readonly fitHeight?: number;
   readonly fitBase?: readonly [number, number, number];
 }
@@ -1237,7 +1261,7 @@ export class MainRenderPipeline {
     return this.uploadProductScene(scene, asset, async (revision) => {
       const catalog = asset.catalog;
       if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
-      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { fitHeight: options.fitHeight, fitBase: options.fitBase, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache });
+      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { fitHeight: options.fitHeight, fitBase: options.fitBase, scale: options.scale, offset: options.offset, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache });
     }, options);
   }
 
@@ -1251,7 +1275,7 @@ export class MainRenderPipeline {
     asset: OegPackProductAsset,
     options: OegPackSceneOptions = {}
   ): Promise<ProductSceneHandles> {
-    return this.uploadProductScene(scene, asset, () => createOegPackSceneSource(asset, { fitHeight: options.fitHeight, fitBase: options.fitBase }), options);
+    return this.uploadProductScene(scene, asset, () => createOegPackSceneSource(asset, { fitHeight: options.fitHeight, fitBase: options.fitBase, scale: options.scale, offset: options.offset }), options);
   }
 
   /**

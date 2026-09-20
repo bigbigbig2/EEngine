@@ -8,8 +8,10 @@ import {
   Renderer,
   Scene,
   WebCookBudgetLedger,
+  webCookCatalogSceneFraming,
   type StandardShadeMaterial,
   type ProductSceneHandles,
+  type WebCookCatalogSceneFramingV1,
   type WebCookRuntimeAsset,
   type WebCookProgress,
   type WebCookSceneCatalogSnapshot
@@ -71,6 +73,18 @@ const multiBinFixture = new URLSearchParams(window.location.search).get("multiBi
 let catalogTicker = 0;
 /** True between the bootstrap publication and the richer revision committing. */
 let refinementPending = false;
+/** Canonical height the model is normalized to, and the world point its base centre aligns to. */
+const FIT_HEIGHT = 5.4;
+const FIT_BASE: readonly [number, number, number] = [0, -1, 0];
+/**
+ * Framing resolved from the whole catalog the moment it arrives.
+ *
+ * Resolving the fit and the framing from the catalog rather than from a
+ * published cut is what makes the load publication-independent: the scale and
+ * the camera are already final, so a richer revision cannot resize the geometry
+ * or move the camera when it commits.
+ */
+let catalogFraming: WebCookCatalogSceneFramingV1 | undefined;
 
 async function start(): Promise<void> {
   if (navigator.gpu === undefined) {
@@ -137,8 +151,9 @@ async function start(): Promise<void> {
   const lab = await loadWebProductLab(activeRenderer, activeScene);
   if (disposed) return;
 
-  let sceneBounds = lab.bounds;
-  let refinedCameraApplied = false;
+  // Final framing, fixed for the whole page lifetime: it comes from the catalog
+  // and is never recomputed from a published cut.
+  const sceneBounds = lab.bounds;
   const activeCamera = createCamera(activeRenderer, sceneBounds);
   controls = new OrbitControls(activeCamera, canvas);
   controls.target.set(...sceneBounds.center);
@@ -161,29 +176,18 @@ async function start(): Promise<void> {
   });
   startResizeObserver(activeRenderer, activeCamera);
 
-  // Web Cook intentionally publishes a drawable bootstrap before the richer
-  // revision is ready. Refit the observer once the atomic Product replacement
-  // commits; otherwise the camera remains framed to the first primitive.
+  // Web Cook publishes a drawable bootstrap before the richer revision is ready.
+  // The camera is already framed to the final catalog bounds, so a commit only
+  // updates the reported counts and the status text. It must not move the camera
+  // or reset the controls: doing so made the geometry appear to jump at exactly
+  // the moment it grew, which is what the old refit here was working around.
   void lab.handles.settled().then(() => {
-    if (disposed || refinedCameraApplied) return;
+    if (disposed) return;
     const current = lab.handles.current();
-    if (current.source.count <= lab.count && current.source.assetCount <= lab.geometryCount) return;
-    refinedCameraApplied = true;
+    const isRicher = current.source.count > lab.count || current.source.assetCount > lab.geometryCount;
     refinementPending = false;
-    sceneBounds = computeSphereBounds(current.source);
-    activeCamera.near = Math.max(0.01, sceneBounds.radius / 5000);
-    activeCamera.far = Math.max(100, sceneBounds.radius * 24);
-    activeCamera.transform.position.set(sceneBounds.center[0] + sceneBounds.radius * 1.5, sceneBounds.center[1] + sceneBounds.radius * 0.8, sceneBounds.center[2] + sceneBounds.radius * 1.8);
-    activeCamera.transform.lookAt({ x: sceneBounds.center[0], y: sceneBounds.center[1], z: sceneBounds.center[2] });
-    controls?.target.set(...sceneBounds.center);
-    if (controls) {
-      controls.minDistance = Math.max(0.25, sceneBounds.radius * 0.1);
-      controls.maxDistance = sceneBounds.radius * 12;
-      controls.reset();
-    }
     performancePanel?.updateScene({ model: `${modelName}${multiBinFixture ? " (multi-bin fixture)" : ""}`, instances: current.source.count, geometries: current.source.assetCount, materials: current.materials.length, refining: false });
-    activeRenderer.indicate_view_change();
-    setLoading("Ready", `${current.source.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"} · richer Product revision active`, 1);
+    setLoading("Ready", `${current.source.count} model instances · ${variant === "basic" ? "Unlit" : "PBR"} · ${isRicher ? "richer Product revision active" : "bootstrap Product revision active"}`, 1);
   }).catch(showFatalError);
 
   status.dataset.state = "ready";
@@ -216,9 +220,22 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
   // ranked by what the default view actually sees instead of catalog order. The
   // Worker keeps a catalog-ready window open, so these priorities still cross
   // the boundary before cooking starts.
-  let sourcePriorities: readonly CatalogPriority[] | undefined;
   let cookStartedAt: number | undefined;
-  const asset = load_gltf(modelUrl, {
+  let asset: WebCookRuntimeAsset;
+  // The scene mapper reads these fields when it maps a revision, and the first
+  // revision is only mapped after `SceneCatalogReady` has been consumed. Filling
+  // the catalog-derived fit in from the catalog hook therefore guarantees the
+  // first revision is mapped with it, without delaying the upload behind an
+  // await: the client only drains Worker events while `revisions()` is being
+  // iterated, so awaiting the catalog before starting the upload would deadlock.
+  const sceneOptions: {
+    scale?: number;
+    offset?: readonly [number, number, number];
+    onMaterials?: (materials: readonly StandardShadeMaterial[]) => void;
+  } = {
+    onMaterials: (materials) => { if (variant === "basic") for (const material of materials) material.is_unlit = true; }
+  };
+  asset = load_gltf(modelUrl, {
     worker,
     runtimeProfile,
     ledger: cookBudget,
@@ -232,7 +249,19 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
     onSceneCatalogReady: (catalog) => {
       catalogArrived = true;
       window.clearInterval(catalogTicker);
-      sourcePriorities = rankCatalogByVisibility(catalog);
+      // The catalog is the first point at which the default view can be ranked,
+      // and it arrives asynchronously: `load_gltf()` has already returned by the
+      // time this runs. The ranking must therefore be applied here, because the
+      // client commits it to the Worker as soon as this hook returns.
+      applyCatalogPriorities(asset, rankCatalogByVisibility(catalog));
+      // The final framing is resolved here too, from the whole catalog, so the
+      // camera never has to be reframed once a revision commits.
+      catalogFraming = webCookCatalogSceneFraming(catalog, { fitHeight: FIT_HEIGHT, fitBase: FIT_BASE });
+      if (catalogFraming.unknownBoundPrimitives > 0) {
+        console.warn(`[rendering-lab] ${catalogFraming.unknownBoundPrimitives} catalog primitives carry no usable bounds; the final framing may not cover them`);
+      }
+      sceneOptions.scale = catalogFraming.scale;
+      sceneOptions.offset = catalogFraming.offset;
     },
     onProgress: (progress) => {
       catalogArrived = true;
@@ -244,15 +273,13 @@ async function loadWebProductLab(activeRenderer: Renderer, activeScene: Scene): 
       reportCookProgress(progress, Date.now() - cookStartedAt);
     }
   });
-  if (sourcePriorities !== undefined) applyCatalogPriorities(asset, sourcePriorities);
-  // The progress stream owns this status line: overwriting it here would wipe
-  // whatever cook stage the worker has already reported.
-  const handles = await activeRenderer.uploadWebCookedScene(activeScene, asset, {
-    fitHeight: 5.4,
-    fitBase: [0, -1, 0],
-    onMaterials: (materials) => { if (variant === "basic") for (const material of materials) material.is_unlit = true; }
-  });
-  return { count: handles.source.count, geometryCount: handles.source.assetCount, materials: handles.materials, bounds: computeSphereBounds(handles.source), handles };
+  // The progress stream owns the status line from here on: overwriting it would
+  // wipe whatever cook stage the worker has already reported.
+  const handles = await activeRenderer.uploadWebCookedScene(activeScene, asset, sceneOptions);
+  if (catalogFraming === undefined) {
+    throw new Error("The GLB catalog never arrived, so the final scene framing is unknown");
+  }
+  return { count: handles.source.count, geometryCount: handles.source.assetCount, materials: handles.materials, bounds: framingBounds(catalogFraming), handles };
 }
 
 interface CatalogPriority {
@@ -343,41 +370,37 @@ function normalize(vector: readonly [number, number, number]): [number, number, 
   return [vector[0] / length, vector[1] / length, vector[2] / length];
 }
 
+/**
+ * Sends the camera-aware ranking to the cook session.
+ *
+ * A rejection means the session stopped accepting priorities before this batch
+ * finished, so the first cut falls back to coverage ranking. That is a lost
+ * optimisation rather than a load failure, but it must be visible: silently
+ * swallowing it is what made the original broken wiring look like it worked.
+ */
 function applyCatalogPriorities(asset: WebCookRuntimeAsset, priorities: readonly CatalogPriority[]): void {
-  for (const priority of priorities) {
+  for (let index = 0; index < priorities.length; index++) {
+    const priority = priorities[index]!;
     try {
       asset.setSourcePriority(priority.assetKey, priority.score, priority.cameraHintRevision);
     } catch {
-      // The catalog-ready window can already be closed on a fast worker; the
-      // automatic bootstrap selection still bounds the first cut, so a late
-      // priority is a lost optimisation rather than a load failure.
+      console.warn(`[rendering-lab] ${priorities.length - index} of ${priorities.length} catalog priorities were rejected; the first cut falls back to coverage ranking`);
       return;
     }
   }
 }
 
-function computeSphereBounds(source: { readonly count: number; readonly boundsSpheres: Float32Array; readonly boundsMin?: Float32Array; readonly boundsMax?: Float32Array }): Bounds {  const minimum = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
-  const maximum = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
-  if (source.boundsMin !== undefined && source.boundsMax !== undefined) {
-    for (let index = 0; index < source.count; index++) {
-      for (let axis = 0; axis < 3; axis++) {
-        minimum[axis] = Math.min(minimum[axis]!, source.boundsMin[index * 3 + axis]!);
-        maximum[axis] = Math.max(maximum[axis]!, source.boundsMax[index * 3 + axis]!);
-      }
-    }
-  } else {
-    for (let index = 0; index < source.count; index++) {
-      const x = source.boundsSpheres[index * 4]!, y = source.boundsSpheres[index * 4 + 1]!, z = source.boundsSpheres[index * 4 + 2]!, radius = source.boundsSpheres[index * 4 + 3]!;
-      minimum[0] = Math.min(minimum[0]!, x - radius); minimum[1] = Math.min(minimum[1]!, y - radius); minimum[2] = Math.min(minimum[2]!, z - radius);
-      maximum[0] = Math.max(maximum[0]!, x + radius); maximum[1] = Math.max(maximum[1]!, y + radius); maximum[2] = Math.max(maximum[2]!, z + radius);
-    }
-  }
-  const center: [number, number, number] = [(minimum[0]! + maximum[0]!) * 0.5, (minimum[1]! + maximum[1]!) * 0.5, (minimum[2]! + maximum[2]!) * 0.5];
+/**
+ * Adapts the engine's catalog framing to this page's `Bounds`.
+ *
+ * The framing is already the final one, so no published cut is inspected here.
+ */
+function framingBounds(framing: WebCookCatalogSceneFramingV1): Bounds {
   return Object.freeze({
-    min: minimum as [number, number, number],
-    max: maximum as [number, number, number],
-    center,
-    radius: Math.max(1, 0.5 * Math.hypot(maximum[0]! - minimum[0]!, maximum[1]! - minimum[1]!, maximum[2]! - minimum[2]!))
+    min: [framing.min[0], framing.min[1], framing.min[2]] as [number, number, number],
+    max: [framing.max[0], framing.max[1], framing.max[2]] as [number, number, number],
+    center: [framing.center[0], framing.center[1], framing.center[2]] as [number, number, number],
+    radius: framing.radius
   });
 }
 
