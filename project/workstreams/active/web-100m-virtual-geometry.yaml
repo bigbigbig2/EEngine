@@ -1,0 +1,180 @@
+schemaVersion: 2
+id: web-100m-virtual-geometry
+title: Web 100M+ Virtual Geometry scalable producer and sharded runtime
+domain: virtual-assets
+state: active
+owner: virtual-assets
+decision: ADR-0018
+sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
+goal: Load, cook, publish, and render a 100M+ triangle GLB/glTF in the browser without scene-scale CPU/WASM payload residency, while preserving Nyx geometry invariants and a bounded WebGPU working set.
+contracts:
+  - geometry-product-v1
+  - virtual-geometry-runtime-v1
+  - web-geometry-cooker-abi-v1
+  - web-cook-session-protocol-v1
+claims:
+  - virtual-assets.product-consumer
+  - virtual-assets.web-cook
+  - virtual-assets.lifecycle
+  - visibility.gpu-closure
+tasks:
+  - id: baseline-100m-failure-attribution
+    phase: A
+    priority: P0
+    title: Establish the 100M workload, observability, and exact failure owner
+    state: active
+    dependsOn: []
+    exitCriteria:
+      - Reproducible 100M workload identity and generator parameters are frozen.
+      - Catalog, range read, canonical, WASM, cook, retained payload, descriptor, admission, GPU metadata, and residency owners expose exact current and peak bytes.
+      - Failure evidence names the responsible owner and allocation; an undifferentiated OOM is not accepted.
+  - id: canonical-windowing
+    phase: B
+    priority: P0
+    title: Replace full-scene canonical input with bounded source and canonical windows
+    state: todo
+    dependsOn: [baseline-100m-failure-attribution]
+    exitCriteria:
+      - The 100M canonical peak stays within the configured owner budget.
+      - Increasing the workload from 100M to 250M does not proportionally increase the live canonical payload peak.
+      - No Worker session retains whole-scene decoded geometry.
+  - id: giant-primitive-spatial-sharding
+    phase: C
+    priority: P0
+    title: Deterministically partition a single giant primitive into bounded Product shards
+    state: todo
+    dependsOn: [canonical-windowing]
+    exitCriteria:
+      - A single 100M-triangle primitive produces more than one bounded shard.
+      - Bounds, seams, attributes, materials, hierarchy, and ownership remain valid.
+      - Identical input and recipe produce stable shard and Product identities.
+  - id: cook-and-spill
+    phase: D
+    priority: P0
+    title: Spill immutable page artifacts and release per-shard cook memory
+    state: todo
+    dependsOn: [giant-primitive-spatial-sharding]
+    exitCriteria:
+      - WASM and serialized-group peaks remain within declared budgets for the 100M workload.
+      - Completed Group payloads are not retained solely for future page reads.
+      - OPFS page re-read is byte-exact and decoded identity plus payload checksum remain stable.
+      - Cancellation, failure, retry, and release do not publish partial or mixed-generation Products.
+  - id: multi-product-runtime
+    phase: E
+    priority: P0
+    title: Admit and render independently owned Product shards through one Product Table
+    state: todo
+    dependsOn: [cook-and-spill]
+    exitCriteria:
+      - At least 64 Product shards can be active concurrently in the production renderer.
+      - Each shard supports independent load, replacement, eviction, dormancy, and release.
+      - Product-local PageID and generation reject stale demand and stale page completion.
+      - GPU Product Table and instance identity ABI have an authoritative spec and contract/oracle coverage.
+  - id: visible-first-product-scheduler
+    phase: F
+    priority: P0
+    title: Publish visible and near Product shards before background shards
+    state: todo
+    dependsOn: [multi-product-runtime]
+    exitCriteria:
+      - The 100M scene renders a correct coarse world before total cook completion.
+      - TTFMF is measured separately from and is materially lower than total cook completion time.
+      - Priority uses current-view need and spatial relevance; FIFO-only scheduling is rejected.
+  - id: gpu-demand-dedup-compaction
+    phase: G
+    priority: P1
+    title: Compact Product-local request masks into bounded priority demand records on the GPU
+    state: todo
+    dependsOn: [visible-first-product-scheduler]
+    exitCriteria:
+      - Camera-cut duplicate requests are removed before readback.
+      - Queue ABI, capacity, overflow behavior, producer, consumer, and counters are specified and tested.
+      - Readback record count and bytes remain bounded under camera-cut stress.
+  - id: adaptive-gpu-residency-profiles
+    phase: H
+    priority: P1
+    title: Select Portable, Balanced, or HighEnd residency from negotiated WebGPU limits
+    state: todo
+    dependsOn: [multi-product-runtime]
+    exitCriteria:
+      - One Product ABI runs without recook across all supported profiles.
+      - Allocation uses negotiated limits and runtime evidence rather than assumed physical VRAM.
+      - Feature-off and low-limit paths allocate no unused profile resources.
+  - id: current-hzb-late-recheck
+    phase: I
+    priority: P1
+    title: Recheck uncertain or expensive visibility candidates against the current HZB
+    state: todo
+    dependsOn: [gpu-demand-dedup-compaction]
+    exitCriteria:
+      - Dense-occlusion evidence reduces selected meshlets and raster vertices without image parity loss.
+      - GPU visibility cost improves on the frozen workload; the pass is removed when it has no consumer.
+  - id: dynamic-page-scheduler
+    phase: J
+    priority: P1
+    title: Adapt reads, in-flight bytes, and upload budget to camera, IO, GPU, and frame pressure
+    state: todo
+    dependsOn: [gpu-demand-dedup-compaction, adaptive-gpu-residency-profiles]
+    exitCriteria:
+      - Scheduler budgets stay bounded and expose pressure, retry, cancellation, and overflow counters.
+      - Camera cuts can burst within declared limits and stable views reduce streaming pressure.
+      - Failure and device-loss paths preserve Product generation and resource ownership.
+  - id: formal-100m-perf-freeze
+    phase: K
+    priority: P1
+    title: Capture clean formal 100M correctness, memory, runtime, and performance evidence
+    state: todo
+    dependsOn: [visible-first-product-scheduler, dynamic-page-scheduler]
+    exitCriteria:
+      - Revision, browser, adapter, resolution, DPR, camera path, feature set, and workload hash are frozen.
+      - TTFMF, CPU/GPU P50/P95, owner memory peaks, demand, churn, overflow, and camera-cut recovery are recorded.
+      - Evidence comes from the independent validation host on a clean revision with all required gates passed.
+  - id: raster-bucket-optimization
+    phase: L
+    priority: P2
+    title: Compare 32, 64, 96, and 128 triangle raster buckets with the fixed 384-vertex route
+    state: todo
+    dependsOn: [formal-100m-perf-freeze]
+    exitCriteria:
+      - Frozen A/B evidence demonstrates lower wasted vertex work without correctness regression.
+      - Bucket-specific queues declare ABI, capacity, overflow, producers, consumers, and counters.
+  - id: scale-validation-250m-1b
+    phase: M
+    priority: P2
+    title: Validate 250M, 500M, and 1B logical scale without another architecture rewrite
+    state: todo
+    dependsOn: [formal-100m-perf-freeze]
+    exitCriteria:
+      - 250M passes the promoted scalability gate.
+      - 500M and 1B logical runs show working-set decoupling and identify any cache or scheduler pressure.
+      - Tuning changes cache, thrash, scheduler, residency, or prediction policy rather than restoring scene-scale payload residency.
+exitChecks:
+  - model
+  - registry
+  - changed-coverage
+  - evidence-provenance
+  - engine-suites
+requiredEvidence:
+  - Nyx source-function, shader-entry, decision-condition, data-dependency, invariant, difference, fallback, and validation mapping for every changed geometry stage
+  - Fixed workload identities for 10M development, 100M formal, 250M scalability, 500M diagnostic, and 1B logical-scale runs
+  - Single-giant-primitive, many-primitives, city-grid, dense-indoor, high-occlusion, camera-cut, and high-instancing coverage
+  - Owner-attributed current, peak, and limit bytes for source, canonical, WASM cook, serialized groups, spill, metadata, decoded pages, GPU geometry, and textures
+  - Contract and oracle evidence for shard boundaries, seams, hierarchy, Product/Page identity, generation, exact spill re-read, determinism, failure atomicity, and release
+  - Clean independent-browser evidence that visible Product shards reach the production GPU consumer before total cook completion
+  - Formal 100M PERF evidence with frozen revision, browser, adapter, display, camera, feature, and workload identities
+retirementTargets:
+  - Full-scene canonical ArrayBuffer ownership in the Web runtime cook path
+  - Full-Product retainedGroups lifetime used only to materialize future pages
+  - Single-Product Scene identity assumptions in production GPU metadata and instance references
+  - Fixed read concurrency and in-flight byte policy used as the only large-scene scheduler mode
+openGates:
+  - Phase A has not yet produced an owner-attributed 100M baseline.
+  - Source and canonical window ABI, ownership, cancellation, and budget contracts are not frozen.
+  - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
+  - Cook-and-spill lacks an authoritative Page Artifact and Spill Store contract.
+  - Multi-Product Scene and GPU Product Table ABI are not yet frozen or proven in the production renderer.
+  - Visible-first publication lacks clean 100M browser evidence and a formal TTFMF definition in a workload manifest.
+  - GPU demand compaction and adaptive scheduler queues lack promoted capacity and overflow evidence.
+  - Portable, Balanced, and HighEnd residency profiles lack negotiated-limit evidence across supported adapters.
+  - Formal 100M PERF evidence has not been captured on a clean revision.
+  - 250M, 500M, and 1B logical-scale working-set evidence does not exist.

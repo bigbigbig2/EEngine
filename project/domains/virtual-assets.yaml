@@ -26,6 +26,7 @@ contracts:
 decisions:
   - ADR-0016
   - ADR-0017
+  - ADR-0018
 sources:
   - nyx-geometry
 claims:

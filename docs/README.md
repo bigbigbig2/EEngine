@@ -28,8 +28,16 @@ The repository uses a contract-driven project OS. Machine manifests route work a
 
 Unpromoted research cannot establish a product fact, ABI, claim status, or completion. Git history stores retired implementation narratives.
 
+## Active Workstreams
+
+Workstream YAML is the authoritative TODO and progress record. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
+
+- [Nyx producer convergence](../project/workstreams/active/nyx-convergence.yaml)
+- [Web 100M+ Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — implementation plan for [ADR-0018](./adr/0018-web-100m-virtual-geometry.md)
+
 ## Reviews
 
 Reviews are dated, non-authoritative audits. They record observations and recommendations but do not establish product facts or completion:
 
 - [2026-09-21 · Documentation and validation system review](./reviews/2026-09-21-documentation-validation-system-review.md)
+- [ADR-0018 research draft · Web 100M+ Virtual Geometry Architecture](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
