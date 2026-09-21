@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { auditNyxFunctionMap } from "../tools/validate-nyx-function-map.mjs";
+import { auditNyxFunctionMap } from "../../tools/validate-nyx-function-map.mjs";
 
 test("Nyx source hashes, function map, GPU semantic evidence and oracle status are machine-checked", async () => {
   const report = await auditNyxFunctionMap();

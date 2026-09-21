@@ -4,14 +4,15 @@ import { mkdir, readFile, readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { compilerProbe } from "./native-compiler.mjs";
 
 const toolsDir = dirname(fileURLToPath(import.meta.url));
 const engineDir = dirname(toolsDir);
 const coreDir = join(toolsDir, "oengine-asset-core");
 const nyxRoot = resolve(process.env.NYX_SOURCE_DIR ?? "D:/Nyx-main");
-const defaultCompiler = "D:/Devtool/mingw64/bin/g++.exe";
-const clangCompiler = "C:/Program Files/LLVM/bin/clang++.exe";
-const compiler = process.env.CXX ?? (existsSync(defaultCompiler) ? defaultCompiler : existsSync(clangCompiler) ? clangCompiler : "g++");
+const probe = compilerProbe();
+if (!probe.usable) throw new Error(`原生构建缺少可用工具链：${probe.reason}`);
+const compiler = probe.compiler;
 const output = join(coreDir, "build", "oengine-asset-cooker.exe");
 
 const requiredHashes = new Map([

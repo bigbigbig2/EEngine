@@ -12,10 +12,10 @@ const {
   WEB_GEOMETRY_COOK_PAGE_READY,
   WEB_GEOMETRY_COOK_PAGE_UNDECLARED
 } = await import("../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js");
-const Module = (await import("../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs")).default;
+const Module = (await import("../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs")).default;
 
 async function loadArtifact() {
-  const wasm = await readFile(new URL("../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url));
+  const wasm = await readFile(new URL("../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url));
   return Module({
     instantiateWasm(info, receive) {
       WebAssembly.instantiate(wasm, info).then(result => receive(result.instance));

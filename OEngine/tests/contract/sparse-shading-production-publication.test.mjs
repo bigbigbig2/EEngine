@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "../../webgpu-test-globals.mjs";
+import "../webgpu-test-globals.mjs";
 
 import { GpuShadingPublicationStore } from "../../.test-dist/gpu/GpuShadingPublicationPlan.js";
 import {

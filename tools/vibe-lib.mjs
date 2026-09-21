@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 import { validateArtifact } from "../validation/src/shared/artifact.mjs";
 import { canonicalJson, requireValidRegistry, validateRegistry } from "../validation/src/shared/registry.mjs";
+import { CHECK_RUNNER_IDS } from "./check-runners.mjs";
 
 export const TOOLS_DIR = dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = resolve(TOOLS_DIR, "..");
@@ -76,13 +77,17 @@ export async function readFrontmatterFiles(directory) {
     if (!entry.isFile() || !entry.name.endsWith(".md") || entry.name === "README.md") continue;
     const path = resolve(directory, entry.name);
     const source = await readFile(path, "utf8");
-    if (!source.startsWith("---\n")) {
+    // Accept CRLF as well as LF: the project OS must not depend on the local
+    // core.autocrlf setting or the checkout platform.
+    const opening = source.match(/^---\r?\n/u);
+    if (!opening) {
       files.push({ path, source, value: null });
       continue;
     }
-    const end = source.indexOf("\n---", 4);
+    const bodyStart = opening[0].length;
+    const end = source.indexOf("\n---", bodyStart);
     if (end < 0) throw new Error(`${relative(REPO_ROOT, path)}: frontmatter closing marker is missing`);
-    const document = parseDocument(source.slice(4, end), { prettyErrors: true, uniqueKeys: true });
+    const document = parseDocument(source.slice(bodyStart, end), { prettyErrors: true, uniqueKeys: true });
     if (document.errors.length > 0 || document.warnings.length > 0) {
       const messages = [...document.errors, ...document.warnings].map((item) => item.message).join("; ");
       throw new Error(`${relative(REPO_ROOT, path)}: invalid frontmatter: ${messages}`);
@@ -194,6 +199,11 @@ export function validateModel(model, legacyRegistry) {
     if (typeof check.description !== "string" || check.description.length < 8) errors.push(`${check._file}: ${check.id} needs a description`);
     if (!KINDS.has(check.kind)) errors.push(`${check._file}: ${check.id} has invalid kind`);
     if (!ASSURANCE.has(check.level)) errors.push(`${check._file}: ${check.id} has invalid level`);
+    // A check must bind to a registered runner; an unbound check would silently
+    // become a claim precondition that nothing can ever satisfy.
+    if (typeof check.runner !== "string" || !CHECK_RUNNER_IDS.includes(check.runner)) {
+      errors.push(`${check._file}: ${check.id} has unregistered runner '${check.runner ?? "<missing>"}'`);
+    }
     for (const domainId of check.domains ?? []) if (!domains.has(domainId)) errors.push(`${check._file}: ${check.id} references unknown domain ${domainId}`);
     for (const claimId of check.claims ?? []) if (!claims.has(claimId)) errors.push(`${check._file}: ${check.id} references unknown claim ${claimId}`);
   }
@@ -317,14 +327,38 @@ function hasDecisionFile(id) {
   return readdirSync(resolve(REPO_ROOT, "docs/adr"), { withFileTypes: true }).some((entry) => entry.isFile() && entry.name.toLowerCase().startsWith(prefix) && entry.name.endsWith(".md"));
 }
 
+function normalizeCaseEntry(item) {
+  const { _file, _lab, schemaVersion, ...rest } = item;
+  return { ...rest, lab: rest.lab ?? Boolean(_lab), automatic: rest.automatic ?? !_lab };
+}
+
+/**
+ * 每条 evidence 实际上只依赖它自己的 case manifest、workload 与 profile。
+ *
+ * 新鲜度此前锚在全局 generated registry 的哈希上，因此修改任意一个无关 case
+ * （例如改一个 `timeoutMs`）都会让全部 claim 同时变成 stale。锚点到 case 级
+ * 之后，「哪条证据失效」与「哪个 manifest 变了」一一对应。
+ * 签名哈希的是规范化后的条目，所以 generator 改变归一化语义也会被感知。
+ */
+export function caseSignatures(model) {
+  const profiles = Object.fromEntries(model.profiles.map(({ _file, schemaVersion, ...profile }) => [profile.id, profile]));
+  const workloads = Object.fromEntries(model.workloads.map(({ _file, schemaVersion, ...workload }) => [workload.id, workload]));
+  const signatures = {};
+  for (const item of model.cases) {
+    const entry = normalizeCaseEntry(item);
+    signatures[entry.id] = sha256(canonicalJson({
+      case: entry,
+      workload: workloads[entry.workloadId] ?? null,
+      profile: profiles[entry.profile] ?? null
+    }));
+  }
+  return signatures;
+}
+
 export function buildRegistry(model, legacyRegistry) {
   const profiles = Object.fromEntries(model.profiles.map(({ _file, schemaVersion, ...profile }) => [profile.id, profile]));
   const workloads = Object.fromEntries(model.workloads.map(({ _file, schemaVersion, ...workload }) => [workload.id, workload]));
-  const cases = model.cases.map(({ _file, _lab, schemaVersion, ...item }) => ({
-    ...item,
-    lab: item.lab ?? Boolean(_lab),
-    automatic: item.automatic ?? !_lab
-  }));
+  const cases = model.cases.map(normalizeCaseEntry);
   return {
     schemaVersion: legacyRegistry?.schemaVersion ?? 1,
     hostProtocolVersion: legacyRegistry?.hostProtocolVersion ?? 1,
@@ -405,10 +439,27 @@ export function getChangedPaths() {
     const status = record.slice(0, 2);
     const raw = record.slice(3);
     if (status.includes("R") || status.includes("C")) index += 1;
-    const path = raw;
-    if (path) paths.add(normalizePath(path));
+    if (raw) paths.add(normalizePath(raw));
   }
   return [...paths].sort();
+}
+
+/**
+ * Paths that are generated, ignored, or external to the routing graph.
+ *
+ * This list used to live in the CLI while the engine guard test duplicated its
+ * own version, so the two could disagree about what counts as an unowned path.
+ */
+export function isIgnoredPath(path) {
+  return path === ""
+    || path === "package-lock.json"
+    || path === "validation/registry.generated.json"
+    || path === "validation/evidence/index.json"
+    || path === "validation/evidence/verification.json"
+    || path === "docs/status.generated.md"
+    || path.startsWith(".local/validation/")
+    || path.startsWith("node_modules/")
+    || path.startsWith("validation/node_modules/");
 }
 
 export async function loadEvidenceIndex() {
@@ -421,6 +472,7 @@ export async function loadEvidenceIndex() {
 export async function buildEvidenceIndex(model, head, registrySha256) {
   const files = await listFiles(ARTIFACT_DIR);
   const caseMap = new Map(model.cases.map((item) => [item.id, item]));
+  const signatures = caseSignatures(model);
   const domainMap = new Map(model.domains.map((item) => [item.id, item]));
   const workloadMap = new Map(model.workloads.map((item) => [item.id, item]));
   const contractHashCache = new Map();
@@ -462,6 +514,7 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
         tree: result.provenance?.tree,
         dirty: result.provenance?.dirty,
         registrySha256: result.registrySha256,
+        caseSignatureSha256: signatures[result.caseId] ?? null,
         workloadSha256: result.workloadSha256,
         browser: {
           executable: result.provenance?.browserExecutable,
@@ -478,7 +531,10 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
           revisionMatches,
           registryMatches,
           clean: result.provenance?.dirty === false,
-          accepted: revisionMatches && registryMatches && result.provenance?.dirty === false && result.evidenceStatus === "accepted"
+          // Artifact-level standing only. Manifest dependence is checked against
+          // the current case signature in isFreshEvidence, so an unrelated case
+          // edit no longer invalidates this record.
+          accepted: revisionMatches && result.provenance?.dirty === false && result.evidenceStatus === "accepted"
         },
         completedAt: result.provenance?.completedAt,
         artifactPath: relative(REPO_ROOT, path).replaceAll("\\", "/"),
@@ -527,7 +583,7 @@ export async function writeEvidenceIndex(index) {
   return { path: EVIDENCE_INDEX, bytes: Buffer.byteLength(content), sha256: sha256(content) };
 }
 
-export function claimStatus(claim, evidenceIndex, head, registrySha256) {
+export function claimStatus(claim, evidenceIndex, head, caseSignaturesByCase = {}) {
   if (claim.lifecycle === "retired") return "retired";
   const records = evidenceIndex.evidence.filter((item) => item.claimIds?.includes(claim.id));
   if (records.length === 0) return "unproven";
@@ -538,13 +594,13 @@ export function claimStatus(claim, evidenceIndex, head, registrySha256) {
   }
   const latest = [...latestByCase.values()];
   if (latest.some((item) => item.status === "failed" || item.evidenceStatus === "blocked")) return "blocked";
-  if (latest.some((item) => !isFreshEvidence(item, claim, head, registrySha256))) return "stale";
+  if (latest.some((item) => !isFreshEvidence(item, claim, head, caseSignaturesByCase))) return "stale";
   if (latest.some((item) => item.evidenceStatus === "diagnostic-only" || item.status === "diagnostic" || item.status === "unsupported")) return "diagnostic";
   if (latest.length > 0 && latest.every((item) => item.evidenceStatus === "accepted" && item.status === "passed" && requiredChecksCovered(item, claim))) return "accepted";
   return "diagnostic";
 }
 
-export function validateWorkstreamCompletion(model, evidenceIndex, head, registrySha256) {
+export function validateWorkstreamCompletion(model, evidenceIndex, head, caseSignaturesByCase = {}) {
   const errors = [];
   const records = evidenceIndex?.evidence ?? [];
   for (const workstream of model.workstreams ?? []) {
@@ -552,12 +608,12 @@ export function validateWorkstreamCompletion(model, evidenceIndex, head, registr
     for (const claimId of workstream.claims ?? []) {
       const claim = model.claims.find((item) => item.id === claimId);
       if (!claim) continue;
-      if (claimStatus(claim, evidenceIndex, head, registrySha256) !== "accepted") {
+      if (claimStatus(claim, evidenceIndex, head, caseSignaturesByCase) !== "accepted") {
         errors.push(`${workstream._file}: done workstream claim is not accepted: ${claimId}`);
       }
       const claimRecords = records.filter((record) => record.claimIds?.includes(claimId));
       for (const checkId of workstream.exitChecks ?? []) {
-        const covered = claimRecords.some((record) => record.checkIds?.includes(checkId) && record.status === "passed" && record.evidenceStatus === "accepted" && isFreshEvidence(record, claim, head, registrySha256));
+        const covered = claimRecords.some((record) => record.checkIds?.includes(checkId) && record.status === "passed" && record.evidenceStatus === "accepted" && isFreshEvidence(record, claim, head, caseSignaturesByCase));
         if (!covered) errors.push(`${workstream._file}: done workstream exit check lacks fresh accepted evidence: ${checkId} (${claimId})`);
       }
     }
@@ -565,12 +621,14 @@ export function validateWorkstreamCompletion(model, evidenceIndex, head, registr
   return errors;
 }
 
-function isFreshEvidence(item, claim, head, registrySha256) {
+function isFreshEvidence(item, claim, head, caseSignaturesByCase) {
   if (!item.commit || item.commit !== head) return false;
-  if (!item.registrySha256 || item.registrySha256 !== registrySha256) return false;
+  // Freshness is anchored to this case's own manifest/workload/profile signature
+  // instead of the whole generated registry, so an unrelated case edit cannot
+  // invalidate evidence that is still valid.
+  if (!item.caseSignatureSha256 || item.caseSignatureSha256 !== caseSignaturesByCase?.[item.caseId]) return false;
   if (item.dirty !== false || item.freshness?.clean !== true) return false;
-  if (item.freshness?.revisionMatches !== true || item.freshness?.registryMatches !== true) return false;
-  if (item.freshness?.accepted !== true) return false;
+  if (item.freshness?.revisionMatches !== true || item.freshness?.accepted !== true) return false;
   return requiredChecksCovered(item, claim);
 }
 

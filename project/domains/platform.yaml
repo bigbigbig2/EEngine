@@ -21,6 +21,7 @@ paths:
   - AGENTS.md
   - OEngine/AGENTS.md
   - .gitignore
+  - .gitattributes
   - README.md
   - package.json
   - package-lock.json

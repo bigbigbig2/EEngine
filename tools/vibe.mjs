@@ -20,6 +20,8 @@ import {
   routeDomains,
   pathMatches,
   claimStatus,
+  caseSignatures,
+  isIgnoredPath,
   validateGeneratedRegistry,
   buildEvidenceIndex,
   writeEvidenceIndex,
@@ -27,6 +29,7 @@ import {
   validateWorkstreamCompletion,
   canonicalJsonText
 } from "./vibe-lib.mjs";
+import { runCheckImplementation } from "./check-runners.mjs";
 
 const [command = "doctor", ...args] = process.argv.slice(2);
 
@@ -35,7 +38,7 @@ try {
   else if (command === "evidence") await evidenceCommand();
   else if (command === "doctor") await doctorCommand();
   else if (command === "context") await contextCommand(args[0] ?? ".");
-  else if (command === "verify") await verifyCommand(args.includes("--changed"), args.includes("--perf"));
+  else if (command === "verify") await verifyCommand(args.includes("--changed"), args.includes("--perf"), args.includes("--allow-not-run"));
   else if (command === "case") await caseCommand(args[0], args.includes("--run"));
   else if (command === "status") await statusCommand(args[0]);
   else if (command === "help" || command === "--help" || command === "-h") printHelp();
@@ -53,7 +56,7 @@ async function registryCommand() {
   const registryErrors = validateGeneratedRegistry(registry);
   if (registryErrors.length > 0) throw new Error(`Generated registry is invalid:\n${registryErrors.join("\n")}`);
   const result = await writeGeneratedRegistry(registry);
-  assertWorkstreamCompletion(model, await loadEvidenceIndex(), currentRevision(), result.sha256);
+  assertWorkstreamCompletion(model, await loadEvidenceIndex(), currentRevision(), caseSignatures(model));
   console.log(JSON.stringify({ generated: relative(REPO_ROOT, result.path), cases: registry.cases.length, bytes: result.bytes, sha256: result.sha256 }, null, 2));
 }
 
@@ -70,7 +73,7 @@ async function doctorCommand() {
   } catch (error) { errors.push(error.message); }
   if (registry) {
     try {
-      const workstreamErrors = validateWorkstreamCompletion(model, await loadEvidenceIndex(), currentRevision(), sha256(canonicalJsonText(registry)));
+      const workstreamErrors = validateWorkstreamCompletion(model, await loadEvidenceIndex(), currentRevision(), caseSignatures(model));
       errors.push(...workstreamErrors);
     } catch (error) {
       errors.push(error instanceof Error ? error.message : String(error));
@@ -104,7 +107,7 @@ async function contextCommand(input) {
   console.log(JSON.stringify({ input, routing, domains: routedDomains, claims: claims.map(stripPrivate), checks: checks.map(stripPrivate), cases: cases.map(stripPrivate) }, null, 2));
 }
 
-async function verifyCommand(changedOnly, perfRequested) {
+async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
   const model = await loadModel();
   const legacy = null;
   assertModel(model, legacy);
@@ -122,15 +125,23 @@ async function verifyCommand(changedOnly, perfRequested) {
   // Deleted legacy files are intentionally allowed to leave the routing graph.
   // Any file that still exists must remain owned by a declared domain.
   const uncovered = changedOnly ? changedPaths.filter((path) => !isIgnoredPath(path) && existsSync(resolve(REPO_ROOT, path)) && !domains.some((domain) => domain.paths.some((pattern) => pathMatches(path, pattern)))) : [];
-  const checkIds = new Set(["model", "registry", ...(changedOnly ? ["changed-coverage", "guard-docs", "guard-public-api", "guard-ownership", "guard-legacy", "guard-generated-source"] : [])]);
+  // The check set is derived from the routing model instead of a hard-coded
+  // list: matched domains declare their checks and matched claims declare the
+  // checks they require. Before this, `project/domains/*.yaml#checks` was inert
+  // metadata and `docs-frontmatter` was declared but never executed.
+  const checkIds = new Set(["model", "registry", "engine-suites"]);
+  if (changedOnly) checkIds.add("changed-coverage");
+  for (const domain of domains) for (const checkId of domain.checks ?? []) checkIds.add(checkId);
   for (const claim of claims) for (const checkId of claim.requiredChecks ?? []) checkIds.add(checkId);
+  const signatures = caseSignatures(model);
   const evidence = await loadEvidenceIndex();
-  assertWorkstreamCompletion(model, evidence, currentRevision(), generated.sha256);
+  assertWorkstreamCompletion(model, evidence, currentRevision(), signatures);
   const requiredLevel = requiredVerificationLevel(changedPaths, perfRequested);
-  const checkResults = model.checks.filter((check) => checkIds.has(check.id)).map((check) => runCheck(check, { uncovered, routingAmbiguities, evidence, changedPaths }));
+  const checkContext = { repoRoot: REPO_ROOT, model, changedOnly, changedPaths, uncovered, routingAmbiguities, evidence };
+  const checkResults = model.checks.filter((check) => checkIds.has(check.id)).map((check) => runCheck(check, checkContext));
   const failedChecks = checkResults.filter((check) => check.status === "failed");
   const claimStatuses = claims.map((claim) => {
-    const status = claimStatus(claim, evidence, currentRevision(), generated.sha256);
+    const status = claimStatus(claim, evidence, currentRevision(), signatures);
     return {
       id: claim.id,
       level: claim.level,
@@ -146,6 +157,11 @@ async function verifyCommand(changedOnly, perfRequested) {
     : [];
   const blocked = claimStatuses.filter((claim) => claim.status === "blocked").map((claim) => claim.id);
   const unsupported = evidence.evidence.filter((item) => item.status === "unsupported").map((item) => item.caseId);
+  // `ok` means the project topology and every executed check passed. It says
+  // nothing about the cases this command deliberately does not launch, so the
+  // completion signal is reported separately and drives its own exit code.
+  const ok = uncovered.length === 0 && routingAmbiguities.length === 0 && failedChecks.length === 0;
+  const verificationComplete = ok && notRun.length === 0;
   const report = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
@@ -163,14 +179,17 @@ async function verifyCommand(changedOnly, perfRequested) {
     notRun,
     blocked,
     unsupported,
-    uncovered
+    uncovered,
+    ok,
+    verificationComplete
   };
   const reportPath = resolve(REPO_ROOT, "validation/evidence/verification.json");
   await mkdir(resolve(REPO_ROOT, "validation/evidence"), { recursive: true });
   const reportContent = `${JSON.stringify(report, null, 2)}\n`;
   await writeFile(reportPath, reportContent, "utf8");
   const result = {
-    ok: uncovered.length === 0 && routingAmbiguities.length === 0 && failedChecks.length === 0,
+    ok,
+    verificationComplete,
     changedOnly,
     changedPaths,
     generatedRegistry: { path: relative(REPO_ROOT, generated.path), sha256: generated.sha256 },
@@ -187,7 +206,19 @@ async function verifyCommand(changedOnly, perfRequested) {
     report: { path: relative(REPO_ROOT, reportPath), sha256: sha256(reportContent) }
   };
   console.log(JSON.stringify(result, null, 2));
-  if (!result.ok) process.exitCode = 1;
+  if (!result.ok) {
+    process.exitCode = 1;
+  } else if (!verificationComplete && !allowNotRun) {
+    // Exit 2 keeps "topology is consistent" distinct from "the change is
+    // verified". Without it, a green exit code on an L2/L3 change that ran no
+    // browser case reads as success.
+    console.error(
+      `verify: ${notRun.length} required validation case(s) at level ${requiredLevel} were not run: `
+      + `${notRun.map((item) => item.caseId).join(", ")}\n`
+      + "        run them explicitly (`node tools/vibe.mjs case <id> --run`), or acknowledge the gap with --allow-not-run."
+    );
+    process.exitCode = 2;
+  }
 }
 
 function currentRevision() {
@@ -196,8 +227,13 @@ function currentRevision() {
 
 function requiredVerificationLevel(paths, perfRequested) {
   if (perfRequested) return "L4";
-  if (paths.some((path) => /(?:Renderer\.ts|device-loss|replacement|framegraph|Residency|lifecycle|cutover)/iu.test(path))) return "L3";
-  if (paths.some((path) => /(?:OEngine\/src\/(?:gpu|render|shaders)|validation\/(?:harness|cases|labs))/u.test(path))) return "L2";
+  // The level must describe the product surface a change can actually affect.
+  // Test and tooling paths are named after the concepts they cover
+  // (`…-framegraph.test.mjs`, `product-cutover-audit…`), so matching the whole
+  // path inflated the level and demanded browser cases for a test-file edit.
+  const product = paths.filter((path) => /^(?:OEngine\/src\/|validation\/)/u.test(path));
+  if (product.some((path) => /(?:Renderer\.ts|device-loss|replacement|framegraph|Residency|lifecycle|cutover)/iu.test(path))) return "L3";
+  if (product.some((path) => /(?:^OEngine\/src\/(?:gpu|render|shaders)|^validation\/(?:harness|cases|labs))/u.test(path))) return "L2";
   return paths.length > 0 ? "L1" : "L0";
 }
 
@@ -205,49 +241,9 @@ function levelRank(level) {
   return Number.parseInt(String(level).replace(/^L/u, ""), 10) || 0;
 }
 
-function runCheck(check, { uncovered, routingAmbiguities, evidence, changedPaths }) {
-  if (["model", "docs-frontmatter", "guard-docs"].includes(check.id)) return { id: check.id, status: "passed", level: check.level, description: check.description, details: ["validated by project model parsing"] };
-  if (check.id === "registry") return { id: check.id, status: "passed", level: check.level, description: check.description, details: ["generated registry validated"] };
-  if (check.id === "changed-coverage") return uncovered.length > 0
-    ? { id: check.id, status: "failed", level: check.level, description: check.description, details: uncovered }
-    : { id: check.id, status: "passed", level: check.level, description: check.description, details: [] };
-  if (check.id === "guard-ownership") {
-    return uncovered.length > 0 || routingAmbiguities.length > 0
-      ? { id: check.id, status: "failed", level: check.level, description: check.description, details: { uncovered, routingAmbiguities } }
-      : { id: check.id, status: "passed", level: check.level, description: check.description, details: [] };
-  }
-  if (check.id === "evidence-provenance" && evidence.errors?.length > 0) return { id: check.id, status: "failed", level: check.level, description: check.description, details: evidence.errors };
-  if (check.id === "evidence-provenance" && evidence.evidence.length === 0) return { id: check.id, status: "not-run", level: check.level, description: check.description, details: ["no raw evidence is available"] };
-  if (check.id === "evidence-provenance") return { id: check.id, status: "passed", level: check.level, description: check.description, details: [] };
-  if (check.id === "guard-legacy") {
-    const findings = legacyFindings();
-    return { id: check.id, status: findings.length === 0 ? "passed" : "failed", level: check.level, description: check.description, details: findings };
-  }
-  if (check.id === "guard-public-api" && !existsSync(resolve(REPO_ROOT, "OEngine/src/index.ts"))) {
-    return { id: check.id, status: "failed", level: check.level, description: check.description, details: ["OEngine/src/index.ts is missing"] };
-  }
-  if (check.id === "guard-public-api") return { id: check.id, status: "passed", level: check.level, description: check.description, details: [] };
-  if (check.id === "guard-generated-source") {
-    const generatedEdits = changedPaths.filter((path) => /\.generated\.(?:ts|js)$/u.test(path));
-    return { id: check.id, status: generatedEdits.length === 0 ? "passed" : "failed", level: check.level, description: check.description, details: generatedEdits };
-  }
-  return { id: check.id, status: "failed", level: check.level, description: check.description, details: ["no runner implementation is registered for this check"] };
-}
-
-function legacyFindings() {
-  const findings = [];
-  for (const path of ["CONTEXT-MAP.md", "docs/ARCHITECTURE.md", "docs/PIPELINE.md", "docs/STATUS.md", "docs/implementation", "docs/others", "validation/cases/registry.json", "validation/src/host", "project/claims/requirements.yaml"]) {
-    if (existsSync(resolve(REPO_ROOT, path))) findings.push(`retired path still exists: ${path}`);
-  }
-  if (existsSync(resolve(REPO_ROOT, "validation/package.json"))) {
-    try {
-      const scripts = JSON.parse(execFileSync("node", ["-e", "process.stdout.write(JSON.stringify(require(process.argv[1]).scripts ?? {}))", resolve(REPO_ROOT, "validation/package.json")], { encoding: "utf8" }));
-      for (const name of Object.keys(scripts)) if (/case|browser/iu.test(name) && !["dev", "build", "typecheck", "test"].includes(name)) findings.push(`per-case validation script still exists: validation:${name}`);
-    } catch {
-      findings.push("validation/package.json could not be inspected");
-    }
-  }
-  return findings;
+function runCheck(check, context) {
+  const { status, details } = runCheckImplementation(check, context);
+  return { id: check.id, status, level: check.level, description: check.description, details };
 }
 
 function declarationFor(claim, status) {
@@ -260,8 +256,8 @@ function declarationFor(claim, status) {
   return claim.allowedDeclarations.includes("ImplementationComplete") ? "ImplementationComplete" : null;
 }
 
-function statusRow(claim, model, evidence, head, registrySha256) {
-  const status = claim.lifecycle === "retired" ? "retired" : claimStatus(claim, evidence, head, registrySha256);
+function statusRow(claim, model, evidence, head, signatures) {
+  const status = claim.lifecycle === "retired" ? "retired" : claimStatus(claim, evidence, head, signatures);
   const claimEvidence = evidence.evidence.filter((item) => item.claimIds?.includes(claim.id));
   const latest = claimEvidence.reduce((current, item) => {
     if (!current) return item;
@@ -337,9 +333,10 @@ async function statusCommand(domainId) {
   const registry = buildRegistry(model, legacy);
   const generated = await writeGeneratedRegistry(registry);
   const registrySha256 = generated.sha256;
-  assertWorkstreamCompletion(model, evidence, head, registrySha256);
+  const signatures = caseSignatures(model);
+  assertWorkstreamCompletion(model, evidence, head, signatures);
   const claims = model.claims.filter((claim) => !domainId || claim.domain === domainId);
-  const rows = claims.map((claim) => statusRow(claim, model, evidence, head, registrySha256));
+  const rows = claims.map((claim) => statusRow(claim, model, evidence, head, signatures));
   const statusPath = resolve(REPO_ROOT, "docs/status.generated.md");
   await writeFile(statusPath, renderStatus(rows, domainId), "utf8");
   console.log(JSON.stringify({ generatedAt: new Date().toISOString(), revision: head, registrySha256, evidenceIndex: relative(REPO_ROOT, EVIDENCE_INDEX), generatedStatus: relative(REPO_ROOT, statusPath), claims: rows }, null, 2));
@@ -354,7 +351,7 @@ async function evidenceCommand() {
   const generated = await writeGeneratedRegistry(registry);
   const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
   const index = await buildEvidenceIndex(model, head, generated.sha256);
-  assertWorkstreamCompletion(model, index, head, generated.sha256);
+  assertWorkstreamCompletion(model, index, head, caseSignatures(model));
   const result = await writeEvidenceIndex(index);
   console.log(JSON.stringify({ generated: relative(REPO_ROOT, result.path), evidence: index.evidence.length, errors: index.errors.length, warnings: index.warnings.length, sha256: result.sha256 }, null, 2));
 }
@@ -368,6 +365,8 @@ function printHelp() {
   console.log(`vibe commands:
   context <path>       show primary/related domains, claims, checks, and cases
   verify --changed     run model, registry, ownership, and required guard checks
+                       exit 0 = complete, 2 = checks passed but required cases
+                       were not run (use --allow-not-run to accept the gap)
   registry             generate validation/registry.generated.json
   evidence             rebuild validation/evidence/index.json from .local/validation
   status [domain]      generate and print the claim status matrix
@@ -381,11 +380,8 @@ function claimsForCases(model, directClaims, cases) {
   return model.claims.filter((claim) => claimIds.has(claim.id));
 }
 
-function isIgnoredPath(path) {
-  return path === "" || path === "package-lock.json" || path === "validation/registry.generated.json" || path === "validation/evidence/index.json" || path === "validation/evidence/verification.json" || path === "docs/status.generated.md" || path.startsWith(".local/validation/") || path.startsWith("node_modules/") || path.startsWith("validation/node_modules/");
-}
 
-function assertWorkstreamCompletion(model, evidence, head, registrySha256) {
-  const errors = validateWorkstreamCompletion(model, evidence, head, registrySha256);
+function assertWorkstreamCompletion(model, evidence, head, signatures) {
+  const errors = validateWorkstreamCompletion(model, evidence, head, signatures);
   if (errors.length > 0) throw new Error(`Invalid completed workstream:\n${errors.join("\n")}`);
 }

@@ -59,11 +59,11 @@ test("ADR-0013 ShadingBinFrame freezes the GPU queue consumer identity", () => {
 
 test("candidate composition publishes and consumes the formal ShadingBinFrame", async () => {
   const pipeline = await readFile(
-    new URL("../src/render/pipeline/SparseShadingCandidatePipeline.ts", import.meta.url),
+    new URL("../../src/render/pipeline/SparseShadingCandidatePipeline.ts", import.meta.url),
     "utf8"
   );
   const executor = await readFile(
-    new URL("../src/render/pipeline/SparseShadingCandidateExecutor.ts", import.meta.url),
+    new URL("../../src/render/pipeline/SparseShadingCandidateExecutor.ts", import.meta.url),
     "utf8"
   );
 
@@ -137,8 +137,8 @@ test("production SpecializedShadingFrame validates one exact internal-full compo
 
 test("production SurfaceFeature owns the complete ShadingBin composition", async () => {
   const [surface, mainPipeline] = await Promise.all([
-    readFile(new URL("../src/render/features/SurfaceFeature.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/render/pipeline/MainRenderPipeline.ts", import.meta.url), "utf8")
+    readFile(new URL("../../src/render/features/SurfaceFeature.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../src/render/pipeline/MainRenderPipeline.ts", import.meta.url), "utf8")
   ]);
   assert.match(surface, /SparseShading\/clear \+ classify production Visibility MRT/u);
   assert.match(surface, /SparseShading\/finalize production indirect arguments/u);
@@ -150,10 +150,10 @@ test("production SurfaceFeature owns the complete ShadingBin composition", async
 
 test("compact Surface consumers validate depth before every background-sensitive read", async () => {
   const [gtao, ssgi, ssrResolve, ssrDenoise] = await Promise.all([
-    readFile(new URL("../src/shaders/gtao.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/shaders/ssgi.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/shaders/ssr_resolve.ts", import.meta.url), "utf8"),
-    readFile(new URL("../src/shaders/ssr_denoise.ts", import.meta.url), "utf8")
+    readFile(new URL("../../src/shaders/gtao.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../src/shaders/ssgi.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../src/shaders/ssr_resolve.ts", import.meta.url), "utf8"),
+    readFile(new URL("../../src/shaders/ssr_denoise.ts", import.meta.url), "utf8")
   ]);
   const section = (source, start, end) => source.slice(
     source.indexOf(start),

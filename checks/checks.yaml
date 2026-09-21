@@ -5,33 +5,45 @@ checks:
     level: L0
     description: Parse and validate domains, claims, checks, workstreams, profiles, workloads, and case-local manifests.
     domains: [platform]
-    runner: vibe
+    runner: project-model
     automatic: true
   - id: registry
     kind: contract
     level: L1
     description: Generate and validate the runner registry from case-local manifests.
     domains: [platform, virtual-assets, visibility, frame-runtime]
-    runner: vibe
+    runner: generated-registry
     automatic: true
   - id: changed-coverage
     kind: guard
     level: L0
     description: Require existing changed files to match a declared primary or related domain route.
     domains: [platform]
-    runner: vibe
+    runner: changed-coverage
     automatic: true
   - id: docs-frontmatter
     kind: guard
     level: L0
     description: Validate structured frontmatter and cross-links for authoritative domain and contract pages.
     domains: [platform]
-    runner: vibe
+    runner: project-model
     automatic: true
   - id: evidence-provenance
     kind: guard
     level: L1
     description: Validate evidence identity, freshness fields, artifact hashes, and claim coverage before promotion.
     domains: [platform]
-    runner: vibe
+    runner: evidence-provenance
+    automatic: true
+  - id: engine-suites
+    kind: contract
+    level: L1
+    description: Run the OEngine unit/contract/oracle/guard suites against freshly compiled test output.
+    domains: [platform]
+    runner: engine-suites
+    config:
+      cwd: OEngine
+      build: npm run build:test
+      testFiles: "tests/**/*.test.mjs"
+      timeoutMs: 900000
     automatic: true

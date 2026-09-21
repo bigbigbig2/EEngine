@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 
-import "../../webgpu-test-globals.mjs";
+import "../webgpu-test-globals.mjs";
 
 import {
   GPU_COUNTER_BYTE_SIZE,
@@ -224,7 +224,7 @@ test("MeshletWork correctness-critical queue header and reservation oracle are a
 });
 
 test("Step-1 MeshletWork seam has no CPU queue readback consumer", () => {
-  const source = readFileSync(new URL("../src/render/MeshletWorkCandidate.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../src/render/MeshletWorkCandidate.ts", import.meta.url), "utf8");
   assert.doesNotMatch(source, /MAP_READ|mapAsync|getMappedRange|copyBufferToBuffer/);
   assert.match(source, /dispatchWorkgroupsIndirect/);
 });
@@ -423,7 +423,7 @@ test("Step-2 shaders contain distinct subgroup and portable compaction algorithm
 });
 
 test("Step-7 bucket raster is the sole standard indirect VisibilityKey V2 consumer", () => {
-  const source = readFileSync(new URL("../src/render/MeshletBucketRaster.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../src/render/MeshletBucketRaster.ts", import.meta.url), "utf8");
   assert.match(source, /for \(let bucket = 0; bucket < inputs\.prepared\.bucketCount; bucket\+\+\)/);
   assert.match(source, /drawIndirect\(inputs\.prepared\.drawIndirect, bucket \* 16\)/);
   assert.match(source, /depthCompare: "greater"/);
@@ -432,14 +432,14 @@ test("Step-7 bucket raster is the sole standard indirect VisibilityKey V2 consum
   assert.match(MESHLET_BUCKET_VISIBILITY_WGSL, /@builtin\(instance_index\)/);
   assert.match(MESHLET_BUCKET_VISIBILITY_WGSL, /triangle < meshlet\.triangle_count/);
   assert.doesNotMatch(source, /ExactTriangleFilter|encodeParity|legacy/);
-  const visibility = readFileSync(new URL("../src/render/passes/PackedVisibilityPass.ts", import.meta.url), "utf8");
+  const visibility = readFileSync(new URL("../../src/render/passes/PackedVisibilityPass.ts", import.meta.url), "utf8");
   assert.match(visibility, /rasterExpansionEnabled: false/);
   assert.doesNotMatch(visibility, /ExactRaster|exactRaster|RasterWorkQueue|packed_visibility/);
   for (const path of [
-    "../src/render/ExactTriangleFilter.ts",
-    "../src/shaders/exact_triangle_filter.ts",
-    "../src/shaders/packed_visibility.ts",
-    "../src/gpu/GpuExactRasterAbi.ts"
+    "../../src/render/ExactTriangleFilter.ts",
+    "../../src/shaders/exact_triangle_filter.ts",
+    "../../src/shaders/packed_visibility.ts",
+    "../../src/gpu/GpuExactRasterAbi.ts"
   ]) {
     assert.equal(existsSync(new URL(path, import.meta.url)), false, `${path} must be deleted`);
   }

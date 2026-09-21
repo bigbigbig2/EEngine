@@ -14,8 +14,8 @@ const { Mesh } = await import("../../.test-dist/scene/Mesh.js");
 const { StandardShadeMaterial } = await import("../../.test-dist/material/StandardShadeMaterial.js");
 const { ShadeTransparencyMode } = await import("../../.test-dist/material/enums.js");
 
-const MODULE_URL = "../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs";
-const WASM_URL = new URL("../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url);
+const MODULE_URL = "../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs";
+const WASM_URL = new URL("../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url);
 
 let cookedModule;
 async function cookerModule() {

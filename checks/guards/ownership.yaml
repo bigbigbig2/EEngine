@@ -3,5 +3,5 @@ kind: guard
 level: L0
 description: Require every existing changed path to have one deterministic, non-ambiguous primary domain route.
 domains: [platform]
-runner: vibe
+runner: changed-ownership
 automatic: true

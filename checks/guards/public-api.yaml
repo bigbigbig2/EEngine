@@ -3,5 +3,7 @@ kind: guard
 level: L0
 description: Keep the public OEngine export boundary explicit and free of validation internals.
 domains: [platform]
-runner: vibe
+runner: public-api-boundary
+config:
+  entry: OEngine/src/index.ts
 automatic: true

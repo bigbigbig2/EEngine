@@ -6,6 +6,10 @@ dist
 .local/validation/
 docs/status.generated.md
 validation/evidence/verification.json
+# 已退休的 raw artifact 位置：runner 现在写入 .local/validation/。这批旧目录既不
+# 被 evidence index 引用，也不属于任何 domain 路由，保留在磁盘上会把
+# `vibe verify --changed` 的覆盖检查打红。
+validation/artifacts/
 .vite
 .turbo
 coverage

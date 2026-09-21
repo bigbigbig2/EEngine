@@ -52,7 +52,7 @@ test("renderer config keeps every nested RenderSettings section while merging", 
 });
 
 test("Renderer keeps the Tweakpane runtime behind an async addon boundary", async () => {
-  const source = await readFile(new URL("../src/render/Renderer.ts", import.meta.url), "utf8");
+  const source = await readFile(new URL("../../src/render/Renderer.ts", import.meta.url), "utf8");
   assert.match(source, /await import\("\.\.\/addons\/debug\/RendererDebugController\.js"\)/);
   assert.doesNotMatch(source, /from ["']tweakpane["']/);
 });

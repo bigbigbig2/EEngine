@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const source = (relative) => readFileSync(path.join(root, "src", ...relative), "utf8");
 
 test("Product shadow consumes the shared hierarchy and Product MeshletWork ABI", () => {

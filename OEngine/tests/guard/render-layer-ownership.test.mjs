@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const oengineRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const oengineRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const sourceRoot = path.join(oengineRoot, "src");
 const gpuRoot = path.join(sourceRoot, "gpu");
 

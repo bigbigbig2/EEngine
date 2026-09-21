@@ -35,12 +35,19 @@ test("machine project manifests and generated registry are healthy", () => {
   assert.equal(existsSync(path.join(repoRoot, "validation/registry.generated.json")), true);
 });
 
-test("changed routing has one primary owner", () => {
-  const output = execFileSync(process.execPath, ["tools/vibe.mjs", "verify", "--changed"], { cwd: repoRoot, encoding: "utf8" });
-  const result = JSON.parse(output);
-  assert.equal(result.ok, true);
-  assert.deepEqual(result.routingAmbiguities, []);
-  assert.deepEqual(result.uncovered, []);
+test("every existing changed path has one primary domain owner", async () => {
+  // 这条断言直接测路由函数，不 spawn 整个 CLI：
+  // 一是 CLI 的退出码会随工作树的验证等级变化（L2/L3 改动退出 2），把路由
+  // 正确性混同于「证据是否跑过」；二是套件被 verify 调用后再回调 verify 会递归。
+  const { loadModel, getChangedPaths, routeDomains, isIgnoredPath } = await import("../../../tools/vibe-lib.mjs");
+  const model = await loadModel();
+  for (const relative of getChangedPaths()) {
+    if (isIgnoredPath(relative)) continue;
+    if (!existsSync(path.join(repoRoot, relative))) continue;
+    const route = routeDomains(model, [relative]);
+    assert.ok(route.primary, `${relative} has no primary domain owner`);
+    assert.equal(route.ambiguous, false, `${relative} has an ambiguous primary domain owner`);
+  }
 });
 
 test("each domain has a human page and machine route", () => {

@@ -460,10 +460,10 @@ test("bulk validation is atomic and stable reads return the same snapshot withou
   assert.strictEqual(store.currentSnapshot(), store.currentSnapshot());
 
   const source = readFileSync(
-    new URL("../src/gpu/GpuShadingPublicationPlan.ts", import.meta.url),
+    new URL("../../src/gpu/GpuShadingPublicationPlan.ts", import.meta.url),
     "utf8"
   );
-  const renderWorld = readFileSync(new URL("../src/gpu/GpuRenderWorld.ts", import.meta.url), "utf8");
+  const renderWorld = readFileSync(new URL("../../src/gpu/GpuRenderWorld.ts", import.meta.url), "utf8");
   assert.doesNotMatch(
     source,
     /requestAnimationFrame|beginFrame|from\s+["'][^"']*Scene|for\s*\([^)]*(?:scene|materialRegistry)/iu

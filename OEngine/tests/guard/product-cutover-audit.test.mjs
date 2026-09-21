@@ -10,7 +10,7 @@ globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, COPY_SRC: 4, STORAGE:
 globalThis.GPUTextureUsage ??= Object.freeze({ COPY_SRC: 1, COPY_DST: 2, TEXTURE_BINDING: 4, STORAGE_BINDING: 8, RENDER_ATTACHMENT: 16 });
 globalThis.GPUShaderStage ??= Object.freeze({ VERTEX: 1, FRAGMENT: 2, COMPUTE: 4 });
 
-const root = fileURLToPath(new URL("..", import.meta.url));
+const root = fileURLToPath(new URL("../..", import.meta.url));
 
 test("public entry is Product-first and has no V2 production symbols", async () => {
   const entry = await import("../../.test-dist/index.js");
@@ -32,8 +32,13 @@ test("public entry is Product-first and has no V2 production symbols", async () 
 });
 
 test("source and compiled consumer topology has no legacy V2 call sites", async () => {
+  // validation/ 在迁移后把 case、lab 与共享 harness 分到三个目录；只扫 validation/src
+  // 会让这条 topology 审计静默少查大部分验证代码。
   const roots = [
     resolve(root, "../examples/demos"),
+    resolve(root, "../validation/cases"),
+    resolve(root, "../validation/labs"),
+    resolve(root, "../validation/harness"),
     resolve(root, "../validation/src")
   ];
   const files = [];

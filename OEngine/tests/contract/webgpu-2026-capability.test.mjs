@@ -170,7 +170,7 @@ test("invalid subgroup ranges and post-device capability loss fail structurally"
 });
 
 test("Step 7 production Renderer preflights and records the sparse-shading baseline", () => {
-  const source = readFileSync(new URL("../src/render/pipeline/MainRenderPipeline.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../src/render/pipeline/MainRenderPipeline.ts", import.meta.url), "utf8");
   assert.match(source, /createGpuSparseShadingCapabilityPlan/u);
   assert.match(source, /captureGpuSparseShadingCapabilityRecord/u);
   assert.match(source, /sparseShading:\s*this\._sparseShadingCapability/u);

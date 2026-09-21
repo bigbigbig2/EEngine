@@ -3,5 +3,8 @@ kind: guard
 level: L0
 description: Keep generated JSON and generated source outputs out of the editable design authority.
 domains: [platform]
-runner: vibe
+runner: generated-source-guard
+config:
+  patterns:
+    - '\.generated\.(?:ts|js)$'
 automatic: true

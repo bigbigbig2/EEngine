@@ -1,7 +1,7 @@
 id: guard-docs
 kind: guard
 level: L0
-description: Validate authoritative document shape, frontmatter, links, and generated status ownership.
+description: Require one human domain page per project domain, and keep the generated status page out of the editable tree.
 domains: [platform]
-runner: vibe
+runner: domain-doc-coverage
 automatic: true

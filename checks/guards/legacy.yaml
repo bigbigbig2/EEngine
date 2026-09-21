@@ -3,5 +3,19 @@ kind: guard
 level: L0
 description: Reject retired documents, hand-maintained registries, per-case scripts, and removed host imports.
 domains: [platform]
-runner: vibe
+runner: retired-paths
+config:
+  retiredPaths:
+    - CONTEXT-MAP.md
+    - docs/ARCHITECTURE.md
+    - docs/PIPELINE.md
+    - docs/STATUS.md
+    - docs/implementation
+    - docs/others
+    - validation/cases/registry.json
+    - validation/src/host
+    - project/claims/requirements.yaml
+  inspectValidationScripts: true
+  validationPackages:
+    - validation/package.json
 automatic: true

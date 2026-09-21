@@ -7,7 +7,7 @@
 | 等级 | 证明内容 | 典型检查 |
 | --- | --- | --- |
 | L0 | manifest、文档、链接、路径和静态 guard | model、changed-coverage、docs、ownership、legacy |
-| L1 | CPU 单元、ABI/contract、oracle 和源码 guard | `OEngine/tests/unit|contract|oracle|guard`、registry |
+| L1 | CPU 单元、ABI/contract、oracle 和源码 guard | `engine-suites`（`OEngine/tests/unit|contract|oracle|guard`）、registry |
 | L2 | 单个真实 WebGPU smoke | 命中的 component/candidate case、GPU diagnostics、readback |
 | L3 | lifecycle、feature-off、cutover、device-loss/recovery | production case、替换/取消/恢复 gate |
 | L4 | 固定环境正式 PERF | 固定 adapter、workload、warm-up、多 run 和可复算报告 |
@@ -15,6 +15,16 @@
 旧术语只作为交付语境映射：DEV = L0 + L1（必要时 L2），MILESTONE = L0 + L1 + L2/L3，PERF = L0-L4。`kind` 描述验证性质，`level` 描述证明强度，两者不能互换。
 
 普通修改默认执行最低命中的 L0/L1。GPU、render graph、资源生命周期、feature-off 或 capability 变更时，`node tools/vibe.mjs verify --changed` 会列出命中的 L2/L3 case；命令只报告 `notRun`，不会隐式启动浏览器。正式 L4 必须显式运行。
+
+验证等级只从**产品面**推导：仅 `OEngine/src/**` 与 `validation/**` 参与 L2/L3 判定。测试、工具、检查、路由与文档路径属于工具面，即使文件名里写着 `framegraph`、`cutover` 这类概念，也只计 L1。
+
+`verify` 把「拓扑一致」与「改动已被验证」分开报告，用退出码区分：
+
+- `0`：检查全部通过，且没有本应运行却被跳过的 case；
+- `1`：存在失败的检查、无主路径或路由歧义；
+- `2`：检查全部通过，但改动所需等级的浏览器 case 未运行。`notRun` 的 case id 会打印到 stderr，且 `verificationComplete` 为 `false`；显式接受该缺口时传 `--allow-not-run`，它把退出码降为 `0` 但不会修改报告内容。
+
+`engine-suites` 是 L1 的实际执行体：它先构建测试产物再跑 `OEngine/tests/unit|contract|oracle|guard`。这一步不能省略 —— `.test-dist` 过期会让 `node --test` 静默测试旧产物。套件内部禁止再回调整套门禁，重入时该检查报 `not-run` 并说明原因。
 
 纯文档修改只需要静态检查。依赖或 lockfile 变化、clean reproduction、CI 和正式 PERF 才运行 `npm ci`。TypeScript/WGSL 改动按命中 owner 运行 typecheck 与 targeted tests；本地无法提供真实 GPU 时必须保留 `notRun`、`blocked` 或 `unsupported`，不能升级声明。
 

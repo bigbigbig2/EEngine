@@ -4,13 +4,16 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { compilerProbe } from "./native-compiler.mjs";
 
 const toolsDir = dirname(fileURLToPath(import.meta.url));
 const repoDir = dirname(toolsDir);
 const nyxRoot = resolve(process.env.NYX_SOURCE_DIR ?? "D:/Nyx-main");
 const sourcePath = join(nyxRoot, "MiniEngine", "Model", "ModelConvert.cpp");
 const driverPath = join(toolsDir, "nyx-reference", "nyx_model_convert_reference_main.cpp");
-const compiler = process.env.CXX ?? (process.platform === "win32" ? "D:/Devtool/mingw64/bin/g++.exe" : "g++");
+const probe = compilerProbe();
+if (!probe.usable) throw new Error(`原生构建缺少可用工具链：${probe.reason}`);
+const compiler = probe.compiler;
 const expectedHash = "8bdf016e0f36e70f0c1aa46d679ab0e1b4f57ea30e0748a6549675620cc8a059";
 
 function extractFunction(source, signature) {

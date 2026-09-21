@@ -312,14 +312,14 @@ test("pinned Khronos libktx WASM transcodes the deterministic UASTC fixture to B
   try {
     const cjs = join(temporary, "libktx_read.cjs");
     const wrapper = await readFile(
-      new URL("../src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.js", import.meta.url),
+      new URL("../../src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.js", import.meta.url),
       "utf8"
     );
     await writeFile(cjs, wrapper.replace("export default createKtxReadModule;", ""));
     const require = createRequire(import.meta.url);
     const createKtxReadModule = require(cjs);
     const wasm = await readFile(new URL(
-      "../src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.wasm",
+      "../../src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.wasm",
       import.meta.url
     ));
     const module = await createKtxReadModule({
@@ -328,7 +328,7 @@ test("pinned Khronos libktx WASM transcodes the deterministic UASTC fixture to B
       printErr() {}
     });
     const fixture = await readFile(new URL(
-      "../../fixtures/texture-codec/luminance-alpha-32x32-uastc.ktx2",
+      "../fixtures/texture-codec/luminance-alpha-32x32-uastc.ktx2",
       import.meta.url
     ));
     const input = fixture.buffer.slice(fixture.byteOffset, fixture.byteOffset + fixture.byteLength);
@@ -363,13 +363,13 @@ test("pinned ETC1S mip chain normalizes into the ordinary encoded package contra
   try {
     const cjs = join(temporary, "libktx_read.cjs");
     const wrapper = await readFile(
-      new URL("../src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.js", import.meta.url),
+      new URL("../../src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.js", import.meta.url),
       "utf8"
     );
     await writeFile(cjs, wrapper.replace("export default createKtxReadModule;", ""));
     const createKtxReadModule = createRequire(import.meta.url)(cjs);
     const wasm = await readFile(new URL(
-      "../src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.wasm",
+      "../../src/assets/codec/vendor/ktx-software-4.4.2/libktx_read.wasm",
       import.meta.url
     ));
     const module = await createKtxReadModule({
@@ -378,7 +378,7 @@ test("pinned ETC1S mip chain normalizes into the ordinary encoded package contra
       printErr() {}
     });
     const fixture = await readFile(new URL(
-      "../../fixtures/texture-codec/rgba-64x64-mipmap-etc1s.ktx2",
+      "../fixtures/texture-codec/rgba-64x64-mipmap-etc1s.ktx2",
       import.meta.url
     ));
     const input = fixture.buffer.slice(fixture.byteOffset, fixture.byteOffset + fixture.byteLength);

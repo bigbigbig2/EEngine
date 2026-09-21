@@ -306,7 +306,7 @@ test("classifier source is width-agnostic, barrier-uniform and bounded", () => {
 
 test("candidate pass owns labeled checked creation and exactly two ordered compute passes", () => {
   const source = readFileSync(
-    new URL("../src/render/passes/ShadingBinPass.ts", import.meta.url),
+    new URL("../../src/render/passes/ShadingBinPass.ts", import.meta.url),
     "utf8"
   );
   assert.match(source, /getCompilationInfo\(\)/u);

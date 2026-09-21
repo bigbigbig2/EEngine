@@ -1,0 +1,33 @@
+# The project OS parses YAML frontmatter, domain manifests, and case manifests
+# with exact line-ending assumptions, and the generated status/registry files are
+# content-hashed. A default Windows checkout (core.autocrlf=true) used to turn
+# every docs/domains and docs/contracts page into CRLF, which silently broke
+# `node tools/vibe.mjs doctor`, `context`, `verify`, and `status`.
+#
+# Keep text files LF in the working tree on every platform instead of relying on
+# the local core.autocrlf setting.
+* text=auto eol=lf
+
+# Generated Emscripten bundles are stored exactly as the toolchain emits them and
+# are byte-compared by the cooker artefact tests; never normalise them.
+OEngine/src/assets/web-cook/wasm/vendor/** -text
+
+# Binary assets and build outputs must never be normalised.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.avif binary
+*.ktx2 binary
+*.ico binary
+*.glb binary
+*.wasm binary
+*.oegpack binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.a binary
+*.lib binary
+*.bin binary
+*.zip binary

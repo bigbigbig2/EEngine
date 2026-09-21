@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "../../webgpu-test-globals.mjs";
+import "../webgpu-test-globals.mjs";
 
 import { FrameGraph, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
 import {
@@ -1041,11 +1041,11 @@ test("sparse-shading GPU revisions publish atomically and retire only after subm
 test("candidate source owns neither submit nor synchronous readback nor a product switch", async () => {
   const { readFile } = await import("node:fs/promises");
   for (const relative of [
-    "../src/render/pipeline/SparseShadingCandidatePipeline.ts",
-    "../src/render/pipeline/SparseShadingCandidateExecutor.ts",
-    "../src/render/pipeline/SparseShadingCandidateRuntime.ts",
-    "../src/render/pipeline/SparseShadingGpuRevision.ts",
-    "../src/render/passes/SparseShadingDiagnosticsPass.ts"
+    "../../src/render/pipeline/SparseShadingCandidatePipeline.ts",
+    "../../src/render/pipeline/SparseShadingCandidateExecutor.ts",
+    "../../src/render/pipeline/SparseShadingCandidateRuntime.ts",
+    "../../src/render/pipeline/SparseShadingGpuRevision.ts",
+    "../../src/render/passes/SparseShadingDiagnosticsPass.ts"
   ]) {
     const source = await readFile(new URL(relative, import.meta.url), "utf8");
     assert.doesNotMatch(source, /queue\.submit|device\.queue\.submit|mapAsync|readBuffer/u);

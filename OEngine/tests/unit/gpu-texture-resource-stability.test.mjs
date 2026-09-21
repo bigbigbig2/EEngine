@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import "../../webgpu-test-globals.mjs";
+import "../webgpu-test-globals.mjs";
 import {
   GPUTextureAllocator
 } from "../../.test-dist/gpu/GPUTextureAllocator.js";
@@ -15,7 +15,7 @@ import {
   resolveTextureView
 } from "../../.test-dist/render/RenderTargetViews.js";
 
-const oengineRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const oengineRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
 function textureFromDescriptor(descriptor, createView) {
   const size = Array.from(descriptor.size);

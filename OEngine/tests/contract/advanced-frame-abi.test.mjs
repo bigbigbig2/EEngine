@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
-import "../../webgpu-test-globals.mjs";
+import "../webgpu-test-globals.mjs";
 
 import {
   LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
@@ -127,79 +127,79 @@ import {
   BRICK4_LIGHT_MAP_MIN_BINDING_BYTES
 } from "../../.test-dist/gpu/Brick4LightMap.js";
 const SURFACE_FEATURE_SOURCE = readFileSync(
-  new URL("../src/render/features/SurfaceFeature.ts", import.meta.url),
+  new URL("../../src/render/features/SurfaceFeature.ts", import.meta.url),
   "utf8"
 );
 const OPAQUE_LIGHTING_RESOLVE_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/OpaqueLightingResolvePass.ts", import.meta.url),
+  new URL("../../src/render/passes/OpaqueLightingResolvePass.ts", import.meta.url),
   "utf8"
 );
 const LONG_RANGE_PROVIDER_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/LongRangeDiffuseProviderPass.ts", import.meta.url),
+  new URL("../../src/render/passes/LongRangeDiffuseProviderPass.ts", import.meta.url),
   "utf8"
 );
 const GI_SERVICE_SOURCE = readFileSync(
-  new URL("../src/render/features/GIService.ts", import.meta.url),
+  new URL("../../src/render/features/GIService.ts", import.meta.url),
   "utf8"
 );
 const SSGI_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/SsgiPass.ts", import.meta.url),
+  new URL("../../src/render/passes/SsgiPass.ts", import.meta.url),
   "utf8"
 );
 const GTAO_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/GtaoPass.ts", import.meta.url),
+  new URL("../../src/render/passes/GtaoPass.ts", import.meta.url),
   "utf8"
 );
 const SCREEN_SPACE_DIFFUSE_RESOLVE_SOURCE = readFileSync(
-  new URL("../src/shaders/screen_space_diffuse_resolve.ts", import.meta.url),
+  new URL("../../src/shaders/screen_space_diffuse_resolve.ts", import.meta.url),
   "utf8"
 );
 const MAIN_PIPELINE_SOURCE = readFileSync(
-  new URL("../src/render/pipeline/MainRenderPipeline.ts", import.meta.url),
+  new URL("../../src/render/pipeline/MainRenderPipeline.ts", import.meta.url),
   "utf8"
 );
 const FRAME_PROFILER_SOURCE = readFileSync(
-  new URL("../src/debug/FrameProfiler.ts", import.meta.url),
+  new URL("../../src/debug/FrameProfiler.ts", import.meta.url),
   "utf8"
 );
 const TONEMAP_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/TonemapPass.ts", import.meta.url),
+  new URL("../../src/render/passes/TonemapPass.ts", import.meta.url),
   "utf8"
 );
 const BLOOM_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/BloomPass.ts", import.meta.url),
+  new URL("../../src/render/passes/BloomPass.ts", import.meta.url),
   "utf8"
 );
 const FRAMEGRAPH_RESOURCE_HANDLE_SOURCE = readFileSync(
-  new URL("../src/framegraph/ResourceHandle.ts", import.meta.url),
+  new URL("../../src/framegraph/ResourceHandle.ts", import.meta.url),
   "utf8"
 );
 const TEMPORAL_ANTI_ALIASING_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/TemporalAntiAliasingPass.ts", import.meta.url),
+  new URL("../../src/render/passes/TemporalAntiAliasingPass.ts", import.meta.url),
   "utf8"
 );
 const TEMPORAL_CLASSIFICATION_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/TemporalClassificationPass.ts", import.meta.url),
+  new URL("../../src/render/passes/TemporalClassificationPass.ts", import.meta.url),
   "utf8"
 );
 const NEURAL_SUPER_SAMPLING_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/NeuralSuperSamplingPass.ts", import.meta.url),
+  new URL("../../src/render/passes/NeuralSuperSamplingPass.ts", import.meta.url),
   "utf8"
 );
 const MOTION_BLUR_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/MotionBlurPass.ts", import.meta.url),
+  new URL("../../src/render/passes/MotionBlurPass.ts", import.meta.url),
   "utf8"
 );
 const SSR_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/ScreenSpaceReflectionsPass.ts", import.meta.url),
+  new URL("../../src/render/passes/ScreenSpaceReflectionsPass.ts", import.meta.url),
   "utf8"
 );
 const OCCLUSION_CONFIDENCE_PASS_SOURCE = readFileSync(
-  new URL("../src/render/passes/OcclusionConfidencePass.ts", import.meta.url),
+  new URL("../../src/render/passes/OcclusionConfidencePass.ts", import.meta.url),
   "utf8"
 );
 const RENDER_TARGETS_SOURCE = readFileSync(
-  new URL("../src/render/RenderTargets.ts", import.meta.url),
+  new URL("../../src/render/RenderTargets.ts", import.meta.url),
   "utf8"
 );
 const TEMPORAL_EVIDENCE_WGSL = temporalEvidenceWgsl(69, 70, 71);
@@ -321,27 +321,27 @@ test("ADR-0009 Step 3 freezes one pre-exposed HDR/history physical contract", ()
 
 test("ADR-0009 Step 3 deletes Surface V1 and materializes baseline specular only for SSR", () => {
   assert.equal(
-    existsSync(new URL("../src/gpu/GpuSurfaceAbi.ts", import.meta.url)),
+    existsSync(new URL("../../src/gpu/GpuSurfaceAbi.ts", import.meta.url)),
     false
   );
   assert.equal(
-    existsSync(new URL("../src/render/passes/ComputeMaterialSurfaceBridgePass.ts", import.meta.url)),
+    existsSync(new URL("../../src/render/passes/ComputeMaterialSurfaceBridgePass.ts", import.meta.url)),
     false
   );
   assert.equal(
-    existsSync(new URL("../src/render/passes/IblDiffusePass.ts", import.meta.url)),
+    existsSync(new URL("../../src/render/passes/IblDiffusePass.ts", import.meta.url)),
     false
   );
   assert.equal(
-    existsSync(new URL("../src/render/passes/IblSpecularPass.ts", import.meta.url)),
+    existsSync(new URL("../../src/render/passes/IblSpecularPass.ts", import.meta.url)),
     false
   );
   assert.equal(
-    existsSync(new URL("../src/render/passes/IblBaselinePass.ts", import.meta.url)),
+    existsSync(new URL("../../src/render/passes/IblBaselinePass.ts", import.meta.url)),
     false
   );
   assert.equal(
-    existsSync(new URL("../src/render/pipeline/OpaqueLightingPipeline.ts", import.meta.url)),
+    existsSync(new URL("../../src/render/pipeline/OpaqueLightingPipeline.ts", import.meta.url)),
     false
   );
   assert.doesNotMatch(SURFACE_FLAGS_DEBUG_WGSL, /oengine_surface_material_slot/);
@@ -481,9 +481,9 @@ test("ADR-0009 Step 4 temporally filters packed AO moments and bent normals", ()
   assert.match(GTAO_TEMPORAL_WGSL, /let current_bent = oct_decode\(current\.ba\)/);
   assert.match(GTAO_TEMPORAL_WGSL, /let filtered_bent_sum = mix\(current_bent, history_bent, blend\)/);
   assert.match(GTAO_TEMPORAL_WGSL, /vec4f\(filtered_moments, oct_encode\(filtered_bent\)\)/);
-  assert.equal(existsSync(new URL("../src/shaders/ssao.ts", import.meta.url)), false);
+  assert.equal(existsSync(new URL("../../src/shaders/ssao.ts", import.meta.url)), false);
   assert.equal(
-    existsSync(new URL("../src/render/passes/ScreenSpaceAmbientOcclusionPass.ts", import.meta.url)),
+    existsSync(new URL("../../src/render/passes/ScreenSpaceAmbientOcclusionPass.ts", import.meta.url)),
     false
   );
 });
@@ -1006,7 +1006,7 @@ test("ADR-0009 Step 6 pins the Three-derived SSR chain and baseline replacement"
   assert.match(SPECULAR_CORRECTION_WGSL, /\(resolved\.rgb - baseline\) \* confidence/);
   assert.match(SPECULAR_CORRECTION_WGSL, /const OENGINE_SURFACE_DEFINED_FLAGS_MASK/);
   assert.equal(
-    existsSync(new URL("../src/shaders/ssr_resolve_lpv.ts", import.meta.url)),
+    existsSync(new URL("../../src/shaders/ssr_resolve_lpv.ts", import.meta.url)),
     false
   );
 });
@@ -1642,7 +1642,7 @@ test("ADR-0009 composed WGSL has no reserved meta identifier or duplicate normal
 
 test("ADR-0009 Step 10 removes single-value backend and retired zero publishers", () => {
   assert.equal(
-    existsSync(new URL("../src/render/MaterialResolveBackend.ts", import.meta.url)),
+    existsSync(new URL("../../src/render/MaterialResolveBackend.ts", import.meta.url)),
     false
   );
   assert.doesNotMatch(MAIN_PIPELINE_SOURCE, /classDepthPixels|classDraws/);

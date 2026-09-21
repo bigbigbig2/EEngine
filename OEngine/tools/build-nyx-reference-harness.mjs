@@ -4,12 +4,15 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { compilerProbe } from "./native-compiler.mjs";
 
 const toolsDir = dirname(fileURLToPath(import.meta.url));
 const engineDir = dirname(toolsDir);
 const repoDir = dirname(engineDir);
 const nyxRoot = resolve(process.env.NYX_SOURCE_DIR ?? "D:/Nyx-main");
-const compiler = process.env.CXX ?? (process.platform === "win32" ? "D:/Devtool/mingw64/bin/g++.exe" : "g++");
+const probe = compilerProbe();
+if (!probe.usable) throw new Error(`原生构建缺少可用工具链：${probe.reason}`);
+const compiler = probe.compiler;
 const driver = join(toolsDir, "nyx-reference", "nyx_reference_main.cpp");
 const sourceRoot = join(nyxRoot, "MiniEngine", "Model");
 const meshoptimizerRoot = join(nyxRoot, "MiniEngine", "ThirdParty", "meshoptimizer");

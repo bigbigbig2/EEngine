@@ -29,8 +29,11 @@ const { MemoryRangeReadablePackV3, openOegPackV3 } = await import("../../.test-d
 const { descriptorFromOegPack } = await import("../../.test-dist/assets/geometry-product/index.js");
 
 const cooker = resolve("tools/oengine-asset-core/build/oengine-asset-cooker.exe");
-const WEB_COOKER_MODULE = "../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs";
-const WEB_COOKER_WASM = new URL("../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url);
+const WEB_COOKER_MODULE = "../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs";
+const WEB_COOKER_WASM = new URL("../../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url);
+
+const { nativeCompilerSkipReason } = await import("../../tools/native-compiler.mjs");
+const REFERENCE_ORACLE_SKIP = nativeCompilerSkipReason();
 
 function runNyxReferenceHarness() {
   const result = spawnSync(process.execPath, ["tools/build-nyx-reference-harness.mjs"], {
@@ -321,7 +324,9 @@ function rollupPageIdentity(groupIds, groupView, page) {
   return new Uint8Array(hash.digest()).subarray(0, 16);
 }
 
-test("Original Nyx MeshletBuilder is an independent semantic oracle", async () => {
+// 该用例需要把原版 Nyx 源编译成独立参考二进制。没有可用 C++ 工具链时显式 skip：
+// 先决条件缺失不是验证失败，但必须报告缺什么，不能静默变成绿灯。
+test("Original Nyx MeshletBuilder is an independent semantic oracle", { skip: REFERENCE_ORACLE_SKIP }, async () => {
   const reference = runNyxReferenceHarness();
   assert.ok(reference.groups > 0 && reference.hierarchy > 0 && reference.meshlets > 0, "Nyx reference must produce geometry");
   assert.ok(reference.triangles > 0, "Nyx reference must preserve triangles");

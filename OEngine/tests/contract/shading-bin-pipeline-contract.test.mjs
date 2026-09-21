@@ -403,8 +403,8 @@ test("classifier contract WGSL enables only negotiated subgroups and passes sour
 
 test("Step 2 cache and descriptor owners contain no frame-loop or fallback registration", () => {
   const source = [
-    readFileSync(new URL("../src/gpu/GpuSparseShadingPipelineContract.ts", import.meta.url), "utf8"),
-    readFileSync(new URL("../src/gpu/GpuSparseShadingCapability.ts", import.meta.url), "utf8")
+    readFileSync(new URL("../../src/gpu/GpuSparseShadingPipelineContract.ts", import.meta.url), "utf8"),
+    readFileSync(new URL("../../src/gpu/GpuSparseShadingCapability.ts", import.meta.url), "utf8")
   ].join("\n");
   assert.doesNotMatch(source, /requestAnimationFrame|beginFrame|frameIndex\s*:/u);
   assert.doesNotMatch(source, /visibleBinCount\s*:/u);

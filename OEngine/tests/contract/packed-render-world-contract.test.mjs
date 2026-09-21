@@ -6,7 +6,7 @@ installWebGpuConstants();
 
 test("sparse shading candidate consumes GPU publication resources without scanning scene objects", () => {
   const source = readFileSync(new URL(
-    "../src/render/pipeline/SparseShadingCandidatePipeline.ts",
+    "../../src/render/pipeline/SparseShadingCandidatePipeline.ts",
     import.meta.url
   ), "utf8");
   assert.match(source, /meshletWork: ResourceId/);
