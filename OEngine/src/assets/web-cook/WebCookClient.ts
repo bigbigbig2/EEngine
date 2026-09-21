@@ -91,7 +91,7 @@ export interface WebCookProgress {
   readonly units: number;
   /** Catalog primitive count, or 0 before the catalog is known. */
   readonly catalogPrimitives: number;
-  /** Source bytes covered by `units`. */
+  /** Live source-window bytes estimated for the current cut; catalog total is `totalBytes`. */
   readonly bytes: number;
   /** Total source bytes the cook will cover once complete, or 0 while unknown. */
   readonly totalBytes: number;

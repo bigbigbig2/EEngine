@@ -36,8 +36,8 @@ test("100M to 250M triangles grows window count, not canonical peak", () => {
   assert.ok(peak(twoHundredFiftyMillion) <= canonicalBudget);
 });
 
-test("one primitive larger than a canonical window is explicitly Phase C work", () => {
+test("whole-primitive planner requires spatial expansion for an oversized unit", () => {
   const giant = primitive(0, 32_000_000, 32 * 1024 * 1024);
   assert.ok(estimateCanonicalBytes([giant]) > 64 * 1024 * 1024);
-  assert.throws(() => planCanonicalWindows([giant], 64 * 1024 * 1024, 64 * 1024 * 1024), /Phase C spatial sharding is required/u);
+  assert.throws(() => planCanonicalWindows([giant], 64 * 1024 * 1024, 64 * 1024 * 1024), /spatial expansion is required/u);
 });

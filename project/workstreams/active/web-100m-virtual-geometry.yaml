@@ -11,6 +11,7 @@ contracts:
   - geometry-product-v1
   - virtual-geometry-runtime-v1
   - web-geometry-cooker-abi-v1
+  - web-geometry-spatial-shard-v1
   - web-cook-session-protocol-v1
 claims:
   - virtual-assets.product-consumer
@@ -98,8 +99,21 @@ tasks:
     phase: C
     priority: P0
     title: Deterministically partition a single giant primitive into bounded Product shards
-    state: todo
+    state: done
     dependsOn: [canonical-windowing]
+    completedEvidence:
+      review: docs/reviews/2026-09-21-web-100m-phase-c-spatial-sharding.md
+      contract: docs/specs/web-geometry-spatial-shard-v1.md
+      implementationStatus: implementation-and-oracle-complete
+      partitionVersion: morton-radix-prefix-v1
+      workload100m:
+        sourceTriangles: 100000000
+        nodes: 1
+        primitives: 1
+        targetTrianglesPerShard: 1000000
+        shards: 100
+        maxShardTriangles: 1000000
+      note: Contract/oracle evidence, not 100M browser RuntimeValidated or formal PERF. Phase D retainedGroups/cook-and-spill and bounded EXT_meshopt decode remain open.
     exitCriteria:
       - A single 100M-triangle primitive produces more than one bounded shard.
       - Bounds, seams, attributes, materials, hierarchy, and ownership remain valid.

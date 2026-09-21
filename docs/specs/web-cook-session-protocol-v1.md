@@ -54,7 +54,7 @@ created --CreateSession--> open --CancelScope--> cancelled
 | 事件 | 关键字段 | 约束 |
 | --- | --- | --- |
 | `SceneCatalogReady` | `catalog` | 必须在任何 payload 产出前送达；main thread 依赖它注入 source priority |
-| `RevisionOffered` | `descriptor`、可选 `sceneAssetIndices` | descriptor 必须能被 Product binary validator 解码；`sceneAssetIndices` 长度必须等于 descriptor 的 asset 数、元素唯一且为非负整数 |
+| `RevisionOffered` | `descriptor`、可选 `sceneAssetIndices` | descriptor 必须能被 Product binary validator 解码；`sceneAssetIndices` 长度必须等于 descriptor 的 asset 数、元素为非负整数；Phase C spatial shards 允许多个 asset 映射同一个 catalog primitive |
 | `PageReady` | `productId`、`revision`、`pageId`、`decodedHash128`、`decodedPageHash128`、`bytes` | 见下方 credit 规则；`productId` 为 32 B、两个 hash 各 16 B、`bytes` 恰为 262144 B |
 | `Progress` | `stage`、`units`、`bytes`、`timings` | `timings` 是开放的 `number` 映射；**缺失某个 key 表示未测量，必须与测量为 0 区分**，不得用 0 冒充未测量 |
 | `RecoverableFailure` | `scope`、`code`、可选 `retryAfterMs` | 不终止会话；已发布的 revision 必须保持可用 |
@@ -129,7 +129,7 @@ return:   outstanding -= blockCount; credits += blockCount
 
 ## Validation
 
-- `OEngine/tests/unit/cook-session-protocol.test.mjs` 覆盖 header/version 拒绝、状态机越界、credit 授权与归还边界、超限队列、非法 `RevisionOffered.sceneAssetIndices` 与非法 `PageReady` 身份。
+- `OEngine/tests/unit/cook-session-protocol.test.mjs` 覆盖 header/version 拒绝、状态机越界、credit 授权与归还边界、超限队列、非法 `RevisionOffered.sceneAssetIndices` 与非法 `PageReady` 身份；Phase C contract 覆盖重复 catalog primitive 的合法 shard 映射。
 - `OEngine/tests/unit/web-cook-worker-transport.test.mjs` 覆盖 generation 过滤与迟到消息丢弃。
 - `OEngine/tests/unit/web-cook-budget.test.mjs` 覆盖 output/source/WASM 预算与超额拒绝。
 - `OEngine/tests/unit/web-cook-activation-reserve.test.mjs` 覆盖 activation page 重读、credit 守恒、无等待重复副本丢弃。

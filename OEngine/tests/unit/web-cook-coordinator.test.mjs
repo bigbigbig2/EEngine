@@ -13,6 +13,34 @@ function makeGlb() {
   const binHeader = 20 + json.byteLength; view.setUint32(binHeader, bin.byteLength, true); view.setUint32(binHeader + 4, 0x004e4942, true); bytes.set(bin, binHeader + 8); return bytes;
 }
 
+function makeLargePrimitiveGlb(vertexCount = 600) {
+  assert.equal(vertexCount % 3, 0);
+  const positionBytes = vertexCount * 12, indexBytes = vertexCount * 2, bufferBytes = positionBytes + indexBytes;
+  const document = {
+    asset: { version: "2.0" }, buffers: [{ byteLength: bufferBytes }],
+    bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positionBytes }, { buffer: 0, byteOffset: positionBytes, byteLength: indexBytes }],
+    accessors: [
+      { bufferView: 0, componentType: 5126, count: vertexCount, type: "VEC3", min: [0, 0, 0], max: [1, 1, 1] },
+      { bufferView: 1, componentType: 5123, count: vertexCount, type: "SCALAR" }
+    ],
+    meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }], nodes: [{ mesh: 0 }], scenes: [{ nodes: [0] }]
+  };
+  const encoded = new TextEncoder().encode(JSON.stringify(document));
+  const json = new Uint8Array(Math.ceil(encoded.byteLength / 4) * 4); json.set(encoded); json.fill(0x20, encoded.byteLength);
+  const bin = new Uint8Array(bufferBytes), view = new DataView(bin.buffer);
+  for (let index = 0; index < vertexCount; index++) {
+    view.setFloat32(index * 12, index / vertexCount, true);
+    view.setFloat32(index * 12 + 4, 0, true);
+    view.setFloat32(index * 12 + 8, 0, true);
+    view.setUint16(positionBytes + index * 2, index, true);
+  }
+  const bytes = new Uint8Array(12 + 8 + json.byteLength + 8 + bin.byteLength), header = new DataView(bytes.buffer);
+  header.setUint32(0, 0x46546c67, true); header.setUint32(4, 2, true); header.setUint32(8, bytes.byteLength, true);
+  header.setUint32(12, json.byteLength, true); header.setUint32(16, 0x4e4f534a, true); bytes.set(json, 20);
+  const binHeader = 20 + json.byteLength; header.setUint32(binHeader, bin.byteLength, true); header.setUint32(binHeader + 4, 0x004e4942, true); bytes.set(bin, binHeader + 8);
+  return bytes;
+}
+
 function productFixture() {
   const page = new Uint8Array(262144); const hash = createHash("sha256").update(page).digest(); const productId = new Uint8Array(32).fill(7);
   const asset = new Uint8Array(128); const av = new DataView(asset.buffer); asset.fill(1, 0, 32); for (const [at, value] of [[72, 0], [76, 1], [80, 0], [84, 1], [88, 0], [92, 1], [96, 0], [100, 1], [104, 1], [108, 1], [112, 1], [116, 0]]) av.setUint32(at, value, true);
@@ -34,6 +62,37 @@ test("Web Cook coordinator bounds source work and emits credited Product events"
   await coordinator.open("https://example.test/scene.glb"); coordinator.grantOutputCredits(1, 262144); await coordinator.cookBootstrap();
   assert.equal(coordinator.evidence().state, "complete"); assert.equal(coordinator.evidence().completedUnits, 1); assert.ok(fetched.length >= 5);
   assert.deepEqual(coordinator.drainEvents().map(event => event.type), ["SceneCatalogReady", "RevisionOffered", "PageReady", "Progress"]); coordinator.dispose();
+});
+
+test("Web Cook coordinator admits a giant range only with a bounded live-source capability", async () => {
+  const glb = makeLargePrimitiveGlb(), product = productFixture();
+  let ordinaryCalls = 0;
+  const ordinary = new WebCookCoordinator("giant-ordinary", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 1024, maxOutputBytes: 262144, maxQueuedEvents: 8 },
+    source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    cooker: { async cookBootstrap() { ordinaryCalls++; throw new Error("ordinary cooker should not run"); } }
+  });
+  await ordinary.open("https://example.test/giant-ordinary.glb");
+  await assert.rejects(ordinary.cookBootstrap(), /maxWasmBytes=1024/);
+  assert.equal(ordinaryCalls, 0, "an unbounded producer must fail closed before cooking");
+  ordinary.dispose();
+
+  let boundedCalls = 0;
+  const bounded = new WebCookCoordinator("giant-bounded", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 1024, maxOutputBytes: 262144, maxQueuedEvents: 8 },
+    source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    cooker: {
+      estimateLiveSourceBytes(units) { assert.equal(units.length, 1); return 64; },
+      async cookBootstrap() { boundedCalls++; return { descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} }; }
+    }
+  });
+  await bounded.open("https://example.test/giant-bounded.glb");
+  bounded.grantOutputCredits(1, 262144);
+  await bounded.cookBootstrap();
+  assert.equal(boundedCalls, 1, "a bounded producer must receive the giant unit");
+  assert.equal(bounded.evidence().bootstrapSourceBytes, 64);
+  assert.equal(bounded.evidence().refinementSourceBytes, 64);
+  bounded.dispose();
 });
 
 test("Web Cook coordinator waits for a whole page lease before copying output", async () => {

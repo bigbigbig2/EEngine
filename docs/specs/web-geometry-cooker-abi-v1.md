@@ -129,7 +129,9 @@ ABI major 2 额外提供一个只属于 descriptor 阶段的增量 builder：
 
 window 边界不得改变 domain 顺序、asset index、Nyx cook recipe、hierarchy、Group、Page 或 identity 语义。builder 可以跨 window 保留完成后的 `CookedAssetV3`/serialized Group 状态；那部分生命周期由 ADR-0018 Phase D cook-and-spill 收口，不得被误报为 Phase B 已消除。Phase B 只保证不保留 full-scene source/canonical/decoded canonical payload。
 
-`maxSourceWindowBytes` 与 `maxCanonicalWindowBytes` 是 Worker owner budget，不是总资产 admission limit。Catalog 继续报告 total `sourceBytes`；全局 ledger 只预留 `min(total sourceBytes, maxSourceWindowBytes)`。window planner 必须按稳定 catalog 顺序生成同时满足 source/canonical budget 的窗口。单个 primitive 自身超过任一预算时必须明确报告需要 Phase C spatial sharding，禁止通过放大窗口或重新引入 full-scene buffer 绕过。
+`maxSourceWindowBytes` 与 `maxCanonicalWindowBytes` 是 Worker owner budget，不是总资产 admission limit。Catalog 继续报告 total `sourceBytes`；全局 ledger 只预留 `min(total sourceBytes, maxSourceWindowBytes)`。window planner 必须按稳定 catalog 顺序生成同时满足 source/canonical budget 的窗口。单个 primitive 自身超过任一预算时由 [Web Geometry Spatial Shard V1](./web-geometry-spatial-shard-v1.md) 先形成 bounded triangle-owned domains，禁止通过放大窗口或重新引入 full-scene buffer 绕过。
+
+Coordinator 的 `WebRuntimeCooker.estimateLiveSourceBytes(units)` 是可选的 live-source admission 契约。实现该方法的 producer 必须返回一次 cook 调用期间的 bounded source-window 上限，而不是这些 units 的完整 accessor range 总量；Coordinator 用它填充 bootstrap/refinement progress，并把该上限与 `maxSourceBytes`、`maxWasmBytes` 做 fail-closed 校验。未实现该方法的 producer 按完整 range 估算，但不把 catalog 总字节重复记入 source ledger；仅当完整估算超过 WASM budget 时，giant primitive 才在 cooker entry 前拒绝。Nyx Web Runtime Cooker 返回 `min(maxSourceWindowBytes, total unit ranges)`，空间分片在真正读取前仍由其 planner 维持同一 bounded window。
 
 ## Nyx function map
 
@@ -160,7 +162,8 @@ simplify/refine/error、hierarchy 和 Page 阶段保持不变，变化只限于 
 range 与 WASM 的任务编排。
 
 `RevisionOffered.sceneAssetIndices` 与 descriptor 一起传输，并按 descriptor
-asset count 校验；它不能编码进 Product 二进制 section。
+asset count 校验；普通 Product 使用不重复 catalog index，Phase C spatial shard
+允许重复 index；它不能编码进 Product 二进制 section。
 
 ## Failure and lifecycle
 

@@ -45,6 +45,15 @@ export interface WebCookProductRevision {
  * dedicated Worker, but it never receives a GPU object or performs publication.
  */
 export interface WebRuntimeCooker {
+  /**
+   * Returns the producer's upper bound for live source bytes while cooking the
+   * supplied units. This is deliberately not the total accessor range size:
+   * bounded-window producers may spatially shard one giant primitive and scan
+   * its ranges one window at a time. Producers that omit this capability are
+   * admitted against their complete unit ranges and therefore fail closed for
+   * oversized primitives.
+   */
+  estimateLiveSourceBytes?(units: readonly GlbCookPrimitive[]): number;
   cookBootstrap(unit: GlbCookPrimitive, context: WebCookUnitContext): Promise<WebCookProductRevision>;
   /** Optional whole-source entry. Producers use this to publish one immutable Product cut. */
   cookBootstrapBatch?(units: readonly GlbCookPrimitive[], context: WebCookUnitContext): Promise<WebCookProductRevision>;
@@ -74,7 +83,7 @@ export interface WebCookCoordinatorOptions {
   readonly onEvent?: () => void;
   /** Explicit unit count for the first Product cut; overrides the automatic selection. */
   readonly bootstrapUnitCount?: number;
-  /** Explicit source-byte cap for the first cut; the full refinement is separately bounded by the cooker. */
+  /** Explicit live source-window cap for the first cut; the full refinement is separately bounded by the cooker. */
   readonly bootstrapMaxSourceBytes?: number;
   /** Optional automatic selector. When present it chooses the first cut; the byte cap still applies. */
   readonly selectBootstrap?: (catalog: GlbSceneCatalog) => readonly GlbCookPrimitive[];
@@ -89,7 +98,9 @@ export interface WebCookCoordinatorEvidence {
   readonly sourceBytes: number;
   readonly peakUnitBytes: number;
   readonly bootstrapUnits: number;
+  /** Live source-window estimate used for the bootstrap admission/progress cut. */
   readonly bootstrapSourceBytes: number;
+  /** Live source-window estimate for the complete refinement unit set. */
   readonly refinementSourceBytes: number;
   readonly firstRevisionMs?: number;
   /**
@@ -192,11 +203,14 @@ export class WebCookCoordinator {
       const catalogIndex = new Map(catalog.primitives.map((unit, index) => [primitiveKey(unit), index]));
       const bootstrapAssetIndices = bootstrapUnits.map(unit => catalogIndex.get(primitiveKey(unit))!);
       this.#bootstrapUnits = bootstrapUnits.length;
-      this.#bootstrapSourceBytes = estimateSourceBytes(bootstrapUnits);
-      this.#refinementSourceBytes = estimateSourceBytes(units);
+      this.#bootstrapSourceBytes = estimateLiveSourceBytes(this.#options.cooker, bootstrapUnits);
+      this.#refinementSourceBytes = estimateLiveSourceBytes(this.#options.cooker, units);
+      const hasBoundedLiveSource = this.#options.cooker.estimateLiveSourceBytes !== undefined;
       // The automatic selection is bounded by its own byte cap even when the
       // caller did not configure one; an explicit count stays caller-governed.
-      if (this.#options.bootstrapUnitCount === undefined && this.#bootstrapSourceBytes > DEFAULT_BOOTSTRAP_SOURCE_BYTES) {
+      // A bounded-window producer owns a more accurate live-source budget, so
+      // the legacy whole-primitive default must not reject a spatial giant.
+      if (this.#options.bootstrapUnitCount === undefined && this.#options.cooker.estimateLiveSourceBytes === undefined && this.#bootstrapSourceBytes > DEFAULT_BOOTSTRAP_SOURCE_BYTES) {
         throw new Error(`automatic visible-first bootstrap exceeds ${DEFAULT_BOOTSTRAP_SOURCE_BYTES} bytes`);
       }
       if (this.#options.bootstrapMaxSourceBytes !== undefined && this.#bootstrapSourceBytes > this.#options.bootstrapMaxSourceBytes) {
@@ -206,7 +220,7 @@ export class WebCookCoordinator {
       if (progressive) {
         const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
         this.#peakUnitBytes = Math.max(this.#peakUnitBytes, this.#bootstrapSourceBytes);
-        if (this.#bootstrapSourceBytes > this.#options.budgets.maxWasmBytes) throw new Error(`bootstrap cook source exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
+        assertLiveSourceBudget(this.#bootstrapSourceBytes, this.#options.budgets, "bootstrap cook source", hasBoundedLiveSource);
         // A revision is not a fine-grained progress signal: the cook between two
         // revisions can run for seconds. Heartbeat real elapsed time while it
         // runs: the UI can then show the cook is still alive instead of freezing
@@ -246,7 +260,7 @@ export class WebCookCoordinator {
         const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
         const estimated = this.#bootstrapSourceBytes;
         this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
-        if (estimated > this.#options.budgets.maxWasmBytes) throw new Error(`cook source exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
+        assertLiveSourceBudget(estimated, this.#options.budgets, "cook source", hasBoundedLiveSource);
         const revision = await batchCooker.call(this.#options.cooker, bootstrapUnits, context);
         this.validateRevision(revision);
         this.#liveRevisions.push(revision);
@@ -270,9 +284,9 @@ export class WebCookCoordinator {
         const batch = bootstrapUnits.slice(begin, begin + concurrency);
         const cooked = await Promise.all(batch.map(async unit => {
           const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
-          const estimated = unit.ranges.reduce((sum, range) => sum + range.byteLength, 0);
+          const estimated = estimateLiveSourceBytes(this.#options.cooker, [unit]);
           this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
-          if (estimated > this.#options.budgets.maxWasmBytes) throw new Error(`cook unit exceeds maxWasmBytes=${this.#options.budgets.maxWasmBytes}`);
+          assertLiveSourceBudget(estimated, this.#options.budgets, "cook unit", hasBoundedLiveSource);
           const revision = await this.#options.cooker.cookBootstrap(unit, context);
           this.validateRevision(revision);
           return { revision, estimated };
@@ -423,7 +437,7 @@ export class WebCookCoordinator {
     if (descriptor.revision !== revision.revision || !sameBytes(descriptor.productId, revision.productId) || descriptor.pageRecords.byteLength / 32 !== revision.pageCount) throw new Error("Web Cook descriptor and revision identity/count disagree");
     if (revision.sceneAssetIndices !== undefined) {
       const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
-      if (revision.sceneAssetIndices.length !== assetCount || new Set(revision.sceneAssetIndices).size !== assetCount || revision.sceneAssetIndices.some(index => !Number.isSafeInteger(index) || index < 0)) throw new Error("Web Cook revision sceneAssetIndices are invalid");
+      if (revision.sceneAssetIndices.length !== assetCount || revision.sceneAssetIndices.some(index => !Number.isSafeInteger(index) || index < 0)) throw new Error("Web Cook revision sceneAssetIndices are invalid");
     }
   }
   private priorityFor(unit: GlbCookPrimitive): number {
@@ -449,7 +463,7 @@ export class WebCookCoordinator {
         : defaultBootstrapSelection(units, unit => this.priorityFor(unit));
     const selected: GlbCookPrimitive[] = [];
     for (const unit of candidates) {
-      const nextBytes = estimateSourceBytes([...selected, unit]);
+      const nextBytes = estimateLiveSourceBytes(this.#options.cooker, [...selected, unit]);
       if (maxBytes !== undefined && nextBytes > maxBytes) {
         if (selected.length === 0) throw new Error(`visible-first bootstrap source exceeds bootstrapMaxSourceBytes=${maxBytes}`);
         break;
@@ -513,6 +527,21 @@ function estimateSourceBytes(units: readonly GlbCookPrimitive[]): number {
   const ranges = new Map<string, GlbByteRange>();
   for (const unit of units) for (const range of unit.ranges) ranges.set(`${range.bufferIndex}:${range.byteOffset}:${range.byteLength}`, range);
   return [...ranges.values()].reduce((sum, range) => sum + range.byteLength, 0);
+}
+
+function estimateLiveSourceBytes(cooker: WebRuntimeCooker, units: readonly GlbCookPrimitive[]): number {
+  const estimated = cooker.estimateLiveSourceBytes?.(units) ?? estimateSourceBytes(units);
+  if (!Number.isSafeInteger(estimated) || estimated < 0) throw new RangeError("Web Cook live source estimate must be a non-negative safe integer");
+  return estimated;
+}
+
+function assertLiveSourceBudget(bytes: number, budgets: WebCookBudgets, label: string, bounded: boolean): void {
+  // maxSourceBytes is reserved by the session/global ledger as live-window
+  // capacity. It must not be reapplied to an unbounded producer's catalog
+  // total range estimate. A producer that declares a live bound must fit that
+  // bound in both the source ledger and the WASM admission budget.
+  if (bounded && bytes > budgets.maxSourceBytes) throw new Error(`${label} exceeds maxSourceBytes=${budgets.maxSourceBytes}`);
+  if (bytes > budgets.maxWasmBytes) throw new Error(`${label} exceeds maxWasmBytes=${budgets.maxWasmBytes}`);
 }
 
 function primitiveKey(unit: GlbCookPrimitive): string { return `${unit.nodeIndex}:${unit.meshIndex}:${unit.primitiveIndex}`; }

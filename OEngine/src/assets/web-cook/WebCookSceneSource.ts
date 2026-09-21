@@ -49,8 +49,8 @@ export function createWebCookSceneSource(
   const catalogIndices = options.sceneAssetIndices === undefined
     ? Array.from({ length: assetCount }, (_, index) => index)
     : [...options.sceneAssetIndices];
-  if (catalogIndices.length !== assetCount || new Set(catalogIndices).size !== catalogIndices.length || catalogIndices.some(index => !Number.isSafeInteger(index) || index < 0 || index >= catalog.primitives.length)) {
-    throw new Error("The Web Cook Product sceneAssetIndices do not identify a unique catalog subset");
+  if (catalogIndices.length !== assetCount || catalogIndices.some(index => !Number.isSafeInteger(index) || index < 0 || index >= catalog.primitives.length)) {
+    throw new Error("The Web Cook Product sceneAssetIndices do not identify catalog primitives");
   }
   const instanceByNode = new Map(catalog.instances.map(item => [item.nodeIndex, item]));
   const materials: StandardShadeMaterial[] = [];
@@ -178,7 +178,7 @@ export async function createWebCookSceneSourceAsync(
 
 function sceneAssetIndices(catalog: WebCookSceneCatalogSnapshot, assetCount: number, requested?: readonly number[]): number[] {
   const values = requested === undefined ? Array.from({ length: assetCount }, (_, index) => index) : [...requested];
-  if (values.length !== assetCount || new Set(values).size !== values.length || values.some(index => !Number.isSafeInteger(index) || index < 0 || index >= catalog.primitives.length)) throw new Error("The Web Cook Product sceneAssetIndices do not identify a unique catalog subset");
+  if (values.length !== assetCount || values.some(index => !Number.isSafeInteger(index) || index < 0 || index >= catalog.primitives.length)) throw new Error("The Web Cook Product sceneAssetIndices do not identify catalog primitives");
   return values;
 }
 

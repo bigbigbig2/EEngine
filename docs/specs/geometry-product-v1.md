@@ -252,8 +252,9 @@ schemaVersion + sourceIdentityKind + sourceIdentityHash + producerKind + produce
 Web Runtime Cooker 可以在 `GeometryProductRevisionSourceV1` 上附带
 `sceneAssetIndices`。这是 Producer 到 Scene mapper 的来源映射元数据，不是
 Geometry Product 二进制 section，也不属于 ProductID。第 `i` 项表示 Product
-asset record `i` 对应的稳定 GLB catalog primitive。列表必须唯一、索引必须在
-catalog 范围内，并且长度必须等于 `assetCount`。
+asset record `i` 对应的稳定 GLB catalog primitive。索引必须在 catalog 范围内，
+并且长度必须等于 `assetCount`；普通多 primitive Product 通常使用不重复索引，
+Phase C spatial shard Product 允许多个 asset 映射同一个 catalog primitive。
 
 Subset bootstrap 仍然必须是完整且不可变的 Product revision：自身的 asset
 table、hierarchy、Group/Page directory、activation pages 和 page hash 都要

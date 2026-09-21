@@ -7,7 +7,7 @@ export interface CanonicalWindowPlan {
   readonly canonicalBytes: number;
 }
 
-/** Deterministic primitive windows; a single oversized primitive is Phase C work. */
+/** Deterministic whole-primitive windows; callers spatially expand oversized units first. */
 export function planCanonicalWindows(units: readonly GlbCookPrimitive[], maxSourceBytes: number, maxCanonicalBytes: number): readonly CanonicalWindowPlan[] {
   if (!Number.isSafeInteger(maxSourceBytes) || maxSourceBytes <= 0 || !Number.isSafeInteger(maxCanonicalBytes) || maxCanonicalBytes <= 0) throw new RangeError("canonical window budgets must be positive safe integers");
   const windows: CanonicalWindowPlan[] = [];
@@ -19,7 +19,7 @@ export function planCanonicalWindows(units: readonly GlbCookPrimitive[], maxSour
   };
   for (const unit of units) {
     const singleSource = estimateSourceBytes([unit]), singleCanonical = estimateCanonicalBytes([unit]);
-    if (singleSource > maxSourceBytes || singleCanonical > maxCanonicalBytes) throw new Error(`canonical unit ${unit.meshIndex}:${unit.primitiveIndex} requires source=${singleSource}, canonical=${singleCanonical}; Phase C spatial sharding is required`);
+    if (singleSource > maxSourceBytes || singleCanonical > maxCanonicalBytes) throw new Error(`canonical unit ${unit.meshIndex}:${unit.primitiveIndex} requires source=${singleSource}, canonical=${singleCanonical}; spatial expansion is required before primitive window planning`);
     const candidate = [...pending, unit];
     if (pending.length > 0 && (estimateSourceBytes(candidate) > maxSourceBytes || estimateCanonicalBytes(candidate) > maxCanonicalBytes)) flush();
     pending.push(unit);

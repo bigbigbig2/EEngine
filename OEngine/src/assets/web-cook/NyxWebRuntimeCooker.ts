@@ -10,7 +10,13 @@ import {
 } from "./wasm/WebGeometryCookerAbi.js";
 import type { GlbCookPrimitive } from "../../loaders/gltf/streaming/GlbSceneCatalog.js";
 import { prefetchCoalescedRangeGroups, type CoalescedRangeReaderOptions } from "./CoalescedRangeReader.js";
-import { planCanonicalWindows, type CanonicalWindowPlan } from "./CanonicalWindowPlanner.js";
+import { estimateCanonicalBytes, estimateSourceBytes, planCanonicalWindows, type CanonicalWindowPlan } from "./CanonicalWindowPlanner.js";
+import {
+  WEB_SPATIAL_SHARD_PARTITION_VERSION,
+  canonicalizeGlbPrimitiveSpatialShardV1,
+  planGlbPrimitiveSpatialShardsV1,
+  type GlbSpatialShardSetV1
+} from "./SpatialShardPlanner.js";
 
 export const NYX_WEB_RUNTIME_PRODUCER_ID = "oengine-nyx-web-runtime";
 export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi1-product-v1";
@@ -56,6 +62,14 @@ export interface NyxWebRuntimeCookerEvidence {
   readonly peakCanonicalWindowBytes: number;
   readonly canonicalWindows: number;
   readonly completedCanonicalWindows: number;
+  readonly spatialPrimitives: number;
+  readonly spatialShards: number;
+}
+
+interface PreparedSpatialUnit {
+  readonly unit: GlbCookPrimitive;
+  readonly sceneAssetIndex: number;
+  readonly spatial?: GlbSpatialShardSetV1;
 }
 
 /** Browser-first Nyx producer. It owns no GPU object and emits only Product bytes. */
@@ -73,6 +87,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   #peakCanonicalWindowBytes = 0;
   #canonicalWindows = 0;
   #completedCanonicalWindows = 0;
+  #spatialPrimitives = 0;
+  #spatialShards = 0;
 
   constructor(module: EmscriptenWebGeometryCookerModuleV1, options: NyxWebRuntimeCookerOptions) {
     if (!Number.isSafeInteger(options.maxCanonicalInputBytes) || options.maxCanonicalInputBytes <= 0) throw new RangeError("maxCanonicalInputBytes must be a positive safe integer");
@@ -100,8 +116,19 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       currentCanonicalWindowBytes: this.#currentCanonicalWindowBytes,
       peakCanonicalWindowBytes: this.#peakCanonicalWindowBytes,
       canonicalWindows: this.#canonicalWindows,
-      completedCanonicalWindows: this.#completedCanonicalWindows
+      completedCanonicalWindows: this.#completedCanonicalWindows,
+      spatialPrimitives: this.#spatialPrimitives,
+      spatialShards: this.#spatialShards
     });
+  }
+
+  /**
+   * Coordinator admission must use the bounded live source window rather than
+   * the total accessor ranges of a giant primitive. Every Nyx path either fits
+   * in one window or expands the primitive into spatial shards before reading.
+   */
+  estimateLiveSourceBytes(units: readonly GlbCookPrimitive[]): number {
+    return units.length === 0 ? 0 : Math.min(this.#maxSourceWindowBytes, estimateSourceBytes(units));
   }
 
   async cookBootstrap(unit: GlbCookPrimitive, context: WebCookUnitContext): Promise<WebCookProductRevision> {
@@ -168,10 +195,76 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
 
   private windows(units: readonly GlbCookPrimitive[]): readonly CanonicalWindowPlan[] { return planCanonicalWindows(units, this.#maxSourceWindowBytes, this.#maxCanonicalInputBytes); }
 
+  private requiresSpatialSharding(unit: GlbCookPrimitive): boolean {
+    return estimateSourceBytes([unit]) > this.#maxSourceWindowBytes || estimateCanonicalBytes([unit]) > this.#maxCanonicalInputBytes;
+  }
+
+  private async prepareSpatialUnits(units: readonly GlbCookPrimitive[], context: WebCookUnitContext, sceneAssetIndices: readonly number[]): Promise<readonly PreparedSpatialUnit[]> {
+    if (units.length !== sceneAssetIndices.length) throw new Error("Nyx Web spatial source mapping is invalid");
+    const prepared: PreparedSpatialUnit[] = [];
+    for (let index = 0; index < units.length; index++) {
+      const unit = units[index]!, sceneAssetIndex = sceneAssetIndices[index]!;
+      if (!this.requiresSpatialSharding(unit)) { prepared.push(Object.freeze({ unit, sceneAssetIndex })); continue; }
+      const spatial = await planGlbPrimitiveSpatialShardsV1(unit, { signal: context.signal, readRange: range => context.readRange(range) }, {
+        maxSourceWindowBytes: this.#maxSourceWindowBytes,
+        maxCanonicalWindowBytes: this.#maxCanonicalInputBytes,
+        sourceIdentityHash: context.source.sourceIdentity.hash
+      });
+      this.#spatialPrimitives++;
+      this.#spatialShards += spatial.shards.length;
+      this.#peakSourceWindowBytes = Math.max(this.#peakSourceWindowBytes, spatial.peakSourceWindowBytes);
+      prepared.push(Object.freeze({ unit, sceneAssetIndex, spatial }));
+    }
+    return Object.freeze(prepared);
+  }
+
+  private async *preparedCanonicalWindows(prepared: readonly PreparedSpatialUnit[], context: WebCookUnitContext): AsyncGenerator<ArrayBuffer> {
+    let whole: GlbCookPrimitive[] = [];
+    const flushWhole = async function* (owner: NyxWebRuntimeCooker): AsyncGenerator<ArrayBuffer> {
+      if (whole.length === 0) return;
+      for (const window of owner.windows(whole)) {
+        const canonical = await owner.canonicalizeWindow(window, context);
+        try { yield canonical; }
+        finally { owner.releaseCanonicalWindow(); }
+      }
+      whole = [];
+    };
+    for (const item of prepared) {
+      if (!item.spatial) { whole.push(item.unit); continue; }
+      yield* flushWhole(this);
+      for (const shard of item.spatial.shards) {
+        const domain = await canonicalizeGlbPrimitiveSpatialShardV1(item.unit, item.spatial, shard, { signal: context.signal, readRange: range => context.readRange(range) }, this.#maxSourceWindowBytes);
+        const canonical = encodeWebCanonicalGeometryV1([domain]);
+        if (canonical.byteLength > this.#maxCanonicalInputBytes) throw new Error(`spatial canonical shard ${shard.shardId} exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
+        this.#canonicalWindows++;
+        this.#currentCanonicalWindowBytes = canonical.byteLength;
+        this.#peakCanonicalWindowBytes = Math.max(this.#peakCanonicalWindowBytes, canonical.byteLength);
+        try { yield canonical; }
+        finally { this.releaseCanonicalWindow(); }
+      }
+    }
+    yield* flushWhole(this);
+  }
+
   private async planWindowedCanonical(
     units: readonly GlbCookPrimitive[], context: WebCookUnitContext, recipeInput: ArrayBuffer, revision: number,
     replaces?: { readonly productId: Uint8Array; readonly revision: number }, sceneAssetIndices?: readonly number[]
   ): Promise<WasmGeometryProductRevisionV1> {
+    if (units.some(unit => this.requiresSpatialSharding(unit))) {
+      const sourceIndices = sceneAssetIndices ?? units.map((unit, index) => catalogIndexFor(unit, context, index));
+      const prepared = await this.prepareSpatialUnits(units, context, sourceIndices);
+      const expandedSceneAssetIndices = prepared.flatMap(item => item.spatial === undefined ? [item.sceneAssetIndex] : item.spatial.shards.map(() => item.sceneAssetIndex));
+      return planWasmGeometryProductRevisionWindowsV1(this.#module, this.preparedCanonicalWindows(prepared, context), recipeInput, {
+        producerId: NYX_WEB_RUNTIME_PRODUCER_ID,
+        producerVersion: `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=${WEB_SPATIAL_SHARD_PARTITION_VERSION};source=${this.#maxSourceWindowBytes};canonical=${this.#maxCanonicalInputBytes}`,
+        sourceIdentityKind: context.source.sourceIdentity.kind,
+        sourceIdentityHash: context.source.sourceIdentity.hash,
+        revision,
+        ...(replaces === undefined ? {} : { replaces }),
+        maxDecodedProductBytes: this.#maxDecodedProductBytes,
+        sceneAssetIndices: expandedSceneAssetIndices
+      });
+    }
     const windows = this.windows(units);
     if (windows.length === 1) return this.consumeCanonicalWindow(windows[0]!, context, canonical => this.planCanonical(canonical, context, recipeInput, revision, replaces, sceneAssetIndices));
     const canonicalWindows = async function* (owner: NyxWebRuntimeCooker): AsyncGenerator<ArrayBuffer> {
@@ -244,6 +337,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   }
 
   private async cookDomains(units: readonly GlbCookPrimitive[], context: WebCookUnitContext, sceneAssetIndices: readonly number[]): Promise<WasmGeometryProductRevisionV1> {
+    if (units.some(unit => this.requiresSpatialSharding(unit))) return this.planWindowedCanonical(units, context, this.#recipeInput, 0, undefined, sceneAssetIndices);
     const windows = this.windows(units);
     if (windows.length === 1) return this.consumeCanonicalWindow(windows[0]!, context, canonical => this.cookCanonical(canonical, context, this.#recipeInput, 0, undefined, sceneAssetIndices));
     return this.planWindowedCanonical(units, context, this.#recipeInput, 0, undefined, sceneAssetIndices);
@@ -265,10 +359,11 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     const bootstrapUnits = bootstrapPairs.map(pair => pair.unit);
     const bootstrapIndices = bootstrapPairs.map(pair => pair.index);
     if (bootstrapUnits.length !== bootstrapIndices.length || bootstrapIndices.some(index => !Number.isSafeInteger(index) || index < 0)) throw new RangeError("Nyx Web bootstrap asset mapping is invalid");
-    const bootstrapWindows = this.windows(bootstrapUnits);
+    const bootstrapHasSpatial = bootstrapUnits.some(unit => this.requiresSpatialSharding(unit));
+    const bootstrapWindows = bootstrapHasSpatial ? [] : this.windows(bootstrapUnits);
     // A one-window bootstrap remains manifest-backed. A larger bootstrap uses
     // the bounded plan builder and publishes its complete activation graph.
-    const bootstrap = bootstrapWindows.length === 1
+    const bootstrap = !bootstrapHasSpatial && bootstrapWindows.length === 1
       ? await this.consumeCanonicalWindow(bootstrapWindows[0]!, context, canonical => this.cookCanonical(canonical, context, this.#bootstrapRecipeInput, 0, undefined, bootstrapIndices))
       : await this.planWindowedCanonical(bootstrapUnits, context, this.#bootstrapRecipeInput, 0, undefined, bootstrapIndices);
     try {

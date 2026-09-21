@@ -18,6 +18,7 @@ function productSections() {
 
 function fakeModule(sections) {
   const heap = new Uint8Array(8 * 1024 * 1024); let next = 1024; let canonicalInput = null;
+  const canonicalWindows = [];
   // Page production is modelled per PageID so the two-phase path can be driven
   // out of order, repeated, and with undeclared PageIDs, exactly like the ABI.
   const produceCalls = [];
@@ -34,12 +35,17 @@ function fakeModule(sections) {
   const module = {
     HEAPU8: heap,
     get canonicalInput() { return canonicalInput; },
+    get canonicalWindows() { return canonicalWindows.map(bytes => bytes.slice()) },
     mutation: mutable,
     _malloc(bytes) { const at = next; next += bytes; return at; },
     _free() {},
     _oengine_web_geometry_cook_abi_version() { return 2; },
     _oengine_web_geometry_cook(address, bytes) { canonicalInput = heap.slice(address, address + bytes); return 1; },
     _oengine_web_geometry_cook_plan(address, bytes) { canonicalInput = heap.slice(address, address + bytes); sections.produced = new Set(); return 2; },
+    _oengine_web_geometry_cook_builder_begin() { canonicalWindows.length = 0; return 3; },
+    _oengine_web_geometry_cook_builder_append(_handle, address, bytes) { canonicalWindows.push(heap.slice(address, address + bytes)); return 1; },
+    _oengine_web_geometry_cook_builder_finish() { sections.produced = new Set(); return 2; },
+    _oengine_web_geometry_cook_builder_destroy() {},
     _oengine_web_geometry_cook_produce_page(handle, pageId, output, outputBytes) {
       if (!mutable.declared.has(pageId)) return 3;
       if (mutable.pending.has(pageId)) return 2;
@@ -67,8 +73,22 @@ function context() {
   const positionBytes = new ArrayBuffer(36), view = new DataView(positionBytes); [[0, 0, 0], [1, 0, 0], [0, 1, 0]].forEach((value, vertex) => value.forEach((component, axis) => view.setFloat32(vertex * 12 + axis * 4, component, true)));
   const position = { accessorIndex: 0, bufferIndex: 0, byteOffset: 0, byteLength: 36, byteStride: 12, componentType: 5126, componentCount: 3, count: 3, normalized: false };
   const unit = { nodeIndex: 0, instanceNodeIndices: [0], meshIndex: 0, primitiveIndex: 0, materialIndex: 0, mode: 4, vertexCount: 3, triangleCount: 1, attributes: { POSITION: position }, material: { materialIndex: 0, alphaMode: "OPAQUE", doubleSided: false }, ranges: [position] };
-  return { unit, context: { source: { sourceIdentity: { kind: "session", hash: new Uint8Array(32).fill(3) } }, catalog: {}, signal: new AbortController().signal, readRange: async () => positionBytes } };
+  return { unit, context: { source: { sourceIdentity: { kind: "session", hash: new Uint8Array(32).fill(3) } }, catalog: {}, signal: new AbortController().signal, readRange: async range => positionBytes.slice(range.byteOffset, range.byteOffset + range.byteLength) } };
 }
+
+test("Nyx Web Runtime Cooker gives a spatially sharded primitive a stable Product identity", async () => {
+  const a = productSections(), b = productSections(), firstContext = context(), secondContext = context();
+  const firstModule = fakeModule(a), secondModule = fakeModule(b);
+  const firstCooker = new NyxWebRuntimeCooker(firstModule, { maxSourceWindowBytes: 24, maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const secondCooker = new NyxWebRuntimeCooker(secondModule, { maxSourceWindowBytes: 24, maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const first = await firstCooker.cookBootstrap(firstContext.unit, firstContext.context);
+  const second = await secondCooker.cookBootstrap(secondContext.unit, secondContext.context);
+  assert.deepEqual([...first.productId], [...second.productId]);
+  assert.deepEqual(first.sceneAssetIndices, [0]);
+  assert.equal(firstModule.canonicalWindows.length, 1);
+  assert.deepEqual({ primitives: firstCooker.evidence().spatialPrimitives, shards: firstCooker.evidence().spatialShards }, { primitives: 1, shards: 1 });
+  first.release(); second.release();
+});
 
 test("Nyx Web Runtime Cooker assembles an immutable revision and validates transferred pages", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();

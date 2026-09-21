@@ -91,7 +91,6 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
       const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
       if (event.sceneAssetIndices !== undefined &&
           (event.sceneAssetIndices.length !== assetCount ||
-           new Set(event.sceneAssetIndices).size !== event.sceneAssetIndices.length ||
            event.sceneAssetIndices.some(value => !Number.isInteger(value) || value < 0))) {
         throw new Error("Web Cook revision sceneAssetIndices do not match its Product asset table");
       }
