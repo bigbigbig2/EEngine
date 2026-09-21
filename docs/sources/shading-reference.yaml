@@ -1,0 +1,20 @@
+schemaVersion: 1
+id: shading-reference
+kind: algorithm-ledger
+upstream:
+  name: OEngine shading and lighting references
+  repository: docs/porting/shading.md
+  revision: pinned local source ledger
+license: Per-source licenses recorded in docs/porting/shading.md.
+localOwners:
+  - OEngine/src/shaders/lighting_direct.ts
+  - OEngine/src/shaders/sparse_shading_resolve.ts
+sourceMap: docs/porting/shading.md
+retainedInvariants:
+  - One complete material evaluation is fused into the visibility consumer.
+  - Feature-off removes unconsumed products and passes.
+differences:
+  - WGSL specialization and frame graph ownership adapt the reference math to WebGPU.
+validation:
+  - validation/cases/shading-resolve-component/case.yaml
+  - validation/cases/sparse-shading-production/case.yaml

@@ -7,7 +7,7 @@ import {
   createGpuSparseShadingCapabilityPlan,
   GPU_SPARSE_SHADING_REQUIRED_FEATURES,
   GPU_SPARSE_SHADING_REQUIRED_LIMITS
-} from "../.test-dist/gpu/GpuSparseShadingCapability.js";
+} from "../../.test-dist/gpu/GpuSparseShadingCapability.js";
 import {
   createGpuSparseShadingPipelineDescriptor,
   GPU_SHADING_OUTPUT_DEPENDENCY,
@@ -16,15 +16,15 @@ import {
   gpuSparseShadingBindingDeclarationsWgsl,
   gpuSparseShadingContractModuleWgsl,
   gpuSparseShadingPipelineBindingBudget
-} from "../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
+} from "../../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
 import {
   GPU_SPARSE_SHADING_BINDING_GROUP_LIMITS,
   GPU_SPARSE_SHADING_STAGE_LIMITS
-} from "../.test-dist/gpu/GpuShadingBindingBudget.js";
+} from "../../.test-dist/gpu/GpuShadingBindingBudget.js";
 import {
   GPU_SHADING_PROGRAM,
   shadingProgramUsesTextures
-} from "../.test-dist/gpu/GpuShadingProgramAbi.js";
+} from "../../.test-dist/gpu/GpuShadingProgramAbi.js";
 
 const adapter = {
   features: GPU_SPARSE_SHADING_REQUIRED_FEATURES,

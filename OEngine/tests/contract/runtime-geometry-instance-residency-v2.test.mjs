@@ -31,16 +31,16 @@ const [
     GPU_INSTANCE_STATIC_RECORD_STRIDE
   }
 ] = await Promise.all([
-  import("../.test-dist/geometry/BoxGeometry.js"),
-  import("../.test-dist/assets/SourceGeometry.js"),
-  import("../.test-dist/assets/GeometryCookRecipe.js"),
-  import("../.test-dist/geometry/GeometryCooker.js"),
-  import("../.test-dist/assets/GeometryAssetPackage.js"),
-  import("../.test-dist/assets/RuntimeAssetResidency.js"),
-  import("../.test-dist/gpu/GpuAssetStore.js"),
-  import("../.test-dist/gpu/GpuScene.js"),
-  import("../.test-dist/gpu/GpuGeometryAbi.js"),
-  import("../.test-dist/gpu/GpuInstanceAbi.js")
+  import("../../.test-dist/geometry/BoxGeometry.js"),
+  import("../../.test-dist/assets/SourceGeometry.js"),
+  import("../../.test-dist/assets/GeometryCookRecipe.js"),
+  import("../../.test-dist/geometry/GeometryCooker.js"),
+  import("../../.test-dist/assets/GeometryAssetPackage.js"),
+  import("../../.test-dist/assets/RuntimeAssetResidency.js"),
+  import("../../.test-dist/gpu/GpuAssetStore.js"),
+  import("../../.test-dist/gpu/GpuScene.js"),
+  import("../../.test-dist/gpu/GpuGeometryAbi.js"),
+  import("../../.test-dist/gpu/GpuInstanceAbi.js")
 ]);
 
 test("Instance V2 CPU pack oracle preserves affine current/previous state and motion validity", () => {

@@ -1,0 +1,27 @@
+schemaVersion: 1
+id: glb-incremental-publication-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0017-s4-incremental-publication-v1
+features:
+  - web-cook
+  - glb-range
+  - product-admission
+  - product-residency
+  - plan-backed-revision
+  - activation-cut
+  - page-demand
+  - hierarchy-work
+  - meshlet-raster
+  - visibility-key
+  - sparse-shading
+seed: 1704
+cameraPath: web-glb-incremental-demand-dolly
+warmupFrames: 1
+sampleFrames: 5
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

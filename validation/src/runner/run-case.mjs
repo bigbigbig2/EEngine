@@ -10,7 +10,7 @@ import { canonicalJson, requireValidRegistry } from "../shared/registry.mjs";
 
 const validationRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const repositoryRoot = resolve(validationRoot, "..");
-const registryPath = resolve(validationRoot, "cases/registry.json");
+const registryPath = resolve(validationRoot, "registry.generated.json");
 const registryBytes = await readFile(registryPath);
 const registry = requireValidRegistry(JSON.parse(registryBytes.toString("utf8")));
 const caseId = process.argv[2];
@@ -28,7 +28,7 @@ const runId = `${runnerStartedAt.replaceAll(/[:.]/gu, "-")}-${caseId}-${randomUU
 const nonce = randomBytes(24).toString("hex");
 const registrySha256 = sha256(registryBytes);
 const workloadSha256 = sha256(canonicalJson(workload));
-const artifactsRoot = resolve(validationRoot, "artifacts");
+const artifactsRoot = resolve(repositoryRoot, ".local/validation");
 const runDirectory = resolve(artifactsRoot, runId);
 await mkdir(artifactsRoot, { recursive: true });
 await mkdir(runDirectory, { recursive: false });

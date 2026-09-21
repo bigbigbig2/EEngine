@@ -75,6 +75,6 @@ UTF-8 JSON，`schema` 字段固定为 `oengine-scene-v3`。未知字段、缺失
 
 ## Validation
 
-- `tests/oegpack-offline-product.test.mjs`：用真实 Native cooker 产物作为 golden，覆盖严格解析、负例矩阵（未知字段、缺字段、非法 hex、越界索引、非有限 transform、超范围 flags、错误 schema）、Product 身份/activation cut 校验、HTTP Range 与 memory 两种 source selection、source failure 显式报错，以及 manifest → `VirtualGeometrySceneSource` 映射与跨 pack 拒绝。
-- `tests/oegpack-v3.test.mjs`：cooker determinism 与 corruption matrix。
+- `OEngine/tests/contract/oegpack-offline-product.test.mjs`：用真实 Native cooker 产物作为 golden，覆盖严格解析、负例矩阵（未知字段、缺字段、非法 hex、越界索引、非有限 transform、超范围 flags、错误 schema）、Product 身份/activation cut 校验、HTTP Range 与 memory 两种 source selection、source failure 显式报错，以及 manifest → `VirtualGeometrySceneSource` 映射与跨 pack 拒绝。
+- `OEngine/tests/contract/oegpack-v3.test.mjs`：cooker determinism 与 corruption matrix。
 - ADR-0014 宿主 `virtual-product-offline` case：真实浏览器里两条 source selection 的 GPU topology/覆盖率平价、source failure、Product 替换、GPU demand 与 Shadow/Visibility 消费。

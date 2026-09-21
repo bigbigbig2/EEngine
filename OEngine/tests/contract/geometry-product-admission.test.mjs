@@ -3,10 +3,10 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
-const { GeometryProductAdmission, GeometryProductAdmissionController } = await import("../.test-dist/gpu/GeometryProductAdmission.js");
-const { geometryProductGpuBudgetEvidence, reserveGeometryProductGpuBytes } = await import("../.test-dist/gpu/GeometryProductGpuBudget.js");
-const { GeometryPageSchedulerV1 } = await import("../.test-dist/gpu/GeometryPageScheduler.js");
-const { resolveGeometryProductAssetFromHeapV1, unpackGeometryProductMetadataHeapHeaderV1 } = await import("../.test-dist/gpu/GeometryProductGpuAbiV1.js");
+const { GeometryProductAdmission, GeometryProductAdmissionController } = await import("../../.test-dist/gpu/GeometryProductAdmission.js");
+const { geometryProductGpuBudgetEvidence, reserveGeometryProductGpuBytes } = await import("../../.test-dist/gpu/GeometryProductGpuBudget.js");
+const { GeometryPageSchedulerV1 } = await import("../../.test-dist/gpu/GeometryPageScheduler.js");
+const { resolveGeometryProductAssetFromHeapV1, unpackGeometryProductMetadataHeapHeaderV1 } = await import("../../.test-dist/gpu/GeometryProductGpuAbiV1.js");
 
 function makeFixture() {
   const page = new Uint8Array(262144); const hash = createHash("sha256").update(page).digest();

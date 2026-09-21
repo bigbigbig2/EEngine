@@ -13,10 +13,10 @@ import {
   type ProductSceneHandles,
   type VirtualGeometryResidency,
   type WebCookRuntimeAsset
-} from "../../../../OEngine/src/index.ts";
-import dungeonSourceUrl from "../../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
-import { createValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection } from "../../host/webgpu.ts";
+} from "../../../OEngine/src/index.ts";
+import dungeonSourceUrl from "../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
+import { createValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection } from "../../harness/browser.ts";
 
 const FIXTURE_SOURCE_URL = "/assets/oengine/glb-web-product-v1.glb";
 const DUNGEON_SOURCE_URL = dungeonSourceUrl;

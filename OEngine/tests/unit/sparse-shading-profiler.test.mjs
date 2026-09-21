@@ -3,12 +3,12 @@ import test from "node:test";
 
 import {
   classifyGpuFramePhase
-} from "../.test-dist/debug/GpuFramePhase.js";
+} from "../../.test-dist/debug/GpuFramePhase.js";
 import {
   SURFACE_TIMING_PHASES,
   classifySurfaceTimingPhase,
   surfaceTimingTotalsForFrame
-} from "../.test-dist/debug/SurfacePhaseTiming.js";
+} from "../../.test-dist/debug/SurfacePhaseTiming.js";
 
 test("ADR-0013 Step 7 profiler classifies the production sparse shading stages", () => {
   const segments = [

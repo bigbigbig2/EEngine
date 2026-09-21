@@ -1,0 +1,34 @@
+id: shading
+title: Material evaluation and lighting
+primaryOwner: shading
+owner: OEngine/src/material, OEngine/src/render, OEngine/src/shaders
+intent: Evaluate each visible hit once, preserve material identity, and compose lighting and temporal features through one pipeline.
+paths:
+  - OEngine/src/render/**
+  - OEngine/src/shaders/**
+  - validation/cases/shading-*/**
+  - docs/domains/shading.md
+  - docs/porting/shading.md
+currentDocs:
+  - docs/domains/shading.md
+  - docs/porting/shading.md
+contracts:
+  - claims-and-evidence
+decisions:
+  - ADR-0013
+  - ADR-0015
+sources:
+  - shading-reference
+claims:
+  - shading.one-eval
+  - shading.pipeline-pruning
+checks:
+  - model
+  - registry
+  - docs-frontmatter
+  - evidence-provenance
+watch:
+  - OEngine/src/render/**
+  - OEngine/src/shaders/**
+  - validation/cases/shading-*/**
+  - validation/cases/sparse-shading-*/**

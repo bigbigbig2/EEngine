@@ -2,10 +2,10 @@ import {
   OEGPACK_V3_GROUP_HEADER_BYTES,
   OEGPACK_V3_HIERARCHY_STRIDE,
   OEGPACK_V3_MESHLET_HEADER_BYTES
-} from "../../../../OEngine/src/assets/GeometryAbiV3.ts";
-import { oegPackV3DecodeWgsl } from "../../../../OEngine/src/shaders/oegpack_v3_decode.ts";
-import { createValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits, withGpuErrorScopes } from "../../host/webgpu.ts";
+} from "../../../OEngine/src/assets/GeometryAbiV3.ts";
+import { oegPackV3DecodeWgsl } from "../../../OEngine/src/shaders/oegpack_v3_decode.ts";
+import { createValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits, withGpuErrorScopes } from "../../harness/browser.ts";
 
 const status = document.querySelector<HTMLElement>("#status");
 const canvas = document.querySelector<HTMLCanvasElement>("#output");

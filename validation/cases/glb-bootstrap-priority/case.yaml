@@ -1,0 +1,31 @@
+schemaVersion: 1
+id: glb-bootstrap-priority
+route: /cases/glb-bootstrap-priority/index.html
+buildTarget: production
+workloadId: glb-bootstrap-priority-v1
+profile: smoke
+timeoutMs: 300000
+artifacts:
+  - result
+  - events
+  - screenshot
+changedPaths:
+  - validation/cases/glb-bootstrap-priority
+  - OEngine/src/assets/web-cook
+  - OEngine/src/loaders/gltf/streaming
+  - examples/assets/three/rendering-lab
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while the Web GLB Product
+      device is captured.
+    ownerClaim: virtual-assets.web-cook
+harness: production
+domain: virtual-assets
+caseKind: production
+kind: gpu
+level: L3
+covers:
+  - virtual-assets.web-cook
+decision: ADR-0016

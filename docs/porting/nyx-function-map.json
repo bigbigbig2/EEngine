@@ -57,7 +57,7 @@
       "retainedInvariants": ["meshlet vertex and triangle caps", "position remap and seam/attribute locks", "group simplification with fallback", "parent error propagation", "hierarchy and page construction", "validation rejects malformed output"],
       "webgpuAdaptation": "WASM/Native producers emit OEngine V3 decoded pages; GPU consumers use Product heap and page locations instead of Nyx DX12 addresses.",
       "fallback": "Unsupported glTF capability or invalid canonical input is rejected; no simplified triangle chunker is used.",
-      "oracle": ["OEngine/tests/nyx-differential-corpus.test.mjs", "OEngine/tests/nyx-function-map.test.mjs"],
+      "oracle": ["OEngine/tests/oracle/nyx-differential-corpus.test.mjs", "OEngine/tests/oracle/nyx-function-map.test.mjs"],
       "status": "verified"
     },
     {
@@ -69,7 +69,7 @@
       "retainedInvariants": ["node instance ownership", "world transform propagation", "primitive/material identity", "deterministic asset ordering"],
       "webgpuAdaptation": "Catalog metadata is structured data; GPU scene arrays are created only at explicit Product admission.",
       "fallback": "Unsupported extensionsRequired and compression/skin/morph profiles fail with capability errors.",
-      "oracle": ["OEngine/tests/web-cook-scene-source.test.mjs", "OEngine/tests/web-cook-visible-first.test.mjs"],
+      "oracle": ["OEngine/tests/unit/web-cook-scene-source.test.mjs", "OEngine/tests/unit/web-cook-visible-first.test.mjs"],
       "status": "verified"
     },
     {
@@ -81,7 +81,7 @@
       "retainedInvariants": ["bounds and geometric error fields", "stable group/page identity", "generation checked before bank reads", "page-local payload"],
       "webgpuAdaptation": "Little-endian V3 records and four bounded storage banks replace native struct/address layout.",
       "fallback": "Record range, generation, page and group validation fails closed.",
-      "oracle": ["OEngine/tests/geometry-product-binary.test.mjs", "OEngine/tests/virtual-geometry-product.test.mjs"],
+      "oracle": ["OEngine/tests/contract/geometry-product-binary.test.mjs", "OEngine/tests/contract/virtual-geometry-product.test.mjs"],
       "status": "verified"
     },
     {
@@ -93,7 +93,7 @@
       "retainedInvariants": ["root pin/bootstrap activation", "delayed demand feedback", "generation-safe page publication", "revoke-before-reuse", "resident ancestor fallback", "independent page validation"],
       "webgpuAdaptation": "MAP_READ copy rings and submission retirement replace DX12 readback/fence APIs; page bank slots remain bounded.",
       "fallback": "Missing or stale pages retain a resident ancestor and emit bounded demand; no CPU final visible list is built.",
-      "oracle": ["OEngine/tests/geometry-page-streaming-runtime.test.mjs", "OEngine/tests/geometry-page-scheduler.test.mjs", "validation/src/cases/virtual-product-replacement/main.ts"],
+      "oracle": ["OEngine/tests/unit/geometry-page-streaming-runtime.test.mjs", "OEngine/tests/unit/geometry-page-scheduler.test.mjs", "validation/cases/virtual-product-replacement/main.ts"],
       "status": "verified"
     },
     {
@@ -105,7 +105,7 @@
       "retainedInvariants": ["root seeding and wavefront child traversal", "frustum/HZB tests", "SSE/error refinement", "bounded all-or-nothing queue reservation", "overflow counters"],
       "webgpuAdaptation": "Explicit workgroup atomics and indirect rounds replace Slang wave intrinsics and DispatchMesh.",
       "fallback": "HZB uncertainty fails open; queue overflow emits ancestor/fallback work and a counter.",
-      "oracle": ["OEngine/tests/nyx-function-map.test.mjs", "validation/src/cases/virtual-product-production/main.ts"],
+      "oracle": ["OEngine/tests/oracle/nyx-function-map.test.mjs", "validation/cases/virtual-product-production/main.ts"],
       "status": "verified"
     },
     {
@@ -117,7 +117,7 @@
       "retainedInvariants": ["meshlet leaf visibility", "resident page check", "page demand and ancestor fallback", "meshlet identity preservation"],
       "webgpuAdaptation": "VisibleCluster/MeshletRasterWork records feed bounded standard indirect buckets rather than a mesh shader dispatch.",
       "fallback": "Non-resident leaf remains represented by a resident ancestor; invalid generation is rejected.",
-      "oracle": ["OEngine/tests/geometry-page-demand-abi.test.mjs", "OEngine/tests/nyx-function-map.test.mjs"],
+      "oracle": ["OEngine/tests/contract/geometry-page-demand-abi.test.mjs", "OEngine/tests/oracle/nyx-function-map.test.mjs"],
       "status": "verified"
     },
     {
@@ -129,7 +129,7 @@
       "retainedInvariants": ["workgroup barriers", "queue header counters", "bounded dispatch extent", "GPU producer to indirect consumer"],
       "webgpuAdaptation": "WGSL @compute workgroup size 64 and explicit barriers replace HLSL group synchronization.",
       "fallback": "Feature-off removes HZB bindings and passes; overflow is recorded and never silently truncates.",
-      "oracle": ["OEngine/tests/nyx-function-map.test.mjs", "OEngine/tests/geometry-work-truth.test.mjs"],
+      "oracle": ["OEngine/tests/oracle/nyx-function-map.test.mjs", "OEngine/tests/guard/geometry-work-truth.test.mjs"],
       "status": "verified"
     },
     {
@@ -141,7 +141,7 @@
       "retainedInvariants": ["page-local vertex decode", "world/view projection", "meshlet-local primitive identity", "material routing"],
       "webgpuAdaptation": "Product bank word loads and standard vertex pulling replace native mesh shader payload/address loads.",
       "fallback": "Invalid product/page/vertex format emits no primitive and increments validation diagnostics.",
-      "oracle": ["OEngine/tests/nyx-function-map.test.mjs", "validation/src/cases/virtual-product-production/main.ts"],
+      "oracle": ["OEngine/tests/oracle/nyx-function-map.test.mjs", "validation/cases/virtual-product-production/main.ts"],
       "status": "verified"
     },
     {
@@ -153,7 +153,7 @@
       "retainedInvariants": ["bounded vertex/primitive emission", "front-face and two-sided behavior", "VisibilityKey identity"],
       "webgpuAdaptation": "Fixed drawIndirect buckets replace mesh shader output counts; padding vertices are explicitly counted.",
       "fallback": "Invalid or padding triangles are rejected while preserving the work item identity.",
-      "oracle": ["OEngine/tests/geometry-product-gpu-abi.test.mjs", "OEngine/tests/nyx-function-map.test.mjs"],
+      "oracle": ["OEngine/tests/contract/geometry-product-gpu-abi.test.mjs", "OEngine/tests/oracle/nyx-function-map.test.mjs"],
       "status": "verified"
     },
     {
@@ -165,7 +165,7 @@
       "retainedInvariants": ["alpha-test decision", "primitive identity and depth", "two-sided/material routing"],
       "webgpuAdaptation": "WGSL fragment outputs write VisibilityKey/depth MRT consumed by the existing material and sparse shading path.",
       "fallback": "Unsupported material texture or invalid key fails closed and is counted; no silent opaque fallback.",
-      "oracle": ["OEngine/tests/packed-render-world-contract.test.mjs", "validation/src/cases/glb-web-product/main.ts"],
+      "oracle": ["OEngine/tests/contract/packed-render-world-contract.test.mjs", "validation/cases/glb-web-product/main.ts"],
       "status": "verified"
     }
   ],
@@ -173,6 +173,6 @@
     "counterSource": "OEngine/src/debug/GpuFrameCounters.ts",
     "requiredCounters": ["geometryNodesTested", "geometryClustersAccepted", "geometryMeshletsSelected", "geometryQueueBytes", "meshletQueueAttempted", "meshletQueueWritten", "meshletQueueConsumed", "meshletQueueOverflow", "invalidVisibilityKeys", "queueOverflowMask"],
     "semanticChecks": ["HZB/SSE rejection is visible in rejectedHzb and hierarchy counters", "page demand/ancestor fallback is visible in GeometryPageStreamingRuntime evidence", "bounded queue overflow is non-zero only for injected capacity pressure", "primitive identity is checked by VisibilityKey validation and readback"],
-    "browserCases": ["validation/src/cases/virtual-product-production/main.ts", "validation/src/cases/virtual-product-replacement/main.ts", "validation/src/cases/virtual-geometry-component/main.ts", "validation/src/cases/glb-web-product/main.ts"]
+    "browserCases": ["validation/cases/virtual-product-production/main.ts", "validation/cases/virtual-product-replacement/main.ts", "validation/cases/virtual-geometry-component/main.ts", "validation/cases/glb-web-product/main.ts"]
   }
 }

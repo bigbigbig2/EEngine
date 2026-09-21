@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./webgpu-test-globals.mjs";
+import "../../webgpu-test-globals.mjs";
 
 import {
   captureGpuSparseShadingCapabilityRecord,
   createGpuSparseShadingCapabilityPlan,
   GPU_SPARSE_SHADING_REQUIRED_FEATURES,
   GPU_SPARSE_SHADING_REQUIRED_LIMITS
-} from "../.test-dist/gpu/GpuSparseShadingCapability.js";
+} from "../../.test-dist/gpu/GpuSparseShadingCapability.js";
 import {
   GPU_SHADING_MATERIAL_ABI_VERSION,
   GPU_SHADING_MATERIAL_RECORD_STRIDE,
@@ -17,37 +17,37 @@ import {
   packGpuShadingTextureRoute,
   unpackGpuShadingMaterialHeader,
   unpackGpuShadingTextureRoute
-} from "../.test-dist/gpu/GpuShadingMaterialAbi.js";
+} from "../../.test-dist/gpu/GpuShadingMaterialAbi.js";
 import {
   GPU_MATERIAL_VISIBILITY_ABI_VERSION
-} from "../.test-dist/gpu/GpuMaterialVisibilityAbi.js";
+} from "../../.test-dist/gpu/GpuMaterialVisibilityAbi.js";
 import {
   createGpuSparseShadingPipelineDescriptor,
   GPU_SHADING_OUTPUT_DEPENDENCY,
   gpuSparseShadingBindGroupLayoutDescriptors
-} from "../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
+} from "../../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
 import {
   GPU_SHADING_PROGRAM,
   GPU_SHADING_PROGRAM_COUNT,
   shadingProgramUsesTextures
-} from "../.test-dist/gpu/GpuShadingProgramAbi.js";
-import { SparseShadingResolvePass } from "../.test-dist/render/passes/SparseShadingResolvePass.js";
+} from "../../.test-dist/gpu/GpuShadingProgramAbi.js";
+import { SparseShadingResolvePass } from "../../.test-dist/render/passes/SparseShadingResolvePass.js";
 import {
   GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG,
   SPARSE_SHADING_DIAGNOSTICS_FINALIZER_WGSL,
   createSparseShadingProgramFamily,
   createSparseShadingShaderVariant
-} from "../.test-dist/shaders/sparse_shading_resolve.js";
+} from "../../.test-dist/shaders/sparse_shading_resolve.js";
 import {
   LIGHT_CLUSTER_ASSIGN_WGSL,
   LIGHT_CLUSTER_DATA_HEADER_BYTES,
   LIGHT_CLUSTER_LIST_CAPACITY
-} from "../.test-dist/shaders/light_cluster.js";
+} from "../../.test-dist/shaders/light_cluster.js";
 import {
   OENGINE_ENVIRONMENT_BRDF_WGSL,
   evaluateEnvironmentBrdfReference
-} from "../.test-dist/shaders/environment_brdf.js";
-import { OPAQUE_LIGHTING_RESOLVE_WGSL } from "../.test-dist/shaders/opaque_lighting_resolve.js";
+} from "../../.test-dist/shaders/environment_brdf.js";
+import { OPAQUE_LIGHTING_RESOLVE_WGSL } from "../../.test-dist/shaders/opaque_lighting_resolve.js";
 
 const adapterLimits = {
   ...GPU_SPARSE_SHADING_REQUIRED_LIMITS

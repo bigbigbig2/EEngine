@@ -1,10 +1,10 @@
 import {
   BoxGeometry, Mesh, PerspectiveCamera, Renderer, Scene, StandardShadeMaterial,
   cookSceneGeometryProductV1, createDefaultWebGeometryCookerModule
-} from "../../../../OEngine/src/index.ts";
-import { createValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits, withGpuErrorScopes } from "../../host/webgpu.ts";
-import { ProductionGpuObserver, type ProductionFault } from "../../host/production-gpu-observer.ts";
+} from "../../../OEngine/src/index.ts";
+import { createValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits, withGpuErrorScopes } from "../../harness/browser.ts";
+import { ProductionGpuObserver, type ProductionFault } from "../../harness/browser.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 type LinearHdrCaptureResult = Awaited<ReturnType<Renderer["requestLinearHdrCapture"]>>;

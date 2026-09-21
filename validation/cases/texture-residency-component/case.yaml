@@ -1,0 +1,34 @@
+schemaVersion: 1
+id: texture-residency-component
+route: /cases/texture-residency-component/index.html
+buildTarget: host
+workloadId: texture-residency-component-v1
+profile: smoke
+timeoutMs: 60000
+artifacts:
+  - result
+  - events
+  - screenshot
+  - readback
+changedPaths:
+  - validation/cases/texture-residency-component
+  - OEngine/src/assets/TextureAssetPackage.ts
+  - OEngine/src/gpu/TextureResidency.ts
+  - OEngine/src/gpu/GpuTextureRefAbi.ts
+  - OEngine/src/gpu/GpuMaterialVisibilityAbi.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while adapter identity is
+      captured from WebGPU evidence.
+    ownerClaim: materials.texture-path
+harness: gpu
+domain: materials-textures
+caseKind: component
+kind: oracle
+level: L3
+covers:
+  - materials.texture-path
+  - materials.mip-convergence
+decision: ADR-0016

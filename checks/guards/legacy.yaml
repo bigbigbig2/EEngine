@@ -1,0 +1,7 @@
+id: guard-legacy
+kind: guard
+level: L0
+description: Reject retired documents, hand-maintained registries, per-case scripts, and removed host imports.
+domains: [platform]
+runner: vibe
+automatic: true

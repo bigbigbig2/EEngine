@@ -1,61 +1,42 @@
 # OEngine 验证合同
 
-验证证明当前 revision 的明确声明。静态结构、类名、Pass 数量、旧 benchmark 或研究文档都不能替代运行证据。
+验证只证明当前 revision 的声明。文档、类名、Pass 数量、旧 benchmark 或研究资料不能替代运行证据。机器路由来自 `project/claims/`、`checks/` 和每个 case 的 `case.yaml`；结果由 `validation/evidence/index.json` 和 `node tools/vibe.mjs status` 推导。
 
-## 等级
+## 证明等级
 
-| 等级 | 用途 | 最低要求 |
+| 等级 | 证明内容 | 典型检查 |
 | --- | --- | --- |
-| DEV | 普通迭代 | typecheck、命中 unit/oracle、格式/ABI golden、WGSL 组合检查 |
-| MILESTONE | consumer cutover、删除旧路径、垂直切片完成 | DEV + ADR-0014 真实浏览器 case + GPU diagnostics + 生命周期/feature-off + 必要截图或数值 readback |
-| PERF | 性能判断或发布声明 | MILESTONE + clean revision + 固定 workload/capability + 多个独立 run + 持久化机器可读 evidence |
+| L0 | manifest、文档、链接、路径和静态 guard | model、changed-coverage、docs、ownership、legacy |
+| L1 | CPU 单元、ABI/contract、oracle 和源码 guard | `OEngine/tests/unit|contract|oracle|guard`、registry |
+| L2 | 单个真实 WebGPU smoke | 命中的 component/candidate case、GPU diagnostics、readback |
+| L3 | lifecycle、feature-off、cutover、device-loss/recovery | production case、替换/取消/恢复 gate |
+| L4 | 固定环境正式 PERF | 固定 adapter、workload、warm-up、多 run 和可复算报告 |
 
-验证等级按风险和声明触发，不按每次提交或每个小步骤强制升级。默认先运行能证明当前改动的最低等级：
+旧术语只作为交付语境映射：DEV = L0 + L1（必要时 L2），MILESTONE = L0 + L1 + L2/L3，PERF = L0-L4。`kind` 描述验证性质，`level` 描述证明强度，两者不能互换。
 
-- 普通 ABI、validator、CPU 状态机、shader 组合和局部 owner 改动运行 DEV；不要求同时启动完整浏览器宿主。
-- 只有改动会跨越真实 GPU producer/consumer、render graph、资源生命周期、feature-off 或 device capability 边界时，才补命中的 Browser Case 或短 smoke。短 smoke 是开发诊断，不自动升级为 MILESTONE。
-- 只有准备声明 consumer cutover、垂直 Slice 完成、Runtime Validated、Pipeline Feature Complete 或 ADR Complete 时，才运行对应 MILESTONE。MILESTONE 可以在一组相关改动完成后集中运行，不要求每个中间提交都通过。
-- 只有准备作性能判断、性能回归结论或发布性能数字时，才运行 PERF。性能工作之外不要求重复 PERF。
-- 延后运行高等级验证是允许的，但交付说明、状态记录或变更说明必须列出未运行项目、原因和当前不能作出的声明。
+普通修改默认执行最低命中的 L0/L1。GPU、render graph、资源生命周期、feature-off 或 capability 变更时，`node tools/vibe.mjs verify --changed` 会列出命中的 L2/L3 case；命令只报告 `notRun`，不会隐式启动浏览器。正式 L4 必须显式运行。
 
-纯文档改动只运行静态文档检查。dependency/lockfile 未变化时普通 DEV 不运行 `npm ci`；TypeScript/WGSL 变更运行 `cd OEngine; npm run typecheck` 和命中测试。clean reproduction、CI 或正式 PERF 才运行 `npm ci`。
+纯文档修改只需要静态检查。依赖或 lockfile 变化、clean reproduction、CI 和正式 PERF 才运行 `npm ci`。TypeScript/WGSL 改动按命中 owner 运行 typecheck 与 targeted tests；本地无法提供真实 GPU 时必须保留 `notRun`、`blocked` 或 `unsupported`，不能升级声明。
 
-## 浏览器与 evidence
+## Browser 宿主和 evidence
 
-需要真实浏览器证据时，只能由 [ADR-0014](./adr/0014-browser-validation-and-performance-host.md) 的独立 `validation/` 宿主承担；`examples/` 和 Storybook 只用于示例。ADR-0014 定义证据格式和生命周期，不要求每次开发改动都启动宿主。artifact 至少记录 revision、case/workload identity、内容 hash、浏览器、adapter/device、capability fingerprint、分辨率/DPR、画质、warm-up、采样窗口、console/GPU error 和结果新鲜度。
+真实浏览器验证只能由 ADR-0014 的独立 `validation/` 宿主承担。自动 case 位于 `validation/cases/<id>/`，观察实验位于 `validation/labs/<id>/`；二者都由 case-local manifest 描述，registry 由 `node tools/vibe.mjs registry` 生成。`examples/` 和 Storybook 不产生 Runtime Validated、Performance 或 Pipeline 完成声明。
 
-小型稳定基线可进入 `OEngine/benchmarks/`；大型截图、trace 和逐帧 capture 使用外部 artifact 存储并由稳定标识与 hash 引用。`temp/` 只用于本地探索，不是事实源。
+共享 harness 负责 WebGPU 初始化、canvas/resize、error scope、console/page/request error、nonce/run identity、readback、screenshot、dispose 和 artifact manifest。Case 只负责 setup、业务动作、采样和断言；lab 必须显式标记 `lab: true`、`automatic: false`。
+
+每条 evidence 至少绑定 case、claim、check、commit/tree/dirty、registry/workload hash、contract hash、browser、adapter/capability、resolution/DPR、结果、artifact hash 和 freshness gate。raw artifact 只写入被忽略的 `.local/validation/<run-id>/`。接受条件是 clean revision、case passed、所有 gate 通过、artifact 完整且 required checks 覆盖；否则状态只能是 `unproven`、`diagnostic`、`stale` 或 `blocked`。
 
 ## 正确性门禁
 
-- 新二进制或 GPU ABI：边界值、非法输入、endianness/stride/offset、hash/checksum、CPU/GPU oracle 或 golden。
-- 新 GPU 队列：容量、overflow、counter、producer -> consumer、零工作和 feature-off。
-- 资源生命周期：replace、resize、toggle、camera cut、aborted submit、异步取消、device loss/recovery。
-- Renderer cutover：被替换 source/public symbol 不存在；compiled graph/shader 无旧 producer；真实浏览器 topology/counter 证明 replacement consumer 闭环。
-- Nyx 算法移植：按 `docs/porting/README.md` 的源函数/Shader 映射逐项核对阶段、分支与不变量；用结构化 differential corpus 比较 Nyx 参考与 Web/Offline 产物，用 negative corpus 覆盖非法输入、溢出、缺页、取消和生命周期，并证明真实 GPU producer → consumer。不同语言、API、布局或字节输出不自动构成失败；仅有相似架构、单元测试或自述不构成完成证据。
-- 视觉算法：稳定数值 seam 加少量代表性视角；截图只用于确实需要视觉判断的项目。
+- 新二进制或 GPU ABI：边界、非法输入、endianness/stride/offset、hash/checksum 和 CPU/GPU oracle 或 golden。
+- 新 GPU 队列：元素 ABI、容量、overflow、counter、producer → consumer、零工作和 feature-off。
+- 资源生命周期：replace、resize、toggle、camera cut、aborted submit、异步取消和 device loss/recovery。
+- Renderer cutover：旧 source/public symbol、compiled graph/shader producer 和 CPU visible-list traversal 清除；真实 topology/counter 证明新 consumer 闭环。
+- Nyx 迁移：按 `docs/porting/README.md` 对照源函数/Shader entry、决策分支、不变量、差异和 fallback；用 differential/negative corpus 加真实 GPU consumer 证明，未完成映射不能声明完成。
+- 视觉算法：稳定数值 seam 加代表性视角；截图只用于确实需要视觉判断的项目。
 
-## 性能采样
+## 性能和完成声明
 
-正式比较必须固定 adapter、浏览器、canvas/internal resolution、DPR、画质、feature set、workload、seed、camera path、warm-up、采样帧与 cadence。报告绝对 GPU P50/P95、关键 phase、CPU build/submit、submit 数、counter 和按 owner 内存；GPU timestamp 不可用时标记 unavailable，不能用 CPU 时间冒充。
+正式比较固定 adapter、browser、canvas/internal resolution、DPR、画质、feature set、workload、seed、camera path、warm-up、sample window 和 cadence，并报告 GPU P50/P95、关键 phase、CPU build/submit、submit 数、counter 和按 owner 的内存。GPU timestamp 不可用时标记 unavailable，不能用 CPU 时间代替。
 
-产品目标是 1920x1080、DPR 1、60 FPS（16.667 ms GPU），在固定条件证据完成前统一标记未证明。相对性能改善必须有同条件 A/B；仅做当前能力验收时可以只报告绝对结果，但不得声称“改善”。旧 baseline 冻结、新旧版本 A/B、删除前后比较和相对收益门禁已以 `closed / requirement-removed` 关闭，不再作为当前验收前置条件。
-
-当前预算上限：resident 512 MiB、transient 256 MiB、history 128 MiB、shadow atlas 128 MiB、upload 8 MiB/frame、readback 256 KiB/frame。按 owner 统计，不重复计数。
-
-## Feature-off
-
-关闭功能时应无对应 live Pass、资源分配、history、readback、counter copy 或独立 submit，CPU 构建和 GPU phase 成本接近零。只设置 uniform 分支但仍执行完整 Pass 不算关闭。
-
-## 完成术语
-
-- **Implementation Complete**：代码存在且 DEV 通过；不表示 production cutover。
-- **Runtime Validated**：命中的 MILESTONE case 通过。
-- **Performance Evaluated**：有条件完整、可解释的性能 profile。
-- **Performance Improved**：同条件证据支持具体相对改善。
-- **GPU-driven Complete**：GPU producer 的有效输出由 GPU consumer 直接消费，容量/overflow/counter 闭合。
-- **Pipeline Feature Complete**：正确性、fallback/lifecycle、feature-off 和所需性能证据齐全。
-- **External Algorithm Complete**：来源、revision、license、源函数到生产实现的映射、保留不变量/差异和命中的本地验证已登记；Nyx 移植还须满足上述 differential、negative 与真实下游 consumer 门禁。不要求逐行或跨 Producer 字节相同。
-- **ADR Complete**：production cutover、要求的 MILESTONE/PERF、旧路径删除和事实文档同步全部完成。
-
-交付说明必须列出已运行验证、未运行验证及原因。
+关闭 feature 时不得保留无消费者 Pass、资源、history、readback、counter copy 或独立 submit。`ImplementationComplete` 只表示实现和 DEV 门禁，`RuntimeValidated` 需要命中的 L2/L3 evidence，`PerformanceEvaluated/Improved` 需要 L4，`PipelineFeatureComplete` 和 `ADRComplete` 还要求对应 lifecycle、feature-off、cutover 和事实文档同步。claim 的当前声明永远不能超过 evidence 推导等级。

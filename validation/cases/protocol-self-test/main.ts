@@ -1,4 +1,4 @@
-import { createValidationController } from "../../host/protocol.ts";
+import { createValidationController } from "../../harness/browser.ts";
 
 const status = document.querySelector<HTMLElement>("#status");
 let listenerAttached = true;

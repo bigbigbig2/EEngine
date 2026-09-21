@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
-const { WebCookProductProvider } = await import("../.test-dist/assets/web-cook/WebCookProductProvider.js");
-const { encodeGeometryProductDescriptorBinaryV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
-const { GeometryProductAdmissionController } = await import("../.test-dist/gpu/GeometryProductAdmission.js");
+const { WebCookProductProvider } = await import("../../.test-dist/assets/web-cook/WebCookProductProvider.js");
+const { encodeGeometryProductDescriptorBinaryV1 } = await import("../../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+const { GeometryProductAdmissionController } = await import("../../.test-dist/gpu/GeometryProductAdmission.js");
 
 function fixture() {
   const page = new Uint8Array(262144); const hash = createHash("sha256").update(page).digest(); const productId = new Uint8Array(32).fill(9);

@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { WebCookClient } = await import("../.test-dist/assets/web-cook/WebCookClient.js");
-const { WebCookRuntimeAsset } = await import("../.test-dist/assets/web-cook/WebCookRuntimeAsset.js");
-const { createWebCookWorker, resolveWebCookRuntimeProfile } = await import("../.test-dist/assets/web-cook/WebCookWorkerFactory.js");
+const { WebCookClient } = await import("../../.test-dist/assets/web-cook/WebCookClient.js");
+const { WebCookRuntimeAsset } = await import("../../.test-dist/assets/web-cook/WebCookRuntimeAsset.js");
+const { createWebCookWorker, resolveWebCookRuntimeProfile } = await import("../../.test-dist/assets/web-cook/WebCookWorkerFactory.js");
 
 class FakeWorker {
   listeners = new Map();
@@ -113,7 +113,7 @@ test("Web Cook runtime asset exposes Product ownership without GPU ownership", (
 });
 
 test("Web Cook client accounts source and WASM reservations and releases all owners on cancel", async () => {
-  const { WebCookBudgetLedger } = await import("../.test-dist/assets/web-cook/WebCookBudget.js");
+  const { WebCookBudgetLedger } = await import("../../.test-dist/assets/web-cook/WebCookBudget.js");
   const worker = new FakeWorker();
   const ledger = new WebCookBudgetLedger({ maxActiveSessions: 1, maxOutputBytes: 2 * 262144, maxSourceBytes: 4096, maxWasmBytes: 2 * 1024 * 1024 });
   const client = new WebCookClient({ ...options(worker), ledger });
@@ -137,7 +137,7 @@ test("Web Cook client accounts source and WASM reservations and releases all own
 });
 
 test("Web Cook client fails closed when catalog source reservation exceeds the page budget", async () => {
-  const { WebCookBudgetLedger } = await import("../.test-dist/assets/web-cook/WebCookBudget.js");
+  const { WebCookBudgetLedger } = await import("../../.test-dist/assets/web-cook/WebCookBudget.js");
   const worker = new FakeWorker();
   const ledger = new WebCookBudgetLedger({ maxActiveSessions: 1, maxOutputBytes: 2 * 262144, maxSourceBytes: 1024, maxWasmBytes: 2 * 1024 * 1024 });
   const client = new WebCookClient({ ...options(worker), ledger });

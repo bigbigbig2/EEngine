@@ -1,0 +1,15 @@
+{
+  "name": "oengine-project-os",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "vibe": "node tools/vibe.mjs",
+    "vibe:registry": "node tools/vibe.mjs registry",
+    "vibe:evidence": "node tools/vibe.mjs evidence",
+    "vibe:doctor": "node tools/vibe.mjs doctor",
+    "vibe:verify": "node tools/vibe.mjs verify --changed"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  }
+}

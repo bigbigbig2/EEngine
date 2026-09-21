@@ -20,7 +20,7 @@ import {
   GPU_SHADING_PROGRAM_WGSL,
   shadingProgramIdForDependencyMask,
   ShadingIdentityPublicationError
-} from "../.test-dist/gpu/GpuShadingProgramAbi.js";
+} from "../../.test-dist/gpu/GpuShadingProgramAbi.js";
 import {
   createGpuShadingBinLayouts,
   GPU_SHADING_BIN_ABI_VERSION,
@@ -74,7 +74,7 @@ import {
   unpackGpuShadingBinIndirectArgs,
   unpackGpuShadingBinLayout,
   unpackGpuShadingBinSettings
-} from "../.test-dist/gpu/GpuShadingBinAbi.js";
+} from "../../.test-dist/gpu/GpuShadingBinAbi.js";
 
 const generousLimits = Object.freeze({
   maxTextureDimension2D: 32768,

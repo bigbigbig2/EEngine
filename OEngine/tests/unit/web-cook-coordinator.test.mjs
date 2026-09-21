@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-const { WebCookCoordinator } = await import("../.test-dist/assets/web-cook/WebCookCoordinator.js");
-const { encodeGeometryProductDescriptorBinaryV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+const { WebCookCoordinator } = await import("../../.test-dist/assets/web-cook/WebCookCoordinator.js");
+const { encodeGeometryProductDescriptorBinaryV1 } = await import("../../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
 
 function makeGlb() {
   const document = { asset: { version: "2.0" }, buffers: [{ byteLength: 42 }], bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }, { buffer: 0, byteOffset: 36, byteLength: 6 }], accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3" }, { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" }], meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }], nodes: [{ mesh: 0 }], scenes: [{ nodes: [0] }] };

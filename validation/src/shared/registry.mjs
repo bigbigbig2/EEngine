@@ -1,15 +1,15 @@
 const CASE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-const REQUIREMENT_PATTERN = /^[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)+$/u;
-const ALLOWED_KINDS = new Set(["orchestration", "component", "internal-candidate", "production"]);
+const CLAIM_ID_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+$/u;
+const CASE_KINDS = new Set(["orchestration", "component", "internal-candidate", "production"]);
+const VALIDATION_KINDS = new Set(["unit", "contract", "oracle", "guard", "gpu", "perf"]);
+const LEVELS = new Set(["L0", "L1", "L2", "L3", "L4"]);
 const ALLOWED_BUILD_TARGETS = new Set(["host", "baseline", "internal-candidate", "production"]);
 const ALLOWED_ARTIFACTS = new Set(["result", "events", "screenshot", "readback", "trace", "samples"]);
-const ALLOWED_LAYERS = new Set(["L0", "L1", "L2", "L3", "L4", "L5", "L6"]);
 
 export function validateRegistry(registry) {
   const errors = [];
   if (registry?.schemaVersion !== 1) errors.push("schemaVersion must be 1");
   if (registry?.hostProtocolVersion !== 1) errors.push("hostProtocolVersion must be 1");
-  validateRequirements(registry?.requirements, errors);
   validateProfiles(registry?.profiles, errors);
   validateWorkloads(registry?.workloads, errors);
   if (!Array.isArray(registry?.cases) || registry.cases.length === 0) errors.push("cases must be non-empty");
@@ -25,19 +25,19 @@ export function validateRegistry(registry) {
     }
     if (routes.has(item.route)) errors.push(`duplicate case route: ${item.route}`);
     routes.add(item.route);
-    if (!ALLOWED_KINDS.has(item.kind)) errors.push(`${item.id}: unknown kind`);
+    if (!CASE_KINDS.has(item.caseKind)) errors.push(`${item.id}: unknown caseKind`);
+    if (!VALIDATION_KINDS.has(item.kind)) errors.push(`${item.id}: unknown validation kind`);
+    if (!LEVELS.has(item.level)) errors.push(`${item.id}: unknown level`);
     if (!ALLOWED_BUILD_TARGETS.has(item.buildTarget)) errors.push(`${item.id}: unknown buildTarget`);
-    if ((item.kind === "internal-candidate") !== (item.buildTarget === "internal-candidate")) {
-      errors.push(`${item.id}: internal-candidate kind and buildTarget must agree`);
+    if ((item.caseKind === "internal-candidate") !== (item.buildTarget === "internal-candidate")) {
+      errors.push(`${item.id}: internal-candidate caseKind and buildTarget must agree`);
     }
-    if (!/^ADR-\d{4}$/u.test(item.ownerAdr ?? "")) errors.push(`${item.id}: invalid ownerAdr`);
-    if (!Array.isArray(item.requirements) || item.requirements.length === 0 || item.requirements.some((id) => !REQUIREMENT_PATTERN.test(id))) {
-      errors.push(`${item.id}: invalid requirements`);
-    }
-    for (const requirementId of item.requirements ?? []) {
-      const requirement = registry?.requirements?.[requirementId];
-      if (!requirement) errors.push(`${item.id}: unknown requirement ${requirementId}`);
-      else if (requirement.ownerAdr !== item.ownerAdr) errors.push(`${item.id}: requirement ${requirementId} owner mismatch`);
+    if (!/^ADR-\d{4}$/u.test(item.decision ?? "")) errors.push(`${item.id}: invalid decision`);
+    if (item.lab !== undefined && typeof item.lab !== "boolean") errors.push(`${item.id}: lab must be boolean`);
+    if (item.automatic !== undefined && typeof item.automatic !== "boolean") errors.push(`${item.id}: automatic must be boolean`);
+    if (item.lab === true && item.automatic === true) errors.push(`${item.id}: lab cases cannot be automatic`);
+    if (!Array.isArray(item.covers) || item.covers.length === 0 || item.covers.some((id) => !CLAIM_ID_PATTERN.test(id))) {
+      errors.push(`${item.id}: invalid covers`);
     }
     if (typeof item.workloadId !== "string" || !registry?.workloads?.[item.workloadId]) errors.push(`${item.id}: missing or unknown workloadId`);
     if (!registry?.profiles?.[item.profile]) errors.push(`${item.id}: unknown profile`);
@@ -63,34 +63,19 @@ export function validateRegistry(registry) {
           errors.push(`${item.id}: error allowlist must name an exact event source`);
         }
         if (typeof rule.exact !== "string" || rule.exact.length < 8 || /[.*+?^${}()|[\]\\]/u.test(rule.exact.slice(0, 2)) ||
-            typeof rule.reason !== "string" || rule.reason.length < 8 || !REQUIREMENT_PATTERN.test(rule.ownerRequirement ?? "")) {
-          errors.push(`${item.id}: error allowlist must use exact text, reason, and owner requirement`);
+            typeof rule.reason !== "string" || rule.reason.length < 8 || !CLAIM_ID_PATTERN.test(rule.ownerClaim ?? "")) {
+          errors.push(`${item.id}: error allowlist must use exact text, reason, and owner claim`);
         }
         const ruleKey = `${rule.source}\u0000${rule.exact}`;
         if (exactRules.has(ruleKey)) errors.push(`${item.id}: duplicate error allowlist rule`);
         exactRules.add(ruleKey);
-        if (!item.requirements?.includes(rule.ownerRequirement)) {
-          errors.push(`${item.id}: error allowlist owner must be a case requirement`);
+        if (!item.covers?.includes(rule.ownerClaim)) {
+          errors.push(`${item.id}: error allowlist owner must be a case claim`);
         }
       }
     }
   }
   return errors;
-}
-
-function validateRequirements(requirements, errors) {
-  if (!requirements || typeof requirements !== "object" || Array.isArray(requirements) || Object.keys(requirements).length === 0) {
-    errors.push("requirements must be a non-empty object");
-    return;
-  }
-  for (const [id, requirement] of Object.entries(requirements)) {
-    if (!REQUIREMENT_PATTERN.test(id)) errors.push(`invalid requirement id: ${id}`);
-    if (!/^ADR-\d{4}$/u.test(requirement?.ownerAdr ?? "")) errors.push(`${id}: invalid requirement ownerAdr`);
-    if (!ALLOWED_LAYERS.has(requirement?.layer)) errors.push(`${id}: invalid requirement layer`);
-    if (typeof requirement?.description !== "string" || requirement.description.length < 8) {
-      errors.push(`${id}: missing requirement description`);
-    }
-  }
 }
 
 function validateProfiles(profiles, errors) {

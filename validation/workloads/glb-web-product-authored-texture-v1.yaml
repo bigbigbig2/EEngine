@@ -1,0 +1,23 @@
+schemaVersion: 1
+id: glb-web-product-authored-texture-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0016-s3-authored-texture-v1
+features:
+  - web-cook
+  - gltf-authored-material
+  - texture-residency
+  - mask-alpha-test
+  - product-admission
+  - meshlet-raster
+  - sparse-shading
+seed: 1603
+cameraPath: authored-texture-mask-triangle
+warmupFrames: 1
+sampleFrames: 4
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

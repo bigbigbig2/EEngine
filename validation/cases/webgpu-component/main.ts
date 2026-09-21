@@ -1,4 +1,4 @@
-import { createValidationController } from "../../host/protocol.ts";
+import { createValidationController } from "../../harness/browser.ts";
 import {
   attachGpuErrorCollection,
   probeWebGpu2026Surface,
@@ -6,7 +6,7 @@ import {
   snapshotGpuFeatures,
   snapshotGpuLimits,
   withGpuErrorScopes
-} from "../../host/webgpu.ts";
+} from "../../harness/browser.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output");
 const status = document.querySelector<HTMLElement>("#status");

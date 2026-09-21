@@ -1,0 +1,35 @@
+id: visibility
+title: Hardware-first visibility
+primaryOwner: visibility
+owner: OEngine/src/render/passes, OEngine/src/render/pipeline, OEngine/src/shaders, OEngine/src/gpu
+intent: Close GPU work generation, visibility, shading-bin classification, and indirect consumers without CPU visible-list traversal.
+paths:
+  - OEngine/src/render/passes/**
+  - OEngine/src/render/MeshletBucketRaster.ts
+  - OEngine/src/gpu/GpuShading*.ts
+  - OEngine/src/gpu/GpuSparseShading*.ts
+  - validation/cases/sparse-shading-*/**
+  - docs/domains/visibility.md
+  - docs/contracts/claims-and-evidence.md
+  - docs/specs/**
+currentDocs:
+  - docs/domains/visibility.md
+  - docs/specs/
+contracts:
+  - claims-and-evidence
+decisions:
+  - ADR-0013
+  - ADR-0015
+sources:
+  - visibility-reference
+claims:
+  - visibility.gpu-closure
+  - visibility.feature-off
+checks:
+  - model
+  - registry
+  - docs-frontmatter
+  - evidence-provenance
+watch:
+  - OEngine/src/render/passes/**
+  - validation/cases/sparse-shading-*/**

@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-const { GeometryPageSchedulerV1 } = await import("../.test-dist/gpu/GeometryPageScheduler.js");
-const { GeometryDemandReadbackRingV1 } = await import("../.test-dist/gpu/GeometryDemandReadbackRing.js");
-const { createGeometryPageDemandQueueV1, packGeometryPageDemandHeaderV1, packGeometryPageDemandV1, reserveGeometryPageDemandV1 } = await import("../.test-dist/gpu/GeometryPageDemandAbiV1.js");
+const { GeometryPageSchedulerV1 } = await import("../../.test-dist/gpu/GeometryPageScheduler.js");
+const { GeometryDemandReadbackRingV1 } = await import("../../.test-dist/gpu/GeometryDemandReadbackRing.js");
+const { createGeometryPageDemandQueueV1, packGeometryPageDemandHeaderV1, packGeometryPageDemandV1, reserveGeometryPageDemandV1 } = await import("../../.test-dist/gpu/GeometryPageDemandAbiV1.js");
 
 function fixture() {
   const page = new Uint8Array(262144);

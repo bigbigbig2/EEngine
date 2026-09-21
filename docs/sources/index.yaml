@@ -1,0 +1,18 @@
+schemaVersion: 2
+purpose: Trace long-lived external decisions and algorithm sources without making them runtime dependencies.
+sources:
+  - id: nyx-geometry
+    path: docs/sources/nyx-geometry.yaml
+    role: Nyx geometry cooker, product, hierarchy, streaming, and raster source ledger
+  - id: webgpu-capability
+    path: docs/sources/webgpu-capability.yaml
+    role: WebGPU capability and browser behavior references
+  - id: texture-format-rules
+    path: docs/sources/texture-format-rules.yaml
+    role: Texture format and residency specification references
+  - id: shading-reference
+    path: docs/sources/shading-reference.yaml
+    role: Material and lighting algorithm references
+  - id: visibility-reference
+    path: docs/sources/visibility-reference.yaml
+    role: Visibility and work generation references

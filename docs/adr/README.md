@@ -9,7 +9,7 @@ ADR 只保存跨模块、长期且仍有解释价值的决策。它不承担规�
 - `superseded`：不再约束新实现，替代关系写入正文。
 - `rejected`：明确不采用，保留拒绝理由。
 
-每篇 ADR 仅包含 Context、Decision、Consequences、Verification。目标控制在能一次读完的长度；精确字段进入 [specs](../specs/README.md)，活跃切片进入 [implementation](../implementation/README.md)，可变状态进入 [STATUS](../STATUS.md)。
+每篇 ADR 仅包含 Context、Decision、Consequences、Verification。目标控制在能一次读完的长度；精确字段进入 [specs](../specs/README.md)，活跃切片进入 `project/workstreams/active/`，可变状态由 `node tools/vibe.mjs status` 推导。
 
 ## 索引
 

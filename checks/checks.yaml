@@ -1,0 +1,37 @@
+schemaVersion: 2
+checks:
+  - id: model
+    kind: contract
+    level: L0
+    description: Parse and validate domains, claims, checks, workstreams, profiles, workloads, and case-local manifests.
+    domains: [platform]
+    runner: vibe
+    automatic: true
+  - id: registry
+    kind: contract
+    level: L1
+    description: Generate and validate the runner registry from case-local manifests.
+    domains: [platform, virtual-assets, visibility, frame-runtime]
+    runner: vibe
+    automatic: true
+  - id: changed-coverage
+    kind: guard
+    level: L0
+    description: Require existing changed files to match a declared primary or related domain route.
+    domains: [platform]
+    runner: vibe
+    automatic: true
+  - id: docs-frontmatter
+    kind: guard
+    level: L0
+    description: Validate structured frontmatter and cross-links for authoritative domain and contract pages.
+    domains: [platform]
+    runner: vibe
+    automatic: true
+  - id: evidence-provenance
+    kind: guard
+    level: L1
+    description: Validate evidence identity, freshness fields, artifact hashes, and claim coverage before promotion.
+    domains: [platform]
+    runner: vibe
+    automatic: true

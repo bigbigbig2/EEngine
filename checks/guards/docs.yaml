@@ -1,0 +1,7 @@
+id: guard-docs
+kind: guard
+level: L0
+description: Validate authoritative document shape, frontmatter, links, and generated status ownership.
+domains: [platform]
+runner: vibe
+automatic: true

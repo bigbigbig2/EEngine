@@ -8,10 +8,10 @@ const {
   selectTextureAssetVariantV2,
   uploadTextureAssetPackageV2,
   writeEncodedTextureAssetPackageV2
-} = await import("../.test-dist/assets/TextureAssetPackage.js");
+} = await import("../../.test-dist/assets/TextureAssetPackage.js");
 const {
   cookReferenceTextureAssetPackageV2: cookTextureAssetPackageV2
-} = await import("../.test-dist/assets/codec/ReferenceTextureCodec.js");
+} = await import("../../.test-dist/assets/codec/ReferenceTextureCodec.js");
 
 test("encoded-variant writer round-trips BC7 provenance and explicit physical extents", async () => {
   const source = sourceTexture("base-color-srgb");

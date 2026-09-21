@@ -10,7 +10,7 @@ import {
   createGpuShadingBinLayouts,
   finalizeGpuShadingBinsReference,
   preflightGpuShadingBinSizing
-} from "../.test-dist/gpu/GpuShadingBinAbi.js";
+} from "../../.test-dist/gpu/GpuShadingBinAbi.js";
 import {
   SHADING_BIN_CLASSIFIER_BINDING_CONTRACT,
   SHADING_BIN_CLASSIFIER_DISPATCH_COVERAGE,
@@ -19,12 +19,12 @@ import {
   classifierBindGroupLayoutDescriptor,
   finalizerBindGroupLayoutDescriptor,
   shadingBinResourceDescriptorOracle
-} from "../.test-dist/render/passes/ShadingBinPass.js";
+} from "../../.test-dist/render/passes/ShadingBinPass.js";
 import {
   GPU_SHADING_BIN_DIAGNOSTIC_FAULT,
   SHADING_BIN_CLASSIFIER_DIAGNOSTICS_WGSL,
   SHADING_BIN_CLASSIFIER_WGSL
-} from "../.test-dist/shaders/shading_bin_classify.js";
+} from "../../.test-dist/shaders/shading_bin_classify.js";
 
 const limits = Object.freeze({
   maxTextureDimension2D: 32768,

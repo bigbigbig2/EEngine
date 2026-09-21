@@ -1,0 +1,25 @@
+schemaVersion: 1
+id: virtual-product-device-loss-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0016-s5-product-device-loss-v1
+features:
+  - web-cook
+  - glb-range
+  - product-admission
+  - product-residency
+  - product-device-loss-recovery
+  - hierarchy-work
+  - meshlet-raster
+  - visibility-key
+  - sparse-shading
+seed: 1606
+cameraPath: web-glb-device-loss-recovery
+warmupFrames: 1
+sampleFrames: 5
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

@@ -1,0 +1,20 @@
+schemaVersion: 1
+id: texture-format-rules
+kind: specification-ledger
+upstream:
+  name: WebGPU texture format and copy rules
+  repository: https://www.w3.org/TR/webgpu/
+  revision: WebGPU 2026 Desktop capability line
+license: W3C specification terms.
+localOwners:
+  - OEngine/src/gpu/TextureResidency.ts
+  - OEngine/src/assets/TextureAssetPackage.ts
+sourceMap: docs/porting/platform.md
+retainedInvariants:
+  - Available mip clamps are explicit.
+  - Authored material identity is preserved through residency publication.
+differences:
+  - Format specialization follows negotiated adapter capabilities and has a deterministic fallback.
+validation:
+  - validation/cases/texture-residency-component/case.yaml
+  - validation/cases/glb-web-product-authored-texture/case.yaml

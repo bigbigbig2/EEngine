@@ -4,16 +4,16 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import "./webgpu-test-globals.mjs";
+import "../../webgpu-test-globals.mjs";
 import {
   GPUTextureAllocator
-} from "../.test-dist/gpu/GPUTextureAllocator.js";
+} from "../../.test-dist/gpu/GPUTextureAllocator.js";
 import {
   GPUTextureContext
-} from "../.test-dist/gpu/GPUTextureContext.js";
+} from "../../.test-dist/gpu/GPUTextureContext.js";
 import {
   resolveTextureView
-} from "../.test-dist/render/RenderTargetViews.js";
+} from "../../.test-dist/render/RenderTargetViews.js";
 
 const oengineRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 

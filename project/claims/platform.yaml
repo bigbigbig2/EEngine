@@ -1,0 +1,26 @@
+schemaVersion: 2
+claims:
+  - id: platform.capability
+    domain: platform
+    owner: platform
+    statement: Capability negotiation records actual device features and limits before opaque resources are created.
+    level: L3
+    requiredChecks: [registry, evidence-provenance]
+    allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
+    watch: [OEngine/src/gpu/GraphicsContext.ts, OEngine/src/gpu/GpuSparseShadingCapability.ts, validation/cases/webgpu-component/**]
+  - id: platform.evidence
+    domain: platform
+    owner: platform
+    statement: Validation evidence is tied to a case, workload, revision, content hash, diagnostics, and disposal result.
+    level: L4
+    requiredChecks: [model, registry, changed-coverage, evidence-provenance]
+    allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
+    watch: [validation/**, docs/VALIDATION.md, docs/adr/0014-browser-validation-and-performance-host.md]
+  - id: platform.routing
+    domain: platform
+    owner: platform
+    statement: Every production or validation change routes to one primary domain, related claims, and an executable check.
+    level: L1
+    requiredChecks: [model, changed-coverage, registry, guard-ownership, guard-legacy, guard-generated-source]
+    allowedDeclarations: [ImplementationComplete]
+    watch: [project/**, checks/**, tools/**]

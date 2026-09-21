@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./webgpu-test-globals.mjs";
+import "../../webgpu-test-globals.mjs";
 
-import { GpuShadingPublicationStore } from "../.test-dist/gpu/GpuShadingPublicationPlan.js";
+import { GpuShadingPublicationStore } from "../../.test-dist/gpu/GpuShadingPublicationPlan.js";
 import {
   SparseShadingPublicationCoordinator
-} from "../.test-dist/render/pipeline/SparseShadingPublicationCoordinator.js";
+} from "../../.test-dist/render/pipeline/SparseShadingPublicationCoordinator.js";
 
 const sizingLimits = Object.freeze({
   maxTextureDimension2D: 32768,

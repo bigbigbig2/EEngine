@@ -11,7 +11,7 @@ const {
   WEB_GEOMETRY_COOK_PAGE_PENDING,
   WEB_GEOMETRY_COOK_PAGE_READY,
   WEB_GEOMETRY_COOK_PAGE_UNDECLARED
-} = await import("../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js");
+} = await import("../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js");
 const Module = (await import("../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs")).default;
 
 async function loadArtifact() {
@@ -105,7 +105,7 @@ test("checked-in Web geometry artifact publishes a descriptor before any payload
 
 
 test("plan-backed revision re-reads a page after its first buffer was transferred", async () => {
-  const { planWasmGeometryProductRevisionV1 } = await import("../.test-dist/assets/geometry-product/WasmGeometryProductV1.js");
+  const { planWasmGeometryProductRevisionV1 } = await import("../../.test-dist/assets/geometry-product/WasmGeometryProductV1.js");
   const module = await loadArtifact();
   const revision = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), encodeWebGeometryCookRecipeV1(), {
     producerId: "oengine-test",

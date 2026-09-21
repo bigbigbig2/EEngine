@@ -6,15 +6,15 @@ globalThis.GPUBufferUsage ??= Object.freeze({ MAP_READ: 1, COPY_DST: 2 });
 globalThis.GPUMapMode ??= Object.freeze({ READ: 1 });
 
 const { GpuGeometryDemandReadbackRingV1 } = await import(
-  "../.test-dist/gpu/GeometryDemandReadbackRing.js"
+  "../../.test-dist/gpu/GeometryDemandReadbackRing.js"
 );
 const { GeometryPageStreamingRuntimeV1 } = await import(
-  "../.test-dist/gpu/GeometryPageStreamingRuntime.js"
+  "../../.test-dist/gpu/GeometryPageStreamingRuntime.js"
 );
 const {
   packGeometryPageDemandHeaderV1,
   packGeometryPageDemandV1
-} = await import("../.test-dist/gpu/GeometryPageDemandAbiV1.js");
+} = await import("../../.test-dist/gpu/GeometryPageDemandAbiV1.js");
 
 class FakeBuffer {
   constructor(descriptor) {
@@ -160,7 +160,7 @@ test("runtime destruction unregisters the Product and aborts pending page reads"
     },
     release() {}
   };
-  const scheduler = new (await import("../.test-dist/gpu/GeometryPageScheduler.js")).GeometryPageSchedulerV1({
+  const scheduler = new (await import("../../.test-dist/gpu/GeometryPageScheduler.js")).GeometryPageSchedulerV1({
     maxConcurrentReads: 1,
     maxInFlightBytes: page.byteLength
   });

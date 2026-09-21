@@ -12,14 +12,14 @@ import {
   gpuShadingBinVisibilityRenderPassAttachments,
   gpuVisibilityKeyRenderPassAttachments,
   resolveGpuShadingBinRasterOwnership
-} from "../.test-dist/gpu/GpuShadingBinVisibilityContract.js";
-import { GPU_VISIBILITY_KEY_EMPTY } from "../.test-dist/gpu/GpuVisibilityKeyAbi.js";
+} from "../../.test-dist/gpu/GpuShadingBinVisibilityContract.js";
+import { GPU_VISIBILITY_KEY_EMPTY } from "../../.test-dist/gpu/GpuVisibilityKeyAbi.js";
 import {
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_WGSL,
   MESHLET_BUCKET_VISIBILITY_WGSL,
   MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_SINGLE_WGSL,
   MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL
-} from "../.test-dist/shaders/meshlet_bucket_visibility.js";
+} from "../../.test-dist/shaders/meshlet_bucket_visibility.js";
 
 test("ShadingBinId attachment and dual-MRT render pass freeze the physical contract", () => {
   const contract = gpuShadingBinVisibilityAttachmentContract(1920, 1080);

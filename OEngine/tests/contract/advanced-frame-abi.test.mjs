@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 
-import "./webgpu-test-globals.mjs";
+import "../../webgpu-test-globals.mjs";
 
 import {
   LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
@@ -19,17 +19,17 @@ import {
   shadingSurfaceLiteFrame,
   temporalReconstructionFrame,
   textureDomain
-} from "../.test-dist/render/pipeline/FrameProducts.js";
-import { TemporalHistoryRegistry } from "../.test-dist/render/TemporalHistoryRegistry.js";
+} from "../../.test-dist/render/pipeline/FrameProducts.js";
+import { TemporalHistoryRegistry } from "../../.test-dist/render/TemporalHistoryRegistry.js";
 import {
   DynamicResolutionScaling
-} from "../.test-dist/render/DynamicResolutionScaling.js";
-import { RenderSettings } from "../.test-dist/render/pipeline/RenderSettings.js";
+} from "../../.test-dist/render/DynamicResolutionScaling.js";
+import { RenderSettings } from "../../.test-dist/render/pipeline/RenderSettings.js";
 import {
   classifyTemporalHistory
-} from "../.test-dist/render/TemporalResolveContract.js";
-import { resolveMainFrameFeatureTopology } from "../.test-dist/render/MainFrameFeatureTopology.js";
-import { gpuShadingBindingBudget } from "../.test-dist/gpu/GpuShadingBindingBudget.js";
+} from "../../.test-dist/render/TemporalResolveContract.js";
+import { resolveMainFrameFeatureTopology } from "../../.test-dist/render/MainFrameFeatureTopology.js";
+import { gpuShadingBindingBudget } from "../../.test-dist/gpu/GpuShadingBindingBudget.js";
 import {
   GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL,
   GPU_COMPUTE_MATERIAL_BYTES_PER_PIXEL_WITHOUT_VELOCITY,
@@ -37,22 +37,22 @@ import {
   GPU_COMPUTE_MATERIAL_ABI_VERSION,
   packComputeMaterialPbr,
   unpackComputeMaterialPbr
-} from "../.test-dist/gpu/GpuComputeMaterialAbi.js";
+} from "../../.test-dist/gpu/GpuComputeMaterialAbi.js";
 import {
   GPU_HDR_BYTES_PER_PIXEL,
   GPU_HDR_FORMAT,
   GPU_HDR_PROFILE,
   GPU_HDR_REJECTED_MAIN_CANDIDATES
-} from "../.test-dist/gpu/GpuHdrAbi.js";
+} from "../../.test-dist/gpu/GpuHdrAbi.js";
 import {
   GPU_SPARSE_SHADING_VIEW_ABI_VERSION,
   GPU_SPARSE_SHADING_VIEW_BYTES,
   GPU_SPARSE_SHADING_VIEW_OFFSETS,
   packGpuSparseShadingView
-} from "../.test-dist/gpu/GpuSparseShadingFrameAbi.js";
+} from "../../.test-dist/gpu/GpuSparseShadingFrameAbi.js";
 import {
   evaluateSurfaceAbiV2RunGroupNeed
-} from "../.test-dist/debug/VisibilitySurfaceMigrationGates.js";
+} from "../../.test-dist/debug/VisibilitySurfaceMigrationGates.js";
 import {
   GTAO_BENT_NORMAL_BYTES_PER_PIXEL,
   GTAO_BENT_NORMAL_FORMAT,
@@ -66,7 +66,7 @@ import {
   GTAO_TEMPORAL_WGSL,
   THREE_GTAO_RAW_WGSL,
   THREE_GTAO_REVISION
-} from "../.test-dist/shaders/gtao.js";
+} from "../../.test-dist/shaders/gtao.js";
 import {
   SSGI_BENT_NORMAL_FORMAT,
   SSGI_CONFIDENCE_FORMAT,
@@ -79,53 +79,53 @@ import {
   SSGI_TEMPORAL_WGSL,
   THREE_SSGI_REVISION,
   THREE_SSGI_TRACE_WGSL
-} from "../.test-dist/shaders/ssgi.js";
+} from "../../.test-dist/shaders/ssgi.js";
 import {
   LONG_RANGE_DIFFUSE_PROVIDER_WGSL,
   LONG_RANGE_PROVIDER_FORMAT
-} from "../.test-dist/shaders/long_range_diffuse_provider.js";
-import { OPAQUE_LIGHTING_RESOLVE_WGSL } from "../.test-dist/shaders/opaque_lighting_resolve.js";
-import { OENGINE_ENVIRONMENT_BRDF_WGSL } from "../.test-dist/shaders/environment_brdf.js";
+} from "../../.test-dist/shaders/long_range_diffuse_provider.js";
+import { OPAQUE_LIGHTING_RESOLVE_WGSL } from "../../.test-dist/shaders/opaque_lighting_resolve.js";
+import { OENGINE_ENVIRONMENT_BRDF_WGSL } from "../../.test-dist/shaders/environment_brdf.js";
 import {
   FILAMENT_SPECULAR_AO_REVISION,
   SPECULAR_AMBIENT_OCCLUSION_WGSL
-} from "../.test-dist/shaders/specular_ambient_occlusion.js";
+} from "../../.test-dist/shaders/specular_ambient_occlusion.js";
 import {
   SURFACE_FLAGS_DEBUG_WGSL,
   SURFACE_PBR_DEBUG_WGSL
-} from "../.test-dist/shaders/render_debug_view.js";
-import { THREE_SSR_REVISION } from "../.test-dist/shaders/ssr_common.js";
-import { SSR_TRACE_WGSL } from "../.test-dist/shaders/ssr_trace.js";
-import { SSR_RESOLVE_WGSL } from "../.test-dist/shaders/ssr_resolve.js";
+} from "../../.test-dist/shaders/render_debug_view.js";
+import { THREE_SSR_REVISION } from "../../.test-dist/shaders/ssr_common.js";
+import { SSR_TRACE_WGSL } from "../../.test-dist/shaders/ssr_trace.js";
+import { SSR_RESOLVE_WGSL } from "../../.test-dist/shaders/ssr_resolve.js";
 import {
   SSR_RECURRENT_DENOISE_WGSL,
   SSR_TEMPORAL_WGSL,
   SSR_UPSAMPLE_WGSL
-} from "../.test-dist/shaders/ssr_denoise.js";
-import { SPECULAR_CORRECTION_WGSL } from "../.test-dist/shaders/specular_correction.js";
-import { TAA_WGSL } from "../.test-dist/shaders/taa.js";
-import { temporalEvidenceWgsl } from "../.test-dist/shaders/temporal_classification.js";
-import { NSS_PREPROCESS_WGSL } from "../.test-dist/shaders/nss.js";
-import { MOTION_BLUR_RESOLVE_WGSL } from "../.test-dist/shaders/motion_blur.js";
-import { OCCLUSION_CONFIDENCE_WGSL } from "../.test-dist/shaders/occlusion_confidence.js";
+} from "../../.test-dist/shaders/ssr_denoise.js";
+import { SPECULAR_CORRECTION_WGSL } from "../../.test-dist/shaders/specular_correction.js";
+import { TAA_WGSL } from "../../.test-dist/shaders/taa.js";
+import { temporalEvidenceWgsl } from "../../.test-dist/shaders/temporal_classification.js";
+import { NSS_PREPROCESS_WGSL } from "../../.test-dist/shaders/nss.js";
+import { MOTION_BLUR_RESOLVE_WGSL } from "../../.test-dist/shaders/motion_blur.js";
+import { OCCLUSION_CONFIDENCE_WGSL } from "../../.test-dist/shaders/occlusion_confidence.js";
 import {
   HZB_FROM_DEPTH_COMPUTE_WGSL,
   HZB_REDUCE_COMPUTE_WGSL
-} from "../.test-dist/shaders/hzb_reduce.js";
+} from "../../.test-dist/shaders/hzb_reduce.js";
 import {
   finalOutputBindingPlan
-} from "../.test-dist/shaders/final_output_input.js";
-import { summarizeFrameGraphResources } from "../.test-dist/framegraph/FrameResourceSummary.js";
-import { tonemapSdrWgsl } from "../.test-dist/shaders/tonemap_sdr.js";
-import { tonemapHdrWgsl } from "../.test-dist/shaders/tonemap_hdr.js";
+} from "../../.test-dist/shaders/final_output_input.js";
+import { summarizeFrameGraphResources } from "../../.test-dist/framegraph/FrameResourceSummary.js";
+import { tonemapSdrWgsl } from "../../.test-dist/shaders/tonemap_sdr.js";
+import { tonemapHdrWgsl } from "../../.test-dist/shaders/tonemap_hdr.js";
 import {
   BRICK4_LIGHT_MAP_SCHEMA_VERSION,
   createBrick4LightMapPackageV1,
   validateBrick4LightMapPackageV1
-} from "../.test-dist/assets/Brick4LightMapPackage.js";
+} from "../../.test-dist/assets/Brick4LightMapPackage.js";
 import {
   BRICK4_LIGHT_MAP_MIN_BINDING_BYTES
-} from "../.test-dist/gpu/Brick4LightMap.js";
+} from "../../.test-dist/gpu/Brick4LightMap.js";
 const SURFACE_FEATURE_SOURCE = readFileSync(
   new URL("../src/render/features/SurfaceFeature.ts", import.meta.url),
   "utf8"

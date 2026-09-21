@@ -56,5 +56,4 @@ src/index.ts
 - `examples/` 不承担 Browser Case 或 formal runner；`npm test` 不能替代真实 GPU 证据。渲染改动必须由 ADR-0014 的独立 `validation/` 宿主产生合格证据，才可升级为 Runtime Validated、Performance Evaluated/Improved、Pipeline Feature Complete 或 ADR Complete。
 - MILESTONE 与正式 PERF 必须使用 ADR-0014 的真实浏览器宿主，并遵循 `docs/VALIDATION.md` 的 fixed-condition policy。
 
-现有 `tests/` 已覆盖 R0/R1 的关键公共 seam；新增高风险 ABI、数学、资产解析和 GPU producer/consumer 路径时必须同步补验证入口。
-
+现有 `tests/unit|contract|oracle|guard/` 已覆盖关键公共 seam；新增高风险 ABI、数学、资产解析和 GPU producer/consumer 路径时必须同步补对应分类或命中的 Browser Case。

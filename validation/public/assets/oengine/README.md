@@ -2,7 +2,7 @@
 
 这两组目录是 ADR-0016 S6 的 Offline 路线 fixture：一对由 Native Offline Cooker
 产出的 `.oegpack` + `scene.oescene`，供 `virtual-product-offline` case 与
-`tests/oegpack-offline-product.test.mjs` 消费。它们是 cooker 的**原始输出**，
+`tests/contract/oegpack-offline-product.test.mjs` 消费。它们是 cooker 的**原始输出**，
 未被重命名或改写，目录名只用来提供稳定 URL。
 
 来源 GLB：`glb-web-product-v1.glb`（同目录）（33×33 单面高度场，1 primitive，1 material）。
@@ -30,4 +30,4 @@ Product 替换与换版后的画面连续性。
 | `offline-product-b/scene.oescene` | 432 | `3910a4cf7bedd01c356590e5536fa605605794289564312adb1d0e33948d1391` |
 
 合同见 `docs/specs/oegpack-scene-manifest-v3.md` 与 `docs/specs/oegpack-v3.md`。
-替换这些 fixture 时必须同时更新本表、命令与 `docs/STATUS.md` 的证据数字。
+替换这些 fixture 时必须同时更新本表、命令与 `validation/evidence/index.json` 的证据索引。

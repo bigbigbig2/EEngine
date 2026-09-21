@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { canonicalizeGlbPrimitiveV1 } = await import("../.test-dist/assets/web-cook/gltf/GlbPrimitiveCanonicalizer.js");
+const { canonicalizeGlbPrimitiveV1 } = await import("../../.test-dist/assets/web-cook/gltf/GlbPrimitiveCanonicalizer.js");
 
 function accessor(accessorIndex, byteOffset, byteLength, byteStride, componentType, componentCount, count, normalized = false) { return { accessorIndex, bufferIndex: 0, byteOffset, byteLength, byteStride, componentType, componentCount, count, normalized }; }
 function unit(overrides = {}) {

@@ -1,0 +1,16 @@
+schemaVersion: 1
+id: protocol-self-test-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: orchestration-smoke-v1
+features: []
+seed: 0
+cameraPath: none
+warmupFrames: 1
+sampleFrames: 1
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

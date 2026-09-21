@@ -1,0 +1,14 @@
+schemaVersion: 1
+profiles:
+  protocol:
+    owns: [identity, freshness, state-machine, dispose]
+    rejects: [rendering-assertions]
+  gpu:
+    owns: [capability, gpu-errors, readback, dispose]
+    rejects: [browser-navigation-control]
+  production:
+    owns: [capability, gpu-errors, frame-observation, recovery, dispose]
+    rejects: [second-renderer-pipeline]
+  observer:
+    owns: [user-facing-flow, capability, bounded-readback, dispose]
+    rejects: [formal-performance-claim]

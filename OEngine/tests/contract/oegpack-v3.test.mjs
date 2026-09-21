@@ -12,22 +12,22 @@ const {
   MemoryRangeReadablePackV3,
   OegPackV3Error,
   openOegPackV3
-} = await import("../.test-dist/assets/OegPackV3.js");
+} = await import("../../.test-dist/assets/OegPackV3.js");
 const {
   decodeGroupHeaderV3,
   decodeMeshletHeaderV3,
   OEGPACK_V3_PAGE_BYTES
-} = await import("../.test-dist/assets/GeometryAbiV3.js");
-const { GeometryProductAdmission } = await import("../.test-dist/gpu/GeometryProductAdmission.js");
-const { unpackGeometryProductMetadataHeapHeaderV1 } = await import("../.test-dist/gpu/GeometryProductGpuAbiV1.js");
+} = await import("../../.test-dist/assets/GeometryAbiV3.js");
+const { GeometryProductAdmission } = await import("../../.test-dist/gpu/GeometryProductAdmission.js");
+const { unpackGeometryProductMetadataHeapHeaderV1 } = await import("../../.test-dist/gpu/GeometryProductGpuAbiV1.js");
 const {
   descriptorFromOegPack,
   OegPackProductRevisionSource,
   validateGeometryProductDescriptorV1
-} = await import("../.test-dist/assets/geometry-product/index.js");
-const { createGeometryCookRecipeV3, geometryCookRecipeV3Key } = await import("../.test-dist/assets/GeometryCookRecipe.js");
-const { GltfLoader } = await import("../.test-dist/loaders/gltf/GltfLoader.js");
-const { buildPackedGltfSource } = await import("../.test-dist/loaders/load_gltf.js");
+} = await import("../../.test-dist/assets/geometry-product/index.js");
+const { createGeometryCookRecipeV3, geometryCookRecipeV3Key } = await import("../../.test-dist/assets/GeometryCookRecipe.js");
+const { GltfLoader } = await import("../../.test-dist/loaders/gltf/GltfLoader.js");
+const { buildPackedGltfSource } = await import("../../.test-dist/loaders/load_gltf.js");
 
 const cooker = resolve("tools/oengine-asset-core/build/oengine-asset-cooker.exe");
 const fixtureRoot = await mkdtemp(join(tmpdir(), "oengine-oeg3-"));

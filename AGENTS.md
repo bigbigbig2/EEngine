@@ -1,73 +1,30 @@
-# OEngine 仓库协作约束
+# OEngine 协作约束
 
-## 项目定位
+OEngine 是面向桌面 WebGPU、中大型高几何密度场景的 GPU-first 渲染引擎。当前重点是 GPU-ready 资产、Packed Instances、层次工作生成、Hardware-first Visibility、单次材质解析以及统一光照和时域管线；不以完整 Gameplay/ECS 或 three.js 兼容为目标。
 
-OEngine 当前阶段是面向桌面 WebGPU、中大型高几何密度场景的 GPU-first 渲染引擎核心。当前优先建设 GPU-ready 资产、紧凑 GPU 表与 Packed Instances、层次工作生成、Hardware-first Visibility、单次材质解析、光照与时域渲染管线；不以超大世界或完整 Gameplay 引擎为前提。
+## 工作流
 
-当前阶段不以兼容 three.js 生态为目标。外部项目只能作为已登记的算法、行为或性能参考，不是 OEngine 运行时依赖或代码所有权来源。
+1. 修改前运行 `node tools/vibe.mjs context <path>`，按输出阅读 domain、contract、ADR/spec 和命中的 case。
+2. 修改后运行 `node tools/vibe.mjs verify --changed`；需要查看声明和证据时运行 `node tools/vibe.mjs status`、`node tools/vibe.mjs evidence`。
+3. 机器事实只编辑 `project/`、`checks/`、case-local `case.yaml`、docs frontmatter/source ledger 和 workstream；`validation/registry.generated.json`、`validation/evidence/` 与 `docs/status.generated.md` 是生成物。
 
-## 开始任务前
+## 不可违反的不变量
 
-1. 完整阅读 `CONTEXT-MAP.md`。
-2. 按路由阅读 `docs/PRODUCT.md`、`docs/WEBGPU.md`、`docs/ARCHITECTURE.md` 或 `docs/PIPELINE.md`。
-3. 修改 `OEngine/` 时阅读 `OEngine/AGENTS.md`，并继续读取更近的 `AGENTS.md`。
-4. 架构变更先检查 `docs/adr/`；精确 ABI/格式检查 `docs/specs/`；活跃迁移检查 `docs/implementation/`；范围与验证分别读取 `docs/PRODUCT.md`、`docs/VALIDATION.md`。
+- GPU producer 必须由 GPU consumer 闭环消费；CPU 可读回仅用于诊断或异步调度反馈。
+- 每条 GPU 队列都声明元素 ABI、容量、溢出行为、生产者、消费者和计数器。
+- Runtime Asset、Product、GPU 资源表和 Loader 临时对象分离，Loader 不拥有长期 GPU 资源。
+- Renderer 是 composition root；不得全量扫描对象构建最终可见列表，也不得扩张完整 Gameplay 生命周期。
+- 所有渲染功能使用一条统一主管线；关闭 feature 时不保留无消费者 Pass、资源、readback 或 submit。
+- WebGPU capability/limit/feature 先协商再创建资源；Draft 能力、64 位原子、mesh/task shader、BDA 和 multi-draw 不得默认启用。
+- ABI、二进制、shader layout、状态机和 owner 边界进入 `docs/specs/` 或 `docs/contracts/`，并有对应 contract/oracle 验证。
+- Nyx 迁移必须保留源函数/entry point、决策条件、数据依赖、不变量、差异、fallback 和验证映射；未完成对照不得宣称完成。
+- Browser validation 只在独立 `validation/` 宿主运行；examples/Storybook 不产生 Runtime Validated、Performance 或 Pipeline 完成声明。
+- Claim 状态只由当前 revision 的 evidence 推导；clean revision、完整 gate 或正式 PERF 证据不足时，声明等级不得升级。
 
-## 全局强制约束
+## 目录所有权
 
-- WebGPU 2026 Desktop 是当前目标能力线，具体 feature/limit/API/WGSL 协商以 `docs/WEBGPU.md` 为准；已进入规范的现代能力应在实际支持且有生产 consumer 时优先使用。不得把 64 位原子、multi-draw-indirect、mesh/task shader、buffer device address 或仍处于 Draft 的能力当作默认能力。
-- GPU-driven 必须形成 GPU producer → GPU consumer 闭环。只生成 Buffer、但最终仍由 CPU 遍历原列表，不算完成。
-- 新增 GPU 队列必须定义元素 ABI、容量、溢出行为、生产者、消费者和统计计数。
-- Runtime Asset 与 GPU 资源表必须分离；Loader 临时对象不得成为长期 GPU 资源 owner。
-- 当前优先 bulk/mostly-static GPU Scene 和显式 transform/material patch；Renderer 不得全量扫描对象构建最终可见列表，也不得为当前阶段扩张完整 ECS/Gameplay 生命周期。
-- 一条统一主管线承载渲染功能；功能可按配置和依赖启停，但不得设计 Core/Quality/Experimental 等三档独立管线。
-- Feature 关闭时必须接近零成本，不得保留无消费者 Pass、资源分配、readback 或独立 submit。
-- 不以 Pass 数量、Shader 数量或“已存在类名”证明能力完成；必须有运行证据、计数器和 benchmark。
-- 当前实现不是不可推翻的权威。性能证据可以要求删除或重写现有 Visibility、HZB、Material Expand 和帧提交路径。
-- 具体算法、GPU 数据结构和 Shader 实现先检查 `docs/porting/`；存在许可证兼容且经过验证的实现时，优先做可追溯移植。移植必须记录上游仓库、commit/tag、源码路径、保留不变量和 WebGPU/OEngine 差异。
-- ADR-0016 的 Nyx 来源算法是强制忠实移植目标：Web Runtime Cooker、Native Offline Cooker 与 GPU traversal/streaming/raster 各自命中的 Nyx 算法阶段、决策条件、数据依赖和正确性不变量必须按源函数/Shader entry point 对照保留。移植不要求逐行、同语言、同图形 API、同内存布局或 Web/Offline 字节相同；允许 C++/WASM、TypeScript 与 WGSL 的必要平台适配，但不得以适配为名删减阶段、自行换用简化算法或只保留概念。每项适配必须记录源函数到生产代码的映射、保留/改变的语义、原因、fallback 和验证；若平台限制导致核心语义无法保留，应停止该切片并请求方向确认，不得自行降级。未完成对照与下游消费证据时不得宣称 Nyx 算法移植完成。具体门禁见 `docs/porting/README.md` 与 `docs/VALIDATION.md`。
+- `project/domains/` 路由文件和 primary owner；`project/claims/` 声明；`checks/` 检查；`project/workstreams/active/` 活跃切片。
+- `docs/domains/` 当前事实，`docs/contracts/` 精确跨 owner 合同，`docs/adr/` 长期取舍，`docs/specs/` ABI/格式，`docs/sources/` 外部来源账本。
+- `OEngine/tests/unit|contract|oracle|guard/` 按证明性质分类；`validation/cases/<id>/` 是自动 case，`validation/labs/<id>/` 是显式观察实验；共享生命周期由 `validation/harness/` 拥有。
 
-## 开源实现与算法复用
-
-- 开源复用优先适用于所有基础能力，不只适用于 GPU-driven：渲染算法、数学函数、PBR/BRDF、材质模型、资产解析、Meshlet/压缩、纹理格式、动画、ECS、验证和调试工具都必须先检索成熟开源实现、论文或官方规格。
-- 外部实现只能采用“直接依赖、可追溯局部移植、按规格独立实现、拒绝采用”四种状态；可以直接复制、翻译或改写其表达性代码。
-- 来源、迁移记录和 WebGPU 适配规则统一见 `docs/porting/`。
-- 复用外部实现不豁免性能门禁；必须说明减少的工作、增加的资源/dispatch/branch 成本、fallback/lifecycle 语义，并用同条件固定 workload 或局部 benchmark 证明。
-
-## 代码与生成物
-
-- `OEngine/src/index.ts` 是公开 interface；内部 GPU、Pass、Shader 类型默认不向外泄漏。
-- `*.generated.ts` 和 oracle Shader 不是设计权威；变更时必须确认真实运行路径和生成来源。
-- 重构默认直接迁移调用方并删除死代码，不保留无需求的兼容层。
-
-## 验证
-
-- 验证强度遵循 `docs/VALIDATION.md` 的 DEV/MILESTONE/PERF 分级；纯文档改动只运行静态文档检查。
-- 普通 DEV 在 dependency/lockfile 未变化时不运行 `npm ci`。TypeScript/WGSL 改动先运行 `cd OEngine; npm run typecheck` 和命中的 targeted tests。
-- dependency/lockfile 变化、clean reproduction、CI 或正式 PERF 前运行 `cd OEngine; npm ci`。
-- `examples/` 已按 Example Library V2 恢复为 standalone Vite MPA + Storybook iframe catalog，但不提供 Browser Case 或 PERF Runner；真实浏览器验证与 formal PERF 由 [ADR-0014](docs/adr/0014-browser-validation-and-performance-host.md) 定义的独立 `validation/` 宿主承担。该宿主未产生合格证据前，渲染改动不得声明 Runtime Validated、Performance Evaluated/Improved、Pipeline Feature Complete 或 ADR Complete。
-- MILESTONE 与正式 PERF 必须使用 ADR-0014 的真实浏览器宿主；既有 benchmark 只证明其冻结 commit，不替代当前 revision 验证。
-- 性能改动必须遵守 `docs/VALIDATION.md` 的相同 adapter、分辨率/DPR、画质、workload 和 warm-up 规则。
-- 渲染正确性不能只靠 typecheck；需要 GPU timestamp、计数器、debug view 或截图/数值回归。
-- 新的可运行垂直验证不得塞入 `examples/` 或 Storybook；按 ADR-0014 放入独立 `validation/`，并保存真实浏览器、截图、console 和 GPU diagnostics 证据。
-- 默认采用与风险匹配的中等验证：本地检查、构建/测试和命中示例。除非用户明确要求或变更风险确实需要，不为普通验证扩散多个 review 子任务。
-- 最终说明必须列出已运行验证、未运行验证和原因。
-
-## 文档治理
-
-1. `AGENTS.md` 与更近的局部 `AGENTS.md`：协作和所有权约束。
-2. `docs/adr/`：已接受的长期决策。
-3. `docs/PRODUCT.md`：产品方向、目标平台、workload 与非目标。
-4. `docs/WEBGPU.md`：WebGPU/WGSL 能力线、协商与 specialization 合同。
-5. `docs/specs/`：被代码、文件、线程或 GPU producer/consumer 共同使用的精确合同。
-6. `docs/ARCHITECTURE.md`、`docs/PIPELINE.md`：当前架构、owner 与真实帧合同。
-7. `docs/STATUS.md`：当前实现状态、风险与下一步。
-8. `docs/implementation/`：活跃交付切片；不得覆盖已接受 ADR 或冻结 spec。
-9. `docs/VALIDATION.md`：验证和性能证据合同。
-10. `docs/porting/`：外部来源与许可证，不自动决定项目设计。
-
-- ADR 只记录长期取舍，不记录实现进度；`accepted` 不等于 implemented、validated 或 complete。
-- ABI、二进制格式、状态机和跨 owner 合同进入 spec，并同步 oracle/golden test。
-- implementation 只保留活跃切片；切片完成后把事实写回 ARCHITECTURE/PIPELINE/STATUS，再删除过程叙述。
-- 已完成、被替代或被否决的长篇执行记录不迁入新文档，使用 Git 历史查询。
-- `docs/others/` 是非权威研究输入，不得作为产品、能力、ABI 或完成状态的依据。
+详细约束进入近目录 `AGENTS.md`、manifest、contract、spec 和 `docs/VALIDATION.md`。改动不得把生成物、历史日志或未提升的研究资料当作设计权威。

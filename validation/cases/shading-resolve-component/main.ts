@@ -2,9 +2,9 @@ import {
   captureGpuSparseShadingCapabilityRecord,
   createGpuSparseShadingCapabilityPlan,
   UnsupportedGpuPerformanceBaselineError
-} from "../../../../OEngine/src/gpu/GpuSparseShadingCapability.js";
-import { createValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits } from "../../host/webgpu.ts";
+} from "../../../OEngine/src/gpu/GpuSparseShadingCapability.js";
+import { createValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits } from "../../harness/browser.ts";
 import { SparseShadingResolveFixture } from "./fixture.ts";
 
 const status = document.querySelector<HTMLElement>("#status");

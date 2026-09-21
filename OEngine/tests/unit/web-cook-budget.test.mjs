@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { WebCookBudgetLedger } = await import("../.test-dist/assets/web-cook/WebCookBudget.js");
+const { WebCookBudgetLedger } = await import("../../.test-dist/assets/web-cook/WebCookBudget.js");
 
 const limits = { maxActiveSessions: 1, maxOutputBytes: 1024, maxSourceBytes: 4096, maxWasmBytes: 8192 };
 

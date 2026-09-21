@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { createWebCookSceneSourceAsync } = await import("../.test-dist/assets/web-cook/WebCookSceneSource.js");
+const { createWebCookSceneSourceAsync } = await import("../../.test-dist/assets/web-cook/WebCookSceneSource.js");
 
 test("Web Cook async mapper materializes authored texture slots before scene source publication", async () => {
   const previous = globalThis.createImageBitmap;

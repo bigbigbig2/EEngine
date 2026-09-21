@@ -1,14 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./webgpu-test-globals.mjs";
+import "../../webgpu-test-globals.mjs";
 
-import { parseGltfMaterial } from "../.test-dist/loaders/gltf/gltfMaterials.js";
+import { parseGltfMaterial } from "../../.test-dist/loaders/gltf/gltfMaterials.js";
 import {
   GPU_MATERIAL_VISIBILITY_FLAGS,
   materialVisibilitySource
-} from "../.test-dist/gpu/GpuMaterialVisibilityAbi.js";
-import { PACKED_TRANSPARENT_FORWARD_WGSL } from "../.test-dist/shaders/packed_transparent_oit.js";
+} from "../../.test-dist/gpu/GpuMaterialVisibilityAbi.js";
+import { PACKED_TRANSPARENT_FORWARD_WGSL } from "../../.test-dist/shaders/packed_transparent_oit.js";
 
 const textures = Object.freeze([
   { image: { width: 4, height: 4, depth: 1 }, wrapS: 1, wrapT: 1, magFilter: 1, minFilter: 1 },

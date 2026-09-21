@@ -80,4 +80,4 @@ Bootstrap page id 必须唯一、合法，并完整覆盖每个 asset 声明的 
 - native `static_assert` 与 TypeScript constant/decode mirror 必须保持 stride/offset 一致。
 - golden pack 覆盖 raw/LZ4、bootstrap、multi-page、deterministic recook 和 native validator/TS reader 互读。
 - corruption matrix 覆盖 magic/version/endian/reserved、table overlap/range、hash/CRC、非法 tree、跨页 group、payload offset、vertex/triangle 越界和 refine edge。
-- `OEngine/tests/oegpack-v3.test.mjs` 是当前 DEV oracle；还需增加 OEGPACK -> Geometry Product conformance golden。真实 V3 bootstrap geometry 经统一 admission 到达生产 Visibility 并通过 MILESTONE 后才可冻结本 spec。
+- `OEngine/tests/contract/oegpack-v3.test.mjs` 是当前 DEV oracle；还需增加 OEGPACK -> Geometry Product conformance golden。真实 V3 bootstrap geometry 经统一 admission 到达生产 Visibility 并通过 MILESTONE 后才可冻结本 spec。

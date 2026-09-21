@@ -54,29 +54,29 @@ const [
   { Scene },
   { SkinnedMesh }
 ] = await Promise.all([
-  import("../.test-dist/debug/FrameProfiler.js"),
-  import("../.test-dist/render/FrameCoordinator.js"),
-  import("../.test-dist/debug/profiling/ResourceAccounting.js"),
-  import("../.test-dist/gpu/GpuRenderWorld.js"),
-  import("../.test-dist/gpu/GpuSceneAdapter.js"),
-  import("../.test-dist/gpu/TextureResidency.js"),
-  import("../.test-dist/assets/codec/ReferenceTextureCodec.js"),
-  import("../.test-dist/assets/TextureAssetPackage.js"),
-  import("../.test-dist/debug/EnvironmentManifest.js"),
-  import("../.test-dist/gpu/GpuWorkGenerationAbi.js"),
-  import("../.test-dist/gpu/GpuTextureRefAbi.js"),
-  import("../.test-dist/gpu/TextureHandleAbi.js"),
-  import("../.test-dist/gpu/TextureBindingSetPolicy.js"),
-  import("../.test-dist/shaders/meshlet_bucket_visibility.js"),
-  import("../.test-dist/material/StandardShadeMaterial.js"),
-  import("../.test-dist/material/enums.js"),
-  import("../.test-dist/gpu/GpuInstanceAbi.js"),
-  import("../.test-dist/texture/ShadeTexture.js"),
-  import("../.test-dist/geometry/BoxGeometry.js"),
-  import("../.test-dist/scene/Mesh.js"),
-  import("../.test-dist/scene/Node3D.js"),
-  import("../.test-dist/scene/Scene.js"),
-  import("../.test-dist/scene/SkinnedMesh.js")
+  import("../../.test-dist/debug/FrameProfiler.js"),
+  import("../../.test-dist/render/FrameCoordinator.js"),
+  import("../../.test-dist/debug/profiling/ResourceAccounting.js"),
+  import("../../.test-dist/gpu/GpuRenderWorld.js"),
+  import("../../.test-dist/gpu/GpuSceneAdapter.js"),
+  import("../../.test-dist/gpu/TextureResidency.js"),
+  import("../../.test-dist/assets/codec/ReferenceTextureCodec.js"),
+  import("../../.test-dist/assets/TextureAssetPackage.js"),
+  import("../../.test-dist/debug/EnvironmentManifest.js"),
+  import("../../.test-dist/gpu/GpuWorkGenerationAbi.js"),
+  import("../../.test-dist/gpu/GpuTextureRefAbi.js"),
+  import("../../.test-dist/gpu/TextureHandleAbi.js"),
+  import("../../.test-dist/gpu/TextureBindingSetPolicy.js"),
+  import("../../.test-dist/shaders/meshlet_bucket_visibility.js"),
+  import("../../.test-dist/material/StandardShadeMaterial.js"),
+  import("../../.test-dist/material/enums.js"),
+  import("../../.test-dist/gpu/GpuInstanceAbi.js"),
+  import("../../.test-dist/texture/ShadeTexture.js"),
+  import("../../.test-dist/geometry/BoxGeometry.js"),
+  import("../../.test-dist/scene/Mesh.js"),
+  import("../../.test-dist/scene/Node3D.js"),
+  import("../../.test-dist/scene/Scene.js"),
+  import("../../.test-dist/scene/SkinnedMesh.js")
 ]);
 
 test("benchmark environment preserves clean-build content provenance", () => {
@@ -116,17 +116,17 @@ test("benchmark environment preserves clean-build content provenance", () => {
 });
 
 const { resolveFrameSceneOwners } = await import(
-  "../.test-dist/render/pipeline/SceneFrameBindings.js"
+  "../../.test-dist/render/pipeline/SceneFrameBindings.js"
 );
 const {
   computePracticalCascadeSplits,
   snapShadowBoundsToTexelGrid
-} = await import("../.test-dist/render/features/ShadowFeature.js");
+} = await import("../../.test-dist/render/features/ShadowFeature.js");
 const { createFrameContext } = await import(
-  "../.test-dist/render/pipeline/FrameContext.js"
+  "../../.test-dist/render/pipeline/FrameContext.js"
 );
 const { createMainRenderPipelineGraphKey } = await import(
-  "../.test-dist/render/pipeline/MainRenderPipelineGraphKey.js"
+  "../../.test-dist/render/pipeline/MainRenderPipelineGraphKey.js"
 );
 
 test("FrameContext freezes topology-bearing frame values", () => {

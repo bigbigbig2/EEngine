@@ -1,0 +1,37 @@
+schemaVersion: 1
+id: glb-incremental-publication
+route: /cases/glb-incremental-publication/index.html
+buildTarget: production
+workloadId: glb-incremental-publication-v1
+profile: smoke
+timeoutMs: 300000
+artifacts:
+  - result
+  - events
+  - screenshot
+changedPaths:
+  - validation/cases/glb-incremental-publication
+  - validation/package.json
+  - OEngine/src/assets/web-cook
+  - OEngine/src/assets/geometry-product
+  - OEngine/src/gpu/GeometryPageScheduler.ts
+  - OEngine/src/gpu/GeometryPageStreamingRuntime.ts
+  - OEngine/src/gpu/GeometryProductAdmission.ts
+  - OEngine/src/gpu/VirtualGeometryResidency.ts
+  - OEngine/src/render/pipeline/MainRenderPipeline.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while the incremental
+      publication case captures the device.
+    ownerClaim: virtual-assets.web-cook
+harness: production
+domain: virtual-assets
+caseKind: production
+kind: gpu
+level: L3
+covers:
+  - virtual-assets.web-cook
+  - virtual-assets.lifecycle
+decision: ADR-0017

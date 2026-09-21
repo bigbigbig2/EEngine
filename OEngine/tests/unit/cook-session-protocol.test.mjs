@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { WebCookSessionProtocol, WEB_COOK_PAGE_BYTES, WEB_COOK_PROTOCOL_VERSION } = await import("../.test-dist/assets/web-cook/protocol/CookSessionProtocol.js");
+const { WebCookSessionProtocol, WEB_COOK_PAGE_BYTES, WEB_COOK_PROTOCOL_VERSION } = await import("../../.test-dist/assets/web-cook/protocol/CookSessionProtocol.js");
 
 const header = { protocolVersion: WEB_COOK_PROTOCOL_VERSION, sessionId: "s1", sessionGeneration: 3 };
 const budgets = { maxConcurrentWorkers: 1, maxSourceBytes: 1024, maxWasmBytes: 1024, maxOutputBytes: WEB_COOK_PAGE_BYTES, maxQueuedEvents: 4 };

@@ -7,10 +7,10 @@ import test from "node:test";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 
-const { load_oegpack_product } = await import("../.test-dist/assets/geometry-product/OegPackProductAsset.js");
-const { createOegPackSceneSource } = await import("../.test-dist/assets/geometry-product/OegPackSceneSourceV1.js");
-const { OegPackSceneManifestError, parseOegPackSceneManifestV3 } = await import("../.test-dist/assets/geometry-product/OegPackSceneManifestV3.js");
-const { OegPackV3Error } = await import("../.test-dist/assets/OegPackV3.js");
+const { load_oegpack_product } = await import("../../.test-dist/assets/geometry-product/OegPackProductAsset.js");
+const { createOegPackSceneSource } = await import("../../.test-dist/assets/geometry-product/OegPackSceneSourceV1.js");
+const { OegPackSceneManifestError, parseOegPackSceneManifestV3 } = await import("../../.test-dist/assets/geometry-product/OegPackSceneManifestV3.js");
+const { OegPackV3Error } = await import("../../.test-dist/assets/OegPackV3.js");
 
 const cooker = resolve("tools/oengine-asset-core/build/oengine-asset-cooker.exe");
 

@@ -1,0 +1,22 @@
+schemaVersion: 1
+id: protocol-self-test
+route: /cases/protocol-self-test/index.html
+buildTarget: host
+workloadId: protocol-self-test-v1
+profile: smoke
+timeoutMs: 15000
+artifacts:
+  - result
+  - events
+changedPaths:
+  - validation/harness
+  - validation/src/runner
+harness: protocol
+domain: platform
+caseKind: orchestration
+kind: contract
+level: L0
+covers:
+  - frame.host-protocol
+  - platform.evidence
+decision: ADR-0014

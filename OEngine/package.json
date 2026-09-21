@@ -15,17 +15,16 @@
     "build:test": "tsc -p tsconfig.test.json",
     "build:native-cooker": "node tools/build-native-cooker.mjs",
     "test:web-geometry-cooker-core": "node tools/build-web-geometry-cooker-oracle.mjs",
-    "test:oegpack-v3": "npm run build:native-cooker && npm run build:test && node --test tests/oegpack-v3.test.mjs",
+    "test:oegpack-v3": "npm run build:native-cooker && npm run build:test && node --test tests/contract/oegpack-v3.test.mjs",
     "benchmark:oegpack-v3": "node tools/benchmark-oegpack-v3.mjs",
     "generate:oegpack-stress": "node tools/generate-oegpack-stress-glb.mjs",
-    "cook:large-geometry": "npm run build:test && node tools/cook-packed-gltf-geometries.mjs ../examples/assets/oengine/large.glb ../examples/assets/oengine/large.geometry",
     "audit:shaders": "node tools/audit-shader-sources.mjs --output benchmarks/shader-source-audit.json",
     "audit:nyx-function-map": "node tools/validate-nyx-function-map.mjs",
     "audit:nyx-meshlet-reference": "node tools/build-nyx-reference-harness.mjs",
     "audit:nyx-model-reference": "node tools/build-nyx-model-convert-reference-harness.mjs",
     "audit:nyx-shader-reference": "node tools/build-nyx-shader-reference-harness.mjs",
     "audit:adr0015-receiver": "npm run build:test && node tools/audit-adr-0015-receiver.mjs --output benchmarks/adr-0015-receiver-source-audit.json",
-    "test": "npm run build && npm run build:test && node --test tests/*.test.mjs"
+    "test": "npm run build && npm run build:test && node --test tests"
   },
   "devDependencies": {
     "@webgpu/types": "^0.1.64",

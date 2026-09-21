@@ -1,0 +1,24 @@
+schemaVersion: 1
+id: nyx-geometry
+kind: algorithm-ledger
+upstream:
+  name: Nyx
+  repository: https://github.com/moonlovelj/Nyx
+  revision: bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b
+license: See docs/porting/geometry.md and the upstream license at the pinned revision.
+localOwners:
+  - OEngine/tools/oengine-asset-core
+  - OEngine/tools/oengine-web-geometry-cooker
+  - OEngine/src/assets/web-cook
+  - OEngine/src/gpu/VirtualGeometryResidency.ts
+sourceMap: docs/porting/nyx-function-map.json
+retainedInvariants:
+  - Product identity and page ranges remain stable across Web and Offline producers.
+  - Visible-first bootstrap is admitted before background demand.
+  - GPU traversal and raster consume producer-neutral records.
+differences:
+  - Web runtime uses TypeScript/WASM and WebGPU resource lifecycles.
+  - Offline cooker uses native memory and file IO.
+validation:
+  - OEngine/tests/oracle/nyx-differential-corpus.test.mjs
+  - docs/VALIDATION.md

@@ -1,6 +1,6 @@
 # OEngine 性能证据
 
-本目录保存机器可读 schema、冻结 workload/config 和确定性审计结果。验证规则以 [`docs/VALIDATION.md`](../../docs/VALIDATION.md) 为准，当前风险以 [`docs/STATUS.md`](../../docs/STATUS.md) 为准，算法来源以 [`docs/porting/`](../../docs/porting/README.md) 为准。
+本目录保存机器可读 schema、冻结 workload/config 和确定性审计结果。验证规则以 [`docs/VALIDATION.md`](../../docs/VALIDATION.md) 和 `project/claims/` 为准，当前风险以 `node tools/vibe.mjs status` 为准，算法来源以 [`docs/sources/index.yaml`](../../docs/sources/index.yaml) 和 [`docs/porting/`](../../docs/porting/README.md) 为准。
 
 ## 当前工具
 

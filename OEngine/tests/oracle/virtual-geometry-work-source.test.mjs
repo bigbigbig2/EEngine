@@ -5,9 +5,9 @@ import {
   HIERARCHICAL_VIRTUAL_HZB_WORK_GENERATION_WGSL,
   HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL,
   HIERARCHICAL_WORK_GENERATION_WGSL
-} from "../.test-dist/shaders/hierarchical_work_generation.js";
+} from "../../.test-dist/shaders/hierarchical_work_generation.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from
-  "../.test-dist/shaders/virtual_geometry_product.js";
+  "../../.test-dist/shaders/virtual_geometry_product.js";
 
 test("Product work specialization preserves the V2 feature-off shader and existing wavefront ABI", () => {
   assert.doesNotMatch(HIERARCHICAL_WORK_GENERATION_WGSL, /hierarchy_product_heap|traversal_product_heap/u);

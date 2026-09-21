@@ -9,26 +9,26 @@ import {
   KTX2_TRANSCODE_TARGET_FORMATS,
   validateAssetCodecTask,
   validateAssetCodecWorkerResult
-} from "../.test-dist/assets/codec/AssetCodecTypes.js";
-import { AssetWorkerPool } from "../.test-dist/assets/codec/AssetWorkerPool.js";
+} from "../../.test-dist/assets/codec/AssetCodecTypes.js";
+import { AssetWorkerPool } from "../../.test-dist/assets/codec/AssetWorkerPool.js";
 import {
   AssetCodecService,
   defaultAssetCodecWorkerCount
-} from "../.test-dist/assets/codec/AssetCodecService.js";
-import { planTextureDecode } from "../.test-dist/assets/codec/AssetCodecPlanner.js";
+} from "../../.test-dist/assets/codec/AssetCodecService.js";
+import { planTextureDecode } from "../../.test-dist/assets/codec/AssetCodecPlanner.js";
 import {
   KTX_SOFTWARE_CODEC_ID,
   KTX_SOFTWARE_CODEC_REVISION,
   KTX_SOFTWARE_WASM_SHA256,
   createKtx2TranscodeTask,
   encodedTextureVariantFromKtx2Result
-} from "../.test-dist/assets/codec/Ktx2BasisCodec.js";
-import { transcodeKtx2Basis } from "../.test-dist/assets/codec/Ktx2BasisTranscoder.js";
+} from "../../.test-dist/assets/codec/Ktx2BasisCodec.js";
+import { transcodeKtx2Basis } from "../../.test-dist/assets/codec/Ktx2BasisTranscoder.js";
 import {
   openTextureAssetPackageV2,
   selectTextureAssetVariantV2,
   writeEncodedTextureAssetPackageV2
-} from "../.test-dist/assets/TextureAssetPackage.js";
+} from "../../.test-dist/assets/TextureAssetPackage.js";
 
 function task(overrides = {}) {
   return {
@@ -328,7 +328,7 @@ test("pinned Khronos libktx WASM transcodes the deterministic UASTC fixture to B
       printErr() {}
     });
     const fixture = await readFile(new URL(
-      "./fixtures/texture-codec/luminance-alpha-32x32-uastc.ktx2",
+      "../../fixtures/texture-codec/luminance-alpha-32x32-uastc.ktx2",
       import.meta.url
     ));
     const input = fixture.buffer.slice(fixture.byteOffset, fixture.byteOffset + fixture.byteLength);
@@ -378,7 +378,7 @@ test("pinned ETC1S mip chain normalizes into the ordinary encoded package contra
       printErr() {}
     });
     const fixture = await readFile(new URL(
-      "./fixtures/texture-codec/rgba-64x64-mipmap-etc1s.ktx2",
+      "../../fixtures/texture-codec/rgba-64x64-mipmap-etc1s.ktx2",
       import.meta.url
     ));
     const input = fixture.buffer.slice(fixture.byteOffset, fixture.byteOffset + fixture.byteLength);

@@ -9,7 +9,7 @@ import {
   GPU_SHADING_BIN_FRAME_FLAG,
   GPU_SHADING_BIN_INVALID_ID,
   shadingBinActiveMask
-} from "../.test-dist/gpu/GpuShadingBinAbi.js";
+} from "../../.test-dist/gpu/GpuShadingBinAbi.js";
 
 function classify({
   width,

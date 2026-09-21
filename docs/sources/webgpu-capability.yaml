@@ -1,0 +1,20 @@
+schemaVersion: 1
+id: webgpu-capability
+kind: specification-ledger
+upstream:
+  name: WebGPU and WGSL specifications
+  repository: https://www.w3.org/TR/webgpu/
+  revision: WebGPU 2026 Desktop capability line
+license: W3C specification terms.
+localOwners:
+  - OEngine/src/gpu/GraphicsContext.ts
+  - validation/harness/webgpu.ts
+sourceMap: docs/WEBGPU.md
+retainedInvariants:
+  - Required features and limits are negotiated before opaque resources are created.
+  - Unsupported capability is explicit and cannot mask correctness failure.
+differences:
+  - Browser adapter/device fingerprints and error scopes are recorded in validation evidence.
+validation:
+  - validation/cases/webgpu-component/case.yaml
+  - validation/cases/protocol-self-test/case.yaml

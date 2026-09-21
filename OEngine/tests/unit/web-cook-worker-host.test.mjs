@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-const { WebCookWorkerHost } = await import("../.test-dist/assets/web-cook/WebCookWorkerHost.js");
-const { installWebCookWorkerEntry } = await import("../.test-dist/assets/web-cook/WebCookWorkerEntry.js");
-const { encodeGeometryProductDescriptorBinaryV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+const { WebCookWorkerHost } = await import("../../.test-dist/assets/web-cook/WebCookWorkerHost.js");
+const { installWebCookWorkerEntry } = await import("../../.test-dist/assets/web-cook/WebCookWorkerEntry.js");
+const { encodeGeometryProductDescriptorBinaryV1 } = await import("../../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
 
 class Port {
   listeners = [];

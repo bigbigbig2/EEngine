@@ -1,0 +1,23 @@
+schemaVersion: 1
+id: virtual-product-observer-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0016-s7-user-observer-smoke-v1
+features:
+  - web-cook
+  - oegpack-range
+  - product-admission
+  - visible-first-bootstrap
+  - camera-demand
+  - gpu-readback
+  - device-recovery
+seed: 1607
+cameraPath: bootstrap-camera-close-camera-cut
+warmupFrames: 1
+sampleFrames: 5
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

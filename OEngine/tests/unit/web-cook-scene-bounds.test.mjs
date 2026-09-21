@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { webCookCatalogSceneBounds, webCookCatalogSceneFraming } = await import("../.test-dist/assets/web-cook/WebCookSceneBounds.js");
+const { webCookCatalogSceneBounds, webCookCatalogSceneFraming } = await import("../../.test-dist/assets/web-cook/WebCookSceneBounds.js");
 
 const IDENTITY = Object.freeze([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 function translate(x, y, z) {

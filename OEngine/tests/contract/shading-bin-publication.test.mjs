@@ -7,15 +7,15 @@ import {
   createGpuSparseShadingCapabilityPlan,
   GPU_SPARSE_SHADING_REQUIRED_FEATURES,
   GPU_SPARSE_SHADING_REQUIRED_LIMITS
-} from "../.test-dist/gpu/GpuSparseShadingCapability.js";
+} from "../../.test-dist/gpu/GpuSparseShadingCapability.js";
 import {
   GpuShadingPublicationStore
-} from "../.test-dist/gpu/GpuShadingPublicationPlan.js";
+} from "../../.test-dist/gpu/GpuShadingPublicationPlan.js";
 import {
   GPU_SHADING_DEPENDENCY,
   GPU_SHADING_PROGRAM,
   ShadingIdentityPublicationError
-} from "../.test-dist/gpu/GpuShadingProgramAbi.js";
+} from "../../.test-dist/gpu/GpuShadingProgramAbi.js";
 
 const adapterLimits = {
   ...GPU_SPARSE_SHADING_REQUIRED_LIMITS

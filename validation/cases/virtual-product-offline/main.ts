@@ -9,9 +9,9 @@ import {
   parseOegPackSceneManifestV3,
   type OegPackSceneManifestV3,
   type ProductSceneHandles
-} from "../../../../OEngine/src/index.ts";
-import { createValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection } from "../../host/webgpu.ts";
+} from "../../../OEngine/src/index.ts";
+import { createValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection } from "../../harness/browser.ts";
 
 /** One cooked Product per directory; the case swaps A -> B to exercise replacement. */
 const PRODUCT_A_MANIFEST = "/assets/oengine/offline-product-a/scene.oescene";

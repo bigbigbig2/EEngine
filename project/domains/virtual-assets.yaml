@@ -1,0 +1,45 @@
+id: virtual-assets
+title: GPU-ready virtual assets
+primaryOwner: virtual-assets
+owner: OEngine/src/assets, OEngine/src/loaders, OEngine/src/geometry, OEngine/src/gpu
+intent: Keep runtime assets, cooked Products, residency, hierarchy work, and GPU consumers separated by explicit contracts.
+paths:
+  - OEngine/src/assets/**
+  - OEngine/src/loaders/**
+  - OEngine/src/geometry/**
+  - OEngine/src/gpu/Geometry*.ts
+  - OEngine/src/gpu/VirtualGeometry*.ts
+  - validation/cases/glb-*
+  - validation/cases/virtual-geometry-component/**
+  - validation/cases/virtual-product-*/**
+  - validation/labs/virtual-product-observer/**
+  - docs/domains/virtual-assets.md
+  - docs/contracts/generated-registry.md
+currentDocs:
+  - docs/domains/virtual-assets.md
+  - docs/contracts/generated-registry.md
+contracts:
+  - geometry-product-v1
+  - virtual-geometry-runtime-v1
+  - web-geometry-cooker-abi-v1
+  - web-cook-session-protocol-v1
+decisions:
+  - ADR-0016
+  - ADR-0017
+sources:
+  - nyx-geometry
+claims:
+  - virtual-assets.product-consumer
+  - virtual-assets.web-cook
+  - virtual-assets.lifecycle
+checks:
+  - model
+  - registry
+  - evidence-provenance
+  - docs-frontmatter
+watch:
+  - OEngine/src/assets/**
+  - OEngine/src/loaders/**
+  - OEngine/src/gpu/VirtualGeometry*.ts
+  - validation/cases/glb-*/**
+  - validation/cases/virtual-product-*/**

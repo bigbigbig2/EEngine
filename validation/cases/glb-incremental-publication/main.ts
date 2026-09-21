@@ -12,10 +12,10 @@ import {
   type ProductSceneHandles,
   type VirtualGeometryResidency,
   type WebCookRuntimeAsset
-} from "../../../../OEngine/src/index.ts";
-import dungeonSourceUrl from "../../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
-import { createValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection } from "../../host/webgpu.ts";
+} from "../../../OEngine/src/index.ts";
+import dungeonSourceUrl from "../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
+import { createValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection } from "../../harness/browser.ts";
 
 // ADR-0017 fourth slice. The RenderingLab dungeon is the same multi-material
 // model the interactive example uses, and it is large enough that a single

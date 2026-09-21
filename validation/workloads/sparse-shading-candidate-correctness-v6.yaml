@@ -1,0 +1,31 @@
+schemaVersion: 1
+id: sparse-shading-candidate-correctness-v6
+resolution:
+  - 1280
+  - 720
+componentExtent:
+  - 256
+  - 256
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0013-step-6-correctness-l4-v6
+features:
+  - core-features-and-limits
+  - subgroups
+  - texture-formats-tier1
+  - visibility-mrt
+  - sparse-indirect-resolve
+  - fixed-shadow-raster
+  - ibl
+  - ssgi
+  - ssr
+  - taa
+  - post
+  - lifecycle-resize
+seed: 13006
+cameraPath: basic-cube-near-far-plus-rendering-lab-fixed-plus-resize
+warmupFrames: 1
+sampleFrames: 11
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

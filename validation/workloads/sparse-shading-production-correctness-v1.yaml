@@ -1,0 +1,19 @@
+schemaVersion: 1
+id: sparse-shading-production-correctness-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0013-production-correctness-v1
+features:
+  - unlit
+  - material-patch
+  - device-loss-recovery
+seed: 13
+cameraPath: deterministic-near-far
+warmupFrames: 1
+sampleFrames: 5
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

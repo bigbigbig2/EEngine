@@ -3,7 +3,7 @@ import test from "node:test";
 
 import {
   GpuBindGroupResourceCache
-} from "../.test-dist/gpu/GpuBindGroupResourceCache.js";
+} from "../../.test-dist/gpu/GpuBindGroupResourceCache.js";
 
 test("bind-group resource tuples canonicalize buffer bindings and resource identity", () => {
   const cache = new GpuBindGroupResourceCache();

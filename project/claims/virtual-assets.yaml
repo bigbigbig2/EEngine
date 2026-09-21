@@ -1,0 +1,26 @@
+schemaVersion: 2
+claims:
+  - id: virtual-assets.product-consumer
+    domain: virtual-assets
+    owner: virtual-assets
+    statement: Web and Offline sources enter one producer-neutral Product admission and GPU residency consumer.
+    level: L3
+    requiredChecks: [model, registry, evidence-provenance]
+    allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
+    watch: [OEngine/src/assets/**, OEngine/src/gpu/GeometryProductAdmission.ts, OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/render/pipeline/MainRenderPipeline.ts]
+  - id: virtual-assets.web-cook
+    domain: virtual-assets
+    owner: virtual-assets
+    statement: A bounded Web GLB CookSession produces a validated Product consumed by the production renderer.
+    level: L3
+    requiredChecks: [registry, changed-coverage, evidence-provenance]
+    allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
+    watch: [OEngine/src/assets/web-cook/**, OEngine/src/loaders/gltf/streaming/**]
+  - id: virtual-assets.lifecycle
+    domain: virtual-assets
+    owner: virtual-assets
+    statement: Product replacement, page demand, and device recovery preserve generation and ownership boundaries.
+    level: L4
+    requiredChecks: [registry, changed-coverage, evidence-provenance]
+    allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
+    watch: [OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/gpu/GeometryPageStreamingRuntime.ts, OEngine/src/render/Renderer.ts]

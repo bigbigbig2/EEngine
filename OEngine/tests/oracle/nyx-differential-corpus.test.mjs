@@ -12,10 +12,10 @@ const {
   encodeWebCanonicalGeometryV1,
   encodeWebGeometryCookRecipeV1,
   cookWebGeometryWasmV1
-} = await import("../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js");
-const { openGlbRangeSource } = await import("../.test-dist/loaders/gltf/streaming/GlbRangeSource.js");
-const { buildGlbSceneCatalog } = await import("../.test-dist/loaders/gltf/streaming/GlbSceneCatalog.js");
-const { canonicalizeGlbPrimitiveV1 } = await import("../.test-dist/assets/web-cook/gltf/GlbPrimitiveCanonicalizer.js");
+} = await import("../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js");
+const { openGlbRangeSource } = await import("../../.test-dist/loaders/gltf/streaming/GlbRangeSource.js");
+const { buildGlbSceneCatalog } = await import("../../.test-dist/loaders/gltf/streaming/GlbSceneCatalog.js");
+const { canonicalizeGlbPrimitiveV1 } = await import("../../.test-dist/assets/web-cook/gltf/GlbPrimitiveCanonicalizer.js");
 const {
   decodeGroupHeaderV3,
   decodeMeshletHeaderV3,
@@ -24,9 +24,9 @@ const {
   hierarchyNodeChildStartV3,
   hierarchyNodeChildCountV3,
   hierarchyNodeGroupIdV3
-} = await import("../.test-dist/assets/GeometryAbiV3.js");
-const { MemoryRangeReadablePackV3, openOegPackV3 } = await import("../.test-dist/assets/OegPackV3.js");
-const { descriptorFromOegPack } = await import("../.test-dist/assets/geometry-product/index.js");
+} = await import("../../.test-dist/assets/GeometryAbiV3.js");
+const { MemoryRangeReadablePackV3, openOegPackV3 } = await import("../../.test-dist/assets/OegPackV3.js");
+const { descriptorFromOegPack } = await import("../../.test-dist/assets/geometry-product/index.js");
 
 const cooker = resolve("tools/oengine-asset-core/build/oengine-asset-cooker.exe");
 const WEB_COOKER_MODULE = "../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs";

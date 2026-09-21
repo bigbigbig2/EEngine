@@ -1,0 +1,35 @@
+schemaVersion: 1
+id: sparse-shading-production
+route: /cases/sparse-shading-production/index.html
+buildTarget: production
+workloadId: sparse-shading-production-correctness-v1
+profile: smoke
+timeoutMs: 180000
+artifacts:
+  - result
+  - events
+  - screenshot
+  - readback
+changedPaths:
+  - validation/cases/sparse-shading-production
+  - OEngine/src/render/Renderer.ts
+  - OEngine/src/render/pipeline/MainRenderPipeline.ts
+  - OEngine/src/gpu/GpuScene.ts
+  - OEngine/src/gpu/GpuRenderWorld.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while adapter identity is
+      verified from WebGPU evidence.
+    ownerClaim: visibility.gpu-closure
+harness: production
+domain: visibility
+caseKind: production
+kind: gpu
+level: L4
+covers:
+  - visibility.gpu-closure
+  - shading.one-eval
+  - frame.recovery
+decision: ADR-0013

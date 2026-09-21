@@ -1,0 +1,39 @@
+schemaVersion: 2
+id: nyx-convergence
+title: Web and Offline Product convergence
+domain: virtual-assets
+state: active
+owner: virtual-assets
+decision: ADR-0016
+goal: Preserve the Nyx geometry stages and invariants across Web cooker, Offline cooker, and the shared GPU traversal/raster consumer.
+contracts:
+  - geometry-product-v1
+  - virtual-geometry-runtime-v1
+  - web-geometry-cooker-abi-v1
+  - web-cook-session-protocol-v1
+claims:
+  - virtual-assets.product-consumer
+  - virtual-assets.web-cook
+  - virtual-assets.lifecycle
+tasks:
+  - id: source-function-map
+    state: done
+  - id: producer-neutral-product
+    state: done
+  - id: browser-consumer-evidence
+    state: active
+exitChecks:
+  - registry
+  - evidence-provenance
+requiredEvidence:
+  - source-function and shader-entry mapping for each migrated Nyx stage
+  - differential and negative corpus for Product topology, bounds, pages, identity, and failure paths
+  - clean browser evidence for producer-neutral admission and downstream GPU consumer
+  - source, WASM, output, resident, and transient budgets under fixed workload
+deleteTargets:
+  - OEngine/src/assets/web-cook/legacy-progressive-path.ts
+openGates:
+  - large-scene visible-first cook and first meaningful frame
+  - cross-session source/canonical/WASM peak accounting
+  - failure-atomic replacement and bounded global residency budget
+  - source, compiled, and browser audit for remaining legacy owners

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { prefetchCoalescedRanges, prefetchCoalescedRangeGroups } = await import("../.test-dist/assets/web-cook/CoalescedRangeReader.js");
+const { prefetchCoalescedRanges, prefetchCoalescedRangeGroups } = await import("../../.test-dist/assets/web-cook/CoalescedRangeReader.js");
 
 test("coalesced range reader merges nearby ranges and preserves accessor identity", async () => {
   const source = new Uint8Array(256);

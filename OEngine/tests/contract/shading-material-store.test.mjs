@@ -17,9 +17,9 @@ const [
   },
   { StandardShadeMaterial }
 ] = await Promise.all([
-  import("../.test-dist/gpu/GpuMaterialStore.js"),
-  import("../.test-dist/gpu/GpuShadingMaterialAbi.js"),
-  import("../.test-dist/material/StandardShadeMaterial.js")
+  import("../../.test-dist/gpu/GpuMaterialStore.js"),
+  import("../../.test-dist/gpu/GpuShadingMaterialAbi.js"),
+  import("../../.test-dist/material/StandardShadeMaterial.js")
 ]);
 
 test("material store publishes geometry-dependent association records in one generation", async () => {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-const binary = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+const binary = await import("../../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
 
 function fixture() {
   const page = new Uint8Array(262144), hash = createHash("sha256").update(page).digest();

@@ -1,0 +1,24 @@
+schemaVersion: 1
+id: glb-web-product-bootstrap-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0016-s2-web-glb-bootstrap-v1
+features:
+  - web-cook
+  - glb-range
+  - product-admission
+  - product-residency
+  - hierarchy-work
+  - meshlet-raster
+  - visibility-key
+  - sparse-shading
+seed: 1602
+cameraPath: web-glb-bootstrap-grid
+warmupFrames: 1
+sampleFrames: 5
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

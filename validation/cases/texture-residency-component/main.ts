@@ -1,13 +1,13 @@
-import { createValidationController } from "../../host/protocol.ts";
+import { createValidationController } from "../../harness/browser.ts";
 import {
   attachGpuErrorCollection,
   snapshotAdapterInfo,
   snapshotGpuFeatures,
   snapshotGpuLimits,
   withGpuErrorScopes
-} from "../../host/webgpu.ts";
-import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../../../../OEngine/src/gpu/GpuMaterialVisibilityAbi.ts";
-import { gpuTextureBankSampleWgsl } from "../../../../OEngine/src/gpu/GpuTextureRefAbi.ts";
+} from "../../harness/browser.ts";
+import { GPU_MATERIAL_VISIBILITY_RECORD_WGSL } from "../../../OEngine/src/gpu/GpuMaterialVisibilityAbi.ts";
+import { gpuTextureBankSampleWgsl } from "../../../OEngine/src/gpu/GpuTextureRefAbi.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output");
 const status = document.querySelector<HTMLElement>("#status");

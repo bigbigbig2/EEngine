@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: virtual-geometry-component-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0016-product-work-abi-v1
+features:
+  - core-features-and-limits
+  - product-v1-metadata-decode
+seed: 16016
+cameraPath: none
+warmupFrames: 1
+sampleFrames: 1
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

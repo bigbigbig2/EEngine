@@ -7,9 +7,9 @@ globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 const {
   assertGeometryProductDescriptorV1,
   validateGeometryProductDescriptorV1
-} = await import("../.test-dist/assets/geometry-product/GeometryProductV1.js");
-const { VirtualGeometryResidency } = await import("../.test-dist/gpu/VirtualGeometryResidency.js");
-const { GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK } = await import("../.test-dist/gpu/GeometryProductSlotPool.js");
+} = await import("../../.test-dist/assets/geometry-product/GeometryProductV1.js");
+const { VirtualGeometryResidency } = await import("../../.test-dist/gpu/VirtualGeometryResidency.js");
+const { GEOMETRY_PRODUCT_SHARED_SLOTS_PER_BANK } = await import("../../.test-dist/gpu/GeometryProductSlotPool.js");
 
 function fixture() {
   const page = new Uint8Array(262144);

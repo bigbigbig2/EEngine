@@ -1,0 +1,22 @@
+schemaVersion: 1
+id: virtual-product-production-correctness-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0016-s1-product-raster-v1
+features:
+  - product-admission
+  - product-page
+  - hierarchy-work
+  - meshlet-raster
+  - visibility-key
+  - sparse-shading
+seed: 1601
+cameraPath: single-product-triangle
+warmupFrames: 1
+sampleFrames: 1
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

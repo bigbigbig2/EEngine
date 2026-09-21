@@ -3,6 +3,9 @@ dist
 *.tsbuildinfo
 .DS_Store
 *.local
+.local/validation/
+docs/status.generated.md
+validation/evidence/verification.json
 .vite
 .turbo
 coverage
@@ -10,8 +13,6 @@ storybook-static
 examples-static
 validation/dist
 validation/node_modules
-validation/artifacts/*
-!validation/artifacts/README.md
 validation/temp-*.png
 .grok/
 .codex-temp/
@@ -22,6 +23,3 @@ OEngine/tools/oengine-asset-core/build/
 OEngine/tools/oengine-web-geometry-cooker/build/
 OEngine/tools/oengine-web-geometry-cooker/build-wasm/
 OEngine/tools/oengine-web-geometry-cooker/build-wasm-threads/
-
-
-

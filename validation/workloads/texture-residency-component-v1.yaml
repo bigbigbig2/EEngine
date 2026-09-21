@@ -1,0 +1,17 @@
+schemaVersion: 1
+id: texture-residency-component-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0016-mode-a-texture-v1
+features:
+  - core-features-and-limits
+seed: 16017
+cameraPath: none
+warmupFrames: 1
+sampleFrames: 2
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { WebCookBudgetLedger } = await import("../.test-dist/assets/web-cook/WebCookBudget.js");
-const { WebCookClient } = await import("../.test-dist/assets/web-cook/WebCookClient.js");
+const { WebCookBudgetLedger } = await import("../../.test-dist/assets/web-cook/WebCookBudget.js");
+const { WebCookClient } = await import("../../.test-dist/assets/web-cook/WebCookClient.js");
 
 const PAGE_BYTES = 262144;
 

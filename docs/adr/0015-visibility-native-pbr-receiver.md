@@ -16,4 +16,4 @@ Status: accepted
 
 ## Verification
 
-验证需求裁剪、背景/无效像素、PBR 数值 seam、lighting/GI/AO/SSR/temporal 组合、资源字节、feature-off 和统一正式 PERF；开放项只记录在 [STATUS](../STATUS.md)。
+验证需求裁剪、背景/无效像素、PBR 数值 seam、lighting/GI/AO/SSR/temporal 组合、资源字节、feature-off 和统一正式 PERF；开放项由 `node tools/vibe.mjs status shading` 记录。

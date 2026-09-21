@@ -1,0 +1,7 @@
+id: guard-generated-source
+kind: guard
+level: L0
+description: Keep generated JSON and generated source outputs out of the editable design authority.
+domains: [platform]
+runner: vibe
+automatic: true

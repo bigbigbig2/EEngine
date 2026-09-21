@@ -1,0 +1,7 @@
+id: guard-public-api
+kind: guard
+level: L0
+description: Keep the public OEngine export boundary explicit and free of validation internals.
+domains: [platform]
+runner: vibe
+automatic: true

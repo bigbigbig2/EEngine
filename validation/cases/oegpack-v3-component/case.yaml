@@ -1,0 +1,30 @@
+schemaVersion: 1
+id: oegpack-v3-component
+route: /cases/oegpack-v3-component/index.html
+buildTarget: host
+workloadId: oegpack-v3-decode-v1
+profile: smoke
+timeoutMs: 60000
+artifacts:
+  - result
+  - events
+  - readback
+changedPaths:
+  - validation/cases/oegpack-v3-component
+  - OEngine/src/assets/GeometryAbiV3.ts
+  - OEngine/src/shaders/oegpack_v3_decode.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while adapter identity is
+      captured for the ABI decode proof.
+    ownerClaim: virtual-assets.product-consumer
+harness: gpu
+domain: virtual-assets
+caseKind: component
+kind: oracle
+level: L3
+covers:
+  - virtual-assets.product-consumer
+decision: ADR-0016

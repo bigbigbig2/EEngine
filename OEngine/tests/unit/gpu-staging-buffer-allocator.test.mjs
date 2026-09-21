@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { GPUStagingBufferAllocator } from "../.test-dist/gpu/GPUStagingBufferAllocator.js";
+import { GPUStagingBufferAllocator } from "../../.test-dist/gpu/GPUStagingBufferAllocator.js";
 
 test("staging allocator suppresses expected remap abort after teardown", async () => {
   const previousUsage = globalThis.GPUBufferUsage;

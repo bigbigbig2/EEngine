@@ -4,15 +4,15 @@ import test from "node:test";
 
 globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 
-const { cookSceneGeometryProductV1, canonicalizeSceneGeometryV1 } = await import("../.test-dist/assets/geometry-product/SceneGeometryCanonicalizerV1.js");
-const { buildVirtualGeometrySceneSourceV1 } = await import("../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js");
-const { decodeGeometryProductDescriptorBinaryV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
-const { decodeGeometryProductPageRecordV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductV1.js");
-const { BoxGeometry } = await import("../.test-dist/geometry/BoxGeometry.js");
-const { Scene } = await import("../.test-dist/scene/Scene.js");
-const { Mesh } = await import("../.test-dist/scene/Mesh.js");
-const { StandardShadeMaterial } = await import("../.test-dist/material/StandardShadeMaterial.js");
-const { ShadeTransparencyMode } = await import("../.test-dist/material/enums.js");
+const { cookSceneGeometryProductV1, canonicalizeSceneGeometryV1 } = await import("../../.test-dist/assets/geometry-product/SceneGeometryCanonicalizerV1.js");
+const { buildVirtualGeometrySceneSourceV1 } = await import("../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js");
+const { decodeGeometryProductDescriptorBinaryV1 } = await import("../../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+const { decodeGeometryProductPageRecordV1 } = await import("../../.test-dist/assets/geometry-product/GeometryProductV1.js");
+const { BoxGeometry } = await import("../../.test-dist/geometry/BoxGeometry.js");
+const { Scene } = await import("../../.test-dist/scene/Scene.js");
+const { Mesh } = await import("../../.test-dist/scene/Mesh.js");
+const { StandardShadeMaterial } = await import("../../.test-dist/material/StandardShadeMaterial.js");
+const { ShadeTransparencyMode } = await import("../../.test-dist/material/enums.js");
 
 const MODULE_URL = "../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.mjs";
 const WASM_URL = new URL("../src/assets/web-cook/wasm/vendor/oengine-web-geometry-cooker.wasm", import.meta.url);

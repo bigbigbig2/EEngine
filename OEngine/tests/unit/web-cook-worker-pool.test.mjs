@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { WebCookWorkerPool } = await import("../.test-dist/assets/web-cook/WebCookWorkerPool.js");
+const { WebCookWorkerPool } = await import("../../.test-dist/assets/web-cook/WebCookWorkerPool.js");
 
 class FakeWorker {
   constructor(name) { this.name = name; this.listeners = new Map(); this.sent = []; this.terminated = false; }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const abi = await import("../.test-dist/gpu/GeometryPageDemandAbiV1.js");
+const abi = await import("../../.test-dist/gpu/GeometryPageDemandAbiV1.js");
 
 test("GeometryPageDemand V1 mirrors the 16-byte header/record contract", () => {
   const record = { productTableSlot: 2, productGeneration: 9, pageId: 7, priority: 400, currentViewMissing: true, shadow: false, predictive: true };

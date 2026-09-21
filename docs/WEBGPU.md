@@ -18,7 +18,7 @@ OEngine 的主要产品能力线是 **WebGPU 2026 Desktop**，替代过去含义
 
 ## 生产能力集合
 
-下表是能力策略，不表示当前代码已全部落地。当前实现状态以 `STATUS.md` 为准。
+下表是能力策略，不表示当前代码已全部落地。当前实现状态以 `node tools/vibe.mjs status platform` 和 `validation/evidence/index.json` 为准。
 
 | 能力 | WebGPU 2026 Desktop 策略 | OEngine 用途 | 无能力时的合同 |
 | --- | --- | --- | --- |
@@ -116,4 +116,4 @@ FrameGraph/pipeline cache key记录影响布局、Shader 或资源格式的 spec
 1. 每次浏览器、`@webgpu/types` 或 WebGPU/WGSL 规范升级，重新核对 feature enum、feature dependency、limits、WGSL enable/language extensions 和 CTS。
 2. 规范语义以 GPUWeb/WGSL 为准；MDN 的 Baseline/compatibility 状态只决定探测和发布范围，不改变 API 语义。
 3. 只在生产 owner、fallback、feature-off、验证和 provenance 均有落点时，把能力从“候选”提升为生产 specialization。
-4. `STATUS.md` 记录已落地能力和差距；ADR 记录改变产品能力线的长期决定；`docs/others/` 仅是研究输入，不覆盖本页。
+4. `node tools/vibe.mjs status platform` 和 claim evidence 记录已落地能力和差距；ADR 记录改变产品能力线的长期决定；未提升的研究资料不覆盖本页。

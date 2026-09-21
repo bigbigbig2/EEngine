@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { openGlbRangeSource } = await import("../.test-dist/loaders/gltf/streaming/GlbRangeSource.js");
+const { openGlbRangeSource } = await import("../../.test-dist/loaders/gltf/streaming/GlbRangeSource.js");
 
 function makeGlb() {
   const json = new TextEncoder().encode(JSON.stringify({ asset: { version: "2.0" }, buffers: [{ byteLength: 4 }] }).padEnd(80, " "));

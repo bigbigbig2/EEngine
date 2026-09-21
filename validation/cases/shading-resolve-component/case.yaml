@@ -1,0 +1,35 @@
+schemaVersion: 1
+id: shading-resolve-component
+route: /cases/shading-resolve-component/index.html
+buildTarget: internal-candidate
+workloadId: shading-resolve-component-v1
+profile: smoke
+timeoutMs: 120000
+artifacts:
+  - result
+  - events
+  - readback
+changedPaths:
+  - validation/cases/shading-resolve-component
+  - OEngine/src/render/passes/SparseShadingResolvePass.ts
+  - OEngine/src/render/passes/SparseShadingDiagnosticsPass.ts
+  - OEngine/src/shaders/sparse_shading_resolve.ts
+  - OEngine/src/gpu/GpuShadingMaterialAbi.ts
+  - OEngine/src/gpu/LightDatabase.ts
+  - OEngine/src/gpu/GpuSparseShadingFrameAbi.ts
+  - OEngine/src/shaders/lighting_direct.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while adapter identity is
+      verified from WebGPU evidence.
+    ownerClaim: shading.one-eval
+harness: gpu
+domain: shading
+caseKind: internal-candidate
+kind: gpu
+level: L3
+covers:
+  - shading.one-eval
+decision: ADR-0013

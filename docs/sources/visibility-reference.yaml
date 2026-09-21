@@ -1,0 +1,21 @@
+schemaVersion: 1
+id: visibility-reference
+kind: algorithm-ledger
+upstream:
+  name: Hardware-first visibility references
+  repository: docs/porting/visibility.md
+  revision: pinned local source ledger
+license: Per-source licenses recorded in docs/porting/visibility.md.
+localOwners:
+  - OEngine/src/render/HierarchicalWorkGenerator.ts
+  - OEngine/src/render/MeshletBucketRaster.ts
+  - OEngine/src/shaders/meshlet_bucket_visibility.ts
+sourceMap: docs/porting/visibility.md
+retainedInvariants:
+  - GPU producer output is consumed directly by GPU indirect stages.
+  - Queue ABI, capacity, overflow, producer, consumer, and counters stay explicit.
+differences:
+  - WebGPU uses storage buffers, indirect draws, and explicit feature-off resource pruning.
+validation:
+  - validation/cases/sparse-shading-candidate/case.yaml
+  - validation/cases/sparse-shading-production/case.yaml

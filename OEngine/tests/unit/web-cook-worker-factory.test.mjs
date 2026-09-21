@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { resolveWebCookRuntimeProfile } = await import("../.test-dist/assets/web-cook/WebCookWorkerFactory.js");
+const { resolveWebCookRuntimeProfile } = await import("../../.test-dist/assets/web-cook/WebCookWorkerFactory.js");
 
 test("auto never claims pthread support on an unisolated page", () => {
   // Node has no crossOriginIsolated, so auto must never select the pthread cooker.

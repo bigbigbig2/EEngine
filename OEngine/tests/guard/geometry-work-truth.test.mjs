@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 
-import "./webgpu-test-globals.mjs";
+import "../../webgpu-test-globals.mjs";
 
 import {
   GPU_COUNTER_BYTE_SIZE,
@@ -10,16 +10,16 @@ import {
   GPU_COUNTER_RESERVED_INDICES,
   GPU_COUNTER_SCHEMA_VERSION,
   counterByteOffset
-} from "../.test-dist/debug/GpuFrameCounters.js";
-import { BENCHMARK_GPU_COUNTER_EVIDENCE } from "../.test-dist/debug/BenchmarkCapabilityEvidence.js";
-import { HIERARCHICAL_WORK_GENERATION_WGSL } from "../.test-dist/shaders/hierarchical_work_generation.js";
+} from "../../.test-dist/debug/GpuFrameCounters.js";
+import { BENCHMARK_GPU_COUNTER_EVIDENCE } from "../../.test-dist/debug/BenchmarkCapabilityEvidence.js";
+import { HIERARCHICAL_WORK_GENERATION_WGSL } from "../../.test-dist/shaders/hierarchical_work_generation.js";
 import {
   MESHLET_WORK_COMPACTION_PORTABLE_WGSL,
   MESHLET_WORK_COMPACTION_SUBGROUP_WGSL
-} from "../.test-dist/shaders/meshlet_work_compaction.js";
+} from "../../.test-dist/shaders/meshlet_work_compaction.js";
 import {
   MESHLET_BUCKET_VISIBILITY_WGSL
-} from "../.test-dist/shaders/meshlet_bucket_visibility.js";
+} from "../../.test-dist/shaders/meshlet_bucket_visibility.js";
 import {
   GPU_MESHLET_BUCKET_COUNT,
   GPU_MESHLET_RASTER_WORK_ABI_VERSION,
@@ -39,7 +39,7 @@ import {
   unpackGpuMeshletProfileLod,
   unpackGpuMeshletRasterWork,
   unpackGpuMeshletWorkQueueHeader
-} from "../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
+} from "../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
 import {
   GPU_VISIBILITY_KEY_ABI_VERSION,
   GPU_VISIBILITY_KEY_EMPTY,
@@ -51,30 +51,30 @@ import {
   isVisibilityKeyContextValid,
   resolveVisibilityKeyReference,
   tryEncodeVisibilityKey
-} from "../.test-dist/gpu/GpuVisibilityKeyAbi.js";
+} from "../../.test-dist/gpu/GpuVisibilityKeyAbi.js";
 import {
   GPU_LARGE_TRIANGLE_SETUP_TRIANGLES_PER_MESHLET,
   largeTriangleSetupIndex
-} from "../.test-dist/gpu/GpuLargeTriangleSetupAbi.js";
-import { LARGE_TRIANGLE_SETUP_WGSL } from "../.test-dist/shaders/large_triangle_setup.js";
+} from "../../.test-dist/gpu/GpuLargeTriangleSetupAbi.js";
+import { LARGE_TRIANGLE_SETUP_WGSL } from "../../.test-dist/shaders/large_triangle_setup.js";
 import {
   GEOMETRY_DIRECTORY_FLAGS,
   geometryVisibilityPathFlag,
   geometryVisibilityPathFromFlags,
   recommendGeometryVisibilityPath
-} from "../.test-dist/assets/GeometryAssetPackage.js";
+} from "../../.test-dist/assets/GeometryAssetPackage.js";
 import {
   GeometryAdaptiveSseController,
   normalizeGeometryWorkBudget
-} from "../.test-dist/render/GeometryWorkBudget.js";
+} from "../../.test-dist/render/GeometryWorkBudget.js";
 const { VISIBILITY_COUNTER_WGSL } = await import(
-  "../.test-dist/render/passes/VisibilityCounterPass.js"
+  "../../.test-dist/render/passes/VisibilityCounterPass.js"
 );
 const { PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL } = await import(
-  "../.test-dist/shaders/render_debug_view.js"
+  "../../.test-dist/shaders/render_debug_view.js"
 );
 const { MeshletBucketRaster } = await import(
-  "../.test-dist/render/MeshletBucketRaster.js"
+  "../../.test-dist/render/MeshletBucketRaster.js"
 );
 
 const GEOMETRY_TRUTH_FIELDS = [

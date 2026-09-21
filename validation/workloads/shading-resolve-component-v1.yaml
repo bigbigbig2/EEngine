@@ -1,0 +1,22 @@
+schemaVersion: 1
+id: shading-resolve-component-v1
+resolution:
+  - 1280
+  - 720
+componentExtent:
+  - 33
+  - 33
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0013-step-5-l3-v1
+features:
+  - core-features-and-limits
+  - subgroups
+  - texture-formats-tier1
+seed: 13005
+cameraPath: none
+warmupFrames: 1
+sampleFrames: 2
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { openGlbRangeSource } = await import("../.test-dist/loaders/gltf/streaming/GlbRangeSource.js");
-const { buildGlbSceneCatalog } = await import("../.test-dist/loaders/gltf/streaming/GlbSceneCatalog.js");
+const { openGlbRangeSource } = await import("../../.test-dist/loaders/gltf/streaming/GlbRangeSource.js");
+const { buildGlbSceneCatalog } = await import("../../.test-dist/loaders/gltf/streaming/GlbSceneCatalog.js");
 
 function makeGlb() {
   const jsonObject = {

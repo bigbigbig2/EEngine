@@ -1,5 +1,5 @@
-import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../../../../OEngine/src/assets/GeometryAssetPackage.js";
-import { GPU_SHADING_SURFACE_FLAGS } from "../../../../OEngine/src/gpu/GpuComputeMaterialAbi.js";
+import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../../../OEngine/src/assets/GeometryAssetPackage.js";
+import { GPU_SHADING_SURFACE_FLAGS } from "../../../OEngine/src/gpu/GpuComputeMaterialAbi.js";
 import {
   GPU_GEOMETRY_RECORD_STRIDE,
   GPU_MESHLET_RECORD_STRIDE,
@@ -7,59 +7,59 @@ import {
   GPU_UV_FORMAT,
   packGpuGeometryRecord,
   packGpuMeshletRecords
-} from "../../../../OEngine/src/gpu/GpuGeometryAbi.js";
+} from "../../../OEngine/src/gpu/GpuGeometryAbi.js";
 import {
   GPU_INSTANCE_RECORD_STRIDE,
   packGpuInstanceRecord
-} from "../../../../OEngine/src/gpu/GpuInstanceAbi.js";
+} from "../../../OEngine/src/gpu/GpuInstanceAbi.js";
 import {
   GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
   GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
   packGpuMeshletProfileLodBucket,
   packGpuMeshletRasterWork,
   packGpuMeshletWorkQueueHeader
-} from "../../../../OEngine/src/gpu/GpuMeshletRasterWorkAbi.js";
-import { GPU_MATERIAL_VISIBILITY_FLAGS } from "../../../../OEngine/src/gpu/GpuMaterialVisibilityAbi.js";
+} from "../../../OEngine/src/gpu/GpuMeshletRasterWorkAbi.js";
+import { GPU_MATERIAL_VISIBILITY_FLAGS } from "../../../OEngine/src/gpu/GpuMaterialVisibilityAbi.js";
 import {
   GPU_SHADING_BIN_FRAME_FLAG,
   GPU_SHADING_BIN_SETTINGS_DYNAMIC_STRIDE,
   GPU_SHADING_BIN_WGSL,
   packGpuShadingBinSettings,
   preflightGpuShadingBinSizing
-} from "../../../../OEngine/src/gpu/GpuShadingBinAbi.js";
+} from "../../../OEngine/src/gpu/GpuShadingBinAbi.js";
 import {
   GPU_SHADING_MATERIAL_RECORD_STRIDE,
   GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL,
   GPU_SHADING_TEXTURE_ROUTE_STRIDE,
   packGpuShadingMaterialRecord,
   packGpuShadingTextureRoute
-} from "../../../../OEngine/src/gpu/GpuShadingMaterialAbi.js";
+} from "../../../OEngine/src/gpu/GpuShadingMaterialAbi.js";
 import {
   GPU_SHADING_PROGRAM_COUNT,
   shadingProgramUsesTextures
-} from "../../../../OEngine/src/gpu/GpuShadingProgramAbi.js";
+} from "../../../OEngine/src/gpu/GpuShadingProgramAbi.js";
 import {
   evaluateGpuShadingProgramReference,
   gpuShadingProgramSpecialization,
   type Vec3
-} from "../../../../OEngine/src/gpu/GpuShadingProgramOracle.js";
-import type { GpuSparseShadingCapabilityRecord } from "../../../../OEngine/src/gpu/GpuSparseShadingCapability.js";
+} from "../../../OEngine/src/gpu/GpuShadingProgramOracle.js";
+import type { GpuSparseShadingCapabilityRecord } from "../../../OEngine/src/gpu/GpuSparseShadingCapability.js";
 import {
   createGpuSparseShadingPipelineDescriptor,
   GPU_SHADING_OUTPUT_DEPENDENCY
-} from "../../../../OEngine/src/gpu/GpuSparseShadingPipelineContract.js";
+} from "../../../OEngine/src/gpu/GpuSparseShadingPipelineContract.js";
 import {
   packGpuSparseShadingView
-} from "../../../../OEngine/src/gpu/GpuSparseShadingFrameAbi.js";
-import { encodeGpuTextureRef, GPU_TEXTURE_REF_INVALID } from "../../../../OEngine/src/gpu/GpuTextureRefAbi.js";
-import { encodeVisibilityKey } from "../../../../OEngine/src/gpu/GpuVisibilityKeyAbi.js";
-import { ShadingBinPass } from "../../../../OEngine/src/render/passes/ShadingBinPass.js";
-import { SparseShadingDiagnosticsPass } from "../../../../OEngine/src/render/passes/SparseShadingDiagnosticsPass.js";
+} from "../../../OEngine/src/gpu/GpuSparseShadingFrameAbi.js";
+import { encodeGpuTextureRef, GPU_TEXTURE_REF_INVALID } from "../../../OEngine/src/gpu/GpuTextureRefAbi.js";
+import { encodeVisibilityKey } from "../../../OEngine/src/gpu/GpuVisibilityKeyAbi.js";
+import { ShadingBinPass } from "../../../OEngine/src/render/passes/ShadingBinPass.js";
+import { SparseShadingDiagnosticsPass } from "../../../OEngine/src/render/passes/SparseShadingDiagnosticsPass.js";
 import {
   SparseShadingResolvePass,
   type SparseShadingResolveFrameBinding
-} from "../../../../OEngine/src/render/passes/SparseShadingResolvePass.js";
-import { GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG } from "../../../../OEngine/src/shaders/sparse_shading_resolve.js";
+} from "../../../OEngine/src/render/passes/SparseShadingResolvePass.js";
+import { GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG } from "../../../OEngine/src/shaders/sparse_shading_resolve.js";
 import { packNativeLightDatabaseFixture } from "../../fixtures/native-light-database.js";
 
 const WIDTH = 33;

@@ -24,22 +24,22 @@ import {
   type GpuShadingBinReferenceResult,
   type GpuShadingBinSettingsCpu,
   type GpuShadingBinSizing
-} from "../../../../OEngine/src/gpu/GpuShadingBinAbi.js";
+} from "../../../OEngine/src/gpu/GpuShadingBinAbi.js";
 import {
   UnsupportedGpuPerformanceBaselineError,
   captureGpuSparseShadingCapabilityRecord,
   createGpuSparseShadingCapabilityPlan
-} from "../../../../OEngine/src/gpu/GpuSparseShadingCapability.js";
-import { ShadingBinPass } from "../../../../OEngine/src/render/passes/ShadingBinPass.js";
-import { GPU_SHADING_BIN_DIAGNOSTIC_FAULT } from "../../../../OEngine/src/shaders/shading_bin_classify.js";
-import { createValidationController } from "../../host/protocol.ts";
+} from "../../../OEngine/src/gpu/GpuSparseShadingCapability.js";
+import { ShadingBinPass } from "../../../OEngine/src/render/passes/ShadingBinPass.js";
+import { GPU_SHADING_BIN_DIAGNOSTIC_FAULT } from "../../../OEngine/src/shaders/shading_bin_classify.js";
+import { createValidationController } from "../../harness/browser.ts";
 import {
   attachGpuErrorCollection,
   snapshotAdapterInfo,
   snapshotGpuFeatures,
   snapshotGpuLimits,
   withGpuErrorScopes
-} from "../../host/webgpu.ts";
+} from "../../harness/browser.ts";
 
 const WIDTH = 65;
 const HEIGHT = 67;

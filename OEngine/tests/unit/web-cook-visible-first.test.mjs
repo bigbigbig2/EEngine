@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-const { WebCookCoordinator } = await import("../.test-dist/assets/web-cook/WebCookCoordinator.js");
-const { encodeGeometryProductDescriptorBinaryV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+const { WebCookCoordinator } = await import("../../.test-dist/assets/web-cook/WebCookCoordinator.js");
+const { encodeGeometryProductDescriptorBinaryV1 } = await import("../../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
 
 function makeTwoPrimitiveGlb() {
   const document = {

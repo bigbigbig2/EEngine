@@ -1,0 +1,33 @@
+schemaVersion: 1
+id: shading-bin-component
+route: /cases/shading-bin-component/index.html
+buildTarget: internal-candidate
+workloadId: shading-bin-component-v1
+profile: smoke
+timeoutMs: 60000
+artifacts:
+  - result
+  - events
+  - readback
+changedPaths:
+  - validation/cases/shading-bin-component
+  - OEngine/src/gpu/GpuShadingBinAbi.ts
+  - OEngine/src/gpu/GpuSparseShadingCapability.ts
+  - OEngine/src/render/passes/ShadingBinPass.ts
+  - OEngine/src/shaders/shading_bin_classify.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while adapter identity is
+      verified from WebGPU evidence.
+    ownerClaim: visibility.gpu-closure
+harness: gpu
+domain: shading
+caseKind: internal-candidate
+kind: gpu
+level: L3
+covers:
+  - visibility.gpu-closure
+  - platform.capability
+decision: ADR-0013

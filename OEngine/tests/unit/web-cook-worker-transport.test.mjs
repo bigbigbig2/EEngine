@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { WebCookWorkerTransport } = await import("../.test-dist/assets/web-cook/WebCookWorkerTransport.js");
+const { WebCookWorkerTransport } = await import("../../.test-dist/assets/web-cook/WebCookWorkerTransport.js");
 
 class FakeWorker {
   listeners = new Map(); sent = []; terminated = false;

@@ -1,10 +1,10 @@
 import {
   Renderer, PerspectiveCamera, Scene, StandardShadeMaterial,
   VirtualGeometryResidency, DirectionalLight
-} from "../../../../OEngine/src/index.ts";
-import { encodeAssetRecordsV3, encodeGeometryProductPageRecordsV1, encodeVertexFormatsV3, type GeometryProductDescriptorV1, type GeometryProductRevisionSourceV1 } from "../../../../OEngine/src/assets/geometry-product/GeometryProductV1.ts";
-import { createValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection, withGpuErrorScopes } from "../../host/webgpu.ts";
+} from "../../../OEngine/src/index.ts";
+import { encodeAssetRecordsV3, encodeGeometryProductPageRecordsV1, encodeVertexFormatsV3, type GeometryProductDescriptorV1, type GeometryProductRevisionSourceV1 } from "../../../OEngine/src/assets/geometry-product/GeometryProductV1.ts";
+import { createValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection, withGpuErrorScopes } from "../../harness/browser.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 const status = document.querySelector<HTMLElement>("#status")!;

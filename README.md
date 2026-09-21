@@ -5,8 +5,8 @@ OEngine 是面向桌面浏览器 WebGPU、中大型高几何密度场景的 GPU-
 ## 从这里开始
 
 - 开发或评审前先读 [AGENTS.md](./AGENTS.md)。
-- 按任务定位源码和权威文档时读 [CONTEXT-MAP.md](./CONTEXT-MAP.md)。
-- 产品、架构、管线、状态和验证入口见 [docs/README.md](./docs/README.md)。
+- 按任务定位源码和权威文档时运行 `node tools/vibe.mjs context <path>`。
+- 产品、领域、合同、状态和验证入口见 [docs/README.md](./docs/README.md)。
 - 可运行浏览器示例见 [examples/README.md](./examples/README.md)。
 - 引擎包实现约束见 [OEngine/AGENTS.md](./OEngine/AGENTS.md)。
 

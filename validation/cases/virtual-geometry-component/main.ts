@@ -1,10 +1,10 @@
-import { createValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits, withGpuErrorScopes } from "../../host/webgpu.ts";
-import { GEOMETRY_PRODUCT_GPU_WGSL_V1 } from "../../../../OEngine/src/gpu/GeometryProductGpuAbiV1.ts";
-import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "../../../../OEngine/src/shaders/virtual_geometry_product.ts";
-import { VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL } from "../../../../OEngine/src/shaders/virtual_geometry_work.ts";
-import { VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL } from "../../../../OEngine/src/shaders/meshlet_bucket_visibility.ts";
-import { GPU_COUNTER_BYTE_SIZE, counterByteOffset } from "../../../../OEngine/src/debug/GpuFrameCounters.ts";
+import { createValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits, withGpuErrorScopes } from "../../harness/browser.ts";
+import { GEOMETRY_PRODUCT_GPU_WGSL_V1 } from "../../../OEngine/src/gpu/GeometryProductGpuAbiV1.ts";
+import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "../../../OEngine/src/shaders/virtual_geometry_product.ts";
+import { VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL } from "../../../OEngine/src/shaders/virtual_geometry_work.ts";
+import { VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL } from "../../../OEngine/src/shaders/meshlet_bucket_visibility.ts";
+import { GPU_COUNTER_BYTE_SIZE, counterByteOffset } from "../../../OEngine/src/debug/GpuFrameCounters.ts";
 
 const status = document.querySelector<HTMLElement>("#status");
 const canvas = document.querySelector<HTMLCanvasElement>("#output");
@@ -216,4 +216,3 @@ try {
 } catch (error) {
   controller.fail(error instanceof Error ? error.message : String(error));
 }
-

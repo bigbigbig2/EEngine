@@ -1,32 +1,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import "./webgpu-test-globals.mjs";
+import "../../webgpu-test-globals.mjs";
 
-import { FrameGraph, FrameGraphContext } from "../.test-dist/framegraph/FrameGraph.js";
+import { FrameGraph, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
 import {
   captureGpuSparseShadingCapabilityRecord,
   createGpuSparseShadingCapabilityPlan,
   GPU_SPARSE_SHADING_REQUIRED_FEATURES,
   GPU_SPARSE_SHADING_REQUIRED_LIMITS
-} from "../.test-dist/gpu/GpuSparseShadingCapability.js";
-import { GpuShadingPublicationStore } from "../.test-dist/gpu/GpuShadingPublicationPlan.js";
-import { GPU_SHADING_OUTPUT_DEPENDENCY } from "../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
+} from "../../.test-dist/gpu/GpuSparseShadingCapability.js";
+import { GpuShadingPublicationStore } from "../../.test-dist/gpu/GpuShadingPublicationPlan.js";
+import { GPU_SHADING_OUTPUT_DEPENDENCY } from "../../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
 import {
   addSparseShadingCandidateToGraph,
   createSparseShadingCandidatePlan
-} from "../.test-dist/render/pipeline/SparseShadingCandidatePipeline.js";
+} from "../../.test-dist/render/pipeline/SparseShadingCandidatePipeline.js";
 import {
   createSparseShadingCandidateExecutor
-} from "../.test-dist/render/pipeline/SparseShadingCandidateExecutor.js";
-import { SparseShadingCandidateRuntime } from "../.test-dist/render/pipeline/SparseShadingCandidateRuntime.js";
+} from "../../.test-dist/render/pipeline/SparseShadingCandidateExecutor.js";
+import { SparseShadingCandidateRuntime } from "../../.test-dist/render/pipeline/SparseShadingCandidateRuntime.js";
 import {
   SparseShadingGpuRevisionOwner
-} from "../.test-dist/render/pipeline/SparseShadingGpuRevision.js";
+} from "../../.test-dist/render/pipeline/SparseShadingGpuRevision.js";
 import {
   SparseShadingDiagnosticsPass
-} from "../.test-dist/render/passes/SparseShadingDiagnosticsPass.js";
-import { SurfaceFeature } from "../.test-dist/render/features/SurfaceFeature.js";
+} from "../../.test-dist/render/passes/SparseShadingDiagnosticsPass.js";
+import { SurfaceFeature } from "../../.test-dist/render/features/SurfaceFeature.js";
 
 const limits = Object.freeze({
   maxTextureDimension2D: 32768,

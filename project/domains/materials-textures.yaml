@@ -1,0 +1,32 @@
+id: materials-textures
+title: Materials and texture residency
+primaryOwner: materials-textures
+owner: OEngine/src/material, OEngine/src/gpu/TextureResidency.ts, OEngine/src/assets
+intent: Carry authored material slots and mip residency into a single production texture and shading identity path.
+paths:
+  - OEngine/src/material/**
+  - OEngine/src/assets/Texture*.ts
+  - OEngine/src/gpu/Texture*.ts
+  - OEngine/src/gpu/GpuMaterial*.ts
+  - validation/cases/texture-residency-component/**
+  - validation/cases/glb-web-product/**
+currentDocs:
+  - docs/domains/materials-textures.md
+  - docs/porting/shading.md
+contracts:
+  - claims-and-evidence
+decisions:
+  - ADR-0011
+  - ADR-0016
+sources:
+  - texture-format-rules
+claims:
+  - materials.texture-path
+  - materials.mip-convergence
+checks:
+  - model
+  - registry
+  - docs-frontmatter
+watch:
+  - OEngine/src/gpu/Texture*.ts
+  - validation/cases/texture-residency-component/**

@@ -13,7 +13,7 @@ globalThis.GPUShaderStage ??= Object.freeze({ VERTEX: 1, FRAGMENT: 2, COMPUTE: 4
 const root = fileURLToPath(new URL("..", import.meta.url));
 
 test("public entry is Product-first and has no V2 production symbols", async () => {
-  const entry = await import("../.test-dist/index.js");
+  const entry = await import("../../.test-dist/index.js");
   for (const symbol of [
     "load_gltf_packed",
     "cookGeometryAssetPackage",

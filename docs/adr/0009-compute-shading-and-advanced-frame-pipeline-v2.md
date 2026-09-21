@@ -16,4 +16,4 @@ Lighting、GI/AO/SSR、transparency、temporal 与 post 若各自复制 receiver
 
 ## Verification
 
-以 compiled graph、resource accounting、history lifecycle、feature-off、截图/数值 seam 和统一 PERF workload 证明；当前完成状态只写入 [STATUS](../STATUS.md)。
+以 compiled graph、resource accounting、history lifecycle、feature-off、截图/数值 seam 和统一 PERF workload 证明；当前完成状态由 `node tools/vibe.mjs status shading` 推导。

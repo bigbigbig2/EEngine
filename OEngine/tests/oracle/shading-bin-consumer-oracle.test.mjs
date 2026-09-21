@@ -4,17 +4,17 @@ import test from "node:test";
 import {
   GPU_SHADING_PROGRAM,
   deriveGpuShadingIdentity
-} from "../.test-dist/gpu/GpuShadingProgramAbi.js";
+} from "../../.test-dist/gpu/GpuShadingProgramAbi.js";
 import {
   evaluateGpuShadingProgramReference,
   fresnelSchlickReference,
   gpuShadingProgramSpecialization,
   perspectiveBarycentricReference,
   reconstructAttributeReference
-} from "../.test-dist/gpu/GpuShadingProgramOracle.js";
+} from "../../.test-dist/gpu/GpuShadingProgramOracle.js";
 import {
   GPU_SHADING_OUTPUT_DEPENDENCY
-} from "../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
+} from "../../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
 
 const BASE_MATERIAL = Object.freeze({
   baseColorFactor: [0.8, 0.5, 0.25],

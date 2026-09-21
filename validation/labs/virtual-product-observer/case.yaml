@@ -1,0 +1,40 @@
+schemaVersion: 1
+id: virtual-product-observer
+route: /labs/virtual-product-observer/index.html
+buildTarget: production
+workloadId: virtual-product-observer-v1
+profile: smoke
+timeoutMs: 240000
+artifacts:
+  - result
+  - events
+  - screenshot
+  - readback
+changedPaths:
+  - validation/labs/virtual-product-observer
+  - validation/vite.config.ts
+  - OEngine/src/assets/web-cook
+  - OEngine/src/assets/geometry-product
+  - OEngine/src/render/Renderer.ts
+  - OEngine/src/render/pipeline/MainRenderPipeline.ts
+  - OEngine/src/gpu/GeometryProductAdmission.ts
+  - OEngine/src/gpu/VirtualGeometryResidency.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while the observer captures
+      adapter identity.
+    ownerClaim: virtual-assets.product-consumer
+harness: observer
+lab: true
+automatic: false
+domain: virtual-assets
+caseKind: production
+kind: contract
+level: L4
+covers:
+  - virtual-assets.product-consumer
+  - virtual-assets.web-cook
+  - platform.evidence
+decision: ADR-0016

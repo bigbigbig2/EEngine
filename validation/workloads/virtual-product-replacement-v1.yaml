@@ -1,0 +1,26 @@
+schemaVersion: 1
+id: virtual-product-replacement-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0016-s5-product-replacement-v1
+features:
+  - web-cook
+  - glb-range
+  - product-admission
+  - product-residency
+  - product-replacement
+  - product-eviction
+  - hierarchy-work
+  - meshlet-raster
+  - visibility-key
+  - sparse-shading
+seed: 1605
+cameraPath: web-glb-replacement-refine-evict
+warmupFrames: 1
+sampleFrames: 5
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

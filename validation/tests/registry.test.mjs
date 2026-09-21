@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 import { validateRegistry } from "../src/shared/registry.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const registry = JSON.parse(await readFile(resolve(root, "cases/registry.json"), "utf8"));
+const generatedPath = resolve(root, "registry.generated.json");
+const registry = JSON.parse(await readFile(generatedPath, "utf8"));
 
 test("committed validation registry is valid", () => {
   assert.deepEqual(validateRegistry(registry), []);

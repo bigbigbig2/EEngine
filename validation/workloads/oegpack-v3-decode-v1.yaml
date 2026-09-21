@@ -1,0 +1,18 @@
+schemaVersion: 1
+id: oegpack-v3-decode-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0016-a8-abi-decode-v1
+features:
+  - core-features-and-limits
+  - oegpack-v3-raw-storage-decode
+seed: 16008
+cameraPath: none
+warmupFrames: 1
+sampleFrames: 1
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1

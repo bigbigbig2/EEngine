@@ -10,7 +10,7 @@ import {
   GPU_SPARSE_SHADING_REQUIRED_FEATURES,
   GPU_SPARSE_SHADING_REQUIRED_LIMITS,
   UnsupportedGpuPerformanceBaselineError
-} from "../.test-dist/gpu/GpuSparseShadingCapability.js";
+} from "../../.test-dist/gpu/GpuSparseShadingCapability.js";
 
 const requiredFeatures = [...GPU_SPARSE_SHADING_REQUIRED_FEATURES];
 const exactLimits = { ...GPU_SPARSE_SHADING_REQUIRED_LIMITS };

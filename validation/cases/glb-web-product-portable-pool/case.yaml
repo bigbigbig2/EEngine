@@ -1,0 +1,37 @@
+schemaVersion: 1
+id: glb-web-product-portable-pool
+sourceCase: glb-web-product
+route: /cases/glb-web-product/index.html?source=authored-texture&profile=portable-pool&case=glb-web-product-portable-pool&workload=glb-web-product-bootstrap-v1
+buildTarget: production
+workloadId: glb-web-product-bootstrap-v1
+profile: smoke
+timeoutMs: 240000
+artifacts:
+  - result
+  - events
+  - screenshot
+changedPaths:
+  - validation/cases/glb-web-product
+  - validation/public/assets/oengine
+  - OEngine/src/assets/web-cook
+  - OEngine/src/loaders/gltf/streaming
+  - OEngine/src/gpu/GeometryProductAdmission.ts
+  - OEngine/src/gpu/VirtualGeometryResidency.ts
+  - OEngine/src/render/pipeline/MainRenderPipeline.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while the portable pool Web
+      GLB Product device is captured.
+    ownerClaim: virtual-assets.web-cook
+harness: production
+domain: virtual-assets
+caseKind: production
+kind: gpu
+level: L4
+covers:
+  - virtual-assets.web-cook
+  - virtual-assets.lifecycle
+  - materials.texture-path
+decision: ADR-0016

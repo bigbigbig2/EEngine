@@ -129,9 +129,9 @@ return:   outstanding -= blockCount; credits += blockCount
 
 ## Validation
 
-- `OEngine/tests/cook-session-protocol.test.mjs` 覆盖 header/version 拒绝、状态机越界、credit 授权与归还边界、超限队列、非法 `RevisionOffered.sceneAssetIndices` 与非法 `PageReady` 身份。
-- `OEngine/tests/web-cook-worker-transport.test.mjs` 覆盖 generation 过滤与迟到消息丢弃。
-- `OEngine/tests/web-cook-budget.test.mjs` 覆盖 output/source/WASM 预算与超额拒绝。
-- `OEngine/tests/web-cook-activation-reserve.test.mjs` 覆盖 activation page 重读、credit 守恒、无等待重复副本丢弃。
+- `OEngine/tests/unit/cook-session-protocol.test.mjs` 覆盖 header/version 拒绝、状态机越界、credit 授权与归还边界、超限队列、非法 `RevisionOffered.sceneAssetIndices` 与非法 `PageReady` 身份。
+- `OEngine/tests/unit/web-cook-worker-transport.test.mjs` 覆盖 generation 过滤与迟到消息丢弃。
+- `OEngine/tests/unit/web-cook-budget.test.mjs` 覆盖 output/source/WASM 预算与超额拒绝。
+- `OEngine/tests/unit/web-cook-activation-reserve.test.mjs` 覆盖 activation page 重读、credit 守恒、无等待重复副本丢弃。
 - 新增命令或事件时必须同步更新本 spec、TS 类型镜像与对应 golden/negative 测试；三者不一致时先停止扩散并确定哪一侧错误。
 - 真实浏览器行为由 `validation/` 宿主承担；协议层测试不能替代跨 Worker 边界的运行证据。

@@ -1,31 +1,31 @@
-import { GPU_HDR_FORMAT } from "../../../../OEngine/src/gpu/GpuHdrAbi.js";
-import { THREE_SSR_REVISION } from "../../../../OEngine/src/shaders/ssr_common.js";
-import type { GPUTextureContext } from "../../../../OEngine/src/gpu/GPUTextureContext.js";
-import type { GraphicsContext } from "../../../../OEngine/src/gpu/GraphicsContext.js";
-import { FrameGraph, type PassResources } from "../../../../OEngine/src/framegraph/FrameGraph.js";
-import type { ResourceId } from "../../../../OEngine/src/framegraph/ResourceHandle.js";
-import { resolveGpuEncoder } from "../../../../OEngine/src/framegraph/FrameGraph.js";
-import { HierarchicalZBuffer } from "../../../../OEngine/src/render/HierarchicalZBuffer.js";
-import { GIService } from "../../../../OEngine/src/render/features/GIService.js";
-import { ReflectionService } from "../../../../OEngine/src/render/features/ReflectionService.js";
-import { ScreenSpaceDiffuseService } from "../../../../OEngine/src/render/features/ScreenSpaceDiffuseService.js";
-import { TemporalFeature } from "../../../../OEngine/src/render/features/TemporalFeature.js";
-import { OcclusionConfidencePass } from "../../../../OEngine/src/render/passes/OcclusionConfidencePass.js";
+import { GPU_HDR_FORMAT } from "../../../OEngine/src/gpu/GpuHdrAbi.js";
+import { THREE_SSR_REVISION } from "../../../OEngine/src/shaders/ssr_common.js";
+import type { GPUTextureContext } from "../../../OEngine/src/gpu/GPUTextureContext.js";
+import type { GraphicsContext } from "../../../OEngine/src/gpu/GraphicsContext.js";
+import { FrameGraph, type PassResources } from "../../../OEngine/src/framegraph/FrameGraph.js";
+import type { ResourceId } from "../../../OEngine/src/framegraph/ResourceHandle.js";
+import { resolveGpuEncoder } from "../../../OEngine/src/framegraph/FrameGraph.js";
+import { HierarchicalZBuffer } from "../../../OEngine/src/render/HierarchicalZBuffer.js";
+import { GIService } from "../../../OEngine/src/render/features/GIService.js";
+import { ReflectionService } from "../../../OEngine/src/render/features/ReflectionService.js";
+import { ScreenSpaceDiffuseService } from "../../../OEngine/src/render/features/ScreenSpaceDiffuseService.js";
+import { TemporalFeature } from "../../../OEngine/src/render/features/TemporalFeature.js";
+import { OcclusionConfidencePass } from "../../../OEngine/src/render/passes/OcclusionConfidencePass.js";
 import {
   OPAQUE_COLOR_PYRAMID_MAX_MIPS,
   SHARED_COLOR_PYRAMID_ABI_VERSION,
   SharedColorPyramidPass
-} from "../../../../OEngine/src/render/passes/SharedColorPyramidPass.js";
+} from "../../../OEngine/src/render/passes/SharedColorPyramidPass.js";
 import {
   preExposedOpaqueHdrBaselineFrame,
   textureDomain,
   type PreExposureContract
-} from "../../../../OEngine/src/render/pipeline/FrameProducts.js";
+} from "../../../OEngine/src/render/pipeline/FrameProducts.js";
 import type {
   SparseShadingCandidateDownstreamComposition,
   SparseShadingCandidateDownstreamStage,
   SparseShadingCandidateFrame
-} from "../../../../OEngine/src/render/pipeline/SparseShadingCandidatePipeline.js";
+} from "../../../OEngine/src/render/pipeline/SparseShadingCandidatePipeline.js";
 
 export interface RenderingLabDownstreamResources {
   readonly camera: ResourceId;

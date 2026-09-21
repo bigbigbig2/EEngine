@@ -1,0 +1,65 @@
+id: platform
+title: Platform capability and project validation
+primaryOwner: platform
+owner: OEngine/src/gpu/GraphicsContext.ts, validation/, project/, checks/, tools/
+intent: Keep WebGPU capability negotiation, browser evidence, project routing, and machine checks deterministic.
+paths:
+  - OEngine/src/gpu/GraphicsContext.ts
+  - OEngine/src/gpu/**
+  - OEngine/src/**
+  - OEngine/tools/**
+  - OEngine/**
+  - examples/**
+  - .agents/**
+  - OEngine/src/debug/**
+  - validation/**
+  - project/**
+  - checks/**
+  - tools/**
+  - docs/**
+  - docs/README.md
+  - AGENTS.md
+  - OEngine/AGENTS.md
+  - .gitignore
+  - README.md
+  - package.json
+  - package-lock.json
+  - OEngine/package.json
+  - OEngine/benchmarks/**
+  - OEngine/tests/**
+currentDocs:
+  - docs/WEBGPU.md
+  - docs/VALIDATION.md
+  - docs/README.md
+contracts:
+  - project-routing
+  - generated-registry
+  - validation-case
+  - browser-harness
+  - claims-and-evidence
+decisions:
+  - ADR-0010
+  - ADR-0014
+sources:
+  - webgpu-capability
+claims:
+  - platform.capability
+  - platform.evidence
+  - platform.routing
+checks:
+  - model
+  - registry
+  - changed-coverage
+  - docs-frontmatter
+  - evidence-provenance
+  - guard-docs
+  - guard-public-api
+  - guard-ownership
+  - guard-legacy
+  - guard-generated-source
+watch:
+  - project/**
+  - checks/**
+  - tools/**
+  - validation/harness/**
+  - validation/src/runner/**

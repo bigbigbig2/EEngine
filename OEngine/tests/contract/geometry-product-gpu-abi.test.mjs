@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const abi = await import("../.test-dist/gpu/GeometryProductGpuAbiV1.js");
-const meshletAbi = await import("../.test-dist/gpu/GpuMeshletRasterWorkAbi.js");
+const abi = await import("../../.test-dist/gpu/GeometryProductGpuAbiV1.js");
+const meshletAbi = await import("../../.test-dist/gpu/GpuMeshletRasterWorkAbi.js");
 const { encodeGeometryProductGpuLocationV1, validateGeometryProductGpuLocationV1 } = abi;
 
 test("Geometry Product GPU location mirror encodes generation-tagged resident addresses", () => {

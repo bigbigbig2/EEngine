@@ -10,7 +10,7 @@ import {
   specializedShadingFinalControl,
   specializedShadingFrame,
   textureDomain
-} from "../.test-dist/render/pipeline/FrameProducts.js";
+} from "../../.test-dist/render/pipeline/FrameProducts.js";
 
 function validFrame() {
   return {

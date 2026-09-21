@@ -1,0 +1,30 @@
+schemaVersion: 1
+id: webgpu-component
+route: /cases/webgpu-component/index.html
+buildTarget: host
+workloadId: webgpu-component-v1
+profile: smoke
+timeoutMs: 30000
+artifacts:
+  - result
+  - events
+  - screenshot
+changedPaths:
+  - validation/cases/webgpu-component
+  - OEngine/src/gpu
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning while adapter identity is
+      verified from WebGPU evidence.
+    ownerClaim: platform.capability
+harness: gpu
+domain: platform
+caseKind: component
+kind: contract
+level: L3
+covers:
+  - platform.capability
+  - platform.evidence
+decision: ADR-0014

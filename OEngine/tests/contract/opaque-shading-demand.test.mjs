@@ -1,19 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { RenderDebugView } from "../.test-dist/debug/RenderDebugView.js";
+import { RenderDebugView } from "../../.test-dist/debug/RenderDebugView.js";
 import { GPU_SHADING_OUTPUT_DEPENDENCY } from
-  "../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
+  "../../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
 import { GpuShadingPublicationStore } from
-  "../.test-dist/gpu/GpuShadingPublicationPlan.js";
+  "../../.test-dist/gpu/GpuShadingPublicationPlan.js";
 import { deriveOpaqueShadingDemand, requiresSpatialGiQuery } from
-  "../.test-dist/render/pipeline/OpaqueShadingDemand.js";
+  "../../.test-dist/render/pipeline/OpaqueShadingDemand.js";
 import {
   captureGpuSparseShadingCapabilityRecord,
   createGpuSparseShadingCapabilityPlan,
   GPU_SPARSE_SHADING_REQUIRED_FEATURES,
   GPU_SPARSE_SHADING_REQUIRED_LIMITS
-} from "../.test-dist/gpu/GpuSparseShadingCapability.js";
+} from "../../.test-dist/gpu/GpuSparseShadingCapability.js";
 
 const S = GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite;
 const D = GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite;

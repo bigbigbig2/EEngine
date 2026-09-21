@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-const product = await import("../.test-dist/assets/geometry-product/GeometryProductV1.js");
+const product = await import("../../.test-dist/assets/geometry-product/GeometryProductV1.js");
 
 /**
  * Page identity is rolled up from Group payloads so it can be computed before a

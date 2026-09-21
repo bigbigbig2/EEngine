@@ -27,10 +27,10 @@ import {
   type ProductSceneHandles,
   type WebCookRuntimeAsset,
   type WebCookSceneCatalogSnapshot
-} from "../../../../OEngine/src/index.ts";
-import dungeonSourceUrl from "../../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
-import { createValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection } from "../../host/webgpu.ts";
+} from "../../../OEngine/src/index.ts";
+import dungeonSourceUrl from "../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
+import { createValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection } from "../../harness/browser.ts";
 
 /**
  * Mirror of `WebCookCoordinator`'s automatic first-cut bound.

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-const { NyxWebRuntimeCooker, NYX_WEB_RUNTIME_PRODUCER_ID } = await import("../.test-dist/assets/web-cook/NyxWebRuntimeCooker.js");
-const { decodeGeometryProductDescriptorBinaryV1 } = await import("../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+const { NyxWebRuntimeCooker, NYX_WEB_RUNTIME_PRODUCER_ID } = await import("../../.test-dist/assets/web-cook/NyxWebRuntimeCooker.js");
+const { decodeGeometryProductDescriptorBinaryV1 } = await import("../../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
 
 function productSections() {
   const page = new Uint8Array(262144), pageHash = createHash("sha256").update(page).digest();

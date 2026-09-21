@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 
-const abi = await import("../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js");
+const abi = await import("../../.test-dist/assets/web-cook/wasm/WebGeometryCookerAbi.js");
 
 function cubeDomain() {
   const positions = [

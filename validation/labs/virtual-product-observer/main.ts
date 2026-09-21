@@ -14,10 +14,10 @@ import {
   type OegPackProductAsset,
   type ProductSceneHandles,
   type WebCookRuntimeAsset
-} from "../../../../OEngine/src/index.ts";
-import { createValidationController, type ValidationController } from "../../host/protocol.ts";
-import { attachGpuErrorCollection, probeWebGpu2026Surface, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits } from "../../host/webgpu.ts";
-import dungeonSourceUrl from "../../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
+} from "../../../OEngine/src/index.ts";
+import { createValidationController, type ValidationController } from "../../harness/browser.ts";
+import { attachGpuErrorCollection, probeWebGpu2026Surface, snapshotAdapterInfo, snapshotGpuFeatures, snapshotGpuLimits } from "../../harness/browser.ts";
+import dungeonSourceUrl from "../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb?url";
 
 const DEFAULT_WEB = dungeonSourceUrl;
 const DEFAULT_OFFLINE = "/assets/oengine/offline-product-a/scene.oescene";

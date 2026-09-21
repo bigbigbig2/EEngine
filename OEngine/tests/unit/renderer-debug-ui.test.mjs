@@ -4,9 +4,9 @@ import test from "node:test";
 
 import {
   resolveRendererDebugConfig
-} from "../.test-dist/addons/debug/RendererDebugConfig.js";
-import { summarizeRafFps } from "../.test-dist/addons/debug/RendererInfoModel.js";
-import { mergeRendererConfig } from "../.test-dist/render/RendererConfig.js";
+} from "../../.test-dist/addons/debug/RendererDebugConfig.js";
+import { summarizeRafFps } from "../../.test-dist/addons/debug/RendererInfoModel.js";
+import { mergeRendererConfig } from "../../.test-dist/render/RendererConfig.js";
 
 test("debug config is opt-in and normalizes the development defaults", () => {
   assert.deepEqual(resolveRendererDebugConfig(undefined), {

@@ -6,7 +6,7 @@ import { GEOMETRY_PRODUCT_GPU_WGSL_V1 } from "../gpu/GeometryProductGpuAbiV1.js"
  * hierarchy and MeshletWork specializations.
  *
  * Provenance: Nyx `MeshletStructs.h` and `DAGCull.slang` at the hashes frozen
- * by implementation/0016. The raw Product heap replaces Nyx bindless SRVs;
+ * by docs/porting/geometry.md. The raw Product heap replaces Nyx bindless SRVs;
  * every lookup remains generation/range checked before a physical bank read.
  */
 export const VIRTUAL_GEOMETRY_PRODUCT_WGSL = /* wgsl */ `
