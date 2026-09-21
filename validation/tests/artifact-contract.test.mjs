@@ -8,7 +8,7 @@ const now = "2026-09-13T00:00:00.000Z";
 
 function validArtifact() {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     runId: "2026-09-13T00-00-00-000Z-protocol-self-test-00000000-0000-4000-8000-000000000000",
     nonce: "c".repeat(48),
     caseId: "protocol-self-test",
@@ -29,6 +29,19 @@ function validArtifact() {
       startedAt: now,
       completedAt: now
     },
+    checkReceipts: [{
+      id: "registry",
+      runner: "generated-registry",
+      level: "L1",
+      status: "passed",
+      revision: commit,
+      tree: commit,
+      dirty: false,
+      scope: "full",
+      registrySha256: sha,
+      detailsSha256: sha,
+      completedAt: now
+    }],
     page: {
       schemaVersion: 1,
       runId: "2026-09-13T00-00-00-000Z-protocol-self-test-00000000-0000-4000-8000-000000000000",
@@ -65,12 +78,23 @@ test("accepted artifact satisfies freshness, provenance, dispose and manifest co
 test("passed artifact rejects dirty evidence, identity drift and incomplete gates", () => {
   const artifact = validArtifact();
   artifact.provenance.dirty = true;
+  artifact.checkReceipts[0].dirty = true;
   artifact.page.nonce = "d".repeat(48);
   artifact.gate.disposed = false;
   const errors = validateArtifact(artifact, selectedCase);
   assert.ok(errors.some((error) => error.includes("clean revision")));
   assert.ok(errors.some((error) => error.includes("page nonce")));
   assert.ok(errors.some((error) => error.includes("every gate")));
+});
+
+test("accepted artifact rejects synthesized or mismatched check receipts", () => {
+  const missing = validArtifact();
+  missing.checkReceipts = [];
+  assert.ok(validateArtifact(missing, selectedCase).some((error) => error.includes("passed check receipts")));
+
+  const mismatched = validArtifact();
+  mismatched.checkReceipts[0].revision = "d".repeat(40);
+  assert.ok(validateArtifact(mismatched, selectedCase).some((error) => error.includes("revision does not match")));
 });
 
 test("manifest rejects undeclared, missing and unsafe artifacts", () => {

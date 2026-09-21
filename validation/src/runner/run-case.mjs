@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
@@ -17,6 +17,20 @@ const caseId = process.argv[2];
 const selectedCase = registry.cases.find((item) => item.id === caseId);
 if (!selectedCase) {
   throw new Error(`Unknown case '${caseId ?? ""}'. Expected one of: ${registry.cases.map(({ id }) => id).join(", ")}`);
+}
+const verificationPath = resolve(repositoryRoot, "validation/evidence/verification.json");
+const preflight = spawnSync(process.execPath, [resolve(repositoryRoot, "tools/vibe.mjs"), "verify"], {
+  cwd: repositoryRoot,
+  encoding: "utf8",
+  windowsHide: true,
+  timeout: 900_000
+});
+if (preflight.status !== 0) {
+  throw new Error(`Validation preflight failed (${preflight.status ?? "no status"}): ${(preflight.stderr || preflight.stdout || "").trim().slice(-4000)}`);
+}
+const verification = JSON.parse(await readFile(verificationPath, "utf8"));
+if (verification.verificationComplete !== true || !Array.isArray(verification.checkReceipts)) {
+  throw new Error("Validation preflight did not produce complete check receipts");
 }
 const profile = registry.profiles[selectedCase.profile];
 const workload = registry.workloads[selectedCase.workloadId];
@@ -201,7 +215,7 @@ const status = runnerError || !allHostGatesPassed
   ? "failed"
   : pageSnapshot.outcome;
 const result = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   runId,
   nonce,
   caseId: selectedCase.id,
@@ -210,6 +224,7 @@ const result = {
   workloadSha256,
   status,
   evidenceStatus: !dirty && status === "passed" ? "accepted" : "diagnostic-only",
+  checkReceipts: verification.checkReceipts,
   provenance: {
     commit,
     tree,

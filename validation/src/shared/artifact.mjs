@@ -2,6 +2,7 @@ const SHA256_PATTERN = /^[0-9a-f]{64}$/u;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/u;
 const NONCE_PATTERN = /^[0-9a-f]{48}$/u;
 const CASE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
+const CHECK_ID_PATTERN = CASE_ID_PATTERN;
 const STATUS = new Set(["passed", "failed", "unsupported"]);
 const EVIDENCE_STATUS = new Set(["accepted", "diagnostic-only"]);
 const ARTIFACT_KINDS = new Set(["events", "screenshot", "readback", "trace", "samples"]);
@@ -10,7 +11,7 @@ const GATE_FIELDS = ["freshness", "identity", "browserErrors", "pageOutcome", "d
 export function validateArtifact(artifact, selectedCase) {
   const errors = [];
   if (!isRecord(artifact)) return ["artifact must be an object"];
-  if (artifact.schemaVersion !== 1) errors.push("schemaVersion must be 1");
+  if (artifact.schemaVersion !== 2) errors.push("schemaVersion must be 2");
   if (typeof artifact.runId !== "string" || artifact.runId.length < 40) errors.push("runId is invalid");
   if (!NONCE_PATTERN.test(artifact.nonce ?? "")) errors.push("nonce must be 24 random bytes encoded as hex");
   if (!CASE_ID_PATTERN.test(artifact.caseId ?? "")) errors.push("caseId is invalid");
@@ -21,6 +22,7 @@ export function validateArtifact(artifact, selectedCase) {
   if (!EVIDENCE_STATUS.has(artifact.evidenceStatus)) errors.push("evidenceStatus is invalid");
 
   validateProvenance(artifact.provenance, errors);
+  validateCheckReceipts(artifact.checkReceipts, artifact.provenance, artifact.registrySha256, errors);
   validateEvents(artifact.events, errors);
   validateManifest(artifact.artifactManifest, errors);
   validateGate(artifact.gate, errors);
@@ -45,12 +47,46 @@ export function validateArtifact(artifact, selectedCase) {
   if (artifact.evidenceStatus === "accepted" && artifact.provenance?.dirty !== false) {
     errors.push("accepted evidence requires a clean revision");
   }
+  if (artifact.evidenceStatus === "accepted" && (!Array.isArray(artifact.checkReceipts) || artifact.checkReceipts.length === 0 || artifact.checkReceipts.some((receipt) => receipt.status !== "passed"))) {
+    errors.push("accepted evidence requires passed check receipts");
+  }
   if (artifact.status === "passed") {
     if (artifact.page === null || artifact.page?.outcome !== "passed") errors.push("passed artifact requires a passed page");
     if (!GATE_FIELDS.every((field) => artifact.gate?.[field] === true)) errors.push("passed artifact requires every gate to pass");
     if ((artifact.page?.errors?.length ?? 0) !== 0) errors.push("passed artifact cannot contain page errors");
   }
   return errors;
+}
+
+function validateCheckReceipts(receipts, provenance, registrySha256, errors) {
+  if (!Array.isArray(receipts)) {
+    errors.push("checkReceipts must be an array");
+    return;
+  }
+  const ids = new Set();
+  for (const [index, receipt] of receipts.entries()) {
+    if (!isRecord(receipt)) {
+      errors.push(`check receipt ${index} must be an object`);
+      continue;
+    }
+    if (!CHECK_ID_PATTERN.test(receipt.id ?? "")) errors.push(`check receipt ${index} id is invalid`);
+    if (ids.has(receipt.id)) errors.push(`duplicate check receipt ${receipt.id}`);
+    ids.add(receipt.id);
+    if (typeof receipt.runner !== "string" || receipt.runner.length === 0) errors.push(`check receipt ${index} runner is invalid`);
+    if (!/^L[0-4]$/u.test(receipt.level ?? "")) errors.push(`check receipt ${index} level is invalid`);
+    if (!new Set(["passed", "failed", "not-run"]).has(receipt.status)) errors.push(`check receipt ${index} status is invalid`);
+    if (receipt.revision !== provenance?.commit) errors.push(`check receipt ${index} revision does not match provenance`);
+    if (receipt.tree !== provenance?.tree) errors.push(`check receipt ${index} tree does not match provenance`);
+    if (receipt.dirty !== provenance?.dirty) errors.push(`check receipt ${index} dirty flag does not match provenance`);
+    if (!new Set(["changed", "full"]).has(receipt.scope)) errors.push(`check receipt ${index} scope is invalid`);
+    if (receipt.registrySha256 !== registrySha256) errors.push(`check receipt ${index} registry hash does not match artifact`);
+    for (const field of ["registrySha256", "detailsSha256"]) {
+      if (!SHA256_PATTERN.test(receipt[field] ?? "")) errors.push(`check receipt ${index} ${field} is invalid`);
+    }
+    const completed = parseDate(receipt.completedAt, `check receipt ${index} completedAt`, errors);
+    const runStarted = typeof provenance?.startedAt === "string" ? Date.parse(provenance.startedAt) : Number.NaN;
+    if (completed !== null && Number.isFinite(runStarted) && completed > runStarted) errors.push(`check receipt ${index} completed after browser run started`);
+  }
 }
 
 export function requireValidArtifact(artifact, selectedCase) {

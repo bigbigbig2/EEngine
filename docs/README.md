@@ -7,7 +7,7 @@ The repository uses a contract-driven project OS. Machine manifests route work a
 1. Run `node tools/vibe.mjs context <path>` before changing code.
 2. Read the matching page under [domains](./domains/), then the linked contract under [contracts](./contracts/).
 3. Run `node tools/vibe.mjs verify --changed` after editing.
-4. Use `node tools/vibe.mjs status [domain]` to inspect claim state and `node tools/vibe.mjs evidence` to refresh evidence.
+4. Use `node tools/vibe.mjs status [domain]` to inspect claim state and `node tools/vibe.mjs evidence` to refresh evidence. Empty or partial raw input cannot remove compact records without `--force-empty` or `--force-prune`; use `evidence --check` for a read-only comparison.
 
 ## Source Of Truth
 
@@ -27,3 +27,9 @@ The repository uses a contract-driven project OS. Machine manifests route work a
 | Current evidence | `validation/evidence/index.json`, generated `docs/status.generated.md`, and ignored `.local/validation/` raw artifacts |
 
 Unpromoted research cannot establish a product fact, ABI, claim status, or completion. Git history stores retired implementation narratives.
+
+## Reviews
+
+Reviews are dated, non-authoritative audits. They record observations and recommendations but do not establish product facts or completion:
+
+- [2026-09-21 · Documentation and validation system review](./reviews/2026-09-21-documentation-validation-system-review.md)

@@ -27,7 +27,9 @@ import {
   writeEvidenceIndex,
   sha256,
   validateWorkstreamCompletion,
-  canonicalJsonText
+  canonicalJsonText,
+  evidenceReplacementError,
+  isVerificationComplete
 } from "./vibe-lib.mjs";
 import { runCheckImplementation } from "./check-runners.mjs";
 
@@ -35,7 +37,7 @@ const [command = "doctor", ...args] = process.argv.slice(2);
 
 try {
   if (command === "registry") await registryCommand();
-  else if (command === "evidence") await evidenceCommand();
+  else if (command === "evidence") await evidenceCommand(args.includes("--force-empty"), args.includes("--force-prune"), args.includes("--check"));
   else if (command === "doctor") await doctorCommand();
   else if (command === "context") await contextCommand(args[0] ?? ".");
   else if (command === "verify") await verifyCommand(args.includes("--changed"), args.includes("--perf"), args.includes("--allow-not-run"));
@@ -129,8 +131,9 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
   // list: matched domains declare their checks and matched claims declare the
   // checks they require. Before this, `project/domains/*.yaml#checks` was inert
   // metadata and `docs-frontmatter` was declared but never executed.
-  const checkIds = new Set(["model", "registry", "engine-suites"]);
+  const checkIds = new Set(["model", "registry"]);
   if (changedOnly) checkIds.add("changed-coverage");
+  if (!changedOnly || changedPaths.some((path) => path.startsWith("OEngine/"))) checkIds.add("engine-suites");
   for (const domain of domains) for (const checkId of domain.checks ?? []) checkIds.add(checkId);
   for (const claim of claims) for (const checkId of claim.requiredChecks ?? []) checkIds.add(checkId);
   const signatures = caseSignatures(model);
@@ -140,6 +143,24 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
   const checkContext = { repoRoot: REPO_ROOT, model, changedOnly, changedPaths, uncovered, routingAmbiguities, evidence };
   const checkResults = model.checks.filter((check) => checkIds.has(check.id)).map((check) => runCheck(check, checkContext));
   const failedChecks = checkResults.filter((check) => check.status === "failed");
+  const skippedChecks = checkResults.filter((check) => check.status === "not-run");
+  const revision = currentRevision();
+  const tree = execFileSync("git", ["rev-parse", "HEAD^{tree}"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
+  const dirty = execFileSync("git", ["status", "--porcelain"], { cwd: REPO_ROOT, encoding: "utf8" }).length > 0;
+  const completedAt = new Date().toISOString();
+  const checkReceipts = checkResults.map((check) => ({
+    id: check.id,
+    runner: model.checks.find((candidate) => candidate.id === check.id)?.runner ?? "unknown",
+    level: check.level,
+    status: check.status,
+    revision,
+    tree,
+    dirty,
+    scope: changedOnly ? "changed" : "full",
+    registrySha256: generated.sha256,
+    detailsSha256: sha256(canonicalJsonText(check.details ?? [])),
+    completedAt
+  }));
   const claimStatuses = claims.map((claim) => {
     const status = claimStatus(claim, evidence, currentRevision(), signatures);
     return {
@@ -161,12 +182,13 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
   // nothing about the cases this command deliberately does not launch, so the
   // completion signal is reported separately and drives its own exit code.
   const ok = uncovered.length === 0 && routingAmbiguities.length === 0 && failedChecks.length === 0;
-  const verificationComplete = ok && notRun.length === 0;
+  const verificationComplete = isVerificationComplete(ok, notRun, skippedChecks);
   const report = {
     schemaVersion: 1,
     generatedAt: new Date().toISOString(),
-    revision: currentRevision(),
-    dirty: execFileSync("git", ["status", "--porcelain"], { cwd: REPO_ROOT, encoding: "utf8" }).length > 0,
+    revision,
+    tree,
+    dirty,
     changedOnly,
     requiredLevel,
     perfRequested,
@@ -175,6 +197,8 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
     routingAmbiguities,
     matched: { domains: domains.map((domain) => domain.id), claims: claims.map((claim) => claim.id), cases: cases.map((item) => item.id) },
     checks: checkResults,
+    checkReceipts,
+    skippedChecks: skippedChecks.map((check) => ({ id: check.id, details: check.details })),
     claims: claimStatuses,
     notRun,
     blocked,
@@ -197,6 +221,8 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
     routingAmbiguities,
     matched: { domains: domains.map((domain) => domain.id), claims: claims.map((claim) => claim.id), cases: cases.map((item) => item.id) },
     checks: checkResults,
+    checkReceipts,
+    skippedChecks: skippedChecks.map((check) => ({ id: check.id, details: check.details })),
     requiredLevel,
     notRun,
     blocked,
@@ -212,11 +238,10 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
     // Exit 2 keeps "topology is consistent" distinct from "the change is
     // verified". Without it, a green exit code on an L2/L3 change that ran no
     // browser case reads as success.
-    console.error(
-      `verify: ${notRun.length} required validation case(s) at level ${requiredLevel} were not run: `
-      + `${notRun.map((item) => item.caseId).join(", ")}\n`
-      + "        run them explicitly (`node tools/vibe.mjs case <id> --run`), or acknowledge the gap with --allow-not-run."
-    );
+    const details = [];
+    if (skippedChecks.length > 0) details.push(`checks: ${skippedChecks.map((item) => item.id).join(", ")}`);
+    if (notRun.length > 0) details.push(`browser cases: ${notRun.map((item) => item.caseId).join(", ")}`);
+    console.error(`verify: required verification was not run (${details.join("; ")}).\n        run the missing gates, or acknowledge the gap with --allow-not-run.`);
     process.exitCode = 2;
   }
 }
@@ -342,7 +367,7 @@ async function statusCommand(domainId) {
   console.log(JSON.stringify({ generatedAt: new Date().toISOString(), revision: head, registrySha256, evidenceIndex: relative(REPO_ROOT, EVIDENCE_INDEX), generatedStatus: relative(REPO_ROOT, statusPath), claims: rows }, null, 2));
 }
 
-async function evidenceCommand() {
+async function evidenceCommand(forceEmpty, forcePrune, checkOnly) {
   const model = await loadModel();
   const legacy = null;
   assertModel(model, legacy);
@@ -352,6 +377,17 @@ async function evidenceCommand() {
   const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: REPO_ROOT, encoding: "utf8" }).trim();
   const index = await buildEvidenceIndex(model, head, generated.sha256);
   assertWorkstreamCompletion(model, index, head, caseSignatures(model));
+  if (checkOnly) {
+    const next = canonicalJsonText(index);
+    const current = existsSync(EVIDENCE_INDEX) ? await readFile(EVIDENCE_INDEX, "utf8") : "";
+    const upToDate = current === next;
+    console.log(JSON.stringify({ checked: relative(REPO_ROOT, EVIDENCE_INDEX), upToDate, evidence: index.evidence.length, errors: index.errors.length, warnings: index.warnings.length, sha256: sha256(next) }, null, 2));
+    if (!upToDate) process.exitCode = 1;
+    return;
+  }
+  const existing = await loadEvidenceIndex();
+  const replacementError = evidenceReplacementError(index, existing, { forceEmpty, forcePrune });
+  if (replacementError) throw new Error(replacementError);
   const result = await writeEvidenceIndex(index);
   console.log(JSON.stringify({ generated: relative(REPO_ROOT, result.path), evidence: index.evidence.length, errors: index.errors.length, warnings: index.warnings.length, sha256: result.sha256 }, null, 2));
 }
@@ -368,7 +404,8 @@ function printHelp() {
                        exit 0 = complete, 2 = checks passed but required cases
                        were not run (use --allow-not-run to accept the gap)
   registry             generate validation/registry.generated.json
-  evidence             rebuild validation/evidence/index.json from .local/validation
+  evidence [--check] [--force-empty] [--force-prune]
+                       rebuild atomically; evidence removal requires explicit force
   status [domain]      generate and print the claim status matrix
   case <id> [--run]    inspect or explicitly run one validation case/lab
   doctor               validate the complete project model`);

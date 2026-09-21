@@ -32,7 +32,7 @@ automatic: false
 domain: virtual-assets
 caseKind: production
 kind: contract
-level: L4
+level: L3
 covers:
   - virtual-assets.product-consumer
   - virtual-assets.web-cook

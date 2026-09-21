@@ -97,8 +97,8 @@ export const CHECK_RUNNERS = Object.freeze({
 
   "evidence-provenance": (_check, context) => {
     if (context.evidence.errors?.length > 0) return failed(context.evidence.errors);
-    if ((context.evidence.evidence ?? []).length === 0) return notRun(["no raw evidence is available"]);
-    return passed();
+    if ((context.evidence.evidence ?? []).length === 0) return passed(["evidence index is valid and currently empty"]);
+    return passed([`${context.evidence.evidence.length} compact evidence record(s) are structurally valid`]);
   },
 
   /** 已退休入口不得回归：路径重新出现即失败。 */

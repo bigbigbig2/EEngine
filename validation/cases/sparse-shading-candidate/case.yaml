@@ -31,7 +31,7 @@ harness: gpu
 domain: visibility
 caseKind: internal-candidate
 kind: gpu
-level: L4
+level: L3
 covers:
   - visibility.gpu-closure
   - visibility.feature-off

@@ -6,6 +6,11 @@ claims:
     statement: Web and Offline sources enter one producer-neutral Product admission and GPU residency consumer.
     level: L3
     requiredChecks: [model, registry, evidence-provenance]
+    evidencePolicy:
+      allOf: [glb-web-product, virtual-product-offline, virtual-product-production]
+      anyOf: []
+      diagnosticCases: [oegpack-v3-component, virtual-geometry-component, virtual-product-replacement, virtual-product-observer]
+      checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
     watch: [OEngine/src/assets/**, OEngine/src/gpu/GeometryProductAdmission.ts, OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/render/pipeline/MainRenderPipeline.ts]
   - id: virtual-assets.web-cook
@@ -14,13 +19,23 @@ claims:
     statement: A bounded Web GLB CookSession produces a validated Product consumed by the production renderer.
     level: L3
     requiredChecks: [registry, changed-coverage, evidence-provenance]
+    evidencePolicy:
+      allOf: [glb-bootstrap-priority, glb-incremental-publication, glb-web-product-authored-texture, glb-web-product]
+      anyOf: []
+      diagnosticCases: [glb-web-product-isolated-pthreads, glb-web-product-portable-pool, virtual-product-observer]
+      checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
     watch: [OEngine/src/assets/web-cook/**, OEngine/src/loaders/gltf/streaming/**]
   - id: virtual-assets.lifecycle
     domain: virtual-assets
     owner: virtual-assets
     statement: Product replacement, page demand, and device recovery preserve generation and ownership boundaries.
-    level: L4
+    level: L3
     requiredChecks: [registry, changed-coverage, evidence-provenance]
+    evidencePolicy:
+      allOf: [glb-incremental-publication, virtual-product-device-loss, virtual-product-replacement]
+      anyOf: []
+      diagnosticCases: [glb-web-product-isolated-pthreads, glb-web-product-portable-pool, virtual-product-offline]
+      checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/gpu/GeometryPageStreamingRuntime.ts, OEngine/src/render/Renderer.ts]

@@ -6,6 +6,11 @@ claims:
     statement: Authored texture slots and MASK material state reach the production TextureResidency and shading identity path.
     level: L3
     requiredChecks: [registry, evidence-provenance]
+    evidencePolicy:
+      allOf: [glb-web-product-authored-texture, texture-residency-component]
+      anyOf: []
+      diagnosticCases: [glb-web-product-isolated-pthreads, glb-web-product-portable-pool]
+      checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
     watch: [OEngine/src/assets/TextureAssetPackage.ts, OEngine/src/gpu/TextureResidency.ts, OEngine/src/gpu/GpuMaterialVisibilityAbi.ts]
   - id: materials.mip-convergence
@@ -14,5 +19,10 @@ claims:
     statement: Texture sampling clamps to available mips and converges after higher-mip promotion.
     level: L3
     requiredChecks: [registry, evidence-provenance]
+    evidencePolicy:
+      allOf: [texture-residency-component]
+      anyOf: []
+      diagnosticCases: []
+      checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
     watch: [OEngine/src/gpu/TextureResidency.ts, OEngine/src/gpu/GpuTextureRefAbi.ts]

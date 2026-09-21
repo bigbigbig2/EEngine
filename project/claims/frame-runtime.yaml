@@ -4,15 +4,25 @@ claims:
     domain: frame-runtime
     owner: frame-runtime
     statement: Public Renderer recovery negotiates a new device and rebuilds CPU scene state without retaining old GPU resources.
-    level: L4
+    level: L3
     requiredChecks: [registry, evidence-provenance]
+    evidencePolicy:
+      allOf: [virtual-product-device-loss]
+      anyOf: []
+      diagnosticCases: [sparse-shading-production]
+      checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [OEngine/src/render/Renderer.ts, OEngine/src/gpu/GpuRenderWorld.ts, OEngine/src/framegraph/**]
   - id: frame.host-protocol
     domain: frame-runtime
     owner: frame-runtime
     statement: Browser validation has versioned identity, freshness, error aggregation, and disposal gates.
-    level: L4
+    level: L3
     requiredChecks: [model, registry, evidence-provenance]
+    evidencePolicy:
+      allOf: [protocol-self-test]
+      anyOf: []
+      diagnosticCases: []
+      checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [validation/harness/**, validation/src/runner/**, validation/src/shared/**]

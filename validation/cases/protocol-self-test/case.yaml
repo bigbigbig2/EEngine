@@ -15,7 +15,7 @@ harness: protocol
 domain: platform
 caseKind: orchestration
 kind: contract
-level: L0
+level: L3
 covers:
   - frame.host-protocol
   - platform.evidence

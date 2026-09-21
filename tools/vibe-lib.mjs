@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFile, readdir, writeFile, mkdir } from "node:fs/promises";
+import { readFile, readdir, writeFile, mkdir, rename, rm } from "node:fs/promises";
 import { existsSync, readdirSync } from "node:fs";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,6 +28,7 @@ export const GENERATED_REGISTRY = resolve(VALIDATION_DIR, "registry.generated.js
 export const ARTIFACT_DIR = resolve(REPO_ROOT, ".local/validation");
 export const EVIDENCE_DIR = resolve(VALIDATION_DIR, "evidence");
 export const EVIDENCE_INDEX = resolve(VALIDATION_DIR, "evidence/index.json");
+export const VERIFICATION_REPORT = resolve(VALIDATION_DIR, "evidence/verification.json");
 
 const ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 const CLAIM_ID_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+$/u;
@@ -190,6 +191,21 @@ export function validateModel(model, legacyRegistry) {
       errors.push(`${claim._file}: ${claim.id} has invalid allowedDeclarations`);
     }
     if (!Array.isArray(claim.watch) || claim.watch.length === 0) errors.push(`${claim._file}: ${claim.id} needs watch paths`);
+    const policy = claim.evidencePolicy;
+    if (!policy || typeof policy !== "object" || Array.isArray(policy)) {
+      errors.push(`${claim._file}: ${claim.id} needs evidencePolicy`);
+    } else {
+      for (const field of ["allOf", "anyOf", "diagnosticCases"]) {
+        if (!Array.isArray(policy[field]) || policy[field].some((id) => !ID_PATTERN.test(id))) {
+          errors.push(`${claim._file}: ${claim.id} evidencePolicy.${field} must be a case id array`);
+        }
+      }
+      if (typeof policy.checkOnly !== "boolean") errors.push(`${claim._file}: ${claim.id} evidencePolicy.checkOnly must be boolean`);
+      const promotionCases = [...(policy.allOf ?? []), ...(policy.anyOf ?? [])];
+      if (!policy.checkOnly && promotionCases.length === 0) errors.push(`${claim._file}: ${claim.id} evidencePolicy needs a promotion case`);
+      const allCases = [...promotionCases, ...(policy.diagnosticCases ?? [])];
+      if (new Set(allCases).size !== allCases.length) errors.push(`${claim._file}: ${claim.id} evidencePolicy contains duplicate case ids`);
+    }
   }
   const checkIds = new Set();
   for (const check of model.checks) {
@@ -249,6 +265,31 @@ export function validateModel(model, legacyRegistry) {
     for (const rule of item.errorAllowlist ?? []) if (!item.covers?.includes(rule.ownerClaim)) errors.push(`${item._file}: ${item.id} error allowlist ownerClaim must be covered`);
   }
   for (const item of model.cases) if (item.sourceCase !== undefined && !cases.has(item.sourceCase)) errors.push(`${item._file}: ${item.id} references unknown sourceCase ${item.sourceCase}`);
+  for (const claim of model.claims) {
+    const policy = claim.evidencePolicy ?? {};
+    const promotionCases = [...(policy.allOf ?? []), ...(policy.anyOf ?? [])];
+    const declaredCases = new Set([...promotionCases, ...(policy.diagnosticCases ?? [])]);
+    for (const caseId of declaredCases) {
+      const item = cases.get(caseId);
+      if (!item) {
+        errors.push(`${claim._file}: ${claim.id} evidencePolicy references unknown case ${caseId}`);
+        continue;
+      }
+      if (!item.covers?.includes(claim.id)) errors.push(`${claim._file}: ${claim.id} policy case ${caseId} does not cover the claim`);
+    }
+    for (const item of model.cases.filter((candidate) => candidate.covers?.includes(claim.id))) {
+      if (!declaredCases.has(item.id)) errors.push(`${item._file}: ${item.id} covers ${claim.id} but is absent from its evidencePolicy`);
+    }
+    for (const caseId of promotionCases) {
+      const item = cases.get(caseId);
+      if (!item) continue;
+      if (item.lab === true || item.automatic === false) errors.push(`${claim._file}: ${claim.id} promotion case ${caseId} cannot be a lab or manual case`);
+      if (levelRank(item.level) < levelRank(claim.level)) errors.push(`${claim._file}: ${claim.id} requires ${claim.level} but ${caseId} is ${item.level}`);
+      if (claim.level === "L4" && (item.kind !== "perf" || item.profile !== "formal-1080p")) {
+        errors.push(`${claim._file}: ${claim.id} L4 promotion case ${caseId} must be kind perf with formal-1080p profile`);
+      }
+    }
+  }
   for (const profile of model.profiles) {
     if (!ID_PATTERN.test(profile.id ?? "")) errors.push(`${profile._file}: invalid profile id`);
     if (profiles.has(profile.id)) errors.push(`${profile._file}: duplicate profile ${profile.id}`);
@@ -479,6 +520,16 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
   const evidence = [];
   const errors = [];
   const warnings = [];
+  let checkReceipts = [];
+  if (existsSync(VERIFICATION_REPORT)) {
+    try {
+      const verification = JSON.parse(await readFile(VERIFICATION_REPORT, "utf8"));
+      if (verification.revision === head && Array.isArray(verification.checkReceipts)) checkReceipts = verification.checkReceipts;
+      else warnings.push(`${relative(REPO_ROOT, VERIFICATION_REPORT)}: verification receipts do not match current revision`);
+    } catch (error) {
+      warnings.push(`${relative(REPO_ROOT, VERIFICATION_REPORT)}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   for (const path of files.filter((candidate) => candidate.endsWith("/result.json") || candidate.endsWith("\\result.json"))) {
     try {
       const result = JSON.parse(await readFile(path, "utf8"));
@@ -495,7 +546,8 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
       const workload = workloadMap.get(result.workloadId);
       const domain = domainMap.get(caseManifest.domain);
       const contractHashes = await resolveContractHashes(domain?.contracts ?? [], contractHashCache);
-      const checkIds = [...new Set((caseManifest.covers ?? []).flatMap((claimId) => model.claims.find((claim) => claim.id === claimId)?.requiredChecks ?? []))].sort();
+      const checkReceipts = Array.isArray(result.checkReceipts) ? result.checkReceipts : [];
+      const checkIds = [...new Set(checkReceipts.filter((receipt) => receipt.status === "passed").map((receipt) => receipt.id))].sort();
       const artifactHashes = Object.fromEntries((result.artifactManifest ?? []).map((artifact) => [artifact.kind, artifact.sha256]));
       const pageEvidence = result.page?.evidence ?? {};
       const revisionMatches = result.provenance?.commit === head;
@@ -506,6 +558,7 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
         workloadId: result.workloadId,
         claimIds: caseManifest.covers ?? [],
         checkIds,
+        checkReceipts,
         contractHashes,
         status: result.status,
         evidenceStatus: result.evidenceStatus,
@@ -556,6 +609,7 @@ export async function buildEvidenceIndex(model, head, registrySha256) {
     generatedBy: "node tools/vibe.mjs evidence",
     revision: head,
     registrySha256,
+    checkReceipts,
     evidence: [...latestByCase.values()].sort((left, right) => left.caseId.localeCompare(right.caseId)),
     history,
     errors,
@@ -579,25 +633,56 @@ async function resolveContractHashes(ids, cache) {
 export async function writeEvidenceIndex(index) {
   await mkdir(EVIDENCE_DIR, { recursive: true });
   const content = canonicalJsonText(index);
-  await writeFile(EVIDENCE_INDEX, content, "utf8");
+  const temporary = `${EVIDENCE_INDEX}.${process.pid}.tmp`;
+  await writeFile(temporary, content, "utf8");
+  try {
+    await rename(temporary, EVIDENCE_INDEX);
+  } finally {
+    await rm(temporary, { force: true });
+  }
   return { path: EVIDENCE_INDEX, bytes: Buffer.byteLength(content), sha256: sha256(content) };
 }
 
 export function claimStatus(claim, evidenceIndex, head, caseSignaturesByCase = {}) {
   if (claim.lifecycle === "retired") return "retired";
-  const records = evidenceIndex.evidence.filter((item) => item.claimIds?.includes(claim.id));
-  if (records.length === 0) return "unproven";
+  const policy = claim.evidencePolicy ?? { allOf: [], anyOf: [], diagnosticCases: [], checkOnly: false };
+  if (policy.checkOnly) return checkReceiptsCover(evidenceIndex.checkReceipts, claim, head) ? "accepted" : "unproven";
+  const records = (evidenceIndex.evidence ?? []).filter((item) => item.claimIds?.includes(claim.id));
   const latestByCase = new Map();
   for (const record of records) {
     const previous = latestByCase.get(record.caseId);
     if (!previous || `${record.completedAt ?? ""}\u0000${record.runId ?? ""}` > `${previous.completedAt ?? ""}\u0000${previous.runId ?? ""}`) latestByCase.set(record.caseId, record);
   }
-  const latest = [...latestByCase.values()];
-  if (latest.some((item) => item.status === "failed" || item.evidenceStatus === "blocked")) return "blocked";
-  if (latest.some((item) => !isFreshEvidence(item, claim, head, caseSignaturesByCase))) return "stale";
-  if (latest.some((item) => item.evidenceStatus === "diagnostic-only" || item.status === "diagnostic" || item.status === "unsupported")) return "diagnostic";
-  if (latest.length > 0 && latest.every((item) => item.evidenceStatus === "accepted" && item.status === "passed" && requiredChecksCovered(item, claim))) return "accepted";
-  return "diagnostic";
+  const state = (caseId) => evidenceState(latestByCase.get(caseId), claim, head, caseSignaturesByCase);
+  const allStates = (policy.allOf ?? []).map(state);
+  const anyStates = (policy.anyOf ?? []).map(state);
+  if (allStates.includes("blocked")) return "blocked";
+  if (allStates.includes("stale")) return "stale";
+  if (allStates.includes("diagnostic")) return "diagnostic";
+  if (allStates.includes("unproven")) return "unproven";
+  if (anyStates.length > 0 && !anyStates.includes("accepted")) {
+    if (anyStates.every((value) => value === "blocked")) return "blocked";
+    if (anyStates.includes("stale")) return "stale";
+    if (anyStates.includes("diagnostic")) return "diagnostic";
+    return "unproven";
+  }
+  return allStates.every((value) => value === "accepted") ? "accepted" : "unproven";
+}
+
+function evidenceState(item, claim, head, caseSignaturesByCase) {
+  if (!item) return "unproven";
+  if (item.status === "failed" || item.evidenceStatus === "blocked") return "blocked";
+  if (!isFreshEvidence(item, claim, head, caseSignaturesByCase)) return "stale";
+  if (item.evidenceStatus === "diagnostic-only" || item.status === "diagnostic" || item.status === "unsupported") return "diagnostic";
+  return item.evidenceStatus === "accepted" && item.status === "passed" ? "accepted" : "diagnostic";
+}
+
+function checkReceiptsCover(receipts, claim, head) {
+  if (!Array.isArray(receipts)) return false;
+  const passed = new Set(receipts
+    .filter((receipt) => receipt.status === "passed" && receipt.revision === head && receipt.dirty === false && receipt.scope === "full")
+    .map((receipt) => receipt.id));
+  return (claim.requiredChecks ?? []).every((checkId) => passed.has(checkId));
 }
 
 export function validateWorkstreamCompletion(model, evidenceIndex, head, caseSignaturesByCase = {}) {
@@ -633,8 +718,15 @@ function isFreshEvidence(item, claim, head, caseSignaturesByCase) {
 }
 
 function requiredChecksCovered(item, claim) {
-  const checks = new Set(item.checkIds ?? []);
+  const receipts = Array.isArray(item.checkReceipts) ? item.checkReceipts : [];
+  const checks = new Set(receipts
+    .filter((receipt) => receipt.status === "passed" && receipt.revision === item.commit && receipt.tree === item.tree && receipt.dirty === item.dirty && receipt.scope === "full" && receipt.registrySha256 === item.registrySha256)
+    .map((receipt) => receipt.id));
   return (claim.requiredChecks ?? []).every((checkId) => checks.has(checkId));
+}
+
+function levelRank(level) {
+  return Number.parseInt(String(level).replace(/^L/u, ""), 10) || 0;
 }
 
 export function sha256(value) {
@@ -643,6 +735,24 @@ export function sha256(value) {
 
 export function canonicalJsonText(value) {
   return `${JSON.stringify(JSON.parse(canonicalJson(value)), null, 2)}\n`;
+}
+
+export function evidenceReplacementError(nextIndex, existingIndex, options = {}) {
+  const next = nextIndex?.evidence ?? [];
+  const existing = existingIndex?.evidence ?? [];
+  if (!options.forceEmpty && next.length === 0 && existing.length > 0) {
+    return "Refusing to replace a non-empty evidence index from an empty .local/validation input; restore raw artifacts or pass --force-empty.";
+  }
+  const nextCases = new Set(next.map((item) => item.caseId));
+  const missingCases = [...new Set(existing.map((item) => item.caseId).filter((caseId) => !nextCases.has(caseId)))].sort();
+  if (!options.forcePrune && next.length > 0 && missingCases.length > 0) {
+    return `Refusing to prune ${missingCases.length} case(s) from the evidence index (${missingCases.join(", ")}); restore raw artifacts or pass --force-prune.`;
+  }
+  return null;
+}
+
+export function isVerificationComplete(ok, notRunCases, skippedChecks) {
+  return ok && (notRunCases?.length ?? 0) === 0 && (skippedChecks?.length ?? 0) === 0;
 }
 
 function globSource(pattern) {

@@ -6,13 +6,23 @@ claims:
     statement: Each opaque visibility hit receives one complete material evaluation with lighting fused in the consumer.
     level: L3
     requiredChecks: [registry, evidence-provenance]
+    evidencePolicy:
+      allOf: [shading-resolve-component, sparse-shading-production]
+      anyOf: []
+      diagnosticCases: [sparse-shading-candidate]
+      checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
     watch: [OEngine/src/render/passes/SparseShadingResolvePass.ts, OEngine/src/shaders/sparse_shading_resolve.ts, OEngine/src/shaders/lighting_direct.ts]
   - id: shading.pipeline-pruning
     domain: shading
     owner: shading
     statement: Output dependencies and feature toggles prune inactive pipeline resources and shader variants.
-    level: L4
+    level: L3
     requiredChecks: [registry, changed-coverage, evidence-provenance]
+    evidencePolicy:
+      allOf: [sparse-shading-candidate]
+      anyOf: []
+      diagnosticCases: []
+      checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [OEngine/src/render/pipeline/**, OEngine/src/render/passes/**, OEngine/src/shaders/**]

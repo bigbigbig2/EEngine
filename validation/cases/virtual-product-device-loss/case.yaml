@@ -27,7 +27,7 @@ harness: production
 domain: virtual-assets
 caseKind: production
 kind: guard
-level: L4
+level: L3
 covers:
   - virtual-assets.lifecycle
   - frame.recovery

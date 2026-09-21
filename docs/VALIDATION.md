@@ -24,6 +24,8 @@
 - `1`：存在失败的检查、无主路径或路由歧义；
 - `2`：检查全部通过，但改动所需等级的浏览器 case 未运行。`notRun` 的 case id 会打印到 stderr，且 `verificationComplete` 为 `false`；显式接受该缺口时传 `--allow-not-run`，它把退出码降为 `0` 但不会修改报告内容。
 
+进入 required check set 的检查若返回 `not-run`，与未运行 browser case 一样令 `verificationComplete` 为 `false` 和退出码为 `2`。不适用于当前改动面的检查应从 required set 中省略，而不是以 `not-run` 假装完成。每次执行的 check 产生绑定 revision、tree、dirty、runner、registry hash 和结果的 receipt；receipt 只能记录真实 runner 结果。
+
 `engine-suites` 是 L1 的实际执行体：它先构建测试产物再跑 `OEngine/tests/unit|contract|oracle|guard`。这一步不能省略 —— `.test-dist` 过期会让 `node --test` 静默测试旧产物。套件内部禁止再回调整套门禁，重入时该检查报 `not-run` 并说明原因。
 
 纯文档修改只需要静态检查。依赖或 lockfile 变化、clean reproduction、CI 和正式 PERF 才运行 `npm ci`。TypeScript/WGSL 改动按命中 owner 运行 typecheck 与 targeted tests；本地无法提供真实 GPU 时必须保留 `notRun`、`blocked` 或 `unsupported`，不能升级声明。
@@ -32,9 +34,15 @@
 
 真实浏览器验证只能由 ADR-0014 的独立 `validation/` 宿主承担。自动 case 位于 `validation/cases/<id>/`，观察实验位于 `validation/labs/<id>/`；二者都由 case-local manifest 描述，registry 由 `node tools/vibe.mjs registry` 生成。`examples/` 和 Storybook 不产生 Runtime Validated、Performance 或 Pipeline 完成声明。
 
+执行 browser case 前，runner 必须先完成一次 full verify；artifact schema v2 携带该次执行的 check receipts。Evidence index 只能从 artifact 中读取 receipts，不得根据 claim 的 `requiredChecks` 反向合成。receipt 的 revision、tree、dirty、registry hash 或 full scope 与 artifact 不一致时，evidence 不能晋级。
+
 共享 harness 负责 WebGPU 初始化、canvas/resize、error scope、console/page/request error、nonce/run identity、readback、screenshot、dispose 和 artifact manifest。Case 只负责 setup、业务动作、采样和断言；lab 必须显式标记 `lab: true`、`automatic: false`。
 
 每条 evidence 至少绑定 case、claim、check、commit/tree/dirty、registry/workload hash、contract hash、browser、adapter/capability、resolution/DPR、结果、artifact hash 和 freshness gate。raw artifact 只写入被忽略的 `.local/validation/<run-id>/`。接受条件是 clean revision、case passed、所有 gate 通过、artifact 完整且 required checks 覆盖；否则状态只能是 `unproven`、`diagnostic`、`stale` 或 `blocked`。
+
+Claim 的 `evidencePolicy` 显式区分 `allOf`、`anyOf`、`diagnosticCases` 与 `checkOnly`。只有 promotion 集合影响状态；lab/manual case 只能进入 diagnostic 集合。模型拒绝低等级 case 作为高等级 claim 的 promotion case。L4 只允许 `kind: perf` 且使用 `formal-1080p` profile；普通 GPU correctness 与 lifecycle 的上限是 L3。
+
+`node tools/vibe.mjs evidence` 使用临时文件原子替换 compact index。若 `.local/validation/` 为空或缺少已有 case，命令默认拒绝删除 compact 记录；只有明确删除全部或部分 evidence 时才使用 `--force-empty` 或 `--force-prune`。`evidence --check` 只比较规范化输出，不写 index，也不要求 destructive override。
 
 ## 正确性门禁
 

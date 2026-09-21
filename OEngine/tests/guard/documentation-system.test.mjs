@@ -18,7 +18,7 @@ function files(directory, suffix) {
 
 test("documentation tree uses the contract-driven layers", () => {
   const directories = readdirSync(docsRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
-  assert.deepEqual(directories, ["adr", "contracts", "domains", "porting", "sources", "specs"]);
+  assert.deepEqual(directories, ["adr", "contracts", "domains", "porting", "reviews", "sources", "specs"]);
   for (const retired of ["CONTEXT-MAP.md", "docs/ARCHITECTURE.md", "docs/PIPELINE.md", "docs/STATUS.md", "docs/implementation", "docs/others"]) {
     assert.equal(existsSync(path.join(repoRoot, retired)), false, retired);
   }

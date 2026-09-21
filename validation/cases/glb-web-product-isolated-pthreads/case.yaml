@@ -30,7 +30,7 @@ harness: production
 domain: virtual-assets
 caseKind: production
 kind: gpu
-level: L4
+level: L3
 covers:
   - virtual-assets.web-cook
   - virtual-assets.lifecycle

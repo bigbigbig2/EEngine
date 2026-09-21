@@ -75,8 +75,8 @@ test("domain-doc-coverage fails for a domain without a human page", () => {
   assert.match(result.details.join(" "), /no docs\/domains\/no-such-domain\.md/u);
 });
 
-test("evidence-provenance distinguishes absent evidence from invalid evidence", () => {
-  assert.equal(run("evidence-provenance", "evidence-provenance").status, "not-run");
+test("evidence-provenance accepts an empty index but rejects invalid evidence", () => {
+  assert.equal(run("evidence-provenance", "evidence-provenance").status, "passed");
   const invalid = run("evidence-provenance", "evidence-provenance", undefined, {
     evidence: { evidence: [{ runId: "x" }], errors: ["bad artifact"], warnings: [] }
   });

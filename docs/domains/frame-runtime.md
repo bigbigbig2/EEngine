@@ -16,3 +16,15 @@ Frame runtime owns capability negotiation, frame graph/resource publication, ren
 A frame consumes an immutable publication revision. Persistent, transient, history, shadow, upload, and readback budgets are accounted by owner. Replaced resources retire only after the referencing submission completes. Recovery creates a new device and rebuilds CPU scene state without reusing old GPU resources.
 
 Capability rules are in `docs/WEBGPU.md` and ADR-0010. Browser lifecycle evidence is governed by ADR-0014. Durable claims are `frame.recovery` and `frame.host-protocol`.
+
+## Current Production Path
+
+`Renderer` freezes a frame publication, `MainRenderPipeline` composes the single active graph, owner budgets allocate resources, and submit completion retires replaced generations. Device loss returns to capability negotiation, creates a new device, and rebuilds from CPU-owned scene state.
+
+## Owner Boundaries And Failure
+
+Frame runtime owns device/frame/submit lifetime and recovery, but not loader temporaries, asset cooking, or final material algorithms. Resize, replacement, feature-off, aborted submit, asynchronous cancellation, and device loss must release unconsumed work without reusing resources from the old device.
+
+## Main Entrypoints And Proof
+
+Primary entrypoints are `OEngine/src/render/Renderer.ts`, `OEngine/src/render/pipeline/MainRenderPipeline.ts`, `OEngine/src/framegraph/`, and `OEngine/src/gpu/GpuRenderWorld.ts`. `virtual-product-device-loss` promotes recovery; `sparse-shading-production` is supporting diagnostics. `protocol-self-test` promotes the host lifecycle contract.

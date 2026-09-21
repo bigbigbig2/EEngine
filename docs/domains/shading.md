@@ -15,3 +15,15 @@ Shading owns material identity, one complete evaluation per opaque hit, direct l
 Texture and output dependencies are part of pipeline identity. Diagnostics variants may validate ownership and counters, but production variants do not perform per-pixel ownership atomics or synchronous readback.
 
 The long term decision is ADR-0013 and the external algorithm ledger is `docs/porting/shading.md`. Durable claims are `shading.one-eval` and `shading.pipeline-pruning`; case and check links are in `project/claims/shading.yaml`.
+
+## Current Production Path
+
+Visibility publishes a stable hit/material identity, shading-bin classification groups work, and the sparse resolve performs one complete material evaluation with lighting fused into the consumer. Typed outputs feed temporal/post consumers only when those outputs are requested.
+
+## Owner Boundaries And Failure
+
+Shading owns material evaluation, lighting, specialization, temporal inputs, and output dependency pruning. Visibility owns hit production; texture residency owns physical texture availability. Overflow and identity mismatch fail closed, while feature-off removes unused variants, products, history, readback, and submit work.
+
+## Main Entrypoints And Proof
+
+Primary entrypoints are `OEngine/src/render/passes/`, `OEngine/src/render/pipeline/`, `OEngine/src/material/`, and `OEngine/src/shaders/`. Resolve-component plus production sparse shading promote one-evaluation; the candidate topology case promotes pipeline pruning and remains diagnostic for one-evaluation.

@@ -27,7 +27,7 @@ harness: production
 domain: visibility
 caseKind: production
 kind: gpu
-level: L4
+level: L3
 covers:
   - visibility.gpu-closure
   - shading.one-eval
