@@ -83,6 +83,8 @@ export interface EmscriptenWebGeometryCookerModuleV1 {
   _oengine_web_geometry_cook_builder_destroy(builder: number): void;
   _oengine_web_geometry_cook_produce_page(handle: number, pageId: number, output: number, outputBytes: number): number;
   _oengine_web_geometry_cook_page_status(handle: number, pageId: number): number;
+  /** Optional Phase D hook. Older ABI-v2 artifacts may omit it. */
+  _oengine_web_geometry_cook_release_page?(handle: number, pageId: number): number;
   _oengine_web_geometry_cook_destroy(handle: number): void;
   _oengine_web_geometry_cook_section_size(handle: number, section: number, index: number): number;
   _oengine_web_geometry_cook_copy_section(handle: number, section: number, index: number, output: number, outputBytes: number): number;
@@ -346,6 +348,19 @@ export class WebGeometryCookWasmPlanV1 extends WebGeometryCookWasmHandleV1 {
     } finally {
       module._free(address);
     }
+  }
+
+  /**
+   * Releases the WASM-side decoded page and serialized Group payload after an
+   * external spill store has committed an immutable copy. This is optional so
+   * an older checked-in ABI-v2 artifact remains usable, albeit with a larger
+   * WASM retained-group peak.
+   */
+  releasePage(pageId: number): void {
+    if (this.module._oengine_web_geometry_cook_release_page === undefined) return;
+    if (!Number.isInteger(pageId) || pageId < 0) throw new RangeError("Web geometry pageId must be a non-negative integer");
+    this.requirePageId(pageId);
+    if (this.module._oengine_web_geometry_cook_release_page(this.handle, pageId) !== 1) throw new Error("Web geometry cooker page release failed");
   }
 
   /**

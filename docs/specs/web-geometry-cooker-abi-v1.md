@@ -170,6 +170,13 @@ asset count 校验；普通 Product 使用不重复 catalog index，Phase C spat
 - canonical corruption、非 finite 数据、非法 material/attribute flags、越界 index、recipe mismatch、预算不足或 Nyx validation failure：返回失败，不产生 handle/page/descriptor。
 - Worker cancel/crash/OOM：销毁或遗弃整个 session generation 的 handle；已 active 的旧 Product 不受影响。
 - section copy 要求 destination exact-sized；unknown section/index 和 released handle fail closed。
+- ABI-v2 实现可以额外导出 `oengine_web_geometry_cook_release_page(handle, pageId)`
+  作为 Phase D spill hook。调用方必须先把 READY page 完整 checksum 后写入
+  authoritative Spill Store；hook 随后释放该页 decoded buffer 与对应
+  serialized Group payload，但不改变 descriptor 的 PageID、Group range 或
+  identity。旧的 ABI-v2 artifact 没有该可选 symbol 时，consumer 仍必须正确
+  工作，只能记录较高的 WASM retained-group peak；任何 producer 都不得在
+  external artifact 提交前调用 hook。
 - Product handle 不跨 Worker，不进入 GPU owner；GPU admission 只接收复制并经过 Product validator 的 descriptor/page。
 
 ## Validation

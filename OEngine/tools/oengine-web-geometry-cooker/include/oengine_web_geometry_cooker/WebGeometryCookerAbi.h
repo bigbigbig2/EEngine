@@ -126,4 +126,18 @@ OENGINE_WEB_COOK_EXPORT std::uint32_t oengine_web_geometry_cook_page_status(
     std::uintptr_t handle,
     std::uint32_t pageId);
 
+/**
+ * Phase D spill hook: releases the decoded page and serialized Group payload
+ * after the caller has committed an immutable external artifact. The logical
+ * descriptor remains valid; the page becomes PENDING again inside this handle
+ * and must be served from the external artifact on subsequent reads.
+ *
+ * Older ABI-v2 artifacts may omit this optional export. Consumers must retain
+ * the spill copy before calling it and must never call it for a monolithic
+ * handle or before a successful page write.
+ */
+OENGINE_WEB_COOK_EXPORT std::uint32_t oengine_web_geometry_cook_release_page(
+    std::uintptr_t handle,
+    std::uint32_t pageId);
+
 #undef OENGINE_WEB_COOK_EXPORT

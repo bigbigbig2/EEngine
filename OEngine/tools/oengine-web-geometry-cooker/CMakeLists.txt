@@ -71,7 +71,7 @@ if(EMSCRIPTEN)
         -sALLOW_MEMORY_GROWTH=1
         "-sINITIAL_MEMORY=${OENGINE_WEB_COOK_INITIAL_MEMORY_BYTES}"
         "-sMAXIMUM_MEMORY=${OENGINE_WEB_COOK_MAXIMUM_MEMORY_BYTES}"
-        "-sEXPORTED_FUNCTIONS=['_malloc','_free','_oengine_web_geometry_cook_abi_version','_oengine_web_geometry_cook','_oengine_web_geometry_cook_plan','_oengine_web_geometry_cook_builder_begin','_oengine_web_geometry_cook_builder_append','_oengine_web_geometry_cook_builder_finish','_oengine_web_geometry_cook_builder_destroy','_oengine_web_geometry_cook_produce_page','_oengine_web_geometry_cook_page_status','_oengine_web_geometry_cook_destroy','_oengine_web_geometry_cook_section_size','_oengine_web_geometry_cook_copy_section','_oengine_web_geometry_cook_page_count','_oengine_web_geometry_cook_last_error_size','_oengine_web_geometry_cook_copy_last_error']")
+        "-sEXPORTED_FUNCTIONS=['_malloc','_free','_oengine_web_geometry_cook_abi_version','_oengine_web_geometry_cook','_oengine_web_geometry_cook_plan','_oengine_web_geometry_cook_builder_begin','_oengine_web_geometry_cook_builder_append','_oengine_web_geometry_cook_builder_finish','_oengine_web_geometry_cook_builder_destroy','_oengine_web_geometry_cook_produce_page','_oengine_web_geometry_cook_page_status','_oengine_web_geometry_cook_release_page','_oengine_web_geometry_cook_destroy','_oengine_web_geometry_cook_section_size','_oengine_web_geometry_cook_copy_section','_oengine_web_geometry_cook_page_count','_oengine_web_geometry_cook_last_error_size','_oengine_web_geometry_cook_copy_last_error']")
     if(OENGINE_WEB_COOK_THREADS)
         target_compile_options(oengine-web-geometry-cooker PRIVATE -pthread)
         target_link_options(oengine-web-geometry-cooker PRIVATE

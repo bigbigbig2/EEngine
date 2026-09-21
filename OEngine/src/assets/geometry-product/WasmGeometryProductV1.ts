@@ -17,6 +17,12 @@ import {
   type WebGeometryCookWasmHandleV1,
   type WebGeometryCookWasmPlanV1
 } from "../web-cook/wasm/WebGeometryCookerAbi.js";
+import type {
+  WebGeometryPageArtifactInputV1,
+  WebGeometryPageSpillKeyV1,
+  WebGeometryPageSpillStoreV1
+} from "./WebGeometryPageSpillStoreV1.js";
+import { pageSpillKeyV1 } from "./WebGeometryPageSpillStoreV1.js";
 
 /**
  * Producer-neutral assembly of one WASM cook result into a Geometry Product
@@ -55,6 +61,12 @@ export interface WasmGeometryProductIdentifyInputV1 {
   readonly revision: number;
   readonly replaces?: Readonly<{ productId: Uint8Array; revision: number }>;
   readonly sceneAssetIndices?: readonly number[];
+  /** Optional bounded page artifact owner used by cook-and-spill. */
+  readonly spillStore?: WebGeometryPageSpillStoreV1;
+  /** Runtime session generation used to reject late page writes. */
+  readonly sessionGeneration?: number;
+  /** Optional producer cancellation signal; late spill writes are rejected. */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -97,7 +109,7 @@ export async function cookWasmGeometryProductRevisionV1(
 ): Promise<WasmGeometryProductRevisionV1> {
   const result = cookWebGeometryWasmV1(module, canonicalInput, recipeInput, options.maxDecodedProductBytes);
   try {
-    return await assembleWasmGeometryProductRevisionV1(result, options, new MonolithicPageSource(result));
+    return await assembleWasmGeometryProductRevisionV1(result, options, () => new MonolithicPageSource(result));
   } catch (error) {
     result.release();
     throw error;
@@ -128,7 +140,7 @@ export async function planWasmGeometryProductRevisionV1(
 ): Promise<WasmGeometryProductRevisionV1> {
   const result = planWebGeometryWasmV1(module, canonicalInput, recipeInput, options.maxDecodedProductBytes);
   try {
-    return await assembleWasmGeometryProductRevisionV1(result, options, new WasmPlanPageSource(result));
+    return await assembleWasmGeometryProductRevisionV1(result, options, descriptor => new WasmPlanPageSource(result!, descriptor, options.spillStore, options.sessionGeneration, options.signal));
   } catch (error) {
     result.release();
     throw error;
@@ -149,7 +161,7 @@ export async function planWasmGeometryProductRevisionWindowsV1(
     for await (const canonical of canonicalWindows) { builder.append(canonical); windows++; }
     if (windows === 0) throw new Error("canonical window stream produced no inputs");
     result = builder.finish();
-    return await assembleWasmGeometryProductRevisionV1(result, options, new WasmPlanPageSource(result));
+    return await assembleWasmGeometryProductRevisionV1(result, options, descriptor => new WasmPlanPageSource(result!, descriptor, options.spillStore, options.sessionGeneration, options.signal));
   } catch (error) {
     result?.release();
     builder.release();
@@ -161,14 +173,14 @@ export async function planWasmGeometryProductRevisionWindowsV1(
 interface GeometryProductPageSourceV1 {
   readonly hasPendingPages: boolean;
   /** Produces (if needed) and returns one page payload, or null when undeclared. */
-  copyPage(pageId: number): ArrayBuffer | null;
+  copyPage(pageId: number): Promise<ArrayBuffer | null>;
   release(): void;
 }
 
 async function assembleWasmGeometryProductRevisionV1(
   result: WebGeometryCookWasmHandleV1,
   options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>,
-  pageSource: GeometryProductPageSourceV1
+  createPageSource: (descriptor: GeometryProductDescriptorV1) => GeometryProductPageSourceV1
 ): Promise<WasmGeometryProductRevisionV1> {
   const sections = result.descriptorSections();
   const productId = await deriveGeometryProductIdV1(
@@ -202,14 +214,14 @@ async function assembleWasmGeometryProductRevisionV1(
     vertexFormats: sections.vertexFormats
   });
   assertGeometryProductDescriptorV1(descriptor);
-  return new WasmGeometryProductRevision(pageSource, descriptor, options.sceneAssetIndices);
+  return new WasmGeometryProductRevision(createPageSource(descriptor), descriptor, options.sceneAssetIndices);
 }
 
 /** Monolithic handle: every payload already exists, so `copyPage` is a plain copy. */
 class MonolithicPageSource implements GeometryProductPageSourceV1 {
   readonly hasPendingPages = false;
   constructor(private readonly handle: WebGeometryCookWasmHandleV1) {}
-  copyPage(pageId: number): ArrayBuffer { return this.handle.copyPage(pageId); }
+  async copyPage(pageId: number): Promise<ArrayBuffer> { return this.handle.copyPage(pageId); }
   release(): void { this.handle.release(); }
 }
 
@@ -223,41 +235,99 @@ class MonolithicPageSource implements GeometryProductPageSourceV1 {
  */
 class WasmPlanPageSource implements GeometryProductPageSourceV1 {
   readonly #plan: WebGeometryCookWasmPlanV1;
+  readonly #descriptor: GeometryProductDescriptorV1;
+  readonly #spillStore: WebGeometryPageSpillStoreV1 | undefined;
+  readonly #sessionGeneration: number | undefined;
+  readonly #signal: AbortSignal | undefined;
   readonly #produced = new Map<number, ArrayBuffer>();
+  readonly #ownedSpill = new Map<string, WebGeometryPageSpillKeyV1>();
+  readonly #inflight = new Map<number, Promise<ArrayBuffer | null>>();
   #released = false;
 
-  constructor(plan: WebGeometryCookWasmPlanV1) { this.#plan = plan; }
+  constructor(plan: WebGeometryCookWasmPlanV1, descriptor: GeometryProductDescriptorV1, spillStore?: WebGeometryPageSpillStoreV1, sessionGeneration?: number, signal?: AbortSignal) {
+    this.#plan = plan;
+    this.#descriptor = descriptor;
+    this.#spillStore = spillStore;
+    this.#sessionGeneration = sessionGeneration;
+    this.#signal = signal;
+  }
 
   get hasPendingPages(): boolean {
     if (this.#released) return false;
-    return this.#produced.size < this.#plan.pageCount;
+    return (this.#spillStore ? this.#ownedSpill.size : this.#produced.size) < this.#plan.pageCount;
   }
 
-  copyPage(pageId: number): ArrayBuffer | null {
+  async copyPage(pageId: number): Promise<ArrayBuffer | null> {
     if (this.#released) throw new Error("WASM Geometry Product plan has been released");
+    this.throwIfAborted();
+    if (!Number.isInteger(pageId) || pageId < 0 || pageId >= this.#plan.pageCount) return null;
     const cached = this.#produced.get(pageId);
-    // The cache holds this producer's master copy. Consumers transfer the buffer
-    // they are given, which detaches it, so every read must hand out an
-    // independent copy: re-reading an already produced page has to return the
-    // full payload rather than a detached, zero-length buffer.
-    if (cached) return cached.slice(0);
-    let status: number;
-    let bytes: ArrayBuffer | null;
+    if (cached !== undefined) return cached.slice(0);
+    const pending = this.#inflight.get(pageId);
+    if (pending !== undefined) return pending.then(bytes => bytes?.slice(0) ?? null);
+    const key = this.spillKey(pageId);
+    const run = this.readOrMaterialize(pageId, key);
+    this.#inflight.set(pageId, run);
     try {
-      const produced = this.#plan.producePage(pageId);
-      status = produced.status;
-      bytes = produced.bytes;
-    } catch {
-      // Out-of-range PageIDs are static contract bugs that callers cannot retry,
-      // so report them the same way a missing declaration is reported.
-      return null;
+      const bytes = await run;
+      return bytes?.slice(0) ?? null;
+    } finally {
+      this.#inflight.delete(pageId);
     }
-    if (status !== WEB_GEOMETRY_COOK_PAGE_READY || bytes === null) return null;
-    this.#produced.set(pageId, bytes);
-    return bytes.slice(0);
   }
 
-  release(): void { if (this.#released) return; this.#released = true; this.#produced.clear(); this.#plan.release(); }
+  release(): void {
+    if (this.#released) return;
+    this.#released = true;
+    const store = this.#spillStore;
+    if (store !== undefined) for (const key of this.#ownedSpill.values()) void store.release(key).catch(() => undefined);
+    this.#ownedSpill.clear();
+    this.#produced.clear();
+    this.#inflight.clear();
+    this.#plan.release();
+  }
+
+  private async readOrMaterialize(pageId: number, key: WebGeometryPageSpillKeyV1): Promise<ArrayBuffer | null> {
+    if (this.#released) throw new Error("WASM Geometry Product plan has been released");
+    if (this.#spillStore !== undefined) {
+      const artifact = await this.#spillStore.read(key);
+      this.throwIfAborted();
+      if (this.#released) throw new Error("WASM Geometry Product plan has been released");
+      if (artifact !== null) {
+        const expected = decodeGeometryProductPageRecordV1(this.#descriptor, pageId);
+        if (!sameBytes(artifact.productId, key.productId) || artifact.revision !== key.revision || artifact.pageId !== key.pageId || !sameBytes(artifact.decodedHash128, expected.decodedHash128)) throw new Error("spill page key or identity does not match the Product revision");
+        this.#ownedSpill.set(pageSpillKeyV1(artifact), key);
+        return artifact.bytes;
+      }
+    }
+    return this.materialize(pageId, key);
+  }
+
+  private async materialize(pageId: number, key: WebGeometryPageSpillKeyV1): Promise<ArrayBuffer | null> {
+    if (this.#released) throw new Error("WASM Geometry Product plan has been released");
+    let produced: ReturnType<WebGeometryCookWasmPlanV1["producePage"]>;
+    try { produced = this.#plan.producePage(pageId); } catch { return null; }
+    if (produced.status !== WEB_GEOMETRY_COOK_PAGE_READY || produced.bytes === null) return null;
+    if (this.#released) throw new Error("WASM Geometry Product plan was released while producing a page");
+    this.throwIfAborted();
+    if (this.#spillStore === undefined) {
+      this.#produced.set(pageId, produced.bytes);
+      return produced.bytes;
+    }
+    const expected = decodeGeometryProductPageRecordV1(this.#descriptor, pageId);
+    const input: WebGeometryPageArtifactInputV1 = { ...key, decodedHash128: expected.decodedHash128, bytes: produced.bytes };
+    const artifact = await this.#spillStore.put(input);
+    if (this.#released || this.#signal?.aborted) {
+      void this.#spillStore.release(key).catch(() => undefined);
+      throw this.#signal?.reason ?? new Error("WASM Geometry Product plan was released while committing a page");
+    }
+    this.#plan.releasePage(pageId);
+    this.#ownedSpill.set(pageSpillKeyV1(artifact), key);
+    return artifact.bytes;
+  }
+
+  private spillKey(pageId: number): WebGeometryPageSpillKeyV1 { return { productId: this.#descriptor.productId.slice(), revision: this.#descriptor.revision, pageId, ...(this.#sessionGeneration === undefined ? {} : { sessionGeneration: this.#sessionGeneration }) }; }
+  private throwIfAborted(): void { if (this.#signal?.aborted) throw this.#signal.reason ?? new DOMException("The operation was aborted", "AbortError"); }
 }
 
 class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
@@ -283,7 +353,7 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
     const source = this.#source;
     if (!source) throw new Error("WASM Geometry Product revision has been released");
     const expected = decodeGeometryProductPageRecordV1(this.product, pageId);
-    const bytes = source.copyPage(pageId);
+    const bytes = await source.copyPage(pageId);
     if (bytes === null) throw new Error(`WASM Geometry Product page ${pageId} is not declared by the descriptor`);
     // The page record carries rolled-up identity, not the whole-page digest, so a
     // whole-page hash comparison would always mismatch. Whole-page digest is

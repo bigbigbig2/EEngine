@@ -8,6 +8,8 @@ export interface WebCookUnitContext {
   readonly source: GlbRangeReadableSource;
   readonly catalog: GlbSceneCatalog;
   readonly signal: AbortSignal;
+  /** Session generation that owns every page artifact produced for this cook. */
+  readonly sessionGeneration?: number;
   /** Priority-selected units allowed to form the first complete Product cut. */
   readonly bootstrapUnits?: readonly GlbCookPrimitive[];
   /** Stable catalog indices matching bootstrapUnits. */
@@ -218,7 +220,7 @@ export class WebCookCoordinator {
       }
       const progressive = this.#options.cooker.cookProgressive;
       if (progressive) {
-        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
+        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, sessionGeneration: this.#session.sessionGeneration, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
         this.#peakUnitBytes = Math.max(this.#peakUnitBytes, this.#bootstrapSourceBytes);
         assertLiveSourceBudget(this.#bootstrapSourceBytes, this.#options.budgets, "bootstrap cook source", hasBoundedLiveSource);
         // A revision is not a fine-grained progress signal: the cook between two
@@ -257,7 +259,7 @@ export class WebCookCoordinator {
       }
       const batchCooker = this.#options.cooker.cookBootstrapBatch;
       if (batchCooker) {
-        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
+        const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, sessionGeneration: this.#session.sessionGeneration, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
         const estimated = this.#bootstrapSourceBytes;
         this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
         assertLiveSourceBudget(estimated, this.#options.budgets, "cook source", hasBoundedLiveSource);
@@ -283,7 +285,7 @@ export class WebCookCoordinator {
         if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Web Cook was cancelled");
         const batch = bootstrapUnits.slice(begin, begin + concurrency);
         const cooked = await Promise.all(batch.map(async unit => {
-          const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
+          const context: WebCookUnitContext = Object.freeze({ source, catalog, signal: this.#abort.signal, sessionGeneration: this.#session.sessionGeneration, bootstrapUnits, bootstrapAssetIndices, readRange: (range: GlbByteRange) => source.readBufferRange(range.bufferIndex, range.byteOffset, range.byteLength, this.#abort.signal) });
           const estimated = estimateLiveSourceBytes(this.#options.cooker, [unit]);
           this.#peakUnitBytes = Math.max(this.#peakUnitBytes, estimated);
           assertLiveSourceBudget(estimated, this.#options.budgets, "cook unit", hasBoundedLiveSource);

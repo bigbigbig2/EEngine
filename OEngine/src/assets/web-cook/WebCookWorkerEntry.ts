@@ -3,6 +3,7 @@ import { WebCookWorkerHost, type WebCookWorkerHostPort } from "./WebCookWorkerHo
 import type { GlbRangeSourceOptions } from "../../loaders/gltf/streaming/GlbRangeSource.js";
 import type { GeometryCookRecipeV3 } from "../GeometryCookRecipe.js";
 import type { EmscriptenWebGeometryCookerModuleV1 } from "./wasm/WebGeometryCookerAbi.js";
+import { createPreferredWebGeometryPageSpillStoreV1, type WebGeometryPageSpillStoreV1 } from "../geometry-product/WebGeometryPageSpillStoreV1.js";
 
 export interface WebCookWorkerModuleFactory {
   (): EmscriptenWebGeometryCookerModuleV1 | Promise<EmscriptenWebGeometryCookerModuleV1>;
@@ -16,6 +17,10 @@ export interface WebCookWorkerEntryOptions {
   readonly maxCanonicalInputBytes: number;
   readonly maxSourceWindowBytes: number;
   readonly maxDecodedProductBytes: number;
+  /** Optional OPFS/memory page artifact owner supplied by the Worker host. */
+  readonly spillStore?: WebGeometryPageSpillStoreV1;
+  /** Encoded spill budget; defaults to twice the admitted decoded Product budget. */
+  readonly maxSpillBytes?: number;
 }
 
 /**
@@ -40,11 +45,13 @@ export async function installWebCookWorkerEntry(options: WebCookWorkerEntryOptio
   try {
     const module = await options.moduleFactory();
     if (closed) throw new Error("Web Cook Worker entry was closed during module initialization");
+    const spillStore = options.spillStore ?? await createPreferredWebGeometryPageSpillStoreV1({ maxBytes: options.maxSpillBytes ?? checkedSpillBudget(options.maxDecodedProductBytes) });
     const cooker = new NyxWebRuntimeCooker(module, {
       recipe: options.recipe,
       maxCanonicalInputBytes: options.maxCanonicalInputBytes,
       maxSourceWindowBytes: options.maxSourceWindowBytes,
-      maxDecodedProductBytes: options.maxDecodedProductBytes
+      maxDecodedProductBytes: options.maxDecodedProductBytes,
+      spillStore
     });
     host = new WebCookWorkerHost({ port: options.port, cooker, source: options.source });
     options.port.removeEventListener("message", listener);
@@ -56,6 +63,11 @@ export async function installWebCookWorkerEntry(options: WebCookWorkerEntryOptio
     postFailure(options.port, pending[0], error instanceof Error ? error.message : String(error));
     throw error;
   }
+}
+
+function checkedSpillBudget(decodedProductBytes: number): number {
+  if (!Number.isSafeInteger(decodedProductBytes) || decodedProductBytes <= 0 || decodedProductBytes > Math.floor(Number.MAX_SAFE_INTEGER / 2)) throw new RangeError("maxDecodedProductBytes cannot derive a spill budget");
+  return decodedProductBytes * 2;
 }
 
 function postFailure(port: WebCookWorkerHostPort, value: unknown, code: string): void {

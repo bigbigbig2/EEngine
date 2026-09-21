@@ -17,6 +17,7 @@ import {
   planGlbPrimitiveSpatialShardsV1,
   type GlbSpatialShardSetV1
 } from "./SpatialShardPlanner.js";
+import type { WebGeometryPageSpillStoreV1 } from "../geometry-product/WebGeometryPageSpillStoreV1.js";
 
 export const NYX_WEB_RUNTIME_PRODUCER_ID = "oengine-nyx-web-runtime";
 export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi1-product-v1";
@@ -50,6 +51,10 @@ export interface NyxWebRuntimeCookerOptions {
   readonly rangeMaxGapBytes?: number;
   /** Maximum in-flight GLB range reads (defaults to 4). */
   readonly rangeConcurrency?: number;
+  /** Optional page artifact sink. When present, plan pages are re-readable from spill. */
+  readonly spillStore?: WebGeometryPageSpillStoreV1;
+  /** Session generation included in every spill key to reject late writes. */
+  readonly sessionGeneration?: number;
 }
 
 export interface NyxWebRuntimeCookerEvidence {
@@ -64,6 +69,13 @@ export interface NyxWebRuntimeCookerEvidence {
   readonly completedCanonicalWindows: number;
   readonly spatialPrimitives: number;
   readonly spatialShards: number;
+  readonly spillCurrentBytes: number;
+  readonly spillPeakBytes: number;
+  readonly spillLimitBytes: number;
+  readonly spillOwnerCount: number;
+  readonly spillWrites: number;
+  readonly spillReads: number;
+  readonly spillReleases: number;
 }
 
 interface PreparedSpatialUnit {
@@ -89,6 +101,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   #completedCanonicalWindows = 0;
   #spatialPrimitives = 0;
   #spatialShards = 0;
+  readonly #spillStore: WebGeometryPageSpillStoreV1 | undefined;
+  readonly #sessionGeneration: number | undefined;
 
   constructor(module: EmscriptenWebGeometryCookerModuleV1, options: NyxWebRuntimeCookerOptions) {
     if (!Number.isSafeInteger(options.maxCanonicalInputBytes) || options.maxCanonicalInputBytes <= 0) throw new RangeError("maxCanonicalInputBytes must be a positive safe integer");
@@ -100,6 +114,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     this.#maxSourceWindowBytes = options.maxSourceWindowBytes ?? options.maxCanonicalInputBytes;
     if (!Number.isSafeInteger(this.#maxSourceWindowBytes) || this.#maxSourceWindowBytes <= 0) throw new RangeError("maxSourceWindowBytes must be a positive safe integer");
     this.#maxDecodedProductBytes = options.maxDecodedProductBytes;
+    this.#spillStore = options.spillStore;
+    this.#sessionGeneration = options.sessionGeneration;
     this.#rangeOptions = Object.freeze({
       maxBlockBytes: options.rangeBlockBytes ?? 1024 * 1024,
       maxGapBytes: options.rangeMaxGapBytes ?? 64 * 1024,
@@ -118,7 +134,14 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       canonicalWindows: this.#canonicalWindows,
       completedCanonicalWindows: this.#completedCanonicalWindows,
       spatialPrimitives: this.#spatialPrimitives,
-      spatialShards: this.#spatialShards
+      spatialShards: this.#spatialShards,
+      spillCurrentBytes: this.#spillStore?.evidence().currentBytes ?? 0,
+      spillPeakBytes: this.#spillStore?.evidence().peakBytes ?? 0,
+      spillLimitBytes: this.#spillStore?.evidence().limitBytes ?? 0,
+      spillOwnerCount: this.#spillStore?.evidence().ownerCount ?? 0,
+      spillWrites: this.#spillStore?.evidence().writes ?? 0,
+      spillReads: this.#spillStore?.evidence().reads ?? 0,
+      spillReleases: this.#spillStore?.evidence().releases ?? 0
     });
   }
 
@@ -259,10 +282,13 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
         producerVersion: `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=${WEB_SPATIAL_SHARD_PARTITION_VERSION};source=${this.#maxSourceWindowBytes};canonical=${this.#maxCanonicalInputBytes}`,
         sourceIdentityKind: context.source.sourceIdentity.kind,
         sourceIdentityHash: context.source.sourceIdentity.hash,
+        signal: context.signal,
         revision,
         ...(replaces === undefined ? {} : { replaces }),
         maxDecodedProductBytes: this.#maxDecodedProductBytes,
-        sceneAssetIndices: expandedSceneAssetIndices
+        sceneAssetIndices: expandedSceneAssetIndices,
+        ...(this.#spillStore === undefined ? {} : { spillStore: this.#spillStore }),
+        ...(this.spillGeneration(context) === undefined ? {} : { sessionGeneration: this.spillGeneration(context) })
       });
     }
     const windows = this.windows(units);
@@ -279,10 +305,13 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       producerVersion: NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION,
       sourceIdentityKind: context.source.sourceIdentity.kind,
       sourceIdentityHash: context.source.sourceIdentity.hash,
+      signal: context.signal,
       revision,
       ...(replaces === undefined ? {} : { replaces }),
       maxDecodedProductBytes: this.#maxDecodedProductBytes,
-      sceneAssetIndices
+      sceneAssetIndices,
+      ...(this.#spillStore === undefined ? {} : { spillStore: this.#spillStore }),
+      ...(this.spillGeneration(context) === undefined ? {} : { sessionGeneration: this.spillGeneration(context) })
     });
   }
 
@@ -299,12 +328,17 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       producerVersion: NYX_WEB_RUNTIME_PRODUCER_VERSION,
       sourceIdentityKind: context.source.sourceIdentity.kind,
       sourceIdentityHash: context.source.sourceIdentity.hash,
+      signal: context.signal,
       revision,
       ...(replaces === undefined ? {} : { replaces }),
       maxDecodedProductBytes: this.#maxDecodedProductBytes,
-      sceneAssetIndices
+      sceneAssetIndices,
+      ...(this.#spillStore === undefined ? {} : { spillStore: this.#spillStore }),
+      ...(this.spillGeneration(context) === undefined ? {} : { sessionGeneration: this.spillGeneration(context) })
     });
   }
+
+  private spillGeneration(context: WebCookUnitContext): number | undefined { return context.sessionGeneration ?? this.#sessionGeneration; }
 
   /**
    * Freezes the descriptor without producing any page payload.
@@ -329,10 +363,13 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       producerVersion: NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION,
       sourceIdentityKind: context.source.sourceIdentity.kind,
       sourceIdentityHash: context.source.sourceIdentity.hash,
+      signal: context.signal,
       revision,
       ...(replaces === undefined ? {} : { replaces }),
       maxDecodedProductBytes: this.#maxDecodedProductBytes,
-      sceneAssetIndices
+      sceneAssetIndices,
+      ...(this.#spillStore === undefined ? {} : { spillStore: this.#spillStore }),
+      ...(this.spillGeneration(context) === undefined ? {} : { sessionGeneration: this.spillGeneration(context) })
     });
   }
 

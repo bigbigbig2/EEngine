@@ -11,6 +11,7 @@ contracts:
   - geometry-product-v1
   - virtual-geometry-runtime-v1
   - web-geometry-cooker-abi-v1
+  - web-geometry-page-artifact-v1
   - web-geometry-spatial-shard-v1
   - web-cook-session-protocol-v1
 claims:
@@ -122,8 +123,27 @@ tasks:
     phase: D
     priority: P0
     title: Spill immutable page artifacts and release per-shard cook memory
-    state: todo
+    state: done
     dependsOn: [giant-primitive-spatial-sharding]
+    completedEvidence:
+      review: docs/reviews/2026-09-22-web-100m-phase-d-cook-and-spill.md
+      contract: docs/specs/web-geometry-page-artifact-v1.md
+      implementationStatus: implementation-and-oracle-complete
+      spillBackends: [memory, opfs]
+      checkedInArtifacts:
+        singleThreadMjsSha256: d7ef6fadde37615d244a82081d44ab7f4e39ef71fa3e10005c94527b5bfa7e5a
+        singleThreadWasmSha256: 56bbfaf11974b9af2cdfaa5696712d9f1d95a04ea5e38c0d9961e3e42011d765
+        pthreadMjsSha256: 7bf8123a706d735908df0f0f50ed10b42d5e27f9cb23b1c0c52f776db9bc4bec
+        pthreadWasmSha256: e0ef7a7bc660c463a0d522e1b2a8f9ed76f64d0ffe0ea9b6b181ce5278e66f4e
+        optionalExport: oengine_web_geometry_cook_release_page
+      evidence:
+        - memory-and-opfs-exact-reread
+        - checksum-corruption-rejection
+        - bounded-budget-and-owner-accounting
+        - generation-isolation
+        - plan-backed-first-cook-second-read-spill-hit
+        - release-cancel-generation-guard
+      note: Contract/oracle and checked-in Emscripten artifact evidence only; this is not 100M browser RuntimeValidated or formal PERF evidence. Zorah bounded EXT_meshopt_compression decode remains an open gate.
     exitCriteria:
       - WASM and serialized-group peaks remain within declared budgets for the 100M workload.
       - Completed Group payloads are not retained solely for future page reads.
@@ -240,7 +260,6 @@ retirementTargets:
 openGates:
   - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
   - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
-  - Cook-and-spill lacks an authoritative Page Artifact and Spill Store contract.
   - Multi-Product Scene and GPU Product Table ABI are not yet frozen or proven in the production renderer.
   - Visible-first publication lacks clean 100M browser evidence and a formal TTFMF definition in a workload manifest.
   - GPU demand compaction and adaptive scheduler queues lack promoted capacity and overflow evidence.

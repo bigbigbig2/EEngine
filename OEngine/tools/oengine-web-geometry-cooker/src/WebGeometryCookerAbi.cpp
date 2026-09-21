@@ -497,6 +497,24 @@ std::uintptr_t oengine_web_geometry_cook_plan(
     }
 }
 
+/**
+ * Drops the producer-side copies once a page artifact owns the immutable bytes.
+ * Descriptor tables retain page/group ranges and identities, so a released page
+ * is still a valid declared PageID; its next producer-side request reports
+ * PENDING and the TypeScript spill source serves the external copy instead.
+ */
+bool ReleasePagePayload(CookResult& result, std::uint32_t pageId) {
+    if (pageId >= result.plan.pages.size() || !result.pages[pageId]) return false;
+    const DecodedGeometryPagePlanV1& page = result.plan.pages[pageId];
+    if (page.groupCount == 0u || std::uint64_t(page.firstGroup) + page.groupCount > result.retainedGroups.size()) return false;
+    result.pages[pageId].reset();
+    for (std::uint32_t groupId = page.firstGroup; groupId < page.firstGroup + page.groupCount; ++groupId) {
+        std::vector<std::uint8_t>& bytes = result.retainedGroups[groupId].bytes;
+        std::vector<std::uint8_t>().swap(bytes);
+    }
+    return true;
+}
+
 std::uintptr_t oengine_web_geometry_cook_builder_begin(
     const std::uint8_t* recipeInput, std::size_t recipeInputBytes,
     std::uint64_t maxDecodedProductBytes) {
@@ -586,6 +604,18 @@ std::uint32_t oengine_web_geometry_cook_page_status(
         return result.pages[pageId]
             ? OENGINE_WEB_COOK_PAGE_READY
             : OENGINE_WEB_COOK_PAGE_PENDING;
+    } catch (const std::exception& error) {
+        SetError(error);
+        return 0u;
+    }
+}
+
+std::uint32_t oengine_web_geometry_cook_release_page(
+    std::uintptr_t handle, std::uint32_t pageId) {
+    try {
+        gLastError.clear();
+        CookResult& result = *Result(handle);
+        return ReleasePagePayload(result, pageId) ? 1u : 0u;
     } catch (const std::exception& error) {
         SetError(error);
         return 0u;

@@ -214,6 +214,22 @@ export type {
   SceneGeometryProductOptions,
   CookedSceneGeometryProductV1
 } from "./assets/geometry-product/SceneGeometryCanonicalizerV1.js";
+export {
+  MemoryWebGeometryPageSpillStoreV1,
+  OpfsWebGeometryPageSpillStoreV1,
+  createPreferredWebGeometryPageSpillStoreV1,
+  pageSpillKeyV1,
+  WEB_GEOMETRY_PAGE_ARTIFACT_VERSION_V1
+} from "./assets/geometry-product/WebGeometryPageSpillStoreV1.js";
+export type {
+  OpfsWebGeometryPageSpillStoreOptionsV1,
+  WebGeometryPageArtifactInputV1,
+  WebGeometryPageArtifactV1,
+  WebGeometryPageSpillEvidenceV1,
+  WebGeometryPageSpillKeyV1,
+  WebGeometryPageSpillStoreOptionsV1,
+  WebGeometryPageSpillStoreV1
+} from "./assets/geometry-product/WebGeometryPageSpillStoreV1.js";
 export { createDefaultWebGeometryCookerModule } from "./assets/web-cook/wasm/WebGeometryCookerAbi.js";
 export { createWebCookWorker, createWebCookWorkerPool, createDefaultWebCookWorker } from "./assets/web-cook/WebCookWorkerFactory.js";
 export type {

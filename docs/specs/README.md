@@ -18,4 +18,5 @@ spec 是实现之间的精确合同，不负责解释长期取舍或报告进度
 - [Geometry Product V1](./geometry-product-v1.md) — draft producer-neutral descriptor/page/provider 合同。
 - [Virtual Geometry Runtime V1](./virtual-geometry-runtime-v1.md) — draft admission/residency/feedback/publication 合同。
 - [Web Geometry Cooker ABI V1](./web-geometry-cooker-abi-v1.md) — draft Dedicated Worker/WASM canonical input、recipe、Product section 与 ownership 合同。
+- [Web Geometry Page Artifact / Spill Store V1](./web-geometry-page-artifact-v1.md) — draft Page artifact identity、Memory/OPFS spill、checksum、budget 与 lifecycle 合同。
 - [Web CookSession Protocol V1](./web-cook-session-protocol-v1.md) — draft main thread/Worker 命令事件、credit ownership 与状态机合同。
