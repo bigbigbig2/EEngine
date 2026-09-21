@@ -85,7 +85,7 @@ export interface WebCookClientOptions {
 }
 
 export interface WebCookProgress {
-  /** `bootstrap-cook` for the first cut, `refinement` for the revision that replaces it. */
+  /** `bootstrap-cook` for the first cut, `refinement` for replacement/heartbeat, and `cook-complete` when total cook settles. */
   readonly stage: string;
   /** Catalog primitives whose geometry has been produced so far. */
   readonly units: number;
@@ -102,10 +102,10 @@ export interface WebCookProgress {
   /**
    * Per-phase durations reported by the producer.
    *
-   * Keys are `catalogMs`, `bootstrapCookMs`, `activationStreamMs`,
-   * `activationCreditWaitMs`, `activationReadMs` and `refinementMs`, so the
-   * caller can see where a load spent its time instead of treating it as one
-   * opaque "refining" stretch.
+   * Keys are `catalogMs`, `bootstrapCookMs`, `firstMeaningfulFrameMs`,
+   * `activationStreamMs`, `activationCreditWaitMs`, `activationReadMs`,
+   * `refinementMs` and `totalCookMs`, so the caller can see where a load spent
+   * its time instead of treating it as one opaque "refining" stretch.
    */
   readonly timings: Readonly<Record<string, number>>;
 }

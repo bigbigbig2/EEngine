@@ -177,8 +177,22 @@ tasks:
     phase: F
     priority: P0
     title: Publish visible and near Product shards before background shards
-    state: todo
+    state: done
     dependsOn: [multi-product-runtime]
+    completedEvidence:
+      review: docs/reviews/2026-09-22-web-100m-phase-f-visible-first-product-scheduler.md
+      contract: docs/specs/web-geometry-visible-first-product-scheduler-v1.md
+      implementationStatus: implementation-and-oracle-complete
+      schedulerPolicy: current-view-priority-then-spatial-relevance
+      fifoPolicy: catalog-order-is-tie-break-only
+      firstCutBoundary: descriptor-and-all-activation-pages-published
+      ttfmfEvidence: firstMeaningfulFrameMs
+      totalCookEvidence: totalCookMs-and-waitForCookCompletion
+      contractTests:
+        - OEngine/tests/unit/web-cook-visible-first.test.mjs
+        - OEngine/tests/unit/web-cook-coordinator.test.mjs
+      testResult: 18/18
+      note: Node/unit contract evidence only; clean 100M browser RuntimeValidated, production multi-Product consumer, and formal PERF remain open gates.
     exitCriteria:
       - The 100M scene renders a correct coarse world before total cook completion.
       - TTFMF is measured separately from and is materially lower than total cook completion time.
@@ -274,7 +288,7 @@ openGates:
   - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
   - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
   - Multi-Product Scene and GPU Product Table ABI are frozen and contract/oracle-proven; unified multi-Product browser consumer evidence is still open.
-  - Visible-first publication lacks clean 100M browser evidence and a formal TTFMF definition in a workload manifest.
+  - Visible-first implementation and local TTFMF contract are complete; clean 100M browser evidence and formal workload execution remain open.
   - GPU demand compaction and adaptive scheduler queues lack promoted capacity and overflow evidence.
   - Portable, Balanced, and HighEnd residency profiles lack negotiated-limit evidence across supported adapters.
   - Formal 100M PERF evidence has not been captured on a clean revision.

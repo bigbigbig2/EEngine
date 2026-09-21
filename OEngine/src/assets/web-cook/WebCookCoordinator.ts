@@ -104,6 +104,11 @@ export interface WebCookCoordinatorEvidence {
   readonly bootstrapSourceBytes: number;
   /** Live source-window estimate for the complete refinement unit set. */
   readonly refinementSourceBytes: number;
+  /** Time from cook start until the first activation cut is fully streamed. */
+  readonly firstMeaningfulFrameMs?: number;
+  /** Time from cook start until the progressive producer has settled. */
+  readonly totalCookMs?: number;
+  /** Time from cook start until the first descriptor is offered. */
   readonly firstRevisionMs?: number;
   /**
    * Priorities that arrived after the first cut was already chosen.
@@ -112,6 +117,7 @@ export interface WebCookCoordinatorEvidence {
    * bootstrap revision, so the first frame was ranked by coverage instead.
    */
   readonly lateSourcePriorities: number;
+  readonly recoverableFailures: readonly string[];
   readonly cooker?: Readonly<Record<string, number>>;
   readonly failure?: string;
 }
@@ -132,7 +138,10 @@ export class WebCookCoordinator {
   #bootstrapSourceBytes = 0;
   #refinementSourceBytes = 0;
   #firstRevisionAt: number | undefined;
+  #firstMeaningfulFrameAt: number | undefined;
+  #totalCookAt: number | undefined;
   #cookStartedAt = 0;
+  #cookStarted = false;
   /**
    * True once the automatic bootstrap selection has been computed. A priority
    * that arrives after this point can no longer change the first cut, so it is
@@ -140,8 +149,10 @@ export class WebCookCoordinator {
    */
   #bootstrapSelected = false;
   #lateSourcePriorities = 0;
+  readonly #recoverableFailures: string[] = [];
   readonly #sourcePriorities = new Map<string, { readonly score: number; readonly cameraHintRevision: number }>();
   readonly #liveRevisions: WebCookProductRevision[] = [];
+  readonly #releasedRevisions = new WeakSet<WebCookProductRevision>();
   /** Revisions whose activation cut finished streaming; those pages re-emit. */
   readonly #activationStreamed = new Map<string, boolean>();
   readonly #creditWaiters = new Set<() => void>();
@@ -152,6 +163,8 @@ export class WebCookCoordinator {
   #refinementMs = 0;
   #activationCreditWaitMs = 0;
   #activationReadMs = 0;
+  readonly #cookCompletion = deferred<void>();
+  #firstRevisionReject: ((reason?: unknown) => void) | undefined;
 
   constructor(readonly sessionId: string, sessionGeneration: number, options: WebCookCoordinatorOptions) {
     this.#options = options;
@@ -161,6 +174,8 @@ export class WebCookCoordinator {
 
   get catalog(): GlbSceneCatalog | undefined { return this.#catalog; }
   get source(): GlbRangeReadableSource | undefined { return this.#source; }
+  /** Resolves after the progressive producer settles, independently of TTFMF. */
+  waitForCookCompletion(): Promise<void> { return this.#cookCompletion.promise; }
 
   async open(url: string): Promise<GlbSceneCatalog> {
     this.requireState("idle");
@@ -196,6 +211,8 @@ export class WebCookCoordinator {
 
   async cookBootstrap(): Promise<void> {
     if (this.#state !== "cooking") throw new Error(`WebCookCoordinator cannot cook from '${this.#state}'`);
+    if (this.#cookStarted) throw new Error("WebCookCoordinator cook has already started");
+    this.#cookStarted = true;
     this.#cookStartedAt = Date.now();
     try {
       const source = this.#source!, catalog = this.#catalog!;
@@ -235,26 +252,54 @@ export class WebCookCoordinator {
         // working in the background.
         const firstRevision = deferred<void>();
         let seenRevision = false;
-        try {
-          await progressive.call(this.#options.cooker, units, context, (revision) => {
-            const isFirst = !seenRevision;
-            seenRevision = true;
-            const streamed = this.#acceptRevisionRevisions(revision, bootstrapUnits.length, units.length);
-            if (!isFirst) return streamed.catch(() => undefined);
-            // A failure while streaming the first cut is the caller's failure.
+        let firstActivationFailed = false;
+        // The producer deliberately remains alive after the first activation
+        // cut. `cookBootstrap()` is the TTFMF barrier; total cook completion is
+        // reported by the background task once richer refinement settles.
+        const producerTask = Promise.resolve().then(() => progressive.call(this.#options.cooker, units, context, (revision) => {
+          const isFirst = !seenRevision;
+          seenRevision = true;
+          const streamed = this.#acceptRevisionRevisions(revision, bootstrapUnits.length, units.length);
+          if (!isFirst) {
+            return streamed.catch((error: unknown) => {
+              if (!this.#abort.signal.aborted) this.recordRecoverableFailure(error);
+            });
+          }
+          // A failure while streaming the first cut is the caller's failure.
             return streamed.then(
               () => { firstRevision.resolve(); },
-              (error: unknown) => { firstRevision.reject(error); throw error; });
-          }, (error) => {
-            this.publish(this.header({ type: "RecoverableFailure", scope: "richer-product-revision", code: error.message, retryAfterMs: 0 }));
-          });
-          // The producer returned without offering a first revision at all.
-          if (!seenRevision) throw new Error("Web Cook producer completed without offering a revision");
+              (error: unknown) => { firstActivationFailed = true; firstRevision.reject(error); throw error; });
+        }, (error) => {
+          this.recordRecoverableFailure(error);
+        }));
+        void producerTask.then(
+          () => {
+            heartbeat();
+            if (!seenRevision) {
+              const error = new Error("Web Cook producer completed without offering a revision");
+              firstRevision.reject(error);
+              this.fail(error);
+              return;
+            }
+            this.completeCook();
+          },
+          (error: unknown) => {
+            heartbeat();
+            if (!seenRevision || firstActivationFailed) {
+              firstRevision.reject(error);
+              this.fail(error);
+              return;
+            }
+            if (!this.#abort.signal.aborted) this.recordRecoverableFailure(error);
+            this.completeCook();
+          }
+        );
+        this.#firstRevisionReject = firstRevision.reject;
+        try {
           await firstRevision.promise;
         } finally {
-          heartbeat();
+          if (this.#firstRevisionReject === firstRevision.reject) this.#firstRevisionReject = undefined;
         }
-        this.#state = "complete";
         return;
       }
       const batchCooker = this.#options.cooker.cookBootstrapBatch;
@@ -272,8 +317,11 @@ export class WebCookCoordinator {
         this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
         for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
         this.markActivationStreamed(revision);
+        this.#firstMeaningfulFrameAt = Date.now() - this.#cookStartedAt;
         this.publish(this.header({ type: "Progress", stage: "bootstrap-cook", units: this.#completedUnits, bytes: estimated, timings: this.phaseTimings() }));
+        this.#totalCookAt = Date.now() - this.#cookStartedAt;
         this.#state = "complete";
+        this.#cookCompletion.resolve();
         return;
       }
       // A non-progressive producer is an explicit bootstrap-only fallback. It
@@ -299,11 +347,14 @@ export class WebCookCoordinator {
           this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
           for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
           this.markActivationStreamed(revision);
+          if (this.#firstMeaningfulFrameAt === undefined) this.#firstMeaningfulFrameAt = Date.now() - this.#cookStartedAt;
           this.#completedUnits++;
           this.#session.emit(this.header({ type: "Progress", stage: "bootstrap-cook", units: this.#completedUnits, bytes: estimated, timings: this.phaseTimings() }));
         }
       }
+      this.#totalCookAt = Date.now() - this.#cookStartedAt;
       this.#state = "complete";
+      this.#cookCompletion.resolve();
     } catch (error) {
       this.fail(error);
       throw error;
@@ -320,17 +371,48 @@ export class WebCookCoordinator {
    * runs after the loop, which is what lets `requestPages` take over re-reads.
    */
   #acceptRevisionRevisions(revision: WebCookProductRevision, bootstrapUnitCount: number, totalUnitCount: number): Promise<void> {
-    this.validateRevision(revision);
+    if (this.#state !== "cooking" || this.#abort.signal.aborted) {
+      this.releaseRevision(revision);
+      throw this.#abort.signal.reason ?? new Error("Web Cook stopped before revision publication");
+    }
+    try {
+      this.validateRevision(revision);
+    } catch (error) {
+      this.releaseRevision(revision);
+      throw error;
+    }
     this.#liveRevisions.push(revision);
-    const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
-    this.#completedUnits = revision.revision === 0 ? bootstrapUnitCount : totalUnitCount;
-    if (this.#firstRevisionAt === undefined) this.#firstRevisionAt = Date.now() - this.#cookStartedAt;
-    else this.#refinementMs = Date.now() - this.#cookStartedAt - this.#firstRevisionAt;
-    this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
+    let descriptor: ReturnType<typeof decodeGeometryProductDescriptorBinaryV1>;
+    try {
+      descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
+      if (this.#firstRevisionAt === undefined) this.#firstRevisionAt = Date.now() - this.#cookStartedAt;
+      else this.#refinementMs = Date.now() - this.#cookStartedAt - this.#firstRevisionAt;
+      this.publish(this.header({ type: "RevisionOffered", descriptor: revision.descriptor, ...(revision.sceneAssetIndices === undefined ? {} : { sceneAssetIndices: Uint32Array.from(revision.sceneAssetIndices) }) }));
+    } catch (error) {
+      this.removeLiveRevision(revision);
+      this.releaseRevision(revision);
+      throw error;
+    }
     return (async () => {
-      for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
-      this.markActivationStreamed(revision);
-      this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap-cook" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: this.phaseTimings() }));
+      try {
+        for (const pageId of descriptor.activationPageIds) await this.emitPage(revision, pageId);
+        this.markActivationStreamed(revision);
+        // A descriptor offer is not a completed unit milestone: keep progress
+        // at the last fully streamed activation cut while a richer cut waits
+        // for credit or page reads.
+        this.#completedUnits = revision.revision === 0 ? bootstrapUnitCount : totalUnitCount;
+        if (revision.revision === 0 && this.#firstMeaningfulFrameAt === undefined) this.#firstMeaningfulFrameAt = Date.now() - this.#cookStartedAt;
+        try {
+          this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap-cook" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: this.phaseTimings() }));
+        } catch {
+          // Progress is diagnostic; a saturated queue must not revoke a fully
+          // streamed activation revision that the consumer can already render.
+        }
+      } catch (error) {
+        this.removeLiveRevision(revision);
+        this.releaseRevision(revision);
+        throw error;
+      }
     })();
   }
 
@@ -403,10 +485,12 @@ export class WebCookCoordinator {
     return Object.freeze({
       catalogMs: this.#catalogReadyMs,
       bootstrapCookMs: this.#firstRevisionAt ?? 0,
+      firstMeaningfulFrameMs: this.#firstMeaningfulFrameAt ?? 0,
       activationStreamMs: this.#activationCreditWaitMs + this.#activationReadMs,
       activationCreditWaitMs: this.#activationCreditWaitMs,
       activationReadMs: this.#activationReadMs,
-      refinementMs: this.#refinementMs
+      refinementMs: this.#refinementMs,
+      totalCookMs: this.#totalCookAt ?? 0
     });
   }
 
@@ -428,11 +512,45 @@ export class WebCookCoordinator {
   grantOutputCredits(blockCount: number, bytes: number): void { this.#session.accept(this.header({ type: "GrantOutputCredits", blockCount, bytes })); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); }
   returnOutputCredits(blockCount: number, bytes: number): void { this.#session.returnOutputCredits(blockCount, bytes); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); }
   drainEvents(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] { return this.#session.drain(maxEvents); }
-  cancel(reason = new Error("Web Cook was cancelled")): void { if (this.#state === "disposed" || this.#state === "complete") return; this.#abort.abort(reason); this.#state = "cancelled"; for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.accept(this.header({ type: "CancelScope", scope: "session" })); }
-  dispose(): void { if (this.#state === "disposed") return; this.#abort.abort(new Error("Web Cook session disposed")); for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#source?.release(); this.#source = undefined; this.#catalog = undefined; this.#state = "disposed"; this.#session.accept(this.header({ type: "DisposeSession" })); }
-  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, bootstrapUnits: this.#bootstrapUnits, bootstrapSourceBytes: this.#bootstrapSourceBytes, refinementSourceBytes: this.#refinementSourceBytes, lateSourcePriorities: this.#lateSourcePriorities, ...(this.#options.cooker.evidence === undefined ? {} : { cooker: this.#options.cooker.evidence() }), ...(this.#firstRevisionAt === undefined ? {} : { firstRevisionMs: this.#firstRevisionAt }), ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
+  cancel(reason = new Error("Web Cook was cancelled")): void { if (this.#state === "disposed" || this.#state === "complete") return; this.#abort.abort(reason); this.#state = "cancelled"; this.#firstRevisionReject?.(reason); this.#cookCompletion.reject(reason); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.accept(this.header({ type: "CancelScope", scope: "session" })); }
+  dispose(): void { if (this.#state === "disposed") return; const reason = new Error("Web Cook session disposed"); this.#abort.abort(reason); this.#firstRevisionReject?.(reason); this.#cookCompletion.reject(reason); for (const revision of this.#liveRevisions.splice(0)) this.releaseRevision(revision); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#source?.release(); this.#source = undefined; this.#catalog = undefined; this.#state = "disposed"; this.#session.accept(this.header({ type: "DisposeSession" })); }
+  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, bootstrapUnits: this.#bootstrapUnits, bootstrapSourceBytes: this.#bootstrapSourceBytes, refinementSourceBytes: this.#refinementSourceBytes, lateSourcePriorities: this.#lateSourcePriorities, recoverableFailures: Object.freeze(this.#recoverableFailures.slice()), ...(this.#options.cooker.evidence === undefined ? {} : { cooker: this.#options.cooker.evidence() }), ...(this.#firstRevisionAt === undefined ? {} : { firstRevisionMs: this.#firstRevisionAt }), ...(this.#firstMeaningfulFrameAt === undefined ? {} : { firstMeaningfulFrameMs: this.#firstMeaningfulFrameAt }), ...(this.#totalCookAt === undefined ? {} : { totalCookMs: this.#totalCookAt }), ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
 
-  private fail(error: unknown): void { this.#failure = error instanceof Error ? error.message : String(error); this.#state = this.#abort.signal.aborted ? "cancelled" : "failed"; for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.fail(this.#failure); this.#source?.release(); this.#source = undefined; }
+  private fail(error: unknown): void {
+    if (this.#state === "disposed" || this.#state === "cancelled") return;
+    this.#failure = error instanceof Error ? error.message : String(error);
+    this.#state = this.#abort.signal.aborted ? "cancelled" : "failed";
+    this.#firstRevisionReject?.(error);
+    this.#cookCompletion.reject(error);
+    for (const revision of this.#liveRevisions.splice(0)) this.releaseRevision(revision);
+    for (const wake of this.#creditWaiters) wake();
+    this.#creditWaiters.clear();
+    this.#session.fail(this.#failure);
+    this.#source?.release();
+    this.#source = undefined;
+  }
+  private recordRecoverableFailure(error: unknown): void {
+    const code = error instanceof Error ? error.message : String(error);
+    this.#recoverableFailures.push(code);
+    if (this.#state !== "cooking" || this.#abort.signal.aborted) return;
+    try { this.publish(this.header({ type: "RecoverableFailure", scope: "richer-product-revision", code, retryAfterMs: 0 })); } catch { /* a saturated diagnostic queue must not revoke bootstrap */ }
+  }
+  private completeCook(): void {
+    if (this.#totalCookAt === undefined) this.#totalCookAt = Date.now() - this.#cookStartedAt;
+    if (this.#state !== "cooking") return;
+    this.#state = "complete";
+    this.#cookCompletion.resolve();
+    try { this.publish(this.header({ type: "Progress", stage: "cook-complete", units: this.#completedUnits, bytes: this.#refinementSourceBytes, timings: this.phaseTimings() })); } catch { /* completion evidence remains available even if the queue is full */ }
+  }
+  private removeLiveRevision(revision: WebCookProductRevision): void {
+    const index = this.#liveRevisions.indexOf(revision);
+    if (index >= 0) this.#liveRevisions.splice(index, 1);
+  }
+  private releaseRevision(revision: WebCookProductRevision): void {
+    if (this.#releasedRevisions.has(revision)) return;
+    this.#releasedRevisions.add(revision);
+    revision.release();
+  }
   private validateRevision(revision: WebCookProductRevision): void {
     if (revision.productId.byteLength !== 32 || !Number.isInteger(revision.revision) || revision.revision < 0 || revision.revision === 0xffffffff || !Number.isInteger(revision.pageCount) || revision.pageCount <= 0) throw new Error("Web Cook revision identity/count is invalid");
     const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
@@ -453,10 +571,11 @@ export class WebCookCoordinator {
     const configured = custom ? undefined : this.#options.bootstrapUnitCount;
     if (configured !== undefined && (!Number.isSafeInteger(configured) || configured <= 0)) throw new RangeError("bootstrapUnitCount must be a positive safe integer");
     const maxBytes = this.#options.bootstrapMaxSourceBytes;
-    // An explicit unit count keeps the original "first N priority units"
-    // contract so a caller can still pin an exact cut.
+    // An explicit unit count limits the cut size, but still uses the same
+    // current-view priority plus spatial relevance ranking as the automatic
+    // selector. A caller can pin an exact set through `selectBootstrap`.
     const candidates = configured !== undefined
-      ? units.slice(0, configured)
+      ? defaultBootstrapSelection(units, unit => this.priorityFor(unit)).slice(0, configured)
       : custom
         // A custom selector's own order is the caller's expressed intent, so it
         // is kept for the byte-cap walk below and only the chosen set is put
@@ -576,10 +695,9 @@ const PROGRESS_HEARTBEAT_MS = 250;
  * is why `CommitCatalogPriorities` exists on the Worker boundary.
  */
 function defaultBootstrapSelection(units: readonly GlbCookPrimitive[], priorityOf: (unit: GlbCookPrimitive) => number): readonly GlbCookPrimitive[] {
-  if (units.length <= DEFAULT_BOOTSTRAP_UNIT_LIMIT) return units;
   const ranked = units.map((unit, index) => ({ unit, index, coverage: bootstrapCoverage(unit), priority: priorityOf(unit) }));
   ranked.sort((left, right) => right.priority - left.priority || right.coverage - left.coverage || left.index - right.index);
-  const selected = ranked.slice(0, DEFAULT_BOOTSTRAP_UNIT_LIMIT).map(entry => entry.unit);
+  const selected = ranked.slice(0, Math.min(DEFAULT_BOOTSTRAP_UNIT_LIMIT, ranked.length)).map(entry => entry.unit);
   selected.sort(comparePrimitiveOrder);
   return selected;
 }

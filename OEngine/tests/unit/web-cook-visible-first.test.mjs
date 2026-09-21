@@ -72,6 +72,124 @@ test("Web Cook visible-first selects one prioritized primitive before reading th
   coordinator.dispose();
 });
 
+test("Web Cook returns at TTFMF while richer refinement continues in the background", async () => {
+  const glb = makeTwoPrimitiveGlb(), product = productFixture();
+  let releaseRefinement;
+  const refinement = new Promise(resolve => { releaseRefinement = resolve; });
+  const revision = (number, replaces) => ({
+    descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: number, ...(replaces === undefined ? {} : { replaces }) }),
+    productId: product.productId,
+    revision: number,
+    pageCount: 1,
+    async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; },
+    release() {}
+  });
+  const coordinator = new WebCookCoordinator("ttfmf-boundary", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 2 * 262144, maxQueuedEvents: 32 },
+    source: makeRangeFetch(glb),
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(_units, _context, onRevision) {
+        await onRevision(revision(0));
+        await refinement;
+        await onRevision(revision(1, { productId: product.productId, revision: 0 }));
+      }
+    }
+  });
+  await coordinator.open("https://example.test/ttfmf.glb");
+  coordinator.grantOutputCredits(2, 2 * 262144);
+  await coordinator.cookBootstrap();
+  assert.equal(coordinator.evidence().state, "cooking", "first cut must not masquerade as total completion");
+  assert.equal(coordinator.evidence().totalCookMs, undefined);
+  assert.equal(typeof coordinator.evidence().firstMeaningfulFrameMs, "number");
+  assert.equal(coordinator.drainEvents().filter(event => event.type === "PageReady").length, 1);
+  releaseRefinement();
+  await coordinator.waitForCookCompletion();
+  assert.equal(coordinator.evidence().state, "complete");
+  assert.equal(typeof coordinator.evidence().totalCookMs, "number");
+  coordinator.dispose();
+});
+
+test("Web Cook keeps the bootstrap active when richer refinement fails", async () => {
+  const glb = makeTwoPrimitiveGlb(), product = productFixture();
+  const coordinator = new WebCookCoordinator("ttfmf-recoverable", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 262144, maxQueuedEvents: 16 },
+    source: makeRangeFetch(glb),
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(_units, _context, onRevision) {
+        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 0, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        throw new Error("richer refinement failed");
+      }
+    }
+  });
+  await coordinator.open("https://example.test/ttfmf-recoverable.glb");
+  coordinator.grantOutputCredits(1, 262144);
+  await coordinator.cookBootstrap();
+  await coordinator.waitForCookCompletion();
+  const evidence = coordinator.evidence();
+  assert.equal(evidence.state, "complete");
+  assert.deepEqual(evidence.recoverableFailures, ["richer refinement failed"]);
+  assert.equal(coordinator.drainEvents().some(event => event.type === "RecoverableFailure"), true);
+  coordinator.dispose();
+});
+
+test("Web Cook cancellation prevents a late richer revision publication", async () => {
+  const glb = makeTwoPrimitiveGlb(), product = productFixture();
+  let releaseRefinement;
+  const refinement = new Promise(resolve => { releaseRefinement = resolve; });
+  const coordinator = new WebCookCoordinator("ttfmf-cancel", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 2 * 262144, maxQueuedEvents: 32 },
+    source: makeRangeFetch(glb),
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(_units, _context, onRevision) {
+        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 0, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        await refinement;
+        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: 1, replaces: { productId: product.productId, revision: 0 } }), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+      }
+    }
+  });
+  await coordinator.open("https://example.test/ttfmf-cancel.glb");
+  coordinator.grantOutputCredits(1, 262144);
+  await coordinator.cookBootstrap();
+  coordinator.drainEvents();
+  coordinator.cancel();
+  releaseRefinement();
+  await assert.rejects(coordinator.waitForCookCompletion(), /cancelled/i);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(coordinator.evidence().state, "cancelled");
+  assert.equal(coordinator.drainEvents().some(event => event.type === "RevisionOffered"), false, "late richer revision must not be published after cancellation");
+  coordinator.dispose();
+});
+
+test("Web Cook disposal keeps the terminal disposed state during a late producer callback", async () => {
+  const glb = makeTwoPrimitiveGlb(), product = productFixture();
+  let releaseRefinement;
+  const refinement = new Promise(resolve => { releaseRefinement = resolve; });
+  const coordinator = new WebCookCoordinator("ttfmf-dispose", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 2 * 262144, maxQueuedEvents: 32 },
+    source: makeRangeFetch(glb),
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(_units, _context, onRevision) {
+        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 0, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        await refinement;
+        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: 1, replaces: { productId: product.productId, revision: 0 } }), productId: product.productId, revision: 1, pageCount: 1, async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+      }
+    }
+  });
+  await coordinator.open("https://example.test/ttfmf-dispose.glb");
+  coordinator.grantOutputCredits(1, 262144);
+  await coordinator.cookBootstrap();
+  coordinator.dispose();
+  releaseRefinement();
+  await assert.rejects(coordinator.waitForCookCompletion(), /disposed/i);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(coordinator.evidence().state, "disposed");
+  assert.equal(coordinator.drainEvents().length, 0, "dispose clears the event queue and rejects late publication");
+});
+
 test("Web Cook progress heartbeat never claims units the producer has not delivered", async () => {
   // The refinement is one opaque cooker call, so between the bootstrap revision
   // and the richer revision the coordinator has no new milestone to report. The
@@ -109,6 +227,7 @@ test("Web Cook progress heartbeat never claims units the producer has not delive
     for (const event of drained) if (event.type === "PageReady") coordinator.returnOutputCredits(1, 262144);
   }, 20);
   await cooking;
+  await coordinator.waitForCookCompletion();
   clearInterval(collector);
   const tail = coordinator.drainEvents();
   events.push(...tail);
@@ -116,18 +235,24 @@ test("Web Cook progress heartbeat never claims units the producer has not delive
   const progress = events.filter(event => event.type === "Progress");
   assert.ok(progress.length >= 2, `expected heartbeat progress events, saw ${progress.length}`);
   // The first Progress reports the bootstrap revision itself; everything before
-  // the final event is a heartbeat emitted while the refinement runs.
+  // the completion event is a heartbeat or richer revision emitted while the
+  // refinement runs. TTFMF and total cook completion are separate timings.
   assert.equal(progress[0].stage, "bootstrap-cook");
   assert.equal(progress[0].units, 1);
   assert.equal(typeof progress[0].timings.bootstrapCookMs, "number");
   for (const event of progress.slice(1, -1)) {
     assert.equal(event.stage, "refinement");
-    assert.equal(event.units, 1, "heartbeat must not claim uncooked units");
-    assert.equal(typeof event.timings.elapsedMs, "number");
+    if (event.timings.elapsedMs !== undefined) {
+      assert.equal(event.units, 1, "heartbeat must not claim uncooked units");
+      assert.equal(typeof event.timings.elapsedMs, "number");
+    }
   }
-  assert.equal(progress.at(-1).units, 2, "the final progress reports the full cook");
-  assert.equal(progress.at(-1).stage, "refinement");
-  assert.equal(typeof progress.at(-1).timings.refinementMs, "number");
+  assert.equal(progress.at(-1).units, 2, "the completion progress reports the full cook");
+  assert.equal(progress.at(-1).stage, "cook-complete");
+  assert.equal(typeof progress.at(-1).timings.totalCookMs, "number");
+  assert.equal(typeof coordinator.evidence().firstMeaningfulFrameMs, "number");
+  assert.equal(typeof coordinator.evidence().totalCookMs, "number");
+  assert.ok(coordinator.evidence().firstMeaningfulFrameMs < coordinator.evidence().totalCookMs, "TTFMF must precede total cook completion");
   coordinator.dispose();
 });
 
@@ -156,6 +281,7 @@ test("Web Cook progress heartbeat gives up instead of failing a saturated queue"
     for (const event of coordinator.drainEvents()) if (event.type === "PageReady") coordinator.returnOutputCredits(1, 262144);
   }, 20);
   await cooking;
+  await coordinator.waitForCookCompletion();
   clearInterval(collector);
   assert.equal(coordinator.evidence().state, "complete", "a saturated queue must not fail the cook");
   assert.equal(coordinator.evidence().completedUnits, 2);

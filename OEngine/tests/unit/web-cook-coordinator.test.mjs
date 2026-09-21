@@ -166,6 +166,7 @@ test("Web Cook coordinator streams a plan-backed revision without materialising 
   // drains `revisions()`. Budget one page per offered revision.
   coordinator.grantOutputCredits(2, 2 * 262144);
   await coordinator.cookBootstrap();
+  await coordinator.waitForCookCompletion();
   const events = coordinator.drainEvents();
   const offered = events.filter(event => event.type === "RevisionOffered");
   // Both descriptors are published, richer included, even though its payloads
@@ -259,6 +260,7 @@ test("Web Cook coordinator re-serves a streamed activation page and survives a c
   await coordinator.open("https://example.test/cache.glb");
   coordinator.grantOutputCredits(4, 4 * 262144);
   await coordinator.cookBootstrap();
+  await coordinator.waitForCookCompletion();
   assert.deepEqual(ready(), [{ revision: 0, pageId: 0 }, { revision: 1, pageId: 0 }], "each revision streams exactly its activation cut");
   // A demand for the replacing revision's activation page now that its cut has
   // streamed is re-served: the page was published once, and the consumer asking

@@ -66,16 +66,21 @@ created --CreateSession--> open --CancelScope--> cancelled
 
 - `bootstrap-cook`：首个 cut（bootstrap revision）已产出并完成 activation 流式。
 - `refinement`：替换 bootstrap 的 richer revision；心跳也在此 stage 下。
+- `cook-complete`：progressive producer 已 settled；`timings.totalCookMs` 已可用。
 - 细分 `refinement-canonical` / `refinement-plan` 需要 cooker 暴露其内部阶段；当前 cooker 是单个不透明调用，coordinator 无法区分，故不编造。
 
 `Progress.timings` 的约定 key（单位毫秒，**缺失表示未测量**，不得用 0 冒充）：
 
 - `catalogMs`：`open` 到 `SceneCatalogReady`。
 - `bootstrapCookMs`：开始 cook 到首个 revision offer。
+- `firstMeaningfulFrameMs`：开始 cook 到首个 activation cut 完成并全部
+  `PageReady` 发布；这是 visible-first 的 TTFMF contract boundary。
 - `activationStreamMs`：activation cut 流式总耗时，恒等于 `activationCreditWaitMs + activationReadMs`。
 - `activationCreditWaitMs`：`emitPage` 等待 output credit 的累计时间。
 - `activationReadMs`：`emitPage` 读页 + 校验的累计时间。
 - `refinementMs`：首个 revision offer 到 richer revision offer。
+- `totalCookMs`：开始 cook 到 progressive producer settled；可以大于
+  `firstMeaningfulFrameMs`，不能把首个 cut 时间当作总完成时间。
 - `elapsedMs` / `totalUnits`：仅心跳携带，供 UI 做存活显示。
 
 区分 `activationCreditWaitMs` 与 `activationReadMs` 是判断首帧「producer-bound 还是 credit-bound」的唯一依据，二者必须各自保留，不得只合并成单个 activation 数字。
