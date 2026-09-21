@@ -294,8 +294,15 @@ export {
   GEOMETRY_PAGE_DEMAND_RECORD_BYTES,
   GEOMETRY_PAGE_DEMAND_MAX_QUEUE_BYTES_V1,
   GEOMETRY_PAGE_DEMAND_MAX_RECORD_CAPACITY_V1,
+  GEOMETRY_PAGE_DEMAND_MASK_HEADER_BYTES_V1,
+  GEOMETRY_PAGE_DEMAND_MASK_WORD_BYTES_V1,
+  GEOMETRY_PAGE_DEMAND_MAX_MASK_BYTES_V1,
   createGeometryPageDemandQueueV1,
+  createGeometryPageDemandMaskV1,
+  clearGeometryPageDemandMaskV1,
   deduplicateGeometryPageDemandsV1,
+  geometryPageDemandMaskWordCountV1,
+  markGeometryPageDemandMaskV1,
   packGeometryPageDemandHeaderV1,
   packGeometryPageDemandV1,
   reserveGeometryPageDemandV1,
@@ -305,7 +312,8 @@ export {
 export type {
   GeometryPageDemandV1,
   GeometryPageDemandQueueHeaderV1,
-  GeometryPageDemandQueueStateV1
+  GeometryPageDemandQueueStateV1,
+  GeometryPageDemandMaskStateV1
 } from "./gpu/GeometryPageDemandAbiV1.js";
 export { WebCookWorkerTransport } from "./assets/web-cook/WebCookWorkerTransport.js";
 export type {

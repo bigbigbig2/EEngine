@@ -8,6 +8,7 @@ import {
 import {
   assertGeometryProductDescriptorV1,
   decodeGeometryProductPageRecordV1,
+  GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE,
   type GeometryProductDescriptorV1,
   type GeometryPageProductV1,
   type GeometryProductRevisionSourceV1
@@ -60,6 +61,8 @@ export interface VirtualGeometryResidencyEvidenceV1 {
 export interface GeometryProductGpuBindingsV1 {
   readonly productTableSlot: number;
   readonly productGeneration: number;
+  /** Number of Product-local pages used to size the frame demand mask. */
+  readonly pageCount: number;
   readonly metadata: GPUBuffer;
   readonly metadataByteLength: number;
   readonly productTableByteOffset: number;
@@ -216,7 +219,7 @@ export class VirtualGeometryResidency {
   activatePublication(): void { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#writeProductRecord(GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1); this.#activePublication = true; }
   /** Withdraws the Product record while retaining source and resident pages for a dormant shard. */
   deactivatePublication(): void { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#writeProductRecord(0); this.#activePublication = false; }
-  bindings(): GeometryProductGpuBindingsV1 { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return Object.freeze({ productTableSlot: this.#productTableSlot, productGeneration: this.#productGeneration, metadata: this.#metadata, metadataByteLength: this.#metadataLayout.byteLength, productTableByteOffset: this.#metadataLayout.productRecord, pageLocationByteOffset: this.#metadataLayout.pageLocations, productTable: this.#metadata, banks: Object.freeze([...this.#banks]) }); }
+  bindings(): GeometryProductGpuBindingsV1 { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return Object.freeze({ productTableSlot: this.#productTableSlot, productGeneration: this.#productGeneration, pageCount: this.#descriptor.pageRecords.byteLength / GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE, metadata: this.#metadata, metadataByteLength: this.#metadataLayout.byteLength, productTableByteOffset: this.#metadataLayout.productRecord, pageLocationByteOffset: this.#metadataLayout.pageLocations, productTable: this.#metadata, banks: Object.freeze([...this.#banks]) }); }
   pageLocationTable(): GPUBuffer { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return this.#metadata; }
   pageLocation(pageId: number): GeometryPageLocationV1 | undefined { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#assertPageId(pageId); return this.#pageLocations.get(pageId); }
   /** Drops all GPU allocations after device loss while retaining the Product source. */

@@ -201,8 +201,24 @@ tasks:
     phase: G
     priority: P1
     title: Compact Product-local request masks into bounded priority demand records on the GPU
-    state: todo
+    state: done
     dependsOn: [visible-first-product-scheduler]
+    completedEvidence:
+      review: docs/reviews/2026-09-22-web-100m-phase-g-gpu-demand-compaction.md
+      contract: docs/specs/web-geometry-demand-compaction-v1.md
+      implementationStatus: gpu-mask-and-bounded-readback-contract-complete
+      maskPolicy: product-local-page-bitmask-cleared-per-frame
+      queuePolicy: 16-byte-record-256KiB-readback-bound
+      overflowPolicy: mask-and-queue-overflow-observable-and-drop-without-write
+      producerConsumer: hierarchy-root-traversal-to-delayed-ring-to-page-scheduler
+      contractTests:
+        - OEngine/tests/contract/geometry-page-demand-abi.test.mjs
+        - OEngine/tests/contract/virtual-product-shadow-contract.test.mjs
+        - OEngine/tests/oracle/virtual-geometry-work-source.test.mjs
+        - OEngine/tests/unit/geometry-page-scheduler.test.mjs
+        - OEngine/tests/unit/geometry-page-streaming-runtime.test.mjs
+      testResult: 26/26
+      note: Node/unit contract and shader-oracle evidence only; clean 100M browser duplicate-ratio/readback/overflow evidence, unified multi-Product browser consumer, and formal PERF remain open gates.
     exitCriteria:
       - Camera-cut duplicate requests are removed before readback.
       - Queue ABI, capacity, overflow behavior, producer, consumer, and counters are specified and tested.
@@ -288,7 +304,7 @@ openGates:
   - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
   - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
   - Multi-Product Scene and GPU Product Table ABI are frozen and contract/oracle-proven; unified multi-Product browser consumer evidence is still open.
-  - Visible-first implementation and local TTFMF contract are complete; clean 100M browser evidence and formal workload execution remain open.
+  - Visible-first implementation and GPU demand compaction contract are complete; clean 100M browser duplicate/readback evidence and formal workload execution remain open.
   - GPU demand compaction and adaptive scheduler queues lack promoted capacity and overflow evidence.
   - Portable, Balanced, and HighEnd residency profiles lack negotiated-limit evidence across supported adapters.
   - Formal 100M PERF evidence has not been captured on a clean revision.

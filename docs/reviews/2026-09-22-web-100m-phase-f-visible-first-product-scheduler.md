@@ -2,7 +2,7 @@
 
 本记录把 Phase F 落为 coordinator 实现、unit contract/oracle 和冻结 spec；它不
 把本地测试升级为 100M browser RuntimeValidated、Performance Evaluated 或 ADR
-Complete。Phase G 之后的 GPU demand compaction、adaptive residency 和正式 PERF
+Complete。Phase H 之后的 adaptive residency 和正式 PERF
 仍未完成。
 
 ## 结果
@@ -63,5 +63,5 @@ ranking、activation re-read、pending demand 和 replacement。
 - clean 100M browser host 上的真实 visible Product consumer 与 TTFMF；
 - 100M source/canonical/WASM/JS/GPU working-set 和正式 PERF；
 - Zorah bounded `EXT_meshopt_compression` decode；
-- Phase G GPU demand compaction、Phase H–J residency/scheduler；
+- Phase H–J residency/scheduler（Phase G GPU demand compaction 已落地为 candidate spec）；
 - 250M/500M/1B logical-scale workload evidence。

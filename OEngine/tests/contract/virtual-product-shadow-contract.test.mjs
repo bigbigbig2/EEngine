@@ -26,6 +26,16 @@ test("Product page demand flags are an explicit hierarchy-view contract", () => 
   assert.match(shader, /traversal_view\.limits\.z/u);
 });
 
+test("Product demand is masked before the bounded readback queue", () => {
+  const generator = source(["render", "HierarchicalWorkGenerator.ts"]);
+  const shader = source(["shaders", "hierarchical_work_generation.ts"]);
+  assert.match(generator, /pageDemandMask/u);
+  assert.match(generator, /clearBuffer\(state\.pageDemandMask/u);
+  assert.match(generator, /binding: 14/u);
+  assert.match(shader, /oengine_geometry_page_demand_mask_try_mark/u);
+  assert.match(shader, /traversal_page_demand_mask/u);
+});
+
 test("Shadow demand uses a separate delayed ring while sharing the Product scheduler", () => {
   const runtime = source(["gpu", "GeometryPageStreamingRuntime.ts"]);
   const pass = source(["render", "passes", "PackedCsmShadowPass.ts"]);

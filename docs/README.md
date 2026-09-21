@@ -43,3 +43,4 @@ Reviews are dated, non-authoritative audits. They record observations and recomm
 - [ADR-0018 research draft · Web 100M+ Virtual Geometry Architecture](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
 - [ADR-0018 Phase A baseline record](./reviews/2026-09-21-web-100m-phase-a-baseline.md)
 - [ADR-0018 Phase F visible-first scheduler record](./reviews/2026-09-22-web-100m-phase-f-visible-first-product-scheduler.md)
+- [ADR-0018 Phase G GPU demand compaction record](./reviews/2026-09-22-web-100m-phase-g-gpu-demand-compaction.md)

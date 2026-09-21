@@ -17,6 +17,9 @@ test("Product work specialization preserves the V2 feature-off shader and existi
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /oengine_virtual_group_v1/u);
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /oengine_geometry_product_lookup_page_heap_v1/u);
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /hierarchy_emit_page_demand_v1/u);
+  assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /oengine_geometry_page_demand_mask_try_mark/u);
+  assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /atomicOr\(&\(\*mask\)\.words\[word\]/u);
+  assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /@group\(1\) @binding\(14\)/u);
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /traversal_page_demand/u);
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /hierarchy_virtual_find_resident_ancestor_v1/u);
   assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL, /selected_cluster = fallback.group_id/u);
