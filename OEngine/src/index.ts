@@ -276,6 +276,19 @@ export type {
   VirtualGeometryResidencyEvidenceV1
 } from "./gpu/VirtualGeometryResidency.js";
 export {
+  GEOMETRY_PRODUCT_MULTI_RUNTIME_ABI_VERSION_V1,
+  GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1,
+  GeometryProductMultiRuntimeV1
+} from "./gpu/GeometryProductMultiRuntime.js";
+export type {
+  GeometryProductInstanceIdentityV1,
+  GeometryProductMultiRuntimeEvidenceV1,
+  GeometryProductPageCompletionResultV1,
+  GeometryProductPageIdentityV1,
+  GeometryProductShardHandleV1,
+  GeometryProductShardStateV1
+} from "./gpu/GeometryProductMultiRuntime.js";
+export {
   GEOMETRY_PAGE_DEMAND_ABI_VERSION,
   GEOMETRY_PAGE_DEMAND_HEADER_BYTES,
   GEOMETRY_PAGE_DEMAND_RECORD_BYTES,

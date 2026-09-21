@@ -14,6 +14,7 @@ contracts:
   - web-geometry-page-artifact-v1
   - web-geometry-spatial-shard-v1
   - web-cook-session-protocol-v1
+  - web-geometry-multi-product-runtime-v1
 claims:
   - virtual-assets.product-consumer
   - virtual-assets.web-cook
@@ -153,8 +154,20 @@ tasks:
     phase: E
     priority: P0
     title: Admit and render independently owned Product shards through one Product Table
-    state: todo
+    state: done
     dependsOn: [cook-and-spill]
+    completedEvidence:
+      review: docs/reviews/2026-09-22-web-100m-phase-e-multi-product-runtime.md
+      contract: docs/specs/web-geometry-multi-product-runtime-v1.md
+      implementationStatus: implementation-and-oracle-complete
+      slotCapacity: 64
+      activeShardEvidence: 64
+      productTableRecordStrideBytes: 64
+      instanceAbiVersion: 8
+      instanceRecordStrideBytes: 176
+      contractTest: OEngine/tests/contract/geometry-product-multi-runtime.test.mjs
+      testResult: 2/2
+      note: Lifecycle and ABI evidence uses a fake device; unified multi-Product browser consumer, RuntimeValidated, TTFMF, and formal PERF remain open gates.
     exitCriteria:
       - At least 64 Product shards can be active concurrently in the production renderer.
       - Each shard supports independent load, replacement, eviction, dormancy, and release.
@@ -260,7 +273,7 @@ retirementTargets:
 openGates:
   - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
   - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
-  - Multi-Product Scene and GPU Product Table ABI are not yet frozen or proven in the production renderer.
+  - Multi-Product Scene and GPU Product Table ABI are frozen and contract/oracle-proven; unified multi-Product browser consumer evidence is still open.
   - Visible-first publication lacks clean 100M browser evidence and a formal TTFMF definition in a workload manifest.
   - GPU demand compaction and adaptive scheduler queues lack promoted capacity and overflow evidence.
   - Portable, Balanced, and HighEnd residency profiles lack negotiated-limit evidence across supported adapters.

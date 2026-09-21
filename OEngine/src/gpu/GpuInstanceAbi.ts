@@ -1,7 +1,7 @@
 import { mat4 } from "gl-matrix";
 import { GPU_SHADING_BIN_COUNT } from "./GpuShadingBinAbi.js";
 
-export const GPU_INSTANCE_ABI_VERSION = 7;
+export const GPU_INSTANCE_ABI_VERSION = 8;
 export const GPU_INSTANCE_STATIC_RECORD_STRIDE = 64;
 export const GPU_INSTANCE_DYNAMIC_RECORD_STRIDE = 112;
 export const GPU_INSTANCE_RECORD_STRIDE =
@@ -47,13 +47,15 @@ export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   debug_id: 12,
   bounds_sphere: 16,
   bounds_min: 32,
-  /** Reserved bounds_min.w lane, published as the expected AssetHandle generation. */
+  /** Reserved bounds_min.w lane, published as the expected geometry/Product generation. */
   geometry_generation: 44,
   bounds_max: 48,
   current_affine: 64,
   previous_from_current_affine: 112,
   dynamic_revision: 160,
-  motion_flags: 164
+  motion_flags: 164,
+  /** Explicit ProductTableSlot for virtual-geometry instance identity. */
+  product_table_slot: 168
 } as const);
 
 export const GPU_INSTANCE_RECORD_SCHEMA = Object.freeze({
@@ -67,6 +69,8 @@ export const GPU_INSTANCE_RECORD_SCHEMA = Object.freeze({
 export interface GpuInstanceRecordCpu {
   readonly geometryRecordIndex: number;
   readonly geometryGeneration: number;
+  /** ProductTableSlot for a virtual-geometry asset reference; zero for ordinary geometry. */
+  readonly productTableSlot?: number;
   readonly materialHandle: number;
   readonly flags: number;
   readonly debugId: number;
@@ -102,7 +106,8 @@ struct OEngineInstanceRecord {
   previous_from_current_affine_2: vec4f,
   dynamic_revision: u32,
   motion_flags: u32,
-  _dynamic_pad: vec2u,
+  product_table_slot: u32,
+  _dynamic_pad: u32,
 }
 
 fn oengine_instance_current_object_to_world(instance: OEngineInstanceRecord) -> mat4x4f {
@@ -142,6 +147,10 @@ fn oengine_instance_virtual_geometry(instance: OEngineInstanceRecord) -> bool {
 
 fn oengine_instance_geometry_generation(instance: OEngineInstanceRecord) -> u32 {
   return bitcast<u32>(instance.bounds_min.w);
+}
+
+fn oengine_instance_product_table_slot(instance: OEngineInstanceRecord) -> u32 {
+  return instance.product_table_slot;
 }
 
 fn oengine_instance_shading_bin_id(flags: u32) -> u32 {
@@ -218,6 +227,8 @@ export function writeGpuInstanceRecord(
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.geometry_record_index, record.geometryRecordIndex, "geometryRecordIndex");
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.geometry_generation,
     requireNonZeroU32(record.geometryGeneration, "geometryGeneration"), "geometryGeneration");
+  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.product_table_slot,
+    record.productTableSlot ?? 0, "productTableSlot");
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.material_handle, record.materialHandle, "materialHandle");
   const previousFromCurrent = scratch.previousFromCurrent;
   const motionValid = computePreviousFromCurrent(

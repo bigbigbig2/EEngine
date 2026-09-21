@@ -978,6 +978,11 @@ export class GpuScene {
         true
       );
       view.setUint32(
+        base + GPU_INSTANCE_RECORD_OFFSETS.product_table_slot,
+        source.virtualGeometry?.productTableSlot ?? 0,
+        true
+      );
+      view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.material_handle,
         source.materialHandles[index]!,
         true

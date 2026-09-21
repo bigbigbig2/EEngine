@@ -7,6 +7,7 @@ contracts:
   - virtual-geometry-runtime-v1
   - web-geometry-cooker-abi-v1
   - web-geometry-page-artifact-v1
+  - web-geometry-multi-product-runtime-v1
   - web-cook-session-protocol-v1
 claims: 
   - virtual-assets.product-consumer

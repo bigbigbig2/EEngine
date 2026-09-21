@@ -214,6 +214,8 @@ export class VirtualGeometryResidency {
   get productGeneration(): number { return this.#productGeneration; }
   get productTableSlot(): number { return this.#productTableSlot; }
   activatePublication(): void { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#writeProductRecord(GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1); this.#activePublication = true; }
+  /** Withdraws the Product record while retaining source and resident pages for a dormant shard. */
+  deactivatePublication(): void { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#writeProductRecord(0); this.#activePublication = false; }
   bindings(): GeometryProductGpuBindingsV1 { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return Object.freeze({ productTableSlot: this.#productTableSlot, productGeneration: this.#productGeneration, metadata: this.#metadata, metadataByteLength: this.#metadataLayout.byteLength, productTableByteOffset: this.#metadataLayout.productRecord, pageLocationByteOffset: this.#metadataLayout.pageLocations, productTable: this.#metadata, banks: Object.freeze([...this.#banks]) }); }
   pageLocationTable(): GPUBuffer { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return this.#metadata; }
   pageLocation(pageId: number): GeometryPageLocationV1 | undefined { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#assertPageId(pageId); return this.#pageLocations.get(pageId); }
