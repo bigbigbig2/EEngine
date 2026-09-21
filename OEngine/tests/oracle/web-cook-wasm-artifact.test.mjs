@@ -5,6 +5,7 @@ import test from "node:test";
 const {
   encodeWebCanonicalGeometryV1,
   encodeWebGeometryCookRecipeV1,
+  beginWebGeometryCookWasmBuilderV1,
   cookWebGeometryWasmV1,
   planWebGeometryWasmV1,
   WEB_GEOMETRY_COOKER_ABI_VERSION,
@@ -24,20 +25,39 @@ async function loadArtifact() {
   });
 }
 
-function triangleCanonical() {
+function triangleCanonical(materialId = 0, xOffset = 0) {
+  const vertices = Float32Array.from([
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+  ]);
+  for (let vertex = 0; vertex < 3; vertex++) vertices[vertex * 18] += xOffset;
   return encodeWebCanonicalGeometryV1([{
-    materialId: 0,
+    materialId,
     meshletFlags: 1,
     attributeMask: 1,
     generateNormals: true,
-    vertices: Float32Array.from([
-      0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-      0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
-    ]),
+    vertices,
     indices: Uint32Array.from([0, 1, 2])
   }]);
 }
+
+test("checked-in Web geometry artifact consumes independent canonical windows", async () => {
+  const module = await loadArtifact();
+  const builder = beginWebGeometryCookWasmBuilderV1(module, encodeWebGeometryCookRecipeV1(), 8 * 262144);
+  let plan;
+  try {
+    builder.append(triangleCanonical(0, 0));
+    builder.append(triangleCanonical(1, 4));
+    plan = builder.finish();
+    assert.equal(plan.descriptorSections().assetRecords.byteLength, 2 * 128);
+    assert.ok(plan.pageCount >= 1);
+    for (let pageId = 0; pageId < plan.pageCount; pageId++) assert.equal(plan.pageStatus(pageId), WEB_GEOMETRY_COOK_PAGE_PENDING);
+  } finally {
+    plan?.release();
+    builder.release();
+  }
+});
 
 test("checked-in Web geometry artifact executes the Product ABI", async () => {
   const module = await loadArtifact();

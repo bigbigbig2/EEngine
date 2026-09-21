@@ -139,7 +139,7 @@ async function loadModel(): Promise<void> {
     const sourceUrl = localUrl ?? urlInput.value.trim();
     if (!sourceUrl) throw new Error("GLB URL is empty");
     const runtimeProfile = new URLSearchParams(window.location.search).get("profile") === "isolated-pthreads" ? "isolated-pthreads" : "portable-single";
-    const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile });
+    const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxSourceWindowBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile });
     asset = load_gltf_web_product(sourceUrl, {
       worker,
       runtimeProfile,

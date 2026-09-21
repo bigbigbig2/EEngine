@@ -80,6 +80,26 @@ OENGINE_WEB_COOK_EXPORT std::uintptr_t oengine_web_geometry_cook_plan(
     std::size_t recipeInputBytes,
     std::uint64_t maxDecodedProductBytes);
 
+/** Begins one descriptor plan whose canonical input is appended in bounded windows. */
+OENGINE_WEB_COOK_EXPORT std::uintptr_t oengine_web_geometry_cook_builder_begin(
+    const std::uint8_t* recipeInput,
+    std::size_t recipeInputBytes,
+    std::uint64_t maxDecodedProductBytes);
+
+/** Decodes and cooks one canonical window; the builder never retains its input bytes. */
+OENGINE_WEB_COOK_EXPORT std::uint32_t oengine_web_geometry_cook_builder_append(
+    std::uintptr_t builder,
+    const std::uint8_t* canonicalInput,
+    std::size_t canonicalInputBytes);
+
+/** Consumes the builder and returns a descriptor-stage Product plan. */
+OENGINE_WEB_COOK_EXPORT std::uintptr_t oengine_web_geometry_cook_builder_finish(
+    std::uintptr_t builder);
+
+/** Releases an unfinished builder. */
+OENGINE_WEB_COOK_EXPORT void oengine_web_geometry_cook_builder_destroy(
+    std::uintptr_t builder);
+
 /**
  * Payload stage: advances one PageID and reports whether its payload is ready.
  *

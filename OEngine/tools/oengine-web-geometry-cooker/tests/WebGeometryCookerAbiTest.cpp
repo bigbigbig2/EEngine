@@ -96,7 +96,7 @@ std::vector<std::uint8_t> CanonicalCube() {
     return bytes;
 }
 
-std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount) {
+std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount, std::size_t firstDomain = 0u) {
     constexpr std::array<std::array<float, 3>, 8> positions = {{
         {{-1.0f,-1.0f,-1.0f}}, {{1.0f,-1.0f,-1.0f}},
         {{1.0f,1.0f,-1.0f}}, {{-1.0f,1.0f,-1.0f}},
@@ -123,8 +123,9 @@ std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount) {
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
     U32(bytes, 44u, 72u); U32(bytes, 48u, 32u);
     for (std::size_t domain = 0u; domain < domainCount; ++domain) {
+        const std::size_t sourceDomain = firstDomain + domain;
         const std::size_t at = domainOffset + domain * 32u;
-        U32(bytes, at, std::uint32_t(7u + domain));
+        U32(bytes, at, std::uint32_t(7u + sourceDomain));
         U32(bytes, at + 4u, kMeshletOpaque | kMeshletCastsShadow);
         U16(bytes, at + 8u, kAttributePosition);
         U16(bytes, at + 10u, 1u);
@@ -134,7 +135,7 @@ std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount) {
         U32(bytes, at + 24u, std::uint32_t(domainIndexCount));
         for (std::size_t vertex = 0u; vertex < domainVertexCount; ++vertex) {
             const std::size_t target = vertexOffset + (domain * domainVertexCount + vertex) * 72u;
-            for (std::size_t axis = 0u; axis < 3u; ++axis) F32(bytes, target + axis * 4u, positions[vertex][axis] + float(domain) * 4.0f);
+            for (std::size_t axis = 0u; axis < 3u; ++axis) F32(bytes, target + axis * 4u, positions[vertex][axis] + float(sourceDomain) * 4.0f);
             F32(bytes, target + 24u, 1.0f); F32(bytes, target + 36u, 1.0f);
             for (std::size_t channel = 0u; channel < 4u; ++channel) F32(bytes, target + 56u + channel * 4u, 1.0f);
         }
@@ -326,6 +327,42 @@ void AssertTwoPhaseParity(
     oengine_web_geometry_cook_destroy(monolithic);
 }
 
+/** ADR-0018 Phase B: two canonical windows must freeze the same plan as one input. */
+void AssertWindowedBuilderParity(const std::vector<std::uint8_t>& recipe) {
+    const std::vector<std::uint8_t> combined = CanonicalDomains(2u);
+    const std::vector<std::uint8_t> firstWindow = CanonicalDomains(1u, 0u);
+    const std::vector<std::uint8_t> secondWindow = CanonicalDomains(1u, 1u);
+    const std::uintptr_t expected = oengine_web_geometry_cook_plan(
+        combined.data(), combined.size(), recipe.data(), recipe.size(), 8u * 1024u * 1024u);
+    if (!expected) throw std::runtime_error(LastError());
+    const std::uintptr_t builder = oengine_web_geometry_cook_builder_begin(
+        recipe.data(), recipe.size(), 8u * 1024u * 1024u);
+    if (!builder) throw std::runtime_error(LastError());
+    assert(oengine_web_geometry_cook_builder_append(builder, firstWindow.data(), firstWindow.size()) == 1u);
+    assert(oengine_web_geometry_cook_builder_append(builder, secondWindow.data(), secondWindow.size()) == 1u);
+    const std::uintptr_t actual = oengine_web_geometry_cook_builder_finish(builder);
+    if (!actual) throw std::runtime_error(LastError());
+    assert(oengine_web_geometry_cook_page_count(actual) == oengine_web_geometry_cook_page_count(expected));
+    for (std::uint32_t section = OENGINE_WEB_COOK_SECTION_ASSET_RECORDS;
+         section <= OENGINE_WEB_COOK_SECTION_RECIPE_HASH; ++section) {
+        assert(Section(actual, section) == Section(expected, section));
+    }
+    assert(Section(actual, OENGINE_WEB_COOK_SECTION_CONTENT_MANIFEST_HASH) ==
+           Section(expected, OENGINE_WEB_COOK_SECTION_CONTENT_MANIFEST_HASH));
+    oengine_web_geometry_cook_destroy(actual);
+    oengine_web_geometry_cook_destroy(expected);
+
+    const std::uintptr_t unfinished = oengine_web_geometry_cook_builder_begin(
+        recipe.data(), recipe.size(), 8u * 1024u * 1024u);
+    assert(unfinished != 0u);
+    oengine_web_geometry_cook_builder_destroy(unfinished);
+    const std::uintptr_t empty = oengine_web_geometry_cook_builder_begin(
+        recipe.data(), recipe.size(), 8u * 1024u * 1024u);
+    assert(empty != 0u);
+    assert(oengine_web_geometry_cook_builder_finish(empty) == 0u);
+    assert(!LastError().empty());
+}
+
 int main() {
     AssertPageIdentityRollup();
     assert(oengine_web_geometry_cook_abi_version() == 2u);
@@ -338,6 +375,7 @@ int main() {
     assert(Hex(Sha256(canonical)) == "bf445f9207ee9a3a76a7656bbc1a31aaac36efab1c64dea489423d84f28e6a29");
     assert(Hex(Sha256(recipe)) == "4c7311b0954eb9592036cb3e135464e1001e11949876dfe4de9460179c5db01b");
     AssertTwoPhaseParity(canonical, recipe);
+    AssertWindowedBuilderParity(recipe);
     const std::uintptr_t first = oengine_web_geometry_cook(
         canonical.data(), canonical.size(), recipe.data(), recipe.size(), 8u * 1024u * 1024u);
     if (!first) throw std::runtime_error(LastError());

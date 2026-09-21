@@ -10,6 +10,7 @@ interface BootstrapMessage {
   readonly wasmModuleUrl: string;
   readonly wasmBinaryUrl?: string;
   readonly maxCanonicalInputBytes: number;
+  readonly maxSourceWindowBytes: number;
   readonly maxDecodedProductBytes: number;
 }
 
@@ -68,6 +69,7 @@ async function initialize(message: BootstrapMessage): Promise<void> {
       port,
       moduleFactory: () => module,
       maxCanonicalInputBytes: message.maxCanonicalInputBytes,
+      maxSourceWindowBytes: message.maxSourceWindowBytes,
       maxDecodedProductBytes: message.maxDecodedProductBytes
     });
     initialized = true;
@@ -83,9 +85,11 @@ function isBootstrapMessage(value: unknown): value is BootstrapMessage {
   if (!value || typeof value !== "object") return false;
   const message = value as Partial<BootstrapMessage>;
   const maxCanonicalInputBytes = message.maxCanonicalInputBytes;
+  const maxSourceWindowBytes = message.maxSourceWindowBytes;
   const maxDecodedProductBytes = message.maxDecodedProductBytes;
   return message.type === BOOTSTRAP_TYPE && typeof message.wasmModuleUrl === "string" &&
     typeof maxCanonicalInputBytes === "number" && Number.isSafeInteger(maxCanonicalInputBytes) && maxCanonicalInputBytes > 0 &&
+    typeof maxSourceWindowBytes === "number" && Number.isSafeInteger(maxSourceWindowBytes) && maxSourceWindowBytes > 0 &&
     typeof maxDecodedProductBytes === "number" && Number.isSafeInteger(maxDecodedProductBytes) && maxDecodedProductBytes > 0;
 }
 

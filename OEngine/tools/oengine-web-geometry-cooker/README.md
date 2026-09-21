@@ -22,11 +22,12 @@ That oracle proves producer ABI, Nyx algorithm execution, negative validation an
 The checked-in browser artifact under `src/assets/web-cook/wasm/vendor/` was
 built with Emscripten SDK 6.0.9 (release `f04ea239d533260dd1db760dd2d668d5f9a88d6b`)
 using the command above and the pinned Nyx hashes enforced by CMake. The current
-artifact carries the ADR-0017 two-phase ABI (`abi_version == 2`):
+artifact carries the ADR-0017 two-phase ABI plus the ADR-0018 Phase B
+incremental canonical-window builder (`abi_version == 2`):
 
 ```text
-oengine-web-geometry-cooker.mjs   SHA-256 5cf28e82cc67741e6d2a8fd2e29f8c2c6a3354066e7f753d753d727d443f0383
-oengine-web-geometry-cooker.wasm  SHA-256 f897341e45c3c0c62883f1a74bb9e933f09585948d00e0684a842a3fa6d928be
+oengine-web-geometry-cooker.mjs   SHA-256 bc336c14322d66e83ea5fa82ddb5d587758611ce32f49090cf26bfa4e8c45a46
+oengine-web-geometry-cooker.wasm  SHA-256 b6aebdf1fbeb1aa182c62aae757f7adeed5a04b9e61e2081887bf60d08e8f86f
 ```
 
 The cooker emits one Product asset per canonical material domain, so a
@@ -51,9 +52,10 @@ yet finish pool initialization inside the app's Dedicated Worker.
 
 This specialization ships its own pair of artifacts and must be rebuilt
 whenever the C++ sources change, exactly like the single-threaded pair above.
-The current artifact carries the ADR-0017 two-phase ABI (`abi_version == 2`):
+The current artifact carries the same ADR-0017/ADR-0018 Phase B ABI
+(`abi_version == 2`):
 
 ```text
-threads/oengine-web-geometry-cooker.mjs   SHA-256 f9e70f44cd2ab7d3ebfd7ae575a742a931ed113103fc33a8935c6848abde1ce5
-threads/oengine-web-geometry-cooker.wasm  SHA-256 68051c0f0e839d4fec11c1826aa4359215e7a38301e1ebe4c68fe98733f058c7
+threads/oengine-web-geometry-cooker.mjs   SHA-256 5378e52a0b275d0fae09622a9eae692c19f61abc8080f16b7580d3939f5dce35
+threads/oengine-web-geometry-cooker.wasm  SHA-256 c34870c73a8545fa97c4bb612073eef29e2aa56c0a6865083fd94afecf62cf28
 ```

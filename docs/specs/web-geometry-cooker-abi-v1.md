@@ -118,6 +118,19 @@ Page record 布局严格复用 `Geometry Product V1`：page identity 前 16 byte
 
 content manifest（section 10）覆盖每页完整 decoded SHA-256，因此它在 descriptor 阶段物理上不可能存在。单体式入口在返回前完成全部 payload，故其 manifest 有效；两阶段 handle 在 payload 全部产出前不得把 manifest 当作已就绪证据使用。
 
+### Canonical window builder
+
+ABI major 2 额外提供一个只属于 descriptor 阶段的增量 builder：
+
+- `oengine_web_geometry_cook_builder_begin(recipe, recipeBytes, maxDecodedProductBytes)` 创建 builder；
+- `oengine_web_geometry_cook_builder_append(builder, canonical, canonicalBytes)` 同步解码并 cook 一个 canonical window；返回后不得保留传入 canonical bytes 或其 decoded geometry；
+- `oengine_web_geometry_cook_builder_finish(builder)` 消费 builder，冻结一个与相同 domain 顺序的单次 `cook_plan` 等价的 Product plan；空 builder 必须失败；
+- `oengine_web_geometry_cook_builder_destroy(builder)` 只释放尚未 finish 的 builder。
+
+window 边界不得改变 domain 顺序、asset index、Nyx cook recipe、hierarchy、Group、Page 或 identity 语义。builder 可以跨 window 保留完成后的 `CookedAssetV3`/serialized Group 状态；那部分生命周期由 ADR-0018 Phase D cook-and-spill 收口，不得被误报为 Phase B 已消除。Phase B 只保证不保留 full-scene source/canonical/decoded canonical payload。
+
+`maxSourceWindowBytes` 与 `maxCanonicalWindowBytes` 是 Worker owner budget，不是总资产 admission limit。Catalog 继续报告 total `sourceBytes`；全局 ledger 只预留 `min(total sourceBytes, maxSourceWindowBytes)`。window planner 必须按稳定 catalog 顺序生成同时满足 source/canonical budget 的窗口。单个 primitive 自身超过任一预算时必须明确报告需要 Phase C spatial sharding，禁止通过放大窗口或重新引入 full-scene buffer 绕过。
+
 ## Nyx function map
 
 | Nyx source | Web implementation | Retained behavior |
@@ -138,8 +151,9 @@ score, cameraHintRevision)` 只影响 source unit 的排序；它不是 GPU Page
 demand，也不能引用尚未 offer 的 descriptor。
 
 首个 revision 由有界的 selected unit/shard 集合生成。Range 合并和
-canonicalize 完成一个 unit 后必须释放该 unit 的 source reader，再获取下一个
-unit。非 progressive producer 只能明确发布 bootstrap-only cut；多 unit Web
+canonicalize 完成一个 window 后必须释放该 window 的 source reader；WASM
+append 返回后必须释放对应 canonical `ArrayBuffer`，再获取下一个 window。
+非 progressive producer 只能明确发布 bootstrap-only cut；多 unit Web
 主路线必须实现 `cookProgressive`，不能在没有 `replaces`/Scene mapping 合同
 时发布互相独立的局部 Product。Nyx 的 meshlet、Group、seam/attribute-lock、
 simplify/refine/error、hierarchy 和 Page 阶段保持不变，变化只限于 Worker、
@@ -160,6 +174,7 @@ asset count 校验；它不能编码进 Product 二进制 section。
 - Native ABI oracle 与 TypeScript encoder 使用同一 cube canonical/recipe bytes SHA-256，并验证两次 cook 的所有 tables/pages byte-identical。
 - Negative oracle 覆盖 total length、normal declaration、non-finite vertex、index range、reserved/padding、recipe 和 output budget。
 - 两阶段 oracle 覆盖：descriptor 阶段冻结全部 ID graph、descriptor section 与单体式逐字节一致、plan 的全部 PageID 起始为 `PENDING`、倒序产出、重复产出 byte-identical、`UNDECLARED` 被拒绝且不写 destination、不扩张 page count、补齐后逐页与单体式比对、两次 plan 的 ID graph 一致。
+- Canonical-window oracle 覆盖：native builder 将两个独立 window 组装为与同 domain 顺序的 monolithic plan byte-identical 的 descriptor sections；空 builder 失败；unfinished builder 可释放；checked-in Emscripten artifact 真实 append 两个 window；100M 与 250M metadata workload 在同一预算下具有相同 canonical peak。
 - 已签入的 Emscripten 产物必须真实执行两阶段入口：产物测试从真实 wasm 验证 `abi_version == 2`、descriptor-before-payload、乱序与重复产出、`UNDECLARED` 语义，以及与单体式逐页 byte-identical。
 - Native OEGPACK writer 必须消费同一个 `DecodedGeometryProductV1`，其既有 reopen/corruption/determinism tests 防止抽取时改变 Offline container。
 - S2 退出仍要求真实 Emscripten build、Dedicated Worker session、GLB Range canonicalizer、exclusive transfer、Product admission 与浏览器像素证据；native ABI oracle 不替代这些 Gate。

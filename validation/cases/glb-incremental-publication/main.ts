@@ -126,7 +126,7 @@ async function loadModel(): Promise<void> {
     const requestedProfile = profileQuery === "isolated-pthreads" || profileQuery === "portable-pool" ? profileQuery : "portable-single";
     const runtimeCapability = resolveWebCookRuntimeProfile(requestedProfile);
     const runtimeProfile = runtimeCapability.selected;
-    const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile });
+    const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxSourceWindowBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile });
     // The credit pool is the hard ceiling on how much of a revision can be
     // streamed without a consumer. It is deliberately generous here so the case
     // measures the incremental path, not an accidental credit stall.

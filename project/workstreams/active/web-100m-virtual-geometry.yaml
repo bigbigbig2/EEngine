@@ -70,8 +70,26 @@ tasks:
     phase: B
     priority: P0
     title: Replace full-scene canonical input with bounded source and canonical windows
-    state: todo
+    state: done
     dependsOn: [baseline-100m-failure-attribution]
+    completedEvidence:
+      review: docs/reviews/2026-09-21-web-100m-phase-b-canonical-windowing.md
+      implementationStatus: implementation-and-oracle-complete
+      canonicalBudgetBytes: 67108864
+      sourceWindowBudgetBytes: 16777216
+      workload100m:
+        sourceTriangles: 100000000
+        primitives: 1000
+        windows: 125
+        peakCanonicalBytes: 47349120
+      workload250m:
+        sourceTriangles: 250000000
+        primitives: 2500
+        windows: 313
+        peakCanonicalBytes: 47349120
+      wasmArtifact: checked-in-portable-builder-executed
+      engineTests: 451/451
+      note: Metadata-scale contract/oracle evidence, not RuntimeValidated or formal PERF. Single oversized primitives remain Phase C; bounded EXT_meshopt decode remains an open Zorah gate.
     exitCriteria:
       - The 100M canonical peak stays within the configured owner budget.
       - Increasing the workload from 100M to 250M does not proportionally increase the live canonical payload peak.
@@ -206,7 +224,6 @@ retirementTargets:
   - Single-Product Scene identity assumptions in production GPU metadata and instance references
   - Fixed read concurrency and in-flight byte policy used as the only large-scene scheduler mode
 openGates:
-  - Source and canonical window ABI, ownership, cancellation, and budget contracts are not frozen.
   - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
   - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
   - Cook-and-spill lacks an authoritative Page Artifact and Spill Store contract.

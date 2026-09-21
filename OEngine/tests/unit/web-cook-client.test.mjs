@@ -21,6 +21,7 @@ test("Web Cook Worker factory sends an explicit real-module bootstrap", () => {
   const created = createWebCookWorker({
     wasmModuleUrl: "https://assets.test/oengine-web-geometry-cooker.mjs",
     maxCanonicalInputBytes: 1024,
+    maxSourceWindowBytes: 2048,
     maxDecodedProductBytes: 262144,
     createWorker: url => { assert.match(url.href, /WebCookWorkerEntrypoint\.ts$/u); return worker; }
   });
@@ -30,6 +31,7 @@ test("Web Cook Worker factory sends an explicit real-module bootstrap", () => {
       type: "InitializeWebCookWorker",
       wasmModuleUrl: "https://assets.test/oengine-web-geometry-cooker.mjs",
       maxCanonicalInputBytes: 1024,
+      maxSourceWindowBytes: 2048,
       maxDecodedProductBytes: 262144
     },
     transfer: []
@@ -42,6 +44,7 @@ test("Web Cook Worker factory forwards an explicitly emitted wasm binary URL", (
     wasmModuleUrl: "https://assets.test/oengine-web-geometry-cooker-abc.mjs",
     wasmBinaryUrl: "https://assets.test/oengine-web-geometry-cooker-def.wasm",
     maxCanonicalInputBytes: 1024,
+    maxSourceWindowBytes: 2048,
     maxDecodedProductBytes: 262144,
     createWorker: () => worker
   });
@@ -136,20 +139,20 @@ test("Web Cook client accounts source and WASM reservations and releases all own
   await revisions[Symbol.asyncIterator]().next().catch(() => undefined);
 });
 
-test("Web Cook client fails closed when catalog source reservation exceeds the page budget", async () => {
+test("Web Cook client charges a large catalog by live source-window capacity", async () => {
   const { WebCookBudgetLedger } = await import("../../.test-dist/assets/web-cook/WebCookBudget.js");
   const worker = new FakeWorker();
   const ledger = new WebCookBudgetLedger({ maxActiveSessions: 1, maxOutputBytes: 2 * 262144, maxSourceBytes: 1024, maxWasmBytes: 2 * 1024 * 1024 });
-  const client = new WebCookClient({ ...options(worker), ledger });
+  const base = options(worker);
+  const client = new WebCookClient({ ...base, budgets: { ...base.budgets, maxSourceBytes: 1024 }, ledger });
   client.open("scene.glb");
   await new Promise(resolve => setImmediate(resolve));
   void client.revisions();
   worker.emitMessage({ protocolVersion: 1, sessionId: "client-session", sessionGeneration: 7, type: "SceneCatalogReady", catalog: { sourceBytes: 2048 } });
   await new Promise(resolve => setImmediate(resolve));
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(client.state, "failed");
-  assert.equal(ledger.evidence().sourceBytes, 0);
-  assert.equal(ledger.evidence().wasmBytes, 0);
-  assert.equal(ledger.evidence().outputBytes, 0);
-  assert.equal(ledger.evidence().activeSessions, 0);
+  assert.equal(client.state, "open");
+  assert.equal(ledger.evidence().sourceBytes, 1024);
+  client.cancel();
+  assert.deepEqual({ source: ledger.evidence().sourceBytes, wasm: ledger.evidence().wasmBytes, output: ledger.evidence().outputBytes, active: ledger.evidence().activeSessions }, { source: 0, wasm: 0, output: 0, active: 0 });
 });

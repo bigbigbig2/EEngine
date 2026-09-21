@@ -61,6 +61,13 @@ struct CookResult {
     }
 };
 
+struct CookBuilder {
+    GeometryCookRecipeV3 recipe;
+    std::uint64_t maxDecodedProductBytes = 0u;
+    std::vector<CookedAssetV3> cooked;
+    CookEvidenceV3 evidence;
+};
+
 void AddU32(Sha256Builder& hash, std::uint32_t value) {
     const std::uint8_t bytes[4] = {
         std::uint8_t(value), std::uint8_t(value >> 8u),
@@ -296,26 +303,20 @@ std::vector<std::uint8_t> EncodeRecords(const std::vector<T>& records) {
     return output;
 }
 
-/** Descriptor stage: freeze the ID graph without materialising any page payload. */
-std::unique_ptr<CookResult> Cook(
-    const std::uint8_t* canonicalInput, std::size_t canonicalInputBytes,
-    const std::uint8_t* recipeInput, std::size_t recipeInputBytes,
-    std::uint64_t maxDecodedProductBytes) {
-    if (maxDecodedProductBytes < kGeometryPageBytesV3) {
-        throw std::runtime_error("decoded Product budget cannot hold one page");
-    }
-    GeometryCookRecipeV3 recipe = DecodeRecipe(recipeInput, recipeInputBytes);
+void AppendCanonicalWindow(
+    CookBuilder& builder,
+    const std::uint8_t* canonicalInput,
+    std::size_t canonicalInputBytes) {
     CanonicalGeometryAsset asset = DecodeCanonicalInput(canonicalInput, canonicalInputBytes);
-    auto result = std::make_unique<CookResult>();
-    // The Web profile maps one canonical material domain to one Product asset so
-    // that each GLB mesh primitive stays independently addressable by instance
-    // geometry index. The Offline cooker keeps its own mesh-level asset
-    // granularity; Web and Offline are not required to share asset boundaries.
     const std::size_t domainCount = asset.domains.size();
+    if (domainCount > std::numeric_limits<std::uint32_t>::max() - builder.cooked.size()) {
+        throw std::runtime_error("canonical window asset count exceeds u32");
+    }
     std::vector<CanonicalGeometryAsset> singles(domainCount);
     for (std::size_t domainIndex = 0u; domainIndex < domainCount; ++domainIndex) {
-        singles[domainIndex].sourceName = asset.sourceName + "#" + std::to_string(domainIndex);
-        singles[domainIndex].domains.push_back(asset.domains[domainIndex]);
+        singles[domainIndex].sourceName = asset.sourceName + "#" +
+            std::to_string(builder.cooked.size() + domainIndex);
+        singles[domainIndex].domains.push_back(std::move(asset.domains[domainIndex]));
         FinalizeCanonicalGeometryAssetV3(singles[domainIndex]);
     }
     std::vector<CookedAssetV3> cooked(domainCount);
@@ -323,7 +324,7 @@ std::unique_ptr<CookResult> Cook(
     const std::uint32_t concurrency = CookConcurrency(domainCount);
     if (concurrency <= 1u) {
         for (std::size_t index = 0u; index < domainCount; ++index) {
-            cooked[index] = CookGeometryAssetV3(singles[index], recipe, domainEvidence[index]);
+            cooked[index] = CookGeometryAssetV3(singles[index], builder.recipe, domainEvidence[index]);
         }
     } else {
         for (std::size_t begin = 0u; begin < domainCount; begin += concurrency) {
@@ -332,28 +333,29 @@ std::unique_ptr<CookResult> Cook(
             tasks.reserve(end - begin);
             for (std::size_t index = begin; index < end; ++index) {
                 tasks.push_back(std::async(std::launch::async, [&, index]() {
-                    cooked[index] = CookGeometryAssetV3(singles[index], recipe, domainEvidence[index]);
+                    cooked[index] = CookGeometryAssetV3(singles[index], builder.recipe, domainEvidence[index]);
                 }));
             }
             for (auto& task : tasks) task.get();
         }
     }
-    for (const CookEvidenceV3& item : domainEvidence) AddEvidence(result->evidence, item);
-    result->plan = PlanDecodedGeometryProductV1(std::move(cooked), result->retainedGroups);
+    for (const CookEvidenceV3& item : domainEvidence) AddEvidence(builder.evidence, item);
+    for (CookedAssetV3& item : cooked) builder.cooked.push_back(std::move(item));
+}
+
+std::unique_ptr<CookResult> FinishBuilder(CookBuilder&& builder) {
+    if (builder.cooked.empty()) throw std::runtime_error("canonical window builder contains no assets");
+    auto result = std::make_unique<CookResult>();
+    result->evidence = builder.evidence;
+    result->plan = PlanDecodedGeometryProductV1(std::move(builder.cooked), result->retainedGroups);
     result->pages.assign(result->plan.pages.size(), nullptr);
-    const std::uint64_t decodedBytes =
-        std::uint64_t(result->plan.pages.size()) * kGeometryPageBytesV3;
+    const std::uint64_t decodedBytes = std::uint64_t(result->plan.pages.size()) * kGeometryPageBytesV3;
     std::uint64_t bootstrapPayloadBytes = 0u;
-    for (const GeometryGroupDirectoryV3& group : result->plan.groups) {
-        if ((group.flags & kGroupBootstrap) != 0u) {
-            bootstrapPayloadBytes += group.payloadBytes;
-        }
-    }
-    if (decodedBytes > maxDecodedProductBytes ||
-        bootstrapPayloadBytes > recipe.bootstrapGeometryBudgetBytes) {
+    for (const GeometryGroupDirectoryV3& group : result->plan.groups) if ((group.flags & kGroupBootstrap) != 0u) bootstrapPayloadBytes += group.payloadBytes;
+    if (decodedBytes > builder.maxDecodedProductBytes || bootstrapPayloadBytes > builder.recipe.bootstrapGeometryBudgetBytes) {
         throw std::runtime_error("decoded Geometry Product exceeds admitted budget");
     }
-    result->recipeHash = Sha256(CanonicalRecipeJson(recipe));
+    result->recipeHash = Sha256(CanonicalRecipeJson(builder.recipe));
     result->assetRecords = EncodeRecords(result->plan.assets);
     result->rootNodeIds = EncodeRecords(result->plan.roots);
     result->hierarchyNodes = EncodeRecords(result->plan.hierarchy);
@@ -369,6 +371,19 @@ std::unique_ptr<CookResult> Cook(
         WriteU32(record, 20u, page.groupCount);
     }
     return result;
+}
+
+/** Descriptor stage: freeze the ID graph without materialising any page payload. */
+std::unique_ptr<CookResult> Cook(
+    const std::uint8_t* canonicalInput, std::size_t canonicalInputBytes,
+    const std::uint8_t* recipeInput, std::size_t recipeInputBytes,
+    std::uint64_t maxDecodedProductBytes) {
+    if (maxDecodedProductBytes < kGeometryPageBytesV3) {
+        throw std::runtime_error("decoded Product budget cannot hold one page");
+    }
+    CookBuilder builder{DecodeRecipe(recipeInput, recipeInputBytes), maxDecodedProductBytes, {}, {}};
+    AppendCanonicalWindow(builder, canonicalInput, canonicalInputBytes);
+    return FinishBuilder(std::move(builder));
 }
 
 /**
@@ -480,6 +495,52 @@ std::uintptr_t oengine_web_geometry_cook_plan(
         SetError(error);
         return 0u;
     }
+}
+
+std::uintptr_t oengine_web_geometry_cook_builder_begin(
+    const std::uint8_t* recipeInput, std::size_t recipeInputBytes,
+    std::uint64_t maxDecodedProductBytes) {
+    try {
+        gLastError.clear();
+        if (maxDecodedProductBytes < kGeometryPageBytesV3) throw std::runtime_error("decoded Product budget cannot hold one page");
+        auto builder = std::make_unique<CookBuilder>();
+        builder->recipe = DecodeRecipe(recipeInput, recipeInputBytes);
+        builder->maxDecodedProductBytes = maxDecodedProductBytes;
+        return reinterpret_cast<std::uintptr_t>(builder.release());
+    } catch (const std::exception& error) {
+        SetError(error);
+        return 0u;
+    }
+}
+
+std::uint32_t oengine_web_geometry_cook_builder_append(
+    std::uintptr_t builder, const std::uint8_t* canonicalInput,
+    std::size_t canonicalInputBytes) {
+    try {
+        gLastError.clear();
+        if (builder == 0u) throw std::runtime_error("Web geometry cook builder is null");
+        AppendCanonicalWindow(*reinterpret_cast<CookBuilder*>(builder), canonicalInput, canonicalInputBytes);
+        return 1u;
+    } catch (const std::exception& error) {
+        SetError(error);
+        return 0u;
+    }
+}
+
+std::uintptr_t oengine_web_geometry_cook_builder_finish(std::uintptr_t builder) {
+    try {
+        gLastError.clear();
+        if (builder == 0u) throw std::runtime_error("Web geometry cook builder is null");
+        std::unique_ptr<CookBuilder> owned(reinterpret_cast<CookBuilder*>(builder));
+        return reinterpret_cast<std::uintptr_t>(FinishBuilder(std::move(*owned)).release());
+    } catch (const std::exception& error) {
+        SetError(error);
+        return 0u;
+    }
+}
+
+void oengine_web_geometry_cook_builder_destroy(std::uintptr_t builder) {
+    delete reinterpret_cast<CookBuilder*>(builder);
 }
 
 std::uint32_t oengine_web_geometry_cook_produce_page(

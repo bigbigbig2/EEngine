@@ -8,6 +8,7 @@ export interface WebCookWorkerFactoryOptions {
   /** URL of the matching Emscripten `.wasm` binary when it is separately emitted. */
   readonly wasmBinaryUrl?: string | URL;
   readonly maxCanonicalInputBytes: number;
+  readonly maxSourceWindowBytes?: number;
   readonly maxDecodedProductBytes: number;
   readonly createWorker?: (url: URL) => WebCookWorkerPort;
   /** Number of Dedicated Workers used by portable-pool. Defaults to one. */
@@ -16,6 +17,7 @@ export interface WebCookWorkerFactoryOptions {
 
 export interface DefaultWebCookWorkerFactoryOptions {
   readonly maxCanonicalInputBytes: number;
+  readonly maxSourceWindowBytes?: number;
   readonly maxDecodedProductBytes: number;
   readonly createWorker?: (url: URL) => WebCookWorkerPort;
   /**
@@ -82,7 +84,9 @@ export function createWebCookWorker(options: WebCookWorkerFactoryOptions): WebCo
     : typeof options.wasmBinaryUrl === "string"
       ? new URL(options.wasmBinaryUrl, globalThis.location?.href ?? "http://localhost/")
       : new URL(options.wasmBinaryUrl.href);
+  const maxSourceWindowBytes = options.maxSourceWindowBytes ?? options.maxCanonicalInputBytes;
   if (!Number.isSafeInteger(options.maxCanonicalInputBytes) || options.maxCanonicalInputBytes <= 0 ||
+      !Number.isSafeInteger(maxSourceWindowBytes) || maxSourceWindowBytes <= 0 ||
       !Number.isSafeInteger(options.maxDecodedProductBytes) || options.maxDecodedProductBytes <= 0) {
     throw new RangeError("Web Cook Worker WASM budgets must be positive safe integers");
   }
@@ -94,6 +98,7 @@ export function createWebCookWorker(options: WebCookWorkerFactoryOptions): WebCo
     wasmModuleUrl: wasmModuleUrl.href,
     ...(wasmBinaryUrl === undefined ? {} : { wasmBinaryUrl: wasmBinaryUrl.href }),
     maxCanonicalInputBytes: options.maxCanonicalInputBytes,
+    maxSourceWindowBytes,
     maxDecodedProductBytes: options.maxDecodedProductBytes
   }, []);
   return worker;

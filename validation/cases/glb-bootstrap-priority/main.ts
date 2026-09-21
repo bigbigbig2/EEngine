@@ -224,7 +224,7 @@ async function runOnce(label: string, prioritize: boolean, frame: CameraFrame | 
   scene = activeScene; camera = activeCamera; controls = activeControls;
 
   const runtimeProfile = resolveWebCookRuntimeProfile("portable-single").selected;
-  const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile });
+  const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxSourceWindowBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile });
   let catalog: WebCookSceneCatalogSnapshot | undefined;
   let promotedKeys: readonly string[] = [];
   let asset: WebCookRuntimeAsset | undefined;

@@ -60,6 +60,8 @@ export interface WebRuntimeCooker {
     onRevision: (revision: WebCookProductRevision) => Promise<void>,
     onFailure?: (error: Error) => void
   ): Promise<void>;
+  /** Optional producer-owned memory evidence. It must describe live windows, not total asset size. */
+  evidence?(): Readonly<Record<string, number>>;
 }
 
 export interface WebCookCoordinatorOptions {
@@ -97,6 +99,7 @@ export interface WebCookCoordinatorEvidence {
    * bootstrap revision, so the first frame was ranked by coverage instead.
    */
   readonly lateSourcePriorities: number;
+  readonly cooker?: Readonly<Record<string, number>>;
   readonly failure?: string;
 }
 
@@ -153,7 +156,6 @@ export class WebCookCoordinator {
     try {
       const source = await openGlbRangeSource(url, this.#options.source);
       this.#source = source;
-      if (source.byteLength > this.#options.budgets.maxSourceBytes) throw new Error(`GLB source exceeds maxSourceBytes=${this.#options.budgets.maxSourceBytes}`);
       this.#catalog = buildGlbSceneCatalog(source);
       this.#session.accept(this.header({ type: "OpenSource", source: { url: source.sourceIdentity.finalUrl, byteLength: source.byteLength, identityHash: source.sourceIdentity.hash.slice() } }));
       this.#session.emit(this.header({ type: "SceneCatalogReady", catalog: {
@@ -412,7 +414,7 @@ export class WebCookCoordinator {
   drainEvents(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] { return this.#session.drain(maxEvents); }
   cancel(reason = new Error("Web Cook was cancelled")): void { if (this.#state === "disposed" || this.#state === "complete") return; this.#abort.abort(reason); this.#state = "cancelled"; for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.accept(this.header({ type: "CancelScope", scope: "session" })); }
   dispose(): void { if (this.#state === "disposed") return; this.#abort.abort(new Error("Web Cook session disposed")); for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#source?.release(); this.#source = undefined; this.#catalog = undefined; this.#state = "disposed"; this.#session.accept(this.header({ type: "DisposeSession" })); }
-  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, bootstrapUnits: this.#bootstrapUnits, bootstrapSourceBytes: this.#bootstrapSourceBytes, refinementSourceBytes: this.#refinementSourceBytes, lateSourcePriorities: this.#lateSourcePriorities, ...(this.#firstRevisionAt === undefined ? {} : { firstRevisionMs: this.#firstRevisionAt }), ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
+  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, bootstrapUnits: this.#bootstrapUnits, bootstrapSourceBytes: this.#bootstrapSourceBytes, refinementSourceBytes: this.#refinementSourceBytes, lateSourcePriorities: this.#lateSourcePriorities, ...(this.#options.cooker.evidence === undefined ? {} : { cooker: this.#options.cooker.evidence() }), ...(this.#firstRevisionAt === undefined ? {} : { firstRevisionMs: this.#firstRevisionAt }), ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
 
   private fail(error: unknown): void { this.#failure = error instanceof Error ? error.message : String(error); this.#state = this.#abort.signal.aborted ? "cancelled" : "failed"; for (const revision of this.#liveRevisions.splice(0)) revision.release(); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.fail(this.#failure); this.#source?.release(); this.#source = undefined; }
   private validateRevision(revision: WebCookProductRevision): void {

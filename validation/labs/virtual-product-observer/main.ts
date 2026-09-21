@@ -157,7 +157,7 @@ async function loadModel(): Promise<void> {
     if (localUrl) URL.revokeObjectURL(localUrl); localUrl = file ? URL.createObjectURL(file) : undefined;
     const selectedProfile = resolveWebCookRuntimeProfile(profile.value as "portable-single" | "portable-pool" | "isolated-pthreads");
     if (selected === "web") {
-      const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile: selectedProfile.selected });
+      const worker = createDefaultWebCookWorker({ maxCanonicalInputBytes: 64 * 1024 * 1024, maxSourceWindowBytes: 64 * 1024 * 1024, maxDecodedProductBytes: 256 * 1024 * 1024, runtimeProfile: selectedProfile.selected });
       asset = load_gltf_web_product(file ? (localUrl ?? file) : sourceUrl.value.trim(), { worker, runtimeProfile: selectedProfile.selected, sessionId: `observer-${crypto.randomUUID()}`, sessionGeneration: ticket, budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 512 * 1024 * 1024, maxWasmBytes: 64 * 1024 * 1024, maxOutputBytes: 128 * 1024 * 1024, maxQueuedEvents: 512 }, initialOutputPageCredits: 32, maxBufferedPages: 32, maxBufferedBytes: 32 * 262144, ledger: cookBudget, priority: 100 });
       controller?.addEvidence("runtimeProfile", selectedProfile);
       scene = new Scene(); handles = await renderer!.uploadWebCookedScene(scene, asset as WebCookRuntimeAsset, { signal: abortController.signal, fitHeight: 5.4, fitBase: [0, -1, 0] });

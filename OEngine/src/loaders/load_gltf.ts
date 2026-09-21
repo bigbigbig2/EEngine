@@ -529,6 +529,7 @@ export function load_gltf(
   });
   const worker = options.worker ?? createDefaultWebCookWorker({
     maxCanonicalInputBytes: budgets.maxSourceBytes,
+    maxSourceWindowBytes: budgets.maxSourceBytes,
     maxDecodedProductBytes: budgets.maxOutputBytes,
     runtimeProfile: options.runtimeProfile,
     maxWorkers: budgets.maxConcurrentWorkers

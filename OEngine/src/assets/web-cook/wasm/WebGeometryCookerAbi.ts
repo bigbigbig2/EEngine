@@ -77,6 +77,10 @@ export interface EmscriptenWebGeometryCookerModuleV1 {
   _oengine_web_geometry_cook_abi_version(): number;
   _oengine_web_geometry_cook(canonical: number, canonicalBytes: number, recipe: number, recipeBytes: number, maxDecodedProductBytes: bigint): number;
   _oengine_web_geometry_cook_plan(canonical: number, canonicalBytes: number, recipe: number, recipeBytes: number, maxDecodedProductBytes: bigint): number;
+  _oengine_web_geometry_cook_builder_begin(recipe: number, recipeBytes: number, maxDecodedProductBytes: bigint): number;
+  _oengine_web_geometry_cook_builder_append(builder: number, canonical: number, canonicalBytes: number): number;
+  _oengine_web_geometry_cook_builder_finish(builder: number): number;
+  _oengine_web_geometry_cook_builder_destroy(builder: number): void;
   _oengine_web_geometry_cook_produce_page(handle: number, pageId: number, output: number, outputBytes: number): number;
   _oengine_web_geometry_cook_page_status(handle: number, pageId: number): number;
   _oengine_web_geometry_cook_destroy(handle: number): void;
@@ -384,6 +388,42 @@ export function planWebGeometryWasmV1(module: EmscriptenWebGeometryCookerModuleV
       requireHandle(
         module._oengine_web_geometry_cook_plan(canonicalAddress, canonicalInput.byteLength, recipeAddress, recipeInput.byteLength, BigInt(maxDecodedProductBytes)),
         module)));
+}
+
+/** Stateful descriptor builder that consumes and releases one canonical window at a time. */
+export class WebGeometryCookWasmBuilderV1 {
+  #handle: number;
+  constructor(readonly module: EmscriptenWebGeometryCookerModuleV1, handle: number) { this.#handle = handle; }
+  append(canonicalInput: ArrayBuffer): void {
+    if (!this.#handle) throw new Error("Web geometry cook builder has been released");
+    if (!(canonicalInput instanceof ArrayBuffer) || canonicalInput.byteLength === 0) throw new TypeError("canonical window is invalid");
+    const address = this.module._malloc(canonicalInput.byteLength);
+    if (!address) throw new Error("Web geometry canonical window allocation failed");
+    try {
+      this.module.HEAPU8.set(new Uint8Array(canonicalInput), address);
+      if (this.module._oengine_web_geometry_cook_builder_append(this.#handle, address, canonicalInput.byteLength) !== 1) throw new Error(readLastError(this.module) || "Web geometry canonical window append failed");
+    } finally { this.module._free(address); }
+  }
+  finish(): WebGeometryCookWasmPlanV1 {
+    if (!this.#handle) throw new Error("Web geometry cook builder has been released");
+    const builder = this.#handle;
+    this.#handle = 0;
+    const result = requireHandle(this.module._oengine_web_geometry_cook_builder_finish(builder), this.module);
+    return new WebGeometryCookWasmPlanV1(this.module, result);
+  }
+  release(): void { if (!this.#handle) return; this.module._oengine_web_geometry_cook_builder_destroy(this.#handle); this.#handle = 0; }
+}
+
+export function beginWebGeometryCookWasmBuilderV1(module: EmscriptenWebGeometryCookerModuleV1, recipeInput: ArrayBuffer, maxDecodedProductBytes: number): WebGeometryCookWasmBuilderV1 {
+  if (module._oengine_web_geometry_cook_abi_version() !== WEB_GEOMETRY_COOKER_ABI_VERSION) throw new Error("Web geometry cooker ABI version mismatch");
+  if (!(recipeInput instanceof ArrayBuffer) || recipeInput.byteLength !== WEB_GEOMETRY_RECIPE_BYTES) throw new TypeError("Web geometry cooker recipe is invalid");
+  if (!Number.isSafeInteger(maxDecodedProductBytes) || maxDecodedProductBytes < WEB_GEOMETRY_PAGE_BYTES) throw new RangeError("maxDecodedProductBytes must admit at least one page");
+  const address = module._malloc(recipeInput.byteLength);
+  if (!address) throw new Error("Web geometry cooker recipe allocation failed");
+  try {
+    module.HEAPU8.set(new Uint8Array(recipeInput), address);
+    return new WebGeometryCookWasmBuilderV1(module, requireHandle(module._oengine_web_geometry_cook_builder_begin(address, recipeInput.byteLength, BigInt(maxDecodedProductBytes)), module));
+  } finally { module._free(address); }
 }
 
 function withStagedInputs<T>(

@@ -170,7 +170,9 @@ export class WebCookClient implements GeometryProductProviderV1 {
       returnOutputCredits: (blockCount, bytes) => this.#returnOutputCredits(blockCount, bytes),
       onSceneCatalogReady: catalog => {
         this.#catalog = catalog as unknown as WebCookSceneCatalogSnapshot;
-        this.#reserveSource(this.#catalog.sourceBytes);
+        // The catalog records total source size, but the ledger accounts live
+        // memory. Phase B retains at most one configured source window.
+        this.#reserveSource(Math.min(this.#catalog.sourceBytes, this.#options.budgets.maxSourceBytes));
         for (const priority of this.#options.initialSourcePriorities ?? []) this.setSourcePriority(priority.assetKey, priority.score, priority.cameraHintRevision);
         // The caller's hook is its one chance to rank the catalog against the
         // default view, so the commit must follow it rather than the options

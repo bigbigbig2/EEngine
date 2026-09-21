@@ -8,6 +8,7 @@ import {
   type GeometryPageProductV1
 } from "./GeometryProductV1.js";
 import {
+  beginWebGeometryCookWasmBuilderV1,
   cookWebGeometryWasmV1,
   planWebGeometryWasmV1,
   WEB_GEOMETRY_COOK_PAGE_READY,
@@ -130,6 +131,28 @@ export async function planWasmGeometryProductRevisionV1(
     return await assembleWasmGeometryProductRevisionV1(result, options, new WasmPlanPageSource(result));
   } catch (error) {
     result.release();
+    throw error;
+  }
+}
+
+/** Builds one Product descriptor from bounded canonical windows without retaining prior inputs. */
+export async function planWasmGeometryProductRevisionWindowsV1(
+  module: EmscriptenWebGeometryCookerModuleV1,
+  canonicalWindows: AsyncIterable<ArrayBuffer>,
+  recipeInput: ArrayBuffer,
+  options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>
+): Promise<WasmGeometryProductRevisionV1> {
+  const builder = beginWebGeometryCookWasmBuilderV1(module, recipeInput, options.maxDecodedProductBytes);
+  let result: WebGeometryCookWasmPlanV1 | undefined;
+  try {
+    let windows = 0;
+    for await (const canonical of canonicalWindows) { builder.append(canonical); windows++; }
+    if (windows === 0) throw new Error("canonical window stream produced no inputs");
+    result = builder.finish();
+    return await assembleWasmGeometryProductRevisionV1(result, options, new WasmPlanPageSource(result));
+  } catch (error) {
+    result?.release();
+    builder.release();
     throw error;
   }
 }

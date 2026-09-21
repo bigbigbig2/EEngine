@@ -14,6 +14,7 @@ export interface WebCookWorkerEntryOptions {
   readonly source?: GlbRangeSourceOptions;
   readonly recipe?: Partial<GeometryCookRecipeV3>;
   readonly maxCanonicalInputBytes: number;
+  readonly maxSourceWindowBytes: number;
   readonly maxDecodedProductBytes: number;
 }
 
@@ -42,6 +43,7 @@ export async function installWebCookWorkerEntry(options: WebCookWorkerEntryOptio
     const cooker = new NyxWebRuntimeCooker(module, {
       recipe: options.recipe,
       maxCanonicalInputBytes: options.maxCanonicalInputBytes,
+      maxSourceWindowBytes: options.maxSourceWindowBytes,
       maxDecodedProductBytes: options.maxDecodedProductBytes
     });
     host = new WebCookWorkerHost({ port: options.port, cooker, source: options.source });
