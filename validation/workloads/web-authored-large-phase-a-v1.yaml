@@ -1,0 +1,29 @@
+schemaVersion: 1
+id: web-authored-large-phase-a-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0018-phase-a-authored-scene-failure-attribution-v1
+features:
+  - web-cook
+  - glb-range
+  - authored-multi-primitive
+  - owner-memory-evidence
+seed: 1801
+cameraPath: catalog-only-before-first-frame
+warmupFrames: 1
+sampleFrames: 1
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1
+geometry:
+  source: authored-local-large-glb
+  sourceTriangles: 4871612
+  nodes: 1041
+  primitives: 1920
+  layout: authored-multi-primitive
+expectedCurrentPath:
+  firstFailureStage: source-admission
+  reason: Authored multi-primitive control; this is supplementary evidence and does not replace the formal 100M source workload.

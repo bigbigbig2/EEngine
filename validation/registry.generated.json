@@ -1284,6 +1284,118 @@
       "timestampRequired": false,
       "warmupFrames": 1
     },
+    "web-100m-phase-a-baseline-v1": {
+      "budgets": {
+        "maxOutputBytes": 268435456,
+        "maxSourceBytes": 134217728,
+        "maxWasmBytes": 134217728
+      },
+      "cameraPath": "catalog-only-before-first-frame",
+      "deviceScaleFactor": 1,
+      "expectedCurrentPath": {
+        "firstFailureStage": "source-admission",
+        "reason": "Current WebCookCoordinator charges total GLB bytes to maxSourceBytes before catalog construction."
+      },
+      "features": [
+        "web-cook",
+        "glb-range",
+        "single-giant-primitive",
+        "owner-memory-evidence"
+      ],
+      "geometry": {
+        "generator": "OEngine/tools/generate-vg-stress.mjs",
+        "layout": "single-giant-primitive",
+        "sourceTriangles": 100000000
+      },
+      "id": "web-100m-phase-a-baseline-v1",
+      "independentRuns": 1,
+      "quality": "adr-0018-phase-a-current-path-failure-attribution-v1",
+      "renderScale": 1,
+      "resolution": [
+        1280,
+        720
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 1,
+      "seed": 1801,
+      "timestampRequired": false,
+      "warmupFrames": 1
+    },
+    "web-authored-large-phase-a-v1": {
+      "cameraPath": "catalog-only-before-first-frame",
+      "deviceScaleFactor": 1,
+      "expectedCurrentPath": {
+        "firstFailureStage": "source-admission",
+        "reason": "Authored multi-primitive control; this is supplementary evidence and does not replace the formal 100M source workload."
+      },
+      "features": [
+        "web-cook",
+        "glb-range",
+        "authored-multi-primitive",
+        "owner-memory-evidence"
+      ],
+      "geometry": {
+        "layout": "authored-multi-primitive",
+        "nodes": 1041,
+        "primitives": 1920,
+        "source": "authored-local-large-glb",
+        "sourceTriangles": 4871612
+      },
+      "id": "web-authored-large-phase-a-v1",
+      "independentRuns": 1,
+      "quality": "adr-0018-phase-a-authored-scene-failure-attribution-v1",
+      "renderScale": 1,
+      "resolution": [
+        1280,
+        720
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 1,
+      "seed": 1801,
+      "timestampRequired": false,
+      "warmupFrames": 1
+    },
+    "web-nyx-zorah-phase-a-v1": {
+      "cameraPath": "catalog-only-before-first-frame",
+      "deviceScaleFactor": 1,
+      "expectedCurrentPath": {
+        "firstFailureStage": "source-admission",
+        "reason": "Official authored Zorah geometry target; total declared glTF plus external-buffer bytes currently exceed the live source budget before catalog publication."
+      },
+      "features": [
+        "web-cook",
+        "json-gltf-range",
+        "external-buffer-range",
+        "ext-meshopt-compression",
+        "authored-multi-primitive",
+        "high-instancing",
+        "owner-memory-evidence"
+      ],
+      "geometry": {
+        "layout": "authored-multi-primitive-high-instancing",
+        "logicalInstancedTriangles": 18937042387,
+        "maxPrimitiveTriangles": 32054609,
+        "meshInstances": 16988,
+        "meshes": 2068,
+        "nodes": 16988,
+        "primitives": 3163,
+        "source": "nyx-zorah-v2-official",
+        "sourceTriangles": 1627207159
+      },
+      "id": "web-nyx-zorah-phase-a-v1",
+      "independentRuns": 1,
+      "quality": "adr-0018-phase-a-nyx-zorah-failure-attribution-v1",
+      "renderScale": 1,
+      "resolution": [
+        1280,
+        720
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 1,
+      "seed": 1801,
+      "timestampRequired": false,
+      "warmupFrames": 1
+    },
     "webgpu-component-v1": {
       "cameraPath": "none",
       "deviceScaleFactor": 1,

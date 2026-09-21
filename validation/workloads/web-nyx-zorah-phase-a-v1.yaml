@@ -1,0 +1,36 @@
+schemaVersion: 1
+id: web-nyx-zorah-phase-a-v1
+resolution:
+  - 1280
+  - 720
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0018-phase-a-nyx-zorah-failure-attribution-v1
+features:
+  - web-cook
+  - json-gltf-range
+  - external-buffer-range
+  - ext-meshopt-compression
+  - authored-multi-primitive
+  - high-instancing
+  - owner-memory-evidence
+seed: 1801
+cameraPath: catalog-only-before-first-frame
+warmupFrames: 1
+sampleFrames: 1
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1
+geometry:
+  source: nyx-zorah-v2-official
+  sourceTriangles: 1627207159
+  logicalInstancedTriangles: 18937042387
+  nodes: 16988
+  meshes: 2068
+  primitives: 3163
+  meshInstances: 16988
+  maxPrimitiveTriangles: 32054609
+  layout: authored-multi-primitive-high-instancing
+expectedCurrentPath:
+  firstFailureStage: source-admission
+  reason: Official authored Zorah geometry target; total declared glTF plus external-buffer bytes currently exceed the live source budget before catalog publication.

@@ -31,6 +31,8 @@ export interface GlbBufferDescriptor {
   readonly index: number;
   readonly byteLength: number;
   readonly embedded: boolean;
+  /** Decode destination described only by EXT_meshopt_compression buffer views. */
+  readonly virtual: boolean;
   readonly uri?: string;
 }
 
@@ -110,6 +112,7 @@ class HttpGlbRangeSource implements GlbRangeReadableSource {
     const buffer = this.#buffers[bufferIndex];
     if (!buffer) throw new RangeError(`GLB buffer ${bufferIndex} is out of range`);
     if (!Number.isInteger(byteOffset) || !Number.isInteger(byteLength) || byteOffset < 0 || byteLength < 0 || byteOffset + byteLength > buffer.byteLength) throw new RangeError("GLB buffer range is outside the declared buffer");
+    if (buffer.virtual) throw new Error(`glTF buffer ${bufferIndex} is virtual EXT_meshopt_compression output and has no directly readable source bytes`);
     if (buffer.embedded) return this.readRange(this.#binByteOffset + byteOffset, byteLength, signal);
     if (!buffer.uri) throw new Error(`GLB buffer ${bufferIndex} has no source URI`);
     const cached = this.#externalBytes.get(bufferIndex);
@@ -141,7 +144,7 @@ class HttpGlbRangeSource implements GlbRangeReadableSource {
     catch (error) { throw new Error(`glTF JSON source is invalid: ${error instanceof Error ? error.message : String(error)}`); }
     const baseUrl = (this.resourceBaseUrl ?? this.#finalUrl) || this.url;
     this.#buffers = parseBufferDescriptors(this.#json, 0, baseUrl);
-    const declaredBytes = this.#buffers.reduce((sum, buffer) => sum + buffer.byteLength, 0);
+    const declaredBytes = this.#buffers.reduce((sum, buffer) => sum + (buffer.virtual ? 0 : buffer.byteLength), 0);
     this.#byteLength = bytes.byteLength + declaredBytes;
     this.#binByteOffset = -1;
     this.#binByteLength = 0;
@@ -206,6 +209,7 @@ function parseBufferDescriptors(json: unknown, embeddedBytes: number, baseUrl: s
   const table = (json as { buffers?: unknown }).buffers;
   if (table === undefined && embeddedBytes === 0) return [];
   if (!Array.isArray(table)) throw new Error("GLB JSON has no valid buffers table");
+  const bufferViews = Array.isArray((json as { bufferViews?: unknown }).bufferViews) ? (json as { bufferViews: unknown[] }).bufferViews : [];
   return table.map((entry, index) => {
     if (!entry || typeof entry !== "object") throw new Error(`GLB buffer ${index} is invalid`);
     const value = entry as { byteLength?: unknown; uri?: unknown };
@@ -213,10 +217,14 @@ function parseBufferDescriptors(json: unknown, embeddedBytes: number, baseUrl: s
     const rawUri = typeof value.uri === "string" ? value.uri : undefined;
     const uri = rawUri === undefined ? undefined : resolveResourceUri(rawUri, baseUrl);
     const embedded = uri === undefined && index === 0 && embeddedBytes >= (value.byteLength as number);
-    if (!embedded && uri === undefined) throw new Error(`GLB buffer ${index} is missing an embedded BIN chunk`);
-    return Object.freeze({ index, byteLength: value.byteLength as number, embedded, ...(uri === undefined ? {} : { uri }) });
+    const references = bufferViews.filter((view): view is Record<string, unknown> => isRecord(view) && view.buffer === index);
+    const virtual = !embedded && uri === undefined && references.length > 0 && references.every(view => isRecord(view.extensions) && isRecord(view.extensions.EXT_meshopt_compression));
+    if (!embedded && !virtual && uri === undefined) throw new Error(`GLB buffer ${index} is missing an embedded BIN chunk or EXT_meshopt_compression source`);
+    return Object.freeze({ index, byteLength: value.byteLength as number, embedded, virtual, ...(uri === undefined ? {} : { uri }) });
   });
 }
+
+function isRecord(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === "object" && !Array.isArray(value); }
 
 function resolveResourceUri(uri: string, baseUrl: string): string { return uri.startsWith("data:") ? uri : new URL(uri, baseUrl).href; }
 function decodeDataUri(uri: string): Uint8Array {

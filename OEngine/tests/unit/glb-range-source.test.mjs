@@ -55,3 +55,24 @@ test("JSON glTF source resolves data URI and external buffer ranges", async () =
   assert.equal(calls.some(([url]) => url.endsWith("mesh.bin")), true);
   source.release();
 });
+
+test("JSON glTF source accounts EXT_meshopt virtual decode buffers without treating them as source bytes", async () => {
+  const compressedBytes = new Uint8Array([2, 4, 6, 8, 10, 12, 14, 16]);
+  const json = JSON.stringify({
+    asset: { version: "2.0" },
+    extensionsUsed: ["EXT_meshopt_compression"],
+    extensionsRequired: ["EXT_meshopt_compression"],
+    buffers: [{ byteLength: compressedBytes.byteLength, uri: "scene.bin" }, { byteLength: 24 }],
+    bufferViews: [{ buffer: 1, byteOffset: 0, byteLength: 24, extensions: { EXT_meshopt_compression: { buffer: 0, byteOffset: 0, byteLength: 8, byteStride: 12, count: 2, mode: "ATTRIBUTES" } } }]
+  });
+  const descriptorBytes = new TextEncoder().encode(json);
+  const source = await openGlbRangeSource("https://example.test/meshopt.gltf", {
+    wholeSourceFallbackBytes: 4096,
+    fetch: async () => new Response(descriptorBytes, { status: 200 })
+  });
+  assert.equal(source.byteLength, descriptorBytes.byteLength + compressedBytes.byteLength);
+  assert.equal(source.buffers[0].virtual, false);
+  assert.equal(source.buffers[1].virtual, true);
+  await assert.rejects(source.readBufferRange(1, 0, 12), /virtual EXT_meshopt_compression output/u);
+  source.release();
+});

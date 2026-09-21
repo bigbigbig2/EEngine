@@ -22,8 +22,46 @@ tasks:
     phase: A
     priority: P0
     title: Establish the 100M workload, observability, and exact failure owner
-    state: active
+    state: done
     dependsOn: []
+    completedEvidence:
+      workloadId: web-100m-phase-a-baseline-v1
+      sourceTriangles: 100000000
+      layout: single-giant-primitive
+      sourceBytes: 2800457176
+      sourceSha256: 730da7cd55ee00b1f98bff58e83e7081e33d7972f56bfdafc24f2b68d234b6a0
+      report: .local/validation/web-100m-phase-a-baseline/report.json
+      result: source-admission
+      failureOwner: WebCookCoordinator
+      failureCode: total-source-charged-as-live-source
+      observedSourceWindowPeakBytes: 1116
+      configuredSourceLimitBytes: 134217728
+      note: Diagnostic baseline only; this closes failure attribution, not RuntimeValidated or formal PERF evidence.
+      authoredControl:
+        workloadId: web-authored-large-phase-a-v1
+        source: authored-local-large-glb
+        sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
+        sourceTriangles: 4871612
+        nodes: 1041
+        primitives: 1920
+        report: .local/validation/web-100m-phase-a-baseline/large.authored.report.json
+        role: supplementary-authored-control
+      nyxZorahControl:
+        workloadId: web-nyx-zorah-phase-a-v1
+        source: nyx-zorah-v2-official
+        sourceIdentitySha256: 7fca3001761d379b724b905a9abe7308af4c993d7472120b6943f603212251f6
+        sourceBytes: 10011996302
+        sourceTriangles: 1627207159
+        logicalInstancedTriangles: 18937042387
+        nodes: 16988
+        meshes: 2068
+        primitives: 3163
+        maxPrimitiveTriangles: 32054609
+        report: .local/validation/web-100m-phase-a-baseline/zorah.authored.report.json
+        relaxedSourceReport: .local/validation/web-100m-phase-a-baseline/zorah.authored.relaxed-source.report.json
+        result: source-admission
+        nextFailureCode: ext-meshopt-compression-not-decoded
+        role: official-authored-scale-and-high-instancing-control
     exitCriteria:
       - Reproducible 100M workload identity and generator parameters are frozen.
       - Catalog, range read, canonical, WASM, cook, retained payload, descriptor, admission, GPU metadata, and residency owners expose exact current and peak bytes.
@@ -168,8 +206,8 @@ retirementTargets:
   - Single-Product Scene identity assumptions in production GPU metadata and instance references
   - Fixed read concurrency and in-flight byte policy used as the only large-scene scheduler mode
 openGates:
-  - Phase A has not yet produced an owner-attributed 100M baseline.
   - Source and canonical window ABI, ownership, cancellation, and budget contracts are not frozen.
+  - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
   - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
   - Cook-and-spill lacks an authoritative Page Artifact and Spill Store contract.
   - Multi-Product Scene and GPU Product Table ABI are not yet frozen or proven in the production renderer.
