@@ -5,7 +5,7 @@ status: frozen
 owners: 
   - platform
   - frame-runtime
-version: 1
+version: 2
 consumers: 
   - validation/harness
   - validation/src/runner
@@ -23,4 +23,4 @@ The shared harness owns protocol identity, state transitions, freshness, GPU err
 
 New cases import `validation/harness/browser.ts`. The harness implementation lives beside the facade and owns freshness, identity, error, page outcome, disposal, and declared artifact gates.
 
-The runner refuses to launch a case when full preflight is incomplete. Artifact schema v2 records the passed receipts, and promotion checks that their revision, tree, cleanliness, registry hash, and scope match the browser run.
+The runner has two explicit modes. A normal `--run` performs a changed-scope preflight and always produces diagnostic evidence. `--run --accept` requires a clean worktree and a complete full-scope preflight; it may reuse an existing receipt set only when revision, tree, registry hash, cleanliness, scope, and passed status all match. Artifact schema v2 records `validationMode` and the actual receipts. Promotion checks that the acceptance mode and every receipt match the browser run.

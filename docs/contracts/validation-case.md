@@ -4,7 +4,7 @@ kind: contract
 status: frozen
 owners: 
   - platform
-version: 1
+version: 2
 consumers: 
   - validation/src/runner
   - validation/cases/*/case.yaml
@@ -34,4 +34,4 @@ harness: protocol | gpu | production | observer
 
 The case manifest is the source. `validation/registry.generated.json` is a deterministic runner input and is never hand edited. Claims and checks are the proof routing source; the registry preserves the canonical case fields and adds only runner identity and generated metadata.
 
-Promotion cases must be automatic, non-lab, and at least the claim's assurance level. L4 cases are formal performance cases only: `kind: perf` with profile `formal-1080p`. Browser execution performs a full verification preflight and publishes its passed check receipts in artifact schema v2.
+Promotion cases must be automatic, non-lab, and at least the claim's assurance level. L4 cases are formal performance cases only: `kind: perf` with profile `formal-1080p`. Diagnostic browser execution cannot promote evidence. Explicit acceptance execution performs or safely reuses a full verification preflight and publishes its passed check receipts in artifact schema v2.

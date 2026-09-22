@@ -470,7 +470,7 @@ export function matchingCases(model, paths) {
   return model.cases.filter((item) => paths.some((path) => item.changedPaths.some((pattern) => pathMatches(path, pattern))));
 }
 
-export function getChangedPaths() {
+export function getChangedPaths(baseRevision) {
   const output = execFileSync("git", ["status", "--short", "--untracked-files=all", "-z"], { cwd: REPO_ROOT, encoding: "utf8" });
   const paths = new Set();
   const records = output.split("\0");
@@ -479,8 +479,26 @@ export function getChangedPaths() {
     if (record.length < 4) continue;
     const status = record.slice(0, 2);
     const raw = record.slice(3);
-    if (status.includes("R") || status.includes("C")) index += 1;
+    if (status.includes("R") || status.includes("C")) {
+      const previous = records[index + 1];
+      if (previous) paths.add(normalizePath(previous));
+      index += 1;
+    }
     if (raw) paths.add(normalizePath(raw));
+  }
+  if (baseRevision) {
+    const diff = execFileSync("git", ["diff", "--name-status", "-z", "--find-renames", baseRevision, "--"], { cwd: REPO_ROOT, encoding: "utf8" });
+    const entries = diff.split("\0");
+    for (let index = 0; index < entries.length;) {
+      const status = entries[index++];
+      if (!status) continue;
+      const first = entries[index++];
+      if (first) paths.add(normalizePath(first));
+      if (/^[RC]/u.test(status)) {
+        const second = entries[index++];
+        if (second) paths.add(normalizePath(second));
+      }
+    }
   }
   return [...paths].sort();
 }

@@ -31,7 +31,7 @@ import {
   evidenceReplacementError,
   isVerificationComplete
 } from "./vibe-lib.mjs";
-import { runCheckImplementation } from "./check-runners.mjs";
+import { planEngineTests, runCheckImplementation } from "./check-runners.mjs";
 
 const [command = "doctor", ...args] = process.argv.slice(2);
 
@@ -40,8 +40,15 @@ try {
   else if (command === "evidence") await evidenceCommand(args.includes("--force-empty"), args.includes("--force-prune"), args.includes("--check"));
   else if (command === "doctor") await doctorCommand();
   else if (command === "context") await contextCommand(args[0] ?? ".");
-  else if (command === "verify") await verifyCommand(args.includes("--changed"), args.includes("--perf"), args.includes("--allow-not-run"));
-  else if (command === "case") await caseCommand(args[0], args.includes("--run"));
+  else if (command === "verify") await verifyCommand({
+    changedOnly: args.includes("--changed"),
+    perfRequested: args.includes("--perf"),
+    allowNotRun: args.includes("--allow-not-run"),
+    planOnly: args.includes("--plan"),
+    verbose: args.includes("--json"),
+    baseRevision: optionValue(args, "--base")
+  });
+  else if (command === "case") await caseCommand(args[0], args.includes("--run"), args.includes("--accept"));
   else if (command === "status") await statusCommand(args[0]);
   else if (command === "help" || command === "--help" || command === "-h") printHelp();
   else throw new Error(`Unknown command '${command}'. Use \'node tools/vibe.mjs help\' for commands.`);
@@ -109,14 +116,14 @@ async function contextCommand(input) {
   console.log(JSON.stringify({ input, routing, domains: routedDomains, claims: claims.map(stripPrivate), checks: checks.map(stripPrivate), cases: cases.map(stripPrivate) }, null, 2));
 }
 
-async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
+async function verifyCommand({ changedOnly, perfRequested, allowNotRun, planOnly, verbose, baseRevision }) {
+  const verifyStarted = performance.now();
   const model = await loadModel();
   const legacy = null;
   assertModel(model, legacy);
   const registry = buildRegistry(model, legacy);
   assertRegistry(registry);
-  const generated = await writeGeneratedRegistry(registry);
-  const changedPaths = changedOnly ? getChangedPaths() : ["."];
+  const changedPaths = changedOnly ? getChangedPaths(baseRevision) : ["."];
   const domains = changedOnly ? matchingDomains(model, changedPaths) : model.domains;
   const cases = changedOnly ? matchingCases(model, changedPaths) : model.cases;
   const claims = changedOnly ? claimsForCases(model, matchingClaims(model, changedPaths), cases) : model.claims;
@@ -133,7 +140,10 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
   // metadata and `docs-frontmatter` was declared but never executed.
   const checkIds = new Set(["model", "registry"]);
   if (changedOnly) checkIds.add("changed-coverage");
-  if (!changedOnly || changedPaths.some((path) => path.startsWith("OEngine/"))) checkIds.add("engine-suites");
+  const engineRelevant = !changedOnly || changedPaths.some((path) => /^(?:OEngine\/|tools\/|checks\/|project\/)/u.test(path));
+  const validationRelevant = !changedOnly || changedPaths.some((path) => /^(?:validation\/|tools\/|checks\/|project\/)/u.test(path));
+  if (engineRelevant) checkIds.add("engine-suites");
+  if (validationRelevant) checkIds.add("validation-suites");
   for (const domain of domains) for (const checkId of domain.checks ?? []) checkIds.add(checkId);
   for (const claim of claims) for (const checkId of claim.requiredChecks ?? []) checkIds.add(checkId);
   const signatures = caseSignatures(model);
@@ -141,6 +151,24 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
   assertWorkstreamCompletion(model, evidence, currentRevision(), signatures);
   const requiredLevel = requiredVerificationLevel(changedPaths, perfRequested);
   const checkContext = { repoRoot: REPO_ROOT, model, changedOnly, changedPaths, uncovered, routingAmbiguities, evidence };
+  const engineCheck = model.checks.find((check) => check.id === "engine-suites");
+  if (planOnly) {
+    const engineTests = engineRelevant ? planEngineTests(checkContext, engineCheck?.config) : null;
+    console.log(JSON.stringify({
+      mode: changedOnly ? "development" : "integration",
+      changedOnly,
+      baseRevision: baseRevision ?? null,
+      changedPaths,
+      requiredLevel,
+      routing,
+      matched: { domains: domains.map((domain) => domain.id), claims: claims.map((claim) => claim.id), cases: cases.map((item) => item.id) },
+      checks: model.checks.filter((check) => checkIds.has(check.id)).map((check) => check.id),
+      engineTests: verbose ? engineTests : summarizeEnginePlan(engineTests),
+      browserCases: browserCasesRequired(cases, requiredLevel)
+    }, null, 2));
+    return;
+  }
+  const generated = await writeGeneratedRegistry(registry);
   const checkResults = model.checks.filter((check) => checkIds.has(check.id)).map((check) => runCheck(check, checkContext));
   const failedChecks = checkResults.filter((check) => check.status === "failed");
   const skippedChecks = checkResults.filter((check) => check.status === "not-run");
@@ -172,10 +200,7 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
       requiredChecks: claim.requiredChecks
     };
   });
-  const executableCases = cases.filter((item) => item.automatic !== false && item.lab !== true);
-  const notRun = levelRank(requiredLevel) >= 2
-    ? executableCases.filter((item) => levelRank(item.level) >= 2).map((item) => ({ caseId: item.id, level: item.level, harness: item.harness, reason: "browser execution is explicit; verify does not launch cases" }))
-    : [];
+  const notRun = browserCasesRequired(cases, requiredLevel);
   const blocked = claimStatuses.filter((claim) => claim.status === "blocked").map((claim) => claim.id);
   const unsupported = evidence.evidence.filter((item) => item.status === "unsupported").map((item) => item.caseId);
   // `ok` means the project topology and every executed check passed. It says
@@ -185,6 +210,7 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
   const verificationComplete = isVerificationComplete(ok, notRun, skippedChecks);
   const report = {
     schemaVersion: 1,
+    mode: changedOnly ? "development" : "integration",
     generatedAt: new Date().toISOString(),
     revision,
     tree,
@@ -205,7 +231,8 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
     unsupported,
     uncovered,
     ok,
-    verificationComplete
+    verificationComplete,
+    durationMs: Math.round(performance.now() - verifyStarted)
   };
   const reportPath = resolve(REPO_ROOT, "validation/evidence/verification.json");
   await mkdir(resolve(REPO_ROOT, "validation/evidence"), { recursive: true });
@@ -214,6 +241,8 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
   const result = {
     ok,
     verificationComplete,
+    mode: report.mode,
+    durationMs: report.durationMs,
     changedOnly,
     changedPaths,
     generatedRegistry: { path: relative(REPO_ROOT, generated.path), sha256: generated.sha256 },
@@ -231,7 +260,7 @@ async function verifyCommand(changedOnly, perfRequested, allowNotRun) {
     uncovered,
     report: { path: relative(REPO_ROOT, reportPath), sha256: sha256(reportContent) }
   };
-  console.log(JSON.stringify(result, null, 2));
+  console.log(JSON.stringify(verbose ? result : summarizeVerification(result), null, 2));
   if (!result.ok) {
     process.exitCode = 1;
   } else if (!verificationComplete && !allowNotRun) {
@@ -267,8 +296,9 @@ function levelRank(level) {
 }
 
 function runCheck(check, context) {
+  const started = performance.now();
   const { status, details } = runCheckImplementation(check, context);
-  return { id: check.id, status, level: check.level, description: check.description, details };
+  return { id: check.id, status, level: check.level, description: check.description, durationMs: Math.round(performance.now() - started), details };
 }
 
 function declarationFor(claim, status) {
@@ -330,7 +360,7 @@ function renderStatus(rows, domainId) {
   return `${lines.join("\n")}\n`;
 }
 
-async function caseCommand(caseId, run) {
+async function caseCommand(caseId, run, accept) {
   if (!caseId) throw new Error("Usage: node tools/vibe.mjs case <case-id> [--run]");
   const model = await loadModel();
   const legacy = null;
@@ -341,7 +371,9 @@ async function caseCommand(caseId, run) {
     const registry = buildRegistry(model, legacy);
     assertRegistry(registry);
     await writeGeneratedRegistry(registry);
-    const result = spawnSync(process.execPath, [resolve(REPO_ROOT, "validation/src/runner/run-case.mjs"), caseId], { cwd: REPO_ROOT, stdio: "inherit" });
+    const runnerArgs = [resolve(REPO_ROOT, "validation/src/runner/run-case.mjs"), caseId];
+    if (accept) runnerArgs.push("--accept");
+    const result = spawnSync(process.execPath, runnerArgs, { cwd: REPO_ROOT, stdio: "inherit" });
     process.exitCode = result.status ?? 1;
     return;
   }
@@ -400,14 +432,20 @@ function stripPrivate(value) {
 function printHelp() {
   console.log(`vibe commands:
   context <path>       show primary/related domains, claims, checks, and cases
-  verify --changed     run model, registry, ownership, and required guard checks
+  verify --changed     run affected development checks and targeted tests
+  verify --full        run the complete integration checks (also the default)
+  verify --plan        print selected checks/tests without running or writing
+  verify --json        print the complete report payload instead of a summary
+  verify --base <rev>  include committed changes since a base revision
                        exit 0 = complete, 2 = checks passed but required cases
                        were not run (use --allow-not-run to accept the gap)
   registry             generate validation/registry.generated.json
   evidence [--check] [--force-empty] [--force-prune]
                        rebuild atomically; evidence removal requires explicit force
   status [domain]      generate and print the claim status matrix
-  case <id> [--run]    inspect or explicitly run one validation case/lab
+  case <id> [--run]    inspect or run a diagnostic case/lab
+  case <id> --run --accept
+                       require full preflight and allow clean accepted evidence
   doctor               validate the complete project model`);
 }
 
@@ -415,6 +453,53 @@ function claimsForCases(model, directClaims, cases) {
   const claimIds = new Set(directClaims.map((claim) => claim.id));
   for (const item of cases) for (const claimId of item.covers ?? []) claimIds.add(claimId);
   return model.claims.filter((claim) => claimIds.has(claim.id));
+}
+
+function browserCasesRequired(cases, requiredLevel) {
+  if (levelRank(requiredLevel) < 2) return [];
+  const requiredRank = levelRank(requiredLevel);
+  return cases
+    .filter((item) => item.automatic !== false && item.lab !== true)
+    .filter((item) => levelRank(item.level) >= 2 && levelRank(item.level) <= requiredRank)
+    .map((item) => ({ caseId: item.id, level: item.level, harness: item.harness, reason: "browser execution is explicit; verify does not launch cases" }));
+}
+
+function optionValue(args, name) {
+  const index = args.indexOf(name);
+  if (index < 0) return undefined;
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`);
+  return value;
+}
+
+function summarizeEnginePlan(plan) {
+  if (!plan) return null;
+  return { scope: plan.scope, groups: plan.groups, testFiles: plan.files.length, reasons: plan.reasons };
+}
+
+function summarizeVerification(result) {
+  return {
+    ok: result.ok,
+    verificationComplete: result.verificationComplete,
+    mode: result.mode,
+    durationMs: result.durationMs,
+    changedPaths: result.changedOnly ? result.changedPaths.length : "full",
+    checks: result.checks.map((check) => {
+      const plan = check.details?.find((detail) => detail && typeof detail === "object" && detail.plan)?.plan;
+      const timings = check.details?.find((detail) => detail && typeof detail === "object" && detail.timings)?.timings;
+      return {
+        id: check.id,
+        status: check.status,
+        durationMs: check.durationMs,
+        summary: typeof check.details?.[0] === "string" ? check.details[0] : undefined,
+        plan: summarizeEnginePlan(plan),
+        timings,
+        failure: check.status === "failed" ? check.details : undefined
+      };
+    }),
+    browserCasesNotRun: result.notRun.map((item) => item.caseId),
+    report: result.report
+  };
 }
 
 

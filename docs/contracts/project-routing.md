@@ -4,7 +4,7 @@ kind: contract
 status: frozen
 owners: 
   - platform
-version: 1
+version: 2
 consumers: 
   - tools/vibe.mjs
   - AGENTS.md
@@ -27,4 +27,6 @@ The source is read with the YAML parser; duplicate keys and parse warnings are e
 
 The verification level is derived from the product surface a change can touch. Only `OEngine/src/**` and `validation/**` are considered: `OEngine/tests/**`, `OEngine/tools/**`, `tools/**`, `checks/**`, `project/**`, and `docs/**` are tooling, so a test-file edit is L1 even when its filename names a lifecycle concept.
 
-`verify` distinguishes topology from verification coverage. Exit `0` means the checks passed and nothing required was skipped; exit `1` means a check failed, a changed path is unowned, or a route is ambiguous; exit `2` means the checks passed but the changed surface requires browser cases that this command does not launch. `--allow-not-run` accepts that gap explicitly, and the unrun case ids are always listed on stderr.
+`verify --changed` is the development loop: it selects conservative affected test groups and expands to the full engine suite when a path has no safe mapping. `verify --full` is the integration loop. `verify --changed --plan` is read-only and explains every selection. The terminal output is concise by default; `--json` exposes the complete payload. `--base <revision>` combines committed changes since that base with the current worktree.
+
+Exit `0` means the selected scope passed and nothing required in that scope was skipped; exit `1` means a check failed, a changed path is unowned, or a route is ambiguous; exit `2` means the selected scope passed but required browser cases were not launched. `--allow-not-run` acknowledges that development gap without changing the report.

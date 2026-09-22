@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateArtifact } from "../src/shared/artifact.mjs";
+import { isAcceptancePreflightReusable, validateArtifact } from "../src/shared/artifact.mjs";
 
 const sha = "a".repeat(64);
 const commit = "b".repeat(40);
@@ -16,6 +16,7 @@ function validArtifact() {
     registrySha256: sha,
     workloadSha256: sha,
     status: "passed",
+    validationMode: "acceptance",
     evidenceStatus: "accepted",
     provenance: {
       commit,
@@ -95,6 +96,33 @@ test("accepted artifact rejects synthesized or mismatched check receipts", () =>
   const mismatched = validArtifact();
   mismatched.checkReceipts[0].revision = "d".repeat(40);
   assert.ok(validateArtifact(mismatched, selectedCase).some((error) => error.includes("revision does not match")));
+});
+
+test("diagnostic runs cannot publish accepted evidence", () => {
+  const artifact = validArtifact();
+  artifact.validationMode = "diagnostic";
+  assert.ok(validateArtifact(artifact, selectedCase).some((error) => error.includes("diagnostic runs")));
+  artifact.evidenceStatus = "diagnostic-only";
+  assert.deepEqual(validateArtifact(artifact, selectedCase), []);
+});
+
+test("acceptance preflight reuse requires one matching clean full receipt set", () => {
+  const verification = {
+    ok: true,
+    verificationComplete: true,
+    changedOnly: false,
+    revision: commit,
+    tree: commit,
+    dirty: false,
+    generatedRegistry: { sha256: sha },
+    checkReceipts: [{ status: "passed", scope: "full", revision: commit, tree: commit, dirty: false, registrySha256: sha }]
+  };
+  assert.equal(isAcceptancePreflightReusable(verification, { commit, tree: commit, registrySha256: sha }), true);
+  verification.checkReceipts[0].scope = "changed";
+  assert.equal(isAcceptancePreflightReusable(verification, { commit, tree: commit, registrySha256: sha }), false);
+  verification.checkReceipts[0].scope = "full";
+  verification.dirty = true;
+  assert.equal(isAcceptancePreflightReusable(verification, { commit, tree: commit, registrySha256: sha }), false);
 });
 
 test("manifest rejects undeclared, missing and unsafe artifacts", () => {

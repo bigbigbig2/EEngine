@@ -4,7 +4,7 @@ import test from "node:test";
 // 项目 OS 的 check runner 是门禁的实际执行体。它们此前是 vibe.mjs 里的 if 链，
 // 没有任何测试；一旦某个 runner 退化为恒返回 passed，门禁会在全绿中静默失效。
 // 这里用构造 context 的方式固定每个 runner 的通过与失败行为。
-const { CHECK_RUNNER_IDS, runCheckImplementation } = await import("../../../tools/check-runners.mjs");
+const { CHECK_RUNNER_IDS, planEngineTests, runCheckImplementation } = await import("../../../tools/check-runners.mjs");
 const { loadModel } = await import("../../../tools/vibe-lib.mjs");
 
 const emptyContext = {
@@ -106,8 +106,26 @@ test("engine-suites stays out of the way when no engine path changed", () => {
   try {
     const result = run("engine-suites", "engine-suites", config, { changedPaths: ["docs/README.md"] });
     assert.equal(result.status, "not-run");
-    assert.match(result.details.join(" "), /no OEngine path changed/u);
+    assert.match(result.details.join(" "), /no engine test group is affected/u);
   } finally {
     if (previous !== undefined) process.env.VIBE_ENGINE_SUITE_ACTIVE = previous;
   }
+});
+
+test("changed engine plans select affected tests and keep heavy native oracles explicit", () => {
+  const cooker = planEngineTests({ changedOnly: true, changedPaths: ["OEngine/src/assets/web-cook/WebCookCoordinator.ts"] }, { cwd: "OEngine" });
+  assert.equal(cooker.scope, "changed");
+  assert.ok(cooker.groups.includes("web-cook"));
+  assert.ok(cooker.files.some((path) => path.endsWith("web-cook-coordinator.test.mjs")));
+  assert.ok(!cooker.files.some((path) => path.endsWith("nyx-differential-corpus.test.mjs")));
+
+  const native = planEngineTests({ changedOnly: true, changedPaths: ["OEngine/tools/build-nyx-reference-harness.mjs"] }, { cwd: "OEngine" });
+  assert.ok(native.groups.includes("native-reference"));
+  assert.ok(native.files.some((path) => path.endsWith("nyx-differential-corpus.test.mjs")));
+});
+
+test("unmapped engine changes conservatively expand to the full suite", () => {
+  const plan = planEngineTests({ changedOnly: true, changedPaths: ["OEngine/src/index.ts"] }, { cwd: "OEngine" });
+  assert.equal(plan.scope, "full-fallback");
+  assert.ok(plan.files.length > 50);
 });

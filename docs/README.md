@@ -40,6 +40,7 @@ Workstream YAML is the authoritative TODO and progress record. Task state is one
 Reviews are dated, non-authoritative audits. They record observations and recommendations but do not establish product facts or completion:
 
 - [2026-09-21 · Documentation and validation system review](./reviews/2026-09-21-documentation-validation-system-review.md)
+- [2026-09-23 · Documentation system refactor design](./reviews/2026-09-23-documentation-system-refactor-design.md)
 - [ADR-0018 research draft · Authored-large target and deferred 100M architecture](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
 - [ADR-0018 Phase A baseline record](./reviews/2026-09-21-web-100m-phase-a-baseline.md)
 - [ADR-0018 Phase F visible-first scheduler record](./reviews/2026-09-22-web-100m-phase-f-visible-first-product-scheduler.md)

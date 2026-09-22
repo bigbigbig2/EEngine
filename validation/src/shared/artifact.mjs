@@ -20,6 +20,7 @@ export function validateArtifact(artifact, selectedCase) {
   if (!SHA256_PATTERN.test(artifact.workloadSha256 ?? "")) errors.push("workloadSha256 is invalid");
   if (!STATUS.has(artifact.status)) errors.push("status is invalid");
   if (!EVIDENCE_STATUS.has(artifact.evidenceStatus)) errors.push("evidenceStatus is invalid");
+  if (artifact.validationMode !== undefined && !new Set(["diagnostic", "acceptance"]).has(artifact.validationMode)) errors.push("validationMode is invalid");
 
   validateProvenance(artifact.provenance, errors);
   validateCheckReceipts(artifact.checkReceipts, artifact.provenance, artifact.registrySha256, errors);
@@ -46,6 +47,9 @@ export function validateArtifact(artifact, selectedCase) {
 
   if (artifact.evidenceStatus === "accepted" && artifact.provenance?.dirty !== false) {
     errors.push("accepted evidence requires a clean revision");
+  }
+  if (artifact.evidenceStatus === "accepted" && artifact.validationMode === "diagnostic") {
+    errors.push("diagnostic runs cannot publish accepted evidence");
   }
   if (artifact.evidenceStatus === "accepted" && (!Array.isArray(artifact.checkReceipts) || artifact.checkReceipts.length === 0 || artifact.checkReceipts.some((receipt) => receipt.status !== "passed"))) {
     errors.push("accepted evidence requires passed check receipts");
@@ -93,6 +97,25 @@ export function requireValidArtifact(artifact, selectedCase) {
   const errors = validateArtifact(artifact, selectedCase);
   if (errors.length > 0) throw new Error(`Invalid validation artifact:\n${errors.join("\n")}`);
   return artifact;
+}
+
+export function isAcceptancePreflightReusable(candidate, expected) {
+  if (!isRecord(candidate) || !isRecord(expected)) return false;
+  const receipts = Array.isArray(candidate.checkReceipts) ? candidate.checkReceipts : [];
+  return candidate.ok === true &&
+    candidate.verificationComplete === true &&
+    candidate.changedOnly === false &&
+    candidate.revision === expected.commit &&
+    candidate.tree === expected.tree &&
+    candidate.dirty === false &&
+    candidate.generatedRegistry?.sha256 === expected.registrySha256 &&
+    receipts.length > 0 &&
+    receipts.every((receipt) => receipt.status === "passed" &&
+      receipt.scope === "full" &&
+      receipt.revision === expected.commit &&
+      receipt.tree === expected.tree &&
+      receipt.dirty === false &&
+      receipt.registrySha256 === expected.registrySha256);
 }
 
 function validateProvenance(value, errors) {

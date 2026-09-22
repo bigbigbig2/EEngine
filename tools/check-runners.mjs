@@ -74,6 +74,109 @@ function describeSummary(summary) {
   return `${parts.join(", ")} of ${summary.tests ?? "?"} engine tests`;
 }
 
+const ENGINE_TEST_GROUPS = Object.freeze([
+  {
+    id: "project-tooling",
+    paths: ["tools/", "checks/", "project/", "AGENTS.md", "OEngine/AGENTS.md"],
+    tests: /(?:check-runners|documentation-system)\.test\.mjs$/u
+  },
+  {
+    id: "native-reference",
+    paths: ["OEngine/tools/nyx-*", "OEngine/tools/build-nyx-*", "OEngine/src/assets/web-cook/wasm/"],
+    tests: /(?:nyx-differential-corpus|nyx-function-map|nyx-shader-reference|web-cook-wasm-artifact)\.test\.mjs$/u
+  },
+  {
+    id: "web-cook",
+    paths: [
+      "OEngine/src/assets/web-cook/",
+      "OEngine/src/assets/geometry-product/",
+      "OEngine/src/loaders/gltf/streaming/"
+    ],
+    tests: /(?:web-cook|web-geometry|geometry-product|geometry-page|glb-|spatial-shard|nyx-web-runtime|runtime-scene-geometry-product|oegpack-offline-product).*\.test\.mjs$/u
+  },
+  {
+    id: "render-shading",
+    paths: [
+      "OEngine/src/render/",
+      "OEngine/src/shaders/",
+      "OEngine/src/framegraph/",
+      "OEngine/src/material/",
+      "OEngine/src/texture/"
+    ],
+    tests: /(?:render|shading|framegraph|hzb|occlusion|shadow|texture|sparse|advanced-frame|packed-render-world).*\.test\.mjs$/u
+  },
+  {
+    id: "gpu-geometry",
+    paths: ["OEngine/src/gpu/", "OEngine/src/geometry/", "OEngine/src/scene/"],
+    tests: /(?:geometry|product|gpu-|render-world|scene|visibility|hzb|shadow).*\.test\.mjs$/u
+  },
+  {
+    id: "core-loaders",
+    paths: ["OEngine/src/core/", "OEngine/src/loaders/", "OEngine/src/assets/"],
+    tests: /(?:asset|glb|gltf|runtime|oegpack|texture|codec).*\.test\.mjs$/u
+  }
+]);
+
+function normalized(path) {
+  return path.replaceAll("\\", "/");
+}
+
+function pathStartsWith(path, prefix) {
+  if (prefix.endsWith("*")) return path.startsWith(prefix.slice(0, -1));
+  return prefix.endsWith("/") ? path.startsWith(prefix) : path === prefix || path.startsWith(`${prefix}/`);
+}
+
+/** Build the smallest conservative engine test plan for the current edit. */
+export function planEngineTests(context, config = {}) {
+  const cwdName = config.cwd ?? "OEngine";
+  const cwd = resolve(REPO_ROOT, cwdName);
+  const allTests = listFiles(resolve(cwd, "tests"), ".test.mjs")
+    .map((path) => normalized(relative(cwd, path)))
+    .sort();
+  if (!context.changedOnly) {
+    return { scope: "full", groups: ["all"], files: allTests, reasons: ["full verification requested"] };
+  }
+
+  const changed = (context.changedPaths ?? []).map(normalized);
+  const selected = new Set();
+  const groups = new Set();
+  const reasons = [];
+  let fallbackToFull = false;
+
+  for (const path of changed) {
+    if (/^OEngine\/tests\/.*\.test\.mjs$/u.test(path)) {
+      const testPath = path.slice("OEngine/".length);
+      if (allTests.includes(testPath)) selected.add(testPath);
+      reasons.push(`${path}: changed test`);
+      continue;
+    }
+    if (/^OEngine\/(?:package(?:-lock)?\.json|tsconfig(?:\.[^/]+)?\.json)$/u.test(path)) {
+      fallbackToFull = true;
+      reasons.push(`${path}: engine build configuration changed`);
+      continue;
+    }
+    const matching = ENGINE_TEST_GROUPS.filter((group) => group.paths.some((prefix) => pathStartsWith(path, prefix)));
+    for (const group of matching) {
+      groups.add(group.id);
+      for (const testPath of allTests) if (group.tests.test(testPath)) selected.add(testPath);
+    }
+    if (matching.length > 0) reasons.push(`${path}: ${matching.map((group) => group.id).join(", ")}`);
+    else if (path.startsWith("OEngine/")) {
+      fallbackToFull = true;
+      reasons.push(`${path}: no safe targeted mapping; expanded to full suite`);
+    }
+  }
+
+  if (fallbackToFull) return { scope: "full-fallback", groups: ["all"], files: allTests, reasons };
+  return { scope: "changed", groups: [...groups].sort(), files: [...selected].sort(), reasons };
+}
+
+function runCommand(command, cwd, timeout, environment = process.env) {
+  const started = performance.now();
+  const result = spawnSync(command, { cwd, encoding: "utf8", shell: true, timeout, windowsHide: true, env: environment });
+  return { result, elapsedMs: Math.round(performance.now() - started) };
+}
+
 export const CHECK_RUNNERS = Object.freeze({
   /**
    * 由 loadModel/assertModel 完成：domains、claims、checks、sources、cases、
@@ -203,34 +306,57 @@ export const CHECK_RUNNERS = Object.freeze({
     }
     const cwd = resolve(REPO_ROOT, config.cwd ?? "OEngine");
     if (!existsSync(cwd)) return failed([`engine suite directory is missing: ${config.cwd}`]);
-    if (context.changedOnly && !context.changedPaths.some((path) => path.startsWith(`${config.cwd ?? "OEngine"}/`))) {
-      return notRun([`no ${config.cwd ?? "OEngine"} path changed`]);
-    }
+    const plan = planEngineTests(context, config);
+    if (plan.files.length === 0) return notRun(["no engine test group is affected", plan]);
     const timeout = config.timeoutMs ?? 900_000;
+    const timings = {};
 
     if (config.build) {
-      const build = spawnSync(config.build, { cwd, encoding: "utf8", shell: true, timeout, windowsHide: true });
-      if (build.status !== 0) {
-        return failed([`build step failed: ${config.build}`, (build.stderr || build.stdout || "").trim().slice(-2000)]);
+      const build = runCommand(config.build, cwd, timeout);
+      timings.buildMs = build.elapsedMs;
+      if (build.result.status !== 0) {
+        return failed([`build step failed: ${config.build}`, (build.result.stderr || build.result.stdout || "").trim().slice(-6000), { plan, timings }]);
       }
     }
 
-    const result = spawnSync(process.execPath, ["--test", config.testFiles], {
+    const started = performance.now();
+    const result = spawnSync(process.execPath, ["--test", ...plan.files], {
       cwd,
       encoding: "utf8",
       timeout,
       windowsHide: true,
       env: { ...process.env, VIBE_ENGINE_SUITE_ACTIVE: "1" }
     });
+    timings.testMs = Math.round(performance.now() - started);
     const summary = summarizeTestOutput(result.stdout ?? "");
     if (result.status !== 0) {
       const failing = (result.stdout ?? "")
         .split(/\r?\n/u)
         .filter((line) => line.startsWith("\u2716") && !line.startsWith("\u2716 failing"))
         .slice(0, 20);
-      return failed([`${summary.fail ?? "?"} of ${summary.tests ?? "?"} engine tests failed`, ...failing]);
+      const diagnostic = (result.stderr || result.stdout || "").trim().slice(-6000);
+      return failed([`${summary.fail ?? "?"} of ${summary.tests ?? "?"} engine tests failed`, ...failing, diagnostic, { plan, timings }]);
     }
-    return passed([describeSummary(summary)]);
+    return passed([describeSummary(summary), { plan, timings }]);
+  },
+
+  "validation-suites": (check, context) => {
+    const config = check.config ?? {};
+    const relevant = !context.changedOnly || (context.changedPaths ?? []).some((path) =>
+      ["validation/", "tools/", "checks/", "project/"].some((prefix) => pathStartsWith(normalized(path), prefix))
+    );
+    if (!relevant) return notRun(["validation host and project tooling are unaffected"]);
+    const cwd = resolve(REPO_ROOT, config.cwd ?? "validation");
+    const timeout = config.timeoutMs ?? 300_000;
+    const timings = [];
+    for (const command of config.commands ?? []) {
+      const execution = runCommand(command, cwd, timeout);
+      timings.push({ command, elapsedMs: execution.elapsedMs });
+      if (execution.result.status !== 0) {
+        return failed([`${command} failed`, (execution.result.stderr || execution.result.stdout || "").trim().slice(-6000), { timings }]);
+      }
+    }
+    return passed([{ timings }]);
   }
 });
 

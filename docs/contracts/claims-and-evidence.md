@@ -4,7 +4,7 @@ kind: contract
 status: frozen
 owners: 
   - platform
-version: 1
+version: 2
 consumers: 
   - tools/vibe.mjs
   - validation/evidence
@@ -32,4 +32,4 @@ unproven -> diagnostic -> accepted
 
 Raw runner output stays under ignored `.local/validation/`. `node tools/vibe.mjs evidence` writes the compact latest-per-case index at `validation/evidence/index.json`, retaining history counts without copying raw screenshots or traces. Empty or partial raw input cannot remove compact case records unless `--force-empty` or `--force-prune` is explicit. Each index record carries claim identity, actual check receipts, workload and registry hashes, contract hashes, browser/adapter capability, resolution/DPR, artifact hashes, and freshness gates.
 
-Check coverage is execution provenance, not declared metadata. A browser artifact is schema v2 and embeds receipts produced by its mandatory full preflight. Promotion requires passed receipts whose revision, tree, dirty flag, registry hash and scope match the artifact. The index must never synthesize receipt ids from `requiredChecks`.
+Check coverage is execution provenance, not declared metadata. A browser artifact is schema v2 and embeds its validation mode and actual preflight receipts. Diagnostic execution never promotes evidence. Acceptance requires passed full-scope receipts whose revision, tree, dirty flag and registry hash match the artifact. The index must never synthesize receipt ids from `requiredChecks`.

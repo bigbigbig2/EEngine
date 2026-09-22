@@ -38,12 +38,24 @@ checks:
   - id: engine-suites
     kind: contract
     level: L1
-    description: Run the OEngine unit/contract/oracle/guard suites against freshly compiled test output.
+    description: Build fresh test output and run affected OEngine suites, expanding to the full set when required.
     domains: [platform]
     runner: engine-suites
     config:
       cwd: OEngine
       build: npm run build:test
-      testFiles: "tests/**/*.test.mjs"
       timeoutMs: 900000
+    automatic: true
+  - id: validation-suites
+    kind: contract
+    level: L1
+    description: Typecheck and test the validation host, artifact protocol, registry, and claim policy.
+    domains: [platform]
+    runner: validation-suites
+    config:
+      cwd: validation
+      commands:
+        - npm run typecheck
+        - npm test
+      timeoutMs: 300000
     automatic: true

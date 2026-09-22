@@ -3,6 +3,8 @@
   "compilerOptions": {
     "noEmit": false,
     "emitDeclarationOnly": false,
+    "incremental": true,
+    "tsBuildInfoFile": ".test-dist/tsconfig.test.tsbuildinfo",
     "outDir": ".test-dist",
     "rootDir": "src"
   },

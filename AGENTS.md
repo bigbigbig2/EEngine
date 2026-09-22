@@ -5,9 +5,10 @@ OEngine 是面向桌面 WebGPU、中大型高几何密度场景的 GPU-first 渲
 ## 工作流
 
 1. 修改前运行 `node tools/vibe.mjs context <path>`，按输出阅读 domain、contract、ADR/spec 和命中的 case。
-2. 修改后运行 `node tools/vibe.mjs verify --changed`；需要查看声明和证据时运行 `node tools/vibe.mjs status`、`node tools/vibe.mjs evidence`。
+2. 一个连贯修改批次完成后运行一次 `node tools/vibe.mjs verify --changed`；它构建最新测试产物，只运行受影响测试组。只有相关代码继续变化、修复失败或出现新疑点时才重跑；阶段集成使用 `node tools/vibe.mjs verify --full`。
    - 退出 `0`：检查通过且无跳过；退出 `1`：检查失败、路径无主或路由歧义；退出 `2`：检查通过但所需等级的浏览器 case 未运行（`--allow-not-run` 显式接受缺口）。
-   - `engine-suites` 会先构建测试产物再跑 `OEngine/tests/unit|contract|oracle|guard`；不要绕过它直接 `node --test`，`.test-dist` 过期会静默测试旧产物。
+   - `engine-suites` 会先增量构建测试产物，再按变更计划运行 `OEngine/tests/unit|contract|oracle|guard`；无法安全定位影响范围时自动扩大到全套。不要绕过它直接 `node --test`，`.test-dist` 过期会静默测试旧产物。
+   - `node tools/vibe.mjs verify --changed --plan` 只显示选择原因，不运行检查或写生成物；`--json` 显示完整机器报告。浏览器 `case --run` 默认只产生 diagnostic evidence；只有 clean revision 上显式 `--accept` 才执行或复用 full preflight 并允许晋级。
 3. 机器事实只编辑 `project/`、`checks/`、case-local `case.yaml`、docs frontmatter/source ledger 和 workstream；`validation/registry.generated.json`、`validation/evidence/` 与 `docs/status.generated.md` 是生成物。检查的执行体在 `tools/check-runners.mjs`：声明式 YAML 只描述断言，新增检查必须绑定已注册的 `runner`，未注册的 runner 一律失败而不是默认通过。
 
 ## 不可违反的不变量

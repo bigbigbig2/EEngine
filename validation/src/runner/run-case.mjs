@@ -5,7 +5,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
-import { requireValidArtifact } from "../shared/artifact.mjs";
+import { isAcceptancePreflightReusable, requireValidArtifact } from "../shared/artifact.mjs";
 import { canonicalJson, requireValidRegistry } from "../shared/registry.mjs";
 
 const validationRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -14,23 +14,39 @@ const registryPath = resolve(validationRoot, "registry.generated.json");
 const registryBytes = await readFile(registryPath);
 const registry = requireValidRegistry(JSON.parse(registryBytes.toString("utf8")));
 const caseId = process.argv[2];
+const acceptanceRequested = process.argv.includes("--accept");
 const selectedCase = registry.cases.find((item) => item.id === caseId);
 if (!selectedCase) {
   throw new Error(`Unknown case '${caseId ?? ""}'. Expected one of: ${registry.cases.map(({ id }) => id).join(", ")}`);
 }
+const git = (...args) => execFileSync("git", args, { cwd: repositoryRoot, encoding: "utf8" }).trim();
+const commit = git("rev-parse", "HEAD");
+const tree = git("rev-parse", "HEAD^{tree}");
+const dirty = git("status", "--porcelain").length > 0;
+const registrySha256 = sha256(registryBytes);
+if (acceptanceRequested && dirty) throw new Error("Accepted browser evidence requires a clean worktree; run without --accept for diagnostics");
 const verificationPath = resolve(repositoryRoot, "validation/evidence/verification.json");
-const preflight = spawnSync(process.execPath, [resolve(repositoryRoot, "tools/vibe.mjs"), "verify"], {
-  cwd: repositoryRoot,
-  encoding: "utf8",
-  windowsHide: true,
-  timeout: 900_000
-});
-if (preflight.status !== 0) {
-  throw new Error(`Validation preflight failed (${preflight.status ?? "no status"}): ${(preflight.stderr || preflight.stdout || "").trim().slice(-4000)}`);
+let verification = acceptanceRequested ? await reusableAcceptancePreflight() : null;
+if (verification === null) {
+  const preflightArgs = [resolve(repositoryRoot, "tools/vibe.mjs"), "verify"];
+  if (acceptanceRequested) preflightArgs.push("--full");
+  else preflightArgs.push("--changed", "--allow-not-run");
+  const preflight = spawnSync(process.execPath, preflightArgs, {
+    cwd: repositoryRoot,
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 900_000
+  });
+  if (preflight.status !== 0) {
+    throw new Error(`Validation preflight failed (${preflight.status ?? "no status"}): ${(preflight.stderr || preflight.stdout || "").trim().slice(-6000)}`);
+  }
+  verification = JSON.parse(await readFile(verificationPath, "utf8"));
 }
-const verification = JSON.parse(await readFile(verificationPath, "utf8"));
-if (verification.verificationComplete !== true || !Array.isArray(verification.checkReceipts)) {
-  throw new Error("Validation preflight did not produce complete check receipts");
+if (!Array.isArray(verification.checkReceipts) || verification.ok !== true) {
+  throw new Error("Validation preflight did not produce passing check receipts");
+}
+if (acceptanceRequested && (verification.verificationComplete !== true || verification.changedOnly !== false)) {
+  throw new Error("Accepted validation requires a complete full-scope preflight");
 }
 const profile = registry.profiles[selectedCase.profile];
 const workload = registry.workloads[selectedCase.workloadId];
@@ -41,7 +57,6 @@ const browserExecutableSha256 = await sha256File(chromeExecutable);
 const runnerStartedAt = new Date().toISOString();
 const runId = `${runnerStartedAt.replaceAll(/[:.]/gu, "-")}-${caseId}-${randomUUID()}`;
 const nonce = randomBytes(24).toString("hex");
-const registrySha256 = sha256(registryBytes);
 const workloadSha256 = sha256(canonicalJson(workload));
 const artifactsRoot = resolve(repositoryRoot, ".local/validation");
 const runDirectory = resolve(artifactsRoot, runId);
@@ -50,10 +65,6 @@ await mkdir(runDirectory, { recursive: false });
 
 const events = [];
 const record = (source, detail) => events.push({ at: new Date().toISOString(), source, detail });
-const git = (...args) => execFileSync("git", args, { cwd: repositoryRoot, encoding: "utf8" }).trim();
-const commit = git("rev-parse", "HEAD");
-const tree = git("rev-parse", "HEAD^{tree}");
-const dirty = git("status", "--porcelain").length > 0;
 const hostBuildId = await computeHostBuildId({ commit, tree, dirty, selectedCase, workload });
 
 async function waitForServer(url, timeoutMs) {
@@ -238,7 +249,8 @@ const result = {
   registrySha256,
   workloadSha256,
   status,
-  evidenceStatus: !dirty && status === "passed" ? "accepted" : "diagnostic-only",
+  validationMode: acceptanceRequested ? "acceptance" : "diagnostic",
+  evidenceStatus: acceptanceRequested && !dirty && status === "passed" ? "accepted" : "diagnostic-only",
   checkReceipts: verification.checkReceipts,
   provenance: {
     commit,
@@ -272,6 +284,16 @@ if (result.status === "failed") {
   process.exitCode = 1;
 } else if (result.status === "unsupported") {
   process.exitCode = 2;
+}
+
+async function reusableAcceptancePreflight() {
+  if (!existsSync(verificationPath)) return null;
+  try {
+    const candidate = JSON.parse(await readFile(verificationPath, "utf8"));
+    return isAcceptancePreflightReusable(candidate, { commit, tree, registrySha256 }) ? candidate : null;
+  } catch {
+    return null;
+  }
 }
 
 function assertPageIdentity(snapshot) {
