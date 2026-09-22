@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: virtual-product-production
+evidenceRole: promotion
 route: /cases/virtual-product-production/index.html
 buildTarget: production
 workloadId: virtual-product-production-correctness-v1

@@ -43,3 +43,15 @@ test("registry gives only L4 PERF a bounded long-run timeout", () => {
   tooLong.cases.find((item) => item.id === "web-100m-formal-perf").timeoutMs = 1_800_001;
   assert.ok(validateRegistry(tooLong).some((error) => error.includes("timeout out of bounds")));
 });
+
+test("registry separates promotion cases from claim-optional diagnostics", () => {
+  const diagnostic = structuredClone(registry);
+  const observer = diagnostic.cases.find((item) => item.id === "virtual-product-observer");
+  observer.covers = [];
+  assert.ok(!validateRegistry(diagnostic).some((error) => error.includes("invalid covers")));
+
+  const promotion = structuredClone(registry);
+  const protocol = promotion.cases.find((item) => item.id === "protocol-self-test");
+  protocol.covers = [];
+  assert.ok(validateRegistry(promotion).some((error) => error.includes("promotion case must cover")));
+});

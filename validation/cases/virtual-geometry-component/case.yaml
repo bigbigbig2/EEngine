@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: virtual-geometry-component
+evidenceRole: diagnostic
 route: /cases/virtual-geometry-component/index.html
 buildTarget: host
 workloadId: virtual-geometry-component-v1

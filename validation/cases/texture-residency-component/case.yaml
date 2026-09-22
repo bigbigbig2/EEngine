@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: texture-residency-component
+evidenceRole: promotion
 route: /cases/texture-residency-component/index.html
 buildTarget: host
 workloadId: texture-residency-component-v1

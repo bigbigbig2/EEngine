@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: shading-bin-component
+evidenceRole: diagnostic
 route: /cases/shading-bin-component/index.html
 buildTarget: internal-candidate
 workloadId: shading-bin-component-v1

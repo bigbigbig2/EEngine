@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: webgpu-component
+evidenceRole: promotion
 route: /cases/webgpu-component/index.html
 buildTarget: host
 workloadId: webgpu-component-v1

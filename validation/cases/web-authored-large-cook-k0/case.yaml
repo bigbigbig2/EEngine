@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: web-authored-large-cook-k0
+evidenceRole: diagnostic
 sourceCase: web-100m-formal-perf
 route: /cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-cook-k0&workload=web-authored-large-cook-k0-v1
 buildTarget: production

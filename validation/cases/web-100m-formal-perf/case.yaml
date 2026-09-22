@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: web-100m-formal-perf
+evidenceRole: promotion
 route: /cases/web-100m-formal-perf/index.html
 buildTarget: production
 workloadId: web-100m-formal-perf-v1

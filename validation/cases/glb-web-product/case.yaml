@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: glb-web-product
+evidenceRole: promotion
 route: /cases/glb-web-product/index.html
 buildTarget: production
 workloadId: glb-web-product-bootstrap-v1

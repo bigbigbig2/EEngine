@@ -4,6 +4,7 @@ primaryOwner: materials-textures
 owner: OEngine/src/material, OEngine/src/gpu/TextureResidency.ts, OEngine/src/assets
 intent: Carry authored material slots and mip residency into a single production texture and shading identity path.
 paths:
+  - docs/domains/materials-textures.md
   - OEngine/src/material/**
   - OEngine/src/assets/Texture*.ts
   - OEngine/src/gpu/Texture*.ts

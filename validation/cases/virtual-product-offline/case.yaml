@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: virtual-product-offline
+evidenceRole: promotion
 route: /cases/virtual-product-offline/index.html
 buildTarget: production
 workloadId: virtual-product-offline-v1

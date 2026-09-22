@@ -5,7 +5,17 @@ domain: virtual-assets
 state: active
 owner: virtual-assets
 decision: ADR-0016
-goal: Preserve the Nyx geometry stages and invariants across Web cooker, Offline cooker, and the shared GPU traversal/raster consumer.
+goal: Preserve Nyx geometry stages and invariants across Web cooker, Offline cooker, and the shared GPU traversal and raster consumer.
+
+currentSlice:
+  id: browser-consumer-evidence
+  title: Prove producer-neutral Product admission reaches the production GPU consumer
+  status: active
+nextTasks:
+  - Capture clean browser consumer evidence on a fixed large-scene workload.
+  - Complete source, compiled artifact, and browser audits for remaining legacy owners.
+  - Close cross-session memory accounting and failure-atomic replacement.
+
 contracts:
   - geometry-product-v1
   - virtual-geometry-runtime-v1
@@ -15,25 +25,34 @@ claims:
   - virtual-assets.product-consumer
   - virtual-assets.web-cook
   - virtual-assets.lifecycle
-tasks:
+completedMilestones:
   - id: source-function-map
-    state: done
+    result: Nyx source functions, shader entries, decisions, dependencies, invariants, differences, fallbacks, and validation routes are mapped.
   - id: producer-neutral-product
-    state: done
+    result: Web and Offline producers publish the shared Product contract without a producer-specific renderer route.
+
+tasks:
   - id: browser-consumer-evidence
     state: active
+    title: Capture clean producer-neutral admission and downstream GPU consumer evidence
+    dependsOn: []
+    exitCriteria:
+      - Fixed browser evidence identifies producer, Product revision, admission, GPU consumer, and disposal.
+      - Differential and negative corpora cover topology, bounds, pages, identity, and failure paths.
 exitChecks:
   - registry
   - evidence-provenance
 requiredEvidence:
-  - source-function and shader-entry mapping for each migrated Nyx stage
-  - differential and negative corpus for Product topology, bounds, pages, identity, and failure paths
-  - clean browser evidence for producer-neutral admission and downstream GPU consumer
-  - source, WASM, output, resident, and transient budgets under fixed workload
-deleteTargets:
-  - OEngine/src/assets/web-cook/legacy-progressive-path.ts
+  - Source-function and shader-entry mapping for each migrated Nyx stage.
+  - Differential and negative corpus for Product topology, bounds, pages, identity, and failure paths.
+  - Clean browser evidence for producer-neutral admission and downstream GPU consumption.
+  - Source, WASM, output, resident, and transient budgets under a fixed workload.
 openGates:
-  - large-scene visible-first cook and first meaningful frame
-  - cross-session source/canonical/WASM peak accounting
-  - failure-atomic replacement and bounded global residency budget
-  - source, compiled, and browser audit for remaining legacy owners
+  - Large-scene visible-first cook and first meaningful frame evidence are incomplete.
+  - Cross-session source, canonical, and WASM peak accounting is incomplete.
+  - Failure-atomic replacement and bounded global residency need accepted evidence.
+  - Source, compiled artifact, and browser audits still have legacy owners to close.
+
+links:
+  decision: docs/adr/0016-virtualized-assets.md
+  sourceLedger: docs/porting/geometry.md

@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: glb-web-product-authored-texture
+evidenceRole: promotion
 sourceCase: glb-web-product
 route: /cases/glb-web-product/index.html?source=authored-texture&case=glb-web-product-authored-texture&workload=glb-web-product-authored-texture-v1
 buildTarget: production

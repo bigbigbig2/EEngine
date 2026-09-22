@@ -246,7 +246,9 @@ export function validateModel(model, legacyRegistry) {
     if (!domains.has(item.domain)) errors.push(`${item._file}: ${item.id} references unknown domain ${item.domain}`);
     if (!CASE_KINDS.has(item.caseKind)) errors.push(`${item._file}: ${item.id} has invalid caseKind`);
     if (item.sourceCase !== undefined && (!ID_PATTERN.test(item.sourceCase) || item.sourceCase === item.id)) errors.push(`${item._file}: ${item.id} has invalid sourceCase`);
-    if (!Array.isArray(item.covers) || item.covers.length === 0 || item.covers.some((id) => !claims.has(id))) errors.push(`${item._file}: ${item.id} has unknown covers claim`);
+    if (!new Set(["promotion", "diagnostic"]).has(item.evidenceRole)) errors.push(`${item._file}: ${item.id} has invalid evidenceRole`);
+    if (!Array.isArray(item.covers) || item.covers.some((id) => !claims.has(id))) errors.push(`${item._file}: ${item.id} has unknown covers claim`);
+    if (item.evidenceRole === "promotion" && item.covers?.length === 0) errors.push(`${item._file}: ${item.id} promotion case must cover a claim`);
     if (!/^ADR-\d{4}$/u.test(item.decision ?? "")) errors.push(`${item._file}: ${item.id} has invalid decision`);
     if (!Array.isArray(item.changedPaths) || item.changedPaths.length === 0) errors.push(`${item._file}: ${item.id} needs changedPaths`);
     if (typeof item.route !== "string" || !item.route.startsWith("/")) errors.push(`${item._file}: ${item.id} has invalid route`);
@@ -260,6 +262,7 @@ export function validateModel(model, legacyRegistry) {
     if (item.lab !== undefined && typeof item.lab !== "boolean") errors.push(`${item._file}: ${item.id} lab must be boolean`);
     if (item.automatic !== undefined && typeof item.automatic !== "boolean") errors.push(`${item._file}: ${item.id} automatic must be boolean`);
     if (item.lab === true && item.automatic === true) errors.push(`${item._file}: ${item.id} lab cases cannot be automatic`);
+    if (item.lab === true && item.evidenceRole !== "diagnostic") errors.push(`${item._file}: ${item.id} lab cases must be diagnostic`);
     if (item._lab && item.lab !== true) errors.push(`${item._file}: lab manifests must set lab: true`);
     if (!item._lab && item.lab === true) errors.push(`${item._file}: automatic cases cannot be marked as labs`);
     for (const rule of item.errorAllowlist ?? []) if (!item.covers?.includes(rule.ownerClaim)) errors.push(`${item._file}: ${item.id} error allowlist ownerClaim must be covered`);
@@ -283,12 +286,21 @@ export function validateModel(model, legacyRegistry) {
     for (const caseId of promotionCases) {
       const item = cases.get(caseId);
       if (!item) continue;
+      if (item.evidenceRole !== "promotion") errors.push(`${claim._file}: ${claim.id} promotion case ${caseId} must have evidenceRole promotion`);
       if (item.lab === true || item.automatic === false) errors.push(`${claim._file}: ${claim.id} promotion case ${caseId} cannot be a lab or manual case`);
       if (levelRank(item.level) < levelRank(claim.level)) errors.push(`${claim._file}: ${claim.id} requires ${claim.level} but ${caseId} is ${item.level}`);
       if (claim.level === "L4" && (item.kind !== "perf" || item.profile !== "formal-1080p")) {
         errors.push(`${claim._file}: ${claim.id} L4 promotion case ${caseId} must be kind perf with formal-1080p profile`);
       }
     }
+  }
+  const promotionCaseIds = new Set(model.claims.flatMap((claim) => [
+    ...(claim.evidencePolicy?.allOf ?? []),
+    ...(claim.evidencePolicy?.anyOf ?? [])
+  ]));
+  for (const item of model.cases) {
+    if (item.evidenceRole === "diagnostic" && promotionCaseIds.has(item.id)) errors.push(`${item._file}: diagnostic case ${item.id} cannot participate in promotion`);
+    if (item.evidenceRole === "promotion" && !promotionCaseIds.has(item.id)) errors.push(`${item._file}: promotion case ${item.id} must participate in a claim promotion policy`);
   }
   for (const profile of model.profiles) {
     if (!ID_PATTERN.test(profile.id ?? "")) errors.push(`${profile._file}: invalid profile id`);
@@ -340,7 +352,7 @@ function validateFrontmatterDocs(model, errors) {
     }
     const value = entry.value;
     if (!domainIds.has(value.id) || value.kind !== "domain" || typeof value.owner !== "string") errors.push(`${relative(REPO_ROOT, entry.path)}: invalid domain frontmatter identity`);
-    if (!Array.isArray(value.contracts) || !Array.isArray(value.claims)) errors.push(`${relative(REPO_ROOT, entry.path)}: domain frontmatter needs contracts and claims`);
+    if ("contracts" in value || "claims" in value) errors.push(`${relative(REPO_ROOT, entry.path)}: domain relationships belong in project/domains, not Markdown frontmatter`);
   }
   for (const entry of model.contractDocs ?? []) {
     validateMarkdownLinks(entry, errors);

@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: web-authored-large-perf
+evidenceRole: promotion
 sourceCase: web-100m-formal-perf
 route: /cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-perf&workload=web-authored-large-perf-v1
 buildTarget: production

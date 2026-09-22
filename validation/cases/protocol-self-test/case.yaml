@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: protocol-self-test
+evidenceRole: promotion
 route: /cases/protocol-self-test/index.html
 buildTarget: host
 workloadId: protocol-self-test-v1

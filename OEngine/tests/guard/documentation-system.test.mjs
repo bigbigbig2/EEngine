@@ -37,6 +37,34 @@ test("machine project manifests and generated registry are healthy", () => {
   assert.equal(existsSync(path.join(repoRoot, "validation/registry.generated.json")), true);
 });
 
+test("context defaults to a compact actionable summary with explicit expansions", () => {
+  const input = "OEngine/src/assets/web-cook/CanonicalWindowPlanner.ts";
+  const output = execFileSync(process.execPath, ["tools/vibe.mjs", "context", input], { cwd: repoRoot, encoding: "utf8" });
+  const compact = JSON.parse(output);
+  assert.ok(output.split(/\r?\n/u).length < 100, "default context should remain under 100 lines");
+  assert.equal(compact.owner.primary, "virtual-assets");
+  assert.ok(compact.contracts.length > 0);
+  assert.ok(compact.checks.length > 0);
+  assert.ok(compact.engineTests.testFiles > 0);
+  assert.equal("claims" in compact, false);
+  assert.equal("cases" in compact, false);
+
+  const expanded = JSON.parse(execFileSync(process.execPath, ["tools/vibe.mjs", "context", input, "--claims", "--cases"], { cwd: repoRoot, encoding: "utf8" }));
+  assert.ok(expanded.claims.length > 0);
+  assert.ok(expanded.cases.length > 0);
+});
+
+test("domain frontmatter keeps identity and leaves relationships to manifests", () => {
+  for (const file of files(path.join(docsRoot, "domains"), ".md")) {
+    if (path.basename(file) === "README.md") continue;
+    const frontmatter = readFileSync(file, "utf8").split("---", 3)[1];
+    assert.match(frontmatter, /\nid:\s*[^\n]+/u);
+    assert.match(frontmatter, /\nkind:\s*domain/u);
+    assert.match(frontmatter, /\nowner:\s*[^\n]+/u);
+    assert.doesNotMatch(frontmatter, /\n(?:contracts|claims):/u);
+  }
+});
+
 test("every existing changed path has one primary domain owner", async () => {
   // 这条断言直接测路由函数，不 spawn 整个 CLI：
   // 一是 CLI 的退出码会随工作树的验证等级变化（L2/L3 改动退出 2），把路由
@@ -52,13 +80,13 @@ test("every existing changed path has one primary domain owner", async () => {
   }
 });
 
-test("each domain has a human page and machine route", () => {
-  const domainFiles = files(path.join(repoRoot, "project/domains"), ".yaml");
-  for (const file of domainFiles) {
-    const id = path.basename(file, ".yaml");
-    assert.equal(existsSync(path.join(docsRoot, "domains", `${id}.md`)), true, id);
-    const source = readFileSync(file, "utf8");
-    assert.match(source, /^paths:\s*$/m, id);
+test("each domain has a human page routed back to its machine owner", async () => {
+  const { loadModel, routeDomains } = await import("../../../tools/vibe-lib.mjs");
+  const model = await loadModel();
+  for (const domain of model.domains) {
+    const document = `docs/domains/${domain.id}.md`;
+    assert.equal(existsSync(path.join(repoRoot, document)), true, domain.id);
+    assert.equal(routeDomains(model, [document]).primary?.id, domain.id, document);
   }
 });
 

@@ -4,13 +4,13 @@ kind: contract
 status: frozen
 owners: 
   - platform
-version: 2
+version: 3
 consumers: 
   - validation/src/runner
   - validation/cases/*/case.yaml
   - validation/labs/*/case.yaml
 invariants: 
-  - case owns its claim coverage
+  - case owns its evidence role and optional claim coverage
   - artifacts and evidence are declared
 validation: 
   - registry validation
@@ -22,6 +22,7 @@ Each `validation/cases/<id>/case.yaml` owns the case identity, primary domain, d
 
 ```yaml
 domain: virtual-assets
+evidenceRole: promotion | diagnostic
 caseKind: component | production | internal-candidate | orchestration
 kind: contract | oracle | guard | gpu | perf | unit
 level: L0 | L1 | L2 | L3 | L4
@@ -34,4 +35,4 @@ harness: protocol | gpu | production | observer
 
 The case manifest is the source. `validation/registry.generated.json` is a deterministic runner input and is never hand edited. Claims and checks are the proof routing source; the registry preserves the canonical case fields and adds only runner identity and generated metadata.
 
-Promotion cases must be automatic, non-lab, and at least the claim's assurance level. L4 cases are formal performance cases only: `kind: perf` with profile `formal-1080p`. Diagnostic browser execution cannot promote evidence. Explicit acceptance execution performs or safely reuses a full verification preflight and publishes its passed check receipts in artifact schema v2.
+`promotion` cases must have non-empty `covers`, appear in at least one claim promotion policy when used for promotion, be automatic and non-lab, and meet that claim's assurance level. A promotion case may still be diagnostic for a different covered claim through that claim's policy. `diagnostic` cases may use an empty `covers` list and cannot appear in any promotion policy or publish accepted evidence. Labs are always diagnostic. L4 cases are formal performance cases only: `kind: perf` with profile `formal-1080p`. Explicit acceptance execution performs or safely reuses a full verification preflight and publishes its passed check receipts in artifact schema v2.

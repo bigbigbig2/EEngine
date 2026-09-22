@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: virtual-product-device-loss
+evidenceRole: promotion
 route: /cases/virtual-product-device-loss/index.html
 buildTarget: production
 workloadId: virtual-product-device-loss-v1

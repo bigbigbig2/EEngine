@@ -6,7 +6,19 @@ state: active
 owner: virtual-assets
 decision: ADR-0018
 sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
-goal: Stabilize the fixed 477,591,060-byte, 4,871,612-triangle authored large GLB through work-bounded Web runtime cook, full catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal; retain 100M as a later scale gate.
+goal: Stabilize the fixed authored-large GLB through work-bounded Web cook, complete catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal; retain 100M as a later scale gate.
+
+currentSlice:
+  id: K0
+  title: Authored-large production gate
+  target: web-authored-large-cook-k0
+  status: blocked-on-product-identity
+  finding: The bounded product-31 diagnostic failed because ordinary windows shared a provisional Product identity and an OPFS page key resolved to another Product revision.
+nextTasks:
+  - Give every ordinary Product a partition-scoped identity before spill and publication.
+  - Define partial producer failure separately from successful full-catalog settlement.
+  - Capture a clean accepted K0 browser receipt covering all 1920 catalog primitives.
+
 contracts:
   - geometry-product-v1
   - virtual-geometry-runtime-v1
@@ -27,439 +39,66 @@ claims:
   - visibility.gpu-closure
   - virtual-assets.performance
   - virtual-assets.scale-performance
+
+completedMilestones:
+  - range: A-E
+    result: Baseline attribution, bounded canonical windows, spatial shards, cook/spill artifacts, and Multi-Product runtime contracts are established.
+    links:
+      - docs/specs/web-geometry-page-artifact-v1.md
+      - docs/specs/web-geometry-spatial-shard-v1.md
+      - docs/specs/web-geometry-multi-product-runtime-v1.md
+  - range: F-J
+    result: Visible-first scheduling, bounded GPU demand compaction, adaptive residency, current-HZB recheck, and adaptive page scheduling are implemented with contract or oracle coverage.
+    links:
+      - docs/specs/web-geometry-residency-profile-v1.md
+      - docs/specs/web-geometry-dynamic-page-scheduler-v1.md
+  - range: K0a-K0c
+    result: Product work budgets, phase traces, and independent session spill accounting are implemented; they bound the failing K0 diagnostic to one Product and phase.
+    links:
+      - docs/specs/web-geometry-product-work-budget-v1.md
+      - docs/specs/web-geometry-product-task-trace-v1.md
+      - docs/specs/web-geometry-authored-large-gate-v1.md
+
 tasks:
-  - id: baseline-100m-failure-attribution
-    phase: A
-    priority: P0
-    title: Establish the 100M workload, observability, and exact failure owner
-    state: done
-    dependsOn: []
-    completedEvidence:
-      workloadId: web-100m-phase-a-baseline-v1
-      sourceTriangles: 100000000
-      layout: single-giant-primitive
-      sourceBytes: 2800457176
-      sourceSha256: 730da7cd55ee00b1f98bff58e83e7081e33d7972f56bfdafc24f2b68d234b6a0
-      report: .local/validation/web-100m-phase-a-baseline/report.json
-      result: source-admission
-      failureOwner: WebCookCoordinator
-      failureCode: total-source-charged-as-live-source
-      observedSourceWindowPeakBytes: 1116
-      configuredSourceLimitBytes: 134217728
-      note: Diagnostic baseline only; this closes failure attribution, not RuntimeValidated or formal PERF evidence.
-      authoredControl:
-        workloadId: web-authored-large-phase-a-v1
-        source: authored-local-large-glb
-        sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
-        sourceTriangles: 4871612
-        nodes: 1041
-        primitives: 1920
-        report: .local/validation/web-100m-phase-a-baseline/large.authored.report.json
-        role: supplementary-authored-control
-      nyxZorahControl:
-        workloadId: web-nyx-zorah-phase-a-v1
-        source: nyx-zorah-v2-official
-        sourceIdentitySha256: 7fca3001761d379b724b905a9abe7308af4c993d7472120b6943f603212251f6
-        sourceBytes: 10011996302
-        sourceTriangles: 1627207159
-        logicalInstancedTriangles: 18937042387
-        nodes: 16988
-        meshes: 2068
-        primitives: 3163
-        maxPrimitiveTriangles: 32054609
-        report: .local/validation/web-100m-phase-a-baseline/zorah.authored.report.json
-        relaxedSourceReport: .local/validation/web-100m-phase-a-baseline/zorah.authored.relaxed-source.report.json
-        result: source-admission
-        nextFailureCode: ext-meshopt-compression-not-decoded
-        role: official-authored-scale-and-high-instancing-control
-    exitCriteria:
-      - Reproducible 100M workload identity and generator parameters are frozen.
-      - Catalog, range read, canonical, WASM, cook, retained payload, descriptor, admission, GPU metadata, and residency owners expose exact current and peak bytes.
-      - Failure evidence names the responsible owner and allocation; an undifferentiated OOM is not accepted.
-  - id: canonical-windowing
-    phase: B
-    priority: P0
-    title: Replace full-scene canonical input with bounded source and canonical windows
-    state: done
-    dependsOn: [baseline-100m-failure-attribution]
-    completedEvidence:
-      review: docs/reviews/2026-09-21-web-100m-phase-b-canonical-windowing.md
-      implementationStatus: implementation-and-oracle-complete
-      canonicalBudgetBytes: 67108864
-      sourceWindowBudgetBytes: 16777216
-      workload100m:
-        sourceTriangles: 100000000
-        primitives: 1000
-        windows: 125
-        peakCanonicalBytes: 47349120
-      workload250m:
-        sourceTriangles: 250000000
-        primitives: 2500
-        windows: 313
-        peakCanonicalBytes: 47349120
-      wasmArtifact: checked-in-portable-builder-executed
-      engineTests: 451/451
-      note: Metadata-scale contract/oracle evidence, not RuntimeValidated or formal PERF. Single oversized primitives remain Phase C; bounded EXT_meshopt decode remains an open Zorah gate.
-    exitCriteria:
-      - The 100M canonical peak stays within the configured owner budget.
-      - Increasing the workload from 100M to 250M does not proportionally increase the live canonical payload peak.
-      - No Worker session retains whole-scene decoded geometry.
-  - id: giant-primitive-spatial-sharding
-    phase: C
-    priority: P0
-    title: Deterministically partition a single giant primitive into bounded Product shards
-    state: done
-    dependsOn: [canonical-windowing]
-    completedEvidence:
-      review: docs/reviews/2026-09-21-web-100m-phase-c-spatial-sharding.md
-      contract: docs/specs/web-geometry-spatial-shard-v1.md
-      implementationStatus: implementation-and-oracle-complete
-      partitionVersion: morton-radix-prefix-v1
-      workload100m:
-        sourceTriangles: 100000000
-        nodes: 1
-        primitives: 1
-        targetTrianglesPerShard: 1000000
-        shards: 100
-        maxShardTriangles: 1000000
-      note: Contract/oracle evidence, not 100M browser RuntimeValidated or formal PERF. Phase D retainedGroups/cook-and-spill and bounded EXT_meshopt decode remain open.
-    exitCriteria:
-      - A single 100M-triangle primitive produces more than one bounded shard.
-      - Bounds, seams, attributes, materials, hierarchy, and ownership remain valid.
-      - Identical input and recipe produce stable shard and Product identities.
-  - id: cook-and-spill
-    phase: D
-    priority: P0
-    title: Spill immutable page artifacts and release per-shard cook memory
-    state: done
-    dependsOn: [giant-primitive-spatial-sharding]
-    completedEvidence:
-      review: docs/reviews/2026-09-22-web-100m-phase-d-cook-and-spill.md
-      contract: docs/specs/web-geometry-page-artifact-v1.md
-      implementationStatus: implementation-and-oracle-complete
-      spillBackends: [memory, opfs]
-      checkedInArtifacts:
-        singleThreadMjsSha256: d7ef6fadde37615d244a82081d44ab7f4e39ef71fa3e10005c94527b5bfa7e5a
-        singleThreadWasmSha256: 56bbfaf11974b9af2cdfaa5696712d9f1d95a04ea5e38c0d9961e3e42011d765
-        pthreadMjsSha256: 7bf8123a706d735908df0f0f50ed10b42d5e27f9cb23b1c0c52f776db9bc4bec
-        pthreadWasmSha256: e0ef7a7bc660c463a0d522e1b2a8f9ed76f64d0ffe0ea9b6b181ce5278e66f4e
-        optionalExport: oengine_web_geometry_cook_release_page
-      evidence:
-        - memory-and-opfs-exact-reread
-        - checksum-corruption-rejection
-        - bounded-budget-and-owner-accounting
-        - generation-isolation
-        - plan-backed-first-cook-second-read-spill-hit
-        - release-cancel-generation-guard
-      note: Contract/oracle and checked-in Emscripten artifact evidence only; this is not 100M browser RuntimeValidated or formal PERF evidence. Zorah bounded EXT_meshopt_compression decode remains an open gate.
-    exitCriteria:
-      - WASM and serialized-group peaks remain within declared budgets for the 100M workload.
-      - Completed Group payloads are not retained solely for future page reads.
-      - OPFS page re-read is byte-exact and decoded identity plus payload checksum remain stable.
-      - Cancellation, failure, retry, and release do not publish partial or mixed-generation Products.
-  - id: multi-product-runtime
-    phase: E
-    priority: P0
-    title: Admit and render independently owned Product shards through one Product Table
-    state: done
-    dependsOn: [cook-and-spill]
-    completedEvidence:
-      review: docs/reviews/2026-09-22-web-100m-phase-e-multi-product-runtime.md
-      contract: docs/specs/web-geometry-multi-product-runtime-v1.md
-      implementationStatus: production-consumer-and-oracle-complete
-      slotCapacity: 128
-      activeShardEvidence: 64
-      productTableRecordStrideBytes: 64
-      instanceAbiVersion: 8
-      instanceRecordStrideBytes: 176
-      contractTest: OEngine/tests/contract/geometry-product-multi-runtime.test.mjs
-      testResult: relocation-instance-demand-streaming-scene-merge-covered
-      note: Production consumer is wired; clean 100M browser RuntimeValidated, TTFMF, and formal PERF evidence remain Phase K gates.
-    exitCriteria:
-      - At least 64 Product shards can be active concurrently in the production renderer.
-      - Each shard supports independent load, replacement, eviction, dormancy, and release.
-      - Product-local PageID and generation reject stale demand and stale page completion.
-      - GPU Product Table and instance identity ABI have an authoritative spec and contract/oracle coverage.
-  - id: visible-first-product-scheduler
-    phase: F
-    priority: P0
-    title: Publish visible and near Product shards before background shards
-    state: done
-    dependsOn: [multi-product-runtime]
-    completedEvidence:
-      review: docs/reviews/2026-09-22-web-100m-phase-f-visible-first-product-scheduler.md
-      contract: docs/specs/web-geometry-visible-first-product-scheduler-v1.md
-      implementationStatus: implementation-and-oracle-complete
-      schedulerPolicy: current-view-priority-then-spatial-relevance
-      fifoPolicy: catalog-order-is-tie-break-only
-      firstCutBoundary: descriptor-and-all-activation-pages-published
-      ttfmfEvidence: firstMeaningfulFrameMs
-      totalCookEvidence: totalCookMs-and-waitForCookCompletion
-      contractTests:
-        - OEngine/tests/unit/web-cook-visible-first.test.mjs
-        - OEngine/tests/unit/web-cook-coordinator.test.mjs
-      testResult: 18/18
-      note: Node/unit contract evidence only; clean 100M browser RuntimeValidated, production multi-Product consumer, and formal PERF remain open gates.
-    exitCriteria:
-      - The 100M scene renders a correct coarse world before total cook completion.
-      - TTFMF is measured separately from and is materially lower than total cook completion time.
-      - Priority uses current-view need and spatial relevance; FIFO-only scheduling is rejected.
-  - id: gpu-demand-dedup-compaction
-    phase: G
-    priority: P1
-    title: Compact Product-local request masks into bounded priority demand records on the GPU
-    state: done
-    dependsOn: [visible-first-product-scheduler]
-    completedEvidence:
-      review: docs/reviews/2026-09-22-web-100m-phase-g-gpu-demand-compaction.md
-      contract: docs/specs/web-geometry-demand-compaction-v1.md
-      implementationStatus: gpu-mask-and-bounded-readback-contract-complete
-      maskPolicy: product-local-page-bitmask-cleared-per-frame
-      queuePolicy: 16-byte-record-256KiB-readback-bound
-      overflowPolicy: mask-and-queue-overflow-observable-and-drop-without-write
-      producerConsumer: hierarchy-root-traversal-to-delayed-ring-to-page-scheduler
-      contractTests:
-        - OEngine/tests/contract/geometry-page-demand-abi.test.mjs
-        - OEngine/tests/contract/virtual-product-shadow-contract.test.mjs
-        - OEngine/tests/oracle/virtual-geometry-work-source.test.mjs
-        - OEngine/tests/unit/geometry-page-scheduler.test.mjs
-        - OEngine/tests/unit/geometry-page-streaming-runtime.test.mjs
-      testResult: 26/26
-      note: Node/unit contract and shader-oracle evidence only; clean 100M browser duplicate-ratio/readback/overflow evidence, unified multi-Product browser consumer, and formal PERF remain open gates.
-    exitCriteria:
-      - Camera-cut duplicate requests are removed before readback.
-      - Queue ABI, capacity, overflow behavior, producer, consumer, and counters are specified and tested.
-      - Readback record count and bytes remain bounded under camera-cut stress.
-  - id: adaptive-gpu-residency-profiles
-    phase: H
-    priority: P1
-    title: Select Portable, Balanced, or HighEnd residency from negotiated WebGPU limits
-    state: done
-    dependsOn: [multi-product-runtime]
-    completedEvidence:
-      review: docs/reviews/2026-09-22-web-100m-phase-h-adaptive-gpu-residency.md
-      contract: docs/specs/web-geometry-residency-profile-v1.md
-      implementationStatus: implementation-and-contract-complete
-      profiles:
-        Portable: 536870912
-        Balanced: 805306368
-        HighEnd: 1073741824
-      bankCount: 4
-      pageBytes: 262144
-      contractTest: OEngine/tests/contract/geometry-product-residency-profile.test.mjs
-      testResult: 4/4
-      note: Negotiated-limit and fake-device contract evidence only; real-adapter profile, device-loss, clean 100M browser, and formal PERF evidence remain open.
-    exitCriteria:
-      - One Product ABI runs without recook across all supported profiles.
-      - Allocation uses negotiated limits and runtime evidence rather than assumed physical VRAM.
-      - Feature-off and low-limit paths allocate no unused profile resources.
-  - id: current-hzb-late-recheck
-    phase: I
-    priority: P1
-    title: Recheck uncertain or expensive visibility candidates against the current HZB
-    state: done
-    dependsOn: [gpu-demand-dedup-compaction]
-    completedEvidence:
-      review: docs/reviews/2026-09-22-web-100m-phase-i-current-hzb-late-recheck.md
-      contract: docs/specs/web-geometry-current-hzb-late-recheck-v1.md
-      implementationStatus: production-framegraph-consumer-and-oracle-complete
-      diagnosticOracleMaxCapacity: 65536
-      productionRecord: standard-meshlet-work-24-byte
-      productionCapacity: visibility-key-24-bit-and-adapter-buffer-limit
-      overflowPolicy: invalid-stale-source-overflow-copy-source-work-fail-open
-      parityPolicy: conservative-only-rejection-and-fail-open-invalid-metadata
-      oracle: OEngine/tests/oracle/current-hzb-late-recheck.test.mjs
-      testResult: production-order-filtered-consumer-and-feature-pruning-covered
-      note: Dense-occlusion browser consumer, screenshot parity, GPU time and formal PERF remain open; this revision does not claim RuntimeValidated or Performance Improved.
-    exitCriteria:
-      - Dense-occlusion evidence reduces selected meshlets and raster vertices without image parity loss.
-      - GPU visibility cost improves on the frozen workload; the pass is removed when it has no consumer.
-  - id: dynamic-page-scheduler
-    phase: J
-    priority: P1
-    title: Adapt reads, in-flight bytes, and upload budget to camera, IO, GPU, and frame pressure
-    state: done
-    dependsOn: [gpu-demand-dedup-compaction, adaptive-gpu-residency-profiles]
-    completedEvidence:
-      review: docs/reviews/2026-09-22-web-100m-phase-j-dynamic-page-scheduler.md
-      contract: docs/specs/web-geometry-dynamic-page-scheduler-v1.md
-      implementationStatus: bounded-adaptive-budget-controller-and-runtime-entry-complete
-      hardCaps: maxConcurrentReads-maxInFlightBytes-maxUploadBytesPerFrame
-      pressureInputs: [camera-state, io-throughput, gpu-pressure, frame-time]
-      cameraCutPolicy: temporary-burst-to-declared-caps
-      floorPolicy: decoded-page-bytes
-      tests:
-        - OEngine/tests/unit/geometry-page-scheduler-adaptive.test.mjs
-        - OEngine/tests/unit/geometry-page-scheduler.test.mjs
-      note: Real browser camera-cut/IO/GPU curves and authored-large formal PERF remain open; deferred 100M scale evidence comes later, while device-loss safety keeps the existing generation contract.
-    exitCriteria:
-      - Scheduler budgets stay bounded and expose pressure, retry, cancellation, and overflow counters.
-      - Camera cuts can burst within declared limits and stable views reduce streaming pressure.
-      - Failure and device-loss paths preserve Product generation and resource ownership.
-  - id: product-work-budget
-    phase: K0a
-    priority: P0
-    title: Bound every spatial shard and ordinary Product by bytes, triangles, vertices, and domains
-    state: done
-    dependsOn: [dynamic-page-scheduler]
-    implementationEvidence:
-      contract: docs/specs/web-geometry-product-work-budget-v1.md
-      implementationStatus: implementation-and-oracle-complete
-      planner: OEngine/src/assets/web-cook/CanonicalWindowPlanner.ts
-      initialPolicy:
-        maxCanonicalBytes: 33554432
-        maxTrianglesPerProduct: 131072
-        maxVerticesPerProduct: 524288
-        maxDomainsPerProduct: 64
-    exitCriteria:
-      - A primitive exceeding any work limit spatially shards even when canonical bytes fit.
-      - Ordinary batching flushes before any work limit is exceeded.
-      - Contract and oracle tests cover both spatial and ordinary paths, boundary values, determinism, and cleanup.
-  - id: product-task-phase-trace
-    phase: K0b
-    priority: P0
-    title: Expose Product, primitive, shard, work size, current phase, and phase timing
-    state: done
-    dependsOn: [dynamic-page-scheduler]
-    implementationEvidence:
-      contract: docs/specs/web-geometry-product-task-trace-v1.md
-      implementationStatus: worker-protocol-client-evidence-and-oracle-complete
-      catalogEvent: SceneCatalogReady
-      requiredProductPhases: [canonicalize, wasm-plan, spill, publish, completed, failed, cancelled]
-    exitCriteria:
-      - A watchdog snapshot identifies the exact Product/shard and phase instead of only units.
-      - Every task reaches completed, failed, or cancelled and records canonicalize, WASM, spill, publish, page, and byte counters.
-      - The trace does not claim synchronous WASM cancellation is preemptive.
-  - id: session-spill-budget
-    phase: K0c
-    priority: P0
-    title: Separate per-Product decoded budget from complete-session spill budget
-    state: done
-    dependsOn: [dynamic-page-scheduler]
-    implementationEvidence:
-      implementationStatus: independent-worker-configuration-and-accounting-complete
-      authoredInitialLimitBytes: 1073741824
-      perProductDecodedLimitBytes: 134217728
-      contract: docs/specs/web-geometry-authored-large-gate-v1.md
-    exitCriteria:
-      - Worker configuration and accounting expose maxSessionSpillBytes independently from maxDecodedProductBytes.
-      - Current, peak, limit, cleanup, and overflow evidence covers the complete session.
   - id: authored-large-production-gate
     phase: K0
     priority: P0
     title: Complete authored-large cook with full catalog coverage and bounded task evidence
     state: active
-    dependsOn: [product-work-budget, product-task-phase-trace, session-spill-budget]
-    implementationEvidence:
-      review: docs/reviews/2026-09-22-web-100m-authored-first-validation-plan.md
-      contract: docs/specs/web-geometry-authored-large-gate-v1.md
-      workloadId: web-authored-large-cook-k0-v1
-      case: web-authored-large-cook-k0
-      caseRegistration: registered-with-coverage-trace-spill-settled-and-disposal-assertions
-      sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
-      sourceBytes: 477591060
-      sourceTriangles: 4871612
-      nodes: 1041
-      primitives: 1920
-      maximumPrimitiveTriangles: 1364306
-      currentEvidence: failed-diagnostic-only
-      latestDiagnostic:
-        runId: 2026-09-22T12-55-33-160Z-web-authored-large-cook-k0-fd3c5c8e-a87c-4c7e-9fe4-5e79313e7f14
-        productOrdinal: 31
-        taskId: product-31
-        primitive: 12:10:7|12:10:8|13:11:0
-        sceneAssetIndices: [50, 51, 55]
-        triangles: 110742
-        vertices: 182089
-        domains: 3
-        canonicalBytes: 14439552
-        canonicalizeMs: 224.835
-        wasmPlanMs: 491.295
-        failedPhase: spill
-        failure: spill page key or identity does not match the Product revision
-        architecturalOwner: provisional-ordinary-product-identity-and-progressive-terminal-semantics
-        note: Work quantum was bounded; this is not accepted K0 evidence.
+    dependsOn: []
     exitCriteria:
-      - The union of every Product sceneAssetIndices covers all 1920 catalog primitives; Product count is recorded and is not required to equal 1920.
-      - The receipt records first Product, total cook, slowest Product/WASM plan, task trace, owner current/peak/limit, spill peak, pages, settled, and disposal.
-      - No opaque Product phase exceeds the watchdog without an exact Product/shard/phase failure record.
+      - The Product sceneAssetIndices union covers all 1920 catalog primitives.
+      - Receipts record first Product, total cook, slowest Product and WASM plan, owner peaks, spill, settled state, and disposal.
+      - Every failure names an exact Product, shard, and phase.
   - id: production-performance-debt
     phase: K1
     priority: P1
-    title: Validate authored runtime smoke and close producer/publication debt before formal sampling
+    title: Close producer and publication debt through an authored runtime smoke
     state: todo
     dependsOn: [authored-large-production-gate]
-    implementationEvidence:
-      review: docs/reviews/2026-09-22-web-100m-authored-first-validation-plan.md
-      workloadId: web-authored-large-runtime-smoke-v1
-      plannedCase: web-authored-large-runtime-smoke
-      caseRegistration: forbidden-until-runtime-actions-and-assertions-exist
-      scope:
-        - planner-scratch-and-ordered-materialization
-        - cancellation-failure-cleanup-and-scratch-accounting
-        - activation-first-publication-before-full-spill
-        - incremental-gpu-render-world-publication
-        - automatic-product-slot-and-metadata-capacity
-        - source-read-decode-upload-telemetry
-        - session-local-product-scheduler-after-bounded-quantum
     exitCriteria:
-      - One authored runtime smoke run reaches first frame, camera movement, page demand, fallback, camera-cut recovery, settled, and disposal without GPU errors.
-      - Giant-primitive planning does not rescan the complete primitive for every shard without bounded persistent scratch and evidence.
-      - Appending Products does not rebuild and submit the entire Scene publication once per shard without an explicit measured budget or incremental path.
-      - Catalog/Spatial Plan can estimate Product count and select capacity within negotiated WebGPU limits without caller-provided magic numbers.
-      - Scheduler telemetry distinguishes source read, decode, cook, and GPU upload throughput and records owner peaks and cleanup.
+      - Runtime smoke reaches first frame, camera movement, demand, fallback, recovery, settled state, and disposal without GPU errors.
+      - Activation-first and incremental publication avoid rebuilding the full Scene for every appended Product.
+      - Capacity and telemetry derive from the catalog and negotiated limits.
   - id: authored-large-formal-perf
     phase: K2
     priority: P1
     title: Capture clean formal authored-large runtime and performance evidence
     state: todo
     dependsOn: [production-performance-debt]
-    implementationEvidence:
-      contract: docs/specs/web-geometry-formal-perf-freeze-v1.md
-      workloadId: web-authored-large-perf-v1
-      profile: formal-1080p
-      formalCase: web-authored-large-perf
-      promotionClaim: virtual-assets.performance
     exitCriteria:
-      - Revision, browser, adapter, resolution, DPR, camera path, feature set, source, and workload hash are frozen.
-      - Three independent runs record TTFMF, CPU/GPU P50/P95, Product task timing, owner peaks, demand/churn/overflow, and camera-cut recovery.
-      - Evidence comes from the independent host on a clean revision with all required gates passed.
+      - Three clean independent runs freeze revision, browser, adapter, display, camera, features, source, and workload.
+      - Receipts include TTFMF, CPU/GPU P50/P95, task timing, owner peaks, demand, churn, overflow, and recovery.
   - id: formal-100m-perf-freeze
     phase: S1
     priority: P2
     title: Run the deferred clean formal 100M scale gate
     state: todo
     dependsOn: [authored-large-formal-perf]
-    implementationEvidence:
-      contract: docs/specs/web-geometry-formal-perf-freeze-v1.md
-      workloadId: web-100m-formal-perf-v1
-      profile: formal-1080p
-      formalCase: web-100m-formal-perf
-      promotionClaim: virtual-assets.scale-performance
-      sourceBytes: 2800457176
-      sourceTriangles: 100000000
     exitCriteria:
-      - The authored target is already accepted; 100M evidence is not used to bypass an authored failure.
+      - The authored target is already accepted.
       - Frozen identity, correctness, memory, runtime, and performance receipts satisfy the separate scale claim.
-  - id: raster-bucket-optimization
-    phase: L
-    priority: P2
-    title: Compare 32, 64, 96, and 128 triangle raster buckets with the fixed 384-vertex route
-    state: todo
-    dependsOn: [formal-100m-perf-freeze]
-    exitCriteria:
-      - Frozen A/B evidence demonstrates lower wasted vertex work without correctness regression.
-      - Bucket-specific queues declare ABI, capacity, overflow, producers, consumers, and counters.
-  - id: scale-validation-250m-1b
-    phase: M
-    priority: P2
-    title: Validate 250M, 500M, and 1B logical scale without another architecture rewrite
-    state: todo
-    dependsOn: [formal-100m-perf-freeze]
-    exitCriteria:
-      - 250M passes the promoted scalability gate.
-      - 500M and 1B logical runs show working-set decoupling and identify any cache or scheduler pressure.
-      - Tuning changes cache, thrash, scheduler, residency, or prediction policy rather than restoring scene-scale payload residency.
+
 exitChecks:
   - model
   - registry
@@ -467,32 +106,19 @@ exitChecks:
   - evidence-provenance
   - engine-suites
 requiredEvidence:
-  - Authored-large K0 browser evidence with full 1920-primitive catalog coverage, actual Product count, first Product, total cook, Product task/phase trace, owner and spill peaks, settled, and disposal receipts
-  - Product Work Planner contract and oracle evidence for canonical bytes, triangles, vertices, and domains on both spatial and ordinary batching paths
-  - Separate maxDecodedProductBytes and maxSessionSpillBytes configuration, peak, limit, cleanup, and overflow evidence
-  - Nyx source-function, shader-entry, decision-condition, data-dependency, invariant, difference, fallback, and validation mapping for every changed geometry stage
-  - Fixed authored cook, authored runtime, authored formal PERF, deferred 100M, and later 250M/500M/1B workload identities
-  - Single-giant-primitive, many-primitives, city-grid, dense-indoor, high-occlusion, camera-cut, and high-instancing coverage
-  - Owner-attributed current, peak, and limit bytes for source, canonical, WASM cook, serialized groups, spill, metadata, decoded pages, GPU geometry, and textures
-  - Contract and oracle evidence for shard boundaries, seams, hierarchy, Product/Page identity, generation, exact spill re-read, determinism, failure atomicity, and release
-  - Clean independent-browser evidence that visible Product shards reach the production GPU consumer before total cook completion
-  - Formal authored-large PERF evidence with frozen revision, browser, adapter, display, camera, feature, source, and workload identities
-  - Deferred formal 100M scale evidence only after the authored target is accepted
-retirementTargets:
-  - Full-scene canonical ArrayBuffer ownership in the Web runtime cook path
-  - Full-Product retainedGroups lifetime used only to materialize future pages
-  - Single-Product Scene identity assumptions in production GPU metadata and instance references
-  - Fixed read concurrency and in-flight byte policy used as the only large-scene scheduler mode
+  - Accepted authored-large K0 receipt with complete catalog coverage and Product task, owner, spill, settlement, and disposal evidence.
+  - Contract and oracle evidence for work bounds, identity, shard boundaries, determinism, failure atomicity, and release.
+  - Clean browser evidence that visible Products reach the production GPU consumer before total cook completion.
+  - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
+  - Formal authored-large performance evidence before the separate 100M scale gate.
 openGates:
-  - K0 authored-large cook reached bounded product-31 but failed because ordinary windows share a provisional Product identity and OPFS returned a different Product page under the colliding key; no accepted browser receipt exists.
-  - Progressive producer failure after earlier Products is currently reported as recoverable cook-complete while full-catalog settled remains unreachable; terminal semantics must distinguish partial completion from a successfully settled session.
-  - K1 activation-first publication, planner scratch/materialization, incremental Scene publication, automatic Product capacity, runtime smoke, and source/decode/upload telemetry remain open.
-  - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
-  - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
-  - Multi-Product Scene, relocated GPU Product Table, per-instance identity, streaming routing, and production renderer consumer are implemented; clean authored browser evidence is still open.
-  - Visible-first implementation and GPU demand compaction contract are complete; clean authored browser duplicate/readback evidence and formal workload execution remain open.
-  - GPU demand compaction and adaptive scheduler queues lack promoted capacity and overflow evidence.
-  - Portable, Balanced, and HighEnd residency profiles lack negotiated-limit evidence across supported adapters.
-  - Formal authored-large PERF evidence has not been captured on a clean revision; K2 is intentionally post-K0/K1.
-  - Formal 100M PERF is a deferred S1 scale gate and must not run before authored K2.
-  - 250M, 500M, and 1B logical-scale working-set evidence does not exist.
+  - Partition-scoped ordinary Product identity and correct spill keying are incomplete; no accepted K0 browser receipt exists.
+  - Partial producer failure and full-catalog settled terminal semantics are not yet separated.
+  - Activation-first publication, incremental Scene publication, automatic Product capacity, and session-local scheduling remain open.
+  - Clean authored browser evidence for the production consumer, demand capacity, overflow, and negotiated residency profiles remains open.
+  - Formal authored-large K2 and deferred 100M S1 evidence do not exist.
+
+links:
+  decision: docs/adr/0018-web-100m-virtual-geometry.md
+  implementationAudit: docs/reviews/2026-09-22-adr-0018-current-implementation-audit-and-refactor-plan.md
+  validationPlan: docs/reviews/2026-09-22-web-100m-authored-first-validation-plan.md

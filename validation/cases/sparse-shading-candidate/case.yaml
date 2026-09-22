@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: sparse-shading-candidate
+evidenceRole: promotion
 route: /cases/sparse-shading-candidate/index.html
 buildTarget: internal-candidate
 workloadId: sparse-shading-candidate-correctness-v6

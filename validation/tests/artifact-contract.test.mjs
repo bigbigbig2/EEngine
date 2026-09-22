@@ -70,7 +70,7 @@ function validArtifact() {
   };
 }
 
-const selectedCase = { id: "protocol-self-test", workloadId: "protocol-self-test-v1", artifacts: ["result", "events"] };
+const selectedCase = { id: "protocol-self-test", evidenceRole: "promotion", workloadId: "protocol-self-test-v1", artifacts: ["result", "events"] };
 
 test("accepted artifact satisfies freshness, provenance, dispose and manifest contract", () => {
   assert.deepEqual(validateArtifact(validArtifact(), selectedCase), []);
@@ -104,6 +104,11 @@ test("diagnostic runs cannot publish accepted evidence", () => {
   assert.ok(validateArtifact(artifact, selectedCase).some((error) => error.includes("diagnostic runs")));
   artifact.evidenceStatus = "diagnostic-only";
   assert.deepEqual(validateArtifact(artifact, selectedCase), []);
+});
+
+test("diagnostic case manifests cannot publish accepted evidence", () => {
+  const diagnosticCase = { ...selectedCase, evidenceRole: "diagnostic" };
+  assert.ok(validateArtifact(validArtifact(), diagnosticCase).some((error) => error.includes("diagnostic cases")));
 });
 
 test("acceptance preflight reuse requires one matching clean full receipt set", () => {

@@ -32,6 +32,7 @@ export function validateArtifact(artifact, selectedCase) {
   if (selectedCase !== undefined) {
     if (artifact.caseId !== selectedCase.id) errors.push("artifact case does not match registry selection");
     if (artifact.workloadId !== selectedCase.workloadId) errors.push("artifact workload does not match registry selection");
+    if (artifact.evidenceStatus === "accepted" && selectedCase.evidenceRole !== "promotion") errors.push("diagnostic cases cannot publish accepted evidence");
     const declared = new Set(selectedCase.artifacts ?? []);
     for (const entry of artifact.artifactManifest ?? []) {
       if (!declared.has(entry.kind)) errors.push(`artifact kind ${entry.kind} is not owned by the case`);

@@ -4,7 +4,7 @@ The repository uses a contract-driven project OS. Machine manifests route work a
 
 ## Start Here
 
-1. Run `node tools/vibe.mjs context <path>` before changing code.
+1. Run `node tools/vibe.mjs context <path>` before changing code. Add `--claims`, `--cases`, or `--all` only when the compact route is insufficient.
 2. Read the matching page under [domains](./domains/), then the linked contract under [contracts](./contracts/).
 3. Run `node tools/vibe.mjs verify --changed` after editing.
 4. Use `node tools/vibe.mjs status [domain]` to inspect claim state and `node tools/vibe.mjs evidence` to refresh evidence. Empty or partial raw input cannot remove compact records without `--force-empty` or `--force-prune`; use `evidence --check` for a read-only comparison.
@@ -28,9 +28,11 @@ The repository uses a contract-driven project OS. Machine manifests route work a
 
 Unpromoted research cannot establish a product fact, ABI, claim status, or completion. Git history stores retired implementation narratives.
 
+Domain Markdown frontmatter contains identity only. Contract, claim, check, and case relationships come from the matching machine manifests and are shown by `context`; do not copy those lists into human pages. Ordinary fixes and internal refactors add no document by default. Add or update a contract/spec for a stable cross-owner protocol or ABI, and add an ADR only for a long-lived choice with meaningful alternatives.
+
 ## Active Workstreams
 
-Workstream YAML is the authoritative TODO and progress record. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
+Workstream YAML is the authoritative current TODO. Its first screen names the current slice, next tasks, and open gates; completed work is a short milestone summary linked to stable contracts or evidence. Detailed implementation history stays in Git. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
 
 - [Nyx producer convergence](../project/workstreams/active/nyx-convergence.yaml)
 - [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — current `large.glb` acceptance plan with deferred 100M scale gate for [ADR-0018](./adr/0018-web-100m-virtual-geometry.md)
@@ -42,6 +44,5 @@ Reviews are dated, non-authoritative audits. They record observations and recomm
 - [2026-09-21 · Documentation and validation system review](./reviews/2026-09-21-documentation-validation-system-review.md)
 - [2026-09-23 · Documentation system refactor design](./reviews/2026-09-23-documentation-system-refactor-design.md)
 - [ADR-0018 research draft · Authored-large target and deferred 100M architecture](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
-- [ADR-0018 Phase A baseline record](./reviews/2026-09-21-web-100m-phase-a-baseline.md)
-- [ADR-0018 Phase F visible-first scheduler record](./reviews/2026-09-22-web-100m-phase-f-visible-first-product-scheduler.md)
-- [ADR-0018 Phase G GPU demand compaction record](./reviews/2026-09-22-web-100m-phase-g-gpu-demand-compaction.md)
+
+Phase records remain available in Git and under `docs/reviews/` for audit, but are no longer part of the current documentation entry path.

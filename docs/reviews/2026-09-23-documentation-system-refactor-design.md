@@ -1,6 +1,8 @@
 # 文档系统重构设计（2026-09-23）
 
-> 本文是下一阶段的实施设计，不是当前产品事实或完成声明。现有机器事实仍由 `project/`、`checks/`、case-local manifest、正式合同和 evidence 提供。
+> 本文保存重构动机和设计边界，不是产品事实或完成声明。D1-D5 已于 2026-09-23 落地；当前机器事实仍由 `project/`、`checks/`、case-local manifest、正式合同和 evidence 提供。
+
+实施结果：`context` 默认输出精简的行动摘要；domain frontmatter 只保留身份；活跃 workstream 已压缩为当前切片；case 使用显式 `evidenceRole`；阶段 review 已退出当前文档入口。后续普通修改遵循本文的文档准入规则，不再为每个阶段创建完成报告。
 
 ## 结论
 

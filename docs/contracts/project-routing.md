@@ -4,7 +4,7 @@ kind: contract
 status: frozen
 owners: 
   - platform
-version: 2
+version: 3
 consumers: 
   - tools/vibe.mjs
   - AGENTS.md
@@ -19,7 +19,7 @@ validation:
 
 `project/domains/*.yaml` is the path router. Each domain has one `primaryOwner`; overlapping paths may remain related, but equal-strength matches must be resolved by making one pattern more specific. `project/claims/*.yaml` states durable, cross-owner claims and names the watch paths, required checks, and allowed declarations. `checks/checks.yaml` describes executable or built-in checks.
 
-The source is read with the YAML parser; duplicate keys and parse warnings are errors. `node tools/vibe.mjs context <path>` prints the route. `node tools/vibe.mjs verify --changed` regenerates the validation registry and fails when a changed file has no domain route or has an unresolved primary-owner tie.
+The source is read with the YAML parser; duplicate keys and parse warnings are errors. `node tools/vibe.mjs context <path>` prints a compact route with owner, documents, contracts, checks, targeted engine tests, and browser acceptance triggers. `--claims`, `--cases`, and `--all` explicitly expand it. Domain Markdown frontmatter contains only `id`, `kind`, and `owner`; relationship lists are generated from machine manifests. `node tools/vibe.mjs verify --changed` regenerates the validation registry and fails when a changed file has no domain route or has an unresolved primary-owner tie.
 
 ## Checks
 

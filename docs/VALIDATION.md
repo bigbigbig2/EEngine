@@ -34,9 +34,11 @@
 
 真实浏览器验证只能由 ADR-0014 的独立 `validation/` 宿主承担。自动 case 位于 `validation/cases/<id>/`，观察实验位于 `validation/labs/<id>/`；二者都由 case-local manifest 描述，registry 由 `node tools/vibe.mjs registry` 生成。`examples/` 和 Storybook 不产生 Runtime Validated、Performance 或 Pipeline 完成声明。
 
+每个 manifest 显式声明 `evidenceRole: promotion | diagnostic`。promotion case 必须覆盖 claim，并通过该 claim 的 policy 参与提升；diagnostic case 可以使用空 `covers`，不能进入任何 promotion policy，也不能发布 accepted evidence。lab 固定为 diagnostic。
+
 `case <id> --run` 是日常 diagnostic 路径：它执行 changed preflight，即使工作树干净也只能写 `diagnostic-only`。`case <id> --run --accept` 是正式验收路径：要求 clean revision，并执行或复用同 revision/tree/registry 的完整 full preflight。artifact schema v2 携带真实 check receipts 和 `validationMode`。Evidence index 只能从 artifact 中读取 receipts，不得根据 claim 的 `requiredChecks` 反向合成。receipt 的 revision、tree、dirty、registry hash 或 full scope 与 artifact 不一致时，evidence 不能晋级。
 
-共享 harness 负责 WebGPU 初始化、canvas/resize、error scope、console/page/request error、nonce/run identity、readback、screenshot、dispose 和 artifact manifest。Case 只负责 setup、业务动作、采样和断言；lab 必须显式标记 `lab: true`、`automatic: false`。
+共享 harness 负责 WebGPU 初始化、canvas/resize、error scope、console/page/request error、nonce/run identity、readback、screenshot、dispose 和 artifact manifest。Case 只负责 setup、业务动作、采样和断言；lab 必须显式标记 `lab: true`、`automatic: false`、`evidenceRole: diagnostic`。
 
 每条 evidence 至少绑定 case、claim、check、commit/tree/dirty、registry/workload hash、contract hash、browser、adapter/capability、resolution/DPR、结果、artifact hash 和 freshness gate。raw artifact 只写入被忽略的 `.local/validation/<run-id>/`。接受条件是 clean revision、case passed、所有 gate 通过、artifact 完整且 required checks 覆盖；否则状态只能是 `unproven`、`diagnostic`、`stale` 或 `blocked`。
 

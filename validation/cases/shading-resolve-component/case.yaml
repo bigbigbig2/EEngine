@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: shading-resolve-component
+evidenceRole: promotion
 route: /cases/shading-resolve-component/index.html
 buildTarget: internal-candidate
 workloadId: shading-resolve-component-v1

@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: oegpack-v3-component
+evidenceRole: diagnostic
 route: /cases/oegpack-v3-component/index.html
 buildTarget: host
 workloadId: oegpack-v3-decode-v1

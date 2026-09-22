@@ -53,6 +53,25 @@ test("model rejects a promotion case below the claim assurance", async () => {
   assert.ok(errors.some((error) => error.includes("frame.host-protocol requires L3 but protocol-self-test is L0")));
 });
 
+test("model rejects diagnostic cases in promotion policy", async () => {
+  const model = await loadModel();
+  model.cases.find((item) => item.id === "protocol-self-test").evidenceRole = "diagnostic";
+  const errors = validateModel(model, null);
+  assert.ok(errors.some((error) => error.includes("protocol-self-test must have evidenceRole promotion")));
+});
+
+test("diagnostic cases may omit durable claim coverage", async () => {
+  const model = await loadModel();
+  const diagnostic = model.cases.find((item) => item.id === "oegpack-v3-component");
+  diagnostic.covers = [];
+  diagnostic.errorAllowlist = [];
+  for (const item of model.claims) {
+    item.evidencePolicy.diagnosticCases = item.evidencePolicy.diagnosticCases.filter((id) => id !== diagnostic.id);
+  }
+  const errors = validateModel(model, null);
+  assert.ok(!errors.some((error) => error.includes(diagnostic.id)));
+});
+
 test("check-only claims require current clean receipts", () => {
   const checkClaim = {
     requiredChecks: ["model", "registry"],

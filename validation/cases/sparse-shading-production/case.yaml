@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: sparse-shading-production
+evidenceRole: promotion
 route: /cases/sparse-shading-production/index.html
 buildTarget: production
 workloadId: sparse-shading-production-correctness-v1

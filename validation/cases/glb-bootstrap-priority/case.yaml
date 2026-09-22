@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: glb-bootstrap-priority
+evidenceRole: promotion
 route: /cases/glb-bootstrap-priority/index.html
 buildTarget: production
 workloadId: glb-bootstrap-priority-v1

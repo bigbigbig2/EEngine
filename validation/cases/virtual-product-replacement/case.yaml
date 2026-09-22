@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: virtual-product-replacement
+evidenceRole: promotion
 route: /cases/virtual-product-replacement/index.html
 buildTarget: production
 workloadId: virtual-product-replacement-v1

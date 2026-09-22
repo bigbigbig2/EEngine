@@ -19,6 +19,9 @@ const selectedCase = registry.cases.find((item) => item.id === caseId);
 if (!selectedCase) {
   throw new Error(`Unknown case '${caseId ?? ""}'. Expected one of: ${registry.cases.map(({ id }) => id).join(", ")}`);
 }
+if (acceptanceRequested && selectedCase.evidenceRole !== "promotion") {
+  throw new Error(`Diagnostic case '${selectedCase.id}' cannot publish accepted evidence`);
+}
 const git = (...args) => execFileSync("git", args, { cwd: repositoryRoot, encoding: "utf8" }).trim();
 const commit = git("rev-parse", "HEAD");
 const tree = git("rev-parse", "HEAD^{tree}");

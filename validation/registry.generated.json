@@ -28,6 +28,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "glb-bootstrap-priority",
       "kind": "gpu",
@@ -72,6 +73,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "glb-incremental-publication",
       "kind": "gpu",
@@ -112,6 +114,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "glb-web-product-authored-texture",
       "kind": "gpu",
@@ -157,6 +160,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "diagnostic",
       "harness": "production",
       "id": "glb-web-product-isolated-pthreads",
       "kind": "gpu",
@@ -201,6 +205,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "diagnostic",
       "harness": "production",
       "id": "glb-web-product-portable-pool",
       "kind": "gpu",
@@ -244,6 +249,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "glb-web-product",
       "kind": "gpu",
@@ -281,6 +287,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "diagnostic",
       "harness": "gpu",
       "id": "oegpack-v3-component",
       "kind": "oracle",
@@ -309,6 +316,7 @@
       ],
       "decision": "ADR-0014",
       "domain": "platform",
+      "evidenceRole": "promotion",
       "harness": "protocol",
       "id": "protocol-self-test",
       "kind": "contract",
@@ -349,6 +357,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "diagnostic",
       "harness": "gpu",
       "id": "shading-bin-component",
       "kind": "gpu",
@@ -391,6 +400,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "gpu",
       "id": "shading-resolve-component",
       "kind": "gpu",
@@ -438,6 +448,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "gpu",
       "id": "sparse-shading-candidate",
       "kind": "gpu",
@@ -480,6 +491,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "sparse-shading-production",
       "kind": "gpu",
@@ -521,6 +533,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "gpu",
       "id": "texture-residency-component",
       "kind": "oracle",
@@ -559,6 +572,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "diagnostic",
       "harness": "gpu",
       "id": "virtual-geometry-component",
       "kind": "oracle",
@@ -600,6 +614,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "virtual-product-device-loss",
       "kind": "guard",
@@ -640,6 +655,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "virtual-product-offline",
       "kind": "gpu",
@@ -685,6 +701,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "virtual-product-production",
       "kind": "gpu",
@@ -725,6 +742,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "virtual-product-replacement",
       "kind": "gpu",
@@ -767,6 +785,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "web-100m-formal-perf",
       "kind": "perf",
@@ -808,6 +827,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "diagnostic",
       "harness": "production",
       "id": "web-authored-large-cook-k0",
       "kind": "contract",
@@ -853,6 +873,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "web-authored-large-perf",
       "kind": "perf",
@@ -891,6 +912,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "promotion",
       "harness": "gpu",
       "id": "webgpu-component",
       "kind": "contract",
@@ -936,6 +958,7 @@
           "source": "console:warning"
         }
       ],
+      "evidenceRole": "diagnostic",
       "harness": "observer",
       "id": "virtual-product-observer",
       "kind": "contract",

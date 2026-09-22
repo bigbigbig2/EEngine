@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: glb-incremental-publication
+evidenceRole: promotion
 route: /cases/glb-incremental-publication/index.html
 buildTarget: production
 workloadId: glb-incremental-publication-v1

@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: glb-web-product-portable-pool
+evidenceRole: diagnostic
 sourceCase: glb-web-product
 route: /cases/glb-web-product/index.html?source=authored-texture&profile=portable-pool&case=glb-web-product-portable-pool&workload=glb-web-product-bootstrap-v1
 buildTarget: production

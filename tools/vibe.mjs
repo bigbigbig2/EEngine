@@ -39,7 +39,14 @@ try {
   if (command === "registry") await registryCommand();
   else if (command === "evidence") await evidenceCommand(args.includes("--force-empty"), args.includes("--force-prune"), args.includes("--check"));
   else if (command === "doctor") await doctorCommand();
-  else if (command === "context") await contextCommand(args[0] ?? ".");
+  else if (command === "context") {
+    const input = args.find((arg) => !arg.startsWith("--")) ?? ".";
+    await contextCommand(input, {
+      includeClaims: args.includes("--claims") || args.includes("--all"),
+      includeCases: args.includes("--cases") || args.includes("--all"),
+      includeAll: args.includes("--all")
+    });
+  }
   else if (command === "verify") await verifyCommand({
     changedOnly: args.includes("--changed"),
     perfRequested: args.includes("--perf"),
@@ -96,7 +103,7 @@ async function doctorCommand() {
   if (errors.length > 0) process.exitCode = 1;
 }
 
-async function contextCommand(input) {
+async function contextCommand(input, options = {}) {
   const model = await loadModel();
   const legacy = null;
   assertModel(model, legacy);
@@ -109,11 +116,27 @@ async function contextCommand(input) {
   const claimIds = new Set(claims.map((claim) => claim.id));
   const checks = model.checks.filter((check) => all || (check.domains ?? []).some((id) => domainIds.has(id)) || (check.claims ?? []).some((id) => claimIds.has(id)));
   const routing = all ? null : routeDomains(model, paths);
-  const routedDomains = domains.map((domain) => ({
-    ...stripPrivate(domain),
-    routeRole: routing?.primary?.id === domain.id ? "primary" : "related"
-  }));
-  console.log(JSON.stringify({ input, routing, domains: routedDomains, claims: claims.map(stripPrivate), checks: checks.map(stripPrivate), cases: cases.map(stripPrivate) }, null, 2));
+  const primaryDomains = all ? domains : domains.filter((domain) => domain.id === routing?.primary?.id);
+  const requiredLevel = requiredVerificationLevel(paths, false);
+  const summary = {
+    input,
+    owner: all
+      ? { primary: model.domains.map((domain) => domain.id), ambiguous: false }
+      : { primary: routing?.primary?.id ?? null, related: routing?.related?.map((entry) => entry.id) ?? [], ambiguous: routing?.ambiguous ?? false },
+    documents: [...new Set(primaryDomains.flatMap((domain) => domain.currentDocs ?? []))],
+    contracts: [...new Set(primaryDomains.flatMap((domain) => domain.contracts ?? []))],
+    implementation: primaryDomains.map((domain) => ({ id: domain.id, owner: domain.owner })),
+    checks: checks.map((check) => check.id),
+    checkReason: "selected from the primary/related owner domains and directly matched claims",
+    engineTests: summarizeEnginePlan(planEngineTests({ changedOnly: true, changedPaths: paths })),
+    browserAcceptance: browserCasesRequired(cases, requiredLevel).map((item) => `${item.caseId} (${item.level})`),
+    browserAcceptanceTrigger: requiredLevel === "L0" || requiredLevel === "L1"
+      ? `none for the inferred ${requiredLevel} development scope`
+      : `run explicitly to accept this inferred ${requiredLevel} product change`
+  };
+  if (options.includeClaims) summary.claims = claims.map(options.includeAll ? stripPrivate : summarizeClaim);
+  if (options.includeCases) summary.cases = cases.map(options.includeAll ? stripPrivate : summarizeCase);
+  console.log(JSON.stringify(summary, null, 2));
 }
 
 async function verifyCommand({ changedOnly, perfRequested, allowNotRun, planOnly, verbose, baseRevision }) {
@@ -429,9 +452,19 @@ function stripPrivate(value) {
   return publicValue;
 }
 
+function summarizeClaim(claim) {
+  return { id: claim.id, level: claim.level, statement: claim.statement };
+}
+
+function summarizeCase(item) {
+  return { id: item.id, evidenceRole: item.evidenceRole, level: item.level, covers: item.covers ?? [] };
+}
+
 function printHelp() {
   console.log(`vibe commands:
-  context <path>       show primary/related domains, claims, checks, and cases
+  context <path>       show compact owner, contract, check, and test guidance
+  context <path> --claims | --cases | --all
+                       expand claim, case, or complete routed detail
   verify --changed     run affected development checks and targeted tests
   verify --full        run the complete integration checks (also the default)
   verify --plan        print selected checks/tests without running or writing
@@ -459,7 +492,7 @@ function browserCasesRequired(cases, requiredLevel) {
   if (levelRank(requiredLevel) < 2) return [];
   const requiredRank = levelRank(requiredLevel);
   return cases
-    .filter((item) => item.automatic !== false && item.lab !== true)
+    .filter((item) => item.evidenceRole === "promotion" && item.automatic !== false && item.lab !== true)
     .filter((item) => levelRank(item.level) >= 2 && levelRank(item.level) <= requiredRank)
     .map((item) => ({ caseId: item.id, level: item.level, harness: item.harness, reason: "browser execution is explicit; verify does not launch cases" }));
 }

@@ -38,9 +38,12 @@ export function validateRegistry(registry) {
     if (item.lab !== undefined && typeof item.lab !== "boolean") errors.push(`${item.id}: lab must be boolean`);
     if (item.automatic !== undefined && typeof item.automatic !== "boolean") errors.push(`${item.id}: automatic must be boolean`);
     if (item.lab === true && item.automatic === true) errors.push(`${item.id}: lab cases cannot be automatic`);
-    if (!Array.isArray(item.covers) || item.covers.length === 0 || item.covers.some((id) => !CLAIM_ID_PATTERN.test(id))) {
+    if (!new Set(["promotion", "diagnostic"]).has(item.evidenceRole)) errors.push(`${item.id}: invalid evidenceRole`);
+    if (!Array.isArray(item.covers) || item.covers.some((id) => !CLAIM_ID_PATTERN.test(id))) {
       errors.push(`${item.id}: invalid covers`);
     }
+    if (item.evidenceRole === "promotion" && item.covers?.length === 0) errors.push(`${item.id}: promotion case must cover a claim`);
+    if (item.lab === true && item.evidenceRole !== "diagnostic") errors.push(`${item.id}: lab cases must be diagnostic`);
     if (typeof item.workloadId !== "string" || !registry?.workloads?.[item.workloadId]) errors.push(`${item.id}: missing or unknown workloadId`);
     if (!registry?.profiles?.[item.profile]) errors.push(`${item.id}: unknown profile`);
     const workload = registry?.workloads?.[item.workloadId];

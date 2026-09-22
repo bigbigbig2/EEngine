@@ -1,5 +1,6 @@
 schemaVersion: 1
 id: virtual-product-observer
+evidenceRole: diagnostic
 route: /labs/virtual-product-observer/index.html
 buildTarget: production
 workloadId: virtual-product-observer-v1
