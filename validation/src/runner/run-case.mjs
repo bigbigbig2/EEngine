@@ -158,7 +158,9 @@ try {
   if (pageSnapshot.state !== "disposed" || !pageSnapshot.disposedAt || !pageSnapshot.disposeEvidence) {
     throw new Error("Validation case did not publish complete dispose evidence");
   }
-  fatalBrowserEvents = events.filter(isFatalBrowserEvent).filter((event) => !isAllowlisted(event));
+  fatalBrowserEvents = events.filter(isFatalBrowserEvent)
+    .filter((event) => !isAllowlisted(event))
+    .filter((event) => !isExpectedWatchdogAbort(event, pageSnapshot));
   if (fatalBrowserEvents.length > 0) throw new Error(`Browser emitted ${fatalBrowserEvents.length} unallowlisted error event(s)`);
   if (pageSnapshot.outcome === "passed" && pageSnapshot.errors.length > 0) {
     throw new Error("Passed page contains validation errors");
@@ -328,6 +330,14 @@ function isFatalBrowserEvent(event) {
 
 function isAllowlisted(event) {
   return (selectedCase.errorAllowlist ?? []).some((rule) => rule.source === event.source && rule.exact === event.detail);
+}
+
+function isExpectedWatchdogAbort(event, snapshot) {
+  // The authored/formal cook heartbeat intentionally aborts the GLB request
+  // before disposing the page. Chromium reports that cancellation as a failed
+  // request, but it is diagnostic evidence rather than a browser/GPU fault.
+  return event.source === "request:failed" && event.detail?.failure === "net::ERR_ABORTED" &&
+    snapshot?.evidence?.cookHeartbeat?.aborted === true;
 }
 
 async function computeHostBuildId(input) {

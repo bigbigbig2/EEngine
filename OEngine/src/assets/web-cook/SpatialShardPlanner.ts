@@ -68,6 +68,20 @@ export interface GlbSpatialShardSetV1 {
   readonly planningPasses: number;
 }
 
+/**
+ * Triangle ownership materialized in one source-order scan.
+ *
+ * The scratch contains only index triples, not source attributes or canonical
+ * vertices. Its size is checked by the caller before allocation so a giant
+ * primitive cannot silently turn this optimization into scene-scale heap
+ * residency.
+ */
+export interface GlbSpatialShardMaterializationV1 {
+  readonly triangleIndices: readonly Uint32Array[];
+  readonly scratchBytes: number;
+  readonly scanPasses: number;
+}
+
 export interface MortonPartitionIntervalV1 {
   readonly triangleOrderOffset: number;
   readonly triangleCount: number;
@@ -162,6 +176,59 @@ export async function planGlbPrimitiveSpatialShardsV1(
   });
 }
 
+/**
+ * Materializes every shard's triangle ownership with one sequential scan.
+ *
+ * The previous path scanned the complete primitive once per shard. This pass
+ * keeps only bounded index scratch for the current primitive and writes each
+ * triangle directly into its deterministic Morton-rank slot. Attribute and
+ * canonical vertex data remain per-shard and are read after this pass.
+ */
+export async function materializeGlbPrimitiveSpatialShardsV1(
+  unit: GlbCookPrimitive,
+  set: GlbSpatialShardSetV1,
+  reader: GlbPrimitiveRangeReader,
+  maxSourceWindowBytes: number,
+  maxScratchBytes: number
+): Promise<GlbSpatialShardMaterializationV1> {
+  assertPlanBelongsToPrimitive(unit, set);
+  rejectSparse(unit);
+  if (!Number.isSafeInteger(maxSourceWindowBytes) || maxSourceWindowBytes <= 0) throw new RangeError("maxSourceWindowBytes must be a positive safe integer");
+  if (!Number.isSafeInteger(maxScratchBytes) || maxScratchBytes <= 0) throw new RangeError("maxScratchBytes must be a positive safe integer");
+  const scratchBytes = spatialScratchBytes(set);
+  if (scratchBytes > maxScratchBytes) throw new RangeError(`spatial shard materialization requires ${scratchBytes} bytes of index scratch, cap is ${maxScratchBytes}`);
+  const triangleIndices = set.shards.map(shard => new Uint32Array(shard.triangleCount * 3));
+  const seen = new Uint32Array(set.bucketOffsets.length - 1);
+  await scanTriangles(unit, reader, { maxSourceWindowBytes, boundsMin: set.boundsMin, boundsMax: set.boundsMax, bucketBits: set.bucketBits }, { peakSourceWindowBytes: 0 },
+    (_triangle, indices, _centroid, bucket) => {
+      const rank = set.bucketOffsets[bucket]! + seen[bucket]!;
+      seen[bucket] = seen[bucket]! + 1;
+      const shardIndex = shardIndexForRank(set.shards, rank);
+      if (shardIndex < 0) throw new Error(`spatial triangle rank ${rank} is outside the shard plan`);
+      const shard = set.shards[shardIndex]!;
+      const localRank = rank - shard.triangleOrderOffset;
+      triangleIndices[shardIndex]!.set(indices, localRank * 3);
+    });
+  for (let bucket = 0; bucket < seen.length; bucket++) {
+    if (seen[bucket] !== set.bucketOffsets[bucket + 1]! - set.bucketOffsets[bucket]!) throw new Error(`spatial bucket ${bucket} ownership count is incomplete`);
+  }
+  return Object.freeze({ triangleIndices: Object.freeze(triangleIndices), scratchBytes, scanPasses: 1 });
+}
+
+/** Canonicalizes a shard from one-shot materialized triangle ownership. */
+export async function canonicalizeGlbPrimitiveSpatialShardIndicesV1(
+  unit: GlbCookPrimitive,
+  set: GlbSpatialShardSetV1,
+  shard: GlbSpatialShardPlanV1,
+  selected: Uint32Array,
+  reader: GlbPrimitiveRangeReader,
+  maxSourceWindowBytes: number
+): Promise<WebCanonicalGeometryDomainV1> {
+  assertPlanBelongsToPrimitive(unit, set, shard);
+  if (selected.length !== shard.triangleCount * 3) throw new Error(`spatial shard materialization has ${selected.length / 3} triangles, expected ${shard.triangleCount}`);
+  return canonicalizeSelectedTriangles(unit, shard, selected, reader, maxSourceWindowBytes);
+}
+
 /** Converts one planned shard to one independent Nyx canonical material domain. */
 export async function canonicalizeGlbPrimitiveSpatialShardV1(
   unit: GlbCookPrimitive,
@@ -170,7 +237,7 @@ export async function canonicalizeGlbPrimitiveSpatialShardV1(
   reader: GlbPrimitiveRangeReader,
   maxSourceWindowBytes: number
 ): Promise<WebCanonicalGeometryDomainV1> {
-  if (set.sourcePrimitive !== primitiveKey(unit) || shard.sourcePrimitive !== set.sourcePrimitive || set.sourceTriangleCount !== unit.triangleCount) throw new Error("spatial shard plan does not belong to this GLB primitive");
+  assertPlanBelongsToPrimitive(unit, set, shard);
   rejectSparse(unit);
   const evidence: ScanEvidence = { peakSourceWindowBytes: 0 };
   const selected = new Uint32Array(shard.triangleCount * 3);
@@ -182,10 +249,23 @@ export async function canonicalizeGlbPrimitiveSpatialShardV1(
       const rank = set.bucketOffsets[bucket]! + seen[bucket]!;
       seen[bucket] = seen[bucket]! + 1;
       if (rank < start || rank >= end) return;
-      selected.set(indices, selectedTriangles * 3);
+      selected.set(indices, (rank - start) * 3);
       selectedTriangles++;
     });
   if (selectedTriangles !== shard.triangleCount) throw new Error(`spatial shard selected ${selectedTriangles} triangles, expected ${shard.triangleCount}`);
+
+  return canonicalizeSelectedTriangles(unit, shard, selected, reader, maxSourceWindowBytes, evidence);
+}
+
+async function canonicalizeSelectedTriangles(
+  unit: GlbCookPrimitive,
+  shard: GlbSpatialShardPlanV1,
+  selected: Uint32Array,
+  reader: GlbPrimitiveRangeReader,
+  maxSourceWindowBytes: number,
+  evidence: ScanEvidence = { peakSourceWindowBytes: 0 }
+): Promise<WebCanonicalGeometryDomainV1> {
+  if (!Number.isSafeInteger(maxSourceWindowBytes) || maxSourceWindowBytes <= 0) throw new RangeError("maxSourceWindowBytes must be a positive safe integer");
 
   const sorted = selected.slice().sort();
   let uniqueCount = 0;
@@ -243,6 +323,30 @@ function validateOptions(unit: GlbCookPrimitive, options: GlbSpatialShardOptions
   if (options.sourceIdentityHash.byteLength !== 32) throw new RangeError("sourceIdentityHash must be 32 bytes");
   const bits = options.bucketBits ?? DEFAULT_BUCKET_BITS;
   if (!Number.isInteger(bits) || bits < 1 || bits > 20) throw new RangeError("bucketBits must be in [1, 20]");
+}
+
+function assertPlanBelongsToPrimitive(unit: GlbCookPrimitive, set: GlbSpatialShardSetV1, shard?: GlbSpatialShardPlanV1): void {
+  if (set.sourcePrimitive !== primitiveKey(unit) || set.sourceTriangleCount !== unit.triangleCount) throw new Error("spatial shard plan does not belong to this GLB primitive");
+  if (set.bucketOffsets.length < 2 || set.bucketOffsets[set.bucketOffsets.length - 1] !== unit.triangleCount) throw new Error("spatial shard bucket offsets do not cover this GLB primitive");
+  if (shard !== undefined && (shard.sourcePrimitive !== set.sourcePrimitive || set.shards[shard.shardIndex] !== shard)) throw new Error("spatial shard plan does not belong to this GLB primitive");
+}
+
+function spatialScratchBytes(set: GlbSpatialShardSetV1): number {
+  let triangles = 0;
+  for (const shard of set.shards) triangles = checkedAdd(triangles, shard.triangleCount);
+  if (triangles !== set.sourceTriangleCount) throw new Error("spatial shard plans do not cover the source primitive exactly");
+  return checkedMultiply(triangles, 3 * 4);
+}
+
+function shardIndexForRank(shards: readonly GlbSpatialShardPlanV1[], rank: number): number {
+  let low = 0, high = shards.length - 1;
+  while (low <= high) {
+    const middle = (low + high) >>> 1, shard = shards[middle]!;
+    if (rank < shard.triangleOrderOffset) high = middle - 1;
+    else if (rank >= shard.triangleOrderOffset + shard.triangleCount) low = middle + 1;
+    else return middle;
+  }
+  return -1;
 }
 
 function rejectSparse(unit: GlbCookPrimitive): void {
@@ -394,5 +498,6 @@ function worstCaseCanonicalBytes(triangles: number): number { const vertexOffset
 function primitiveKey(unit: GlbCookPrimitive): string { return `${unit.nodeIndex}:${unit.meshIndex}:${unit.primitiveIndex}`; }
 function align16(value: number): number { return Math.ceil(value / 16) * 16; }
 function checkedAdd(left: number, right: number): number { const value = left + right; if (!Number.isSafeInteger(value)) throw new RangeError("spatial triangle count exceeds safe integer range"); return value; }
+function checkedMultiply(left: number, right: number): number { if (!Number.isSafeInteger(left) || !Number.isSafeInteger(right) || left < 0 || right < 0 || left > Math.floor(Number.MAX_SAFE_INTEGER / Math.max(1, right))) throw new RangeError("spatial scratch byte count exceeds safe integer range"); return left * right; }
 function componentBytes(type: GlbCookAccessor["componentType"]): number { return type === 5120 || type === 5121 ? 1 : type === 5122 || type === 5123 ? 2 : 4; }
 function readComponent(view: DataView, at: number, type: GlbCookAccessor["componentType"], normalized: boolean): number { switch (type) { case 5120: { const value = view.getInt8(at); return normalized ? Math.max(value / 127, -1) : value; } case 5121: { const value = view.getUint8(at); return normalized ? value / 255 : value; } case 5122: { const value = view.getInt16(at, true); return normalized ? Math.max(value / 32767, -1) : value; } case 5123: { const value = view.getUint16(at, true); return normalized ? value / 65535 : value; } case 5125: return view.getUint32(at, true); case 5126: return view.getFloat32(at, true); } }

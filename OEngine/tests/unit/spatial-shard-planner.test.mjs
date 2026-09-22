@@ -3,6 +3,8 @@ import test from "node:test";
 
 const {
   canonicalizeGlbPrimitiveSpatialShardV1,
+  canonicalizeGlbPrimitiveSpatialShardIndicesV1,
+  materializeGlbPrimitiveSpatialShardsV1,
   partitionMortonHistogramV1,
   planGlbPrimitiveSpatialShardsV1
 } = await import("../../.test-dist/assets/web-cook/SpatialShardPlanner.js");
@@ -115,4 +117,24 @@ test("spatial canonicalization duplicates a shared boundary vertex with all attr
   });
   assert.deepEqual(shared, [[0, 0, 1, 0, 0.5], [0, 0, 1, 0, 0.5]], "shared source vertex is present in both independent shard domains");
   assert.ok(domains.every(domain => domain.indices.length === 3));
+});
+
+test("spatial materialization scans one primitive once and preserves Morton-rank ownership", async () => {
+  const { unit, reader: baseReader } = fixture();
+  let indexReads = 0;
+  const reader = {
+    readRange: async range => {
+      if (range.byteOffset === unit.indices.byteOffset) indexReads++;
+      return baseReader.readRange(range);
+    }
+  };
+  const options = { maxSourceWindowBytes: 2048, maxCanonicalWindowBytes: 2048, sourceIdentityHash: new Uint8Array(32).fill(13), bucketBits: 4, minimumTrianglesPerShard: 1, maximumTrianglesPerShard: 2 };
+  const set = await planGlbPrimitiveSpatialShardsV1(unit, reader, options);
+  indexReads = 0;
+  const materialized = await materializeGlbPrimitiveSpatialShardsV1(unit, set, reader, options.maxSourceWindowBytes, options.maxSourceWindowBytes);
+  assert.equal(materialized.scanPasses, 1);
+  assert.equal(materialized.scratchBytes, unit.triangleCount * 3 * 4);
+  assert.equal(indexReads, 1, "all shard ownership must come from one index window scan");
+  const domains = await Promise.all(set.shards.map((shard, index) => canonicalizeGlbPrimitiveSpatialShardIndicesV1(unit, set, shard, materialized.triangleIndices[index], reader, options.maxSourceWindowBytes)));
+  assert.equal(domains.reduce((sum, domain) => sum + domain.indices.length / 3, 0), unit.triangleCount);
 });

@@ -13,7 +13,8 @@ import { prefetchCoalescedRangeGroups, type CoalescedRangeReaderOptions } from "
 import { estimateCanonicalBytes, estimateSourceBytes, planCanonicalWindows, type CanonicalWindowPlan } from "./CanonicalWindowPlanner.js";
 import {
   WEB_SPATIAL_SHARD_PARTITION_VERSION,
-  canonicalizeGlbPrimitiveSpatialShardV1,
+  canonicalizeGlbPrimitiveSpatialShardIndicesV1,
+  materializeGlbPrimitiveSpatialShardsV1,
   planGlbPrimitiveSpatialShardsV1,
   type GlbSpatialShardSetV1
 } from "./SpatialShardPlanner.js";
@@ -69,6 +70,10 @@ export interface NyxWebRuntimeCookerEvidence {
   readonly completedCanonicalWindows: number;
   readonly spatialPrimitives: number;
   readonly spatialShards: number;
+  readonly spatialScratchCapacityBytes: number;
+  readonly spatialScratchBytes: number;
+  readonly spatialScratchPeakBytes: number;
+  readonly spatialScanPasses: number;
   readonly spillCurrentBytes: number;
   readonly spillPeakBytes: number;
   readonly spillLimitBytes: number;
@@ -101,6 +106,9 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   #completedCanonicalWindows = 0;
   #spatialPrimitives = 0;
   #spatialShards = 0;
+  #spatialScratchBytes = 0;
+  #spatialScratchPeakBytes = 0;
+  #spatialScanPasses = 0;
   readonly #spillStore: WebGeometryPageSpillStoreV1 | undefined;
   readonly #sessionGeneration: number | undefined;
 
@@ -135,6 +143,10 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       completedCanonicalWindows: this.#completedCanonicalWindows,
       spatialPrimitives: this.#spatialPrimitives,
       spatialShards: this.#spatialShards,
+      spatialScratchCapacityBytes: this.#maxSourceWindowBytes,
+      spatialScratchBytes: this.#spatialScratchBytes,
+      spatialScratchPeakBytes: this.#spatialScratchPeakBytes,
+      spatialScanPasses: this.#spatialScanPasses,
       spillCurrentBytes: this.#spillStore?.evidence().currentBytes ?? 0,
       spillPeakBytes: this.#spillStore?.evidence().peakBytes ?? 0,
       spillLimitBytes: this.#spillStore?.evidence().limitBytes ?? 0,
@@ -255,15 +267,24 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     for (const item of prepared) {
       if (!item.spatial) { whole.push(item.unit); continue; }
       yield* flushWhole(this);
-      for (const shard of item.spatial.shards) {
-        const domain = await canonicalizeGlbPrimitiveSpatialShardV1(item.unit, item.spatial, shard, { signal: context.signal, readRange: range => context.readRange(range) }, this.#maxSourceWindowBytes);
-        const canonical = encodeWebCanonicalGeometryV1([domain]);
-        if (canonical.byteLength > this.#maxCanonicalInputBytes) throw new Error(`spatial canonical shard ${shard.shardId} exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
-        this.#canonicalWindows++;
-        this.#currentCanonicalWindowBytes = canonical.byteLength;
-        this.#peakCanonicalWindowBytes = Math.max(this.#peakCanonicalWindowBytes, canonical.byteLength);
-        try { yield canonical; }
-        finally { this.releaseCanonicalWindow(); }
+      const materialized = await materializeGlbPrimitiveSpatialShardsV1(item.unit, item.spatial, { signal: context.signal, readRange: range => context.readRange(range) }, this.#maxSourceWindowBytes, this.#maxSourceWindowBytes);
+      this.#spatialScratchBytes = materialized.scratchBytes;
+      this.#spatialScratchPeakBytes = Math.max(this.#spatialScratchPeakBytes, materialized.scratchBytes);
+      this.#spatialScanPasses += materialized.scanPasses;
+      try {
+        for (let shardIndex = 0; shardIndex < item.spatial.shards.length; shardIndex++) {
+          const shard = item.spatial.shards[shardIndex]!;
+          const domain = await canonicalizeGlbPrimitiveSpatialShardIndicesV1(item.unit, item.spatial, shard, materialized.triangleIndices[shardIndex]!, { signal: context.signal, readRange: range => context.readRange(range) }, this.#maxSourceWindowBytes);
+          const canonical = encodeWebCanonicalGeometryV1([domain]);
+          if (canonical.byteLength > this.#maxCanonicalInputBytes) throw new Error(`spatial canonical shard ${shard.shardId} exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
+          this.#canonicalWindows++;
+          this.#currentCanonicalWindowBytes = canonical.byteLength;
+          this.#peakCanonicalWindowBytes = Math.max(this.#peakCanonicalWindowBytes, canonical.byteLength);
+          try { yield canonical; }
+          finally { this.releaseCanonicalWindow(); }
+        }
+      } finally {
+        this.#spatialScratchBytes = 0;
       }
     }
     yield* flushWhole(this);
@@ -433,30 +454,42 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       this.#spatialPrimitives++;
       this.#spatialShards += spatial.shards.length;
       this.#peakSourceWindowBytes = Math.max(this.#peakSourceWindowBytes, spatial.peakSourceWindowBytes);
-      for (const shard of spatial.shards) {
-        const domain = await canonicalizeGlbPrimitiveSpatialShardV1(unit, spatial, shard, {
-          signal: context.signal,
-          readRange: range => context.readRange(range)
-        }, this.#maxSourceWindowBytes);
-        const canonical = encodeWebCanonicalGeometryV1([domain]);
-        if (canonical.byteLength > this.#maxCanonicalInputBytes) throw new Error(`spatial canonical shard ${shard.shardId} exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
-        this.#canonicalWindows++;
-        this.#currentCanonicalWindowBytes = canonical.byteLength;
-        this.#peakCanonicalWindowBytes = Math.max(this.#peakCanonicalWindowBytes, canonical.byteLength);
-        let revision: WasmGeometryProductRevisionV1 | undefined;
-        try {
-          revision = await this.planCanonical(
-            canonical, context, recipeInput, 0, undefined, [sceneAssetIndex],
-            `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=${WEB_SPATIAL_SHARD_PARTITION_VERSION};shard=${shard.shardId}`
-          );
-          await revision.spillAllPages();
-          yield revision;
-        } catch (error) {
-          revision?.release();
-          throw error;
-        } finally {
-          this.releaseCanonicalWindow();
+      const materialized = await materializeGlbPrimitiveSpatialShardsV1(unit, spatial, {
+        signal: context.signal,
+        readRange: range => context.readRange(range)
+      }, this.#maxSourceWindowBytes, this.#maxSourceWindowBytes);
+      this.#spatialScratchBytes = materialized.scratchBytes;
+      this.#spatialScratchPeakBytes = Math.max(this.#spatialScratchPeakBytes, materialized.scratchBytes);
+      this.#spatialScanPasses += materialized.scanPasses;
+      try {
+        for (let shardIndex = 0; shardIndex < spatial.shards.length; shardIndex++) {
+          const shard = spatial.shards[shardIndex]!;
+          const domain = await canonicalizeGlbPrimitiveSpatialShardIndicesV1(unit, spatial, shard, materialized.triangleIndices[shardIndex]!, {
+            signal: context.signal,
+            readRange: range => context.readRange(range)
+          }, this.#maxSourceWindowBytes);
+          const canonical = encodeWebCanonicalGeometryV1([domain]);
+          if (canonical.byteLength > this.#maxCanonicalInputBytes) throw new Error(`spatial canonical shard ${shard.shardId} exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
+          this.#canonicalWindows++;
+          this.#currentCanonicalWindowBytes = canonical.byteLength;
+          this.#peakCanonicalWindowBytes = Math.max(this.#peakCanonicalWindowBytes, canonical.byteLength);
+          let revision: WasmGeometryProductRevisionV1 | undefined;
+          try {
+            revision = await this.planCanonical(
+              canonical, context, recipeInput, 0, undefined, [sceneAssetIndex],
+              `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=${WEB_SPATIAL_SHARD_PARTITION_VERSION};shard=${shard.shardId}`
+            );
+            await revision.spillAllPages();
+            yield revision;
+          } catch (error) {
+            revision?.release();
+            throw error;
+          } finally {
+            this.releaseCanonicalWindow();
+          }
         }
+      } finally {
+        this.#spatialScratchBytes = 0;
       }
     }
     yield* flushOrdinary(this);
