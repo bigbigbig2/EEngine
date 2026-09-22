@@ -39,6 +39,7 @@ let handles: MultiProductSceneHandles | undefined;
 let gpuErrors: ReturnType<typeof attachGpuErrorCollection> | undefined;
 let intentionalDeviceTeardown = false;
 let rafPending = 0;
+let lastProgressLogAt = 0;
 
 const controller = createValidationController({
   caseId: "web-100m-formal-perf",
@@ -200,6 +201,11 @@ async function run(): Promise<void> {
         controller.addEvidence("cookProgress", progress);
         const denominator = progress.catalogPrimitives > 0 ? `/${progress.catalogPrimitives}` : "";
         status.textContent = `cooking 100M Product shards: ${progress.stage} ${progress.units}${denominator}`;
+        const now = performance.now();
+        if (now - lastProgressLogAt >= 5_000) {
+          lastProgressLogAt = now;
+          console.info(`[formal-perf-progress] ${JSON.stringify(progress)}`);
+        }
       }
     });
     scene = new Scene();
