@@ -58,6 +58,9 @@ const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
 const CAMERA_PATH_ID = "web-100m-formal-camera-v1";
 const CAMERA_PATH_SHA256 = "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211";
 const WIDTH = 1920, HEIGHT = 1080, WARMUP_FRAMES = 120, SAMPLE_FRAMES = 480, RUNS = 3;
+const AUTHORED_COOK_HEARTBEAT_TIMEOUT_MS = 120_000;
+const FORMAL_COOK_HEARTBEAT_TIMEOUT_MS = 300_000;
+const COOK_HEARTBEAT_POLL_MS = 5_000;
 const MiB = 1024 * 1024;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
@@ -75,6 +78,11 @@ let gpuErrors: ReturnType<typeof attachGpuErrorCollection> | undefined;
 let intentionalDeviceTeardown = false;
 let rafPending = 0;
 let lastProgressLogAt = 0;
+let cookHeartbeatTimer: number | undefined;
+let cookHeartbeatAbort: AbortController | undefined;
+let lastCookProgressAt = 0;
+let lastCookProgress: Record<string, unknown> | undefined;
+let cookHeartbeatTriggered = false;
 
 const controller = createValidationController({
   caseId,
@@ -214,6 +222,11 @@ async function run(): Promise<void> {
 
     status.textContent = `loading and cooking ${source.label} Products`;
     const loadStarted = performance.now();
+    const cookHeartbeatTimeoutMs = sourceKey === "authored-large"
+      ? AUTHORED_COOK_HEARTBEAT_TIMEOUT_MS
+      : FORMAL_COOK_HEARTBEAT_TIMEOUT_MS;
+    cookHeartbeatAbort = new AbortController();
+    lastCookProgressAt = performance.now();
     const runtimeProfile = resolveWebCookRuntimeProfile("portable-single");
     const worker = createDefaultWebCookWorker({
       maxSourceWindowBytes: 64 * MiB,
@@ -237,6 +250,8 @@ async function run(): Promise<void> {
       maxBufferedPages: 512,
       maxBufferedBytes: 128 * MiB,
       onProgress: (progress) => {
+        lastCookProgressAt = performance.now();
+        lastCookProgress = { ...progress };
         controller.addEvidence("cookProgress", progress);
         const denominator = progress.catalogPrimitives > 0 ? `/${progress.catalogPrimitives}` : "";
         status.textContent = `cooking ${source.label} Products: ${progress.stage} ${progress.units}${denominator}`;
@@ -247,11 +262,26 @@ async function run(): Promise<void> {
         }
       }
     });
+    cookHeartbeatTimer = window.setInterval(() => {
+      const idleMs = performance.now() - lastCookProgressAt;
+      if (idleMs <= cookHeartbeatTimeoutMs || cookHeartbeatTriggered) return;
+      cookHeartbeatTriggered = true;
+      const message = `${source.label} cook heartbeat stalled for ${Math.round(idleMs)}ms`;
+      controller.addEvidence("cookHeartbeat", {
+        timeoutMs: cookHeartbeatTimeoutMs,
+        idleMs,
+        lastProgress: lastCookProgress ?? null,
+        aborted: true
+      });
+      cookHeartbeatAbort?.abort(message);
+      asset?.cancel(message);
+    }, COOK_HEARTBEAT_POLL_MS);
     scene = new Scene();
     const light = new DirectionalLight();
     light.intensity = 3;
     scene.add(light);
     handles = await renderer.uploadWebCookedMultiProductScene(scene, asset, {
+      signal: cookHeartbeatAbort.signal,
       fitHeight: 10,
       fitBase: [0, -5, 0],
       multiProductMetadataBytes: 128 * MiB,
@@ -274,6 +304,10 @@ async function run(): Promise<void> {
 
     status.textContent = "finishing Product-per-Shard cook";
     await handles.settled();
+    if (cookHeartbeatTimer !== undefined) {
+      window.clearInterval(cookHeartbeatTimer);
+      cookHeartbeatTimer = undefined;
+    }
     const active = handles.current();
     const bounds = sceneBounds(active.source);
     if (active.shardCount < source.minimumProducts) {
@@ -386,6 +420,11 @@ async function run(): Promise<void> {
     controller.addEvidence("final", {
       shardCount: handles.current().shardCount,
       cook: asset.evidence(),
+      cookHeartbeat: {
+        timeoutMs: cookHeartbeatTimeoutMs,
+        triggered: cookHeartbeatTriggered,
+        lastProgress: lastCookProgress ?? null
+      },
       streaming: handles.streaming?.evidence() ?? null,
       memory: renderer.memoryEvidence(),
       gpuErrors: gpuErrors.errors
@@ -450,6 +489,11 @@ function requiredQuery(name: string, pattern: RegExp): string {
 
 async function disposeCase(): Promise<Record<string, unknown>> {
   intentionalDeviceTeardown = true;
+  if (cookHeartbeatTimer !== undefined) {
+    window.clearInterval(cookHeartbeatTimer);
+    cookHeartbeatTimer = undefined;
+  }
+  cookHeartbeatAbort?.abort("validation-dispose");
   await handles?.release().catch(() => undefined);
   handles = undefined;
   asset?.dispose();
