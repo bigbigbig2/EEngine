@@ -31,7 +31,7 @@ test("machine project manifests and generated registry are healthy", () => {
   assert.deepEqual(result.warnings, []);
   assert.ok(result.counts.domains >= 6);
   assert.ok(result.counts.claims >= 10);
-  assert.equal(result.counts.cases, 21);
+  assert.equal(result.counts.cases, 22);
   assert.equal(existsSync(path.join(repoRoot, "validation/registry.generated.json")), true);
 });
 
