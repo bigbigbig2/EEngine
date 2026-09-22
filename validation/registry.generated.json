@@ -759,6 +759,14 @@
       ],
       "decision": "ADR-0018",
       "domain": "virtual-assets",
+      "errorAllowlist": [
+        {
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "ownerClaim": "virtual-assets.performance",
+          "reason": "Chrome stable emits this platform warning while the formal geometry PERF device is captured.",
+          "source": "console:warning"
+        }
+      ],
       "harness": "production",
       "id": "web-100m-formal-perf",
       "kind": "perf",
@@ -795,6 +803,14 @@
       ],
       "decision": "ADR-0018",
       "domain": "virtual-assets",
+      "errorAllowlist": [
+        {
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "ownerClaim": "virtual-assets.performance",
+          "reason": "Chrome stable emits this platform warning while the authored geometry PERF device is captured.",
+          "source": "console:warning"
+        }
+      ],
       "harness": "production",
       "id": "web-authored-large-perf",
       "kind": "perf",
@@ -1469,6 +1485,11 @@
       "warmupFrames": 1
     },
     "web-authored-large-perf-v1": {
+      "budgets": {
+        "maxCanonicalInputBytes": 67108864,
+        "maxDecodedProductBytes": 134217728,
+        "maxSourceWindowBytes": 67108864
+      },
       "cameraPath": "web-100m-formal-camera-v1",
       "cameraPathSha256": "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211",
       "deviceScaleFactor": 1,

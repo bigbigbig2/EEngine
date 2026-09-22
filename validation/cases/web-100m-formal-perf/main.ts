@@ -27,6 +27,8 @@ type FormalSource = Readonly<{
   triangles: number;
   minimumProducts: number;
   productSlotCapacity: number;
+  maxCanonicalInputBytes: number;
+  maxDecodedProductBytes: number;
 }>;
 
 const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
@@ -37,7 +39,9 @@ const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
     bytes: 2_800_457_176,
     triangles: 100_000_000,
     minimumProducts: 2,
-    productSlotCapacity: 128
+    productSlotCapacity: 128,
+    maxCanonicalInputBytes: 224 * 1024 * 1024,
+    maxDecodedProductBytes: 256 * 1024 * 1024
   }),
   "authored-large": Object.freeze({
     label: "authored large multi-primitive",
@@ -46,7 +50,9 @@ const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
     bytes: 477_591_060,
     triangles: 4_871_612,
     minimumProducts: 1_920,
-    productSlotCapacity: 2_048
+    productSlotCapacity: 2_048,
+    maxCanonicalInputBytes: 64 * 1024 * 1024,
+    maxDecodedProductBytes: 128 * 1024 * 1024
   })
 });
 const CAMERA_PATH_ID = "web-100m-formal-camera-v1";
@@ -211,8 +217,8 @@ async function run(): Promise<void> {
     const runtimeProfile = resolveWebCookRuntimeProfile("portable-single");
     const worker = createDefaultWebCookWorker({
       maxSourceWindowBytes: 64 * MiB,
-      maxCanonicalInputBytes: 224 * MiB,
-      maxDecodedProductBytes: 256 * MiB,
+      maxCanonicalInputBytes: source.maxCanonicalInputBytes,
+      maxDecodedProductBytes: source.maxDecodedProductBytes,
       runtimeProfile: runtimeProfile.selected
     });
     asset = load_gltf_web_product(source.url, {

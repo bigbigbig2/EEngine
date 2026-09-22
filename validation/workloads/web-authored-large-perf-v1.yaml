@@ -34,6 +34,10 @@ geometry:
   maximumPrimitiveTriangles: 1364306
   layout: authored-multi-primitive
   minimumExpectedProducts: 1920
+budgets:
+  maxSourceWindowBytes: 67108864
+  maxCanonicalInputBytes: 67108864
+  maxDecodedProductBytes: 134217728
 fixedCondition:
   adapter: record-from-browser-provenance
   browser: chrome-stable

@@ -72,7 +72,9 @@ control with the local 477,591,060-byte authored GLB: 4,871,612 source
 triangles, 1,041 nodes, 1,920 primitives, and a 1,364,306-triangle maximum
 primitive. Its source hash and workload identity are frozen independently. It
 is suitable for routine production-path and machine-capacity diagnosis, but it
-is not promotion evidence for the 100M claim.
+is not promotion evidence for the 100M claim. Its canonical input and decoded
+Product windows are capped at 64 MiB and 128 MiB respectively so the portable
+WASM producer retains room for its bounded construction intermediates.
 
 One execution performs 120 warmup and 480 measured frames for each of three
 measurement windows, with timestamp-query required. It records the first complete
