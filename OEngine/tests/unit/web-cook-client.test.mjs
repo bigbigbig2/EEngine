@@ -23,6 +23,10 @@ test("Web Cook Worker factory sends an explicit real-module bootstrap", () => {
     maxCanonicalInputBytes: 1024,
     maxSourceWindowBytes: 2048,
     maxDecodedProductBytes: 262144,
+    maxSessionSpillBytes: 1073741824,
+    maxTrianglesPerProduct: 131072,
+    maxVerticesPerProduct: 524288,
+    maxDomainsPerProduct: 64,
     createWorker: url => { assert.match(url.href, /WebCookWorkerEntrypoint\.ts$/u); return worker; }
   });
   assert.equal(created, worker);
@@ -32,7 +36,11 @@ test("Web Cook Worker factory sends an explicit real-module bootstrap", () => {
       wasmModuleUrl: "https://assets.test/oengine-web-geometry-cooker.mjs",
       maxCanonicalInputBytes: 1024,
       maxSourceWindowBytes: 2048,
-      maxDecodedProductBytes: 262144
+      maxDecodedProductBytes: 262144,
+      maxSessionSpillBytes: 1073741824,
+      maxTrianglesPerProduct: 131072,
+      maxVerticesPerProduct: 524288,
+      maxDomainsPerProduct: 64
     },
     transfer: []
   }]);

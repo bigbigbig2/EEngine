@@ -16,9 +16,10 @@ V1 同时冻结 page identity 的推导语义与两阶段 cook 的对外可分�
 
 ## Provisional ProductID
 
-支持 descriptor-before-payload 的 producer 会用独立 `producerVersion` 与零 content manifest 推导 ProductID。该 ID 的合同是：
+支持 descriptor-before-payload 的 producer 会用独立 `producerVersion`、零 content manifest 与 32-byte `productScopeHash` 推导 ProductID。`productScopeHash` 是同一 source 内一个稳定 Product partition 的身份；Web producer V1 以 partition/planner version、按序 `sceneAssetIndices` 与按序 canonical-window SHA-256 推导它，禁止使用运行时 Product ordinal、Worker 编号或调度完成顺序。该 ID 的合同是：
 
-- 同一 producer identity、source identity、recipe hash、runtime profile 与 revision 必须复现同一 provisional ProductID；
+- 同一 producer identity、source identity、recipe hash、runtime profile、product scope 与 revision 必须复现同一 provisional ProductID；
+- 同 source/recipe 的两个不同 ordinary window 或 spatial shard 必须具有不同 `productScopeHash` 和 ProductID；同一 partition 重跑必须复现相同值；
 - Provider 只可将其用于本次加载内的 revision key、demand 路由与替换判定，不得作为跨 session 持久 cache key，也不得与 manifest-backed ProductID 混用；
 - revision 的 `replaces` 指向被替换 revision 的完整 ProductID，替换链的身份由它维持，而不是由 provisional ID 的字节值维持；
 - consumer 必须仍按 `(ProductID, revision)` 定位 revision，provisional 与否不改变 demand、residency 与 eviction 的既有语义。
@@ -66,7 +67,7 @@ Provider 可以推迟 `readPage()` 的完成，或在其内部通过 I/O、decod
 - `recipeHash` 是 32-byte SHA-256。source 使用 `sourceIdentityKind + sourceIdentityHash[32]`，参与 cache/conformance，但不替代 ProductID。
 - `sourceIdentityKind` 为 `content-sha256`、`strong-http-validator` 或 `session`。Range 主路线不得为了得到 `content-sha256` 预先下载完整 GLB；有强 ETag/长度/最终 URL 时可规范化后 hash 为 `strong-http-validator`，否则使用当前 session 的随机 identity 并禁止跨 session 持久 cache。
 - 不同 producer 对同一 GLB 产生的局部 ID、hash、hierarchy 或 page bytes 无需相同，且不得混用。
-- descriptor 先于 payload 冻结的 producer 无法在 descriptor 阶段计算覆盖全部 payload 的 content manifest，因此该类 revision 的 ProductID 是 **provisional**：它由 recipe hash 加零 manifest 与独立 producer version 推导，只保证同一 producer identity、source identity、recipe hash 与 runtime profile 下可复现。Provider 必须把 provisional ProductID 的作用域限定在本次加载，不得据此做跨 session 持久 cache；替换链的稳定性由 descriptor 的 `replaces` 字段维持，它始终指向被替换 revision 的完整 ProductID。payload 已全量物化的 producer 必须使用 manifest-backed ProductID。
+- descriptor 先于 payload 冻结的 producer 无法在 descriptor 阶段计算覆盖全部 payload 的 content manifest，因此该类 revision 的 ProductID 是 **provisional**：它由 recipe hash、零 manifest、独立 producer version 与稳定 `productScopeHash` 推导，只保证同一 producer identity、source identity、recipe hash、runtime profile 与 Product partition 下可复现。Provider 必须把 provisional ProductID 的作用域限定在本次加载，不得据此做跨 session 持久 cache；替换链的稳定性由 descriptor 的 `replaces` 字段维持，它始终指向被替换 revision 的完整 ProductID。payload 已全量物化的 producer 必须使用 manifest-backed ProductID。
 
 ### Producer identity
 
@@ -82,7 +83,7 @@ Provider 可以推迟 `readPage()` 的完成，或在其内部通过 I/O、decod
 | `sourceIdentityHash` | 对应 identity 的 32-byte hash；`session` 值只在本次加载稳定 |
 | `runtimeProfile` | V1 固定为 `oengine-vg-v1-v3-decoded` |
 
-同一 producer identity、source identity、recipe hash、runtime profile、ProductID 和 revision 必须得到 byte-identical descriptor、PageID 顺序、activation cut 与 decoded page hash。无法保证确定性的并行算法必须改变 producer version 或 identity，不能复用同一 cache key。`session` identity 不承诺跨加载复用 ProductID 或持久 cache，但同一 CookSession 的多个 revision 必须保持其 ProductID 语义稳定。
+同一 producer identity、source identity、recipe hash、runtime profile、product scope、ProductID 和 revision 必须得到 byte-identical descriptor、PageID 顺序、activation cut 与 decoded page hash。无法保证确定性的并行算法必须改变 producer version 或 identity，不能复用同一 cache key。`session` identity 不承诺跨加载复用 ProductID 或持久 cache，但同一 CookSession 的多个 Product partition 必须由 scope 隔离，同一 partition 的多个 revision 必须保持其 ProductID 语义稳定。
 
 ### Revision descriptor
 
@@ -251,7 +252,9 @@ schemaVersion + sourceIdentityKind + sourceIdentityHash + producerKind + produce
 
 Web Runtime Cooker 可以在 `GeometryProductRevisionSourceV1` 上附带
 `sceneAssetIndices`。这是 Producer 到 Scene mapper 的来源映射元数据，不是
-Geometry Product 二进制 section，也不属于 ProductID。第 `i` 项表示 Product
+Geometry Product 二进制 section，也不直接写入 descriptor。Producer 可以把其稳定
+有序值纳入内部 `productScopeHash`，防止同一 source 的不同 Product partition 共用
+ProductID。第 `i` 项表示 Product
 asset record `i` 对应的稳定 GLB catalog primitive。索引必须在 catalog 范围内，
 并且长度必须等于 `assetCount`；普通多 primitive Product 通常使用不重复索引，
 Phase C spatial shard Product 允许多个 asset 映射同一个 catalog primitive。
@@ -260,6 +263,13 @@ Subset bootstrap 仍然必须是完整且不可变的 Product revision：自身�
 table、hierarchy、Group/Page directory、activation pages 和 page hash 都要
 独立通过校验。后续完整 revision 通过 `replaces` 原子发布，不能向 active
 revision 追加未声明的 asset，也不能原地修改其 Group/Page identity。
+
+多 Product progressive session 只有在所有 catalog primitive 都被已激活 Product 的
+`sceneAssetIndices` union 覆盖后才能发布 `cook-complete`。任一 required Product 的
+canonicalize、WASM plan、spill 或 publish 失败都必须使 session terminal failed；此前
+已发布的 Product 可以继续维持当前画面，但 partial coverage 不得被降级为
+recoverable refinement。只有完整 coverage 已经成立后的可选 replacement/refinement
+失败才可报告 `RecoverableFailure`。
 
 ## Validation
 

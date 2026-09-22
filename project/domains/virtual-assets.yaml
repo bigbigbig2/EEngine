@@ -14,6 +14,7 @@ paths:
   - validation/cases/virtual-product-*/**
   - validation/labs/virtual-product-observer/**
   - docs/domains/virtual-assets.md
+  - docs/specs/web-geometry-*.md
   - docs/contracts/generated-registry.md
 currentDocs:
   - docs/domains/virtual-assets.md
@@ -26,6 +27,9 @@ contracts:
   - web-geometry-spatial-shard-v1
   - web-geometry-multi-product-runtime-v1
   - web-cook-session-protocol-v1
+  - web-geometry-authored-large-gate-v1
+  - web-geometry-product-work-budget-v1
+  - web-geometry-product-task-trace-v1
   - web-geometry-formal-perf-freeze-v1
 decisions:
   - ADR-0016
@@ -38,6 +42,7 @@ claims:
   - virtual-assets.web-cook
   - virtual-assets.lifecycle
   - virtual-assets.performance
+  - virtual-assets.scale-performance
 checks:
   - model
   - registry
@@ -50,3 +55,4 @@ watch:
   - validation/cases/glb-*/**
   - validation/cases/virtual-product-*/**
   - validation/cases/web-100m-formal-perf/**
+  - validation/cases/web-authored-large-perf/**

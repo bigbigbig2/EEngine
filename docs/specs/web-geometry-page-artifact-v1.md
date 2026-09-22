@@ -31,6 +31,10 @@ page 布局。artifact 是 immutable decoded page 的存储副本；GPU object�
 `ProductID + revision + PageID` 必须完全匹配 descriptor。`sessionGeneration`
 是 Worker/session 的所有权护栏；提供时，迟到的旧 generation 不能命中或覆写新
 generation。PageID 仍然是 Product-local，不能在 spill store 中变成全局 ID。
+同一 source/recipe 的不同 ordinary window 或 spatial shard 必须先由
+`geometry-product-v1` 的稳定 `productScopeHash` 得到不同 ProductID；spill store
+不得依赖清目录、随机 generation 或碰撞后的 checksum 错误来补偿 Product scope
+缺失。
 
 artifact 必须携带：
 
@@ -65,6 +69,10 @@ evidence(): SpillEvidence
 - `currentBytes`、`peakBytes`、`limitBytes` 和 `ownerCount` 必须按 encoded
   artifact storage 记账；`writes`、`reads`、`releases` 和 `failures` 是诊断
   计数，不得被当成 GPU residency 证据。
+- `maxDecodedProductBytes` 只限制一个 Product 的 decoded payload；完整 CookSession
+  使用独立 `maxSessionSpillBytes`。二者不得互相推导或共用一个 limit field。
+- authored-large K0 的初始 `maxSessionSpillBytes` 为 1 GiB，必须记录真实 peak 后再
+  调整默认值；该数字不是跨资产 ABI 常量。
 
 ## Backends
 
@@ -109,6 +117,11 @@ completed page artifact 不得只为了未来 `readPage()` 继续保留在 WASM 
 cache 中。WASM plan 是 descriptor owner；spill store 是 page payload owner；两者
 都不能把 GPU 或 provider 的长期对象藏在对方边界内。
 
+Product revision publication 不要求先执行全量 `spillAllPages()`。descriptor 与可读的
+activation cut 可以先进入既有 revision/activation transaction；generator 恢复后再按
+budget spill remaining pages。任何已宣布 `PageReady` 的 page 仍必须先完成本合同的
+checksum 和 authoritative `put`，不得把 activation-first 解释为允许半页或不可读页。
+
 ## Validation
 
 contract/oracle 必须覆盖：
@@ -123,5 +136,6 @@ contract/oracle 必须覆盖：
 - plan-backed Product 的 first-read cook、second-read spill hit 和 stable
   payload checksum。
 
-这些测试只能证明 producer/storage contract。100M browser RuntimeValidated、
-OPFS quota 行为、TTFMF 和正式 PERF 仍须在独立 `validation/` host 中取得证据。
+这些测试只能证明 producer/storage contract。authored-large browser K0/K1/K2、
+OPFS quota 行为、TTFMF 和 deferred 100M scale evidence 仍须在独立
+`validation/` host 中取得。

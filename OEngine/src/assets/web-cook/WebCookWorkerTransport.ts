@@ -105,7 +105,7 @@ function assertWebCookEvent(value: unknown): WebCookEvent {
   if (!value || typeof value !== "object") throw new TypeError("Web Cook Worker emitted a non-object message");
   const event = value as Partial<WebCookEvent>;
   if (event.protocolVersion !== WEB_COOK_PROTOCOL_VERSION || typeof event.sessionId !== "string" || !Number.isInteger(event.sessionGeneration)) throw new Error("Web Cook Worker emitted an incompatible message header");
-  if (!["SceneCatalogReady", "RevisionOffered", "PageReady", "Progress", "RecoverableFailure", "FatalSessionFailure"].includes(String(event.type))) throw new Error(`Web Cook Worker emitted unknown event '${String(event.type)}'`);
+  if (!["SceneCatalogReady", "RevisionOffered", "PageReady", "Progress", "ProductTaskTrace", "RecoverableFailure", "FatalSessionFailure"].includes(String(event.type))) throw new Error(`Web Cook Worker emitted unknown event '${String(event.type)}'`);
   return event as WebCookEvent;
 }
 

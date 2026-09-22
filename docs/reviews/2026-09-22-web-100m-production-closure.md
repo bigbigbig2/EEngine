@@ -1,11 +1,17 @@
-# ADR-0018 Web 100M Production Closure Review (2026-09-22)
+# ADR-0018 Production Closure Review (2026-09-22, superseded target)
+
+> Target update: this implementation inventory remains historical evidence, but
+> its acceptance order is superseded by
+> `2026-09-22-web-100m-authored-first-validation-plan.md`. ADR-0018 now targets
+> `large.glb` (477,591,060 bytes, 4,871,612 triangles, 1,920 primitives) first.
+> The 100M formal run is a deferred scale gate.
 
 This review reconciles the implementation with
 `ADR-0018_Web_100M_Virtual_Geometry_Architecture.md`. It closes the previously
 missing production wiring, but it does not reduce the remaining work to a
-single browser run. Phase K has no accepted evidence yet, and the production
-path still has scale debts that must be visible before a formal 100M result is
-interpreted.
+single browser run. The authored target has no accepted evidence yet, and its
+CPU/WASM producer still lacks a four-dimensional Product work bound and Product
+task trace.
 
 ## Outcome
 
@@ -60,9 +66,10 @@ only remaining acceptance question.
 | H | Adapter-selected residency | Done at implementation/contract level; formal adapter evidence remains K |
 | I | Previous HZB -> current depth/HZB -> late recheck | Production-wired; standard MeshletWork filter writes indirect args and final raster consumes it; invalid/stale/overflow fails open |
 | J | Dynamic page budgets | Production-wired; delayed GPU/frame/camera/IO feedback remains bounded by hard caps |
-| K0 | Authored-large production gate | **Active** as the next machine gate; no accepted authored browser receipt exists yet |
-| K1 | Planner/publication/capacity/telemetry debt | Todo; must be measured or closed before interpreting formal scale results |
-| K2 | Clean frozen 100M evidence | **Todo**; executable case is ready, but no clean committed evidence exists yet |
+| K0 | Authored-large cook gate | **Active design**; work-budget/coverage/trace/spill contracts are frozen, implementation and executable case remain todo |
+| K1 | Authored runtime smoke and producer debt | Todo; activation-first publication, capacity, and telemetry follow K0 |
+| K2 | Authored formal PERF | Todo; `web-authored-large-perf` is the current L4 promotion case after K0/K1 |
+| S1 | Clean frozen 100M scale evidence | Deferred; covers the separate scale-performance claim |
 | L | 32/64/96/128 raster buckets | Todo; must not start before K baseline is accepted |
 | M | 250M/500M/1B scaling | Todo |
 
@@ -97,17 +104,14 @@ and oracles are recorded in `docs/porting/nyx-function-map.json`.
 
 ## Verification required before promotion
 
-Run fresh OEngine and validation builds/tests, repository model/registry checks,
-`verify --changed`, and protocol self-test. Commit those changes first. Only then
-run `node tools/vibe.mjs case web-100m-formal-perf --run` from the clean revision.
-Phase K2 becomes done only when that case passes with full verification receipts,
-no GPU errors, complete disposal evidence, and accepted samples/summary artifacts.
+Implement and pass authored K0 first, then authored runtime smoke, then run
+`web-authored-large-perf` from a clean revision. The 100M case is not the next
+command and must not be used to bypass an authored producer stall.
 
 If the formal run fails, the failure belongs to Phase K and must be fixed against
 the frozen workload. Phase L begins only after the fixed 384-vertex baseline is
 captured; it must compare 32/64/96/128 buckets without changing workload, camera,
 quality, or evidence identity.
 
-The practical order is now K0 authored-large production validation, K1 debt
-closure/measurement, then K2 formal 100M. K0 is deliberately smaller than the
-2.8 GB single-primitive source and is not a substitute for the K2 gate.
+The practical order is K0 authored cook, K1 authored runtime/debt closure, K2
+authored formal PERF, then S1 formal 100M scale evidence.

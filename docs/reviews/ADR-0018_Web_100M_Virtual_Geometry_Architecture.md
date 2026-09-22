@@ -1,10 +1,14 @@
-# ADR-0018：Web 100M+ Virtual Geometry — Scalable Product Sharding、Streaming Cook 与 WebGPU 极限运行时
+# ADR-0018：Web Authored Large Virtual Geometry — Bounded Product Work 与后续 100M Scale
 
 **状态**：Proposed  
 **日期**：2026-09-21  
 **适用项目**：EEngine  
 **目标基线**：ADR-0016 / ADR-0017 之后的大规模虚拟几何阶段  
-**核心目标**：Web 端直接加载 100M+ triangles 的大型 GLB/glTF 场景，在浏览器、WASM、WebWorker、WebGPU 的约束下尽可能逼近甚至在部分工程维度超越 Nyx 的加载体验、内存效率和运行时稳定性。
+**当前正式目标**：Web 端稳定加载 `large.glb`（477,591,060 bytes、4,871,612 triangles、1,920 primitives、最大 primitive 1,364,306 triangles），完成 runtime cook、渐进发布、Multi-Product、GPU consumer、streaming 和 disposal。100M 保留为后续 scale gate。
+
+> 2026-09-22 目标重置：本文早期章节中的 100M/250M/500M/1B 设计仍是长期
+> scalability architecture，但不再是当前验收顺序或完成定义。当前权威验收顺序以
+> 第 38、41、49 节的 authored K0/K1/K2 与 deferred S1 为准。
 
 ---
 
@@ -16,14 +20,14 @@ ADR-0016 / ADR-0017 已经解决了大部分：
 
 > “GPU Runtime 如何把逻辑几何与物理驻留解耦。”
 
-ADR-0018 要解决的是：
+ADR-0018 当前要解决的是：
 
-> “浏览器如何在不产生场景规模级 CPU/WASM 峰值的前提下，真正加载、构建、发布和运行 100M+ triangle 场景。”
+> “浏览器如何把真实 4.87M triangle authored 场景拆成确定、较小、可调度且可观察的 Cook quantum，而不是把原生离线 Cooker 作为一个不可抢占同步块搬进 Worker。”
 
 当前禁止继续沿用的大模型路径是：
 
 ```text
-100M GLB
+large.glb
   ↓
 Full Canonical ArrayBuffer
   ↓
@@ -39,7 +43,7 @@ GPU Streaming
 ADR-0018 的目标路径：
 
 ```text
-100M+ GLB / glTF
+authored large GLB / glTF
       ↓
 Metadata-only Catalog
       ↓
@@ -60,16 +64,19 @@ Multi-Product Runtime
 Bounded GPU Working Set
 ```
 
-最终必须做到：
+当前必须做到：
 
 ```text
-Logical Scene:
-100M / 250M / 500M / 1B triangles
+Authored Scene:
+4,871,612 triangles / 1,920 primitives
 
                  ↓ decouple
 
 CPU live source window      bounded
 WASM working memory         bounded
+Product work quantum        bounded
+Product task phase          observable
+Session spill               separately budgeted
 Product metadata            shardable
 GPU geometry residency      bounded
 Per-frame hierarchy work    bounded
@@ -116,13 +123,15 @@ Offline Cooker / OEGPACK 继续作为第二路线：
 阶段目标：
 
 ```text
-Stage 1   100M source triangles
-Stage 2   250M source triangles
-Stage 3   500M source triangles
-Stage 4   1B logical triangles
+Stage K0  large.glb complete cook and catalog coverage
+Stage K1  large.glb runtime smoke and producer debt closure
+Stage K2  large.glb formal PERF
+Stage S1  100M source triangles (deferred scale gate)
+Stage S2  250M / 500M / 1B logical diagnostics
 ```
 
-其中 1B 可以包含高实例化场景，但架构必须证明：
+100M 及以上不删除，只从当前 P0 验收降为 authored 目标通过后的扩展性证明。其中
+1B 可以包含高实例化场景，但架构必须证明：
 
 ```text
 logical geometry scale
@@ -292,7 +301,22 @@ Page = 256 KiB
 
 ---
 
-# 6. 当前真正阻止 100M+ 的瓶颈
+# 6. 当前真正阻止 authored large 的瓶颈
+
+当前长尾已经收敛到 CPU/WASM producer，而不是 GPU Virtual Geometry。根因优先级
+调整为：
+
+1. sharding 和 ordinary window 只受 byte budget 约束，没有 Cook Complexity Bound；
+2. 64 MiB window 可包含很多 domains，并在 `portable-single` 中同步串行 cook；
+3. `_oengine_web_geometry_cook_plan()` 是不可抢占同步块，watchdog 能检测但不能及时
+   处理 CancelScope；
+4. `units` 是已覆盖 catalog primitive 数，不是 Product/shard 进度；
+5. session spill budget 误用 per-Product decoded budget 推导，无法覆盖完整 authored
+   scene；
+6. coverage-first bootstrap 未除以 estimated cook cost，可能过早选择最大 work item。
+
+因此 P0 从“继续扩大规模”改为四维 Product Work Planner、Product Task Trace、catalog
+coverage contract、独立 session spill budget 和 authored cook K0。
 
 ## P0-1：Full Canonical Input
 
@@ -316,7 +340,8 @@ WASM
 Canonical Memory ∝ Total Geometry Size
 ```
 
-100M triangle 时这是第一道硬墙。
+100M triangle 时这是长期 scale gate 的第一道硬墙；对当前 authored 目标，首要问题是
+单 Product 的同步 work quantum 没有被 triangle/domain work 限制。
 
 ---
 
@@ -574,15 +599,17 @@ interface SourceWindowBudget {
 }
 ```
 
-第一阶段目标区间：
+authored V1 初始目标：
 
 ```text
-source window       32–64 MiB
-canonical window    64–128 MiB
-cook working set    128–256 MiB
+source window       64 MiB
+canonical window    32 MiB
+decoded Product     128 MiB per Product
+session spill       1 GiB initial limit
 ```
 
-这些是目标量级，不应硬编码成 ABI。
+这些是 workload policy，不应硬编码成 Geometry Product ABI。byte budget 也不能单独
+决定 Product 是否足够小。
 
 关键 invariant：
 
@@ -590,6 +617,23 @@ cook working set    128–256 MiB
 peak live source bytes
 must not scale linearly with total scene bytes
 ```
+
+## 9.1 Product Work Planner
+
+`CanonicalWindowPlanner` 与 `SpatialShardPlanner` 必须共享一组 work constraints：
+
+```text
+maxCanonicalBytes      = 32 MiB
+maxTrianglesPerProduct = 128 Ki
+maxVerticesPerProduct  = 512 Ki
+maxDomainsPerProduct   = 64
+```
+
+单 primitive 超过任一上限就 spatial shard；ordinary batching 加入下一个 domain 会
+超过任一上限就 flush。禁止出现“1.36M triangles 因 canonical < 64 MiB 而不切”，也
+禁止把多个小 primitive 塞成一个同步 cook 长尾。
+
+权威合同是 `docs/specs/web-geometry-product-work-budget-v1.md`。
 
 ---
 
@@ -813,18 +857,23 @@ materialize page
 ```text
 Cook bounded shard
  ↓
-Group payload
+Freeze descriptor + activation cut
  ↓
-Pack Page
+Publish Product revision
  ↓
-Compress / Spill immutable page artifact
+activate through existing onRevision lifecycle
  ↓
-release Group bytes
+Pack / Compress / Spill remaining immutable pages
  ↓
-release canonical memory
+release each completed Group/page payload
  ↓
 next shard
 ```
+
+Publication does not wait for `spillAllPages()`. Activation pages remain available
+through the Product provider contract; after the generator resumes, remaining pages
+spill in bounded order. Failure/cancellation must retain generation and atomicity
+rules and may not publish an unreadable activation cut.
 
 关键 invariant：
 
@@ -1492,11 +1541,11 @@ Canonicalize
      ↓
 Cook
      ↓
-Pack / Compress
+Freeze descriptor / activation pages
      ↓
-Spill
+Publish Product revision
      ↓
-Publish descriptor
+Pack / Compress / Spill remaining pages
      ↓
 Release:
   source buffer
@@ -1513,11 +1562,17 @@ Release:
 
 # 36. 新 Observability
 
-每个 Shard 记录：
+每个 Product/Shard 记录：
 
 ```text
 sourceWindowBytes
 canonicalBytes
+productOrdinal
+primitiveIdentity
+spatialShardOrdinal / shardCount
+triangleCount
+vertexCount
+domainCount
 wasmCookPeakBytes
 serializedGroupPeakBytes
 spillPendingBytes
@@ -1527,17 +1582,21 @@ descriptorBytes
 catalogMs
 rangeReadMs
 canonicalizeMs
+wasmPlanMs
 meshletBuildMs
 simplifyMs
 hierarchyMs
 pagePackMs
 spillMs
+publishMs
 
-triangleCount
 meshletCount
 groupCount
 pageCount
 ```
+
+并持续暴露当前 `phase` 与 `phaseElapsedMs`。`units` 仅是 catalog primitive coverage，
+不能替代 Product/shard/task phase evidence。
 
 全局记录：
 
@@ -1611,13 +1670,7 @@ first fine page resident
 
 # 38. 正式 Workload
 
-必须建立：
-
-## L0 — 10M
-
-开发回归。
-
-## K0 — Authored Large Production Control
+## K0 — Authored Large Cook Gate
 
 使用真实 authored multi-primitive GLB 先验证生产链：
 
@@ -1630,25 +1683,38 @@ Catalog
 → disposal
 ```
 
-K0 用于机器容量和生产路径诊断，不是 100M 性能门禁。当前固定控制资产为
-`large.glb`（4,871,612 triangles、1,041 nodes、1,920 primitives）；它的结果
-不得填入 100M accepted evidence，也不得单独提升 `PerformanceEvaluated`。
+当前固定正式资产为 `large.glb`（477,591,060 bytes、4,871,612 triangles、1,041
+nodes、1,920 primitives、最大 primitive 1,364,306 triangles）。K0 不做正式帧率
+采样，只要求完整 cook、全 catalog coverage、task trace、owner/spill peak、settled 和
+disposal。
 
-## L1 — 100M
+K0 断言：
 
-ADR-0018 最低正式目标。
+```text
+union(every Product.sceneAssetIndices).size == 1,920
+```
 
-## L2 — 250M
+`ProductCount >= 1,920` 是错误条件，必须删除；实际 Product/shard count 单独记录。
 
-大规模验证。
+## K1 — Authored Large Runtime Smoke
 
-## L3 — 500M
+验证 production Multi-Product renderer、first frame、camera movement、page demand、
+fallback 和 disposal，一次即可。K1 同时关闭 activation-first publication、自动
+capacity 和真实 IO/decode/upload telemetry。
 
-扩展验证。
+## K2 — Authored Large Formal PERF
 
-## L4 — 1B logical
+只有 K0/K1 稳定后才执行 1080p、120 warmup、480 samples、3 independent runs、GPU
+timestamp 和 P50/P95。它是当前 `virtual-assets.performance` 的正式 promotion gate。
 
-重点验证 logical scale 与 working set 解耦。
+## S1 — 100M Deferred Scale Gate
+
+100M single-giant workload 保留为 `virtual-assets.scale-performance` 的后续目标，不再
+作为 ADR-0018 当前完成的最低门槛，也不得在 authored K0 之前运行。
+
+## S2 — 250M / 500M / 1B logical
+
+只在 S1 后用于 working-set scalability 诊断。
 
 ---
 
@@ -2014,24 +2080,26 @@ upload budget
 
 **Priority：P0 / 当前机器的第一道浏览器门禁**
 
-先运行固定 authored large 控制场景，记录：
+先运行固定 authored large cook case，记录：
 
 ```text
 Product count
-TTFMF / total cook
+1,920 catalog primitive coverage
+first Product / total cook
+Product task identity and phase timing
 source/canonical/WASM/JS/GPU owner peaks
+session spill current/peak/limit
 page demand/churn/overflow
 GPU errors
-camera-cut recovery
 complete disposal
 ```
 
-没有完整 receipt 只能算调试日志。K0 结果可以说明 authored 生产链是否闭环，
-不能说明 100M single-giant workload 已完成。
+K0 不要求 timestamp/warmup/多 run。没有完整 receipt 只能算调试日志。Product count
+必须记录，但不能要求等于 primitive count。
 
 ---
 
-## Phase K1 — Production Performance Debt
+## Phase K1 — Authored Runtime Smoke and Production Debt
 
 **Priority：P1 / 扩大 workload 前的解释性门禁**
 
@@ -2040,9 +2108,11 @@ K1 关闭或量化当前代码已经暴露的规模债务：
 ```text
 planner scratch / ordered materialization
 giant-primitive rescan cost and cleanup
+activation-first publication before full spill
 incremental GpuRenderWorld publication
 automatic Product slot + metadata capacity
 source-read / decode / upload telemetry
+session-local Product scheduler only after bounded work quantum
 ```
 
 如果这些成本仍存在，必须在正式结果中单独计量，不能把它们混写成 WASM 或 GPU
@@ -2050,7 +2120,7 @@ source-read / decode / upload telemetry
 
 ---
 
-## Phase K2 — 100M Formal PERF Freeze
+## Phase K2 — Authored Large Formal PERF Freeze
 
 **Priority：P1**
 
@@ -2081,6 +2151,15 @@ page demand
 page churn
 camera-cut recovery
 ```
+
+K2 使用 `web-authored-large-perf`，是当前正式性能声明的 promotion gate。
+
+---
+
+## Phase S1 — Deferred 100M Formal Scale Gate
+
+K2 通过后才运行 `web-100m-formal-perf`。它保持 clean revision/browser/adapter/display/
+camera/workload freeze，只能提升 `virtual-assets.scale-performance`。
 
 ---
 
@@ -2119,20 +2198,18 @@ camera prediction
 # 42. 最终优先级表
 
 ```text
-P0-1  100M baseline / failure evidence
-P0-2  Canonical Windowing
-P0-3  Giant Primitive Spatial Sharding
-P0-4  Cook-and-Spill
-P0-5  Multi-Product Runtime
-P0-6  Visible-First Product Scheduler
-P0-7  K0 Authored Large Production Gate
+P0-1  Authored test contract: catalog coverage, not Product count
+P0-2  Product Task / Phase Trace
+P0-3  128K triangle / 32 MiB / 512K vertex / 64-domain Work Planner
+P0-4  Ordinary batching uses the same Work Planner
+P0-5  1 GiB session spill budget separated from per-Product budget
+P0-6  K0 Authored Large Cook Gate
 
-P1-1  GPU Demand Dedup / Compact
-P1-2  Adaptive GPU Residency Profile
-P1-3  Current-HZB Late Recheck
-P1-4  Dynamic Page Scheduler
-P1-5  K1 Production Performance Debt
-P1-6  K2 100M Formal PERF
+P1-1  Activation-first publication before full spill
+P1-2  K1 Authored runtime smoke and production debt
+P1-3  Session-local Product scheduling, starting with 2 workers
+P1-4  K2 Authored formal PERF
+P1-5  S1 Deferred 100M formal scale gate
 
 P2-1  32/64/96/128 Raster Buckets
 P2-2  Selective Primitive Culling
@@ -2483,20 +2560,22 @@ submission-safe
 
 ---
 
-# 49. ADR-0018 完成定义
+# 49. ADR-0018 当前完成定义
 
 只有同时满足以下条件才能称：
 
-> **Web 100M+ Virtual Geometry Architecture Complete**
+> **Web Authored Large Virtual Geometry Architecture Complete**
 
 ## Loading
 
-- [ ] public `load_gltf()` 能处理 100M source triangles；
+- [ ] public `load_gltf()` 能稳定处理冻结的 `large.glb`；
 - [ ] 不要求 offline preprocess；
 - [ ] 不需要 full source buffer；
 - [ ] 不需要 full canonical buffer；
 - [ ] 不需要 full retainedGroups；
 - [ ] visible ProductShard 能提前发布。
+- [ ] 单 Product 同时满足 bytes/triangles/vertices/domains work budget；
+- [ ] 每个 Product/shard 有结构化 task/phase trace。
 
 ## Memory
 
@@ -2504,6 +2583,7 @@ submission-safe
 - [ ] WASM peak bounded；
 - [ ] source-window peak bounded；
 - [ ] CPU page cache bounded；
+- [ ] session spill 与 per-Product decoded budget 分离且 bounded；
 - [ ] GPU geometry cache bounded。
 
 ## Product
@@ -2526,20 +2606,17 @@ submission-safe
 
 ## Evidence
 
-- [ ] 10M；
-- [ ] K0 authored-large production receipt（仅 authored 诊断/运行证据，不替代 100M）；
-- [ ] K1 planner/publication/capacity/telemetry debt 已关闭或有独立计量；
-- [ ] 100M；
-- [ ] 250M；
-- [ ] 500M diagnostic；
+- [ ] K0 authored-large cook receipt：全 1,920 primitive coverage、task trace、spill peak、settled/disposal；
+- [ ] K1 authored runtime smoke 与 planner/publication/capacity/telemetry debt closure；
+- [ ] K2 authored-large formal PERF；
 - [ ] single giant primitive；
 - [ ] city；
 - [ ] dense occlusion；
 - [ ] camera cut；
 - [ ] high instancing。
 
-K0/K1 是正式 100M 之前的解释性门禁。它们不能降低 100M 的 triangle count、替代
-single-giant source 或把 authored control 结果提升为 formal performance evidence。
+100M、250M、500M 与 1B 是 ADR 当前完成后的 scale evidence，不属于 authored 目标的
+完成清单。它们也不能用来掩盖 `large.glb` producer 仍然卡住的事实。
 
 ---
 
@@ -2551,10 +2628,11 @@ ADR-0016 / ADR-0017 已经基本解决：
 “虚拟几何 Runtime 是什么”
 ```
 
-ADR-0018 必须解决：
+ADR-0018 当前必须解决：
 
 ```text
-“如何让 Browser 真正吃下 100M+ geometry”
+“如何让 Browser 稳定吃下真实 authored large geometry，并把每个 Cook unit 变成
+确定、较小、可调度、可观察的 work quantum”
 ```
 
 下一阶段的中心应该从：
@@ -2601,4 +2679,5 @@ WebGPU-specific HZB / Indirect Raster Optimization
 
 而应该变成：
 
-> **以 Nyx 几何算法为基线，但围绕浏览器内存、Worker/WASM、OPFS、WebGPU binding 与 indirect raster 重新设计的 Web-native 100M+ Virtual Geometry Runtime。**
+> **以 Nyx 几何算法为基线，先完成真实 4.87M authored scene，再以同一 bounded
+> producer/runtime 架构推进 100M+ scale 的 Web-native Virtual Geometry Runtime。**

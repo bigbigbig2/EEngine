@@ -19,6 +19,9 @@ spec 是实现之间的精确合同，不负责解释长期取舍或报告进度
 - [Virtual Geometry Runtime V1](./virtual-geometry-runtime-v1.md) — draft admission/residency/feedback/publication 合同。
 - [Web Geometry Cooker ABI V1](./web-geometry-cooker-abi-v1.md) — draft Dedicated Worker/WASM canonical input、recipe、Product section 与 ownership 合同。
 - [Web Geometry Page Artifact / Spill Store V1](./web-geometry-page-artifact-v1.md) — draft Page artifact identity、Memory/OPFS spill、checksum、budget 与 lifecycle 合同。
+- [Web Geometry Product Work Budget V1](./web-geometry-product-work-budget-v1.md) — canonical bytes、triangles、vertices 与 domains 的联合 Product work quantum。
+- [Web Geometry Product Task Trace V1](./web-geometry-product-task-trace-v1.md) — Product/shard identity、canonicalize/WASM/spill/publish phase 与 timing evidence。
+- [Web Geometry Authored Large Gate V1](./web-geometry-authored-large-gate-v1.md) — `large.glb` K0/K1/K2 验收、catalog coverage、session spill 与 100M 后置边界。
 - [Web Geometry Multi-Product Runtime V1](./web-geometry-multi-product-runtime-v1.md) — Phase E Product Table、Product-local identity、replacement/eviction/dormancy/release 与实例 ABI 合同。
 - [Web Geometry Visible-First Product Scheduler V1](./web-geometry-visible-first-product-scheduler-v1.md) — Phase F current-view/spatial priority、TTFMF 与 total cook completion 边界、后台 refinement 和取消合同。
 - [Web Geometry GPU Demand Dedup / Compaction V1](./web-geometry-demand-compaction-v1.md) — Phase G Product-local page mask、bounded priority demand queue、overflow 与 delayed readback 合同。

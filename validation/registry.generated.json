@@ -755,14 +755,14 @@
         "OEngine/src/render/pipeline/MainRenderPipeline.ts"
       ],
       "covers": [
-        "virtual-assets.performance"
+        "virtual-assets.scale-performance"
       ],
       "decision": "ADR-0018",
       "domain": "virtual-assets",
       "errorAllowlist": [
         {
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.performance",
+          "ownerClaim": "virtual-assets.scale-performance",
           "reason": "Chrome stable emits this platform warning while the formal geometry PERF device is captured.",
           "source": "console:warning"
         }
@@ -776,6 +776,48 @@
       "route": "/cases/web-100m-formal-perf/index.html",
       "timeoutMs": 1800000,
       "workloadId": "web-100m-formal-perf-v1"
+    },
+    {
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
+      "automatic": true,
+      "buildTarget": "production",
+      "caseKind": "production",
+      "changedPaths": [
+        "validation/cases/web-100m-formal-perf",
+        "validation/cases/web-authored-large-cook-k0",
+        "validation/workloads/web-authored-large-cook-k0-v1.yaml",
+        "validation/vite.config.ts",
+        "OEngine/src/assets/web-cook",
+        "OEngine/src/assets/geometry-product",
+        "OEngine/src/gpu/GeometryProductMultiRuntime.ts"
+      ],
+      "covers": [
+        "virtual-assets.performance"
+      ],
+      "decision": "ADR-0018",
+      "domain": "virtual-assets",
+      "errorAllowlist": [
+        {
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "ownerClaim": "virtual-assets.performance",
+          "reason": "Chrome stable emits this platform warning while the authored K0 cook device is captured.",
+          "source": "console:warning"
+        }
+      ],
+      "harness": "production",
+      "id": "web-authored-large-cook-k0",
+      "kind": "contract",
+      "lab": false,
+      "level": "L3",
+      "profile": "smoke",
+      "route": "/cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-cook-k0&workload=web-authored-large-cook-k0-v1",
+      "sourceCase": "web-100m-formal-perf",
+      "timeoutMs": 300000,
+      "workloadId": "web-authored-large-cook-k0-v1"
     },
     {
       "artifacts": [
@@ -1484,10 +1526,138 @@
       "timestampRequired": false,
       "warmupFrames": 1
     },
-    "web-authored-large-perf-v1": {
+    "web-authored-large-cook-k0-v1": {
+      "acceptance": {
+        "productCount": "record-only",
+        "requiresDisposed": true,
+        "requiresFullCatalogCoverage": true,
+        "requiresSettled": true
+      },
       "budgets": {
-        "maxCanonicalInputBytes": 67108864,
+        "maxCanonicalInputBytes": 33554432,
         "maxDecodedProductBytes": 134217728,
+        "maxSessionSpillBytes": 1073741824,
+        "maxSourceWindowBytes": 67108864
+      },
+      "cameraPath": "web-100m-formal-camera-v1",
+      "cameraPathSha256": "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211",
+      "deviceScaleFactor": 1,
+      "features": [
+        "web-cook",
+        "geometry-product",
+        "multi-product-runtime",
+        "visible-first-scheduler",
+        "gpu-demand-compaction",
+        "adaptive-residency",
+        "current-hzb-late-recheck",
+        "dynamic-page-scheduler"
+      ],
+      "fixedCondition": {
+        "adapter": "record-from-browser-provenance",
+        "browser": "chrome-stable",
+        "cameraPath": "web-100m-formal-camera-v1",
+        "dpr": 1,
+        "featureSet": "record-negotiated-device-features",
+        "resolution": "1280x720"
+      },
+      "geometry": {
+        "catalogCoverage": "all-primitives",
+        "layout": "authored-multi-primitive",
+        "maximumPrimitiveTriangles": 1364306,
+        "nodes": 1041,
+        "primitives": 1920,
+        "productCount": "record-only",
+        "source": "authored-local-large-glb",
+        "sourceBytes": 477591060,
+        "sourceSha256": "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
+        "sourceTriangles": 4871612
+      },
+      "id": "web-authored-large-cook-k0-v1",
+      "independentRuns": 1,
+      "metrics": {
+        "disposal": [
+          "settled",
+          "disposed"
+        ],
+        "firstActivationMs": "firstActivatedProductMs",
+        "ownerPeaks": [
+          "sourceBytes",
+          "canonicalBytes",
+          "wasmBytes",
+          "jsBytes",
+          "spillBytes",
+          "gpuGeometryBytes"
+        ],
+        "pages": [
+          "pageCount",
+          "demand",
+          "churn",
+          "overflow"
+        ],
+        "productCount": "productCount",
+        "taskTrace": "taskTrace",
+        "totalCookMs": "totalCookMs"
+      },
+      "quality": "adr-0018-authored-large-k0-v1",
+      "renderScale": 1,
+      "resolution": [
+        1280,
+        720
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 1,
+      "seed": 1801,
+      "taskTrace": {
+        "phases": [
+          "catalog",
+          "canonicalize",
+          "wasm-plan",
+          "spill",
+          "publish",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "requiredIdentity": [
+          "taskId",
+          "productOrdinal",
+          "primitive",
+          "spatial",
+          "shard",
+          "triangles",
+          "vertices",
+          "domains",
+          "canonicalBytes"
+        ],
+        "requiredTimings": [
+          "canonicalizeMs",
+          "wasmPlanMs",
+          "spillMs",
+          "publishMs",
+          "pageCount",
+          "spillBytes"
+        ]
+      },
+      "timestampRequired": false,
+      "warmupFrames": 1,
+      "workBudget": {
+        "maxCanonicalBytes": 33554432,
+        "maxDomainsPerProduct": 64,
+        "maxTrianglesPerProduct": 131072,
+        "maxVerticesPerProduct": 524288
+      }
+    },
+    "web-authored-large-perf-v1": {
+      "acceptance": {
+        "productCount": "record-only",
+        "requiresDisposed": true,
+        "requiresFullCatalogCoverage": true,
+        "requiresSettled": true
+      },
+      "budgets": {
+        "maxCanonicalInputBytes": 33554432,
+        "maxDecodedProductBytes": 134217728,
+        "maxSessionSpillBytes": 1073741824,
         "maxSourceWindowBytes": 67108864
       },
       "cameraPath": "web-100m-formal-camera-v1",
@@ -1514,11 +1684,12 @@
         "resolution": "1920x1080"
       },
       "geometry": {
+        "catalogCoverage": "all-primitives",
         "layout": "authored-multi-primitive",
         "maximumPrimitiveTriangles": 1364306,
-        "minimumExpectedProducts": 1920,
         "nodes": 1041,
         "primitives": 1920,
+        "productCount": "record-only",
         "source": "authored-local-large-glb",
         "sourceBytes": 477591060,
         "sourceSha256": "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
@@ -1545,8 +1716,10 @@
         ],
         "ownerPeaks": [
           "sourceBytes",
+          "canonicalBytes",
           "wasmBytes",
           "jsBytes",
+          "spillBytes",
           "gpuGeometryBytes"
         ],
         "pages": [
@@ -1554,9 +1727,15 @@
           "churn",
           "overflow"
         ],
+        "productTasks": [
+          "productCount",
+          "slowestProductMs",
+          "slowestWasmPlanMs",
+          "taskTrace"
+        ],
         "ttfmf": "firstMeaningfulFrameMs"
       },
-      "quality": "adr-0018-authored-large-control-v1",
+      "quality": "adr-0018-authored-large-formal-v2",
       "renderScale": 1,
       "resolution": [
         1920,
@@ -1565,8 +1744,45 @@
       "sampleCadence": 1,
       "sampleFrames": 480,
       "seed": 1801,
+      "taskTrace": {
+        "phases": [
+          "catalog",
+          "canonicalize",
+          "wasm-plan",
+          "spill",
+          "publish",
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "requiredIdentity": [
+          "taskId",
+          "productOrdinal",
+          "primitive",
+          "spatial",
+          "shard",
+          "triangles",
+          "vertices",
+          "domains",
+          "canonicalBytes"
+        ],
+        "requiredTimings": [
+          "canonicalizeMs",
+          "wasmPlanMs",
+          "spillMs",
+          "publishMs",
+          "pageCount",
+          "spillBytes"
+        ]
+      },
       "timestampRequired": true,
-      "warmupFrames": 120
+      "warmupFrames": 120,
+      "workBudget": {
+        "maxCanonicalBytes": 33554432,
+        "maxDomainsPerProduct": 64,
+        "maxTrianglesPerProduct": 131072,
+        "maxVerticesPerProduct": 524288
+      }
     },
     "web-authored-large-phase-a-v1": {
       "cameraPath": "catalog-only-before-first-frame",
@@ -1601,6 +1817,113 @@
       "seed": 1801,
       "timestampRequired": false,
       "warmupFrames": 1
+    },
+    "web-authored-large-runtime-smoke-v1": {
+      "acceptance": {
+        "requiresCameraCutRecovery": true,
+        "requiresDisposed": true,
+        "requiresFirstMeaningfulFrame": true,
+        "requiresFullCatalogCoverage": true,
+        "requiresNoGpuErrors": true,
+        "requiresPageDemand": true,
+        "requiresProductionRenderer": true,
+        "requiresSettled": true
+      },
+      "actions": [
+        "wait-for-first-meaningful-frame",
+        "move-camera",
+        "trigger-page-demand",
+        "trigger-camera-cut",
+        "wait-for-recovery",
+        "wait-for-settled",
+        "dispose"
+      ],
+      "budgets": {
+        "maxCanonicalInputBytes": 33554432,
+        "maxDecodedProductBytes": 134217728,
+        "maxSessionSpillBytes": 1073741824,
+        "maxSourceWindowBytes": 67108864
+      },
+      "cameraPath": "web-100m-formal-camera-v1",
+      "cameraPathSha256": "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211",
+      "deviceScaleFactor": 1,
+      "features": [
+        "web-cook",
+        "geometry-product",
+        "multi-product-runtime",
+        "visible-first-scheduler",
+        "gpu-demand-compaction",
+        "adaptive-residency",
+        "current-hzb-late-recheck",
+        "dynamic-page-scheduler"
+      ],
+      "fixedCondition": {
+        "adapter": "record-from-browser-provenance",
+        "browser": "chrome-stable",
+        "cameraPath": "web-100m-formal-camera-v1",
+        "dpr": 1,
+        "featureSet": "record-negotiated-device-features",
+        "resolution": "1280x720"
+      },
+      "geometry": {
+        "catalogCoverage": "all-primitives",
+        "layout": "authored-multi-primitive",
+        "maximumPrimitiveTriangles": 1364306,
+        "nodes": 1041,
+        "primitives": 1920,
+        "productCount": "record-only",
+        "source": "authored-local-large-glb",
+        "sourceBytes": 477591060,
+        "sourceSha256": "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
+        "sourceTriangles": 4871612
+      },
+      "id": "web-authored-large-runtime-smoke-v1",
+      "independentRuns": 1,
+      "metrics": {
+        "cameraCutRecovery": [
+          "recoveryMs",
+          "recoveryFrames"
+        ],
+        "disposal": [
+          "settled",
+          "disposed"
+        ],
+        "ownerPeaks": [
+          "sourceBytes",
+          "canonicalBytes",
+          "wasmBytes",
+          "jsBytes",
+          "spillBytes",
+          "gpuGeometryBytes"
+        ],
+        "pages": [
+          "demand",
+          "churn",
+          "overflow"
+        ],
+        "productTasks": [
+          "productCount",
+          "taskTrace"
+        ],
+        "ttfmf": "firstMeaningfulFrameMs"
+      },
+      "quality": "adr-0018-authored-large-runtime-smoke-v1",
+      "renderScale": 1,
+      "resolution": [
+        1280,
+        720
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 1,
+      "seed": 1801,
+      "timestampRequired": false,
+      "warmupFrames": 1,
+      "workBudget": {
+        "maxCanonicalBytes": 33554432,
+        "maxDomainsPerProduct": 64,
+        "maxTrianglesPerProduct": 131072,
+        "maxVerticesPerProduct": 524288
+      }
     },
     "web-nyx-zorah-phase-a-v1": {
       "cameraPath": "catalog-only-before-first-frame",

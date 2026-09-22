@@ -156,7 +156,31 @@ test("Nyx Web Runtime Cooker publishes independent revision-zero Products per sp
   for (const revision of revisions) revision.release();
 });
 
-test("Nyx Web Runtime Cooker keeps an already-published Product when a later shard fails", async () => {
+test("Nyx Web Runtime Cooker gives ordinary windows stable, non-colliding Product identities", async () => {
+  const sections = productSections(), { unit, context: cookContext } = context();
+  const second = { ...unit, nodeIndex: 1, instanceNodeIndices: [1], meshIndex: 1 };
+  cookContext.catalog.primitives = [unit, second];
+  const run = async () => {
+    const cooker = new NyxWebRuntimeCooker(fakeModule(sections), {
+      maxSourceWindowBytes: 8192,
+      maxCanonicalInputBytes: 8192,
+      maxDecodedProductBytes: 262144,
+      maxDomainsPerProduct: 1,
+      spillStore: spillStore()
+    });
+    const revisions = [];
+    await cooker.cookProgressive([unit, second], cookContext, async revision => { revisions.push(revision); });
+    const identities = revisions.map(revision => [...revision.productId]);
+    revisions.forEach(revision => revision.release());
+    return identities;
+  };
+  const first = await run(), repeated = await run();
+  assert.equal(first.length, 2);
+  assert.notDeepEqual(first[0], first[1], "ordinary windows from one source must not share a spill key");
+  assert.deepEqual(repeated, first, "the same stable Product partition must reproduce its identity");
+});
+
+test("Nyx Web Runtime Cooker fails the session when a later required Product fails", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();
   const second = { ...unit, nodeIndex: 1, instanceNodeIndices: [1], meshIndex: 1 };
   cookContext.catalog.primitives = [unit, second];
@@ -174,12 +198,13 @@ test("Nyx Web Runtime Cooker keeps an already-published Product when a later sha
   };
   const cooker = new NyxWebRuntimeCooker(failing, { maxSourceWindowBytes: 24, maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144, spillStore: spillStore() });
   const revisions = [];
-  let failure;
-  await cooker.cookProgressive([unit, second], cookContext, async (revision) => { revisions.push(revision); }, (error) => { failure = error; });
+  await assert.rejects(
+    () => cooker.cookProgressive([unit, second], cookContext, async revision => { revisions.push(revision); }),
+    /shard-err/
+  );
   assert.equal(revisions.length, 1);
   assert.equal(revisions[0].revision, 0);
   assert.deepEqual(revisions[0].sceneAssetIndices, [0]);
-  assert.match(failure?.message ?? "", /shard-err/);
   for (const revision of revisions) revision.release();
 });
 
@@ -200,6 +225,25 @@ test("Nyx Web Runtime Cooker spills every Product before publication", async () 
   assert.deepEqual([...descriptor.activationPageIds], [0]);
   assert.equal(store.evidence().writes, 1);
   for (const revision of revisions) revision.release();
+});
+
+test("Nyx Web Runtime Cooker emits attributable Product phase and terminal trace", async () => {
+  const sections = productSections(), { unit, context: cookContext } = context();
+  cookContext.catalog.primitives = [unit];
+  const cooker = new NyxWebRuntimeCooker(fakeModule(sections), { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144, spillStore: spillStore() });
+  const trace = [];
+  cooker.setTaskTraceListener(event => trace.push(event));
+  const revisions = [];
+  await cooker.cookProgressive([unit], cookContext, async revision => { revisions.push(revision); }, () => {});
+  assert.deepEqual(trace.filter(event => event.kind === "phase-started").map(event => event.phase), ["canonicalize", "wasm-plan", "spill", "publish"]);
+  assert.deepEqual(trace.filter(event => event.kind === "phase-completed").map(event => event.phase), ["canonicalize", "wasm-plan", "spill", "publish"]);
+  const terminal = trace.at(-1);
+  assert.equal(terminal.kind, "completed");
+  assert.equal(terminal.task.triangles, 1);
+  assert.deepEqual(terminal.task.sceneAssetIndices, [0]);
+  assert.equal(terminal.metrics.pageCount, 1);
+  assert.ok(terminal.metrics.spillBytes > 0);
+  revisions.forEach(revision => revision.release());
 });
 
 test("Nyx Web Runtime Cooker re-reads a published page from spill without retaining WASM payload", async () => {

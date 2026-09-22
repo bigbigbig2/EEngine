@@ -60,6 +60,12 @@ export interface WasmGeometryProductIdentifyInputV1 {
   readonly producerVersion: string;
   readonly sourceIdentityKind: GeometryProductSourceIdentityKind;
   readonly sourceIdentityHash: Uint8Array;
+  /**
+   * Stable identity of this Product partition inside the source. When omitted,
+   * the WASM adapter derives it from the ordered scene mapping and canonical
+   * window digests without retaining scene-scale canonical bytes.
+   */
+  readonly productScopeHash?: Uint8Array;
   readonly revision: number;
   readonly replaces?: Readonly<{ productId: Uint8Array; revision: number }>;
   readonly sceneAssetIndices?: readonly number[];
@@ -82,13 +88,14 @@ export async function deriveGeometryProductIdV1(
   sourceIdentityKind: GeometryProductSourceIdentityKind,
   sourceIdentityHash: Uint8Array,
   recipeHash: Uint8Array,
-  contentManifestHash: Uint8Array
+  contentManifestHash: Uint8Array,
+  productScopeHash: Uint8Array
 ): Promise<Uint8Array> {
-  for (const [name, value] of [["sourceIdentityHash", sourceIdentityHash], ["recipeHash", recipeHash], ["contentManifestHash", contentManifestHash]] as const) {
+  for (const [name, value] of [["sourceIdentityHash", sourceIdentityHash], ["recipeHash", recipeHash], ["contentManifestHash", contentManifestHash], ["productScopeHash", productScopeHash]] as const) {
     if (value.byteLength !== 32) throw new RangeError(`${name} must be exactly 32 bytes`);
   }
   const fields = [
-    textBytes("OENGINE-GEOMETRY-PRODUCT-ID-V1"),
+    textBytes("OENGINE-GEOMETRY-PRODUCT-ID-V2"),
     textBytes(sourceIdentityKind),
     sourceIdentityHash.slice(),
     textBytes("web-runtime"),
@@ -96,7 +103,8 @@ export async function deriveGeometryProductIdV1(
     textBytes(producerVersion),
     recipeHash.slice(),
     textBytes(GEOMETRY_PRODUCT_RUNTIME_PROFILE),
-    contentManifestHash.slice()
+    contentManifestHash.slice(),
+    productScopeHash.slice()
   ];
   const encoded = encodeLengthPrefixed(fields);
   return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", encoded));
@@ -111,7 +119,8 @@ export async function cookWasmGeometryProductRevisionV1(
 ): Promise<WasmGeometryProductRevisionV1> {
   const result = cookWebGeometryWasmV1(module, canonicalInput, recipeInput, options.maxDecodedProductBytes);
   try {
-    return await assembleWasmGeometryProductRevisionV1(result, options, () => new MonolithicPageSource(result));
+    const productScopeHash = await resolveProductScopeHash(options, [await digestCanonicalWindow(canonicalInput)]);
+    return await assembleWasmGeometryProductRevisionV1(result, options, productScopeHash, () => new MonolithicPageSource(result));
   } catch (error) {
     result.release();
     throw error;
@@ -142,7 +151,8 @@ export async function planWasmGeometryProductRevisionV1(
 ): Promise<WasmGeometryProductRevisionV1> {
   const result = planWebGeometryWasmV1(module, canonicalInput, recipeInput, options.maxDecodedProductBytes);
   try {
-    return await assembleWasmGeometryProductRevisionV1(result, options, descriptor => new WasmPlanPageSource(result!, descriptor, options.spillStore, options.sessionGeneration, options.signal));
+    const productScopeHash = await resolveProductScopeHash(options, [await digestCanonicalWindow(canonicalInput)]);
+    return await assembleWasmGeometryProductRevisionV1(result, options, productScopeHash, descriptor => new WasmPlanPageSource(result!, descriptor, options.spillStore, options.sessionGeneration, options.signal));
   } catch (error) {
     result.release();
     throw error;
@@ -160,10 +170,16 @@ export async function planWasmGeometryProductRevisionWindowsV1(
   let result: WebGeometryCookWasmPlanV1 | undefined;
   try {
     let windows = 0;
-    for await (const canonical of canonicalWindows) { builder.append(canonical); windows++; }
+    const canonicalWindowHashes: Uint8Array[] = [];
+    for await (const canonical of canonicalWindows) {
+      builder.append(canonical);
+      canonicalWindowHashes.push(await digestCanonicalWindow(canonical));
+      windows++;
+    }
     if (windows === 0) throw new Error("canonical window stream produced no inputs");
     result = builder.finish();
-    return await assembleWasmGeometryProductRevisionV1(result, options, descriptor => new WasmPlanPageSource(result!, descriptor, options.spillStore, options.sessionGeneration, options.signal));
+    const productScopeHash = await resolveProductScopeHash(options, canonicalWindowHashes);
+    return await assembleWasmGeometryProductRevisionV1(result, options, productScopeHash, descriptor => new WasmPlanPageSource(result!, descriptor, options.spillStore, options.sessionGeneration, options.signal));
   } catch (error) {
     result?.release();
     builder.release();
@@ -183,6 +199,7 @@ interface GeometryProductPageSourceV1 {
 async function assembleWasmGeometryProductRevisionV1(
   result: WebGeometryCookWasmHandleV1,
   options: Readonly<WasmGeometryProductIdentifyInputV1 & { readonly maxDecodedProductBytes: number }>,
+  productScopeHash: Uint8Array,
   createPageSource: (descriptor: GeometryProductDescriptorV1) => GeometryProductPageSourceV1
 ): Promise<WasmGeometryProductRevisionV1> {
   const sections = result.descriptorSections();
@@ -192,7 +209,8 @@ async function assembleWasmGeometryProductRevisionV1(
     options.sourceIdentityKind,
     options.sourceIdentityHash,
     sections.recipeHash,
-    sections.contentManifestHash
+    sections.contentManifestHash,
+    productScopeHash
   );
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
     schemaVersion: 1,
@@ -402,6 +420,35 @@ function encodeLengthPrefixed(fields: readonly Uint8Array[]): Uint8Array<ArrayBu
     offset += 8 + field.byteLength;
   }
   return output;
+}
+
+async function digestCanonicalWindow(canonical: ArrayBuffer): Promise<Uint8Array> {
+  return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", canonical));
+}
+
+async function resolveProductScopeHash(
+  options: Readonly<WasmGeometryProductIdentifyInputV1>,
+  canonicalWindowHashes: readonly Uint8Array[]
+): Promise<Uint8Array> {
+  if (options.productScopeHash !== undefined) {
+    if (options.productScopeHash.byteLength !== 32) throw new RangeError("productScopeHash must be exactly 32 bytes");
+    return options.productScopeHash.slice();
+  }
+  if (canonicalWindowHashes.length === 0) throw new RangeError("Product scope requires at least one canonical window hash");
+  for (const hash of canonicalWindowHashes) if (hash.byteLength !== 32) throw new RangeError("canonical window hash must be exactly 32 bytes");
+  const sceneAssetIndices = options.sceneAssetIndices ?? [];
+  const mapping = new Uint8Array(sceneAssetIndices.length * 4), mappingView = new DataView(mapping.buffer);
+  for (let index = 0; index < sceneAssetIndices.length; index++) {
+    const value = sceneAssetIndices[index]!;
+    if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) throw new RangeError("sceneAssetIndices must contain u32 values");
+    mappingView.setUint32(index * 4, value, true);
+  }
+  const encoded = encodeLengthPrefixed([
+    textBytes("OENGINE-GEOMETRY-PRODUCT-SCOPE-V1"),
+    mapping,
+    ...canonicalWindowHashes.map(hash => hash.slice())
+  ]);
+  return new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", encoded));
 }
 
 function textBytes(value: string): Uint8Array { return new TextEncoder().encode(value); }

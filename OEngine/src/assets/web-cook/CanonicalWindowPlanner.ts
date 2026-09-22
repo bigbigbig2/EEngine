@@ -5,27 +5,75 @@ export interface CanonicalWindowPlan {
   readonly units: readonly GlbCookPrimitive[];
   readonly sourceBytes: number;
   readonly canonicalBytes: number;
+  readonly triangleCount: number;
+  readonly vertexCount: number;
+  readonly domainCount: number;
 }
 
-/** Deterministic whole-primitive windows; callers spatially expand oversized units first. */
-export function planCanonicalWindows(units: readonly GlbCookPrimitive[], maxSourceBytes: number, maxCanonicalBytes: number): readonly CanonicalWindowPlan[] {
-  if (!Number.isSafeInteger(maxSourceBytes) || maxSourceBytes <= 0 || !Number.isSafeInteger(maxCanonicalBytes) || maxCanonicalBytes <= 0) throw new RangeError("canonical window budgets must be positive safe integers");
+export interface ProductWorkBudgetV1 {
+  readonly maxSourceBytes: number;
+  readonly maxCanonicalBytes: number;
+  readonly maxTriangles: number;
+  readonly maxVertices: number;
+  readonly maxDomains: number;
+}
+
+export interface ProductWorkEstimateV1 {
+  readonly sourceBytes: number;
+  readonly canonicalBytes: number;
+  readonly triangleCount: number;
+  readonly vertexCount: number;
+  readonly domainCount: number;
+}
+
+/** Deterministic whole-primitive Products bounded by both memory and cook work. */
+export function planCanonicalWindows(units: readonly GlbCookPrimitive[], budget: ProductWorkBudgetV1): readonly CanonicalWindowPlan[] {
+  validateProductWorkBudgetV1(budget);
   const windows: CanonicalWindowPlan[] = [];
   let pending: GlbCookPrimitive[] = [];
   const flush = (): void => {
     if (pending.length === 0) return;
-    windows.push(Object.freeze({ units: Object.freeze(pending), sourceBytes: estimateSourceBytes(pending), canonicalBytes: estimateCanonicalBytes(pending) }));
+    windows.push(Object.freeze({ units: Object.freeze(pending), ...estimateProductWorkV1(pending) }));
     pending = [];
   };
   for (const unit of units) {
-    const singleSource = estimateSourceBytes([unit]), singleCanonical = estimateCanonicalBytes([unit]);
-    if (singleSource > maxSourceBytes || singleCanonical > maxCanonicalBytes) throw new Error(`canonical unit ${unit.meshIndex}:${unit.primitiveIndex} requires source=${singleSource}, canonical=${singleCanonical}; spatial expansion is required before primitive window planning`);
+    const single = estimateProductWorkV1([unit]);
+    if (exceedsProductWorkBudgetV1(single, budget)) throw new Error(`canonical unit ${unit.meshIndex}:${unit.primitiveIndex} requires source=${single.sourceBytes}, canonical=${single.canonicalBytes}, triangles=${single.triangleCount}, vertices=${single.vertexCount}, domains=${single.domainCount}; spatial expansion is required before primitive window planning`);
     const candidate = [...pending, unit];
-    if (pending.length > 0 && (estimateSourceBytes(candidate) > maxSourceBytes || estimateCanonicalBytes(candidate) > maxCanonicalBytes)) flush();
+    if (pending.length > 0 && exceedsProductWorkBudgetV1(estimateProductWorkV1(candidate), budget)) flush();
     pending.push(unit);
   }
   flush();
   return Object.freeze(windows);
+}
+
+export function estimateProductWorkV1(units: readonly GlbCookPrimitive[]): ProductWorkEstimateV1 {
+  let triangleCount = 0, vertexCount = 0;
+  for (const unit of units) {
+    triangleCount = checkedAdd(triangleCount, unit.triangleCount);
+    vertexCount = checkedAdd(vertexCount, unit.vertexCount);
+  }
+  return Object.freeze({
+    sourceBytes: estimateSourceBytes(units),
+    canonicalBytes: estimateCanonicalBytes(units),
+    triangleCount,
+    vertexCount,
+    domainCount: units.length
+  });
+}
+
+export function exceedsProductWorkBudgetV1(estimate: ProductWorkEstimateV1, budget: ProductWorkBudgetV1): boolean {
+  return estimate.sourceBytes > budget.maxSourceBytes ||
+    estimate.canonicalBytes > budget.maxCanonicalBytes ||
+    estimate.triangleCount > budget.maxTriangles ||
+    estimate.vertexCount > budget.maxVertices ||
+    estimate.domainCount > budget.maxDomains;
+}
+
+export function validateProductWorkBudgetV1(budget: ProductWorkBudgetV1): void {
+  for (const [name, value] of Object.entries(budget)) {
+    if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
+  }
 }
 
 export function estimateSourceBytes(units: readonly GlbCookPrimitive[]): number {

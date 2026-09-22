@@ -3,6 +3,7 @@ import { openGlbRangeSource, type GlbRangeReadableSource, type GlbRangeSourceOpt
 import { decodeGeometryProductDescriptorBinaryV1 } from "../geometry-product/GeometryProductBinaryV1.js";
 import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
 import { WebCookSessionProtocol, WEB_COOK_PAGE_BYTES, WEB_COOK_PROTOCOL_VERSION, type WebCookBootstrapOptions, type WebCookBudgets, type WebCookEvent, type WebCookRuntimeProfile } from "./protocol/CookSessionProtocol.js";
+import type { WebCookProductTaskTraceEventV1, WebCookProductTaskTraceListener } from "./ProductTaskTrace.js";
 
 export interface WebCookUnitContext {
   readonly source: GlbRangeReadableSource;
@@ -73,6 +74,8 @@ export interface WebRuntimeCooker {
   ): Promise<void>;
   /** Optional producer-owned memory evidence. It must describe live windows, not total asset size. */
   evidence?(): Readonly<Record<string, number>>;
+  /** Installs the session trace sink before cook starts. */
+  setTaskTraceListener?(listener: WebCookProductTaskTraceListener | undefined): void;
 }
 
 export interface WebCookCoordinatorOptions {
@@ -118,6 +121,13 @@ export interface WebCookCoordinatorEvidence {
    */
   readonly lateSourcePriorities: number;
   readonly recoverableFailures: readonly string[];
+  readonly productTaskEvents: number;
+  readonly productTasksStarted: number;
+  readonly productTasksCompleted: number;
+  readonly productTasksFailed: number;
+  readonly productTasksCancelled: number;
+  readonly currentProductTask?: WebCookProductTaskTraceEventV1;
+  readonly lastFailedProductTask?: WebCookProductTaskTraceEventV1;
   readonly cooker?: Readonly<Record<string, number>>;
   readonly failure?: string;
 }
@@ -156,6 +166,13 @@ export class WebCookCoordinator {
   /** Revisions whose activation cut finished streaming; those pages re-emit. */
   readonly #activationStreamed = new Map<string, boolean>();
   readonly #completedSceneAssets = new Set<number>();
+  #productTaskEvents = 0;
+  #productTasksStarted = 0;
+  #productTasksCompleted = 0;
+  #productTasksFailed = 0;
+  #productTasksCancelled = 0;
+  #currentProductTask: WebCookProductTaskTraceEventV1 | undefined;
+  #lastFailedProductTask: WebCookProductTaskTraceEventV1 | undefined;
   #acceptedProducts = 0;
   readonly #creditWaiters = new Set<() => void>();
   #emitTail: Promise<void> = Promise.resolve();
@@ -172,6 +189,7 @@ export class WebCookCoordinator {
     this.#options = options;
     this.#session = new WebCookSessionProtocol(sessionId, sessionGeneration);
     this.#session.accept({ protocolVersion: WEB_COOK_PROTOCOL_VERSION, sessionId, sessionGeneration, type: "CreateSession", runtimeProfile: options.runtimeProfile ?? "portable-single", recipe: options.recipe ?? {}, budgets: options.budgets });
+    options.cooker.setTaskTraceListener?.(trace => this.#acceptProductTaskTrace(trace));
   }
 
   get catalog(): GlbSceneCatalog | undefined { return this.#catalog; }
@@ -255,6 +273,7 @@ export class WebCookCoordinator {
         const firstRevision = deferred<void>();
         let seenRevision = false;
         let firstActivationFailed = false;
+        let reportedFailure: Error | undefined;
         // The producer deliberately remains alive after the first activation
         // cut. `cookBootstrap()` is the TTFMF barrier; total cook completion is
         // reported by the background task once richer refinement settles.
@@ -272,7 +291,8 @@ export class WebCookCoordinator {
               () => { firstRevision.resolve(); },
               (error: unknown) => { firstActivationFailed = true; firstRevision.reject(error); throw error; });
         }, (error) => {
-          this.recordRecoverableFailure(error);
+          if (this.hasCompleteCatalogCoverage()) this.recordRecoverableFailure(error);
+          else reportedFailure = error;
         }));
         void producerTask.then(
           () => {
@@ -281,6 +301,10 @@ export class WebCookCoordinator {
               const error = new Error("Web Cook producer completed without offering a revision");
               firstRevision.reject(error);
               this.fail(error);
+              return;
+            }
+            if (reportedFailure !== undefined && !this.hasCompleteCatalogCoverage()) {
+              this.fail(reportedFailure, true);
               return;
             }
             this.completeCook();
@@ -292,8 +316,12 @@ export class WebCookCoordinator {
               this.fail(error);
               return;
             }
-            if (!this.#abort.signal.aborted) this.recordRecoverableFailure(error);
-            this.completeCook();
+            if (this.hasCompleteCatalogCoverage()) {
+              if (!this.#abort.signal.aborted) this.recordRecoverableFailure(error);
+              this.completeCook();
+              return;
+            }
+            this.fail(error, true);
           }
         );
         this.#firstRevisionReject = firstRevision.reject;
@@ -525,15 +553,25 @@ export class WebCookCoordinator {
   drainEvents(maxEvents = Number.MAX_SAFE_INTEGER): WebCookEvent[] { return this.#session.drain(maxEvents); }
   cancel(reason = new Error("Web Cook was cancelled")): void { if (this.#state === "disposed" || this.#state === "complete") return; this.#abort.abort(reason); this.#state = "cancelled"; this.#firstRevisionReject?.(reason); this.#cookCompletion.reject(reason); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#session.accept(this.header({ type: "CancelScope", scope: "session" })); }
   dispose(): void { if (this.#state === "disposed") return; const reason = new Error("Web Cook session disposed"); this.#abort.abort(reason); this.#firstRevisionReject?.(reason); this.#cookCompletion.reject(reason); for (const revision of this.#liveRevisions.splice(0)) this.releaseRevision(revision); for (const wake of this.#creditWaiters) wake(); this.#creditWaiters.clear(); this.#source?.release(); this.#source = undefined; this.#catalog = undefined; this.#state = "disposed"; this.#session.accept(this.header({ type: "DisposeSession" })); }
-  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, bootstrapUnits: this.#bootstrapUnits, bootstrapSourceBytes: this.#bootstrapSourceBytes, refinementSourceBytes: this.#refinementSourceBytes, lateSourcePriorities: this.#lateSourcePriorities, recoverableFailures: Object.freeze(this.#recoverableFailures.slice()), ...(this.#options.cooker.evidence === undefined ? {} : { cooker: this.#options.cooker.evidence() }), ...(this.#firstRevisionAt === undefined ? {} : { firstRevisionMs: this.#firstRevisionAt }), ...(this.#firstMeaningfulFrameAt === undefined ? {} : { firstMeaningfulFrameMs: this.#firstMeaningfulFrameAt }), ...(this.#totalCookAt === undefined ? {} : { totalCookMs: this.#totalCookAt }), ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
+  evidence(): WebCookCoordinatorEvidence { return Object.freeze({ state: this.#state, sessionGeneration: this.#session.sessionGeneration, catalogPrimitives: this.#catalog?.primitives.length ?? 0, completedUnits: this.#completedUnits, emittedPages: this.#emittedPages, sourceBytes: this.#source?.byteLength ?? 0, peakUnitBytes: this.#peakUnitBytes, bootstrapUnits: this.#bootstrapUnits, bootstrapSourceBytes: this.#bootstrapSourceBytes, refinementSourceBytes: this.#refinementSourceBytes, lateSourcePriorities: this.#lateSourcePriorities, recoverableFailures: Object.freeze(this.#recoverableFailures.slice()), productTaskEvents: this.#productTaskEvents, productTasksStarted: this.#productTasksStarted, productTasksCompleted: this.#productTasksCompleted, productTasksFailed: this.#productTasksFailed, productTasksCancelled: this.#productTasksCancelled, ...(this.#currentProductTask === undefined ? {} : { currentProductTask: this.#currentProductTask }), ...(this.#lastFailedProductTask === undefined ? {} : { lastFailedProductTask: this.#lastFailedProductTask }), ...(this.#options.cooker.evidence === undefined ? {} : { cooker: this.#options.cooker.evidence() }), ...(this.#firstRevisionAt === undefined ? {} : { firstRevisionMs: this.#firstRevisionAt }), ...(this.#firstMeaningfulFrameAt === undefined ? {} : { firstMeaningfulFrameMs: this.#firstMeaningfulFrameAt }), ...(this.#totalCookAt === undefined ? {} : { totalCookMs: this.#totalCookAt }), ...(this.#failure === undefined ? {} : { failure: this.#failure }) }); }
 
-  private fail(error: unknown): void {
+  #acceptProductTaskTrace(trace: WebCookProductTaskTraceEventV1): void {
+    this.#productTaskEvents++;
+    if (trace.kind === "task-started") this.#productTasksStarted++;
+    else if (trace.kind === "completed") this.#productTasksCompleted++;
+    else if (trace.kind === "failed") { this.#productTasksFailed++; this.#lastFailedProductTask = trace; }
+    else if (trace.kind === "cancelled") this.#productTasksCancelled++;
+    this.#currentProductTask = trace.kind === "completed" || trace.kind === "failed" || trace.kind === "cancelled" ? undefined : trace;
+    this.publish(this.header({ type: "ProductTaskTrace", trace }));
+  }
+
+  private fail(error: unknown, preservePublishedProducts = false): void {
     if (this.#state === "disposed" || this.#state === "cancelled") return;
     this.#failure = error instanceof Error ? error.message : String(error);
     this.#state = this.#abort.signal.aborted ? "cancelled" : "failed";
     this.#firstRevisionReject?.(error);
     this.#cookCompletion.reject(error);
-    for (const revision of this.#liveRevisions.splice(0)) this.releaseRevision(revision);
+    if (!preservePublishedProducts) for (const revision of this.#liveRevisions.splice(0)) this.releaseRevision(revision);
     for (const wake of this.#creditWaiters) wake();
     this.#creditWaiters.clear();
     this.#session.fail(this.#failure);
@@ -549,9 +587,22 @@ export class WebCookCoordinator {
   private completeCook(): void {
     if (this.#totalCookAt === undefined) this.#totalCookAt = Date.now() - this.#cookStartedAt;
     if (this.#state !== "cooking") return;
+    if (!this.hasCompleteCatalogCoverage()) {
+      const catalogPrimitives = this.#catalog?.primitives.length ?? 0;
+      const failedTask = this.#lastFailedProductTask?.task.taskId;
+      const failedPhase = this.#lastFailedProductTask?.phase;
+      this.fail(new Error(`Web Cook producer settled with incomplete catalog coverage (${this.#completedUnits}/${catalogPrimitives})${failedTask === undefined ? "" : `; failedTask=${failedTask}${failedPhase === undefined ? "" : `; failedPhase=${failedPhase}`}`}`), true);
+      return;
+    }
     this.#state = "complete";
     this.#cookCompletion.resolve();
     try { this.publish(this.header({ type: "Progress", stage: "cook-complete", units: this.#completedUnits, bytes: this.#refinementSourceBytes, timings: this.phaseTimings() })); } catch { /* completion evidence remains available even if the queue is full */ }
+  }
+  private hasCompleteCatalogCoverage(): boolean {
+    const catalogPrimitives = this.#catalog?.primitives.length ?? 0;
+    if (catalogPrimitives === 0) return false;
+    if (this.#completedSceneAssets.size > 0) return this.#completedSceneAssets.size === catalogPrimitives;
+    return this.#completedUnits === catalogPrimitives;
   }
   private removeLiveRevision(revision: WebCookProductRevision): void {
     const index = this.#liveRevisions.indexOf(revision);

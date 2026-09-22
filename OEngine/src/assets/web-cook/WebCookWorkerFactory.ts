@@ -10,6 +10,10 @@ export interface WebCookWorkerFactoryOptions {
   readonly maxCanonicalInputBytes: number;
   readonly maxSourceWindowBytes?: number;
   readonly maxDecodedProductBytes: number;
+  readonly maxSessionSpillBytes?: number;
+  readonly maxTrianglesPerProduct?: number;
+  readonly maxVerticesPerProduct?: number;
+  readonly maxDomainsPerProduct?: number;
   readonly createWorker?: (url: URL) => WebCookWorkerPort;
   /** Number of Dedicated Workers used by portable-pool. Defaults to one. */
   readonly maxWorkers?: number;
@@ -19,6 +23,10 @@ export interface DefaultWebCookWorkerFactoryOptions {
   readonly maxCanonicalInputBytes: number;
   readonly maxSourceWindowBytes?: number;
   readonly maxDecodedProductBytes: number;
+  readonly maxSessionSpillBytes?: number;
+  readonly maxTrianglesPerProduct?: number;
+  readonly maxVerticesPerProduct?: number;
+  readonly maxDomainsPerProduct?: number;
   readonly createWorker?: (url: URL) => WebCookWorkerPort;
   /**
    * `isolated-pthreads` selects the pthread cooker when the document is
@@ -87,7 +95,11 @@ export function createWebCookWorker(options: WebCookWorkerFactoryOptions): WebCo
   const maxSourceWindowBytes = options.maxSourceWindowBytes ?? options.maxCanonicalInputBytes;
   if (!Number.isSafeInteger(options.maxCanonicalInputBytes) || options.maxCanonicalInputBytes <= 0 ||
       !Number.isSafeInteger(maxSourceWindowBytes) || maxSourceWindowBytes <= 0 ||
-      !Number.isSafeInteger(options.maxDecodedProductBytes) || options.maxDecodedProductBytes <= 0) {
+      !Number.isSafeInteger(options.maxDecodedProductBytes) || options.maxDecodedProductBytes <= 0 ||
+      !optionalPositiveSafeInteger(options.maxSessionSpillBytes) ||
+      !optionalPositiveSafeInteger(options.maxTrianglesPerProduct) ||
+      !optionalPositiveSafeInteger(options.maxVerticesPerProduct) ||
+      !optionalPositiveSafeInteger(options.maxDomainsPerProduct)) {
     throw new RangeError("Web Cook Worker WASM budgets must be positive safe integers");
   }
   const worker = options.createWorker
@@ -99,10 +111,16 @@ export function createWebCookWorker(options: WebCookWorkerFactoryOptions): WebCo
     ...(wasmBinaryUrl === undefined ? {} : { wasmBinaryUrl: wasmBinaryUrl.href }),
     maxCanonicalInputBytes: options.maxCanonicalInputBytes,
     maxSourceWindowBytes,
-    maxDecodedProductBytes: options.maxDecodedProductBytes
+    maxDecodedProductBytes: options.maxDecodedProductBytes,
+    ...(options.maxSessionSpillBytes === undefined ? {} : { maxSessionSpillBytes: options.maxSessionSpillBytes }),
+    ...(options.maxTrianglesPerProduct === undefined ? {} : { maxTrianglesPerProduct: options.maxTrianglesPerProduct }),
+    ...(options.maxVerticesPerProduct === undefined ? {} : { maxVerticesPerProduct: options.maxVerticesPerProduct }),
+    ...(options.maxDomainsPerProduct === undefined ? {} : { maxDomainsPerProduct: options.maxDomainsPerProduct })
   }, []);
   return worker;
 }
+
+function optionalPositiveSafeInteger(value: number | undefined): boolean { return value === undefined || Number.isSafeInteger(value) && value > 0; }
 
 /** Starts a bounded pool of independent Dedicated Workers for portable-pool. */
 export function createWebCookWorkerPool(options: WebCookWorkerFactoryOptions): WebCookWorkerPort {

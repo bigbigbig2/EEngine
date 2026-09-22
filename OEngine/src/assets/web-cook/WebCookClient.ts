@@ -11,6 +11,7 @@ import {
 import { WebCookProductProvider, type WebCookProductProviderEvidence } from "./WebCookProductProvider.js";
 import { WebCookWorkerTransport, type WebCookWorkerPort, type WebCookWorkerTransportEvidence } from "./WebCookWorkerTransport.js";
 import type { GlbRangeSourceOptions } from "../../loaders/gltf/streaming/GlbRangeSource.js";
+import type { WebCookProductTaskTraceEventV1 } from "./ProductTaskTrace.js";
 
 export interface WebCookSceneCatalogSnapshot {
   readonly schemaVersion: 1;
@@ -72,6 +73,8 @@ export interface WebCookClientOptions {
    * first cut from the refinement that replaces it.
    */
   readonly onProgress?: (progress: WebCookProgress) => void;
+  /** Receives structured Product/phase events suitable for watchdog and K0 receipts. */
+  readonly onProductTaskTrace?: (trace: WebCookProductTaskTraceEventV1) => void;
   /** Optional page-global ledger that caps sessions and live bytes across clients. */
   readonly ledger?: WebCookBudgetLedger;
   /** Admission priority used when the ledger is saturated. */
@@ -128,6 +131,8 @@ export interface WebCookClientEvidence {
   readonly progressEvents: number;
   readonly recoverableFailures: number;
   readonly recoverableFailureCodes: readonly string[];
+  readonly productTaskTrace: readonly WebCookProductTaskTraceEventV1[];
+  readonly currentProductTask?: WebCookProductTaskTraceEventV1;
   readonly budget?: WebCookBudgetEvidence;
 }
 
@@ -149,6 +154,8 @@ export class WebCookClient implements GeometryProductProviderV1 {
   #progressEvents = 0;
   #recoverableFailures = 0;
   readonly #recoverableFailureCodes: string[] = [];
+  readonly #productTaskTrace: WebCookProductTaskTraceEventV1[] = [];
+  #currentProductTask: WebCookProductTaskTraceEventV1 | undefined;
   readonly #admission = new AbortController();
   #lease: WebCookBudgetLease | undefined;
   #reservedOutputBytes = 0;
@@ -203,6 +210,11 @@ export class WebCookClient implements GeometryProductProviderV1 {
           ...(elapsedMs === undefined ? {} : { elapsedMs }),
           timings: progress.timings
         }));
+      },
+      onProductTaskTrace: trace => {
+        this.#productTaskTrace.push(trace);
+        this.#currentProductTask = trace.kind === "completed" || trace.kind === "failed" || trace.kind === "cancelled" ? undefined : trace;
+        this.#options.onProductTaskTrace?.(trace);
       },
       onRecoverableFailure: failure => { this.#recoverableFailures++; this.#recoverableFailureCodes.push(`${failure.scope}:${failure.code}`); },
       onFatal: error => {
@@ -340,6 +352,8 @@ export class WebCookClient implements GeometryProductProviderV1 {
       progressEvents: this.#progressEvents,
       recoverableFailures: this.#recoverableFailures,
       recoverableFailureCodes: Object.freeze(this.#recoverableFailureCodes.slice()),
+      productTaskTrace: Object.freeze(this.#productTaskTrace.slice()),
+      ...(this.#currentProductTask === undefined ? {} : { currentProductTask: this.#currentProductTask }),
       ...(this.#options.ledger === undefined ? {} : { budget: this.#options.ledger.evidence() })
     });
   }

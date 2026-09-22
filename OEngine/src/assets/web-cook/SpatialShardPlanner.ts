@@ -33,6 +33,8 @@ export interface GlbSpatialShardOptionsV1 {
   /** Test/offline override. Production defaults to the ADR-0018 256K lower target. */
   readonly minimumTrianglesPerShard?: number;
   readonly maximumTrianglesPerShard?: number;
+  /** Worst-case unique vertices admitted by one shard. */
+  readonly maximumVerticesPerShard?: number;
 }
 
 export interface GlbSpatialShardPlanV1 {
@@ -354,12 +356,17 @@ function rejectSparse(unit: GlbCookPrimitive): void {
 }
 
 function targetTriangles(options: GlbSpatialShardOptionsV1): number {
-  const minimum = options.minimumTrianglesPerShard ?? WEB_SPATIAL_SHARD_MIN_TRIANGLES;
+  const minimum = options.minimumTrianglesPerShard ?? 1;
   const maximum = options.maximumTrianglesPerShard ?? WEB_SPATIAL_SHARD_MAX_TRIANGLES;
   if (!Number.isSafeInteger(minimum) || !Number.isSafeInteger(maximum) || minimum <= 0 || maximum < minimum) throw new RangeError("spatial shard triangle limits are invalid");
   const byCanonical = Math.floor((options.maxCanonicalWindowBytes - align16(WEB_GEOMETRY_CANONICAL_HEADER_BYTES + WEB_GEOMETRY_CANONICAL_DOMAIN_BYTES)) / (3 * WEB_GEOMETRY_CANONICAL_VERTEX_BYTES + 12));
   if (byCanonical <= 0) throw new Error("canonical budget cannot hold one worst-case triangle shard");
-  return Math.max(1, Math.min(maximum, Math.max(minimum, byCanonical), byCanonical));
+  const maximumVertices = options.maximumVerticesPerShard ?? Number.MAX_SAFE_INTEGER;
+  if (!Number.isSafeInteger(maximumVertices) || maximumVertices < 3) throw new RangeError("maximumVerticesPerShard must admit at least one triangle");
+  const byVertices = Math.floor(maximumVertices / 3);
+  const target = Math.min(maximum, byCanonical, byVertices);
+  if (target < minimum) throw new Error("spatial shard work budget cannot admit minimumTrianglesPerShard");
+  return target;
 }
 
 async function resolvePlanningBounds(accessor: GlbCookAccessor, reader: GlbPrimitiveRangeReader, maxBytes: number, evidence: ScanEvidence): Promise<{ boundsMin: readonly [number, number, number]; boundsMax: readonly [number, number, number]; usedAccessorBounds: boolean }> {

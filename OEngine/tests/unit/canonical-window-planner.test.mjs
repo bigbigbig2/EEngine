@@ -13,23 +13,30 @@ function primitive(index, triangles = 100_000, sourceBytes = 2 * 1024 * 1024) {
   };
 }
 
+function budget(maxSourceBytes = 16 * 1024 * 1024, maxCanonicalBytes = 64 * 1024 * 1024) {
+  return { maxSourceBytes, maxCanonicalBytes, maxTriangles: 128 * 1024, maxVertices: 512 * 1024, maxDomains: 64 };
+}
+
 test("canonical windows are deterministic and stay inside both live budgets", () => {
   const units = Array.from({ length: 25 }, (_, index) => primitive(index));
   const sourceBudget = 16 * 1024 * 1024, canonicalBudget = 64 * 1024 * 1024;
-  const first = planCanonicalWindows(units, sourceBudget, canonicalBudget);
-  const second = planCanonicalWindows(units, sourceBudget, canonicalBudget);
+  const first = planCanonicalWindows(units, budget(sourceBudget, canonicalBudget));
+  const second = planCanonicalWindows(units, budget(sourceBudget, canonicalBudget));
   assert.deepEqual(first.map(window => window.units.map(unit => unit.meshIndex)), second.map(window => window.units.map(unit => unit.meshIndex)));
   assert.ok(first.length > 1);
   for (const window of first) {
     assert.ok(window.sourceBytes <= sourceBudget);
     assert.ok(window.canonicalBytes <= canonicalBudget);
+    assert.ok(window.triangleCount <= 128 * 1024);
+    assert.ok(window.vertexCount <= 512 * 1024);
+    assert.ok(window.domainCount <= 64);
   }
 });
 
 test("100M to 250M triangles grows window count, not canonical peak", () => {
   const sourceBudget = 16 * 1024 * 1024, canonicalBudget = 64 * 1024 * 1024;
-  const hundredMillion = planCanonicalWindows(Array.from({ length: 1_000 }, (_, index) => primitive(index)), sourceBudget, canonicalBudget);
-  const twoHundredFiftyMillion = planCanonicalWindows(Array.from({ length: 2_500 }, (_, index) => primitive(index)), sourceBudget, canonicalBudget);
+  const hundredMillion = planCanonicalWindows(Array.from({ length: 1_000 }, (_, index) => primitive(index)), budget(sourceBudget, canonicalBudget));
+  const twoHundredFiftyMillion = planCanonicalWindows(Array.from({ length: 2_500 }, (_, index) => primitive(index)), budget(sourceBudget, canonicalBudget));
   const peak = windows => Math.max(...windows.map(window => window.canonicalBytes));
   assert.equal(peak(hundredMillion), peak(twoHundredFiftyMillion));
   assert.ok(twoHundredFiftyMillion.length > hundredMillion.length);
@@ -39,5 +46,11 @@ test("100M to 250M triangles grows window count, not canonical peak", () => {
 test("whole-primitive planner requires spatial expansion for an oversized unit", () => {
   const giant = primitive(0, 32_000_000, 32 * 1024 * 1024);
   assert.ok(estimateCanonicalBytes([giant]) > 64 * 1024 * 1024);
-  assert.throws(() => planCanonicalWindows([giant], 64 * 1024 * 1024, 64 * 1024 * 1024), /spatial expansion is required/u);
+  assert.throws(() => planCanonicalWindows([giant], budget(64 * 1024 * 1024, 64 * 1024 * 1024)), /spatial expansion is required/u);
+});
+
+test("triangle work triggers spatial expansion even when canonical bytes fit", () => {
+  const highlyIndexed = primitive(0, 1_364_306, 8 * 1024 * 1024);
+  assert.ok(estimateCanonicalBytes([highlyIndexed]) < 64 * 1024 * 1024);
+  assert.throws(() => planCanonicalWindows([highlyIndexed], budget(64 * 1024 * 1024, 64 * 1024 * 1024)), /triangles=1364306/u);
 });

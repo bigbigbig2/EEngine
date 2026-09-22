@@ -1,78 +1,177 @@
-# ADR-0018: Web 100M+ Virtual Geometry 可扩展生产与分片运行时
+# ADR-0018: Web Authored Large Virtual Geometry 可扩展生产与分片运行时
 
 Status: proposed
 
 ## Context
 
-ADR-0016 与 ADR-0017 已经建立 Geometry Product、page 级物理驻留、GPU demand、ancestor fallback、增量发布和 revision 间原子替换，但当前 Web Runtime Cooker 仍可能同时持有完整 canonical 输入和用于未来 page materialization 的全部 `retainedGroups`。单个超大 primitive 也仍可能成为不可拆分的 cook unit。逻辑场景扩大到 100M+ source triangles 后，CPU、WASM 和 Product 元数据峰值因此仍会随总场景规模增长，GPU 端已有的 bounded residency 无法单独解决 producer 峰值。
+ADR-0016 与 ADR-0017 已建立 Geometry Product、page 级物理驻留、GPU demand、
+ancestor fallback、增量发布和 revision 原子替换。当前正式缺口不再定义为“先吃下
+100M triangles”，而是让浏览器稳定处理一个真实 authored 场景：
 
-本决策的研究依据与完整备选分析保留在 [Web 100M+ Virtual Geometry Architecture 研究稿](../reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)。该研究稿不是实现状态或 ABI 权威；本 ADR 只提炼长期架构取舍，精确布局仍须进入 `docs/specs/`，实施状态由 `project/workstreams/active/web-100m-virtual-geometry.yaml` 管理。
+```text
+large.glb
+477,591,060 bytes (about 455 MiB)
+4,871,612 triangles
+1,920 primitives
+maximum primitive = 1,364,306 triangles
+```
 
-主产品路径继续是浏览器直接加载 GLB/glTF 并进行 runtime cook。Offline Cooker 与 OEGPACK 是预处理、CDN 和确定性 artifact 路线，不成为使用 100M+ geometry 的前置条件。Nyx 的 meshlet、group、attribute/seam lock、simplification、hierarchy、BVH、fixed page 和 fallback 不变量继续作为算法基线；DX12 bindless、mesh shader、native mmap 和固定超大 chunk pool 不直接移植到 WebGPU。
+该规模仍会卡住，不能再归因于 100M 目标过激。现有 GPU Virtual Geometry、
+Multi-Product、Residency 和统一渲染管线继续保留；首要结构问题集中在 CPU/WASM
+producer 的任务粒度、同步调度、spill budget 和可观测性。
+
+研究依据与完整备选分析保留在
+[ADR-0018 架构研究稿](../reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)。
+精确合同位于 `docs/specs/`，实施状态由
+`project/workstreams/active/web-100m-virtual-geometry.yaml` 管理。
+
+主产品路径继续是浏览器直接加载 GLB/glTF 并 runtime cook。Offline Cooker 与
+OEGPACK 是预处理、CDN 和确定性 artifact 路线，不成为 authored 目标的前置条件。
+Nyx 的 meshlet、group、attribute/seam lock、simplification、hierarchy、BVH、fixed
+page 和 fallback 不变量继续作为算法基线。
 
 ## Decision
 
-100M+ 主路径采用“metadata catalog → spatial planning → bounded source/canonical window → Nyx-derived shard cook → cook-and-spill → incremental ProductShard publication → multi-Product runtime → bounded GPU working set”。逻辑 geometry 规模不得决定 live payload working set。
+当前正式目标采用：
 
-### Bounded producer
+```text
+metadata catalog
+  -> Product work planning
+  -> bounded source/canonical window
+  -> Nyx-derived shard cook
+  -> activation-first Product publication
+  -> cook-and-spill
+  -> multi-Product runtime
+  -> bounded GPU working set
+```
 
-- Scene Catalog 只读取 scene graph、primitive/accessor 元数据、bounds、material 与 source byte ranges，不 materialize 全量 geometry payload。
-- source、canonical、WASM cook、serialized group、spill encode 和 decoded page 各有独立 owner budget；每个 owner 必须暴露 current、peak、limit 和 owner count。
-- primitive 不是最终 Product unit。超过预算的 primitive 按确定性空间规则切为 triangle-owned shards；边界 vertex 可以复制，但不得存在跨 shard 可变 vertex ownership。
-- shard 保留 Nyx 的 material、attribute、seam、simplification 和 hierarchy 不变量。sharding 只改变生产粒度，不改变算法语义。
+100M single-giant workload 保留为 authored 目标通过后的 scale gate，不再是
+ADR-0018 当前完成声明或本机首个浏览器门禁。250M、500M 和 1B logical 继续后置。
 
-### Cook-and-spill
+### Product work quantum
 
-- shard 生成的 immutable page artifact 在完成 pack/checksum 后写入 spill store，并立即释放 source window、canonical buffer、meshopt temporary、serialized group payload、page scratch 与 compression scratch。
-- runtime cook 首选 OPFS spill；memory backend 用于小模型、测试和 fallback，Blob/File 与 HTTP/CDN provider 使用同一 Product/Page consumer contract。
-- page artifact 的版本、Product/shard identity、Product-local PageID、codec、decoded identity、payload checksum 和压缩 payload 必须由后续 spec 精确规定。
-- completed shard payload 不得仅为了未来 `readPage()` 长期保留在 WASM 中。
+- Product 同时受 canonical bytes、triangle count、unique vertex count 和 domain
+  count 约束，禁止继续只按内存窗口定义任务大小。
+- authored V1 初始预算为 32 MiB canonical、128 Ki triangles、512 Ki vertices、
+  64 domains。它们是 workload policy，不是 Product ABI。
+- 单 primitive 超过任一限制就必须 spatial shard，即使实际 indexed canonical bytes
+  小于 byte limit。
+- ordinary primitive batching 使用同一 work planner；达到任一限制就 flush。
+- 具体规则由
+  [Product Work Budget V1](../specs/web-geometry-product-work-budget-v1.md) 冻结。
+
+### Product task observability and cancellation
+
+- `units` 仅表示 catalog primitive coverage，不得替代 Product/shard progress。
+- 每个 Product 暴露 primitive/shard identity、triangles、vertices、domains、canonical
+  bytes，以及 `canonicalize`、`wasm-plan`、`spill`、`publish` 阶段和耗时。
+- 同步 WASM 当前不可抢占；watchdog 只能检测并归因，不能把 cancel request 写成
+  cook 已终止。真正有界的取消延迟依赖先把 Product work quantum 缩小。
+- 结构化事件见
+  [Product Task Trace V1](../specs/web-geometry-product-task-trace-v1.md)。
+
+### Spill and publication
+
+- `maxDecodedProductBytes` 是单 Product budget；`maxSessionSpillBytes` 是完整 session
+  的 spill budget，二者必须分离。
+- authored K0 初始 session spill budget 为 1 GiB，并记录真实 current/peak/limit。
+- Product descriptor/activation 应先 publish；非 activation page 可在 generator 恢复后
+  spill。不得因 `spillAllPages()` 阻止首个可见 Product 发布。
+- page identity、checksum、generation、release 和 stale result 规则保持不变。
 
 ### Multi-Product runtime
 
-- 一个 Scene 可以同时引用多个独立 ProductShard。instance geometry identity 为 `(ProductTableSlot, ProductGeneration, AssetRecordIndex)`。
-- PageID 保持 Product-local；page identity 为 `(ProductTableSlot, ProductGeneration, PageID)`，不得把所有 Product 拼成全局 PageID 空间。
-- ProductShard 支持独立 publish、activate、replace、evict、dormant、release 和 stale-generation rejection。现有 activation cut、ancestor fallback 与 revision 原子切换语义不放宽。
-- GPU Product Table、metadata ranges、page-location table和 generation 的精确 ABI 在实现前单独评审并进入 spec/contract。
+- 一个 Scene 可引用多个独立 ProductShard，instance identity 为
+  `(ProductTableSlot, ProductGeneration, AssetRecordIndex)`。
+- PageID 保持 Product-local；ProductShard 支持独立 publish、replace、evict、release
+  和 stale-generation rejection。
+- 当前每次 append 后 full scene republish 是已知 K1 性能债，但在预计几十到约一百
+  Product 的 authored 目标下不是 Product work quantum 的前置重构。
 
-### Scheduling and WebGPU execution
+### Scheduling
 
-- visible/near/bootstrap shard 优先于后台 shard，100M 场景无需等待全量 cook 即可产生 first meaningful frame；禁止退回简单 FIFO。
-- GPU page demand 使用 Product-local request mask 或等价 GPU 去重结构，经 GPU compaction 形成有界 Top-N priority records，再进行延迟 CPU readback。CPU readback只用于异步调度反馈。
-- IO concurrency、in-flight bytes 与 upload bytes/frame 根据 camera cut、IO/Worker throughput、GPU pressure 和 frame time 动态调整。
-- physical residency 依据协商后的 WebGPU limits 和实测 evidence 选择 Portable、Balanced 或 HighEnd profile；不得根据物理 VRAM 假设浏览器可分配额度，也不得改变 Product ABI。
-- WebGPU 继续使用 compute work generation 与 indirect raster。current-HZB late recheck、raster bucket 和 selective primitive culling 是有证据后采用的优化，不是 100M producer 正确性的前置条件。
+- visible-first 排序必须综合 visibility benefit 与 estimated cook cost，避免 coverage
+  最大的重 primitive 过早独占 worker。
+- `portable-single` 是 authored K0 的 compatibility/bounded-latency profile，不是最终
+  性能 profile。
+- 当前 `portable-pool` 只做 session-to-worker pinning，不能作为 session 内 Product
+  并行的完成证据。只有 work quantum 有界、K0 通过后，才实现 session-local Product
+  scheduler，并从 2 workers 开始评估。
 
-### Delivery order
+## Validation ladder
 
-实施严格按 active workstream 的依赖推进：先建立 workload、observability 和精确 failure owner，再完成 canonical windowing、giant primitive sharding、cook-and-spill、multi-Product runtime 与 visible-first scheduler；之后才处理 demand compaction、adaptive residency、current-HZB 和 dynamic scheduler。正式 100M PERF 不是本机的第一步，而是 authored-large 生产门之后的后置验收门禁；raster bucket 和 250M/500M/1B 扩展验证继续排在 formal gate 之后。
+### K0 — Authored cook
 
-### Validation order and promotion semantics
+计划中的 `web-authored-large-cook-k0` 只证明完整 cook、全 primitive coverage、任务
+阶段证据、owner/spill budget、settled 和 disposal。它不要求 timestamp、120-frame
+warmup、480 samples 或 3 runs。
 
-架构目标与本机验证顺序分开管理。当前机器先使用真实 authored multi-primitive 场景验证生产链，再扩大到 single-giant 100M workload：
+K0 的验收条件是：
 
-- **K0 Authored Large Production Gate**：使用固定 hash 的真实 authored GLB，验证 Catalog → bounded cook → Product publish → GPU consumer → page streaming → Current-HZB/scheduler → dispose 的完整生产闭环。它可以产生该 authored 资产的独立运行/诊断证据，但不得升级为 100M 或 `PerformanceEvaluated` 证据。
-- **K1 Production Performance Debt**：在扩大 workload 前关闭 planner scratch/顺序物化、incremental Scene publication、Product slot/metadata 自动预算和真实 IO/decode/upload telemetry 等已知工程债。K1 的目标是避免用重复的全量 publication 或 giant-primitive 重扫掩盖正式结果。
-- **K2 Formal 100M Gate**：保留 100,000,000 triangles、clean revision、固定 Chrome/adapter/display/camera/feature/workload identity 及正式采样要求。K2 只有在 K0 通过、K1 债务得到明确证据且独立 validation host 产出 accepted evidence 后，才能提升 ADR 完成状态。
+```text
+union(all Product.sceneAssetIndices) covers all 1,920 catalog primitives
+```
 
-任何 K0/K1 结果都不能替代 K2；任何 K2 失败都必须按冻结 workload 归因，不能通过降低 workload 或把 authored 控制场景改名来结案。
+而不是：
+
+```text
+Product count >= 1,920
+```
+
+Product/shard count只记录真实值。K0 的 workload 已冻结；case 只有在页面能强制上述
+断言后才允许注册，禁止创建可误通过的 placeholder。
+
+### K1 — Authored runtime smoke and producer closure
+
+K0 后验证 Multi-Product renderer、first frame、camera movement、page demand 和 fallback，
+并关闭 activation-first publication、planner scratch/cleanup、自动 capacity、真实
+IO/decode/upload telemetry 等债务。
+
+### K2 — Authored formal PERF
+
+`web-authored-large-perf` 是当前 `virtual-assets.performance` 的 L4 promotion case。
+它在 K0/K1 通过后，冻结 clean revision、Chrome、adapter、display、camera、feature、
+workload identity，执行 warmup、多 run、CPU/GPU P50/P95 与 camera-cut 测量。共享
+页面仍硬编码旧 Product-count/64 MiB 条件，完成 workload-driven coverage/work-budget
+实现之前不得运行 promotion。
+
+### S1 — Deferred 100M scale gate
+
+`web-100m-formal-perf` 只覆盖 `virtual-assets.scale-performance`。它用于证明架构继续
+扩展到 single-giant 100M，不得阻塞或替代 authored 目标，也不得用 authored evidence
+冒充 100M evidence。
+
+完整验收字段和晋级边界见
+[Authored Large Gate V1](../specs/web-geometry-authored-large-gate-v1.md) 与
+[Formal PERF Freeze V1](../specs/web-geometry-formal-perf-freeze-v1.md)。
 
 ## Consequences
 
-主线程、Worker、WASM 与 GPU 的 live payload 可以由预算约束，而不是由场景总 triangle 数约束；visible ProductShard 可以先发布，首个有意义帧不再等待整个场景 cook 完。OPFS 或远端 page provider 也能复用统一 consumer，使 runtime cook 与 offline cook 在实现上分离、在 Product/Page contract 上收敛。
+当前工程焦点从“同时补齐所有 100M 极端能力”收敛到“消灭不可预测的大同步 Cook
+quantum”。100M single-primitive OPFS ownership scratch、250M/500M/1B、2 GiB GPU
+residency、大规模 distributed Product 和 1000+ Product append 优化均可延后。
 
-代价是 producer 从一次性调用变成跨 Catalog、Planner、Worker、Spill Store、Product Table 和 Page Scheduler 的分布式状态机。shard identity、边界 correctness、失败原子性、取消、重试、跨会话缓存、budget accounting 和 stale generation 都必须显式建模；元数据本身虽然可以随总场景增长，但任何 total-scene-scale allocation 都必须证明它是有界记录的 metadata，而不是 payload。
+代价是 producer 需要新的 work planner、task trace、session spill accounting 和
+activation-first lifecycle。任何 sharding、spill、并行或 scheduler 改造仍必须保留 Nyx
+的 meshlet invariants、Group ownership、refine relation、LOD error monotonicity、
+conservative bounds、hierarchy reachability、material boundaries、page independence 与
+determinism。
 
-本决策不重写 Geometry Product 的基本语义，不允许 CPU 构建最终可见列表，不引入 Gameplay/ECS 生命周期，也不默认启用 mesh/task shader、64 位原子、BDA 或 multi-draw。100M 是第一个正式目标；250M、500M 和 1B logical 在 100M PERF 冻结后用于验证 working-set 解耦，不用于提前扩大实现面。
-
-在 ADR 仍为 `proposed` 时，它不能覆盖现有 accepted 决策或证明任何能力完成。只有 workstream task、对应 contract/oracle、独立 browser case 和当前 revision evidence 可以提升完成状态。
+在 ADR 仍为 `proposed` 时，它不能证明任何能力完成。只有 workstream task、对应
+contract/oracle、独立 browser case 和当前 revision evidence 可以提升完成状态。
 
 ## Verification
 
-Phase A 必须首先产生可复现的 100M workload，并把失败定位到 Catalog、range read、canonical input、WASM、meshlet/simplification、retained groups、descriptor、admission、GPU metadata 或 residency 的精确 owner，同时记录 owner peak；只有 `OOM` 结论不算证据。
+实现前的机器合同必须冻结 source identity、work budgets、task phases、catalog coverage
+语义和 promotion routing。实现后依次要求：
 
-实现必须用 contract/oracle 固定以下性质：bounded source/canonical/cook 峰值；single giant primitive 的多 shard 输出；bounds、seam、material、hierarchy、page independence 与 determinism；spill 后 exact page re-read 和 stable identity/hash；至少 64 个 ProductShard 的独立 load/replace/evict/release；stale generation rejection；activation cut 与 ancestor fallback；demand 去重、容量、溢出和有界 readback；不同 Worker/profile 下的相同 Product 结果。
+1. planner contract/oracle 证明 spatial 与 ordinary batching 同时遵守四维 budget；
+2. task-trace contract 证明每个 Product 有 identity、phase、timing 和 terminal state；
+3. spill contract 证明 per-Product 与 per-session budget 分离且 cleanup 正确；
+4. authored K0 证明全 1,920 primitive coverage、settled、bounded owner peaks 和 disposal；
+5. runtime smoke 证明生产 GPU consumer、page demand 和 camera movement；
+6. authored formal PERF 形成当前目标的 L4 evidence；
+7. 最后才运行 deferred 100M scale gate。
 
-真实浏览器验证只能在独立 `validation/` 宿主运行。K0 authored gate 必须记录 authored source identity、Product 数量、首帧/总 cook、owner peaks、GPU errors、page demand/churn、camera-cut recovery 和完整 disposal；这些字段用于生产诊断，不得填充 formal 100M evidence。正式 100M evidence 必须冻结 revision、browser、adapter、resolution、DPR、camera path、feature set 与 workload hash，并采集 TTFMF、CPU/GPU P50/P95、source/canonical/WASM/JS/GPU peaks、page demand/churn、overflow 和 camera-cut recovery。10M 用于开发回归，100M 是 ADR 完成的最低正式门槛，250M 验证扩展性，500M 与 1B logical 在前述门槛通过后作为诊断/扩展证据。
-
-Nyx differential 始终是硬门禁。任何 sharding、spill、并行或 scheduler 改造都必须保持 meshlet invariants、Group ownership、refine relation、LOD error monotonicity、conservative bounds、hierarchy reachability、material boundaries、page independence 与 determinism；缺少源函数/entry point、条件、数据依赖、差异、fallback 和验证映射时不得宣称迁移完成。
+真实浏览器 evidence 只能来自独立 `validation/` 宿主。文档更新、旧日志、停止的运行、
+`units=3`、Product 数量猜测或 100M 合成数据都不能单独提升 authored 目标。

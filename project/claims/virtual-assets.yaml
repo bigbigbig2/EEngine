@@ -42,13 +42,26 @@ claims:
   - id: virtual-assets.performance
     domain: virtual-assets
     owner: virtual-assets
-    statement: A formal 100M virtual-geometry performance run is reproducible only when revision, browser, adapter, capability, display, camera path, feature set, workload, and measured owner/counter samples share one clean frozen identity.
+    statement: The fixed 477,591,060-byte authored large scene completes work-bounded Web runtime cook, covers all 1,920 catalog primitives, reaches the production renderer, and produces reproducible formal performance evidence under one frozen identity.
+    level: L4
+    requiredChecks: [model, registry, changed-coverage, evidence-provenance, engine-suites]
+    evidencePolicy:
+      allOf: [web-authored-large-perf]
+      anyOf: []
+      diagnosticCases: [web-authored-large-cook-k0]
+      checkOnly: false
+    allowedDeclarations: [PerformanceEvaluated]
+    watch: [validation/cases/web-authored-large-perf/**, validation/workloads/web-authored-large-cook-k0-v1.yaml, validation/workloads/web-authored-large-runtime-smoke-v1.yaml, validation/workloads/web-authored-large-perf-v1.yaml, OEngine/src/debug/FormalPerfFreeze.ts, docs/specs/web-geometry-authored-large-gate-v1.md, docs/specs/web-geometry-formal-perf-freeze-v1.md]
+  - id: virtual-assets.scale-performance
+    domain: virtual-assets
+    owner: virtual-assets
+    statement: A deferred formal 100M virtual-geometry scale run is reproducible only when revision, browser, adapter, capability, display, camera path, feature set, workload, and measured owner/counter samples share one clean frozen identity.
     level: L4
     requiredChecks: [model, registry, changed-coverage, evidence-provenance, engine-suites]
     evidencePolicy:
       allOf: [web-100m-formal-perf]
       anyOf: []
-      diagnosticCases: [web-authored-large-perf]
+      diagnosticCases: []
       checkOnly: false
     allowedDeclarations: [PerformanceEvaluated]
-    watch: [validation/cases/web-100m-formal-perf/**, validation/cases/web-authored-large-perf/**, validation/workloads/web-100m-formal-perf-v1.yaml, validation/workloads/web-authored-large-perf-v1.yaml, OEngine/src/debug/FormalPerfFreeze.ts, docs/specs/web-geometry-formal-perf-freeze-v1.md]
+    watch: [validation/cases/web-100m-formal-perf/**, validation/workloads/web-100m-formal-perf-v1.yaml, OEngine/src/debug/FormalPerfFreeze.ts, docs/specs/web-geometry-formal-perf-freeze-v1.md]

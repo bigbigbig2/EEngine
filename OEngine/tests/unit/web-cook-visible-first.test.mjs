@@ -110,7 +110,7 @@ test("Web Cook returns at TTFMF while richer refinement continues in the backgro
   coordinator.dispose();
 });
 
-test("Web Cook keeps the bootstrap active when richer refinement fails", async () => {
+test("Web Cook fails when a required later Product leaves catalog coverage incomplete", async () => {
   const glb = makeTwoPrimitiveGlb(), product = productFixture();
   const coordinator = new WebCookCoordinator("ttfmf-recoverable", 1, {
     budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 262144, maxQueuedEvents: 16 },
@@ -126,11 +126,40 @@ test("Web Cook keeps the bootstrap active when richer refinement fails", async (
   await coordinator.open("https://example.test/ttfmf-recoverable.glb");
   coordinator.grantOutputCredits(1, 262144);
   await coordinator.cookBootstrap();
+  await assert.rejects(coordinator.waitForCookCompletion(), /richer refinement failed/);
+  const evidence = coordinator.evidence();
+  assert.equal(evidence.state, "failed");
+  assert.equal(evidence.completedUnits, 1);
+  assert.deepEqual(evidence.recoverableFailures, []);
+  const events = coordinator.drainEvents();
+  assert.equal(events.some(event => event.type === "RecoverableFailure"), false);
+  assert.equal(events.some(event => event.type === "Progress" && event.stage === "cook-complete"), false);
+  coordinator.dispose();
+});
+
+test("Web Cook treats only post-coverage optional refinement failure as recoverable", async () => {
+  const glb = makeTwoPrimitiveGlb(), product = productFixture();
+  const secondProductId = new Uint8Array(32).fill(8);
+  const coordinator = new WebCookCoordinator("post-coverage-recoverable", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 2 * 262144, maxQueuedEvents: 16 },
+    source: makeRangeFetch(glb),
+    bootstrapUnitCount: 1,
+    cooker: {
+      async cookProgressive(_units, _context, onRevision) {
+        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 0, pageCount: 1, sceneAssetIndices: [0], async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        await onRevision({ descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, productId: secondProductId }), productId: secondProductId, revision: 0, pageCount: 1, sceneAssetIndices: [1], async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer }; }, release() {} });
+        throw new Error("optional refinement failed");
+      }
+    }
+  });
+  await coordinator.open("https://example.test/post-coverage-recoverable.glb");
+  coordinator.grantOutputCredits(2, 2 * 262144);
+  await coordinator.cookBootstrap();
   await coordinator.waitForCookCompletion();
   const evidence = coordinator.evidence();
   assert.equal(evidence.state, "complete");
-  assert.deepEqual(evidence.recoverableFailures, ["richer refinement failed"]);
-  assert.equal(coordinator.drainEvents().some(event => event.type === "RecoverableFailure"), true);
+  assert.equal(evidence.completedUnits, 2);
+  assert.deepEqual(evidence.recoverableFailures, ["optional refinement failed"]);
   coordinator.dispose();
 });
 

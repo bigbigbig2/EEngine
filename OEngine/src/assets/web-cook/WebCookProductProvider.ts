@@ -2,6 +2,7 @@ import { decodeGeometryProductDescriptorBinaryV1 } from "../geometry-product/Geo
 import { decodeGeometryProductPageRecordV1, type GeometryPageProductV1, type GeometryProductProviderV1, type GeometryProductRevisionSourceV1 } from "../geometry-product/GeometryProductV1.js";
 import type { WebCookEvent } from "./protocol/CookSessionProtocol.js";
 import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
+import type { WebCookProductTaskTraceEventV1 } from "./ProductTaskTrace.js";
 
 export interface WebCookProductProviderOptions {
   readonly maxBufferedPages: number;
@@ -9,6 +10,7 @@ export interface WebCookProductProviderOptions {
   readonly returnOutputCredits: (blockCount: number, bytes: number) => void;
   readonly onSceneCatalogReady?: (catalog: Readonly<Record<string, unknown>>) => void;
   readonly onProgress?: (progress: { readonly stage: string; readonly units: number; readonly bytes: number; readonly timings: Readonly<Record<string, number>> }) => void;
+  readonly onProductTaskTrace?: (trace: WebCookProductTaskTraceEventV1) => void;
   readonly onRecoverableFailure?: (failure: { readonly scope: string; readonly code: string; readonly retryAfterMs?: number }) => void;
   /** Reports a terminal stream/transport failure to the owning client. */
   readonly onFatal?: (error: unknown) => void;
@@ -110,6 +112,10 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
     }
     if (event.type === "Progress") {
       this.#options.onProgress?.(Object.freeze({ stage: event.stage, units: event.units, bytes: event.bytes, timings: Object.freeze({ ...event.timings }) }));
+      return;
+    }
+    if (event.type === "ProductTaskTrace") {
+      this.#options.onProductTaskTrace?.(event.trace);
       return;
     }
     if (event.type === "RecoverableFailure") {

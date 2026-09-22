@@ -1,67 +1,119 @@
-# ADR-0018 Authored-First Validation Plan (2026-09-22)
+# ADR-0018 Authored-Large Acceptance Plan (2026-09-22)
 
 ## Decision
 
-ADR-0018 的架构目标不变：最终仍要用独立 validation host 证明 100M
-single-giant geometry 的 bounded producer、Multi-Product runtime、GPU demand、
-streaming 和 visibility 闭环。本文件只调整验证顺序，避免在开发机尚未证明
-真实 authored 生产链、也尚未关闭已知 publication/planner 债务时直接启动 100M
-formal workload。
+ADR-0018 的当前正式目标改为真实 authored 场景：
 
-## Review judgment
+```text
+large.glb
+477,591,060 bytes (about 455 MiB)
+4,871,612 triangles
+1,920 primitives
+maximum primitive = 1,364,306 triangles
+```
 
-上文对 `6a53ce1` 的审评大方向正确：A-J 已从“组件存在”推进到主要生产链相连，
-尤其是 Product-per-shard、cook-and-spill、Multi-Product GPU metadata、Product
-identity、demand routing、Current-HZB consumer 和 dynamic scheduler runtime
-入口都已有实现或 contract/oracle 证据。
+该规模必须能在普通 Chrome 中稳定完成 load → runtime cook → progressive publish →
+multi-Product render → streaming → dispose。100M single-giant workload 保留为后续
+scale gate，不再是当前验收和实现排序的中心。
 
-但“现在只剩 Phase K 的 100M accepted evidence”不完整。当前还必须把以下内容
-作为正式缺口管理：
+## Diagnosis
 
-1. **Planner working set**：giant primitive 的 Morton planning 需要持久化
-   scratch/index 或等价的顺序物化策略，证明不会为每个 shard 重扫完整 primitive；
-   还要记录取消、失败清理、scratch owner、容量和峰值。
-2. **Incremental publication**：当前每个新 shard 都合并已有 Product source，
-   release 旧 publication，再 stage/submit 完整 Scene。功能正确，但 Product 数量
-   增长时是 O(N²) 的 CPU/提交路径，必须进入 K1。
-3. **Unified public route**：调用方仍需在 single Product 与
-   `uploadWebCookedMultiProductScene()` 之间选择；长期目标是统一 `load_gltf()` /
-   `uploadWebCookedScene()` 路由，内部把单 Product 当作 N=1 特例。
-4. **Automatic capacity**：`multiProductSlotCapacity` 和 metadata budget 仍由
-   caller 手工传入；Catalog/Spatial Plan 应输出 estimated Product count，并选择
-   next-power-of-two capacity，同时遵守 negotiated adapter limits。
-5. **Runtime evidence**：Current-HZB dense-occlusion parity、真实 adapter
-   Portable/Balanced/HighEnd、scheduler IO/decode/upload telemetry、以及 authored
-   large 的 accepted browser receipt 都还没有形成当前 revision 的正式证据。
-6. **Optional scale controls**：Zorah 的 bounded `EXT_meshopt_compression` decode
-   和 250M/500M/1B 诊断仍是后置 gate，不应阻塞当前 authored-first 路线。
+GPU Virtual Geometry、Multi-Product、Residency 和统一渲染管线不推翻。当前 stopped
+run 长期停在 `units=3`，最可能暴露 CPU/WASM producer 的结构缺口：
+
+1. sharding 只看 source/canonical bytes，未限制 triangle/vertex/domain cook work；
+2. ordinary 64 MiB window 也可能成为包含许多 domains 的同步串行任务；
+3. `_oengine_web_geometry_cook_plan()` 执行期间 worker event loop 不可处理取消消息；
+4. `units` 是 catalog primitive coverage，不是 Product/shard/phase progress；
+5. session spill budget 从 per-Product decoded budget 推导，完整场景可能耗尽；
+6. coverage-first bootstrap 未考虑 estimated cook cost，重 primitive 可能过早执行。
+
+因此不能继续通过增大 watchdog、改成 portable-pool 或反复打局部补丁来解释问题。
+首先必须把同步 Product 变成有界 work quantum。
+
+## Frozen implementation target
+
+### Product Work Planner
+
+Spatial shard 与 ordinary batching 共用：
+
+```text
+maxCanonicalBytes      = 32 MiB
+maxTrianglesPerProduct = 128 Ki
+maxVerticesPerProduct  = 512 Ki
+maxDomainsPerProduct   = 64
+```
+
+单 primitive 超过任一限制就切；ordinary window 添加下一 domain 会超过任一限制就
+flush。详细合同见 `docs/specs/web-geometry-product-work-budget-v1.md`。
+
+### Product Task Trace
+
+每个 task 必须显示 Product/primitive/shard identity、triangles、vertices、domains、
+canonical bytes、当前 phase、phase elapsed，以及 canonicalize/WASM/spill/publish
+耗时、page count 和 spill bytes。`units` 只能保留为 coverage counter。详细合同见
+`docs/specs/web-geometry-product-task-trace-v1.md`。
+
+### Spill and publication
+
+`maxDecodedProductBytes` 与 `maxSessionSpillBytes` 分开。authored 首轮 session budget
+为 1 GiB，并记录真实 peak。Product 应先 publish activation/descriptor，再继续 spill
+非 activation pages；取消、release、checksum 和 generation 语义不能放宽。
 
 ## Validation ladder
 
-| Gate | Workload | Purpose | Promotion rule |
-| --- | --- | --- | --- |
-| K0 | `large.glb`, 4,871,612 triangles, 1,041 nodes, 1,920 primitives | 验证真实 authored multi-primitive 的 Web Cook → Product → GPU → streaming → Current-HZB/scheduler → dispose 闭环 | 可形成该资产的 Runtime/diagnostic evidence；不得升级为 100M 或 `PerformanceEvaluated` |
-| K1 | K0 期间暴露的 scale debt | 关闭或量化 planner scratch、incremental publication、自动 capacity、真实 IO/decode/upload telemetry | 未完成前不得把 K2 的性能数字解释为可扩展性结论 |
-| K2 | `single-giant-100m.glb`, 100,000,000 triangles | ADR-0018 正式 clean revision / browser / adapter / sample gate | 只有 accepted evidence 才能提升 ADR 完成状态 |
-| L/M | fixed-384 baseline 后的 raster buckets、250M/500M/1B | 后置优化和扩展性诊断 | K2 通过后启动 |
+| Gate | Scope | Required result |
+| --- | --- | --- |
+| K0 | authored cook | 全 1,920 primitive coverage、实际 Product count、task trace、first Product/total cook、owner/spill peak、settled、dispose |
+| K1 | authored runtime smoke | production renderer、first frame、movement、page demand、fallback、camera cut、无 GPU error、dispose |
+| K2 | authored formal PERF | 1080p、120 warmup、480 samples、3 runs、timestamp、CPU/GPU P50/P95 |
+| S1 | deferred 100M scale | K2 后验证 single-giant scale，不参与 authored claim promotion |
 
-K0 的 source hash、node/primitive/triangle 统计和 owner budgets 必须冻结；它的
-TTFMF、total cook、Product count、CPU/WASM/JS/GPU peaks、page demand/churn、GPU
-errors、camera-cut recovery 和 disposal receipt 必须完整记录。没有这些字段只能算
-调试日志，不能算 K0 pass。K0 也不得引用 100M formal workload 的 evidence index
-entry。
+K0 的正确断言是：
+
+```text
+union(every Product.sceneAssetIndices) == all 1,920 catalog primitive indices
+```
+
+必须删除 `minimumExpectedProducts: 1920`。1920 primitives 可以合理合并为几十到约
+一百个 Product；强制 1920 Products 会放大当前 full scene republish 的 O(N²) 债务。
+
+K0 workload 已登记为 `web-authored-large-cook-k0-v1`，但 executable case 暂不注册。
+只有 validation page 实现 coverage、task trace、spill accounting、settled 和 disposal
+断言后，才创建 `web-authored-large-cook-k0` case，避免 placeholder 假通过。
+
+## Work order
+
+```text
+test contract and catalog coverage
+  -> Product task/phase evidence
+  -> four-dimensional Product Work Planner
+  -> separate 1 GiB session spill budget
+  -> authored cook K0
+  -> activation-first publication
+  -> authored runtime smoke
+  -> session-local Product scheduling (2 workers first)
+  -> authored formal PERF
+  -> deferred 100M scale gate
+```
+
+Session-local parallelism 不提前做。若单 Product 仍可同步执行两分钟，增加 worker 只会
+并行制造多个大长尾和更高内存压力。
 
 ## Current status
 
-- A-J：实现/contract/oracle 层面基本闭环；仍缺对应真实 browser/adaptor 的提升证据。
-- K0：计划已落文档；当前没有 accepted authored-large browser evidence，之前停止的
- 运行不判通过。
-- K1：未完成，列为下一组工程任务；不启动 100M 运行来绕过这些问题。
-- K2：formal case 可执行但保持后置；没有 accepted clean-run evidence。
-- L/M：保持 todo，不提前扩张 workload。
+- A–J 已完成的 GPU/runtime 架构和 contract/oracle 保留。
+- 现有 stopped run 只是调试 trace，不是 K0 pass。
+- K0 work-budget、trace、coverage 和独立 session spill 已实现并通过 engine suites；
+  `web-authored-large-cook-k0` 首次运行在 bounded `product-31` 的 spill 阶段失败。
+  该 Product 只有 110,742 triangles、182,089 vertices、3 domains 和 14,439,552
+  canonical bytes，canonicalize/WASM 分别约 225/491 ms，因此本次不是大同步任务长尾。
+  失败是 ordinary window provisional ProductID 碰撞后读到 decoded hash 不同的 OPFS
+  page；随后 producer 被记为 recoverable `cook-complete`，但 full-catalog settled 无法达到。
+  该运行仅为 diagnostic，不得升级 Runtime Validated 或 Performance 声明。
+- `web-authored-large-perf` 已成为当前 L4 promotion case，共享页面已经消费 catalog
+  coverage、32 MiB canonical、128K triangle 和 task trace 合同；但 K0/K1 尚未产生
+  browser evidence，因此仍不得运行正式采样或解释为完成。
+- `web-100m-formal-perf` 已拆到独立 deferred scale claim。
 
-## Non-goals for this machine pass
-
-本轮不启动 `web-100m-formal-perf`，不继续跑 100M 或 Zorah，也不把
-`large.glb` 的结果冒充 100M。下一次真正运行时，只运行独立
-`web-authored-large-perf`，并在 K0 receipt 完整后再决定 K1 的实现顺序。
+本轮 P0 实现不运行 100M 或 Zorah；首次真实浏览器 gate 只运行 `large.glb` K0。

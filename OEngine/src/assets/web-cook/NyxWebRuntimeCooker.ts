@@ -10,7 +10,16 @@ import {
 } from "./wasm/WebGeometryCookerAbi.js";
 import type { GlbCookPrimitive } from "../../loaders/gltf/streaming/GlbSceneCatalog.js";
 import { prefetchCoalescedRangeGroups, type CoalescedRangeReaderOptions } from "./CoalescedRangeReader.js";
-import { estimateCanonicalBytes, estimateSourceBytes, planCanonicalWindows, type CanonicalWindowPlan } from "./CanonicalWindowPlanner.js";
+import {
+  estimateCanonicalBytes,
+  estimateProductWorkV1,
+  estimateSourceBytes,
+  exceedsProductWorkBudgetV1,
+  planCanonicalWindows,
+  validateProductWorkBudgetV1,
+  type CanonicalWindowPlan,
+  type ProductWorkBudgetV1
+} from "./CanonicalWindowPlanner.js";
 import {
   WEB_SPATIAL_SHARD_PARTITION_VERSION,
   canonicalizeGlbPrimitiveSpatialShardIndicesV1,
@@ -19,9 +28,16 @@ import {
   type GlbSpatialShardSetV1
 } from "./SpatialShardPlanner.js";
 import type { WebGeometryPageSpillStoreV1 } from "../geometry-product/WebGeometryPageSpillStoreV1.js";
+import type {
+  WebCookProductTaskIdentityV1,
+  WebCookProductTaskMetricsV1,
+  WebCookProductTaskPhase,
+  WebCookProductTaskTraceEventV1,
+  WebCookProductTaskTraceListener
+} from "./ProductTaskTrace.js";
 
 export const NYX_WEB_RUNTIME_PRODUCER_ID = "oengine-nyx-web-runtime";
-export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi1-product-v1";
+export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi1-product-v2-scope";
 /**
  * Producer version for plan-backed revisions.
  *
@@ -30,7 +46,10 @@ export const NYX_WEB_RUNTIME_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi
  * PENDING. Folding the phase into the version keeps the two phases from ever
  * claiming the same identity for different evidence.
  */
-export const NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi2-plan-v1";
+export const NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION = "nyx-b749346382b0-web-cooker-abi2-plan-v2-scope";
+export const WEB_COOK_DEFAULT_MAX_TRIANGLES_PER_PRODUCT = 128 * 1024;
+export const WEB_COOK_DEFAULT_MAX_VERTICES_PER_PRODUCT = 512 * 1024;
+export const WEB_COOK_DEFAULT_MAX_DOMAINS_PER_PRODUCT = 64;
 
 /**
  * Coarse bootstrap profile. It stops simplification earlier than the full
@@ -44,6 +63,9 @@ export interface NyxWebRuntimeCookerOptions {
   readonly maxCanonicalInputBytes: number;
   readonly maxSourceWindowBytes?: number;
   readonly maxDecodedProductBytes: number;
+  readonly maxTrianglesPerProduct?: number;
+  readonly maxVerticesPerProduct?: number;
+  readonly maxDomainsPerProduct?: number;
   /** Coarse bootstrap recipe; the richer revision uses `recipe`. */
   readonly bootstrapRecipe?: Partial<GeometryCookRecipeV3>;
   /** Coalesced GLB range block budget (defaults to 1 MiB). */
@@ -89,6 +111,14 @@ interface PreparedSpatialUnit {
   readonly spatial?: GlbSpatialShardSetV1;
 }
 
+interface ActiveProductTask {
+  identity: WebCookProductTaskIdentityV1;
+  readonly startedAt: number;
+  readonly phaseStartedAt: Partial<Record<WebCookProductTaskPhase, number>>;
+  readonly metrics: { canonicalizeMs: number; wasmPlanMs: number; spillMs: number; publishMs: number; pageCount: number; spillBytes: number; spillCurrentBytes: number; spillPeakBytes: number; spillLimitBytes: number };
+  terminal: boolean;
+}
+
 /** Browser-first Nyx producer. It owns no GPU object and emits only Product bytes. */
 export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   readonly #module: EmscriptenWebGeometryCookerModuleV1;
@@ -97,6 +127,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   readonly #maxCanonicalInputBytes: number;
   readonly #maxSourceWindowBytes: number;
   readonly #maxDecodedProductBytes: number;
+  readonly #workBudget: ProductWorkBudgetV1;
   readonly #rangeOptions: CoalescedRangeReaderOptions;
   #currentSourceWindowBytes = 0;
   #peakSourceWindowBytes = 0;
@@ -111,6 +142,9 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   #spatialScanPasses = 0;
   readonly #spillStore: WebGeometryPageSpillStoreV1 | undefined;
   readonly #sessionGeneration: number | undefined;
+  #taskTraceListener: WebCookProductTaskTraceListener | undefined;
+  #nextProductOrdinal = 0;
+  readonly #revisionTasks = new WeakMap<WebCookProductRevision, ActiveProductTask>();
 
   constructor(module: EmscriptenWebGeometryCookerModuleV1, options: NyxWebRuntimeCookerOptions) {
     if (!Number.isSafeInteger(options.maxCanonicalInputBytes) || options.maxCanonicalInputBytes <= 0) throw new RangeError("maxCanonicalInputBytes must be a positive safe integer");
@@ -122,6 +156,14 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     this.#maxSourceWindowBytes = options.maxSourceWindowBytes ?? options.maxCanonicalInputBytes;
     if (!Number.isSafeInteger(this.#maxSourceWindowBytes) || this.#maxSourceWindowBytes <= 0) throw new RangeError("maxSourceWindowBytes must be a positive safe integer");
     this.#maxDecodedProductBytes = options.maxDecodedProductBytes;
+    this.#workBudget = Object.freeze({
+      maxSourceBytes: this.#maxSourceWindowBytes,
+      maxCanonicalBytes: this.#maxCanonicalInputBytes,
+      maxTriangles: options.maxTrianglesPerProduct ?? WEB_COOK_DEFAULT_MAX_TRIANGLES_PER_PRODUCT,
+      maxVertices: options.maxVerticesPerProduct ?? WEB_COOK_DEFAULT_MAX_VERTICES_PER_PRODUCT,
+      maxDomains: options.maxDomainsPerProduct ?? WEB_COOK_DEFAULT_MAX_DOMAINS_PER_PRODUCT
+    });
+    validateProductWorkBudgetV1(this.#workBudget);
     this.#spillStore = options.spillStore;
     this.#sessionGeneration = options.sessionGeneration;
     this.#rangeOptions = Object.freeze({
@@ -135,6 +177,9 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     return Object.freeze({
       maxSourceWindowBytes: this.#maxSourceWindowBytes,
       maxCanonicalWindowBytes: this.#maxCanonicalInputBytes,
+      maxTrianglesPerProduct: this.#workBudget.maxTriangles,
+      maxVerticesPerProduct: this.#workBudget.maxVertices,
+      maxDomainsPerProduct: this.#workBudget.maxDomains,
       currentSourceWindowBytes: this.#currentSourceWindowBytes,
       peakSourceWindowBytes: this.#peakSourceWindowBytes,
       currentCanonicalWindowBytes: this.#currentCanonicalWindowBytes,
@@ -156,6 +201,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       spillReleases: this.#spillStore?.evidence().releases ?? 0
     });
   }
+
+  setTaskTraceListener(listener: WebCookProductTaskTraceListener | undefined): void { this.#taskTraceListener = listener; }
 
   /**
    * Coordinator admission must use the bounded live source window rather than
@@ -228,10 +275,10 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     finally { this.releaseCanonicalWindow(); }
   }
 
-  private windows(units: readonly GlbCookPrimitive[]): readonly CanonicalWindowPlan[] { return planCanonicalWindows(units, this.#maxSourceWindowBytes, this.#maxCanonicalInputBytes); }
+  private windows(units: readonly GlbCookPrimitive[]): readonly CanonicalWindowPlan[] { return planCanonicalWindows(units, this.#workBudget); }
 
   private requiresSpatialSharding(unit: GlbCookPrimitive): boolean {
-    return estimateSourceBytes([unit]) > this.#maxSourceWindowBytes || estimateCanonicalBytes([unit]) > this.#maxCanonicalInputBytes;
+    return exceedsProductWorkBudgetV1(estimateProductWorkV1([unit]), this.#workBudget);
   }
 
   private async prepareSpatialUnits(units: readonly GlbCookPrimitive[], context: WebCookUnitContext, sceneAssetIndices: readonly number[]): Promise<readonly PreparedSpatialUnit[]> {
@@ -243,6 +290,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       const spatial = await planGlbPrimitiveSpatialShardsV1(unit, { signal: context.signal, readRange: range => context.readRange(range) }, {
         maxSourceWindowBytes: this.#maxSourceWindowBytes,
         maxCanonicalWindowBytes: this.#maxCanonicalInputBytes,
+        maximumTrianglesPerShard: this.#workBudget.maxTriangles,
+        maximumVerticesPerShard: this.#workBudget.maxVertices,
         sourceIdentityHash: context.source.sourceIdentity.hash
       });
       this.#spatialPrimitives++;
@@ -402,6 +451,76 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     return this.planWindowedCanonical(units, context, this.#recipeInput, 0, undefined, sceneAssetIndices);
   }
 
+  private beginTask(input: Omit<WebCookProductTaskIdentityV1, "taskId" | "productOrdinal" | "limits">): ActiveProductTask {
+    const productOrdinal = this.#nextProductOrdinal++;
+    const task: ActiveProductTask = {
+      identity: Object.freeze({ ...input, taskId: `product-${productOrdinal}`, productOrdinal, limits: this.#workBudget }),
+      startedAt: taskNow(),
+      phaseStartedAt: {},
+      metrics: { canonicalizeMs: 0, wasmPlanMs: 0, spillMs: 0, publishMs: 0, pageCount: 0, spillBytes: 0, spillCurrentBytes: 0, spillPeakBytes: 0, spillLimitBytes: this.#spillStore?.evidence().limitBytes ?? 0 },
+      terminal: false
+    };
+    this.emitTask(task, "task-started");
+    return task;
+  }
+
+  private updateTaskGeometry(task: ActiveProductTask, canonicalBytes: number, vertices: number): void {
+    task.identity = Object.freeze({ ...task.identity, canonicalBytes, vertices });
+  }
+
+  private startTaskPhase(task: ActiveProductTask, phase: WebCookProductTaskPhase): void {
+    const startedAt = taskNow();
+    task.phaseStartedAt[phase] = startedAt;
+    this.emitTask(task, "phase-started", phase, startedAt);
+  }
+
+  private completeTaskPhase(task: ActiveProductTask, phase: WebCookProductTaskPhase): void {
+    const startedAt = task.phaseStartedAt[phase];
+    if (startedAt === undefined) throw new Error(`Product task ${task.identity.taskId} phase '${phase}' was not started`);
+    const endedAt = taskNow(), elapsedMs = Math.max(0, endedAt - startedAt);
+    if (phase === "canonicalize") task.metrics.canonicalizeMs += elapsedMs;
+    else if (phase === "wasm-plan") task.metrics.wasmPlanMs += elapsedMs;
+    else if (phase === "spill") task.metrics.spillMs += elapsedMs;
+    else task.metrics.publishMs += elapsedMs;
+    delete task.phaseStartedAt[phase];
+    this.emitTask(task, "phase-completed", phase, startedAt, endedAt);
+  }
+
+  private finishTask(task: ActiveProductTask, kind: "completed" | "failed" | "cancelled", error?: unknown): void {
+    if (task.terminal) return;
+    task.terminal = true;
+    this.emitTask(task, kind, undefined, task.startedAt, taskNow(), error);
+  }
+
+  private emitTask(
+    task: ActiveProductTask,
+    kind: WebCookProductTaskTraceEventV1["kind"],
+    phase?: WebCookProductTaskPhase,
+    startedAt = task.startedAt,
+    endedAt?: number,
+    error?: unknown
+  ): void {
+    const metrics: WebCookProductTaskMetricsV1 = Object.freeze({ ...task.metrics });
+    const event: WebCookProductTaskTraceEventV1 = Object.freeze({
+      schemaVersion: 1,
+      kind,
+      task: task.identity,
+      ...(phase === undefined ? {} : { phase }),
+      startedAt,
+      ...(endedAt === undefined ? {} : { endedAt, elapsedMs: Math.max(0, endedAt - startedAt) }),
+      metrics,
+      ...(error === undefined ? {} : { error: error instanceof Error ? error.message : String(error) })
+    });
+    this.#taskTraceListener?.(event);
+  }
+
+  private failTask(task: ActiveProductTask, context: WebCookUnitContext, error: unknown): void {
+    if (task.terminal) return;
+    task.terminal = true;
+    const phase = Object.keys(task.phaseStartedAt)[0] as WebCookProductTaskPhase | undefined;
+    this.emitTask(task, context.signal.aborted ? "cancelled" : "failed", phase, task.startedAt, taskNow(), error);
+  }
+
   /**
    * Produces one independently owned Product for every bounded canonical
    * window or spatial shard. The WASM plan never accumulates scene-scale
@@ -420,17 +539,45 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       if (ordinary.length === 0) return;
       for (const window of owner.windows(ordinary)) {
         const indices = window.units.map((unit, index) => catalogIndices.get(primitiveKey(unit)) ?? index);
-        const revision = await owner.consumeCanonicalWindow(window, context, canonical => owner.planCanonical(
-          canonical, context, recipeInput, 0, undefined, indices,
-          `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};product-shard=canonical-window-v1`
-        ));
+        const task = owner.beginTask({
+          primitive: window.units.map(primitiveKey).join("|"),
+          sceneAssetIndices: Object.freeze(indices.slice()),
+          spatial: false,
+          triangles: window.triangleCount,
+          vertices: window.vertexCount,
+          domains: window.domainCount,
+          canonicalBytes: window.canonicalBytes
+        });
+        let revision: WasmGeometryProductRevisionV1 | undefined;
         try {
+          owner.startTaskPhase(task, "canonicalize");
+          const canonical = await owner.canonicalizeWindow(window, context);
+          owner.completeTaskPhase(task, "canonicalize");
+          owner.startTaskPhase(task, "wasm-plan");
+          revision = await owner.planCanonical(
+            canonical, context, recipeInput, 0, undefined, indices,
+            `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=canonical-window-v1`
+          );
+          owner.completeTaskPhase(task, "wasm-plan");
+          const spillBefore = owner.#spillStore?.evidence().currentBytes ?? 0;
+          owner.startTaskPhase(task, "spill");
           await revision.spillAllPages();
-          yield revision;
+          task.metrics.pageCount = revision.pageCount;
+          const spillEvidence = owner.#spillStore?.evidence();
+          task.metrics.spillBytes = Math.max(0, (spillEvidence?.currentBytes ?? spillBefore) - spillBefore);
+          task.metrics.spillCurrentBytes = spillEvidence?.currentBytes ?? 0;
+          task.metrics.spillPeakBytes = spillEvidence?.peakBytes ?? 0;
+          task.metrics.spillLimitBytes = spillEvidence?.limitBytes ?? 0;
+          owner.completeTaskPhase(task, "spill");
         } catch (error) {
-          revision.release();
+          revision?.release();
+          owner.failTask(task, context, error);
           throw error;
+        } finally {
+          owner.releaseCanonicalWindow();
         }
+        owner.#revisionTasks.set(revision, task);
+        yield revision;
       }
       ordinary = [];
     };
@@ -449,6 +596,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       }, {
         maxSourceWindowBytes: this.#maxSourceWindowBytes,
         maxCanonicalWindowBytes: this.#maxCanonicalInputBytes,
+        maximumTrianglesPerShard: this.#workBudget.maxTriangles,
+        maximumVerticesPerShard: this.#workBudget.maxVertices,
         sourceIdentityHash: context.source.sourceIdentity.hash
       });
       this.#spatialPrimitives++;
@@ -464,29 +613,59 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       try {
         for (let shardIndex = 0; shardIndex < spatial.shards.length; shardIndex++) {
           const shard = spatial.shards[shardIndex]!;
-          const domain = await canonicalizeGlbPrimitiveSpatialShardIndicesV1(unit, spatial, shard, materialized.triangleIndices[shardIndex]!, {
-            signal: context.signal,
-            readRange: range => context.readRange(range)
-          }, this.#maxSourceWindowBytes);
-          const canonical = encodeWebCanonicalGeometryV1([domain]);
-          if (canonical.byteLength > this.#maxCanonicalInputBytes) throw new Error(`spatial canonical shard ${shard.shardId} exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
-          this.#canonicalWindows++;
-          this.#currentCanonicalWindowBytes = canonical.byteLength;
-          this.#peakCanonicalWindowBytes = Math.max(this.#peakCanonicalWindowBytes, canonical.byteLength);
+          const task = this.beginTask({
+            primitive: primitiveKey(unit),
+            sceneAssetIndices: Object.freeze([sceneAssetIndex]),
+            spatial: true,
+            shardOrdinal: shardIndex,
+            shardCount: spatial.shards.length,
+            triangles: shard.triangleCount,
+            vertices: Math.min(unit.vertexCount, shard.triangleCount * 3),
+            domains: 1,
+            canonicalBytes: shard.estimatedCanonicalBytes
+          });
           let revision: WasmGeometryProductRevisionV1 | undefined;
           try {
+            this.startTaskPhase(task, "canonicalize");
+            const domain = await canonicalizeGlbPrimitiveSpatialShardIndicesV1(unit, spatial, shard, materialized.triangleIndices[shardIndex]!, {
+              signal: context.signal,
+              readRange: range => context.readRange(range)
+            }, this.#maxSourceWindowBytes);
+            const canonical = encodeWebCanonicalGeometryV1([domain]);
+            const vertices = domain.vertices.length / 18;
+            if (canonical.byteLength > this.#maxCanonicalInputBytes || vertices > this.#workBudget.maxVertices || shard.triangleCount > this.#workBudget.maxTriangles) {
+              throw new Error(`spatial canonical shard ${shard.shardId} exceeds Product work budget`);
+            }
+            this.updateTaskGeometry(task, canonical.byteLength, vertices);
+            this.#canonicalWindows++;
+            this.#currentCanonicalWindowBytes = canonical.byteLength;
+            this.#peakCanonicalWindowBytes = Math.max(this.#peakCanonicalWindowBytes, canonical.byteLength);
+            this.completeTaskPhase(task, "canonicalize");
+            this.startTaskPhase(task, "wasm-plan");
             revision = await this.planCanonical(
               canonical, context, recipeInput, 0, undefined, [sceneAssetIndex],
-              `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=${WEB_SPATIAL_SHARD_PARTITION_VERSION};shard=${shard.shardId}`
+              `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=${WEB_SPATIAL_SHARD_PARTITION_VERSION}`
             );
+            this.completeTaskPhase(task, "wasm-plan");
+            const spillBefore = this.#spillStore?.evidence().currentBytes ?? 0;
+            this.startTaskPhase(task, "spill");
             await revision.spillAllPages();
-            yield revision;
+            task.metrics.pageCount = revision.pageCount;
+            const spillEvidence = this.#spillStore?.evidence();
+            task.metrics.spillBytes = Math.max(0, (spillEvidence?.currentBytes ?? spillBefore) - spillBefore);
+            task.metrics.spillCurrentBytes = spillEvidence?.currentBytes ?? 0;
+            task.metrics.spillPeakBytes = spillEvidence?.peakBytes ?? 0;
+            task.metrics.spillLimitBytes = spillEvidence?.limitBytes ?? 0;
+            this.completeTaskPhase(task, "spill");
           } catch (error) {
             revision?.release();
+            this.failTask(task, context, error);
             throw error;
           } finally {
             this.releaseCanonicalWindow();
           }
+          this.#revisionTasks.set(revision, task);
+          yield revision;
         }
       } finally {
         this.#spatialScratchBytes = 0;
@@ -499,7 +678,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     units: readonly GlbCookPrimitive[],
     context: WebCookUnitContext,
     onRevision: (revision: WebCookProductRevision) => Promise<void>,
-    onFailure?: (error: Error) => void
+    _onFailure?: (error: Error) => void
   ): Promise<void> {
     if (units.length === 0) throw new Error("Nyx Web Product requires at least one GLB primitive");
     const bootstrapKeys = new Set((context.bootstrapUnits ?? [units[0]!]).map(primitiveKey));
@@ -510,21 +689,35 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     let offered = 0;
     try {
       for await (const revision of this.planIndependentProducts(prioritized, context, this.#recipeInput)) {
+        const task = this.#revisionTasks.get(revision);
         try {
+          if (task) this.startTaskPhase(task, "publish");
           await onRevision(revision);
+          if (task) {
+            this.completeTaskPhase(task, "publish");
+            this.finishTask(task, "completed");
+          }
           offered++;
         } catch (error) {
+          if (task) this.failTask(task, context, error);
           revision.release();
           throw error;
         }
       }
       if (offered === 0) throw new Error("Nyx Web Product sharding produced no Products");
     } catch (error) {
-      if (offered === 0) throw error;
-      onFailure?.(error instanceof Error ? error : new Error(String(error)));
+      // Independent Products collectively provide the catalog's required
+      // coverage. Once any one of them fails, the already-published prefix may
+      // remain visible, but this CookSession is incomplete and must fail. The
+      // optional refinement callback is reserved for a failure after complete
+      // usable coverage, which this loop cannot establish while a Product is
+      // missing.
+      throw error;
     }
   }
 }
+
+function taskNow(): number { return globalThis.performance?.now?.() ?? Date.now(); }
 
 function compareCookPrimitiveOrder(left: GlbCookPrimitive, right: GlbCookPrimitive): number {
   return left.nodeIndex - right.nodeIndex || left.meshIndex - right.meshIndex || left.primitiveIndex - right.primitiveIndex;

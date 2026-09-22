@@ -6,7 +6,7 @@ Owners: `SpatialShardPlanner`、`NyxWebRuntimeCooker`、Web CookSession
 
 ## Version/Compatibility
 
-本合同实现 ADR-0018 Phase C。它位于 glTF metadata catalog 与 Nyx canonical/WASM cook 之间，只处理单个超过 source 或 canonical window budget 的 TRIANGLES primitive。它不改变 Geometry Product V1、256 KiB Page、Nyx meshlet/group/hierarchy 算法，也不提前实现 Phase D cook-and-spill 或 Phase E multi-Product Table。
+本合同实现 ADR-0018 spatial sharding。它位于 glTF metadata catalog 与 Nyx canonical/WASM cook 之间，处理超过 source、canonical 或 Product work budget 的 TRIANGLES primitive。它不改变 Geometry Product V1、256 KiB Page、Nyx meshlet/group/hierarchy 算法。联合 work budget 由 [Web Geometry Product Work Budget V1](./web-geometry-product-work-budget-v1.md) 定义。
 
 schemaVersion 固定为 1；partition version 固定为 `morton-radix-prefix-v1`。未知 schema/partition version 必须拒绝，不做 best-effort decode。
 
@@ -25,7 +25,7 @@ triangle centroid
 → 受 canonical budget 限制的连续 Morton-order shard
 ```
 
-默认 `bucketBits = 12`。默认目标范围是 256K–2M source triangles/shard，但 canonical budget 用最坏情况 `3 unique vertices/triangle` 计算更小的硬上限。一个 bucket 超过上限时按稳定 Morton-order rank 切开，不得放大 budget。
+默认 `bucketBits = 12`。早期 256K–2M source triangles/shard 仅保留为历史 scale tuning；当前 authored V1 的硬上限是 128 Ki triangles，并同时受 32 MiB canonical、512 Ki vertices 和 64 domains 约束。一个 bucket 超过任一上限时按稳定 Morton-order rank 切开，不得放大 budget。
 
 `shardId` 是以下字段的 SHA-256：domain tag、partition version、source identity hash、mesh/primitive、bucket bits、目标 triangle 数、shard ordinal、Morton-order offset/count、material。相同 source identity 与 partition 配置产生相同 shard identity；recipe 仍通过 Geometry Product 的 recipe hash 进入 ProductID。空间 budget/partition 变化必须进入 plan producer version，不能让不同 Product descriptor 共用 ProductID。
 
@@ -42,7 +42,7 @@ triangle centroid
 
 Planner 不分配 `triangleCount` 规模的 Morton key/sort array。常驻 planning metadata 是 `2^bucketBits` 的 histogram、prefix 和 bucket bounds。index/position 按 source window 扫描；离散 vertex fetch 被切成不超过 `maxSourceWindowBytes` 的 accessor ranges。
 
-Materialization 一次只拥有一个 shard 的 selected indices、source-vertex remap、canonical vertices/indices 和一个 source range。encoded canonical input 必须不超过 `maxCanonicalWindowBytes`，WASM builder append 返回后立即释放。
+Materialization 一次只拥有一个 shard 的 selected indices、source-vertex remap、canonical vertices/indices 和一个 source range。encoded canonical input 必须不超过 `maxCanonicalWindowBytes`，且 shard 必须同时满足 triangle、vertex 和 domain work limits；WASM builder append 返回后立即释放。
 
 V1 为避免在 Phase C 引入 Phase D spill owner，对每个 shard 重新扫描 source primitive 并按 histogram rank 选择 triangle。这保证 payload working set 有界，代价是 giant primitive 的 source scan 次数随 shard count 增长。Phase D 可以增加临时 OPFS counting-sort scratch，但不得改变 triangle ownership、shard identity 或 Product bytes。
 
@@ -59,6 +59,7 @@ sceneAssetIndices = [catalog primitive 7, 7, 7, ...]
 ### Failure and fallback
 
 - 非 TRIANGLES、非有限位置、越界 index、反向/非法 budget、identity 长度错误整体 fail closed。
+- 单 primitive 的任何 work estimate 超过限制时必须进入本 planner；canonical bytes 较小不能绕过 triangle/vertex/domain sharding。
 - giant primitive 的 sparse accessor 在 V1 显式拒绝并要求 offline fallback；不得静默 materialize full accessor。
 - 缺少 POSITION bounds 时允许一次额外有界 position pass 求 bounds。
 - `EXT_meshopt_compression` 的 bounded decode 仍是独立开放门禁；本合同不能把压缩 output buffer 当作直接 source range。
@@ -66,7 +67,7 @@ sceneAssetIndices = [catalog primitive 7, 7, 7, ...]
 
 ## Validation
 
-- `spatial-shard-planner.test.mjs`：100M histogram exact ownership、bounded shard size、deterministic identity、bounds、attributes、materials、seam duplication。
+- `spatial-shard-planner.test.mjs`：authored 1,364,306-triangle primitive 和 deferred 100M histogram exact ownership、四维 bounded shard size、deterministic identity、bounds、attributes、materials、seam duplication。
 - `web-geometry-spatial-shard.test.mjs`：一个 catalog primitive 到多个 Product asset/instance 的 mapping。
 - `nyx-web-runtime-cooker.test.mjs`：oversized primitive 进入 incremental builder，稳定 ProductID，且不回到 full-primitive canonical input。
 - Nyx C++/WASM oracle 继续验证每个 appended canonical domain 的 meshlet、Group、hierarchy、page 与 determinism 不变量。

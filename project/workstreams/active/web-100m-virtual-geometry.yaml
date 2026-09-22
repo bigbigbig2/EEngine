@@ -1,12 +1,12 @@
 schemaVersion: 2
 id: web-100m-virtual-geometry
-title: Web 100M+ Virtual Geometry scalable producer and sharded runtime
+title: Web authored-large Virtual Geometry target with deferred 100M scale gate
 domain: virtual-assets
 state: active
 owner: virtual-assets
 decision: ADR-0018
 sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
-goal: Load, cook, publish, and render a 100M+ triangle GLB/glTF in the browser without scene-scale CPU/WASM payload residency, while preserving Nyx geometry invariants and a bounded WebGPU working set.
+goal: Stabilize the fixed 477,591,060-byte, 4,871,612-triangle authored large GLB through work-bounded Web runtime cook, full catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal; retain 100M as a later scale gate.
 contracts:
   - geometry-product-v1
   - virtual-geometry-runtime-v1
@@ -16,6 +16,9 @@ contracts:
   - web-geometry-residency-profile-v1
   - web-cook-session-protocol-v1
   - web-geometry-multi-product-runtime-v1
+  - web-geometry-authored-large-gate-v1
+  - web-geometry-product-work-budget-v1
+  - web-geometry-product-task-trace-v1
   - web-geometry-formal-perf-freeze-v1
 claims:
   - virtual-assets.product-consumer
@@ -23,6 +26,7 @@ claims:
   - virtual-assets.lifecycle
   - visibility.gpu-closure
   - virtual-assets.performance
+  - virtual-assets.scale-performance
 tasks:
   - id: baseline-100m-failure-attribution
     phase: A
@@ -287,88 +291,156 @@ tasks:
       tests:
         - OEngine/tests/unit/geometry-page-scheduler-adaptive.test.mjs
         - OEngine/tests/unit/geometry-page-scheduler.test.mjs
-      note: Real browser camera-cut/IO/GPU curves and formal 100M PERF remain open; device-loss safety keeps the existing generation contract.
+      note: Real browser camera-cut/IO/GPU curves and authored-large formal PERF remain open; deferred 100M scale evidence comes later, while device-loss safety keeps the existing generation contract.
     exitCriteria:
       - Scheduler budgets stay bounded and expose pressure, retry, cancellation, and overflow counters.
       - Camera cuts can burst within declared limits and stable views reduce streaming pressure.
       - Failure and device-loss paths preserve Product generation and resource ownership.
-  - id: formal-100m-perf-freeze
-    phase: K2
-    priority: P1
-    title: Capture clean formal 100M correctness, memory, runtime, and performance evidence
-    state: todo
-    dependsOn: [authored-large-production-gate, production-performance-debt]
+  - id: product-work-budget
+    phase: K0a
+    priority: P0
+    title: Bound every spatial shard and ordinary Product by bytes, triangles, vertices, and domains
+    state: done
+    dependsOn: [dynamic-page-scheduler]
     implementationEvidence:
-      review: docs/reviews/2026-09-22-web-100m-production-closure.md
-      contract: docs/specs/web-geometry-formal-perf-freeze-v1.md
-      implementationStatus: executable-case-ready-awaiting-clean-revision-evidence
-      helper: OEngine/src/debug/FormalPerfFreeze.ts
-      oracle: OEngine/tests/unit/formal-perf-freeze.test.mjs
-      workloadId: web-100m-formal-perf-v1
-      profile: formal-1080p
-      formalCase: web-100m-formal-perf
-      sourceBytes: 2800457176
-      sourceTriangles: 100000000
-      sourceMounted: true
-      authoredControl:
-        case: web-authored-large-perf
-        workloadId: web-authored-large-perf-v1
-        sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
-        sourceBytes: 477591060
-        sourceTriangles: 4871612
-        nodes: 1041
-        primitives: 1920
-        maximumPrimitiveTriangles: 1364306
-        maxCanonicalInputBytes: 67108864
-        maxDecodedProductBytes: 134217728
-        role: practical-authored-diagnostic-not-100m-promotion-evidence
-      note: The practical authored control is tracked as K0 and is never promotion evidence for the formal 100M claim. Phase K2 remains post-K0/K1 and makes no RuntimeValidated or PerformanceEvaluated claim until the committed clean-revision 100M run succeeds.
+      contract: docs/specs/web-geometry-product-work-budget-v1.md
+      implementationStatus: implementation-and-oracle-complete
+      planner: OEngine/src/assets/web-cook/CanonicalWindowPlanner.ts
+      initialPolicy:
+        maxCanonicalBytes: 33554432
+        maxTrianglesPerProduct: 131072
+        maxVerticesPerProduct: 524288
+        maxDomainsPerProduct: 64
     exitCriteria:
-      - Revision, browser, adapter, resolution, DPR, camera path, feature set, and workload hash are frozen.
-      - TTFMF, CPU/GPU P50/P95, owner memory peaks, demand, churn, overflow, and camera-cut recovery are recorded.
-      - Evidence comes from the independent validation host on a clean revision with all required gates passed.
+      - A primitive exceeding any work limit spatially shards even when canonical bytes fit.
+      - Ordinary batching flushes before any work limit is exceeded.
+      - Contract and oracle tests cover both spatial and ordinary paths, boundary values, determinism, and cleanup.
+  - id: product-task-phase-trace
+    phase: K0b
+    priority: P0
+    title: Expose Product, primitive, shard, work size, current phase, and phase timing
+    state: done
+    dependsOn: [dynamic-page-scheduler]
+    implementationEvidence:
+      contract: docs/specs/web-geometry-product-task-trace-v1.md
+      implementationStatus: worker-protocol-client-evidence-and-oracle-complete
+      catalogEvent: SceneCatalogReady
+      requiredProductPhases: [canonicalize, wasm-plan, spill, publish, completed, failed, cancelled]
+    exitCriteria:
+      - A watchdog snapshot identifies the exact Product/shard and phase instead of only units.
+      - Every task reaches completed, failed, or cancelled and records canonicalize, WASM, spill, publish, page, and byte counters.
+      - The trace does not claim synchronous WASM cancellation is preemptive.
+  - id: session-spill-budget
+    phase: K0c
+    priority: P0
+    title: Separate per-Product decoded budget from complete-session spill budget
+    state: done
+    dependsOn: [dynamic-page-scheduler]
+    implementationEvidence:
+      implementationStatus: independent-worker-configuration-and-accounting-complete
+      authoredInitialLimitBytes: 1073741824
+      perProductDecodedLimitBytes: 134217728
+      contract: docs/specs/web-geometry-authored-large-gate-v1.md
+    exitCriteria:
+      - Worker configuration and accounting expose maxSessionSpillBytes independently from maxDecodedProductBytes.
+      - Current, peak, limit, cleanup, and overflow evidence covers the complete session.
   - id: authored-large-production-gate
     phase: K0
     priority: P0
-    title: Validate the complete production path with the authored large GLB before formal scale
+    title: Complete authored-large cook with full catalog coverage and bounded task evidence
     state: active
-    dependsOn: [dynamic-page-scheduler]
+    dependsOn: [product-work-budget, product-task-phase-trace, session-spill-budget]
     implementationEvidence:
       review: docs/reviews/2026-09-22-web-100m-authored-first-validation-plan.md
-      formalSpec: docs/specs/web-geometry-formal-perf-freeze-v1.md
-      case: web-authored-large-perf
-      workloadId: web-authored-large-perf-v1
+      contract: docs/specs/web-geometry-authored-large-gate-v1.md
+      workloadId: web-authored-large-cook-k0-v1
+      case: web-authored-large-cook-k0
+      caseRegistration: registered-with-coverage-trace-spill-settled-and-disposal-assertions
       sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
       sourceBytes: 477591060
       sourceTriangles: 4871612
       nodes: 1041
       primitives: 1920
       maximumPrimitiveTriangles: 1364306
-      role: authored-production-diagnostic-only
-      currentEvidence: stopped-before-accepted-receipt
+      currentEvidence: failed-diagnostic-only
+      latestDiagnostic:
+        runId: 2026-09-22T12-55-33-160Z-web-authored-large-cook-k0-fd3c5c8e-a87c-4c7e-9fe4-5e79313e7f14
+        productOrdinal: 31
+        taskId: product-31
+        primitive: 12:10:7|12:10:8|13:11:0
+        sceneAssetIndices: [50, 51, 55]
+        triangles: 110742
+        vertices: 182089
+        domains: 3
+        canonicalBytes: 14439552
+        canonicalizeMs: 224.835
+        wasmPlanMs: 491.295
+        failedPhase: spill
+        failure: spill page key or identity does not match the Product revision
+        architecturalOwner: provisional-ordinary-product-identity-and-progressive-terminal-semantics
+        note: Work quantum was bounded; this is not accepted K0 evidence.
     exitCriteria:
-      - The independent validation host loads the fixed authored source through the production multi-Product route.
-      - The receipt records Product count, TTFMF, total cook, owner current/peak/limit bytes, page demand/churn, GPU errors, camera-cut recovery, and disposal.
-      - The result is labelled authored diagnostic/runtime evidence and cannot promote the formal 100M or PerformanceEvaluated claim.
+      - The union of every Product sceneAssetIndices covers all 1920 catalog primitives; Product count is recorded and is not required to equal 1920.
+      - The receipt records first Product, total cook, slowest Product/WASM plan, task trace, owner current/peak/limit, spill peak, pages, settled, and disposal.
+      - No opaque Product phase exceeds the watchdog without an exact Product/shard/phase failure record.
   - id: production-performance-debt
     phase: K1
     priority: P1
-    title: Close the scale debts exposed by authored production validation before formal 100M
+    title: Validate authored runtime smoke and close producer/publication debt before formal sampling
     state: todo
     dependsOn: [authored-large-production-gate]
     implementationEvidence:
       review: docs/reviews/2026-09-22-web-100m-authored-first-validation-plan.md
+      workloadId: web-authored-large-runtime-smoke-v1
+      plannedCase: web-authored-large-runtime-smoke
+      caseRegistration: forbidden-until-runtime-actions-and-assertions-exist
       scope:
         - planner-scratch-and-ordered-materialization
         - cancellation-failure-cleanup-and-scratch-accounting
+        - activation-first-publication-before-full-spill
         - incremental-gpu-render-world-publication
         - automatic-product-slot-and-metadata-capacity
         - source-read-decode-upload-telemetry
+        - session-local-product-scheduler-after-bounded-quantum
     exitCriteria:
+      - One authored runtime smoke run reaches first frame, camera movement, page demand, fallback, camera-cut recovery, settled, and disposal without GPU errors.
       - Giant-primitive planning does not rescan the complete primitive for every shard without bounded persistent scratch and evidence.
       - Appending Products does not rebuild and submit the entire Scene publication once per shard without an explicit measured budget or incremental path.
       - Catalog/Spatial Plan can estimate Product count and select capacity within negotiated WebGPU limits without caller-provided magic numbers.
       - Scheduler telemetry distinguishes source read, decode, cook, and GPU upload throughput and records owner peaks and cleanup.
+  - id: authored-large-formal-perf
+    phase: K2
+    priority: P1
+    title: Capture clean formal authored-large runtime and performance evidence
+    state: todo
+    dependsOn: [production-performance-debt]
+    implementationEvidence:
+      contract: docs/specs/web-geometry-formal-perf-freeze-v1.md
+      workloadId: web-authored-large-perf-v1
+      profile: formal-1080p
+      formalCase: web-authored-large-perf
+      promotionClaim: virtual-assets.performance
+    exitCriteria:
+      - Revision, browser, adapter, resolution, DPR, camera path, feature set, source, and workload hash are frozen.
+      - Three independent runs record TTFMF, CPU/GPU P50/P95, Product task timing, owner peaks, demand/churn/overflow, and camera-cut recovery.
+      - Evidence comes from the independent host on a clean revision with all required gates passed.
+  - id: formal-100m-perf-freeze
+    phase: S1
+    priority: P2
+    title: Run the deferred clean formal 100M scale gate
+    state: todo
+    dependsOn: [authored-large-formal-perf]
+    implementationEvidence:
+      contract: docs/specs/web-geometry-formal-perf-freeze-v1.md
+      workloadId: web-100m-formal-perf-v1
+      profile: formal-1080p
+      formalCase: web-100m-formal-perf
+      promotionClaim: virtual-assets.scale-performance
+      sourceBytes: 2800457176
+      sourceTriangles: 100000000
+    exitCriteria:
+      - The authored target is already accepted; 100M evidence is not used to bypass an authored failure.
+      - Frozen identity, correctness, memory, runtime, and performance receipts satisfy the separate scale claim.
   - id: raster-bucket-optimization
     phase: L
     priority: P2
@@ -395,27 +467,32 @@ exitChecks:
   - evidence-provenance
   - engine-suites
 requiredEvidence:
-  - Authored-large K0 browser evidence with Product count, TTFMF, total cook, owner peaks, demand/churn, GPU diagnostics, camera-cut recovery, and disposal receipts; this evidence must remain labelled diagnostic and cannot promote the 100M claim
+  - Authored-large K0 browser evidence with full 1920-primitive catalog coverage, actual Product count, first Product, total cook, Product task/phase trace, owner and spill peaks, settled, and disposal receipts
+  - Product Work Planner contract and oracle evidence for canonical bytes, triangles, vertices, and domains on both spatial and ordinary batching paths
+  - Separate maxDecodedProductBytes and maxSessionSpillBytes configuration, peak, limit, cleanup, and overflow evidence
   - Nyx source-function, shader-entry, decision-condition, data-dependency, invariant, difference, fallback, and validation mapping for every changed geometry stage
-  - Fixed workload identities for 10M development, 100M formal, 250M scalability, 500M diagnostic, and 1B logical-scale runs
+  - Fixed authored cook, authored runtime, authored formal PERF, deferred 100M, and later 250M/500M/1B workload identities
   - Single-giant-primitive, many-primitives, city-grid, dense-indoor, high-occlusion, camera-cut, and high-instancing coverage
   - Owner-attributed current, peak, and limit bytes for source, canonical, WASM cook, serialized groups, spill, metadata, decoded pages, GPU geometry, and textures
   - Contract and oracle evidence for shard boundaries, seams, hierarchy, Product/Page identity, generation, exact spill re-read, determinism, failure atomicity, and release
   - Clean independent-browser evidence that visible Product shards reach the production GPU consumer before total cook completion
-  - Formal 100M PERF evidence with frozen revision, browser, adapter, display, camera, feature, and workload identities
+  - Formal authored-large PERF evidence with frozen revision, browser, adapter, display, camera, feature, source, and workload identities
+  - Deferred formal 100M scale evidence only after the authored target is accepted
 retirementTargets:
   - Full-scene canonical ArrayBuffer ownership in the Web runtime cook path
   - Full-Product retainedGroups lifetime used only to materialize future pages
   - Single-Product Scene identity assumptions in production GPU metadata and instance references
   - Fixed read concurrency and in-flight byte policy used as the only large-scene scheduler mode
 openGates:
-  - K0 authored-large production evidence has not been accepted on the current revision; the stopped run is a debugging trace only.
-  - K1 planner scratch/materialization, incremental Scene publication, automatic Product capacity, and source/decode/upload telemetry debts remain open before the formal scale gate.
+  - K0 authored-large cook reached bounded product-31 but failed because ordinary windows share a provisional Product identity and OPFS returned a different Product page under the colliding key; no accepted browser receipt exists.
+  - Progressive producer failure after earlier Products is currently reported as recoverable cook-complete while full-catalog settled remains unreachable; terminal semantics must distinguish partial completion from a successfully settled session.
+  - K1 activation-first publication, planner scratch/materialization, incremental Scene publication, automatic Product capacity, runtime smoke, and source/decode/upload telemetry remain open.
   - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
   - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
-  - Multi-Product Scene, relocated GPU Product Table, per-instance identity, streaming routing, and production renderer consumer are implemented; clean 100M browser evidence is still open.
-  - Visible-first implementation and GPU demand compaction contract are complete; clean 100M browser duplicate/readback evidence and formal workload execution remain open.
+  - Multi-Product Scene, relocated GPU Product Table, per-instance identity, streaming routing, and production renderer consumer are implemented; clean authored browser evidence is still open.
+  - Visible-first implementation and GPU demand compaction contract are complete; clean authored browser duplicate/readback evidence and formal workload execution remain open.
   - GPU demand compaction and adaptive scheduler queues lack promoted capacity and overflow evidence.
   - Portable, Balanced, and HighEnd residency profiles lack negotiated-limit evidence across supported adapters.
-  - Formal 100M PERF evidence has not been captured on a clean revision; K2 is intentionally post-K0/K1 rather than the first machine workload.
+  - Formal authored-large PERF evidence has not been captured on a clean revision; K2 is intentionally post-K0/K1.
+  - Formal 100M PERF is a deferred S1 scale gate and must not run before authored K2.
   - 250M, 500M, and 1B logical-scale working-set evidence does not exist.

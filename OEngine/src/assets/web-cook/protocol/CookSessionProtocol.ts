@@ -1,4 +1,5 @@
 import { OEGPACK_V3_ASSET_STRIDE } from "../../GeometryAbiV3.js";
+import type { WebCookProductTaskTraceEventV1 } from "../ProductTaskTrace.js";
 
 export const WEB_COOK_PROTOCOL_VERSION = 1;
 export const WEB_COOK_PAGE_BYTES = 262144;
@@ -58,6 +59,7 @@ export type WebCookEvent =
   | (WebCookSessionHeader & { readonly type: "RevisionOffered"; readonly descriptor: ArrayBuffer; readonly sceneAssetIndices?: Uint32Array })
   | (WebCookSessionHeader & { readonly type: "PageReady"; readonly productId: Uint8Array; readonly revision: number; readonly pageId: number; readonly decodedHash128: Uint8Array; readonly decodedPageHash128: Uint8Array; readonly bytes: ArrayBuffer })
   | (WebCookSessionHeader & { readonly type: "Progress"; readonly stage: string; readonly units: number; readonly bytes: number; readonly timings: Readonly<Record<string, number>> })
+  | (WebCookSessionHeader & { readonly type: "ProductTaskTrace"; readonly trace: WebCookProductTaskTraceEventV1 })
   | (WebCookSessionHeader & { readonly type: "RecoverableFailure"; readonly scope: string; readonly code: string; readonly retryAfterMs?: number })
   | (WebCookSessionHeader & { readonly type: "FatalSessionFailure"; readonly code: string; readonly diagnostics?: Readonly<Record<string, unknown>> });
 

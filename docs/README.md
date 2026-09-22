@@ -33,14 +33,14 @@ Unpromoted research cannot establish a product fact, ABI, claim status, or compl
 Workstream YAML is the authoritative TODO and progress record. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
 
 - [Nyx producer convergence](../project/workstreams/active/nyx-convergence.yaml)
-- [Web 100M+ Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — implementation plan for [ADR-0018](./adr/0018-web-100m-virtual-geometry.md)
+- [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — current `large.glb` acceptance plan with deferred 100M scale gate for [ADR-0018](./adr/0018-web-100m-virtual-geometry.md)
 
 ## Reviews
 
 Reviews are dated, non-authoritative audits. They record observations and recommendations but do not establish product facts or completion:
 
 - [2026-09-21 · Documentation and validation system review](./reviews/2026-09-21-documentation-validation-system-review.md)
-- [ADR-0018 research draft · Web 100M+ Virtual Geometry Architecture](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
+- [ADR-0018 research draft · Authored-large target and deferred 100M architecture](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
 - [ADR-0018 Phase A baseline record](./reviews/2026-09-21-web-100m-phase-a-baseline.md)
 - [ADR-0018 Phase F visible-first scheduler record](./reviews/2026-09-22-web-100m-phase-f-visible-first-product-scheduler.md)
 - [ADR-0018 Phase G GPU demand compaction record](./reviews/2026-09-22-web-100m-phase-g-gpu-demand-compaction.md)

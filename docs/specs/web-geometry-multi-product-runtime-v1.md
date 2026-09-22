@@ -83,6 +83,7 @@ Contract/oracle coverage includes 64 simultaneous shards, relocated second-Produ
 ranges, shared page-location publication, per-instance slot/generation lanes,
 global demand-mask indexing, multi-Product streaming routing, scene merge of
 transform/material/bounds, replacement/dormancy/eviction/release, stale identity,
-and slot ABA. Production browser performance and promotion still require the clean
-`web-100m-formal-perf` evidence; implementation alone is not RuntimeValidated or
-PerformanceEvaluated.
+and slot ABA. Current production browser performance promotion requires clean
+`web-authored-large-perf` evidence after authored K0/K1; the deferred
+`web-100m-formal-perf` case proves only the separate scale claim. Implementation
+alone is not RuntimeValidated or PerformanceEvaluated.

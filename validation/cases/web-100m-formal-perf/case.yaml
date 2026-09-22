@@ -24,12 +24,12 @@ errorAllowlist:
       requestAdapter() on Windows. See https://crbug.com/369219127
     reason: Chrome stable emits this platform warning while the formal geometry
       PERF device is captured.
-    ownerClaim: virtual-assets.performance
+    ownerClaim: virtual-assets.scale-performance
 harness: production
 domain: virtual-assets
 caseKind: production
 kind: perf
 level: L4
 covers:
-  - virtual-assets.performance
+  - virtual-assets.scale-performance
 decision: ADR-0018

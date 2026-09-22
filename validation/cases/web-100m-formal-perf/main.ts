@@ -25,10 +25,16 @@ type FormalSource = Readonly<{
   sha256: string;
   bytes: number;
   triangles: number;
-  minimumProducts: number;
+  catalogPrimitives: number;
+  minimumProducts?: number;
   productSlotCapacity: number;
+  maxSourceWindowBytes: number;
   maxCanonicalInputBytes: number;
   maxDecodedProductBytes: number;
+  maxSessionSpillBytes: number;
+  maxTrianglesPerProduct: number;
+  maxVerticesPerProduct: number;
+  maxDomainsPerProduct: number;
 }>;
 
 const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
@@ -38,10 +44,16 @@ const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
     sha256: "730da7cd55ee00b1f98bff58e83e7081e33d7972f56bfdafc24f2b68d234b6a0",
     bytes: 2_800_457_176,
     triangles: 100_000_000,
+    catalogPrimitives: 1,
     minimumProducts: 2,
     productSlotCapacity: 128,
+    maxSourceWindowBytes: 256 * 1024 * 1024,
     maxCanonicalInputBytes: 224 * 1024 * 1024,
-    maxDecodedProductBytes: 256 * 1024 * 1024
+    maxDecodedProductBytes: 256 * 1024 * 1024,
+    maxSessionSpillBytes: 1024 * 1024 * 1024,
+    maxTrianglesPerProduct: 2 * 1024 * 1024,
+    maxVerticesPerProduct: 6 * 1024 * 1024,
+    maxDomainsPerProduct: 64
   }),
   "authored-large": Object.freeze({
     label: "authored large multi-primitive",
@@ -49,15 +61,19 @@ const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
     sha256: "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
     bytes: 477_591_060,
     triangles: 4_871_612,
-    minimumProducts: 1_920,
+    catalogPrimitives: 1_920,
     productSlotCapacity: 2_048,
-    maxCanonicalInputBytes: 64 * 1024 * 1024,
-    maxDecodedProductBytes: 128 * 1024 * 1024
+    maxSourceWindowBytes: 64 * 1024 * 1024,
+    maxCanonicalInputBytes: 32 * 1024 * 1024,
+    maxDecodedProductBytes: 128 * 1024 * 1024,
+    maxSessionSpillBytes: 1024 * 1024 * 1024,
+    maxTrianglesPerProduct: 128 * 1024,
+    maxVerticesPerProduct: 512 * 1024,
+    maxDomainsPerProduct: 64
   })
 });
 const CAMERA_PATH_ID = "web-100m-formal-camera-v1";
 const CAMERA_PATH_SHA256 = "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211";
-const WIDTH = 1920, HEIGHT = 1080, WARMUP_FRAMES = 120, SAMPLE_FRAMES = 480, RUNS = 3;
 const AUTHORED_COOK_HEARTBEAT_TIMEOUT_MS = 120_000;
 const FORMAL_COOK_HEARTBEAT_TIMEOUT_MS = 300_000;
 const COOK_HEARTBEAT_POLL_MS = 5_000;
@@ -69,6 +85,9 @@ const query = new URLSearchParams(location.search);
 const caseId = query.get("case") ?? "web-100m-formal-perf";
 const workloadId = query.get("workload") ?? "web-100m-formal-perf-v1";
 const sourceKey = query.get("asset") ?? "single-giant-100m";
+const isCookK0 = caseId === "web-authored-large-cook-k0";
+const WIDTH = isCookK0 ? 1280 : 1920, HEIGHT = isCookK0 ? 720 : 1080;
+const WARMUP_FRAMES = isCookK0 ? 1 : 120, SAMPLE_FRAMES = isCookK0 ? 1 : 480, RUNS = isCookK0 ? 1 : 3;
 let renderer: Renderer | undefined;
 let scene: Scene | undefined;
 let camera: PerspectiveCamera | undefined;
@@ -125,7 +144,7 @@ async function run(): Promise<void> {
     const dirty = requiredQuery("dirty", /^(?:true|false)$/u) === "true";
     const browserExecutableSha256 = requiredQuery("browserExecutableSha256", /^[0-9a-f]{64}$/u);
     const workloadSha256 = requiredQuery("workloadSha256", /^[0-9a-f]{64}$/u);
-    if (dirty) throw new Error("Formal PERF refuses a dirty revision");
+    if (dirty && !isCookK0) throw new Error("Formal PERF refuses a dirty revision");
 
     if (!globalThis.isSecureContext || !navigator.gpu) {
       controller.unsupported("Formal PERF requires WebGPU in a secure context");
@@ -140,7 +159,7 @@ async function run(): Promise<void> {
     canvas.height = HEIGHT;
     renderer = new Renderer({
       debug: false,
-      requiredFeatures: ["timestamp-query"],
+      requiredFeatures: isCookK0 ? [] : ["timestamp-query"],
       requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
       renderSettings: {
         resolution: { mode: "fixed", internalScale: 1 },
@@ -159,7 +178,7 @@ async function run(): Promise<void> {
     try {
       await renderer.initialize({ context, pixelRatio: 1 });
     } catch (error) {
-      if (/timestamp|feature|adapter/i.test(error instanceof Error ? error.message : String(error))) {
+      if (!isCookK0 && /timestamp|feature|adapter/i.test(error instanceof Error ? error.message : String(error))) {
         controller.unsupported(`Formal timestamp-query device is unavailable: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
@@ -169,15 +188,15 @@ async function run(): Promise<void> {
     renderer.internal_resolution_scale = 1;
     renderer.packed_visibility_current_hzb_late_recheck_enabled = true;
     renderer.profiler.configure({
-      enabled: true,
+      enabled: !isCookK0,
       warmupFrames: 0,
       gpuSampleInterval: 1,
       gpuCounterSampleInterval: 1,
       historyCapacity: 4096,
       cpuPassTimings: true
     });
-    renderer.profiler.setMode("deep-capture");
-    if (!renderer.capabilities.features.includes("timestamp-query")) {
+    if (!isCookK0) renderer.profiler.setMode("deep-capture");
+    if (!isCookK0 && !renderer.capabilities.features.includes("timestamp-query")) {
       controller.unsupported("Formal PERF requires timestamp-query capability");
       return;
     }
@@ -217,7 +236,7 @@ async function run(): Promise<void> {
         sourceTriangles: source.triangles
       }
     };
-    assertFormalPerfFreeze(freeze, { requireClean: true, requireGpuTimestamps: true });
+    if (!isCookK0) assertFormalPerfFreeze(freeze, { requireClean: true, requireGpuTimestamps: true });
     controller.addEvidence("freeze", freeze);
 
     status.textContent = `loading and cooking ${source.label} Products`;
@@ -229,9 +248,13 @@ async function run(): Promise<void> {
     lastCookProgressAt = performance.now();
     const runtimeProfile = resolveWebCookRuntimeProfile("portable-single");
     const worker = createDefaultWebCookWorker({
-      maxSourceWindowBytes: 64 * MiB,
+      maxSourceWindowBytes: source.maxSourceWindowBytes,
       maxCanonicalInputBytes: source.maxCanonicalInputBytes,
       maxDecodedProductBytes: source.maxDecodedProductBytes,
+      maxSessionSpillBytes: source.maxSessionSpillBytes,
+      maxTrianglesPerProduct: source.maxTrianglesPerProduct,
+      maxVerticesPerProduct: source.maxVerticesPerProduct,
+      maxDomainsPerProduct: source.maxDomainsPerProduct,
       runtimeProfile: runtimeProfile.selected
     });
     asset = load_gltf_web_product(source.url, {
@@ -260,6 +283,11 @@ async function run(): Promise<void> {
           lastProgressLogAt = now;
           console.info(`[formal-perf-progress] ${JSON.stringify(progress)}`);
         }
+      },
+      onProductTaskTrace: (trace) => {
+        lastCookProgressAt = performance.now();
+        lastCookProgress = { type: "ProductTaskTrace", trace };
+        controller.addEvidence("currentProductTask", trace);
       }
     });
     cookHeartbeatTimer = window.setInterval(() => {
@@ -310,15 +338,37 @@ async function run(): Promise<void> {
     }
     const active = handles.current();
     const bounds = sceneBounds(active.source);
-    if (active.shardCount < source.minimumProducts) {
+    if (source.minimumProducts !== undefined && active.shardCount < source.minimumProducts) {
       throw new Error(`${source.label} produced only ${active.shardCount} Products, expected at least ${source.minimumProducts}`);
     }
+    const taskReceipt = assertProductTaskReceipt(asset.evidence(), source.catalogPrimitives, active.shardCount);
     controller.addEvidence("multiProduct", {
       shardCount: active.shardCount,
+      catalogCoverage: taskReceipt.coveredSceneAssets,
+      taskReceipt,
       runtime: handles.runtime.evidence(),
       streaming: handles.streaming?.evidence() ?? null,
       cook: asset.evidence()
     });
+
+    if (isCookK0) {
+      controller.addEvidence("k0", {
+        settled: true,
+        productCount: active.shardCount,
+        catalogPrimitives: source.catalogPrimitives,
+        taskReceipt,
+        gpuErrors: gpuErrors.errors
+      });
+      if (gpuErrors.errors.length > 0) throw new Error(JSON.stringify(gpuErrors.errors));
+      controller.transition("ready");
+      controller.transition("warming");
+      controller.transition("sampling");
+      controller.transition("draining");
+      await renderer.device.queue.onSubmittedWorkDone();
+      status.textContent = "passed authored-large K0";
+      controller.pass();
+      return;
+    }
 
     controller.transition("ready");
     controller.transition("warming");
@@ -437,6 +487,52 @@ async function run(): Promise<void> {
   } catch (error) {
     controller.fail(error instanceof Error ? error.stack ?? error.message : String(error));
   }
+}
+
+function assertProductTaskReceipt(
+  evidence: ReturnType<WebCookRuntimeAsset["evidence"]>,
+  expectedCatalogPrimitives: number,
+  expectedProducts: number
+): Readonly<Record<string, unknown>> {
+  const events = evidence.productTaskTrace;
+  const started = events.filter(event => event.kind === "task-started");
+  const terminal = events.filter(event => event.kind === "completed" || event.kind === "failed" || event.kind === "cancelled");
+  const completed = terminal.filter(event => event.kind === "completed");
+  if (started.length !== expectedProducts || terminal.length !== expectedProducts || completed.length !== expectedProducts) {
+    throw new Error(`Product task trace is incomplete: started=${started.length}, terminal=${terminal.length}, completed=${completed.length}, Products=${expectedProducts}`);
+  }
+  const startedIds = new Set(started.map(event => event.task.taskId));
+  if (startedIds.size !== expectedProducts || terminal.some(event => !startedIds.has(event.task.taskId))) throw new Error("Product task trace start/terminal identity is inconsistent");
+  const requiredPhases = ["canonicalize", "wasm-plan", "spill", "publish"] as const;
+  for (const task of completed) {
+    for (const phase of requiredPhases) {
+      const began = events.some(event => event.task.taskId === task.task.taskId && event.kind === "phase-started" && event.phase === phase);
+      const ended = events.some(event => event.task.taskId === task.task.taskId && event.kind === "phase-completed" && event.phase === phase);
+      if (!began || !ended) throw new Error(`Product task ${task.task.taskId} is missing ${phase} trace`);
+    }
+    const identity = task.task;
+    if (identity.canonicalBytes > identity.limits.maxCanonicalBytes || identity.triangles > identity.limits.maxTriangles || identity.vertices > identity.limits.maxVertices || identity.domains > identity.limits.maxDomains) {
+      throw new Error(`Product task ${identity.taskId} exceeds its declared work budget`);
+    }
+  }
+  const covered = new Set(completed.flatMap(event => [...event.task.sceneAssetIndices]));
+  if (covered.size !== expectedCatalogPrimitives || Array.from({ length: expectedCatalogPrimitives }, (_, index) => index).some(index => !covered.has(index))) {
+    throw new Error(`Product sceneAssetIndices cover ${covered.size}/${expectedCatalogPrimitives} catalog primitives`);
+  }
+  const spillPeakBytes = Math.max(0, ...completed.map(event => event.metrics.spillPeakBytes));
+  const spillLimitBytes = Math.max(0, ...completed.map(event => event.metrics.spillLimitBytes));
+  if (spillLimitBytes <= 0 || spillPeakBytes > spillLimitBytes) throw new Error(`Session spill evidence is invalid: peak=${spillPeakBytes}, limit=${spillLimitBytes}`);
+  const slowest = completed.reduce((current, event) => event.elapsedMs! > (current?.elapsedMs ?? -1) ? event : current, undefined as typeof completed[number] | undefined);
+  return Object.freeze({
+    productCount: expectedProducts,
+    taskEvents: events.length,
+    coveredSceneAssets: Object.freeze([...covered].sort((left, right) => left - right)),
+    spillPeakBytes,
+    spillLimitBytes,
+    slowestTaskId: slowest?.task.taskId ?? null,
+    slowestProductMs: slowest?.elapsedMs ?? 0,
+    slowestWasmPlanMs: Math.max(0, ...completed.map(event => event.metrics.wasmPlanMs))
+  });
 }
 
 function sceneBounds(source: { readonly count: number; readonly boundsSpheres: Float32Array }): Readonly<{ center: readonly [number, number, number]; radius: number }> {
