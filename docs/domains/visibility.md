@@ -20,6 +20,11 @@ Exact formats and shader invariants live in `docs/specs/` and the ADR-0013 decis
 
 GPU hierarchy traversal produces bounded meshlet work, indirect raster publishes VisibilityKey/depth, shading-bin classification creates sparse resolve work, and GPU consumers close the chain without CPU visible-list traversal. Counters and bounded diagnostic readback observe the chain without becoming its producer.
 
+The optional Phase I current-HZB late-recheck contract is a bounded GPU hint
+queue. It may reject only conservative uncertain/expensive candidates; invalid
+metadata and queue overflow fail open to the source work. It has no resources or
+submit when current-HZB data is unavailable.
+
 ## Owner Boundaries And Failure
 
 Visibility owns hierarchy work generation, raster, visibility output, queue ABI/capacity/overflow, and indirect consumers. Asset residency owns page availability; shading owns final material evaluation. Missing identity, overflow, zero work, and feature-off must produce a closed, consumer-safe state without orphan resources or submits.

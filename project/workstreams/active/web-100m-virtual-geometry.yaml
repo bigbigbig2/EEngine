@@ -251,8 +251,19 @@ tasks:
     phase: I
     priority: P1
     title: Recheck uncertain or expensive visibility candidates against the current HZB
-    state: todo
+    state: done
     dependsOn: [gpu-demand-dedup-compaction]
+    completedEvidence:
+      review: docs/reviews/2026-09-22-web-100m-phase-i-current-hzb-late-recheck.md
+      contract: docs/specs/web-geometry-current-hzb-late-recheck-v1.md
+      implementationStatus: bounded-abi-wgsl-contract-and-oracle-complete
+      maxCapacity: 65536
+      recordStrideBytes: 32
+      overflowPolicy: source-queue-fallback-without-partial-publication
+      parityPolicy: conservative-only-rejection-and-fail-open-invalid-metadata
+      oracle: OEngine/tests/oracle/current-hzb-late-recheck.test.mjs
+      testResult: 4/4
+      note: Dense-occlusion browser consumer, screenshot parity, GPU time and formal PERF remain open; this revision does not claim RuntimeValidated or Performance Improved.
     exitCriteria:
       - Dense-occlusion evidence reduces selected meshlets and raster vertices without image parity loss.
       - GPU visibility cost improves on the frozen workload; the pass is removed when it has no consumer.
