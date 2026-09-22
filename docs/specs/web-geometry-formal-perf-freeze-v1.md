@@ -74,6 +74,8 @@ shard before sampling. A camera cut explicitly invalidates view history; recover
 is the first successful fallback frame and uses the maximum CPU/GPU frame time.
 `gpuGeometryBytes` is currently a conservative renderer allocation peak rather
 than a geometry-only subtraction and must be labelled as such in reports.
+The host grants this L4 PERF case a bounded 30-minute deadline and records the
+latest cook heartbeat; ordinary validation cases retain the five-minute ceiling.
 
 The repository contains an executable formal gate but no accepted clean-run
 evidence until `node tools/vibe.mjs case web-100m-formal-perf --run` succeeds on

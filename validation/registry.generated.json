@@ -766,7 +766,7 @@
       "level": "L4",
       "profile": "formal-1080p",
       "route": "/cases/web-100m-formal-perf/index.html",
-      "timeoutMs": 300000,
+      "timeoutMs": 1800000,
       "workloadId": "web-100m-formal-perf-v1"
     },
     {

@@ -195,7 +195,12 @@ async function run(): Promise<void> {
       },
       initialOutputPageCredits: 512,
       maxBufferedPages: 512,
-      maxBufferedBytes: 128 * MiB
+      maxBufferedBytes: 128 * MiB,
+      onProgress: (progress) => {
+        controller.addEvidence("cookProgress", progress);
+        const denominator = progress.catalogPrimitives > 0 ? `/${progress.catalogPrimitives}` : "";
+        status.textContent = `cooking 100M Product shards: ${progress.stage} ${progress.units}${denominator}`;
+      }
     });
     scene = new Scene();
     const light = new DirectionalLight();

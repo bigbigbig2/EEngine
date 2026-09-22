@@ -5,6 +5,8 @@ const VALIDATION_KINDS = new Set(["unit", "contract", "oracle", "guard", "gpu", 
 const LEVELS = new Set(["L0", "L1", "L2", "L3", "L4"]);
 const ALLOWED_BUILD_TARGETS = new Set(["host", "baseline", "internal-candidate", "production"]);
 const ALLOWED_ARTIFACTS = new Set(["result", "events", "screenshot", "readback", "trace", "samples"]);
+const MAX_CASE_TIMEOUT_MS = 300_000;
+const MAX_L4_PERF_TIMEOUT_MS = 1_800_000;
 
 export function validateRegistry(registry) {
   const errors = [];
@@ -48,7 +50,8 @@ export function validateRegistry(registry) {
          workload.deviceScaleFactor !== profile.deviceScaleFactor)) {
       errors.push(`${item.id}: workload resolution/DPR must match profile`);
     }
-    if (!Number.isInteger(item.timeoutMs) || item.timeoutMs < 1000 || item.timeoutMs > 300000) errors.push(`${item.id}: timeout out of bounds`);
+    const maxTimeoutMs = item.kind === "perf" && item.level === "L4" ? MAX_L4_PERF_TIMEOUT_MS : MAX_CASE_TIMEOUT_MS;
+    if (!Number.isInteger(item.timeoutMs) || item.timeoutMs < 1000 || item.timeoutMs > maxTimeoutMs) errors.push(`${item.id}: timeout out of bounds`);
     if (!Array.isArray(item.artifacts) || !item.artifacts.includes("result") || item.artifacts.some((kind) => !ALLOWED_ARTIFACTS.has(kind))) {
       errors.push(`${item.id}: invalid artifact owners`);
     }

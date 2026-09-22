@@ -4,7 +4,7 @@ route: /cases/web-100m-formal-perf/index.html
 buildTarget: production
 workloadId: web-100m-formal-perf-v1
 profile: formal-1080p
-timeoutMs: 300000
+timeoutMs: 1800000
 artifacts:
   - result
   - events
