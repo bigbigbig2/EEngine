@@ -310,7 +310,17 @@ tasks:
       sourceBytes: 2800457176
       sourceTriangles: 100000000
       sourceMounted: true
-      note: The case, production consumer, source route, typecheck, and build are ready. Phase K remains active and makes no RuntimeValidated or PerformanceEvaluated claim until the committed clean-revision run succeeds.
+      authoredControl:
+        case: web-authored-large-perf
+        workloadId: web-authored-large-perf-v1
+        sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
+        sourceBytes: 477591060
+        sourceTriangles: 4871612
+        nodes: 1041
+        primitives: 1920
+        maximumPrimitiveTriangles: 1364306
+        role: practical-authored-diagnostic-not-100m-promotion-evidence
+      note: The practical authored control uses the local large GLB so production-path diagnosis does not require the 2.8 GB single-primitive stress source. Phase K remains active and makes no RuntimeValidated or PerformanceEvaluated claim until the committed clean-revision 100M run succeeds.
     exitCriteria:
       - Revision, browser, adapter, resolution, DPR, camera path, feature set, and workload hash are frozen.
       - TTFMF, CPU/GPU P50/P95, owner memory peaks, demand, churn, overflow, and camera-cut recovery are recorded.

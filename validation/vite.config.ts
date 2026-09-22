@@ -5,18 +5,24 @@ import { defineConfig } from "vite";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const formal100mSource = resolve(root, "../.local/validation/web-100m-phase-a-baseline/single-giant-100m.glb");
+const authoredLargeSource = resolve(root, "../.local/validation/web-authored-large/large.glb");
 
-function formal100mAssetPlugin() {
+const localAssets = Object.freeze([
+  Object.freeze({ route: "/assets/web-100m/single-giant-100m.glb", path: formal100mSource, label: "formal 100M source" }),
+  Object.freeze({ route: "/assets/web-authored-large/large.glb", path: authoredLargeSource, label: "authored large source" })
+]);
+
+function formalAssetPlugin() {
   return {
-    name: "oengine-formal-100m-local-asset",
+    name: "oengine-formal-local-assets",
     configureServer(server: import("vite").ViteDevServer) {
-      server.middlewares.use("/assets/web-100m/single-giant-100m.glb", (request, response) => {
-        if (!existsSync(formal100mSource)) {
+      for (const asset of localAssets) server.middlewares.use(asset.route, (request, response) => {
+        if (!existsSync(asset.path)) {
           response.statusCode = 404;
-          response.end("formal 100M source is not mounted");
+          response.end(`${asset.label} is not mounted`);
           return;
         }
-        const size = statSync(formal100mSource).size;
+        const size = statSync(asset.path).size;
         response.setHeader("Accept-Ranges", "bytes");
         response.setHeader("Content-Type", "model/gltf-binary");
         if (request.method === "HEAD") {
@@ -37,7 +43,7 @@ function formal100mAssetPlugin() {
         response.statusCode = match === null ? 200 : 206;
         response.setHeader("Content-Length", end - start + 1);
         if (match !== null) response.setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
-        createReadStream(formal100mSource, { start, end }).pipe(response);
+        createReadStream(asset.path, { start, end }).pipe(response);
       });
     }
   };
@@ -45,7 +51,7 @@ function formal100mAssetPlugin() {
 
 export default defineConfig({
   root,
-  plugins: [formal100mAssetPlugin()],
+  plugins: [formalAssetPlugin()],
   server: {
     host: "127.0.0.1",
     port: 4178,

@@ -19,10 +19,36 @@ import {
 } from "../../../OEngine/src/debug/FormalPerfFreeze.ts";
 import { createValidationController, attachGpuErrorCollection } from "../../harness/browser.ts";
 
-const SOURCE_URL = "/assets/web-100m/single-giant-100m.glb";
-const SOURCE_SHA256 = "730da7cd55ee00b1f98bff58e83e7081e33d7972f56bfdafc24f2b68d234b6a0";
-const SOURCE_BYTES = 2_800_457_176;
-const SOURCE_TRIANGLES = 100_000_000;
+type FormalSource = Readonly<{
+  label: string;
+  url: string;
+  sha256: string;
+  bytes: number;
+  triangles: number;
+  minimumProducts: number;
+  productSlotCapacity: number;
+}>;
+
+const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
+  "single-giant-100m": Object.freeze({
+    label: "synthetic single-giant 100M",
+    url: "/assets/web-100m/single-giant-100m.glb",
+    sha256: "730da7cd55ee00b1f98bff58e83e7081e33d7972f56bfdafc24f2b68d234b6a0",
+    bytes: 2_800_457_176,
+    triangles: 100_000_000,
+    minimumProducts: 2,
+    productSlotCapacity: 128
+  }),
+  "authored-large": Object.freeze({
+    label: "authored large multi-primitive",
+    url: "/assets/web-authored-large/large.glb",
+    sha256: "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
+    bytes: 477_591_060,
+    triangles: 4_871_612,
+    minimumProducts: 1_920,
+    productSlotCapacity: 2_048
+  })
+});
 const CAMERA_PATH_ID = "web-100m-formal-camera-v1";
 const CAMERA_PATH_SHA256 = "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211";
 const WIDTH = 1920, HEIGHT = 1080, WARMUP_FRAMES = 120, SAMPLE_FRAMES = 480, RUNS = 3;
@@ -31,6 +57,9 @@ const MiB = 1024 * 1024;
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
 const status = document.querySelector<HTMLElement>("#status")!;
 const query = new URLSearchParams(location.search);
+const caseId = query.get("case") ?? "web-100m-formal-perf";
+const workloadId = query.get("workload") ?? "web-100m-formal-perf-v1";
+const sourceKey = query.get("asset") ?? "single-giant-100m";
 let renderer: Renderer | undefined;
 let scene: Scene | undefined;
 let camera: PerspectiveCamera | undefined;
@@ -42,8 +71,8 @@ let rafPending = 0;
 let lastProgressLogAt = 0;
 
 const controller = createValidationController({
-  caseId: "web-100m-formal-perf",
-  workloadId: "web-100m-formal-perf-v1"
+  caseId,
+  workloadId
 }, disposeCase);
 
 const nextFrame = (): Promise<void> => new Promise((resolve) => {
@@ -55,22 +84,26 @@ void run();
 
 async function run(): Promise<void> {
   try {
+    const source = SOURCES[sourceKey];
+    if (source === undefined) throw new Error(`Unknown formal PERF asset '${sourceKey}'`);
     controller.transition("negotiating");
-    const mounted = await fetch(SOURCE_URL, { method: "HEAD", cache: "no-store" });
+    const mounted = await fetch(source.url, { method: "HEAD", cache: "no-store" });
     controller.addEvidence("formalSource", {
-      url: SOURCE_URL,
+      key: sourceKey,
+      label: source.label,
+      url: source.url,
       mounted: mounted.ok,
       contentLength: Number(mounted.headers.get("content-length") ?? 0),
-      sha256: SOURCE_SHA256,
-      triangles: SOURCE_TRIANGLES
+      sha256: source.sha256,
+      triangles: source.triangles
     });
     if (!mounted.ok) {
-      status.textContent = "unsupported: formal 100M source is not mounted";
-      controller.unsupported(`Formal 100M source is not mounted at ${SOURCE_URL}`);
+      status.textContent = `unsupported: ${source.label} source is not mounted`;
+      controller.unsupported(`Formal source is not mounted at ${source.url}`);
       return;
     }
-    if (Number(mounted.headers.get("content-length") ?? 0) !== SOURCE_BYTES) {
-      throw new Error("Formal 100M source byte length does not match the frozen workload");
+    if (Number(mounted.headers.get("content-length") ?? 0) !== source.bytes) {
+      throw new Error(`Formal ${source.label} source byte length does not match the frozen workload`);
     }
 
     const commit = requiredQuery("revision", /^[0-9a-f]{40}$/u);
@@ -78,15 +111,15 @@ async function run(): Promise<void> {
     const dirty = requiredQuery("dirty", /^(?:true|false)$/u) === "true";
     const browserExecutableSha256 = requiredQuery("browserExecutableSha256", /^[0-9a-f]{64}$/u);
     const workloadSha256 = requiredQuery("workloadSha256", /^[0-9a-f]{64}$/u);
-    if (dirty) throw new Error("Formal 100M PERF refuses a dirty revision");
+    if (dirty) throw new Error("Formal PERF refuses a dirty revision");
 
     if (!globalThis.isSecureContext || !navigator.gpu) {
-      controller.unsupported("Formal 100M PERF requires WebGPU in a secure context");
+      controller.unsupported("Formal PERF requires WebGPU in a secure context");
       return;
     }
     const context = canvas.getContext("webgpu");
     if (!context) {
-      controller.unsupported("Formal 100M PERF could not create a WebGPU canvas context");
+      controller.unsupported("Formal PERF could not create a WebGPU canvas context");
       return;
     }
     canvas.width = WIDTH;
@@ -131,7 +164,7 @@ async function run(): Promise<void> {
     });
     renderer.profiler.setMode("deep-capture");
     if (!renderer.capabilities.features.includes("timestamp-query")) {
-      controller.unsupported("Formal 100M PERF requires timestamp-query capability");
+      controller.unsupported("Formal PERF requires timestamp-query capability");
       return;
     }
     gpuErrors = attachGpuErrorCollection(renderer.device, controller, () => intentionalDeviceTeardown);
@@ -164,16 +197,16 @@ async function run(): Promise<void> {
       cameraPath: { id: CAMERA_PATH_ID, sha256: CAMERA_PATH_SHA256 },
       featureSet: renderer.capabilities.features,
       workload: {
-        id: "web-100m-formal-perf-v1",
+        id: workloadId,
         sha256: workloadSha256,
-        sourceSha256: SOURCE_SHA256,
-        sourceTriangles: SOURCE_TRIANGLES
+        sourceSha256: source.sha256,
+        sourceTriangles: source.triangles
       }
     };
     assertFormalPerfFreeze(freeze, { requireClean: true, requireGpuTimestamps: true });
     controller.addEvidence("freeze", freeze);
 
-    status.textContent = "loading and cooking 100M Product shards";
+    status.textContent = `loading and cooking ${source.label} Products`;
     const loadStarted = performance.now();
     const runtimeProfile = resolveWebCookRuntimeProfile("portable-single");
     const worker = createDefaultWebCookWorker({
@@ -182,10 +215,10 @@ async function run(): Promise<void> {
       maxDecodedProductBytes: 256 * MiB,
       runtimeProfile: runtimeProfile.selected
     });
-    asset = load_gltf_web_product(SOURCE_URL, {
+    asset = load_gltf_web_product(source.url, {
       worker,
       runtimeProfile: runtimeProfile.selected,
-      sessionId: `formal-100m-${crypto.randomUUID()}`,
+      sessionId: `formal-${sourceKey}-${crypto.randomUUID()}`,
       sessionGeneration: 1,
       budgets: {
         maxConcurrentWorkers: 1,
@@ -200,7 +233,7 @@ async function run(): Promise<void> {
       onProgress: (progress) => {
         controller.addEvidence("cookProgress", progress);
         const denominator = progress.catalogPrimitives > 0 ? `/${progress.catalogPrimitives}` : "";
-        status.textContent = `cooking 100M Product shards: ${progress.stage} ${progress.units}${denominator}`;
+        status.textContent = `cooking ${source.label} Products: ${progress.stage} ${progress.units}${denominator}`;
         const now = performance.now();
         if (now - lastProgressLogAt >= 5_000) {
           lastProgressLogAt = now;
@@ -216,7 +249,7 @@ async function run(): Promise<void> {
       fitHeight: 10,
       fitBase: [0, -5, 0],
       multiProductMetadataBytes: 128 * MiB,
-      multiProductSlotCapacity: 128
+      multiProductSlotCapacity: source.productSlotCapacity
     });
     camera = new PerspectiveCamera();
     camera.near = 0.01;
@@ -229,7 +262,7 @@ async function run(): Promise<void> {
       firstRendered = renderer.render(camera, scene, 1 / 60);
       if (!firstRendered) await nextFrame();
     }
-    if (!firstRendered) throw new Error("100M scene did not produce a first meaningful frame");
+    if (!firstRendered) throw new Error(`${source.label} scene did not produce a first meaningful frame`);
     const ttfmfMs = performance.now() - loadStarted;
     controller.addEvidence("ttfmfMs", ttfmfMs);
 
@@ -237,7 +270,9 @@ async function run(): Promise<void> {
     await handles.settled();
     const active = handles.current();
     const bounds = sceneBounds(active.source);
-    if (active.shardCount < 2) throw new Error(`100M primitive produced only ${active.shardCount} Product shard`);
+    if (active.shardCount < source.minimumProducts) {
+      throw new Error(`${source.label} produced only ${active.shardCount} Products, expected at least ${source.minimumProducts}`);
+    }
     controller.addEvidence("multiProduct", {
       shardCount: active.shardCount,
       runtime: handles.runtime.evidence(),
@@ -367,7 +402,7 @@ function sceneBounds(source: { readonly count: number; readonly boundsSpheres: F
     minX = Math.min(minX, x - r); minY = Math.min(minY, y - r); minZ = Math.min(minZ, z - r);
     maxX = Math.max(maxX, x + r); maxY = Math.max(maxY, y + r); maxZ = Math.max(maxZ, z + r);
   }
-  if (![minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite)) throw new Error("100M scene bounds are invalid");
+  if (![minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite)) throw new Error("formal scene bounds are invalid");
   const center = [(minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5] as const;
   return Object.freeze({ center, radius: Math.max(0.01, Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) * 0.5) });
 }

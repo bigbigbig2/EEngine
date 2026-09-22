@@ -67,6 +67,13 @@ the frozen 2,800,457,176-byte/100,000,000-triangle source through a Range-capabl
 local route, rejects a byte-length mismatch, and records the frozen source hash.
 The case is included in validation typecheck and production Vite build.
 
+`web-authored-large-perf` reuses the same production path as a diagnostic
+control with the local 477,591,060-byte authored GLB: 4,871,612 source
+triangles, 1,041 nodes, 1,920 primitives, and a 1,364,306-triangle maximum
+primitive. Its source hash and workload identity are frozen independently. It
+is suitable for routine production-path and machine-capacity diagnosis, but it
+is not promotion evidence for the 100M claim.
+
 One execution performs 120 warmup and 480 measured frames for each of three
 measurement windows, with timestamp-query required. It records the first complete
 meaningful Product frame before total shard cook completion, then waits for every

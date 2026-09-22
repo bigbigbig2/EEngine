@@ -1,0 +1,31 @@
+schemaVersion: 1
+id: web-authored-large-perf
+sourceCase: web-100m-formal-perf
+route: /cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-perf&workload=web-authored-large-perf-v1
+buildTarget: production
+workloadId: web-authored-large-perf-v1
+profile: formal-1080p
+timeoutMs: 1800000
+artifacts:
+  - result
+  - events
+  - samples
+  - screenshot
+changedPaths:
+  - validation/cases/web-100m-formal-perf
+  - validation/cases/web-authored-large-perf
+  - validation/workloads/web-authored-large-perf-v1.yaml
+  - validation/vite.config.ts
+  - OEngine/src/debug/FormalPerfFreeze.ts
+  - OEngine/src/assets/web-cook
+  - OEngine/src/assets/geometry-product
+  - OEngine/src/gpu/GeometryProductMultiRuntime.ts
+  - OEngine/src/render/pipeline/MainRenderPipeline.ts
+harness: production
+domain: virtual-assets
+caseKind: production
+kind: perf
+level: L4
+covers:
+  - virtual-assets.performance
+decision: ADR-0018

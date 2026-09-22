@@ -48,7 +48,7 @@ claims:
     evidencePolicy:
       allOf: [web-100m-formal-perf]
       anyOf: []
-      diagnosticCases: []
+      diagnosticCases: [web-authored-large-perf]
       checkOnly: false
     allowedDeclarations: [PerformanceEvaluated]
-    watch: [validation/cases/web-100m-formal-perf/**, validation/workloads/web-100m-formal-perf-v1.yaml, OEngine/src/debug/FormalPerfFreeze.ts, docs/specs/web-geometry-formal-perf-freeze-v1.md]
+    watch: [validation/cases/web-100m-formal-perf/**, validation/cases/web-authored-large-perf/**, validation/workloads/web-100m-formal-perf-v1.yaml, validation/workloads/web-authored-large-perf-v1.yaml, OEngine/src/debug/FormalPerfFreeze.ts, docs/specs/web-geometry-formal-perf-freeze-v1.md]
