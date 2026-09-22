@@ -273,5 +273,9 @@ test("multi-Product GPU work uses global demand-mask pages and per-instance gene
   assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
     /product_instances\[visible\.instance_record_index\]/u);
   assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
+    /product_instances: array<OEngineInstanceRecord>/u);
+  assert.doesNotMatch(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
+    /OEngineGpuInstanceRecord/u);
+  assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
     /visible\.geometry_record_index,\s*oengine_instance_geometry_generation\(instance\)/u);
 });

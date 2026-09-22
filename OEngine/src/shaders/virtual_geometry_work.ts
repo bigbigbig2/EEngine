@@ -68,7 +68,7 @@ struct OEngineDrawIndirectArgs {
 @group(0) @binding(7) var<storage, read> product_bank_1: array<u32>;
 @group(0) @binding(8) var<storage, read> product_bank_2: array<u32>;
 @group(0) @binding(9) var<storage, read> product_bank_3: array<u32>;
-@group(0) @binding(10) var<storage, read> product_instances: array<OEngineGpuInstanceRecord>;
+@group(0) @binding(10) var<storage, read> product_instances: array<OEngineInstanceRecord>;
 
 var<workgroup> product_group_base: u32;
 var<workgroup> product_group_count: u32;

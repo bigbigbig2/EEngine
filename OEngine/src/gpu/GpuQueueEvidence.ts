@@ -25,6 +25,7 @@ const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
   ["MeshletGpuPool/compact", "tool"],
   ["MipmapGenerator/generate", "one-shot"],
   ["Renderer/GpuRenderWorld/residency-transaction", "tool"],
+  ["Renderer/GpuRenderWorld/multi-product-append", "tool"],
   ["Renderer/GpuRenderWorld/release-transaction", "tool"],
   ["Renderer/View/release", "tool"]
 ]);
