@@ -1,5 +1,5 @@
 import type { VirtualGeometryGeometryProfile, VirtualGeometrySceneSource } from "../../gpu/GpuRenderWorld.js";
-import type { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
+import { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 
 /**
  * Producer-neutral Scene mapper shared by the Web Runtime Cooker route and the
@@ -38,6 +38,13 @@ export interface VirtualGeometrySceneInstanceV1 {
 export interface VirtualGeometrySceneSourceResultV1 {
   readonly source: VirtualGeometrySceneSource;
   readonly materials: readonly StandardShadeMaterial[];
+}
+
+export interface VirtualGeometryProductScenePartV1 {
+  readonly source: VirtualGeometrySceneSource;
+  readonly productTableSlot: number;
+  readonly productGeneration: number;
+  readonly assetReferenceBegin: number;
 }
 
 const ASSET_RECORD_STRIDE = 128;
@@ -181,5 +188,95 @@ export function buildVirtualGeometrySceneSourceV1(
       boundsMax: Float32Array.from(boundsMax),
       ...(declaredFlags ? { flags: Uint32Array.from(flags) } : {})
     })
+  });
+}
+
+/**
+ * Concatenates immutable shard publications into one production Scene source.
+ * This runs only when a Product is admitted; the frame loop still consumes the
+ * resulting GPU instance table and never scans the CPU scene for visibility.
+ */
+export function mergeVirtualGeometryProductSceneSourcesV1(
+  parts: readonly VirtualGeometryProductScenePartV1[]
+): VirtualGeometrySceneSource {
+  if (parts.length === 0) throw new RangeError("Multi-Product scene requires at least one admitted shard");
+  const first = parts[0]!.source;
+  const materialCount = Math.max(...parts.map((part) => part.source.materials.length));
+  const mutableMaterials: StandardShadeMaterial[] = new Array(materialCount);
+  for (const part of parts) {
+    for (const materialIndex of new Set(part.source.materialIndices)) {
+      const material = part.source.materials[materialIndex];
+      if (material === undefined) throw new RangeError("Multi-Product shard material index is outside its dictionary");
+      // Material indices are catalog-global. Preserve the first immutable
+      // object so appending a shard does not churn an already resident slot.
+      mutableMaterials[materialIndex] ??= material;
+    }
+  }
+  for (let index = 0; index < mutableMaterials.length; index++) mutableMaterials[index] ??= new StandardShadeMaterial();
+  const materials = Object.freeze(mutableMaterials);
+  const geometryProfiles: VirtualGeometryGeometryProfile[] = [];
+  const geometryIndices: number[] = [];
+  const materialIndices: number[] = [];
+  const transforms: number[] = [];
+  const previousTransforms: number[] = [];
+  const boundsSpheres: number[] = [];
+  const boundsMin: number[] = [];
+  const boundsMax: number[] = [];
+  const flags: number[] = [];
+  const debugIds: number[] = [];
+  const productTableSlots: number[] = [];
+  const productGenerations: number[] = [];
+  const meshes = parts.flatMap((part) => part.source.meshes ?? []);
+  const hasPrevious = parts.some((part) => part.source.previousTransforms !== undefined);
+  const hasFlags = parts.some((part) => part.source.flags !== undefined);
+  const hasDebugIds = parts.some((part) => part.source.debugIds !== undefined);
+  let expectedAssetBegin = 0;
+  for (const part of parts) {
+    const source = part.source;
+    if (part.assetReferenceBegin !== expectedAssetBegin) {
+      throw new RangeError("Multi-Product asset-reference ranges must be contiguous and ordered");
+    }
+    geometryProfiles.push(...source.geometryProfiles);
+    for (let index = 0; index < source.count; index++) {
+      geometryIndices.push(part.assetReferenceBegin + source.geometryIndices[index]!);
+      materialIndices.push(source.materialIndices[index]!);
+      productTableSlots.push(part.productTableSlot);
+      productGenerations.push(part.productGeneration);
+      transforms.push(...source.currentTransforms.subarray(index * 16, index * 16 + 16));
+      const previous = source.previousTransforms ?? source.currentTransforms;
+      if (hasPrevious) previousTransforms.push(...previous.subarray(index * 16, index * 16 + 16));
+      boundsSpheres.push(...source.boundsSpheres.subarray(index * 4, index * 4 + 4));
+      if (source.boundsMin === undefined || source.boundsMax === undefined) {
+        throw new RangeError("Multi-Product shard scene requires explicit bounds");
+      }
+      boundsMin.push(...source.boundsMin.subarray(index * 3, index * 3 + 3));
+      boundsMax.push(...source.boundsMax.subarray(index * 3, index * 3 + 3));
+      if (hasFlags) flags.push(source.flags?.[index] ?? 0);
+      if (hasDebugIds) debugIds.push(source.debugIds?.[index] ?? geometryIndices.length - 1);
+    }
+    expectedAssetBegin += source.assetCount;
+  }
+  const capacity = Math.min(0xffffffff, parts.reduce((sum, part) => sum + part.source.hierarchyTraversalCapacity, 0));
+  return Object.freeze({
+    ...(meshes.length === 0 ? {} : { meshes: Object.freeze(meshes) }),
+    materials,
+    geometryProfiles: Object.freeze(geometryProfiles),
+    assetCount: geometryProfiles.length,
+    hierarchyMaxDepth: Math.max(...parts.map((part) => part.source.hierarchyMaxDepth)),
+    hierarchyTraversalCapacity: capacity,
+    hierarchyVisibleClusterCapacity: Math.min(0xffffffff, parts.reduce((sum, part) => sum + part.source.hierarchyVisibleClusterCapacity, 0)),
+    hierarchyRasterWorkCapacity: Math.min(0xffffffff, parts.reduce((sum, part) => sum + part.source.hierarchyRasterWorkCapacity, 0)),
+    count: geometryIndices.length,
+    geometryIndices: Uint32Array.from(geometryIndices),
+    productTableSlots: Uint32Array.from(productTableSlots),
+    productGenerations: Uint32Array.from(productGenerations),
+    materialIndices: Uint32Array.from(materialIndices),
+    currentTransforms: Float32Array.from(transforms),
+    ...(hasPrevious ? { previousTransforms: Float32Array.from(previousTransforms) } : {}),
+    boundsSpheres: Float32Array.from(boundsSpheres),
+    boundsMin: Float32Array.from(boundsMin),
+    boundsMax: Float32Array.from(boundsMax),
+    ...(hasFlags ? { flags: Uint32Array.from(flags) } : {}),
+    ...(hasDebugIds ? { debugIds: Uint32Array.from(debugIds) } : {})
   });
 }

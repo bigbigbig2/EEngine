@@ -39,3 +39,16 @@ claims:
       checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/gpu/GeometryPageStreamingRuntime.ts, OEngine/src/render/Renderer.ts]
+  - id: virtual-assets.performance
+    domain: virtual-assets
+    owner: virtual-assets
+    statement: A formal 100M virtual-geometry performance run is reproducible only when revision, browser, adapter, capability, display, camera path, feature set, workload, and measured owner/counter samples share one clean frozen identity.
+    level: L4
+    requiredChecks: [model, registry, changed-coverage, evidence-provenance, engine-suites]
+    evidencePolicy:
+      allOf: [web-100m-formal-perf]
+      anyOf: []
+      diagnosticCases: []
+      checkOnly: false
+    allowedDeclarations: [PerformanceEvaluated]
+    watch: [validation/cases/web-100m-formal-perf/**, validation/workloads/web-100m-formal-perf-v1.yaml, OEngine/src/debug/FormalPerfFreeze.ts, docs/specs/web-geometry-formal-perf-freeze-v1.md]

@@ -50,6 +50,8 @@ export interface WasmGeometryProductRevisionV1 {
   /** True while at least one declared page payload has not been produced yet. */
   readonly hasPendingPages: boolean;
   readPage(pageId: number): Promise<GeometryPageProductV1>;
+  /** Spill every Product-local page and release its WASM group payload. */
+  spillAllPages(): Promise<void>;
   release(): void;
 }
 
@@ -174,6 +176,7 @@ interface GeometryProductPageSourceV1 {
   readonly hasPendingPages: boolean;
   /** Produces (if needed) and returns one page payload, or null when undeclared. */
   copyPage(pageId: number): Promise<ArrayBuffer | null>;
+  spillAllPages(): Promise<void>;
   release(): void;
 }
 
@@ -222,6 +225,7 @@ class MonolithicPageSource implements GeometryProductPageSourceV1 {
   readonly hasPendingPages = false;
   constructor(private readonly handle: WebGeometryCookWasmHandleV1) {}
   async copyPage(pageId: number): Promise<ArrayBuffer> { return this.handle.copyPage(pageId); }
+  async spillAllPages(): Promise<void> { /* monolithic pages are already materialised */ }
   release(): void { this.handle.release(); }
 }
 
@@ -273,6 +277,14 @@ class WasmPlanPageSource implements GeometryProductPageSourceV1 {
       return bytes?.slice(0) ?? null;
     } finally {
       this.#inflight.delete(pageId);
+    }
+  }
+
+  async spillAllPages(): Promise<void> {
+    if (this.#released) throw new Error("WASM Geometry Product plan has been released");
+    if (this.#spillStore === undefined) throw new Error("WASM Geometry Product eager spill requires a spill store");
+    for (let pageId = 0; pageId < this.#plan.pageCount; pageId++) {
+      if (await this.copyPage(pageId) === null) throw new Error(`WASM Geometry Product page ${pageId} could not be spilled`);
     }
   }
 
@@ -367,6 +379,12 @@ class WasmGeometryProductRevision implements WasmGeometryProductRevisionV1 {
       decodedPageHash128: digest.subarray(0, 16).slice(),
       bytes
     });
+  }
+
+  async spillAllPages(): Promise<void> {
+    const source = this.#source;
+    if (!source) throw new Error("WASM Geometry Product revision has been released");
+    await source.spillAllPages();
   }
 
   release(): void { this.#source?.release(); this.#source = undefined; }

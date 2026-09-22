@@ -474,6 +474,39 @@ test("Instance V2 narrows stable, small, large, static, material, and visibility
   scene.destroy();
 });
 
+test("multi-Product instances publish their own slot and generation lanes", () => {
+  const writes = [];
+  const device = fakeDevice();
+  const scene = new GpuScene(device, {
+    publicationIdentity: () => { throw new Error("Product instances do not use package identity"); }
+  });
+  const source = {
+    count: 2,
+    geometryHandles: [],
+    virtualGeometry: {
+      productTableSlot: 2,
+      productGeneration: 11,
+      assetCount: 2,
+      productTableSlots: new Uint32Array([2, 7]),
+      productGenerations: new Uint32Array([11, 29])
+    },
+    geometryIndices: new Uint32Array([0, 1]),
+    materialHandles: new Uint32Array([0, 0]),
+    currentTransforms: identityMatrices(2),
+    boundsSpheres: new Float32Array([0, 0, 0, 1, 1, 0, 0, 1])
+  };
+  const command = new SceneCommand(device, writes);
+  scene.instantiate(source, command);
+  const upload = writes.at(-1);
+  const view = new DataView(upload.data, upload.dataOffset, upload.size);
+  assert.equal(view.getUint32(GPU_INSTANCE_RECORD_OFFSETS.product_table_slot, true), 2);
+  assert.equal(view.getUint32(GPU_INSTANCE_RECORD_OFFSETS.geometry_generation, true), 11);
+  assert.equal(view.getUint32(GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.product_table_slot, true), 7);
+  assert.equal(view.getUint32(GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.geometry_generation, true), 29);
+  command.finish();
+  scene.destroy();
+});
+
 test("GpuScene same-command replacement reuses the released range without duplicating a free slot", () => {
   const writes = [];
   const device = fakeDevice();

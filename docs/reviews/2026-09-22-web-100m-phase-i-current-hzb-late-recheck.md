@@ -1,7 +1,8 @@
 # ADR-0018 Phase I Current-HZB Late Recheck 审评（2026-09-22）
 
-本记录把 ADR-0018 §28 的“只 recheck uncertain / expensive candidates”
-落成一个不改变既有 Geometry/Visibility ABI 的 bounded late-recheck 合同。
+本记录最初冻结 ADR-0018 §28 的 bounded diagnostic policy；生产闭环随后由
+`2026-09-22-web-100m-production-closure.md` 补齐。生产路径直接过滤标准
+MeshletWork，不改变既有 Geometry/Visibility identity。
 
 ## 结果
 
@@ -14,12 +15,17 @@
   不会因为优化容量压力改变图像。
 - CPU oracle 覆盖 dense-occlusion reduction、invalid metadata、overflow fallback
   和 raster vertex accounting。
+- 生产 FrameGraph 已接通 `previous HZB -> coarse raster -> current HZB -> compute
+  filter -> filtered indirect raster`，final raster 直接消费输出 queue。
+- 生产容量受 VisibilityKey 24-bit slot 与 adapter buffer limit 约束；65,536 只保留
+  为 diagnostic candidate oracle 上限。source invalid/stale/overflow 会复制 source
+  work 并正常发布 indirect count，而不是清零几何。
 
 ## ADR-0018 对照
 
 | ADR-0018 Phase I 要求 | 当前实现与证据 | 结论 |
 | --- | --- | --- |
-| Previous-HZB traversal → current HZB → late candidate recheck | `CurrentHzbLateRecheck` 的 queue/producer contract；现有主图仍保留单次生产者顺序 | contract 完成，生产 consumer 接线仍需浏览器 gate |
+| Previous-HZB traversal → current HZB → late candidate recheck | 生产 FrameGraph 与 filtered indirect final raster | 实现接线完成；浏览器证据仍需 Phase K |
 | 只重查 uncertain / expensive | flags + conservative guard；oracle 断言非 eligible candidate 保留 | 满足 |
 | selected meshlets / raster vertices 下降 | oracle 在遮挡样例中从 3 条/1152 vertices 降为 2 条/768 vertices | 实现/数值证据；未升级 PERF |
 | image parity unchanged | invalid/overflow fail-open；所有被拒绝记录必须有 conservative 证明 | contract 保证边界；截图 parity 尚无真实浏览器证据 |

@@ -155,21 +155,33 @@ export function attachGpuErrorCollection(
   device: GPUDevice,
   controller: ValidationController,
   isIntentionalLoss: () => boolean
-): Readonly<{ lost: Promise<GPUDeviceLostInfo>; remove(): void }> {
+): Readonly<{
+  readonly errors: readonly Readonly<{ source: string; message: string }>[];
+  lost: Promise<GPUDeviceLostInfo>;
+  remove(): void;
+}> {
+  const errors: Array<Readonly<{ source: string; message: string }>> = [];
   const onUncaptured = (event: GPUUncapturedErrorEvent): void => {
     const source = event.error instanceof GPUValidationError
       ? "gpu-validation"
       : event.error instanceof GPUOutOfMemoryError
         ? "gpu-oom"
         : "gpu-internal";
-    controller.addError({ source, message: event.error.message });
+    const error = Object.freeze({ source, message: event.error.message });
+    errors.push(error);
+    controller.addError(error);
   };
   device.addEventListener("uncapturederror", onUncaptured);
   const lost = device.lost.then((info) => {
-    if (!isIntentionalLoss()) controller.addError({ source: "device-loss", message: `${info.reason}: ${info.message}` });
+    if (!isIntentionalLoss()) {
+      const error = Object.freeze({ source: "device-loss", message: `${info.reason}: ${info.message}` });
+      errors.push(error);
+      controller.addError(error);
+    }
     return info;
   });
   return Object.freeze({
+    errors,
     lost,
     remove() {
       device.removeEventListener("uncapturederror", onUncaptured);

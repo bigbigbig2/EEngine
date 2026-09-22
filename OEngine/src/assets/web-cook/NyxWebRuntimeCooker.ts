@@ -356,11 +356,12 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     recipeInput: ArrayBuffer,
     revision: number,
     replaces?: { readonly productId: Uint8Array; readonly revision: number },
-    sceneAssetIndices?: readonly number[]
+    sceneAssetIndices?: readonly number[],
+    producerVersion = NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION
   ): Promise<WasmGeometryProductRevisionV1> {
     return planWasmGeometryProductRevisionV1(this.#module, canonicalInput, recipeInput, {
       producerId: NYX_WEB_RUNTIME_PRODUCER_ID,
-      producerVersion: NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION,
+      producerVersion,
       sourceIdentityKind: context.source.sourceIdentity.kind,
       sourceIdentityHash: context.source.sourceIdentity.hash,
       signal: context.signal,
@@ -380,6 +381,87 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     return this.planWindowedCanonical(units, context, this.#recipeInput, 0, undefined, sceneAssetIndices);
   }
 
+  /**
+   * Produces one independently owned Product for every bounded canonical
+   * window or spatial shard. The WASM plan never accumulates scene-scale
+   * CookedAsset/SerializedGroup state, and each Product is fully spilled before
+   * publication so the C++ page payload owner can be released immediately.
+   */
+  private async *planIndependentProducts(
+    units: readonly GlbCookPrimitive[],
+    context: WebCookUnitContext,
+    recipeInput: ArrayBuffer
+  ): AsyncGenerator<WasmGeometryProductRevisionV1> {
+    const catalogPrimitives = context.catalog?.primitives ?? units;
+    const catalogIndices = new Map(catalogPrimitives.map((unit, index) => [primitiveKey(unit), index]));
+    let ordinary: GlbCookPrimitive[] = [];
+    const flushOrdinary = async function* (owner: NyxWebRuntimeCooker): AsyncGenerator<WasmGeometryProductRevisionV1> {
+      if (ordinary.length === 0) return;
+      for (const window of owner.windows(ordinary)) {
+        const indices = window.units.map((unit, index) => catalogIndices.get(primitiveKey(unit)) ?? index);
+        const revision = await owner.consumeCanonicalWindow(window, context, canonical => owner.planCanonical(
+          canonical, context, recipeInput, 0, undefined, indices,
+          `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};product-shard=canonical-window-v1`
+        ));
+        try {
+          await revision.spillAllPages();
+          yield revision;
+        } catch (error) {
+          revision.release();
+          throw error;
+        }
+      }
+      ordinary = [];
+    };
+
+    for (const unit of units) {
+      if (!this.requiresSpatialSharding(unit)) {
+        ordinary.push(unit);
+        continue;
+      }
+      yield* flushOrdinary(this);
+      const sceneAssetIndex = catalogIndices.get(primitiveKey(unit));
+      if (sceneAssetIndex === undefined) throw new Error("Nyx Web Product shard is not present in the scene catalog");
+      const spatial = await planGlbPrimitiveSpatialShardsV1(unit, {
+        signal: context.signal,
+        readRange: range => context.readRange(range)
+      }, {
+        maxSourceWindowBytes: this.#maxSourceWindowBytes,
+        maxCanonicalWindowBytes: this.#maxCanonicalInputBytes,
+        sourceIdentityHash: context.source.sourceIdentity.hash
+      });
+      this.#spatialPrimitives++;
+      this.#spatialShards += spatial.shards.length;
+      this.#peakSourceWindowBytes = Math.max(this.#peakSourceWindowBytes, spatial.peakSourceWindowBytes);
+      for (const shard of spatial.shards) {
+        const domain = await canonicalizeGlbPrimitiveSpatialShardV1(unit, spatial, shard, {
+          signal: context.signal,
+          readRange: range => context.readRange(range)
+        }, this.#maxSourceWindowBytes);
+        const canonical = encodeWebCanonicalGeometryV1([domain]);
+        if (canonical.byteLength > this.#maxCanonicalInputBytes) throw new Error(`spatial canonical shard ${shard.shardId} exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
+        this.#canonicalWindows++;
+        this.#currentCanonicalWindowBytes = canonical.byteLength;
+        this.#peakCanonicalWindowBytes = Math.max(this.#peakCanonicalWindowBytes, canonical.byteLength);
+        let revision: WasmGeometryProductRevisionV1 | undefined;
+        try {
+          revision = await this.planCanonical(
+            canonical, context, recipeInput, 0, undefined, [sceneAssetIndex],
+            `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=${WEB_SPATIAL_SHARD_PARTITION_VERSION};shard=${shard.shardId}`
+          );
+          await revision.spillAllPages();
+          yield revision;
+        } catch (error) {
+          revision?.release();
+          throw error;
+        } finally {
+          this.releaseCanonicalWindow();
+        }
+      }
+    }
+    yield* flushOrdinary(this);
+  }
+
   async cookProgressive(
     units: readonly GlbCookPrimitive[],
     context: WebCookUnitContext,
@@ -387,44 +469,25 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     onFailure?: (error: Error) => void
   ): Promise<void> {
     if (units.length === 0) throw new Error("Nyx Web Product requires at least one GLB primitive");
-    const ordered = [...units].sort(compareCookPrimitiveOrder);
-    const catalogIndex = new Map((context.catalog.primitives ?? []).map((unit, index) => [primitiveKey(unit), index]));
-    const bootstrapPairs = (context.bootstrapUnits === undefined || context.bootstrapUnits.length === 0
-      ? [{ unit: ordered[0]!, index: catalogIndex.get(primitiveKey(ordered[0]!)) ?? 0 }]
-      : context.bootstrapUnits.map((unit, index) => ({ unit, index: context.bootstrapAssetIndices?.[index] ?? catalogIndex.get(primitiveKey(unit)) ?? index })))
-      .sort((left, right) => compareCookPrimitiveOrder(left.unit, right.unit));
-    const bootstrapUnits = bootstrapPairs.map(pair => pair.unit);
-    const bootstrapIndices = bootstrapPairs.map(pair => pair.index);
-    if (bootstrapUnits.length !== bootstrapIndices.length || bootstrapIndices.some(index => !Number.isSafeInteger(index) || index < 0)) throw new RangeError("Nyx Web bootstrap asset mapping is invalid");
-    const bootstrapHasSpatial = bootstrapUnits.some(unit => this.requiresSpatialSharding(unit));
-    const bootstrapWindows = bootstrapHasSpatial ? [] : this.windows(bootstrapUnits);
-    // A one-window bootstrap remains manifest-backed. A larger bootstrap uses
-    // the bounded plan builder and publishes its complete activation graph.
-    const bootstrap = !bootstrapHasSpatial && bootstrapWindows.length === 1
-      ? await this.consumeCanonicalWindow(bootstrapWindows[0]!, context, canonical => this.cookCanonical(canonical, context, this.#bootstrapRecipeInput, 0, undefined, bootstrapIndices))
-      : await this.planWindowedCanonical(bootstrapUnits, context, this.#bootstrapRecipeInput, 0, undefined, bootstrapIndices);
+    const bootstrapKeys = new Set((context.bootstrapUnits ?? [units[0]!]).map(primitiveKey));
+    const prioritized = [
+      ...units.filter(unit => bootstrapKeys.has(primitiveKey(unit))),
+      ...units.filter(unit => !bootstrapKeys.has(primitiveKey(unit)))
+    ];
+    let offered = 0;
     try {
-      await onRevision(bootstrap);
-    } catch (error) {
-      bootstrap.release();
-      throw error;
-    }
-    // A richer failure must not tear down the resident bootstrap revision.
-    try {
-      // The richer revision freezes its descriptor only. Its activation cut is
-      // produced as the coordinator streams it, and every remaining page is
-      // produced on demand inside the same revision instead of forcing a
-      // second, fully-materialised replacement.
-      const richer = await this.planWindowedCanonical(ordered, context, this.#recipeInput, 1,
-        { productId: bootstrap.product.productId, revision: bootstrap.product.revision },
-        ordered.map((unit, index) => catalogIndex.get(primitiveKey(unit)) ?? index));
-      try {
-        await onRevision(richer);
-      } catch (error) {
-        richer.release();
-        throw error;
+      for await (const revision of this.planIndependentProducts(prioritized, context, this.#recipeInput)) {
+        try {
+          await onRevision(revision);
+          offered++;
+        } catch (error) {
+          revision.release();
+          throw error;
+        }
       }
+      if (offered === 0) throw new Error("Nyx Web Product sharding produced no Products");
     } catch (error) {
+      if (offered === 0) throw error;
       onFailure?.(error instanceof Error ? error : new Error(String(error)));
     }
   }

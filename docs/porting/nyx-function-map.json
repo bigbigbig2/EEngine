@@ -88,12 +88,12 @@
       "id": "geometry-streaming",
       "source": "MiniEngine/Model/GeometryStreaming.cpp",
       "sourceSymbols": ["Initialize", "PinRootPages", "Update", "SyncMemoryAndAddressTable", "EnqueueAsyncLoad", "OnPageIOComplete", "ImmediateEvict"],
-      "implementation": ["OEngine/src/gpu/VirtualGeometryResidency.ts", "OEngine/src/gpu/GeometryPageStreamingRuntime.ts", "OEngine/src/gpu/GeometryPageScheduler.ts"],
-      "consumer": ["OEngine/src/render/HierarchicalWorkGenerator.ts", "OEngine/src/shaders/meshlet_bucket_visibility.ts"],
+      "implementation": ["OEngine/src/gpu/VirtualGeometryResidency.ts", "OEngine/src/gpu/GeometryProductMultiRuntime.ts", "OEngine/src/gpu/GeometryPageStreamingRuntime.ts", "OEngine/src/gpu/GeometryPageScheduler.ts"],
+      "consumer": ["OEngine/src/render/HierarchicalWorkGenerator.ts", "OEngine/src/render/pipeline/MainRenderPipeline.ts", "OEngine/src/shaders/meshlet_bucket_visibility.ts"],
       "retainedInvariants": ["root pin/bootstrap activation", "delayed demand feedback", "generation-safe page publication", "revoke-before-reuse", "resident ancestor fallback", "independent page validation"],
       "webgpuAdaptation": "MAP_READ copy rings and submission retirement replace DX12 readback/fence APIs; page bank slots remain bounded.",
       "fallback": "Missing or stale pages retain a resident ancestor and emit bounded demand; no CPU final visible list is built.",
-      "oracle": ["OEngine/tests/unit/geometry-page-streaming-runtime.test.mjs", "OEngine/tests/unit/geometry-page-scheduler.test.mjs", "validation/cases/virtual-product-replacement/main.ts"],
+      "oracle": ["OEngine/tests/contract/geometry-product-multi-runtime.test.mjs", "OEngine/tests/unit/geometry-page-streaming-runtime.test.mjs", "OEngine/tests/unit/geometry-page-scheduler.test.mjs", "validation/cases/virtual-product-replacement/main.ts", "validation/cases/web-100m-formal-perf/main.ts"],
       "status": "verified"
     },
     {
@@ -131,6 +131,19 @@
       "fallback": "Feature-off removes HZB bindings and passes; overflow is recorded and never silently truncates.",
       "oracle": ["OEngine/tests/oracle/nyx-function-map.test.mjs", "OEngine/tests/guard/geometry-work-truth.test.mjs"],
       "status": "verified"
+    },
+    {
+      "id": "current-hzb-late-recheck",
+      "source": "MiniEngine/Model/Shaders/DAGCull.slang",
+      "sourceSymbols": ["ProcessNodeBatch", "ProcessMeshletBatch", "computeMain"],
+      "implementation": ["OEngine/src/shaders/current_hzb_late_recheck.ts", "OEngine/src/render/CurrentHzbLateRecheck.ts", "OEngine/src/render/passes/PackedVisibilityPass.ts"],
+      "consumer": ["OEngine/src/render/MeshletBucketRaster.ts", "OEngine/src/render/pipeline/MainRenderPipeline.ts"],
+      "retainedInvariants": ["previous-depth traversal remains authoritative", "current-depth rejection is conservative", "invalid or stale metadata fails open", "GPU output queue directly drives indirect raster"],
+      "webgpuAdaptation": "A separate same-frame compute pass samples the WebGPU HZB and compacts the standard MeshletWork queue before a second hardware raster; it does not assume mesh shaders or multi-draw.",
+      "fallback": "Invalid projection, Product identity, page location, source generation, or source overflow copies source work; disabling the feature removes the pass and resources.",
+      "oracle": ["OEngine/tests/oracle/current-hzb-late-recheck.test.mjs", "validation/cases/web-100m-formal-perf/main.ts"],
+      "status": "verified",
+      "browserEvidenceStatus": "awaiting-web-100m-formal-perf"
     },
     {
       "id": "vbuffer-build-vertex",

@@ -144,6 +144,7 @@ import {
 } from "../../gpu/VirtualGeometryResidency.js";
 import type { VirtualGeometryResidencyOptionsV1 } from "../../gpu/VirtualGeometryResidency.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
+import { GeometryProductMultiRuntimeV1, type GeometryProductShardHandleV1 } from "../../gpu/GeometryProductMultiRuntime.js";
 import { GeometryProductAdmissionController } from "../../gpu/GeometryProductAdmission.js";
 import type { GeometryProductAdmissionTransaction } from "../../gpu/GeometryProductAdmission.js";
 import type { WebCookRuntimeAsset } from "../../assets/web-cook/WebCookRuntimeAsset.js";
@@ -151,7 +152,7 @@ import type { WebCookSceneCatalogSnapshot } from "../../assets/web-cook/WebCookC
 import type { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import { createWebCookSceneSourceAsync } from "../../assets/web-cook/WebCookSceneSource.js";
 import { createOegPackSceneSource } from "../../assets/geometry-product/OegPackSceneSourceV1.js";
-import { buildVirtualGeometrySceneSourceV1 } from "../../assets/geometry-product/VirtualGeometrySceneSourceV1.js";
+import { buildVirtualGeometrySceneSourceV1, mergeVirtualGeometryProductSceneSourcesV1, type VirtualGeometryProductScenePartV1 } from "../../assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import type { CookedSceneGeometryProductV1 } from "../../assets/geometry-product/SceneGeometryCanonicalizerV1.js";
 import type { OegPackProductAsset } from "../../assets/geometry-product/OegPackProductAsset.js";
 import type { GeometryProductDescriptorV1, GeometryProductProviderV1 } from "../../assets/geometry-product/GeometryProductV1.js";
@@ -687,6 +688,25 @@ export interface WebCookedSceneOptions extends ProductSceneOptions {
    */
   readonly fitHeight?: number;
   readonly fitBase?: readonly [number, number, number];
+  /** Fixed combined metadata heap used by the Product-per-Shard production route. */
+  readonly multiProductMetadataBytes?: number;
+  /** Product Table capacity; the formal 100M workload uses 128 for ~100 shards. */
+  readonly multiProductSlotCapacity?: number;
+}
+
+export interface MultiProductSceneState {
+  readonly source: VirtualGeometrySceneSource;
+  readonly shardCount: number;
+  readonly firstResidency: VirtualGeometryResidency;
+  readonly streaming: GeometryPageStreamingRuntimeV1 | null;
+}
+
+export interface MultiProductSceneHandles {
+  readonly runtime: GeometryProductMultiRuntimeV1;
+  readonly streaming: GeometryPageStreamingRuntimeV1 | null;
+  readonly settled: () => Promise<void>;
+  readonly current: () => Readonly<MultiProductSceneState>;
+  readonly release: () => Promise<void>;
 }
 
 export interface OegPackSceneOptions extends ProductSceneOptions {
@@ -731,6 +751,7 @@ export class MainRenderPipeline {
     readonly source: GeometryProductRevisionSourceV1;
     readonly sceneSource: VirtualGeometrySceneSource;
     readonly streamingEnabled: boolean;
+    readonly multiRuntime?: GeometryProductMultiRuntimeV1;
   }>();
   private _adapterInfo: BenchmarkAdapterIdentity | null = null;
   private _capabilities: RendererCapabilities | null = null;
@@ -738,6 +759,8 @@ export class MainRenderPipeline {
   private readonly _surfaceLiteProfile: GpuShadingSurfaceLiteProfile;
   private _lastFrameContract: RenderFrameContract | null = null;
   private readonly _profiler = new FrameProfiler();
+  private _streamingGpuFrameTimeMs = 0;
+  private readonly _streamingCameraMatrices = new Map<Scene, Float32Array>();
   private _graphics!: GraphicsContext;
   private _frameCoordinator!: FrameCoordinator;
   private readonly _mainGraphCache = new CompiledFrameGraphCache(
@@ -887,6 +910,8 @@ export class MainRenderPipeline {
   packed_geometry_quality_floor_sse = 16;
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
+  /** Optional Product-only same-frame HZB filter; disabled creates no pass or queue. */
+  packed_visibility_current_hzb_late_recheck_enabled = false;
   /** Validation pressure override; zero derives the correctness-safe capacity. */
   packed_meshlet_work_candidate_capacity = 0;
   /** ADR-0008 Step-2 compaction specialization policy. */
@@ -1086,7 +1111,13 @@ export class MainRenderPipeline {
     source: VirtualGeometrySceneSource,
     residency: VirtualGeometryResidency,
     streamingRuntime: GeometryPageStreamingRuntimeV1 | null = null,
-    beforeSubmit?: () => void
+    beforeSubmit?: () => void,
+    publication: Readonly<{
+      readonly bindings: ReturnType<VirtualGeometryResidency["bindings"]>;
+      readonly assetCount: number;
+      readonly registerStreaming?: boolean;
+      readonly multiRuntime?: GeometryProductMultiRuntimeV1;
+    }> = { bindings: residency.bindings(), assetCount: residency.descriptor.assetRecords.byteLength / 128 }
   ): Promise<GpuRenderWorldHandle> {
     const storageBufferLimit = Number(this.device.limits.maxStorageBuffersPerShaderStage);
     if (!Number.isFinite(storageBufferLimit) ||
@@ -1097,10 +1128,10 @@ export class MainRenderPipeline {
         `initialize Renderer with requiredLimits.maxStorageBuffersPerShaderStage before admission (device permits ${storageBufferLimit})`
       );
     }
-    if (residency.descriptor.assetRecords.byteLength / 128 !== source.assetCount) {
+    if (publication.assetCount !== source.assetCount) {
       throw new RangeError("Virtual Product source assetCount does not match its descriptor");
     }
-    if (streamingRuntime !== null) {
+    if (streamingRuntime !== null && publication.registerStreaming !== false) {
       streamingRuntime.registerProduct(residency.sourceForStreaming());
     }
     const command = ShadeGPUCommandContext.create(
@@ -1112,7 +1143,7 @@ export class MainRenderPipeline {
       const handle = this._graphics.render_world.stageVirtualProduct(
         scene,
         source,
-        residency.bindings(),
+        publication.bindings,
         command
       );
       const staged = this._graphics.render_world.previewStagedRuntime(handle);
@@ -1132,7 +1163,8 @@ export class MainRenderPipeline {
         streamingRuntime,
         source: residency.sourceForStreaming(),
         sceneSource: source,
-        streamingEnabled: streamingRuntime !== null
+        streamingEnabled: streamingRuntime !== null,
+        ...(publication.multiRuntime === undefined ? {} : { multiRuntime: publication.multiRuntime })
       }));
       return handle;
     } catch (error) {
@@ -1266,6 +1298,146 @@ export class MainRenderPipeline {
       if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
       return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { fitHeight: options.fitHeight, fitBase: options.fitBase, scale: options.scale, offset: options.offset, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache });
     }, options);
+  }
+
+  /**
+   * Product-per-Shard Web route used by ADR-0018. The first complete shard is
+   * visible immediately; later shards are appended to the immutable instance
+   * publication while all per-frame visibility and raster work remains GPU
+   * generated through the same production pipeline.
+   */
+  async uploadWebCookedMultiProductScene(
+    scene: Scene,
+    asset: WebCookRuntimeAsset,
+    options: WebCookedSceneOptions = {}
+  ): Promise<MultiProductSceneHandles> {
+    const runtime = new GeometryProductMultiRuntimeV1(this.device, {
+      residency: options.residency,
+      metadataBytes: options.multiProductMetadataBytes,
+      slotCapacity: options.multiProductSlotCapacity
+    });
+    const textureCache = new Map<number, Promise<ShadeTexture>>();
+    const parts: VirtualGeometryProductScenePartV1[] = [];
+    const shardHandles: GeometryProductShardHandleV1[] = [];
+    let streaming: GeometryPageStreamingRuntimeV1 | null = null;
+    let state: MultiProductSceneState | undefined;
+    let released = false;
+    let resolveFirst!: () => void;
+    let rejectFirst!: (error: unknown) => void;
+    const firstReady = new Promise<void>((resolve, reject) => { resolveFirst = resolve; rejectFirst = reject; });
+    const consuming = (async (): Promise<void> => {
+      try {
+        for await (const source of asset.revisions(options.signal)) {
+          if (released) break;
+          const catalog = asset.catalog;
+          if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
+          const shard = await runtime.load(source);
+          shardHandles.push(shard);
+          const mapped = await createWebCookSceneSourceAsync(
+            catalog,
+            source.descriptor,
+            (imageIndex, signal) => asset.readImageSource(imageIndex, signal),
+            options.signal,
+            {
+              fitHeight: options.fitHeight,
+              fitBase: options.fitBase,
+              scale: options.scale,
+              offset: options.offset,
+              sceneAssetIndices: source.sceneAssetIndices,
+              textureCache
+            }
+          );
+          parts.push(Object.freeze({
+            source: mapped.source,
+            productTableSlot: shard.productTableSlot,
+            productGeneration: shard.productGeneration,
+            assetReferenceBegin: shard.assetReferenceBegin
+          }));
+          const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
+          if (streaming === null && options.stream !== false) streaming = new GeometryPageStreamingRuntimeV1(this.device, shard.residency);
+          streaming?.registerProduct(source, shard.residency);
+          if (parts.length === 1) {
+            options.onMaterials?.(mapped.materials);
+            await this.uploadVirtualGeometryScene(scene, combined, shard.residency, streaming, undefined, {
+              bindings: runtime.bindings(),
+              assetCount: combined.assetCount,
+              registerStreaming: false,
+              multiRuntime: runtime
+            });
+            state = Object.freeze({ source: combined, shardCount: 1, firstResidency: shard.residency, streaming });
+            resolveFirst();
+          } else {
+            await this.replaceMultiProductScenePublication(scene, combined, runtime);
+            state = Object.freeze({ source: combined, shardCount: parts.length, firstResidency: shardHandles[0]!.residency, streaming });
+            this._virtualProductScenes.set(scene, Object.freeze({
+              residency: shardHandles[0]!.residency,
+              streamingRuntime: streaming,
+              source: shardHandles[0]!.residency.sourceForStreaming(),
+              sceneSource: combined,
+              streamingEnabled: streaming !== null,
+              multiRuntime: runtime
+            }));
+          }
+        }
+        if (state === undefined) throw new Error("Web Cook provider completed without an admissible Product shard");
+      } catch (error) {
+        if (state === undefined) rejectFirst(error);
+        throw error;
+      }
+    })();
+    consuming.catch(() => undefined);
+    await firstReady;
+    return Object.freeze({
+      runtime,
+      get streaming() { return streaming; },
+      settled: () => consuming,
+      current: () => {
+        if (state === undefined) throw new Error("Multi-Product Scene has no active shard");
+        return state;
+      },
+      release: async () => {
+        if (released) return;
+        released = true;
+        if (this._graphics.render_world.runtime(scene) !== null) await this.releaseVirtualGeometryScene(scene);
+        streaming?.destroy();
+        runtime.destroy();
+      }
+    });
+  }
+
+  private async replaceMultiProductScenePublication(
+    scene: Scene,
+    source: VirtualGeometrySceneSource,
+    runtime: GeometryProductMultiRuntimeV1
+  ): Promise<void> {
+    const previous = this._graphics.render_world.runtime(scene);
+    if (previous === null) throw new Error("Multi-Product append requires an active Scene publication");
+    const command = ShadeGPUCommandContext.create(this._graphics, "Renderer/GpuRenderWorld/multi-product-append");
+    let sparseSwap: import("./SparseShadingPublicationCoordinator.js").PreparedSparseShadingPublication | undefined;
+    let committed = false;
+    try {
+      if (this._visibilityFeature) {
+        this._visibilityFeature.release(previous, command);
+        this._transparencyFeature?.releasePacked(previous, command);
+        this._shadowFeatures.releaseRenderWorld(scene, previous, command);
+      }
+      const handles = this._graphics.render_world.release(scene, command);
+      this._graphics.assets.releaseMany(handles, command);
+      const handle = this._graphics.render_world.stageVirtualProduct(scene, source, runtime.bindings(), command, true);
+      const candidate = this._graphics.render_world.previewStagedRuntime(handle);
+      sparseSwap = await this._sparseShadingPublications.prepareSceneSwap(
+        candidate.shadingPublication,
+        this.createSparseShadingPublicationContext(candidate)
+      );
+      command.finish();
+      await command.submitted;
+      sparseSwap.commit(this._frame_count);
+      committed = true;
+    } catch (error) {
+      if (!command.closed) command.abort(error);
+      if (!committed) sparseSwap?.abort();
+      throw error;
+    }
   }
 
   /**
@@ -1493,6 +1665,7 @@ export class MainRenderPipeline {
       await command.gpuDone;
       this._brickRecovery.delete(scene);
       this._virtualProductScenes.delete(scene);
+      this._streamingCameraMatrices.delete(scene);
       if (shadingPublication !== null) {
         const released = await this._sparseShadingPublications.release(
           shadingPublication,
@@ -2172,6 +2345,7 @@ export class MainRenderPipeline {
     this._graphics?.destroy();
     this._brickRecovery.clear();
     this._virtualProductScenes.clear();
+    this._streamingCameraMatrices.clear();
     if (this._ownsDevice) this.device?.destroy();
   }
 
@@ -2292,6 +2466,27 @@ export class MainRenderPipeline {
         `Scene ${scene.id ?? "<unknown>"} has no GPU Render World registration; ` +
         "call uploadProductScene(), uploadWebCookedScene(), or uploadOegPackScene() before render()"
       );
+    }
+    const streamingRuntime = this._virtualProductScenes.get(scene)?.streamingRuntime;
+    if (streamingRuntime !== undefined && streamingRuntime !== null) {
+      const previousMatrix = this._streamingCameraMatrices.get(scene);
+      const currentMatrix = Float32Array.from(camera.view_projection_matrix);
+      let delta = previousMatrix === undefined ? Number.POSITIVE_INFINITY : 0;
+      if (previousMatrix !== undefined) {
+        for (let index = 0; index < 16; index++) delta = Math.max(delta, Math.abs(currentMatrix[index]! - previousMatrix[index]!));
+      }
+      this._streamingCameraMatrices.set(scene, currentMatrix);
+      const frameTimeMs = Math.max(0, time_delta_seconds * 1000);
+      const lastPoll = streamingRuntime.evidence().lastPoll;
+      streamingRuntime.updatePressure({
+        cameraState: previousMatrix === undefined || delta > 0.25 ? "cut" : delta > 1e-5 ? "moving" : "stable",
+        ioThroughputBytesPerSecond: lastPoll === null || frameTimeMs === 0
+          ? undefined
+          : lastPoll.uploadedBytes * 1000 / frameTimeMs,
+        gpuPressure: Math.max(0, Math.min(1, this._streamingGpuFrameTimeMs / 16.67 - 1)),
+        frameTimeMs,
+        targetFrameTimeMs: 16.67
+      });
     }
     const nextShadingPublication =
       this._graphics.render_world.previewNextShadingPublication(scene);
@@ -2580,7 +2775,17 @@ export class MainRenderPipeline {
           : null,
         demandFrameRevisionLow: this._frame_count >>> 0,
         streamingRuntime: virtualProductScene?.streamingRuntime ?? undefined,
-        demandFrameIndex: this._frame_count
+        demandFrameIndex: this._frame_count,
+        currentHzbLateRecheck:
+          this.packed_visibility_current_hzb_late_recheck_enabled &&
+          gpuPacked.virtualGeometry !== null &&
+          !this.packed_triangle_setup_enabled
+            ? Object.freeze({
+                width: viewHzb.width,
+                height: viewHzb.height,
+                mipLevelCount: viewHzb.mipLevelCount
+              })
+            : null
       };
       const packedVisibilityJob: PackedVisibilityJob = Object.freeze({
         ...prepareJob,
@@ -2761,6 +2966,9 @@ export class MainRenderPipeline {
         let gpuCounterRes: ResourceId | null = null;
         let packedVisibilityFrame: VisibilityFrame | null = null;
         let packedVisibilityDebug: PackedVisibilityDebugSource | null = null;
+        let packedCounterForVisibility: ResourceId | null = null;
+        let filteredMeshletWorkRes: ResourceId | null = null;
+        let filteredDrawIndirectRes: ResourceId | null = null;
         if (sampleGpuCounters) {
           gpuCounterRes = graph.import_resource(
             "r0_gpu_frame_counters",
@@ -2776,6 +2984,7 @@ export class MainRenderPipeline {
             bind("packed-counter-sink", (bindings) =>
               requirePackedGeometryOwner(bindings.geometry).runtime.counterSink)
           );
+          packedCounterForVisibility = packedCounterRes;
           const meshletWorkRecords = graph.import_resource(
             "packed_meshlet_work_records",
             { kind: "imported", label: "VisibilityKey V2 MeshletWork queue" },
@@ -2821,6 +3030,28 @@ export class MainRenderPipeline {
           depthRes = packedOutput.frame.depth;
           packedVisibilityDebug = packedOutput.debugResolve;
           gpuCounterRes = sampleGpuCounters ? packedOutput.counters : null;
+          if (packedVisibilityJob.prepared.currentHzbLateRecheck !== null) {
+            filteredMeshletWorkRes = graph.import_resource(
+              "packed_current_hzb_filtered_meshlet_work",
+              { kind: "imported", label: "Current-HZB retained MeshletWork queue" },
+              bind("packed-current-hzb-filtered-meshlet-work", (bindings) => {
+                const prepared = requirePackedGeometryOwner(bindings.geometry)
+                  .visibilityJob.prepared.currentHzbLateRecheck;
+                if (prepared === null) throw new Error("Current-HZB filtered queue is unavailable");
+                return prepared.queue;
+              })
+            );
+            filteredDrawIndirectRes = graph.import_resource(
+              "packed_current_hzb_filtered_draw_indirect",
+              { kind: "imported", label: "Current-HZB retained draw indirect" },
+              bind("packed-current-hzb-filtered-draw-indirect", (bindings) => {
+                const prepared = requirePackedGeometryOwner(bindings.geometry)
+                  .visibilityJob.prepared.currentHzbLateRecheck;
+                if (prepared === null) throw new Error("Current-HZB filtered indirect args are unavailable");
+                return prepared.drawIndirect;
+              })
+            );
+          }
         }
 
         {
@@ -2838,6 +3069,35 @@ export class MainRenderPipeline {
           );
           hzbBuilder.read(depthRes);
           hzbRes = hzbBuilder.write(hzbRes!);
+        }
+
+        if (packedVisibilityJob.prepared.currentHzbLateRecheck !== null) {
+          if (packedCounterForVisibility === null || filteredMeshletWorkRes === null ||
+              filteredDrawIndirectRes === null || hzbRes === null || packedVisibilityFrame === null) {
+            throw new Error("Current-HZB late-recheck graph resources are incomplete");
+          }
+          const lateOutput = this._visibilityFeature.addCurrentHzbLateRecheckToGraph(
+            graph,
+            bind("packed-visibility-current-hzb-job", (bindings) =>
+              requirePackedGeometryOwner(bindings.geometry).visibilityJob),
+            {
+              camera: currentCameraRes,
+              counters: packedCounterForVisibility,
+              currentHzb: hzbRes,
+              sourceMeshletWork: packedVisibilityFrame.meshletWork.records,
+              filteredMeshletWork: filteredMeshletWorkRes,
+              filteredDrawIndirect: filteredDrawIndirectRes,
+              visibilityKey: packedVisibilityFrame.visibilityKey,
+              shadingBinId: packedVisibilityFrame.shadingBinId,
+              depth: depthRes,
+              sourceFrame: packedVisibilityFrame
+            }
+          );
+          packedVisibilityFrame = lateOutput.frame;
+          packedVisibilityDebug = lateOutput.debugResolve;
+          depthRes = lateOutput.frame.depth;
+          packedCounterForVisibility = lateOutput.counters;
+          gpuCounterRes = sampleGpuCounters ? lateOutput.counters : null;
         }
 
         if (gpuCounterRes !== null) {
@@ -4318,7 +4578,9 @@ export class MainRenderPipeline {
         }
       }
       framePlan.execute("main-view-graph", () => {
-        cmd.encodeCompiledGraph(compiledGraph, mainBindings);
+        const finishCommandBuild = this._profiler.beginCpuSection("command-build");
+        try { cmd.encodeCompiledGraph(compiledGraph, mainBindings); }
+        finally { finishCommandBuild(); }
       });
       framePlan.assertComplete();
       this._lastFramePlan = framePlan.dump();
@@ -4354,7 +4616,9 @@ export class MainRenderPipeline {
           frameLinearHdrCapture.buffer.size
         );
       }
-      this._frameCoordinator.submitFrame(activeFrame);
+      const finishSubmit = this._profiler.beginCpuSection("submit");
+      try { this._frameCoordinator.submitFrame(activeFrame); }
+      finally { finishSubmit(); }
       const sparseSubmissionSerial = this._frame_count + 1;
       void cmd.gpuDone.then(() => {
         if (!this._deviceLost) {
@@ -4428,6 +4692,7 @@ export class MainRenderPipeline {
       visibilityConfiguration:
         `hardware-meshlet-visibility-key-v2-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
         `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
+        `-current-hzb-late${bindings.geometry.visibilityJob.prepared.currentHzbLateRecheck ? 1 : 0}` +
         `-virtual-product${bindings.geometry.visibilityJob.virtualGeometry ? 1 : 0}` +
         `-meshlet-visibility-v2` +
         `-meshlet-capacity${this.packed_meshlet_work_candidate_capacity}` +
@@ -5141,6 +5406,12 @@ export class MainRenderPipeline {
   }
 
   private consumeDynamicResolutionSnapshot(snapshot: FrameProfileSnapshot): void {
+    if (snapshot.gpu.sampled && !snapshot.gpu.pending && snapshot.gpu.segments.length > 0) {
+      this._streamingGpuFrameTimeMs = snapshot.gpu.segments.reduce(
+        (sum, segment) => sum + segment.durationMs,
+        0
+      );
+    }
     if (
       !this._temporalFeature.dynamicResolution.adaptive ||
       !snapshot.gpu.sampled ||

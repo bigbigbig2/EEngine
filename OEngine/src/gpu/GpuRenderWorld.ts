@@ -62,6 +62,8 @@ export interface PackedSceneSource {
   readonly materials: readonly StandardShadeMaterial[];
   readonly count: number;
   readonly geometryIndices: Uint32Array;
+  readonly productTableSlots?: Uint32Array;
+  readonly productGenerations?: Uint32Array;
   readonly materialIndices: Uint32Array;
   readonly currentTransforms: Float32Array;
   readonly previousTransforms?: Float32Array;
@@ -94,6 +96,9 @@ export interface VirtualGeometrySceneSource {
   readonly hierarchyRasterWorkCapacity: number;
   readonly count: number;
   readonly geometryIndices: Uint32Array;
+  /** Optional per-instance identity for a scene assembled from many Products. */
+  readonly productTableSlots?: Uint32Array;
+  readonly productGenerations?: Uint32Array;
   readonly materialIndices: Uint32Array;
   readonly currentTransforms: Float32Array;
   readonly previousTransforms?: Float32Array;
@@ -355,7 +360,9 @@ export class GpuRenderWorld {
         virtualGeometry: {
           productTableSlot: virtualProduct.bindings.productTableSlot,
           productGeneration: virtualProduct.bindings.productGeneration,
-          assetCount: virtualProduct.assetCount
+          assetCount: virtualProduct.assetCount,
+          productTableSlots: source.productTableSlots,
+          productGenerations: source.productGenerations
         }
       }),
       geometryIndices: source.geometryIndices,
@@ -462,6 +469,8 @@ export class GpuRenderWorld {
         materials: source.materials,
         count: source.count,
         geometryIndices: source.geometryIndices,
+        productTableSlots: source.productTableSlots,
+        productGenerations: source.productGenerations,
         materialIndices: source.materialIndices,
         currentTransforms: source.currentTransforms,
         previousTransforms: source.previousTransforms,
@@ -1620,6 +1629,11 @@ function validateVirtualSource(
     throw new RangeError("Virtual Product GPU identity is invalid");
   }
   assertLength(source.geometryIndices, source.count, "geometryIndices");
+  if ((source.productTableSlots === undefined) !== (source.productGenerations === undefined)) {
+    throw new RangeError("Virtual Product per-instance identity arrays must be supplied together");
+  }
+  if (source.productTableSlots !== undefined) assertLength(source.productTableSlots, source.count, "productTableSlots");
+  if (source.productGenerations !== undefined) assertLength(source.productGenerations, source.count, "productGenerations");
   assertLength(source.materialIndices, source.count, "materialIndices");
   assertLength(source.currentTransforms, source.count * 16, "currentTransforms");
   if (source.previousTransforms) assertLength(source.previousTransforms, source.count * 16, "previousTransforms");

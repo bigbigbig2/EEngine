@@ -4,6 +4,11 @@ import test from "node:test";
 
 const { NyxWebRuntimeCooker, NYX_WEB_RUNTIME_PRODUCER_ID } = await import("../../.test-dist/assets/web-cook/NyxWebRuntimeCooker.js");
 const { decodeGeometryProductDescriptorBinaryV1 } = await import("../../.test-dist/assets/geometry-product/GeometryProductBinaryV1.js");
+const { MemoryWebGeometryPageSpillStoreV1 } = await import("../../.test-dist/assets/geometry-product/WebGeometryPageSpillStoreV1.js");
+
+function spillStore(pageCapacity = 8) {
+  return new MemoryWebGeometryPageSpillStoreV1({ maxBytes: pageCapacity * (262144 + 144) });
+}
 
 function productSections() {
   const page = new Uint8Array(262144), pageHash = createHash("sha256").update(page).digest();
@@ -21,11 +26,12 @@ function fakeModule(sections) {
   const canonicalWindows = [];
   // Page production is modelled per PageID so the two-phase path can be driven
   // out of order, repeated, and with undeclared PageIDs, exactly like the ABI.
-  const produceCalls = [];
+  const produceCalls = [], releaseCalls = [];
   const mutable = {
     /** PageIDs already produced by the payload stage, in production order. */
     get produceCalls() { return produceCalls; },
     set produceCalls(value) { produceCalls.length = 0; produceCalls.push(...value); },
+    get releaseCalls() { return releaseCalls; },
     pageCount: 1,
     /** PageIDs the descriptor declares. */
     declared: new Set([0]),
@@ -41,10 +47,19 @@ function fakeModule(sections) {
     _free() {},
     _oengine_web_geometry_cook_abi_version() { return 2; },
     _oengine_web_geometry_cook(address, bytes) { canonicalInput = heap.slice(address, address + bytes); return 1; },
-    _oengine_web_geometry_cook_plan(address, bytes) { canonicalInput = heap.slice(address, address + bytes); sections.produced = new Set(); return 2; },
+    _oengine_web_geometry_cook_plan(address, bytes) {
+      canonicalInput = heap.slice(address, address + bytes);
+      sections[10] = new Uint8Array(createHash("sha256").update(canonicalInput).digest());
+      sections.produced = new Set();
+      return 2;
+    },
     _oengine_web_geometry_cook_builder_begin() { canonicalWindows.length = 0; return 3; },
     _oengine_web_geometry_cook_builder_append(_handle, address, bytes) { canonicalWindows.push(heap.slice(address, address + bytes)); return 1; },
-    _oengine_web_geometry_cook_builder_finish() { sections.produced = new Set(); return 2; },
+    _oengine_web_geometry_cook_builder_finish() {
+      sections[10] = new Uint8Array(createHash("sha256").update(Buffer.concat(canonicalWindows.map(bytes => Buffer.from(bytes)))).digest());
+      sections.produced = new Set();
+      return 2;
+    },
     _oengine_web_geometry_cook_builder_destroy() {},
     _oengine_web_geometry_cook_produce_page(handle, pageId, output, outputBytes) {
       if (!mutable.declared.has(pageId)) return 3;
@@ -59,6 +74,7 @@ function fakeModule(sections) {
       if (!mutable.declared.has(pageId)) return 3;
       return mutable.pending.has(pageId) ? 2 : 1;
     },
+    _oengine_web_geometry_cook_release_page(_handle, pageId) { releaseCalls.push(pageId); return 1; },
     _oengine_web_geometry_cook_destroy() {},
     _oengine_web_geometry_cook_page_count() { return mutable.pageCount; },
     _oengine_web_geometry_cook_section_size(_handle, section, index) { return section === 9 ? (index === 0 ? sections.page.byteLength : 0) : (sections[section]?.byteLength ?? 0); },
@@ -122,104 +138,90 @@ test("Nyx Web Runtime Cooker emits one asset per GLB domain in the catalog's sta
   await assert.rejects(() => cooker.cookBootstrapBatch([], cookContext), /at least one GLB primitive/i);
 });
 
-test("Nyx Web Runtime Cooker offers a bootstrap revision, then a richer replacement", async () => {
+test("Nyx Web Runtime Cooker publishes independent revision-zero Products per spatial shard", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();
-  const cooker = new NyxWebRuntimeCooker(fakeModule(sections), { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const second = { ...unit, nodeIndex: 1, instanceNodeIndices: [1], meshIndex: 1 };
+  cookContext.catalog.primitives = [unit, second];
+  const store = spillStore();
+  const cooker = new NyxWebRuntimeCooker(fakeModule(sections), { maxSourceWindowBytes: 24, maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144, spillStore: store });
   const revisions = [];
   let failure;
-  await cooker.cookProgressive([unit], cookContext, async (revision) => { revisions.push(revision); }, (error) => { failure = error; });
+  await cooker.cookProgressive([unit, second], cookContext, async (revision) => { revisions.push(revision); }, (error) => { failure = error; });
   assert.equal(failure, undefined);
   assert.equal(revisions.length, 2);
-  assert.equal(revisions[0].revision, 0);
-  assert.equal(revisions[1].revision, 1);
-  const bootstrap = decodeGeometryProductDescriptorBinaryV1(revisions[0].descriptor);
-  const richer = decodeGeometryProductDescriptorBinaryV1(revisions[1].descriptor);
-  assert.deepEqual([...richer.replaces.productId], [...bootstrap.productId]);
-  assert.equal(richer.replaces.revision, bootstrap.revision);
+  assert.deepEqual(revisions.map(revision => revision.revision), [0, 0]);
+  assert.deepEqual(revisions.map(revision => revision.sceneAssetIndices), [[0], [1]]);
+  assert.notDeepEqual([...revisions[0].productId], [...revisions[1].productId]);
+  for (const revision of revisions) assert.equal(decodeGeometryProductDescriptorBinaryV1(revision.descriptor).replaces, undefined);
   for (const revision of revisions) revision.release();
 });
 
-test("Nyx Web Runtime Cooker keeps the bootstrap revision when the richer cook fails", async () => {
+test("Nyx Web Runtime Cooker keeps an already-published Product when a later shard fails", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();
+  const second = { ...unit, nodeIndex: 1, instanceNodeIndices: [1], meshIndex: 1 };
+  cookContext.catalog.primitives = [unit, second];
   const base = fakeModule(sections);
   let calls = 0;
-  // The bootstrap cut still uses the monolithic entry (it must be fully
-  // resident before publication); the richer revision freezes its descriptor
-  // through the plan entry. Fail the second one and the bootstrap must survive.
   const failing = {
     ...base,
-    _oengine_web_geometry_cook() { calls++; return 1; },
-    _oengine_web_geometry_cook_plan() { calls++; return calls === 2 ? 0 : 2; },
-    _oengine_web_geometry_cook_last_error_size() { return 10; },
-    _oengine_web_geometry_cook_copy_last_error(output, outputBytes) { if (outputBytes !== 10) return 0; base.HEAPU8.set(new TextEncoder().encode("richer-err"), output); return 1; }
+    _oengine_web_geometry_cook_plan(address, bytes) {
+      calls++;
+      if (calls === 2) return 0;
+      return base._oengine_web_geometry_cook_plan(address, bytes);
+    },
+    _oengine_web_geometry_cook_last_error_size() { return 9; },
+    _oengine_web_geometry_cook_copy_last_error(output, outputBytes) { if (outputBytes !== 9) return 0; base.HEAPU8.set(new TextEncoder().encode("shard-err"), output); return 1; }
   };
-  const cooker = new NyxWebRuntimeCooker(failing, { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const cooker = new NyxWebRuntimeCooker(failing, { maxSourceWindowBytes: 24, maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144, spillStore: spillStore() });
   const revisions = [];
   let failure;
-  await cooker.cookProgressive([unit], cookContext, async (revision) => { revisions.push(revision); }, (error) => { failure = error; });
+  await cooker.cookProgressive([unit, second], cookContext, async (revision) => { revisions.push(revision); }, (error) => { failure = error; });
   assert.equal(revisions.length, 1);
   assert.equal(revisions[0].revision, 0);
-  assert.match(failure?.message ?? "", /richer-err/);
+  assert.deepEqual(revisions[0].sceneAssetIndices, [0]);
+  assert.match(failure?.message ?? "", /shard-err/);
   for (const revision of revisions) revision.release();
 });
 
-test("Nyx Web Runtime Cooker freezes the richer descriptor without producing payloads", async () => {
-  // The whole point of the two-phase split: the richer revision must hand over a
-  // complete ID graph while every page is still PENDING, so the coordinator can
-  // publish the descriptor and produce only what the activation cut and GPU
-  // demand actually need.
+test("Nyx Web Runtime Cooker spills every Product before publication", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();
   const module = fakeModule(sections);
-  // Only the activation cut is produced eagerly. A non-activation page stays
-  // PENDING until something asks for it.
-  module.mutation.pending.add(0);
-  const cooker = new NyxWebRuntimeCooker(module, { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const store = spillStore();
+  const cooker = new NyxWebRuntimeCooker(module, { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144, spillStore: store });
   const revisions = [];
   await cooker.cookProgressive([unit], cookContext, async (revision) => { revisions.push(revision); }, () => {});
-  const [bootstrap, richer] = revisions;
-  assert.equal(bootstrap.hasPendingPages, false, "the bootstrap cut is fully materialised");
-  assert.equal(richer.hasPendingPages, true, "the richer descriptor is published before its payloads");
-  // The descriptor is complete: identity, Group mapping and the activation cut
-  // are all readable while pages are still pending.
-  const descriptor = decodeGeometryProductDescriptorBinaryV1(richer.descriptor);
+  assert.equal(revisions.length, 1);
+  const [revision] = revisions;
+  assert.equal(revision.hasPendingPages, false);
+  assert.deepEqual(module.mutation.produceCalls, [0]);
+  assert.deepEqual(module.mutation.releaseCalls, [0], "committed spill releases the WASM page owner");
+  const descriptor = decodeGeometryProductDescriptorBinaryV1(revision.descriptor);
   assert.equal(descriptor.pageRecords.byteLength / 32, 1);
   assert.deepEqual([...descriptor.activationPageIds], [0]);
-  assert.deepEqual([...descriptor.replaces.productId], [...decodeGeometryProductDescriptorBinaryV1(bootstrap.descriptor).productId]);
+  assert.equal(store.evidence().writes, 1);
   for (const revision of revisions) revision.release();
 });
 
-test("Nyx Web Runtime Cooker produces a plan-backed page on demand and reuses it", async () => {
+test("Nyx Web Runtime Cooker re-reads a published page from spill without retaining WASM payload", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();
   const module = fakeModule(sections);
-  module.mutation.pending.add(0);
-  const cooker = new NyxWebRuntimeCooker(module, { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  const store = spillStore();
+  const cooker = new NyxWebRuntimeCooker(module, { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144, spillStore: store });
   const revisions = [];
   await cooker.cookProgressive([unit], cookContext, async (revision) => { revisions.push(revision); }, () => {});
-  const richer = revisions[1];
-  module.mutation.pending.clear();
-  const page = await richer.readPage(0);
+  const revision = revisions[0];
+  const readsAfterPublication = store.evidence().reads;
+  const page = await revision.readPage(0);
   assert.equal(page.bytes.byteLength, 262144);
-  assert.deepEqual(module.mutation.produceCalls, [0], "the first read advances the payload stage");
-  // A produced page is immutable, so a second demand must be served from the
-  // revision's own cache rather than re-running the payload stage.
-  await richer.readPage(0);
-  assert.deepEqual(module.mutation.produceCalls, [0]);
+  await revision.readPage(0);
+  assert.deepEqual(module.mutation.produceCalls, [0], "publication is the only WASM production");
+  assert.deepEqual(module.mutation.releaseCalls, [0]);
+  assert.equal(store.evidence().reads - readsAfterPublication, 2);
   for (const revision of revisions) revision.release();
 });
 
-test("Nyx Web Runtime Cooker serves the bootstrap cut even while the richer revision is pending", async () => {
+test("Nyx Web Runtime Cooker requires a spill owner for progressive Product publication", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();
-  const module = fakeModule(sections);
-  module.mutation.pending.add(0);
-  const cooker = new NyxWebRuntimeCooker(module, { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
-  const revisions = [];
-  await cooker.cookProgressive([unit], cookContext, async (revision) => { revisions.push(revision); }, () => {});
-  const [bootstrap, richer] = revisions;
-  // The resident bootstrap keeps rendering: its cut is monolithic, so it stays
-  // readable independently of the richer payload stage.
-  const bootstrapPage = await bootstrap.readPage(0);
-  assert.equal(bootstrapPage.bytes.byteLength, 262144);
-  assert.equal(module.mutation.produceCalls.includes(0), false, "reading the bootstrap cut never touches the plan");
-  richer.release();
-  bootstrap.release();
+  const cooker = new NyxWebRuntimeCooker(fakeModule(sections), { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144 });
+  await assert.rejects(() => cooker.cookProgressive([unit], cookContext, async () => {}), /requires a spill store/i);
 });

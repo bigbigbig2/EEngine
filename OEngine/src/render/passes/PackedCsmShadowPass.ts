@@ -517,7 +517,8 @@ export class PackedCsmShadowPass {
         visibleClusterCapacity: prepared.generated.visibleClusterCapacity,
         capacity: job.runtime.hierarchyRasterWorkCapacity,
         counterBuffer,
-        countersEnabled: job.counterBuffer !== null
+        countersEnabled: job.counterBuffer !== null,
+        scene: job.scene
       });
     } catch (error) {
       this.generator.release(prepared);

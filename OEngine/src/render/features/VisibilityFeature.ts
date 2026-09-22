@@ -10,6 +10,7 @@ import {
   PackedVisibilityPass,
   type PackedVisibilityInputs,
   type PackedVisibilityJob,
+  type PackedVisibilityLateRecheckInputs,
   type PackedVisibilityOutputs,
   type PackedVisibilityPreparationEvidence,
   type PackedVisibilityPrepareJob,
@@ -46,6 +47,14 @@ export class VisibilityFeature {
     return this.implementation.addToGraph(graph, job, inputs);
   }
 
+  addCurrentHzbLateRecheckToGraph(
+    graph: FrameGraph,
+    job: PackedVisibilityJob,
+    inputs: PackedVisibilityLateRecheckInputs
+  ): PackedVisibilityOutputs {
+    return this.implementation.addCurrentHzbLateRecheckToGraph(graph, job, inputs);
+  }
+
   prepare(
     job: PackedVisibilityPrepareJob,
     counters: GPUBuffer,
@@ -67,6 +76,7 @@ export class VisibilityFeature {
 export type {
   PackedVisibilityInputs,
   PackedVisibilityJob,
+  PackedVisibilityLateRecheckInputs,
   PackedVisibilityOutputs,
   PackedVisibilityPreparationEvidence,
   PackedVisibilityPrepareJob,

@@ -16,9 +16,12 @@ retainedInvariants:
   - Product identity and page ranges remain stable across Web and Offline producers.
   - Visible-first bootstrap is admitted before background demand.
   - GPU traversal and raster consume producer-neutral records.
+  - Current-depth late visibility may only reject conservative work and otherwise fails open.
 differences:
   - Web runtime uses TypeScript/WASM and WebGPU resource lifecycles.
   - Offline cooker uses native memory and file IO.
 validation:
   - OEngine/tests/oracle/nyx-differential-corpus.test.mjs
+  - OEngine/tests/contract/geometry-product-multi-runtime.test.mjs
+  - OEngine/tests/oracle/current-hzb-late-recheck.test.mjs
   - docs/VALIDATION.md

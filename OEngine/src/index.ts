@@ -198,9 +198,11 @@ export type {
   OegPackSceneManifestV3
 } from "./assets/geometry-product/OegPackSceneManifestV3.js";
 export {
-  buildVirtualGeometrySceneSourceV1
+  buildVirtualGeometrySceneSourceV1,
+  mergeVirtualGeometryProductSceneSourcesV1
 } from "./assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 export type {
+  VirtualGeometryProductScenePartV1,
   VirtualGeometrySceneInstanceV1,
   VirtualGeometrySceneSourceOptionsV1,
   VirtualGeometrySceneSourceResultV1
@@ -458,6 +460,8 @@ export {
   type TextureResidencyEvidence
 } from "./render/Renderer.js";
 export type {
+  MultiProductSceneHandles,
+  MultiProductSceneState,
   OegPackSceneOptions,
   ProductSceneHandles,
   ProductSceneOptions,

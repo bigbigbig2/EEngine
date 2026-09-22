@@ -26,6 +26,7 @@ const requiredNyxSourceEvidence = Object.freeze({
   "dag-process-node": ["EvaluateBoundsVisibility", "TestForLod", "ScreenErrorConstant", "InterlockedOr", "bResident"],
   "dag-process-meshlet": ["RefineGroupIndex", "TestForLod", "VisibleMeshletCount", "MAX_VISIBLE_MESHLETS"],
   "dag-compute-main": ["GroupMemoryBarrierWithGroupSync", "ProcessNodeBatch", "ProcessMeshletBatch", "NodeReadOffset"],
+  "current-hzb-late-recheck": ["EvaluateBoundsVisibility", "TestForLod", "bResident", "GroupMemoryBarrierWithGroupSync", "ProcessNodeBatch", "ProcessMeshletBatch"],
   "vbuffer-build-vertex": ["geometryChunksBuffer.Load3", "PSO_ALPHA_TEST", "CommandIndex", "ViewProjMatrix"],
   "vbuffer-mesh-main": ["SetMeshOutputCounts", "LoadAndUnpackTriangle", "PrimitiveIndex", "BuildVertexOutput"],
   "vbuffer-pixel-main": ["baseColorTexture.Sample", "alpha < cutoff", "primID & 0x7F", "InterlockedMax"]

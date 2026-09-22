@@ -60,7 +60,7 @@ import {
   type SparseShadingResolveFrameBinding
 } from "../../../OEngine/src/render/passes/SparseShadingResolvePass.js";
 import { GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG } from "../../../OEngine/src/shaders/sparse_shading_resolve.js";
-import { packNativeLightDatabaseFixture } from "../../fixtures/native-light-database.js";
+import { packNativeLightDatabaseFixture } from "../../src/fixtures/native-light-database.js";
 
 const WIDTH = 33;
 const HEIGHT = 33;

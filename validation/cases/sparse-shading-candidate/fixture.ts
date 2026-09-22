@@ -51,7 +51,7 @@ import { GPU_COUNTER_BYTE_SIZE } from "../../../OEngine/src/debug/GpuFrameCounte
 import { PACKED_CAMERA_TYPE } from "../../../OEngine/src/shaders/packed_camera.js";
 import { MESHLET_BUCKET_SETTINGS_STRIDE } from "../../../OEngine/src/shaders/meshlet_bucket_visibility.js";
 import { RenderingLabDownstream, type RenderingLabDownstreamResources } from "./renderingLabDownstream.ts";
-import { packNativeLightDatabaseFixture } from "../../fixtures/native-light-database.js";
+import { packNativeLightDatabaseFixture } from "../../src/fixtures/native-light-database.js";
 
 const WIDTH = 256, HEIGHT = 256, PIXELS = WIDTH * HEIGHT;
 const STRIP_WIDTH = 2, STRIPS_PER_PROGRAM = WIDTH / (GPU_SHADING_PROGRAM_COUNT * STRIP_WIDTH);

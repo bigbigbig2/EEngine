@@ -5,16 +5,26 @@ import {
   type GeometryProductRevisionSourceV1
 } from "../assets/geometry-product/GeometryProductV1.js";
 import {
+  GEOMETRY_PAGE_LOCATION_STRIDE,
   GEOMETRY_PAGE_LOCATION_PINNED,
   GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1,
   GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1,
+  encodeGeometryProductGpuLocationV1,
+  packGeometryProductAssetReferenceV1,
+  packGeometryProductMetadataHeapHeaderV1,
   packGeometryProductTableRecordV1,
   type GeometryProductTableRecordV1
 } from "./GeometryProductGpuAbiV1.js";
 import {
   reserveGeometryProductMetadataBytes
 } from "./GeometryProductGpuBudget.js";
-import { VirtualGeometryResidency, type VirtualGeometryResidencyOptionsV1 } from "./VirtualGeometryResidency.js";
+import {
+  VirtualGeometryResidency,
+  type GeometryPageLocationV1,
+  type GeometryProductGpuBindingsV1,
+  type GeometryProductPageLocationSinkV1,
+  type VirtualGeometryResidencyOptionsV1
+} from "./VirtualGeometryResidency.js";
 
 /** Phase E logical multi-Product table and lifecycle ABI version. */
 export const GEOMETRY_PRODUCT_MULTI_RUNTIME_ABI_VERSION_V1 = 1;
@@ -46,6 +56,9 @@ export interface GeometryProductShardHandleV1 {
   readonly productGeneration: number;
   readonly descriptor: GeometryProductDescriptorV1;
   readonly residency: VirtualGeometryResidency;
+  /** First global asset-reference index consumed by GpuScene instances. */
+  readonly assetReferenceBegin: number;
+  readonly assetCount: number;
   readonly state: GeometryProductShardStateV1;
 }
 
@@ -81,8 +94,42 @@ interface ProductEntry {
   readonly descriptor: GeometryProductDescriptorV1;
   readonly abort: AbortController;
   residency?: VirtualGeometryResidency;
+  allocation?: ProductMetadataAllocation;
   state: GeometryProductShardStateV1;
   ready: Promise<VirtualGeometryResidency>;
+}
+
+interface ProductMetadataAllocation {
+  readonly assetBegin: number;
+  readonly assetCount: number;
+  readonly rootBegin: number;
+  readonly rootCount: number;
+  readonly hierarchyBegin: number;
+  readonly hierarchyCount: number;
+  readonly groupBegin: number;
+  readonly groupCount: number;
+  readonly pageBegin: number;
+  readonly pageCount: number;
+  readonly vertexFormatBegin: number;
+  readonly vertexFormatCount: number;
+}
+
+interface MultiMetadataLayout {
+  readonly byteLength: number;
+  readonly productTable: number;
+  readonly assetReferences: number;
+  readonly assetRecords: number;
+  readonly rootNodeIds: number;
+  readonly hierarchyNodes: number;
+  readonly groupDirectory: number;
+  readonly pageLocations: number;
+  readonly vertexFormats: number;
+  readonly assetCapacity: number;
+  readonly rootCapacity: number;
+  readonly hierarchyCapacity: number;
+  readonly groupCapacity: number;
+  readonly pageCapacity: number;
+  readonly vertexFormatCapacity: number;
 }
 
 /**
@@ -92,16 +139,18 @@ interface ProductEntry {
  * released without touching another shard.
  *
  * Product table records are the authoritative CPU/GPU lifecycle publication.
- * The existing per-Product metadata heaps remain the payload owner for the
- * current renderer; the records use the same V1 64-byte ABI and ranges as the
- * heap record so a future combined heap can consume them without translation.
+ * The scene metadata heap relocates immutable shard tables into append-only
+ * global ranges while each residency continues to own source and page life.
  */
-export class GeometryProductMultiRuntimeV1 {
+export class GeometryProductMultiRuntimeV1 implements GeometryProductPageLocationSinkV1 {
   readonly #device: GPUDevice;
   readonly #residencyOptions: VirtualGeometryResidencyOptionsV1;
   readonly #slotCapacity: number;
   readonly #table: GPUBuffer;
+  readonly #metadata: GPUBuffer;
+  readonly #metadataLayout: MultiMetadataLayout;
   readonly #releaseTableReservation: () => void;
+  readonly #releaseMetadataReservation: () => void;
   readonly #current = new Map<number, ProductEntry>();
   readonly #retiring = new Map<string, ProductEntry>();
   readonly #records: Array<GeometryProductTableRecordV1 | undefined>;
@@ -117,10 +166,18 @@ export class GeometryProductMultiRuntimeV1 {
   #staleCompletions = 0;
   #rejectedCompletions = 0;
   #peakActive = 0;
+  #assetCursor = 0;
+  #rootCursor = 0;
+  #hierarchyCursor = 0;
+  #groupCursor = 0;
+  #pageCursor = 0;
+  #vertexFormatCursor = 0;
 
   constructor(device: GPUDevice, options: Readonly<{
     readonly slotCapacity?: number;
     readonly residency?: VirtualGeometryResidencyOptionsV1;
+    /** Fixed scene-level metadata heap; ranges never move after publication. */
+    readonly metadataBytes?: number;
   }> = {}) {
     this.#device = device;
     this.#residencyOptions = options.residency ?? {};
@@ -139,15 +196,50 @@ export class GeometryProductMultiRuntimeV1 {
       throw new RangeError("Geometry Product multi-runtime Product Table exceeds negotiated storage-buffer limits");
     }
     const releaseTableReservation = reserveGeometryProductMetadataBytes(device, tableBytes);
+    const metadataBytes = options.metadataBytes ?? Math.min(
+      64 * 1024 * 1024,
+      Number(device.limits.maxBufferSize),
+      Number(device.limits.maxStorageBufferBindingSize)
+    );
+    if (!Number.isSafeInteger(metadataBytes) || metadataBytes <= 0 ||
+        metadataBytes > maxBufferSize || metadataBytes > maxStorageBinding) {
+      releaseTableReservation();
+      throw new RangeError("Geometry Product multi-runtime metadata heap exceeds negotiated storage-buffer limits");
+    }
+    this.#metadataLayout = createMultiMetadataLayout(metadataBytes, slotCapacity);
+    const releaseMetadataReservation = reserveGeometryProductMetadataBytes(device, this.#metadataLayout.byteLength);
+    let table: GPUBuffer | undefined;
     try {
-      this.#table = device.createBuffer({
+      table = device.createBuffer({
         label: "OEngine Geometry Product multi-runtime Product Table V1",
         size: tableBytes,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
       });
+      this.#table = table;
       this.#releaseTableReservation = releaseTableReservation;
+      this.#metadata = device.createBuffer({
+        label: "OEngine Geometry Product multi-runtime metadata heap V1",
+        size: this.#metadataLayout.byteLength,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      });
+      this.#releaseMetadataReservation = releaseMetadataReservation;
+      device.queue.writeBuffer(this.#metadata, 0, packGeometryProductMetadataHeapHeaderV1({
+        productCount: slotCapacity,
+        productCapacity: slotCapacity,
+        totalWords: this.#metadataLayout.byteLength / 4,
+        productTableWordOffset: this.#metadataLayout.productTable / 4,
+        assetReferenceWordOffset: this.#metadataLayout.assetReferences / 4,
+        assetRecordWordOffset: this.#metadataLayout.assetRecords / 4,
+        rootNodeIdWordOffset: this.#metadataLayout.rootNodeIds / 4,
+        hierarchyWordOffset: this.#metadataLayout.hierarchyNodes / 4,
+        groupDirectoryWordOffset: this.#metadataLayout.groupDirectory / 4,
+        pageLocationWordOffset: this.#metadataLayout.pageLocations / 4,
+        vertexFormatWordOffset: this.#metadataLayout.vertexFormats / 4
+      }));
     } catch (error) {
+      table?.destroy();
       releaseTableReservation();
+      releaseMetadataReservation();
       throw error;
     }
   }
@@ -155,6 +247,37 @@ export class GeometryProductMultiRuntimeV1 {
   get slotCapacity(): number { return this.#slotCapacity; }
   get table(): GPUBuffer { return this.#table; }
   get tableBytes(): number { return this.#slotCapacity * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1; }
+
+  /** Unified production binding consumed by hierarchy, raster and shading. */
+  bindings(): GeometryProductGpuBindingsV1 {
+    this.assertAlive();
+    const active = [...this.#current.values()].find(entry => entry.state === "active" && entry.residency !== undefined);
+    if (!active?.residency) throw new Error("Geometry Product multi-runtime has no active Product bindings");
+    const banks = active.residency.bindings().banks;
+    return Object.freeze({
+      productTableSlot: active.slot,
+      productGeneration: active.generation,
+      pageCount: this.#pageCursor,
+      metadata: this.#metadata,
+      metadataByteLength: this.#metadataLayout.byteLength,
+      productTableByteOffset: this.#metadataLayout.productTable,
+      pageLocationByteOffset: this.#metadataLayout.pageLocations,
+      productTable: this.#metadata,
+      banks: Object.freeze([...banks])
+    });
+  }
+
+  publishPageLocation(productTableSlot: number, pageId: number, location: GeometryPageLocationV1 | undefined): void {
+    this.assertAlive();
+    const entry = this.#current.get(productTableSlot);
+    const allocation = entry?.allocation;
+    if (!entry || !allocation || pageId < 0 || pageId >= allocation.pageCount) return;
+    this.#device.queue.writeBuffer(
+      this.#metadata,
+      this.#metadataLayout.pageLocations + (allocation.pageBegin + pageId) * GEOMETRY_PAGE_LOCATION_STRIDE,
+      encodeGeometryProductGpuLocationV1(location)
+    );
+  }
 
   /** Loads one independent shard. A failed shard never changes another slot. */
   async load(
@@ -397,7 +520,9 @@ export class GeometryProductMultiRuntimeV1 {
     this.#current.clear();
     this.#retiring.clear();
     this.#table.destroy();
+    this.#metadata.destroy();
     this.#releaseTableReservation();
+    this.#releaseMetadataReservation();
   }
 
   private createEntry(slot: number, source: GeometryProductRevisionSourceV1): ProductEntry {
@@ -430,6 +555,9 @@ export class GeometryProductMultiRuntimeV1 {
   }
 
   private publishActive(entry: ProductEntry, residency: VirtualGeometryResidency): void {
+    entry.allocation = entry.allocation ?? this.allocateMetadata(entry.descriptor);
+    this.publishStaticMetadata(entry, entry.allocation);
+    residency.attachPageLocationSink(this);
     residency.activatePublication();
     entry.state = "active";
     this.writeRecord(entry.slot, productRecord(entry.descriptor, entry.generation, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1));
@@ -449,14 +577,64 @@ export class GeometryProductMultiRuntimeV1 {
   }
 
   private handle(entry: ProductEntry): GeometryProductShardHandleV1 {
-    if (!entry.residency) throw new Error("Geometry Product shard has no residency");
+    if (!entry.residency || !entry.allocation) throw new Error("Geometry Product shard has no residency or metadata allocation");
     return Object.freeze({
       productTableSlot: entry.slot,
       productGeneration: entry.generation,
       descriptor: entry.descriptor,
       residency: entry.residency,
+      assetReferenceBegin: entry.allocation.assetBegin,
+      assetCount: entry.allocation.assetCount,
       get state() { return entry.state; }
     });
+  }
+
+  private allocateMetadata(descriptor: GeometryProductDescriptorV1): ProductMetadataAllocation {
+    const counts = descriptorCounts(descriptor);
+    const allocation: ProductMetadataAllocation = Object.freeze({
+      assetBegin: this.#assetCursor, assetCount: counts.assets,
+      rootBegin: this.#rootCursor, rootCount: counts.roots,
+      hierarchyBegin: this.#hierarchyCursor, hierarchyCount: counts.hierarchy,
+      groupBegin: this.#groupCursor, groupCount: counts.groups,
+      pageBegin: this.#pageCursor, pageCount: counts.pages,
+      vertexFormatBegin: this.#vertexFormatCursor, vertexFormatCount: counts.formats
+    });
+    if (allocation.assetBegin + allocation.assetCount > this.#metadataLayout.assetCapacity ||
+        allocation.rootBegin + allocation.rootCount > this.#metadataLayout.rootCapacity ||
+        allocation.hierarchyBegin + allocation.hierarchyCount > this.#metadataLayout.hierarchyCapacity ||
+        allocation.groupBegin + allocation.groupCount > this.#metadataLayout.groupCapacity ||
+        allocation.pageBegin + allocation.pageCount > this.#metadataLayout.pageCapacity ||
+        allocation.vertexFormatBegin + allocation.vertexFormatCount > this.#metadataLayout.vertexFormatCapacity) {
+      throw new RangeError("Geometry Product multi-runtime metadata heap capacity is exhausted");
+    }
+    this.#assetCursor += allocation.assetCount;
+    this.#rootCursor += allocation.rootCount;
+    this.#hierarchyCursor += allocation.hierarchyCount;
+    this.#groupCursor += allocation.groupCount;
+    this.#pageCursor += allocation.pageCount;
+    this.#vertexFormatCursor += allocation.vertexFormatCount;
+    return allocation;
+  }
+
+  private publishStaticMetadata(entry: ProductEntry, allocation: ProductMetadataAllocation): void {
+    const descriptor = entry.descriptor;
+    const assetRecords = relocateAssetRecords(descriptor.assetRecords, allocation);
+    const roots = relocateRoots(descriptor.rootNodeIds, allocation.hierarchyBegin);
+    const hierarchy = relocateHierarchy(descriptor.hierarchyNodes, allocation);
+    const groups = copyBytes(descriptor.groupDirectory);
+    const refs = new Uint8Array(allocation.assetCount * 16);
+    for (let asset = 0; asset < allocation.assetCount; asset++) refs.set(packGeometryProductAssetReferenceV1({
+      productTableSlot: entry.slot,
+      productGeneration: entry.generation,
+      assetRecordIndex: asset,
+      flags: 0
+    }), asset * 16);
+    this.#device.queue.writeBuffer(this.#metadata, this.#metadataLayout.assetReferences + allocation.assetBegin * 16, refs);
+    this.#device.queue.writeBuffer(this.#metadata, this.#metadataLayout.assetRecords + allocation.assetBegin * 128, assetRecords);
+    this.#device.queue.writeBuffer(this.#metadata, this.#metadataLayout.rootNodeIds + allocation.rootBegin * 4, roots);
+    this.#device.queue.writeBuffer(this.#metadata, this.#metadataLayout.hierarchyNodes + allocation.hierarchyBegin * 48, hierarchy);
+    this.#device.queue.writeBuffer(this.#metadata, this.#metadataLayout.groupDirectory + allocation.groupBegin * 16, groups);
+    this.#device.queue.writeBuffer(this.#metadata, this.#metadataLayout.vertexFormats + allocation.vertexFormatBegin * 16, copyBytes(descriptor.vertexFormats));
   }
 
   private findFreeSlot(): number {
@@ -488,13 +666,27 @@ export class GeometryProductMultiRuntimeV1 {
   }
 
   private writeRecord(slot: number, record: GeometryProductTableRecordV1): void {
-    this.#records[slot] = Object.freeze({ ...record });
-    this.#device.queue.writeBuffer(this.#table, slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1, packGeometryProductTableRecordV1(record));
+    const allocation = this.#current.get(slot)?.allocation;
+    const published = allocation === undefined ? record : Object.freeze({
+      ...record,
+      assetBegin: allocation.assetBegin,
+      rootBegin: allocation.rootBegin,
+      hierarchyBegin: allocation.hierarchyBegin,
+      groupBegin: allocation.groupBegin,
+      pageBegin: allocation.pageBegin,
+      vertexFormatBegin: allocation.vertexFormatBegin
+    });
+    this.#records[slot] = Object.freeze({ ...published });
+    const bytes = packGeometryProductTableRecordV1(published);
+    this.#device.queue.writeBuffer(this.#table, slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1, bytes);
+    this.#device.queue.writeBuffer(this.#metadata, this.#metadataLayout.productTable + slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1, bytes);
   }
 
   private clearRecord(slot: number): void {
     this.#records[slot] = undefined;
-    this.#device.queue.writeBuffer(this.#table, slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1, new Uint8Array(GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1));
+    const bytes = new Uint8Array(GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1);
+    this.#device.queue.writeBuffer(this.#table, slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1, bytes);
+    this.#device.queue.writeBuffer(this.#metadata, this.#metadataLayout.productTable + slot * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1, bytes);
   }
 
   private clearAllRecords(): void {
@@ -547,4 +739,143 @@ function validPageId(descriptor: GeometryProductDescriptorV1, pageId: number): b
 
 function entryKey(slot: number, generation: number): string {
   return `${slot}:${generation}`;
+}
+
+function descriptorCounts(descriptor: GeometryProductDescriptorV1): Readonly<{
+  assets: number;
+  roots: number;
+  hierarchy: number;
+  groups: number;
+  pages: number;
+  formats: number;
+}> {
+  return Object.freeze({
+    assets: descriptor.assetRecords.byteLength / 128,
+    roots: descriptor.rootNodeIds.length,
+    hierarchy: descriptor.hierarchyNodes.byteLength / 48,
+    groups: descriptor.groupDirectory.byteLength / 16,
+    pages: descriptor.pageRecords.byteLength / 32,
+    formats: descriptor.vertexFormats.byteLength / 16
+  });
+}
+
+/**
+ * Builds a fixed scene heap. Ranges are append-only so publishing another
+ * shard never invalidates an in-flight bind group or an existing instance.
+ * The split favors hierarchy, group and page tables; callers may request a
+ * larger heap when the formal workload needs a different absolute capacity.
+ */
+function createMultiMetadataLayout(byteLength: number, slotCapacity: number): MultiMetadataLayout {
+  const alignedBytes = alignDown16(byteLength);
+  const productTable = 64;
+  const afterTable = align16(productTable + slotCapacity * GEOMETRY_PRODUCT_TABLE_RECORD_STRIDE_V1);
+  if (alignedBytes <= afterTable + 1024) {
+    throw new RangeError("Geometry Product multi-runtime metadata heap is too small");
+  }
+  const available = alignedBytes - afterTable;
+  const assetCapacity = Math.max(1, Math.floor((available * 0.02) / (16 + 128)));
+  const rootCapacity = Math.max(1, Math.floor((available * 0.02) / 4));
+  const hierarchyCapacity = Math.max(1, Math.floor((available * 0.55) / 48));
+  const groupCapacity = Math.max(1, Math.floor((available * 0.18) / 16));
+  const pageCapacity = Math.max(1, Math.floor((available * 0.22) / 16));
+  const assetReferences = afterTable;
+  const assetRecords = align16(assetReferences + assetCapacity * 16);
+  const rootNodeIds = align16(assetRecords + assetCapacity * 128);
+  const hierarchyNodes = align16(rootNodeIds + rootCapacity * 4);
+  const groupDirectory = align16(hierarchyNodes + hierarchyCapacity * 48);
+  const pageLocations = align16(groupDirectory + groupCapacity * 16);
+  const vertexFormats = align16(pageLocations + pageCapacity * 16);
+  const vertexFormatCapacity = Math.floor((alignedBytes - vertexFormats) / 16);
+  if (vertexFormatCapacity < 1) {
+    throw new RangeError("Geometry Product multi-runtime metadata heap has no vertex-format capacity");
+  }
+  return Object.freeze({
+    byteLength: alignedBytes,
+    productTable,
+    assetReferences,
+    assetRecords,
+    rootNodeIds,
+    hierarchyNodes,
+    groupDirectory,
+    pageLocations,
+    vertexFormats,
+    assetCapacity,
+    rootCapacity,
+    hierarchyCapacity,
+    groupCapacity,
+    pageCapacity,
+    vertexFormatCapacity
+  });
+}
+
+function relocateAssetRecords(source: Uint8Array, allocation: ProductMetadataAllocation): Uint8Array<ArrayBuffer> {
+  const bytes = copyBytes(source);
+  const view = new DataView(bytes.buffer);
+  for (let asset = 0; asset < allocation.assetCount; asset++) {
+    const at = asset * 128;
+    addU32(view, at + 72, allocation.rootBegin, "asset root range");
+    addU32(view, at + 80, allocation.hierarchyBegin, "asset hierarchy range");
+    addU32(view, at + 88, allocation.groupBegin, "asset group range");
+  }
+  return bytes;
+}
+
+function relocateRoots(source: Uint32Array, hierarchyBegin: number): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(source.length * 4);
+  const view = new DataView(bytes.buffer);
+  for (let index = 0; index < source.length; index++) {
+    const value = source[index]! + hierarchyBegin;
+    if (!Number.isSafeInteger(value) || value > 0xffffffff) throw new RangeError("Geometry Product root relocation overflows u32");
+    view.setUint32(index * 4, value, true);
+  }
+  return bytes;
+}
+
+function relocateHierarchy(source: Uint8Array, allocation: ProductMetadataAllocation): Uint8Array<ArrayBuffer> {
+  const bytes = copyBytes(source);
+  const view = new DataView(bytes.buffer);
+  for (let node = 0; node < allocation.hierarchyCount; node++) {
+    const at = node * 48 + 44;
+    const packed = view.getUint32(at, true);
+    if ((packed & 1) !== 0) {
+      const localGroup = (packed >>> 1) & 0x00ffffff;
+      const globalGroup = localGroup + allocation.groupBegin;
+      if (!Number.isSafeInteger(globalGroup) || globalGroup > 0x00ffffff) {
+        throw new RangeError("Geometry Product group relocation exceeds the hierarchy leaf ABI");
+      }
+      view.setUint32(at, ((packed & 0xfe000000) | (globalGroup << 1) | 1) >>> 0, true);
+    } else {
+      const localChild = (packed >>> 1) & 0x07ffffff;
+      const globalChild = localChild + allocation.hierarchyBegin;
+      if (!Number.isSafeInteger(globalChild) || globalChild > 0x07ffffff) {
+        throw new RangeError("Geometry Product child relocation exceeds the hierarchy interior ABI");
+      }
+      view.setUint32(at, ((packed & 0xf0000000) | (globalChild << 1)) >>> 0, true);
+    }
+  }
+  return bytes;
+}
+
+function addU32(view: DataView, byteOffset: number, delta: number, label: string): void {
+  const value = view.getUint32(byteOffset, true) + delta;
+  if (!Number.isSafeInteger(value) || value > 0xffffffff) throw new RangeError(`Geometry Product ${label} relocation overflows u32`);
+  view.setUint32(byteOffset, value, true);
+}
+
+function copyBytes(source: Uint8Array): Uint8Array<ArrayBuffer> {
+  const bytes = new Uint8Array(source.byteLength);
+  bytes.set(source);
+  return bytes;
+}
+
+function align16(value: number): number {
+  const result = Math.ceil(value / 16) * 16;
+  if (!Number.isSafeInteger(result)) throw new RangeError("Geometry Product metadata heap size overflow");
+  return result;
+}
+
+function alignDown16(value: number): number {
+  const result = Math.floor(value / 16) * 16;
+  if (!Number.isSafeInteger(result) || result <= 0) throw new RangeError("Geometry Product metadata heap size is invalid");
+  return result;
 }

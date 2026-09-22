@@ -47,6 +47,6 @@ test("Geometry Product metadata heap CPU oracle fail-closes generation and resol
   bytes.set(abi.packGeometryProductTableRecordV1({ productGeneration: 9, flags: 1, assetBegin: 0, assetCount: 1, rootBegin: 0, rootCount: 1, hierarchyBegin: 0, hierarchyCount: 1, groupBegin: 0, groupCount: 1, pageBegin: 0, pageCount: 1, vertexFormatBegin: 0, vertexFormatCount: 1 }), 64);
   bytes.set(abi.packGeometryProductAssetReferenceV1({ productTableSlot: 0, productGeneration: 9, assetRecordIndex: 0, flags: 0 }), 128);
   const view = new DataView(bytes.buffer); for (const [offset, value] of [[72, 0], [76, 1], [80, 0], [84, 1], [88, 0], [92, 1]]) view.setUint32(144 + offset, value, true);
-  assert.deepEqual(abi.resolveGeometryProductAssetFromHeapV1(bytes, 0, 9), { productTableSlot: 0, productGeneration: 9, assetWordOffset: 36, rootWordOffset: 68, rootCount: 1, hierarchyWordOffset: 72, hierarchyCount: 1, groupWordOffset: 84, groupCount: 1, pageLocationWordOffset: 88, pageCount: 1, vertexFormatWordOffset: 92, vertexFormatCount: 1 });
+  assert.deepEqual(abi.resolveGeometryProductAssetFromHeapV1(bytes, 0, 9), { productTableSlot: 0, productGeneration: 9, assetWordOffset: 36, rootWordOffset: 68, rootCount: 1, hierarchyWordOffset: 72, hierarchyCount: 1, groupWordOffset: 84, groupCount: 1, pageBegin: 0, pageLocationWordOffset: 88, pageCount: 1, vertexFormatWordOffset: 92, vertexFormatCount: 1 });
   assert.equal(abi.resolveGeometryProductAssetFromHeapV1(bytes, 0, 10), undefined);
 });

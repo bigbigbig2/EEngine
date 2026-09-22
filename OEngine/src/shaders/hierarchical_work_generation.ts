@@ -235,7 +235,7 @@ fn hierarchy_emit_page_demand_v1(
 ) {
   if (!asset.valid || page_id >= asset.page_count) { return; }
   if (!oengine_geometry_page_demand_mask_try_mark(
-    mask, page_id, mask_word_count
+    mask, asset.page_begin + page_id, mask_word_count
   )) { return; }
   let index = oengine_geometry_page_demand_try_reserve(&(*queue).header);
   if (index == 0xffffffffu || index >= (*queue).header.capacity) { return; }

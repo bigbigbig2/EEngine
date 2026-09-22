@@ -155,6 +155,8 @@ export class WebCookCoordinator {
   readonly #releasedRevisions = new WeakSet<WebCookProductRevision>();
   /** Revisions whose activation cut finished streaming; those pages re-emit. */
   readonly #activationStreamed = new Map<string, boolean>();
+  readonly #completedSceneAssets = new Set<number>();
+  #acceptedProducts = 0;
   readonly #creditWaiters = new Set<() => void>();
   #emitTail: Promise<void> = Promise.resolve();
   /** Phase durations, reported through `Progress.timings` so the load is not a black box. */
@@ -400,10 +402,19 @@ export class WebCookCoordinator {
         // A descriptor offer is not a completed unit milestone: keep progress
         // at the last fully streamed activation cut while a richer cut waits
         // for credit or page reads.
-        this.#completedUnits = revision.revision === 0 ? bootstrapUnitCount : totalUnitCount;
-        if (revision.revision === 0 && this.#firstMeaningfulFrameAt === undefined) this.#firstMeaningfulFrameAt = Date.now() - this.#cookStartedAt;
+        this.#acceptedProducts++;
+        for (const index of revision.sceneAssetIndices ?? []) this.#completedSceneAssets.add(index);
+        const mappedProgress = revision.sceneAssetIndices === undefined
+          ? (this.#acceptedProducts === 1 ? bootstrapUnitCount : totalUnitCount)
+          : this.#completedSceneAssets.size;
+        this.#completedUnits = Math.min(totalUnitCount, Math.max(
+          mappedProgress,
+          this.#acceptedProducts === 1 ? bootstrapUnitCount : 0
+        ));
+        const firstProduct = this.#acceptedProducts === 1;
+        if (firstProduct && this.#firstMeaningfulFrameAt === undefined) this.#firstMeaningfulFrameAt = Date.now() - this.#cookStartedAt;
         try {
-          this.publish(this.header({ type: "Progress", stage: revision.revision === 0 ? "bootstrap-cook" : "refinement", units: this.#completedUnits, bytes: revision.revision === 0 ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: this.phaseTimings() }));
+          this.publish(this.header({ type: "Progress", stage: firstProduct ? "bootstrap-cook" : "refinement", units: this.#completedUnits, bytes: firstProduct ? this.#bootstrapSourceBytes : this.#refinementSourceBytes, timings: this.phaseTimings() }));
         } catch {
           // Progress is diagnostic; a saturated queue must not revoke a fully
           // streamed activation revision that the consumer can already render.

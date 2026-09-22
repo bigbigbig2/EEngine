@@ -39,6 +39,7 @@ export class GeometryPageStreamingRuntimeV1 {
   #shadowReadback: GpuGeometryDemandReadbackRingV1 | null = null;
   readonly #scheduler: GeometryPageSchedulerV1;
   readonly #residency: VirtualGeometryResidency;
+  readonly #residencies = new Map<number, VirtualGeometryResidency>();
   #lastPoll: GeometryPageStreamingPollEvidenceV1 | null = null;
   #destroyed = false;
 
@@ -70,17 +71,18 @@ export class GeometryPageStreamingRuntimeV1 {
   }
 
   /** Registers a Product source without transferring source ownership. */
-  registerProduct(source: GeometryProductRevisionSourceV1): void {
-    if (source.descriptor.revision !== this.#residency.descriptor.revision ||
-        !sameBytes(source.descriptor.productId, this.#residency.descriptor.productId)) {
+  registerProduct(source: GeometryProductRevisionSourceV1, residency = this.#residency): void {
+    if (source.descriptor.revision !== residency.descriptor.revision ||
+        !sameBytes(source.descriptor.productId, residency.descriptor.productId)) {
       throw new Error("Geometry page source does not match the active residency Product");
     }
     this.#scheduler.registerProduct(
-      this.#residency.productTableSlot,
-      this.#residency.productGeneration,
+      residency.productTableSlot,
+      residency.productGeneration,
       source,
       { sourceOwnership: "external" }
     );
+    this.#residencies.set(residency.productGeneration, residency);
   }
 
   selectEvictionCandidates(frameIndex: number, maxBytes: number, minimumAge = 2): readonly number[] {
@@ -183,7 +185,16 @@ export class GeometryPageStreamingRuntimeV1 {
       }
     }
     this.#scheduler.tick(nowMs);
-    const uploadedBytes = this.#scheduler.drainUploadBudget(this.#residency);
+    const uploadedBytes = this.#scheduler.drainUploadBudget({
+      uploadPage: (page) => {
+        const residency = [...this.#residencies.values()].find((candidate) =>
+          candidate.descriptor.revision === page.revision &&
+          sameBytes(candidate.descriptor.productId, page.productId)
+        );
+        if (residency === undefined) throw new Error("Geometry page completion targets an unregistered Product");
+        residency.uploadPage(page);
+      }
+    });
     this.#lastPoll = Object.freeze({
       completedFrame,
       mappedSlots: results.length,
@@ -199,10 +210,10 @@ export class GeometryPageStreamingRuntimeV1 {
     const header = unpackGeometryPageDemandHeaderV1(view);
     for (let index = 0; index < Math.min(header.attempted, header.capacity); index++) {
       const demand = unpackGeometryPageDemandV1(view, 16 + index * 16);
-      if (demand.productGeneration !== this.#residency.productGeneration ||
-          demand.productTableSlot !== this.#residency.productTableSlot ||
-          demand.pageId >= this.#residency.descriptor.pageRecords.byteLength / 32) continue;
-      this.#residency.recordDemand(demand.pageId, frameIndex, demand.currentViewMissing || demand.shadow, demand.predictive);
+      const residency = this.#residencies.get(demand.productGeneration);
+      if (residency === undefined || demand.productTableSlot !== residency.productTableSlot ||
+          demand.pageId >= residency.descriptor.pageRecords.byteLength / 32) continue;
+      residency.recordDemand(demand.pageId, frameIndex, demand.currentViewMissing || demand.shadow, demand.predictive);
     }
   }
 
@@ -236,7 +247,8 @@ export class GeometryPageStreamingRuntimeV1 {
     // generation before dropping the readback rings so pending reads cannot
     // publish pages against a lost/released residency, including callers that
     // supplied an external scheduler.
-    this.#scheduler.unregisterProduct(this.#residency.productGeneration);
+    for (const generation of this.#residencies.keys()) this.#scheduler.unregisterProduct(generation);
+    this.#residencies.clear();
     this.#readback.destroy();
     this.#shadowReadback?.destroy();
   }

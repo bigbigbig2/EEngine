@@ -26,6 +26,7 @@ contracts:
   - web-geometry-spatial-shard-v1
   - web-geometry-multi-product-runtime-v1
   - web-cook-session-protocol-v1
+  - web-geometry-formal-perf-freeze-v1
 decisions:
   - ADR-0016
   - ADR-0017
@@ -36,6 +37,7 @@ claims:
   - virtual-assets.product-consumer
   - virtual-assets.web-cook
   - virtual-assets.lifecycle
+  - virtual-assets.performance
 checks:
   - model
   - registry
@@ -47,3 +49,4 @@ watch:
   - OEngine/src/gpu/VirtualGeometry*.ts
   - validation/cases/glb-*/**
   - validation/cases/virtual-product-*/**
+  - validation/cases/web-100m-formal-perf/**

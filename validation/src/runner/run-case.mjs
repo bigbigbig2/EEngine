@@ -36,6 +36,7 @@ const profile = registry.profiles[selectedCase.profile];
 const workload = registry.workloads[selectedCase.workloadId];
 const chromeExecutable = process.env.OENGINE_CHROME_PATH ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 if (!existsSync(chromeExecutable)) throw new Error(`Chrome stable executable not found: ${chromeExecutable}`);
+const browserExecutableSha256 = await sha256File(chromeExecutable);
 
 const runnerStartedAt = new Date().toISOString();
 const runId = `${runnerStartedAt.replaceAll(/[:.]/gu, "-")}-${caseId}-${randomUUID()}`;
@@ -126,6 +127,12 @@ try {
   url.searchParams.set("registrySha256", registrySha256);
   url.searchParams.set("workloadSha256", workloadSha256);
   url.searchParams.set("hostBuildId", hostBuildId);
+  // Formal PERF cases need the same revision identity that the artifact carries;
+  // expose it as immutable query data rather than asking the page to run git.
+  url.searchParams.set("revision", commit);
+  url.searchParams.set("tree", tree);
+  url.searchParams.set("dirty", String(dirty));
+  url.searchParams.set("browserExecutableSha256", browserExecutableSha256);
   const response = await page.goto(url.href, { waitUntil: "load", timeout: selectedCase.timeoutMs });
   if (!response?.ok()) throw new Error(`Navigation failed with status ${response?.status() ?? "none"}`);
   userAgent = await page.evaluate(() => navigator.userAgent);
@@ -184,6 +191,12 @@ if (selectedCase.artifacts.includes("readback") && pageSnapshot?.evidence?.readb
   producedArtifacts.push({ kind: "readback", path: "readback.json" });
 }
 
+if (selectedCase.artifacts.includes("samples") && pageSnapshot?.evidence?.samples !== undefined) {
+  const samplesPath = resolve(runDirectory, "samples.json");
+  await writeFile(samplesPath, `${JSON.stringify(pageSnapshot.evidence.samples, null, 2)}\n`, "utf8");
+  producedArtifacts.push({ kind: "samples", path: "samples.json" });
+}
+
 const eventsPath = resolve(runDirectory, "events.json");
 await writeFile(eventsPath, `${JSON.stringify(events, null, 2)}\n`, "utf8");
 producedArtifacts.push({ kind: "events", path: "events.json" });
@@ -231,7 +244,7 @@ const result = {
     dirty,
     hostBuildId,
     browserExecutable: chromeExecutable,
-    browserExecutableSha256: await sha256File(chromeExecutable),
+    browserExecutableSha256,
     browserVersion,
     userAgent,
     startedAt: runnerStartedAt,

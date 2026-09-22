@@ -572,7 +572,8 @@ export class VirtualGeometryMeshletWorkCandidate {
           binding: index + 6,
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "read-only-storage" as GPUBufferBindingType, minBindingSize: 4 }
-        }))
+        })),
+        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 176 } }
       ]
     });
     const module = device.createShaderModule({
@@ -597,6 +598,7 @@ export class VirtualGeometryMeshletWorkCandidate {
     readonly capacity: number;
     readonly counterBuffer: GPUBuffer;
     readonly countersEnabled: boolean;
+    readonly scene: GpuSceneBindings;
   }): PreparedMeshletWorkCandidate {
     this.assertAlive();
     if (input.virtualGeometry.banks.length === 0 || input.virtualGeometry.banks.length > 4) {
@@ -660,7 +662,8 @@ export class VirtualGeometryMeshletWorkCandidate {
         { binding: 3, resource: { buffer: input.counterBuffer } },
         { binding: 4, resource: { buffer: drawIndirect } },
         { binding: 5, resource: { buffer: input.virtualGeometry.metadata } },
-        ...banks.map((buffer, index) => ({ binding: index + 6, resource: { buffer } }))
+        ...banks.map((buffer, index) => ({ binding: index + 6, resource: { buffer } })),
+        { binding: 10, resource: { buffer: input.scene.instances } }
       ]
     });
     const prepared = Object.freeze({

@@ -6,6 +6,8 @@ globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
 
 const { GeometryProductMultiRuntimeV1 } = await import("../../.test-dist/gpu/GeometryProductMultiRuntime.js");
 const { unpackGeometryProductTableRecordV1 } = await import("../../.test-dist/gpu/GeometryProductGpuAbiV1.js");
+const { HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL } = await import("../../.test-dist/shaders/hierarchical_work_generation.js");
+const { VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL } = await import("../../.test-dist/shaders/virtual_geometry_work.js");
 const {
   GPU_INSTANCE_RECORD_OFFSETS,
   GPU_INSTANCE_RECORD_STRIDE,
@@ -214,4 +216,62 @@ test("ProductTableSlot is an explicit instance ABI lane without changing record 
   assert.equal(view.getUint32(GPU_INSTANCE_RECORD_OFFSETS.product_table_slot, true), 17);
   assert.match(GPU_INSTANCE_RECORD_WGSL, /product_table_slot: u32/u);
   assert.match(GPU_INSTANCE_RECORD_WGSL, /oengine_instance_product_table_slot/u);
+});
+
+test("scene metadata relocates every second-Product range into one authoritative heap", async () => {
+  const device = fakeDevice();
+  const runtime = new GeometryProductMultiRuntimeV1(device, { metadataBytes: 2 * 1024 * 1024 });
+  const firstFixture = makeFixture(3000);
+  const secondFixture = makeFixture(3001);
+  const first = await runtime.load(firstFixture.source);
+  const second = await runtime.load(secondFixture.source);
+  assert.deepEqual(runtime.tableRecord(first.productTableSlot), {
+    productGeneration: first.productGeneration,
+    flags: 1,
+    assetBegin: 0, assetCount: 1,
+    rootBegin: 0, rootCount: 1,
+    hierarchyBegin: 0, hierarchyCount: 1,
+    groupBegin: 0, groupCount: 1,
+    pageBegin: 0, pageCount: 2,
+    vertexFormatBegin: 0, vertexFormatCount: 1
+  });
+  assert.deepEqual(runtime.tableRecord(second.productTableSlot), {
+    productGeneration: second.productGeneration,
+    flags: 1,
+    assetBegin: 1, assetCount: 1,
+    rootBegin: 1, rootCount: 1,
+    hierarchyBegin: 1, hierarchyCount: 1,
+    groupBegin: 1, groupCount: 1,
+    pageBegin: 2, pageCount: 2,
+    vertexFormatBegin: 1, vertexFormatCount: 1
+  });
+  assert.equal(second.assetReferenceBegin, 1);
+  const metadata = runtime.bindings().metadata;
+  const header = device.writes.find((write) => write.buffer === metadata && write.offset === 0 && write.bytes.byteLength === 64);
+  assert.ok(header);
+  const headerWords = new Uint32Array(header.bytes.buffer, header.bytes.byteOffset, 16);
+  const assetRecordsOffset = headerWords[6] * 4;
+  const rootsOffset = headerWords[7] * 4;
+  const hierarchyOffset = headerWords[8] * 4;
+  const pageLocationsOffset = headerWords[10] * 4;
+  const secondAsset = tableWrite(device, metadata, assetRecordsOffset + 128);
+  assert.ok(secondAsset);
+  const assetView = new DataView(secondAsset.buffer, secondAsset.byteOffset, secondAsset.byteLength);
+  assert.equal(assetView.getUint32(72, true), 1);
+  assert.equal(assetView.getUint32(80, true), 1);
+  assert.equal(assetView.getUint32(88, true), 1);
+  assert.equal(new DataView(tableWrite(device, metadata, rootsOffset + 4).buffer).getUint32(0, true), 1);
+  assert.equal(new DataView(tableWrite(device, metadata, hierarchyOffset + 48).buffer).getUint32(44, true), 3);
+  assert.ok(tableWrite(device, metadata, pageLocationsOffset + 2 * 16));
+  assert.ok(tableWrite(device, metadata, pageLocationsOffset + 3 * 16));
+  runtime.destroy();
+});
+
+test("multi-Product GPU work uses global demand-mask pages and per-instance generation", () => {
+  assert.match(HIERARCHICAL_VIRTUAL_WORK_GENERATION_WGSL,
+    /mask,\s*asset\.page_begin \+ page_id,\s*mask_word_count/u);
+  assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
+    /product_instances\[visible\.instance_record_index\]/u);
+  assert.match(VIRTUAL_GEOMETRY_MESHLET_WORK_WGSL,
+    /visible\.geometry_record_index,\s*oengine_instance_geometry_generation\(instance\)/u);
 });

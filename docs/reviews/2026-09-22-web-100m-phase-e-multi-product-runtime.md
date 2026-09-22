@@ -1,8 +1,9 @@
 # ADR-0018 Phase E Multi-Product Runtime 审评（2026-09-22）
 
-本记录将 Phase E 落为实现、contract 和 oracle 完成；不把本地 fake-device
-证据升级为 100M 浏览器 Runtime Validated、正式 PERF 或 ADR Complete。下一阶段
-仍需把统一 Product Table 接入独立 validation host 的 production renderer。
+本记录最初将 Phase E 落为 lifecycle/ABI contract；生产闭环随后由
+`2026-09-22-web-100m-production-closure.md` 补齐。统一 Product Table 已接入
+production renderer，但在 clean 100M browser evidence 成功前仍不升级为 Runtime
+Validated、正式 PERF 或 ADR Complete。
 
 ## 结果
 
@@ -44,13 +45,12 @@ Product 路径的调用形状。
 shared physical slots 和 source release；`GpuScene` 只拥有 instance GPU buffer。
 Loader/Provider 不获得长期 GPU object，CPU identity 查询不构建可见列表。
 
-## 未关闭门槛
+## 后续生产闭环更新
 
-当前 renderer 的 hierarchy/visibility/shading pipeline 仍通过一个
-`GeometryProductGpuBindingsV1` 绑定一组 Product metadata/banks。Phase E 新增的
-scene-level table 已有独立 ABI 和本地 lifecycle evidence，但尚未把多个 Product
-的 metadata ranges 统一绑定进 production renderer，也没有独立 browser host 的
-64-shard 画面、TTFMF、100M memory 或 PERF 证据。因此：
+当前 renderer 已通过一个合并 metadata heap 和共享 bank binding 消费所有 Product；
+GpuScene 按实例写 slot/generation，GPU demand mask 使用 global page range，异步
+streaming 按 Product-local identity 路由。正式 workload 使用 128 slots。仍缺少的是
+独立 browser 的 clean 100M 画面、TTFMF、memory 和 PERF 证据。因此：
 
 - 不声明 `RuntimeValidated`、`Performance Evaluated` 或 `ADR Complete`；
 - Zorah 的 bounded `EXT_meshopt_compression` decode 仍是开放 gate；
@@ -67,5 +67,6 @@ npm run build:test      (OEngine)
 node --test tests/contract/geometry-product-multi-runtime.test.mjs
 ```
 
-测试结果：2/2 通过。提交前还需运行仓库级 `node tools/vibe.mjs verify --changed`，
+原始测试结果为 2/2；生产闭环又增加 metadata relocation、instance identity、
+demand mask、multi-residency streaming 和 scene merge 覆盖。提交前还需运行仓库级 `node tools/vibe.mjs verify --changed`，
 并在 clean revision 上执行完整 engine suites；这些 gate 不改变本记录的证据等级。

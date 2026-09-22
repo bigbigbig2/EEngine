@@ -16,11 +16,13 @@ contracts:
   - web-geometry-residency-profile-v1
   - web-cook-session-protocol-v1
   - web-geometry-multi-product-runtime-v1
+  - web-geometry-formal-perf-freeze-v1
 claims:
   - virtual-assets.product-consumer
   - virtual-assets.web-cook
   - virtual-assets.lifecycle
   - visibility.gpu-closure
+  - virtual-assets.performance
 tasks:
   - id: baseline-100m-failure-attribution
     phase: A
@@ -160,15 +162,15 @@ tasks:
     completedEvidence:
       review: docs/reviews/2026-09-22-web-100m-phase-e-multi-product-runtime.md
       contract: docs/specs/web-geometry-multi-product-runtime-v1.md
-      implementationStatus: implementation-and-oracle-complete
-      slotCapacity: 64
+      implementationStatus: production-consumer-and-oracle-complete
+      slotCapacity: 128
       activeShardEvidence: 64
       productTableRecordStrideBytes: 64
       instanceAbiVersion: 8
       instanceRecordStrideBytes: 176
       contractTest: OEngine/tests/contract/geometry-product-multi-runtime.test.mjs
-      testResult: 2/2
-      note: Lifecycle and ABI evidence uses a fake device; unified multi-Product browser consumer, RuntimeValidated, TTFMF, and formal PERF remain open gates.
+      testResult: relocation-instance-demand-streaming-scene-merge-covered
+      note: Production consumer is wired; clean 100M browser RuntimeValidated, TTFMF, and formal PERF evidence remain Phase K gates.
     exitCriteria:
       - At least 64 Product shards can be active concurrently in the production renderer.
       - Each shard supports independent load, replacement, eviction, dormancy, and release.
@@ -256,13 +258,14 @@ tasks:
     completedEvidence:
       review: docs/reviews/2026-09-22-web-100m-phase-i-current-hzb-late-recheck.md
       contract: docs/specs/web-geometry-current-hzb-late-recheck-v1.md
-      implementationStatus: bounded-abi-wgsl-contract-and-oracle-complete
-      maxCapacity: 65536
-      recordStrideBytes: 32
-      overflowPolicy: source-queue-fallback-without-partial-publication
+      implementationStatus: production-framegraph-consumer-and-oracle-complete
+      diagnosticOracleMaxCapacity: 65536
+      productionRecord: standard-meshlet-work-24-byte
+      productionCapacity: visibility-key-24-bit-and-adapter-buffer-limit
+      overflowPolicy: invalid-stale-source-overflow-copy-source-work-fail-open
       parityPolicy: conservative-only-rejection-and-fail-open-invalid-metadata
       oracle: OEngine/tests/oracle/current-hzb-late-recheck.test.mjs
-      testResult: 4/4
+      testResult: production-order-filtered-consumer-and-feature-pruning-covered
       note: Dense-occlusion browser consumer, screenshot parity, GPU time and formal PERF remain open; this revision does not claim RuntimeValidated or Performance Improved.
     exitCriteria:
       - Dense-occlusion evidence reduces selected meshlets and raster vertices without image parity loss.
@@ -293,8 +296,21 @@ tasks:
     phase: K
     priority: P1
     title: Capture clean formal 100M correctness, memory, runtime, and performance evidence
-    state: todo
+    state: active
     dependsOn: [visible-first-product-scheduler, dynamic-page-scheduler]
+    implementationEvidence:
+      review: docs/reviews/2026-09-22-web-100m-production-closure.md
+      contract: docs/specs/web-geometry-formal-perf-freeze-v1.md
+      implementationStatus: executable-case-ready-awaiting-clean-revision-evidence
+      helper: OEngine/src/debug/FormalPerfFreeze.ts
+      oracle: OEngine/tests/unit/formal-perf-freeze.test.mjs
+      workloadId: web-100m-formal-perf-v1
+      profile: formal-1080p
+      formalCase: web-100m-formal-perf
+      sourceBytes: 2800457176
+      sourceTriangles: 100000000
+      sourceMounted: true
+      note: The case, production consumer, source route, typecheck, and build are ready. Phase K remains active and makes no RuntimeValidated or PerformanceEvaluated claim until the committed clean-revision run succeeds.
     exitCriteria:
       - Revision, browser, adapter, resolution, DPR, camera path, feature set, and workload hash are frozen.
       - TTFMF, CPU/GPU P50/P95, owner memory peaks, demand, churn, overflow, and camera-cut recovery are recorded.
@@ -340,7 +356,7 @@ retirementTargets:
 openGates:
   - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
   - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
-  - Multi-Product Scene and GPU Product Table ABI are frozen and contract/oracle-proven; unified multi-Product browser consumer evidence is still open.
+  - Multi-Product Scene, relocated GPU Product Table, per-instance identity, streaming routing, and production renderer consumer are implemented; clean 100M browser evidence is still open.
   - Visible-first implementation and GPU demand compaction contract are complete; clean 100M browser duplicate/readback evidence and formal workload execution remain open.
   - GPU demand compaction and adaptive scheduler queues lack promoted capacity and overflow evidence.
   - Portable, Balanced, and HighEnd residency profiles lack negotiated-limit evidence across supported adapters.

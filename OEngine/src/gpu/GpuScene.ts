@@ -40,6 +40,9 @@ export interface InstanceSource {
     readonly productTableSlot: number;
     readonly productGeneration: number;
     readonly assetCount: number;
+    /** Multi-Product scenes override the scalar identity per instance. */
+    readonly productTableSlots?: Uint32Array;
+    readonly productGenerations?: Uint32Array;
   }>;
   readonly geometryIndices: Uint32Array;
   readonly materialHandles: Uint32Array;
@@ -974,12 +977,14 @@ export class GpuScene {
         base + GPU_INSTANCE_RECORD_OFFSETS.geometry_generation,
         source.virtualGeometry === undefined
           ? geometryIdentity!.generation
-          : source.virtualGeometry.productGeneration,
+          : source.virtualGeometry.productGenerations?.[index] ?? source.virtualGeometry.productGeneration,
         true
       );
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.product_table_slot,
-        source.virtualGeometry?.productTableSlot ?? 0,
+        source.virtualGeometry === undefined
+          ? 0
+          : source.virtualGeometry.productTableSlots?.[index] ?? source.virtualGeometry.productTableSlot,
         true
       );
       view.setUint32(
@@ -1203,6 +1208,20 @@ function validateInstanceSource(source: InstanceSource): void {
         !Number.isSafeInteger(product.productGeneration) || product.productGeneration <= 0 || product.productGeneration >= 0xffffffff ||
         !Number.isSafeInteger(product.assetCount) || product.assetCount <= 0) {
       throw new RangeError("Instance Product identity is invalid");
+    }
+    if ((product.productTableSlots === undefined) !== (product.productGenerations === undefined)) {
+      throw new RangeError("Instance Product identity arrays must be supplied together");
+    }
+    if (product.productTableSlots !== undefined && product.productGenerations !== undefined) {
+      assertLength(product.productTableSlots, source.count, "productTableSlots");
+      assertLength(product.productGenerations, source.count, "productGenerations");
+      for (let index = 0; index < source.count; index++) {
+        const slot = product.productTableSlots[index]!;
+        const generation = product.productGenerations[index]!;
+        if (slot >= 0xffffffff || generation === 0 || generation >= 0xffffffff) {
+          throw new RangeError(`Instance Product identity at ${index} is invalid`);
+        }
+      }
     }
   }
   assertLength(source.geometryIndices, source.count, "geometryIndices");

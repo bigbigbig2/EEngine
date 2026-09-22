@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 
 const abi = await import("../../.test-dist/render/CurrentHzbLateRecheck.js");
@@ -59,4 +61,22 @@ test("WGSL keeps current-HZB producer/consumer, bounded reservation, and fail-op
   assert.match(shader.CURRENT_HZB_LATE_RECHECK_WGSL, /recheck_candidate_valid/u);
   assert.match(shader.CURRENT_HZB_LATE_RECHECK_WGSL, /CURRENT_HZB_RECHECK_CONSERVATIVE/u);
   assert.match(shader.CURRENT_HZB_LATE_RECHECK_WGSL, /recheck_output\.header\.overflow_count/u);
+  const production = shader.CURRENT_HZB_MESHLET_WORK_LATE_RECHECK_WGSL;
+  assert.match(production, /current_source: OEngineMeshletWorkQueueRead/u);
+  assert.match(production, /current_output: OEngineMeshletWorkQueue/u);
+  assert.match(production, /source_fail_open/u);
+  assert.match(production, /current_meshlet_occluded/u);
+  assert.match(production, /atomicStore\(&current_draw\.instance_count, written\)/u);
+  assert.doesNotMatch(production, /source_invalid[\s\S]*instance_count, select\(written, 0u/u);
+  assert.equal(abi.CURRENT_HZB_MESHLET_WORK_MAX_CAPACITY, 0x01000000);
+});
+
+test("production graph builds current HZB before filtering and consumes the filtered queue", () => {
+  const source = readFileSync(path.resolve("src/render/pipeline/MainRenderPipeline.ts"), "utf8");
+  const hzb = source.indexOf('"graph_rasterize_triangle_closest"');
+  const late = source.indexOf("addCurrentHzbLateRecheckToGraph");
+  assert.ok(hzb >= 0 && late > hzb);
+  const pass = readFileSync(path.resolve("src/render/passes/PackedVisibilityPass.ts"), "utf8");
+  assert.match(pass, /owner\.encode\([\s\S]*encodeFilteredVirtualRaster/u);
+  assert.match(pass, /meshletWork:\s*meshletWorkFrame\(\{[\s\S]*records: meshletWorkRecords/u);
 });

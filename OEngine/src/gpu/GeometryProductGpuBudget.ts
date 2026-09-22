@@ -1,6 +1,11 @@
 /** Product-owned GPUBuffer capacity, including unpublished and retiring revisions. */
 export const GEOMETRY_PRODUCT_GPU_CAPACITY_LIMIT = 512 * 1024 * 1024;
-export const GEOMETRY_PRODUCT_METADATA_OVERHEAD_LIMIT = 16 * 1024 * 1024;
+/**
+ * Scene-level Product-per-Shard metadata is a fixed GPU heap, not decoded
+ * geometry payload. Keep it separately bounded, but large enough for the
+ * formal 100M hierarchy tables and all per-shard residency descriptors.
+ */
+export const GEOMETRY_PRODUCT_METADATA_OVERHEAD_LIMIT = 256 * 1024 * 1024;
 
 interface Ledger {
   allocatedBytes: number;

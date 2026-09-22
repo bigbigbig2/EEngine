@@ -62,6 +62,11 @@ import {
   visibilityWorkSetKey,
   type VisibilityWorkSet
 } from "../VisibilityWorkSet.js";
+import {
+  CurrentHzbLateRecheckGpu,
+  type CurrentHzbLateRecheckGpuPrepareInput,
+  type PreparedCurrentHzbLateRecheck
+} from "../CurrentHzbLateRecheck.js";
 
 export interface PackedVisibilityPrepareJob {
   readonly runtime: GpuRenderWorldRuntime;
@@ -98,6 +103,12 @@ export interface PackedVisibilityPrepareJob {
   readonly streamingRuntime?: GeometryPageStreamingRuntimeV1;
   /** Monotonic frame identity required when streamingRuntime is supplied. */
   readonly demandFrameIndex?: number;
+  /** Optional same-frame Product MeshletWork filter. Null/off allocates no GPU owner. */
+  readonly currentHzbLateRecheck?: Readonly<{
+    readonly width: number;
+    readonly height: number;
+    readonly mipLevelCount: number;
+  }> | null;
 }
 
 export interface PackedVisibilityJob extends PackedVisibilityPrepareJob {
@@ -117,6 +128,19 @@ export interface PackedVisibilityOutputs {
   readonly counters: ResourceId;
   readonly frame: VisibilityFrame;
   readonly debugResolve: PackedVisibilityDebugSource;
+}
+
+export interface PackedVisibilityLateRecheckInputs {
+  readonly camera: ResourceId;
+  readonly counters: ResourceId;
+  readonly currentHzb: ResourceId;
+  readonly sourceMeshletWork: ResourceId;
+  readonly filteredMeshletWork: ResourceId;
+  readonly filteredDrawIndirect: ResourceId;
+  readonly visibilityKey: ResourceId;
+  readonly shadingBinId: ResourceId | null;
+  readonly depth: ResourceId;
+  readonly sourceFrame: VisibilityFrame;
 }
 
 export interface PackedVisibilityDebugBindings {
@@ -158,6 +182,7 @@ type PackedVisibilityMeshletCandidate = Pick<
 export interface PreparedPackedVisibility {
   readonly workSet: VisibilityWorkSet;
   readonly bindings: VisibilityBindingSet;
+  readonly currentHzbLateRecheck: PreparedCurrentHzbLateRecheck | null;
 }
 
 export const PACKED_VISIBILITY_FRAGMENT_EVIDENCE = Object.freeze({
@@ -192,6 +217,8 @@ export class PackedVisibilityPass {
   private readonly meshletBucketRaster: MeshletBucketRaster;
   private readonly largeTriangleSetup: LargeTriangleSetupCache;
   private readonly hierarchyPrepared = new Map<GpuRenderWorldRuntime, VisibilityWorkSet>();
+  private currentHzbLateRecheck: CurrentHzbLateRecheckGpu | null = null;
+  private readonly currentHzbPrepared = new Map<GpuRenderWorldRuntime, PreparedCurrentHzbLateRecheck>();
   private readonly debugBindings = new Map<
     GpuRenderWorldRuntime,
     PackedVisibilityDebugBindings
@@ -294,8 +321,88 @@ export class PackedVisibilityPass {
     return Object.freeze({ counters, frame, debugResolve });
   }
 
+  /** current HZB compute filter -> filtered Product MeshletWork indirect raster. */
+  addCurrentHzbLateRecheckToGraph(
+    graph: FrameGraph,
+    job: PackedVisibilityJob,
+    inputs: PackedVisibilityLateRecheckInputs
+  ): PackedVisibilityOutputs {
+    const prepared = job.prepared.currentHzbLateRecheck;
+    if (prepared === null || !job.prepared.workSet.meshletWorkCandidate?.productMode) {
+      throw new Error("Current HZB late recheck requires prepared Product MeshletWork");
+    }
+    if (this.currentHzbLateRecheck === null) {
+      throw new Error("Current HZB late-recheck owner is unavailable");
+    }
+    const owner = this.currentHzbLateRecheck;
+    const builder = graph.add(
+      "Packed Visibility/current-HZB late recheck + filtered raster",
+      job,
+      (data, resources, context) => {
+        const command = requireCommand(context.encoder);
+        const currentHzb = resolveTextureView(resources.get(inputs.currentHzb));
+        owner.encode(command.gpu_encoder, data.prepared.currentHzbLateRecheck!, currentHzb);
+        const workSet = data.prepared.workSet;
+        const sourcePrepared = requireMeshletWork(workSet);
+        this.meshletBucketRaster.encodeFilteredVirtualRaster(command.gpu_encoder, {
+          prepared: sourcePrepared,
+          camera: requireBuffer(resources.get(inputs.camera), "camera"),
+          assets: data.assets,
+          scene: data.scene,
+          runtime: data.runtime,
+          visibilityKey: resolveTextureView(resources.get(inputs.visibilityKey)),
+          shadingBinId: inputs.shadingBinId === null
+            ? null
+            : resolveTextureView(resources.get(inputs.shadingBinId)),
+          depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
+          virtualGeometry: data.virtualGeometry ?? null
+        }, data.prepared.currentHzbLateRecheck!.queue, data.prepared.currentHzbLateRecheck!.drawIndirect);
+        const debug = this.requireDebugBindings(data.runtime);
+        this.debugBindings.set(data.runtime, Object.freeze({
+          ...debug,
+          meshletWork: data.prepared.currentHzbLateRecheck!.queue,
+          meshletWorkCapacity: data.prepared.currentHzbLateRecheck!.capacity
+        }));
+      }
+    );
+    builder.read(inputs.camera);
+    builder.read(inputs.currentHzb);
+    builder.read(inputs.sourceMeshletWork);
+    const counters = builder.write(inputs.counters);
+    const meshletWorkRecords = builder.write(inputs.filteredMeshletWork);
+    builder.write(inputs.filteredDrawIndirect);
+    const visibilityKey = builder.write(inputs.visibilityKey);
+    const shadingBinId = inputs.shadingBinId === null ? null : builder.write(inputs.shadingBinId);
+    const depth = builder.write(inputs.depth);
+    builder.make_side_effect();
+    const source = inputs.sourceFrame;
+    const frame = visibilityFrame({
+      visibilityKey,
+      shadingBinId,
+      depth,
+      meshletWork: meshletWorkFrame({
+        records: meshletWorkRecords,
+        capacity: prepared.capacity,
+        partition: 0,
+        generation: "queue-header"
+      }),
+      triangleSetup: source.triangleSetup,
+      domain: source.domain
+    });
+    return Object.freeze({
+      counters,
+      frame,
+      debugResolve: Object.freeze({ resolve: () => this.requireDebugBindings(job.runtime) })
+    });
+  }
+
   /** Retires all prepared hierarchy bindings for a Packed Scene in queue order. */
   release(runtime: GpuRenderWorldRuntime, command: ShadeGPUCommandContext): void {
+    const late = this.currentHzbPrepared.get(runtime);
+    if (late !== undefined) {
+      this.currentHzbPrepared.delete(runtime);
+      command.destroyAfterGpuDone({ destroy: () => this.currentHzbLateRecheck?.release(late) });
+    }
     const workSet = this.hierarchyPrepared.get(runtime);
     this.debugBindings.delete(runtime);
     if (workSet === undefined) return;
@@ -306,6 +413,9 @@ export class PackedVisibilityPass {
   destroy(): void {
     this.debugBindings.clear();
     this.hierarchyPrepared.clear();
+    this.currentHzbPrepared.clear();
+    this.currentHzbLateRecheck?.destroy();
+    this.currentHzbLateRecheck = null;
     this.hierarchyGenerator.destroy();
     this.meshletCandidate.destroy();
     this.virtualMeshletCandidate.destroy();
@@ -478,7 +588,11 @@ export class PackedVisibilityPass {
           countersEnabled: bindings.countersEnabled
         });
       }
-      return Object.freeze({ workSet: existing, bindings });
+      return Object.freeze({
+        workSet: existing,
+        bindings,
+        currentHzbLateRecheck: this.prepareCurrentHzbLateRecheck(job, existing, camera, counters, command)
+      });
     }
     const prepared = this.hierarchyGenerator.prepare({
       assets: job.assets,
@@ -511,7 +625,8 @@ export class PackedVisibilityPass {
           visibleClusterCapacity: prepared.generated.visibleClusterCapacity,
           capacity: key.meshletWorkCandidateCapacity,
           counterBuffer: counters,
-          countersEnabled: job.countersEnabled
+          countersEnabled: job.countersEnabled,
+          scene: job.scene
         });
       } else {
         meshletWorkCandidate = this.meshletCandidate.prepare({
@@ -561,7 +676,56 @@ export class PackedVisibilityPass {
     });
     this.hierarchyPrepared.set(job.runtime, next);
     if (existing !== undefined) this.retirePrepared(existing, command);
-    return Object.freeze({ workSet: next, bindings });
+    return Object.freeze({
+      workSet: next,
+      bindings,
+      currentHzbLateRecheck: this.prepareCurrentHzbLateRecheck(job, next, camera, counters, command)
+    });
+  }
+
+  private prepareCurrentHzbLateRecheck(
+    job: PackedVisibilityPrepareJob,
+    workSet: VisibilityWorkSet,
+    camera: GPUBuffer,
+    counters: GPUBuffer,
+    command: ShadeGPUCommandContext
+  ): PreparedCurrentHzbLateRecheck | null {
+    const config = job.currentHzbLateRecheck ?? null;
+    const work = workSet.meshletWorkCandidate;
+    if (config === null || work === null || !work.productMode ||
+        work.productBindings === undefined || work.productBanks === undefined) {
+      const previous = this.currentHzbPrepared.get(job.runtime);
+      if (previous !== undefined) {
+        this.currentHzbPrepared.delete(job.runtime);
+        command.destroyAfterGpuDone({ destroy: () => this.currentHzbLateRecheck?.release(previous) });
+      }
+      return null;
+    }
+    this.currentHzbLateRecheck ??= new CurrentHzbLateRecheckGpu(
+      this.graphics.device,
+      this.graphics.resource_accounting
+    );
+    const input: CurrentHzbLateRecheckGpuPrepareInput = {
+      sourceQueue: work.queue,
+      capacity: work.capacity,
+      camera,
+      instances: job.scene.instances,
+      virtualGeometry: work.productBindings,
+      productBanks: work.productBanks,
+      counters,
+      countersEnabled: job.countersEnabled,
+      width: config.width,
+      height: config.height,
+      mipLevelCount: config.mipLevelCount
+    };
+    const previous = this.currentHzbPrepared.get(job.runtime);
+    if (previous !== undefined && this.currentHzbLateRecheck.matches(previous, input)) return previous;
+    const prepared = this.currentHzbLateRecheck.prepare(input);
+    this.currentHzbPrepared.set(job.runtime, prepared);
+    if (previous !== undefined) {
+      command.destroyAfterGpuDone({ destroy: () => this.currentHzbLateRecheck?.release(previous) });
+    }
+    return prepared;
   }
 
   private retirePrepared(

@@ -68,6 +68,7 @@ struct OEngineDrawIndirectArgs {
 @group(0) @binding(7) var<storage, read> product_bank_1: array<u32>;
 @group(0) @binding(8) var<storage, read> product_bank_2: array<u32>;
 @group(0) @binding(9) var<storage, read> product_bank_3: array<u32>;
+@group(0) @binding(10) var<storage, read> product_instances: array<OEngineGpuInstanceRecord>;
 
 var<workgroup> product_group_base: u32;
 var<workgroup> product_group_count: u32;
@@ -130,8 +131,9 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
   if (lane == 0u) {
     product_group_valid = 0u;
     let visible = product_visible.elements[group.x];
+    let instance = product_instances[visible.instance_record_index];
     let asset = oengine_geometry_product_resolve_asset_v1(
-      &product_heap, visible.geometry_record_index, product_settings.product_generation);
+      &product_heap, visible.geometry_record_index, oengine_instance_geometry_generation(instance));
     let group = oengine_virtual_group_v1(&product_heap, asset, visible.cluster_record_index);
     let location = oengine_geometry_product_lookup_page_heap_v1(
       &product_heap, asset, group.page_id);

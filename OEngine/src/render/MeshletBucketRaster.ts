@@ -204,6 +204,19 @@ export class MeshletBucketRaster {
     pass.end();
   }
 
+  /** Same-frame current-HZB consumer: clear VisibilityKey, retain coarse depth, and consume the filtered queue. */
+  encodeFilteredVirtualRaster(
+    encoder: GPUCommandEncoder,
+    inputs: MeshletBucketRasterInputs,
+    queue: GPUBuffer,
+    drawIndirect: GPUBuffer
+  ): void {
+    if (!inputs.prepared.productMode) {
+      throw new Error("Current-HZB late recheck only accepts Product MeshletWork");
+    }
+    this.encodeVirtualRaster(encoder, inputs, queue, drawIndirect, true);
+  }
+
   private createRasterGroup(
     inputs: MeshletBucketRasterInputs,
     textureBanks: GpuRenderWorldRuntime["materialResources"]["bindingSets"][number]["textureBanks"]
@@ -229,7 +242,10 @@ export class MeshletBucketRaster {
 
   private encodeVirtualRaster(
     encoder: GPUCommandEncoder,
-    inputs: MeshletBucketRasterInputs
+    inputs: MeshletBucketRasterInputs,
+    workQueue = inputs.prepared.queue,
+    drawIndirect = inputs.prepared.drawIndirect,
+    lateRecheck = false
   ): void {
     if (inputs.virtualGeometry === null || inputs.virtualGeometry === undefined ||
         inputs.prepared.productBindings === undefined || inputs.prepared.productBanks === undefined) {
@@ -241,10 +257,13 @@ export class MeshletBucketRaster {
     const pipelines = new Map<number, GPURenderPipeline>();
     const groups = new Map<number, GPUBindGroup>();
     for (const bindingSet of bindingSets) {
-      let pipeline = this.virtualRasterPipelines.get(`${pipelineMode}:${bindingSet.id}`);
+      const pipelineKey = `${pipelineMode}:${bindingSet.id}:late${lateRecheck ? 1 : 0}`;
+      let pipeline = this.virtualRasterPipelines.get(pipelineKey);
       if (pipeline === undefined) {
         pipeline = this.graphics.render_pipelines.obtain({
-          label: "S1 Product Meshlet bucket Visibility",
+          label: lateRecheck
+            ? "S1 Product Meshlet bucket Visibility/current-HZB final"
+            : "S1 Product Meshlet bucket Visibility",
           layout: {
             label: "S1 Product Meshlet bucket Visibility layout",
             bindGroupLayouts: [VIRTUAL_GEOMETRY_RASTER_GROUP]
@@ -272,9 +291,13 @@ export class MeshletBucketRaster {
               : [{ format: "r32uint" }, { format: "r8uint" }]
           },
           primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
-          depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: "greater" }
+          depthStencil: {
+            format: "depth32float",
+            depthWriteEnabled: true,
+            depthCompare: lateRecheck ? "greater-equal" : "greater"
+          }
       });
-        this.virtualRasterPipelines.set(`${pipelineMode}:${bindingSet.id}`, pipeline);
+        this.virtualRasterPipelines.set(pipelineKey, pipeline);
       }
       pipelines.set(bindingSet.id, pipeline);
       groups.set(bindingSet.id, this.graphics.bind_groups.obtain({
@@ -282,7 +305,7 @@ export class MeshletBucketRaster {
         entries: [
           { buffer: inputs.camera },
           { buffer: inputs.scene.instances },
-          { buffer: inputs.prepared.queue },
+          { buffer: workQueue },
           { buffer: inputs.virtualGeometry.metadata },
           ...inputs.prepared.productBanks.slice(0, 4).map((buffer) => ({ buffer })),
           { buffer: inputs.runtime.materialResources.materialRecords },
@@ -298,14 +321,14 @@ export class MeshletBucketRaster {
       depthStencilAttachment: {
         view: inputs.depth,
         depthClearValue: 0,
-        depthLoadOp: "clear",
+        depthLoadOp: lateRecheck ? "load" : "clear",
         depthStoreOp: "store"
       }
     });
     for (const bindingSet of bindingSets) {
       pass.setPipeline(pipelines.get(bindingSet.id)!);
       pass.setBindGroup(0, groups.get(bindingSet.id)!);
-      pass.drawIndirect(inputs.prepared.drawIndirect, 0);
+      pass.drawIndirect(drawIndirect, 0);
     }
     pass.end();
   }

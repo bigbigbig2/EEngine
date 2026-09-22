@@ -1,4 +1,8 @@
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
+import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
+import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
+import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 
 /**
  * Phase I GPU producer/consumer contract. The caller supplies conservative
@@ -120,3 +124,172 @@ export const CURRENT_HZB_LATE_RECHECK_COUNTER_OFFSETS = Object.freeze({
   written: counterByteOffset("meshletQueueWritten"),
   overflow: counterByteOffset("meshletQueueOverflow")
 });
+
+const CURRENT_HZB_REJECTED_COUNTER_WORD = counterByteOffset("rejectedHzb") / 4;
+
+/**
+ * Production Product-MeshletWork filter. The input and output are both the
+ * standard correctness-critical MeshletWork ABI, so the final raster and all
+ * downstream VisibilityKey consumers see one coherent work-slot namespace.
+ * Invalid metadata and stale/source-overflow state keep the source record.
+ */
+export const CURRENT_HZB_MESHLET_WORK_LATE_RECHECK_WGSL = /* wgsl */ `
+${PACKED_CAMERA_TYPE.wgsl_declaration}
+${GPU_INSTANCE_RECORD_WGSL}
+${GPU_MESHLET_RASTER_WORK_WGSL}
+${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
+
+struct OEngineCurrentHzbMeshletSettings {
+  view_size: vec2u,
+  mip_count: u32,
+  capacity: u32,
+  epsilon: f32,
+  counters_enabled: u32,
+  reserved: vec2u,
+};
+
+struct OEngineCurrentHzbDrawIndirect {
+  vertex_count: u32,
+  instance_count: atomic<u32>,
+  first_vertex: u32,
+  first_instance: u32,
+};
+
+@group(0) @binding(0) var<uniform> current_camera: CommandEncoder;
+@group(0) @binding(1) var<storage, read> current_instances: array<OEngineInstanceRecord>;
+@group(0) @binding(2) var<storage, read> current_source: OEngineMeshletWorkQueueRead;
+@group(0) @binding(3) var<storage, read_write> current_output: OEngineMeshletWorkQueue;
+@group(0) @binding(4) var<storage, read> current_heap: array<u32>;
+@group(0) @binding(5) var<storage, read> current_bank_0: array<u32>;
+@group(0) @binding(6) var<storage, read> current_bank_1: array<u32>;
+@group(0) @binding(7) var<storage, read> current_bank_2: array<u32>;
+@group(0) @binding(8) var<storage, read> current_bank_3: array<u32>;
+@group(0) @binding(9) var current_hzb_meshlets: texture_2d<f32>;
+@group(0) @binding(10) var<uniform> current_settings: OEngineCurrentHzbMeshletSettings;
+@group(0) @binding(11) var<storage, read_write> current_draw: OEngineCurrentHzbDrawIndirect;
+@group(0) @binding(12) var<storage, read_write> current_counters: array<atomic<u32>>;
+
+fn current_group_header(bank: u32, location: OEngineGeometryPageLookupV1,
+  group: OEngineVirtualGroupV1) -> OEngineVirtualGroupHeaderV1 {
+  if (bank == 0u) { return oengine_virtual_group_header_v1(&current_bank_0, location, group); }
+  if (bank == 1u) { return oengine_virtual_group_header_v1(&current_bank_1, location, group); }
+  if (bank == 2u) { return oengine_virtual_group_header_v1(&current_bank_2, location, group); }
+  return oengine_virtual_group_header_v1(&current_bank_3, location, group);
+}
+
+fn current_meshlet_header(bank: u32, location: OEngineGeometryPageLookupV1,
+  group: OEngineVirtualGroupV1, header: OEngineVirtualGroupHeaderV1,
+  local_meshlet: u32) -> OEngineVirtualMeshletHeaderV1 {
+  if (bank == 0u) { return oengine_virtual_meshlet_header_v1(&current_bank_0, location, group, header, local_meshlet); }
+  if (bank == 1u) { return oengine_virtual_meshlet_header_v1(&current_bank_1, location, group, header, local_meshlet); }
+  if (bank == 2u) { return oengine_virtual_meshlet_header_v1(&current_bank_2, location, group, header, local_meshlet); }
+  return oengine_virtual_meshlet_header_v1(&current_bank_3, location, group, header, local_meshlet);
+}
+
+fn current_meshlet_occluded(work: OEngineMeshletRasterWork) -> bool {
+  if (work.instance_slot >= arrayLength(&current_instances)) { return false; }
+  let instance = current_instances[work.instance_slot];
+  let asset = oengine_geometry_product_resolve_asset_v1(&current_heap,
+    work.geometry_slot, oengine_instance_geometry_generation(instance));
+  let group_id = work.meshlet_slot >> 7u;
+  let local_meshlet = work.meshlet_slot & 127u;
+  let group = oengine_virtual_group_v1(&current_heap, asset, group_id);
+  let location = oengine_geometry_product_lookup_page_heap_v1(&current_heap, asset, group.page_id);
+  if (!asset.valid || !group.valid || !location.valid || location.bank_index >= 4u) { return false; }
+  let header = current_group_header(location.bank_index, location, group);
+  let meshlet = current_meshlet_header(location.bank_index, location, group, header, local_meshlet);
+  if (!header.valid || !meshlet.valid) { return false; }
+
+  let object_to_world = oengine_instance_current_object_to_world(instance);
+  var uv_min = vec2f(1.0);
+  var uv_max = vec2f(0.0);
+  var nearest = 0.0;
+  for (var corner = 0u; corner < 8u; corner++) {
+    let local = vec3f(
+      select(meshlet.bounds_min.x, meshlet.bounds_max.x, (corner & 1u) != 0u),
+      select(meshlet.bounds_min.y, meshlet.bounds_max.y, (corner & 2u) != 0u),
+      select(meshlet.bounds_min.z, meshlet.bounds_max.z, (corner & 4u) != 0u));
+    let clip = current_camera.view_projection_matrix * object_to_world * vec4f(local, 1.0);
+    if any(clip != clip) || any(abs(clip) > vec4f(3.4e38)) || clip.w <= 1e-6 { return false; }
+    let ndc = clip.xyz / clip.w;
+    if any(ndc != ndc) || any(abs(ndc) > vec3f(3.4e38)) { return false; }
+    let uv = vec2f(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+    uv_min = min(uv_min, uv);
+    uv_max = max(uv_max, uv);
+    nearest = max(nearest, clamp(ndc.z, 0.0, 1.0));
+  }
+  if any(uv_max <= vec2f(0.0)) || any(uv_min >= vec2f(1.0)) { return false; }
+  uv_min = clamp(uv_min, vec2f(0.0), vec2f(1.0));
+  uv_max = clamp(uv_max, vec2f(0.0), vec2f(1.0));
+  let footprint = max((uv_max.x - uv_min.x) * f32(current_settings.view_size.x),
+    (uv_max.y - uv_min.y) * f32(current_settings.view_size.y));
+  let mip = min(u32(ceil(log2(max(footprint, 1.0)))), current_settings.mip_count - 1u);
+  let size = max(current_settings.view_size >> vec2u(mip), vec2u(1u));
+  let last = vec2i(size - vec2u(1u));
+  let lo = clamp(vec2i(floor(uv_min * vec2f(size))), vec2i(0), last);
+  let hi = clamp(vec2i(floor(uv_max * vec2f(size))), vec2i(0), last);
+  let farthest = min(
+    min(textureLoad(current_hzb_meshlets, lo, i32(mip)).x,
+      textureLoad(current_hzb_meshlets, vec2i(hi.x, lo.y), i32(mip)).x),
+    min(textureLoad(current_hzb_meshlets, vec2i(lo.x, hi.y), i32(mip)).x,
+      textureLoad(current_hzb_meshlets, hi, i32(mip)).x));
+  return nearest + current_settings.epsilon < farthest;
+}
+
+fn current_reserve() -> u32 {
+  atomicAdd(&current_output.header.attempted_count, 1u);
+  var observed = atomicLoad(&current_output.header.written_count);
+  loop {
+    if observed >= current_output.header.capacity {
+      atomicAdd(&current_output.header.overflow_count, 1u);
+      return 0xffffffffu;
+    }
+    let result = atomicCompareExchangeWeak(&current_output.header.written_count,
+      observed, observed + 1u);
+    if result.exchanged { return observed; }
+    observed = result.old_value;
+  }
+}
+
+@compute @workgroup_size(1)
+fn prepare_current_hzb_meshlet_recheck() {
+  atomicStore(&current_output.header.attempted_count, 0u);
+  atomicStore(&current_output.header.written_count, 0u);
+  atomicStore(&current_output.header.consumed_count, 0u);
+  current_output.header.capacity = current_settings.capacity;
+  atomicStore(&current_output.header.overflow_count, 0u);
+  atomicStore(&current_output.header.generation, current_source.header.generation);
+  atomicStore(&current_output.header.invalid_count, 0u);
+  current_output.header.reserved = 0u;
+  current_draw.vertex_count = 384u;
+  atomicStore(&current_draw.instance_count, 0u);
+  current_draw.first_vertex = 0u;
+  current_draw.first_instance = 0u;
+}
+
+@compute @workgroup_size(64)
+fn filter_current_hzb_meshlet_recheck(@builtin(global_invocation_id) id: vec3u) {
+  let source_count = min(current_source.header.written_count, current_source.header.capacity);
+  if id.x >= source_count || id.x >= current_settings.capacity { return; }
+  let work = current_source.elements[id.x];
+  let source_fail_open = current_source.header.generation == 0u ||
+    current_source.header.overflow_count != 0u || current_source.header.invalid_count != 0u;
+  if !source_fail_open && current_meshlet_occluded(work) {
+    if current_settings.counters_enabled != 0u {
+      atomicAdd(&current_counters[${CURRENT_HZB_REJECTED_COUNTER_WORD}u], 1u);
+    }
+    return;
+  }
+  let slot = current_reserve();
+  if slot != 0xffffffffu { current_output.elements[slot] = work; }
+}
+
+@compute @workgroup_size(1)
+fn finalize_current_hzb_meshlet_recheck() {
+  let written = min(atomicLoad(&current_output.header.written_count), current_output.header.capacity);
+  atomicStore(&current_output.header.consumed_count, written);
+  // Invalid/stale/overflowed input is copied without rejection above. Publishing
+  // the copied count is the fail-open path; zeroing it would drop all geometry.
+  atomicStore(&current_draw.instance_count, written);
+}
+`;

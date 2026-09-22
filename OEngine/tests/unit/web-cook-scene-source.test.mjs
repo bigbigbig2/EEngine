@@ -2,6 +2,48 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 const { createWebCookSceneSourceAsync } = await import("../../.test-dist/assets/web-cook/WebCookSceneSource.js");
+const { mergeVirtualGeometryProductSceneSourcesV1 } = await import("../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js");
+
+test("multi-Product scene merge preserves transforms, materials, bounds, and Product identity", () => {
+  const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  const translated = identity.slice();
+  translated[12] = 7;
+  const material0 = Object.freeze({ name: "first" });
+  const material1 = Object.freeze({ name: "second" });
+  const source = (transform, materialIndex, materials, center) => Object.freeze({
+    materials,
+    geometryProfiles: Object.freeze([Object.freeze({ profile: "virtual" })]),
+    assetCount: 1,
+    hierarchyMaxDepth: 4,
+    hierarchyTraversalCapacity: 8,
+    hierarchyVisibleClusterCapacity: 6,
+    hierarchyRasterWorkCapacity: 5,
+    count: 1,
+    geometryIndices: new Uint32Array([0]),
+    materialIndices: new Uint32Array([materialIndex]),
+    currentTransforms: transform,
+    boundsSpheres: new Float32Array([center, 0, 0, 2]),
+    boundsMin: new Float32Array([center - 2, -2, -2]),
+    boundsMax: new Float32Array([center + 2, 2, 2])
+  });
+  const merged = mergeVirtualGeometryProductSceneSourcesV1([
+    { source: source(identity, 0, Object.freeze([material0]), 0), productTableSlot: 2, productGeneration: 11, assetReferenceBegin: 0 },
+    { source: source(translated, 1, Object.freeze([material0, material1]), 7), productTableSlot: 7, productGeneration: 29, assetReferenceBegin: 1 }
+  ]);
+  assert.equal(merged.count, 2);
+  assert.equal(merged.assetCount, 2);
+  assert.deepEqual([...merged.geometryIndices], [0, 1]);
+  assert.deepEqual([...merged.productTableSlots], [2, 7]);
+  assert.deepEqual([...merged.productGenerations], [11, 29]);
+  assert.deepEqual([...merged.materialIndices], [0, 1]);
+  assert.strictEqual(merged.materials[0], material0);
+  assert.strictEqual(merged.materials[1], material1);
+  assert.equal(merged.currentTransforms[16 + 12], 7);
+  assert.deepEqual([...merged.boundsSpheres], [0, 0, 0, 2, 7, 0, 0, 2]);
+  assert.equal(merged.hierarchyTraversalCapacity, 16);
+  assert.equal(merged.hierarchyVisibleClusterCapacity, 12);
+  assert.equal(merged.hierarchyRasterWorkCapacity, 10);
+});
 
 test("Web Cook async mapper materializes authored texture slots before scene source publication", async () => {
   const previous = globalThis.createImageBitmap;

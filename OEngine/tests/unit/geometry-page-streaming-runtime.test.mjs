@@ -108,6 +108,59 @@ test("streaming runtime consumes delayed demand and uploads through residency", 
   runtime.destroy();
 });
 
+test("one streaming runtime routes Product-local pages to multiple shard residencies", async () => {
+  const makeProduct = (fill, slot, generation) => {
+    const page = new Uint8Array(262144).fill(fill);
+    const hash = createHash("sha256").update(page).digest();
+    const productId = new Uint8Array(32).fill(fill);
+    const pageRecords = new Uint8Array(32);
+    pageRecords.set(hash.subarray(0, 16));
+    new DataView(pageRecords.buffer).setUint32(20, 1, true);
+    const descriptor = { pageRecords, decodedPageBytes: page.byteLength, productId, revision: 0 };
+    const source = {
+      descriptor,
+      async readPage(pageId) {
+        return { productId: productId.slice(), revision: 0, pageId,
+          decodedHash128: hash.subarray(0, 16), decodedPageHash128: hash.subarray(0, 16), bytes: page.slice().buffer };
+      },
+      release() {}
+    };
+    const uploaded = [];
+    const residency = {
+      productGeneration: generation,
+      productTableSlot: slot,
+      descriptor,
+      uploadPage(value) { uploaded.push(value); },
+      recordDemand() {},
+      evidence() { return { productGeneration: generation, residentPages: uploaded.length }; }
+    };
+    return { source, residency, uploaded };
+  };
+  const first = makeProduct(5, 3, 9);
+  const second = makeProduct(6, 4, 10);
+  const runtime = new GeometryPageStreamingRuntimeV1(device(), first.residency, {
+    schedulerOptions: { maxConcurrentReads: 2, maxInFlightBytes: 2 * 262144 },
+    readback: { slotCount: 2, bytesPerSlot: 64 }
+  });
+  runtime.registerProduct(first.source, first.residency);
+  runtime.registerProduct(second.source, second.residency);
+  const demand = new Uint8Array(48);
+  demand.set(packGeometryPageDemandHeaderV1({ attempted: 2, capacity: 2, overflow: 0, frameRevisionLow: 4 }));
+  demand.set(packGeometryPageDemandV1({ productTableSlot: 3, productGeneration: 9, pageId: 0, priority: 10, currentViewMissing: true, shadow: false, predictive: false }), 16);
+  demand.set(packGeometryPageDemandV1({ productTableSlot: 4, productGeneration: 10, pageId: 0, priority: 9, currentViewMissing: true, shadow: false, predictive: false }), 32);
+  const gpuDemand = new FakeBuffer({ size: 48, usage: 0 });
+  gpuDemand.bytes.set(demand);
+  runtime.encodeDemandReadback(encoder(), gpuDemand, 20);
+  await runtime.consumeCompleted(20);
+  await runtime.consumeCompleted(21);
+  await runtime.scheduler.drainReads();
+  await runtime.consumeCompleted(22);
+  assert.equal(first.uploaded.length, 1);
+  assert.equal(second.uploaded.length, 1);
+  assert.equal(runtime.evidence().scheduler.resident, 2);
+  runtime.destroy();
+});
+
 test("streaming runtime revokes pages before the settled submission boundary", async () => {
   const descriptor = { pageRecords: new Uint8Array(160), decodedPageBytes: 262144, productId: new Uint8Array(32).fill(4), revision: 0 };
   const page = { productId: descriptor.productId.slice(), revision: 0, pageId: 4, decodedHash128: new Uint8Array(16), decodedPageHash128: new Uint8Array(16), bytes: new ArrayBuffer(262144) };
