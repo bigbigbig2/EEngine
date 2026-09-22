@@ -45,7 +45,17 @@ ADR-0016 与 ADR-0017 已经建立 Geometry Product、page 级物理驻留、GPU
 
 ### Delivery order
 
-实施严格按 active workstream 的依赖推进：先建立 100M workload、observability 和精确 failure owner，再完成 canonical windowing、giant primitive sharding、cook-and-spill、multi-Product runtime 与 visible-first scheduler；之后才处理 demand compaction、adaptive residency、current-HZB、dynamic scheduler、正式 PERF、raster bucket 和 250M/500M/1B 扩展验证。
+实施严格按 active workstream 的依赖推进：先建立 workload、observability 和精确 failure owner，再完成 canonical windowing、giant primitive sharding、cook-and-spill、multi-Product runtime 与 visible-first scheduler；之后才处理 demand compaction、adaptive residency、current-HZB 和 dynamic scheduler。正式 100M PERF 不是本机的第一步，而是 authored-large 生产门之后的后置验收门禁；raster bucket 和 250M/500M/1B 扩展验证继续排在 formal gate 之后。
+
+### Validation order and promotion semantics
+
+架构目标与本机验证顺序分开管理。当前机器先使用真实 authored multi-primitive 场景验证生产链，再扩大到 single-giant 100M workload：
+
+- **K0 Authored Large Production Gate**：使用固定 hash 的真实 authored GLB，验证 Catalog → bounded cook → Product publish → GPU consumer → page streaming → Current-HZB/scheduler → dispose 的完整生产闭环。它可以产生该 authored 资产的独立运行/诊断证据，但不得升级为 100M 或 `PerformanceEvaluated` 证据。
+- **K1 Production Performance Debt**：在扩大 workload 前关闭 planner scratch/顺序物化、incremental Scene publication、Product slot/metadata 自动预算和真实 IO/decode/upload telemetry 等已知工程债。K1 的目标是避免用重复的全量 publication 或 giant-primitive 重扫掩盖正式结果。
+- **K2 Formal 100M Gate**：保留 100,000,000 triangles、clean revision、固定 Chrome/adapter/display/camera/feature/workload identity 及正式采样要求。K2 只有在 K0 通过、K1 债务得到明确证据且独立 validation host 产出 accepted evidence 后，才能提升 ADR 完成状态。
+
+任何 K0/K1 结果都不能替代 K2；任何 K2 失败都必须按冻结 workload 归因，不能通过降低 workload 或把 authored 控制场景改名来结案。
 
 ## Consequences
 
@@ -63,6 +73,6 @@ Phase A 必须首先产生可复现的 100M workload，并把失败定位到 Cat
 
 实现必须用 contract/oracle 固定以下性质：bounded source/canonical/cook 峰值；single giant primitive 的多 shard 输出；bounds、seam、material、hierarchy、page independence 与 determinism；spill 后 exact page re-read 和 stable identity/hash；至少 64 个 ProductShard 的独立 load/replace/evict/release；stale generation rejection；activation cut 与 ancestor fallback；demand 去重、容量、溢出和有界 readback；不同 Worker/profile 下的相同 Product 结果。
 
-真实浏览器验证只能在独立 `validation/` 宿主运行。正式 100M evidence 必须冻结 revision、browser、adapter、resolution、DPR、camera path、feature set 与 workload hash，并采集 TTFMF、CPU/GPU P50/P95、source/canonical/WASM/JS/GPU peaks、page demand/churn、overflow 和 camera-cut recovery。10M 用于开发回归，100M 是 ADR 完成的最低正式门槛，250M 验证扩展性，500M 与 1B logical 在前述门槛通过后作为诊断/扩展证据。
+真实浏览器验证只能在独立 `validation/` 宿主运行。K0 authored gate 必须记录 authored source identity、Product 数量、首帧/总 cook、owner peaks、GPU errors、page demand/churn、camera-cut recovery 和完整 disposal；这些字段用于生产诊断，不得填充 formal 100M evidence。正式 100M evidence 必须冻结 revision、browser、adapter、resolution、DPR、camera path、feature set 与 workload hash，并采集 TTFMF、CPU/GPU P50/P95、source/canonical/WASM/JS/GPU peaks、page demand/churn、overflow 和 camera-cut recovery。10M 用于开发回归，100M 是 ADR 完成的最低正式门槛，250M 验证扩展性，500M 与 1B logical 在前述门槛通过后作为诊断/扩展证据。
 
 Nyx differential 始终是硬门禁。任何 sharding、spill、并行或 scheduler 改造都必须保持 meshlet invariants、Group ownership、refine relation、LOD error monotonicity、conservative bounds、hierarchy reachability、material boundaries、page independence 与 determinism；缺少源函数/entry point、条件、数据依赖、差异、fallback 和验证映射时不得宣称迁移完成。

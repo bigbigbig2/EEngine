@@ -1617,6 +1617,23 @@ first fine page resident
 
 开发回归。
 
+## K0 — Authored Large Production Control
+
+使用真实 authored multi-primitive GLB 先验证生产链：
+
+```text
+Catalog
+→ bounded source/canonical window
+→ Product-per-shard cook-and-spill
+→ Multi-Product GPU publication
+→ page streaming / Current-HZB / scheduler
+→ disposal
+```
+
+K0 用于机器容量和生产路径诊断，不是 100M 性能门禁。当前固定控制资产为
+`large.glb`（4,871,612 triangles、1,041 nodes、1,920 primitives）；它的结果
+不得填入 100M accepted evidence，也不得单独提升 `PerformanceEvaluated`。
+
 ## L1 — 100M
 
 ADR-0018 最低正式目标。
@@ -1993,7 +2010,47 @@ upload budget
 
 ---
 
-## Phase K — 100M Formal PERF Freeze
+## Phase K0 — Authored Large Production Gate
+
+**Priority：P0 / 当前机器的第一道浏览器门禁**
+
+先运行固定 authored large 控制场景，记录：
+
+```text
+Product count
+TTFMF / total cook
+source/canonical/WASM/JS/GPU owner peaks
+page demand/churn/overflow
+GPU errors
+camera-cut recovery
+complete disposal
+```
+
+没有完整 receipt 只能算调试日志。K0 结果可以说明 authored 生产链是否闭环，
+不能说明 100M single-giant workload 已完成。
+
+---
+
+## Phase K1 — Production Performance Debt
+
+**Priority：P1 / 扩大 workload 前的解释性门禁**
+
+K1 关闭或量化当前代码已经暴露的规模债务：
+
+```text
+planner scratch / ordered materialization
+giant-primitive rescan cost and cleanup
+incremental GpuRenderWorld publication
+automatic Product slot + metadata capacity
+source-read / decode / upload telemetry
+```
+
+如果这些成本仍存在，必须在正式结果中单独计量，不能把它们混写成 WASM 或 GPU
+性能结论。
+
+---
+
+## Phase K2 — 100M Formal PERF Freeze
 
 **Priority：P1**
 
@@ -2068,12 +2125,14 @@ P0-3  Giant Primitive Spatial Sharding
 P0-4  Cook-and-Spill
 P0-5  Multi-Product Runtime
 P0-6  Visible-First Product Scheduler
+P0-7  K0 Authored Large Production Gate
 
 P1-1  GPU Demand Dedup / Compact
 P1-2  Adaptive GPU Residency Profile
 P1-3  Current-HZB Late Recheck
 P1-4  Dynamic Page Scheduler
-P1-5  100M Formal PERF
+P1-5  K1 Production Performance Debt
+P1-6  K2 100M Formal PERF
 
 P2-1  32/64/96/128 Raster Buckets
 P2-2  Selective Primitive Culling
@@ -2468,6 +2527,8 @@ submission-safe
 ## Evidence
 
 - [ ] 10M；
+- [ ] K0 authored-large production receipt（仅 authored 诊断/运行证据，不替代 100M）；
+- [ ] K1 planner/publication/capacity/telemetry debt 已关闭或有独立计量；
 - [ ] 100M；
 - [ ] 250M；
 - [ ] 500M diagnostic；
@@ -2476,6 +2537,9 @@ submission-safe
 - [ ] dense occlusion；
 - [ ] camera cut；
 - [ ] high instancing。
+
+K0/K1 是正式 100M 之前的解释性门禁。它们不能降低 100M 的 triangle count、替代
+single-giant source 或把 authored control 结果提升为 formal performance evidence。
 
 ---
 

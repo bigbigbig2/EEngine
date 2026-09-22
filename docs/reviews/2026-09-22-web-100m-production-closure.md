@@ -2,8 +2,10 @@
 
 This review reconciles the implementation with
 `ADR-0018_Web_100M_Virtual_Geometry_Architecture.md`. It closes the previously
-missing production wiring, but deliberately leaves Phase K active until a clean
-committed browser run produces accepted evidence.
+missing production wiring, but it does not reduce the remaining work to a
+single browser run. Phase K has no accepted evidence yet, and the production
+path still has scale debts that must be visible before a formal 100M result is
+interpreted.
 
 ## Outcome
 
@@ -22,6 +24,28 @@ This is implementation and local verification evidence. It is not yet accepted
 `RuntimeValidated` or `PerformanceEvaluated` evidence because the formal case must
 run after the implementation commit, with a clean worktree.
 
+## Corrected interpretation of the review
+
+The earlier assessment is correct that A-J now have substantially connected
+implementation/contract evidence. It is too strong to say that the only
+remaining work is accepted 100M evidence. The following gaps are still real:
+
+- `SpatialShardPlanner` computes a bounded scan, but its planning/materialization
+  scratch and ordered source access are not yet proven against repeated
+  giant-primitive rescans, cancellation, or cleanup at authored scale.
+- `uploadWebCookedMultiProductScene()` merges all previously admitted parts and
+  replaces the full Scene publication for every new shard. This is correct but
+  accumulates O(N^2) CPU/publication work as Product count grows.
+- The caller still selects `uploadWebCookedMultiProductScene()` and supplies
+  `multiProductSlotCapacity`; the public `load_gltf()`-style route does not yet
+  infer Product mode and next-power-of-two capacity from the plan/catalog.
+- No accepted authored-large browser evidence exists in the current revision;
+  the stopped run is a debugging trace, not a pass.
+
+These are K1 production-performance debts. They do not invalidate the A-J
+correctness wiring, but they do prevent the formal 100M result from being the
+only remaining acceptance question.
+
 ## Original phase reconciliation
 
 | Phase | Original design gate | Repository state after this closure |
@@ -36,7 +60,9 @@ run after the implementation commit, with a clean worktree.
 | H | Adapter-selected residency | Done at implementation/contract level; formal adapter evidence remains K |
 | I | Previous HZB -> current depth/HZB -> late recheck | Production-wired; standard MeshletWork filter writes indirect args and final raster consumes it; invalid/stale/overflow fails open |
 | J | Dynamic page budgets | Production-wired; delayed GPU/frame/camera/IO feedback remains bounded by hard caps |
-| K | Clean frozen 100M evidence | **Active**; executable case is ready, but no clean committed evidence exists yet |
+| K0 | Authored-large production gate | **Active** as the next machine gate; no accepted authored browser receipt exists yet |
+| K1 | Planner/publication/capacity/telemetry debt | Todo; must be measured or closed before interpreting formal scale results |
+| K2 | Clean frozen 100M evidence | **Todo**; executable case is ready, but no clean committed evidence exists yet |
 | L | 32/64/96/128 raster buckets | Todo; must not start before K baseline is accepted |
 | M | 250M/500M/1B scaling | Todo |
 
@@ -74,10 +100,14 @@ and oracles are recorded in `docs/porting/nyx-function-map.json`.
 Run fresh OEngine and validation builds/tests, repository model/registry checks,
 `verify --changed`, and protocol self-test. Commit those changes first. Only then
 run `node tools/vibe.mjs case web-100m-formal-perf --run` from the clean revision.
-Phase K becomes done only when that case passes with full verification receipts,
+Phase K2 becomes done only when that case passes with full verification receipts,
 no GPU errors, complete disposal evidence, and accepted samples/summary artifacts.
 
 If the formal run fails, the failure belongs to Phase K and must be fixed against
 the frozen workload. Phase L begins only after the fixed 384-vertex baseline is
 captured; it must compare 32/64/96/128 buckets without changing workload, camera,
 quality, or evidence identity.
+
+The practical order is now K0 authored-large production validation, K1 debt
+closure/measurement, then K2 formal 100M. K0 is deliberately smaller than the
+2.8 GB single-primitive source and is not a substitute for the K2 gate.

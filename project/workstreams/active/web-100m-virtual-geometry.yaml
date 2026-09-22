@@ -293,11 +293,11 @@ tasks:
       - Camera cuts can burst within declared limits and stable views reduce streaming pressure.
       - Failure and device-loss paths preserve Product generation and resource ownership.
   - id: formal-100m-perf-freeze
-    phase: K
+    phase: K2
     priority: P1
     title: Capture clean formal 100M correctness, memory, runtime, and performance evidence
-    state: active
-    dependsOn: [visible-first-product-scheduler, dynamic-page-scheduler]
+    state: todo
+    dependsOn: [authored-large-production-gate, production-performance-debt]
     implementationEvidence:
       review: docs/reviews/2026-09-22-web-100m-production-closure.md
       contract: docs/specs/web-geometry-formal-perf-freeze-v1.md
@@ -322,11 +322,53 @@ tasks:
         maxCanonicalInputBytes: 67108864
         maxDecodedProductBytes: 134217728
         role: practical-authored-diagnostic-not-100m-promotion-evidence
-      note: The practical authored control uses the local large GLB so production-path diagnosis does not require the 2.8 GB single-primitive stress source. Phase K remains active and makes no RuntimeValidated or PerformanceEvaluated claim until the committed clean-revision 100M run succeeds.
+      note: The practical authored control is tracked as K0 and is never promotion evidence for the formal 100M claim. Phase K2 remains post-K0/K1 and makes no RuntimeValidated or PerformanceEvaluated claim until the committed clean-revision 100M run succeeds.
     exitCriteria:
       - Revision, browser, adapter, resolution, DPR, camera path, feature set, and workload hash are frozen.
       - TTFMF, CPU/GPU P50/P95, owner memory peaks, demand, churn, overflow, and camera-cut recovery are recorded.
       - Evidence comes from the independent validation host on a clean revision with all required gates passed.
+  - id: authored-large-production-gate
+    phase: K0
+    priority: P0
+    title: Validate the complete production path with the authored large GLB before formal scale
+    state: active
+    dependsOn: [dynamic-page-scheduler]
+    implementationEvidence:
+      review: docs/reviews/2026-09-22-web-100m-authored-first-validation-plan.md
+      formalSpec: docs/specs/web-geometry-formal-perf-freeze-v1.md
+      case: web-authored-large-perf
+      workloadId: web-authored-large-perf-v1
+      sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
+      sourceBytes: 477591060
+      sourceTriangles: 4871612
+      nodes: 1041
+      primitives: 1920
+      maximumPrimitiveTriangles: 1364306
+      role: authored-production-diagnostic-only
+      currentEvidence: stopped-before-accepted-receipt
+    exitCriteria:
+      - The independent validation host loads the fixed authored source through the production multi-Product route.
+      - The receipt records Product count, TTFMF, total cook, owner current/peak/limit bytes, page demand/churn, GPU errors, camera-cut recovery, and disposal.
+      - The result is labelled authored diagnostic/runtime evidence and cannot promote the formal 100M or PerformanceEvaluated claim.
+  - id: production-performance-debt
+    phase: K1
+    priority: P1
+    title: Close the scale debts exposed by authored production validation before formal 100M
+    state: todo
+    dependsOn: [authored-large-production-gate]
+    implementationEvidence:
+      review: docs/reviews/2026-09-22-web-100m-authored-first-validation-plan.md
+      scope:
+        - planner-scratch-and-ordered-materialization
+        - cancellation-failure-cleanup-and-scratch-accounting
+        - incremental-gpu-render-world-publication
+        - automatic-product-slot-and-metadata-capacity
+        - source-read-decode-upload-telemetry
+    exitCriteria:
+      - Giant-primitive planning does not rescan the complete primitive for every shard without bounded persistent scratch and evidence.
+      - Appending Products does not rebuild and submit the entire Scene publication once per shard without an explicit measured budget or incremental path.
+      - Catalog/Spatial Plan can estimate Product count and select capacity within negotiated WebGPU limits without caller-provided magic numbers.
+      - Scheduler telemetry distinguishes source read, decode, cook, and GPU upload throughput and records owner peaks and cleanup.
   - id: raster-bucket-optimization
     phase: L
     priority: P2
@@ -353,6 +395,7 @@ exitChecks:
   - evidence-provenance
   - engine-suites
 requiredEvidence:
+  - Authored-large K0 browser evidence with Product count, TTFMF, total cook, owner peaks, demand/churn, GPU diagnostics, camera-cut recovery, and disposal receipts; this evidence must remain labelled diagnostic and cannot promote the 100M claim
   - Nyx source-function, shader-entry, decision-condition, data-dependency, invariant, difference, fallback, and validation mapping for every changed geometry stage
   - Fixed workload identities for 10M development, 100M formal, 250M scalability, 500M diagnostic, and 1B logical-scale runs
   - Single-giant-primitive, many-primitives, city-grid, dense-indoor, high-occlusion, camera-cut, and high-instancing coverage
@@ -366,11 +409,13 @@ retirementTargets:
   - Single-Product Scene identity assumptions in production GPU metadata and instance references
   - Fixed read concurrency and in-flight byte policy used as the only large-scene scheduler mode
 openGates:
+  - K0 authored-large production evidence has not been accepted on the current revision; the stopped run is a debugging trace only.
+  - K1 planner scratch/materialization, incremental Scene publication, automatic Product capacity, and source/decode/upload telemetry debts remain open before the formal scale gate.
   - The official Zorah target requires bounded EXT_meshopt_compression decode before its catalog can reach canonical cook.
   - Giant-primitive spatial sharding lacks seam, determinism, and Nyx differential evidence.
   - Multi-Product Scene, relocated GPU Product Table, per-instance identity, streaming routing, and production renderer consumer are implemented; clean 100M browser evidence is still open.
   - Visible-first implementation and GPU demand compaction contract are complete; clean 100M browser duplicate/readback evidence and formal workload execution remain open.
   - GPU demand compaction and adaptive scheduler queues lack promoted capacity and overflow evidence.
   - Portable, Balanced, and HighEnd residency profiles lack negotiated-limit evidence across supported adapters.
-  - Formal 100M PERF evidence has not been captured on a clean revision.
+  - Formal 100M PERF evidence has not been captured on a clean revision; K2 is intentionally post-K0/K1 rather than the first machine workload.
   - 250M, 500M, and 1B logical-scale working-set evidence does not exist.

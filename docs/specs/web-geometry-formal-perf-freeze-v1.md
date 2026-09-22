@@ -91,6 +91,27 @@ evidence until `node tools/vibe.mjs case web-100m-formal-perf --run` succeeds on
 the committed revision. Until then it makes no `RuntimeValidated`,
 `PerformanceEvaluated`, or cross-adapter performance claim.
 
+## Validation ladder
+
+The formal 100M case is the K2 gate, not the first workload for a constrained
+development machine. The repository uses the following order:
+
+1. **K0 Authored Large Production Gate** runs `web-authored-large-perf` against
+   the fixed authored GLB to exercise the real multi-primitive production path.
+   It may produce diagnostic/runtime evidence for that authored asset, but it
+   cannot promote the 100M claim or the `PerformanceEvaluated` claim.
+2. **K1 Production Performance Debt** records or closes the known scale debts:
+   planner scratch and ordered materialization, incremental scene publication,
+   automatic Product slot/metadata capacity, and source/decode/upload telemetry.
+   These are prerequisites for interpreting a formal run; a contract/oracle
+   result alone is not a performance acceptance.
+3. **K2 Formal 100M Gate** is this contract's frozen 100,000,000-triangle run.
+   It must remain on the independent host with the clean revision and identity
+   requirements above. A K0 result must never be copied into K2 evidence.
+
+The 250M/500M/1B workloads remain post-K2 scalability or diagnostic gates. No
+formal case is required to run while this documentation update is being made.
+
 This contract does not permit old benchmark JSON, a dirty worktree, an authored
 control scene, the 1.6B-triangle Zorah archive, or a Node-only sample to stand in
 for the formal 100M browser run.
