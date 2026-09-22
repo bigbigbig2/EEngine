@@ -24,4 +24,5 @@ spec 是实现之间的精确合同，不负责解释长期取舍或报告进度
 - [Web Geometry GPU Demand Dedup / Compaction V1](./web-geometry-demand-compaction-v1.md) — Phase G Product-local page mask、bounded priority demand queue、overflow 与 delayed readback 合同。
 - [Web Geometry Adaptive GPU Residency Profile V1](./web-geometry-residency-profile-v1.md) — Phase H negotiated-limit profile selector、共享 page-bank capacity 与 feature-off 合同。
 - [Web Geometry Current-HZB Late Recheck V1](./web-geometry-current-hzb-late-recheck-v1.md) — Phase I bounded current-HZB candidate recheck、overflow fallback 与 image-parity 合同。
+- [Web Geometry Dynamic Page Scheduler V1](./web-geometry-dynamic-page-scheduler-v1.md) — Phase J camera/IO/GPU/frame pressure budget、burst、floor 与 evidence 合同。
 - [Web CookSession Protocol V1](./web-cook-session-protocol-v1.md) — draft main thread/Worker 命令事件、credit ownership 与状态机合同。

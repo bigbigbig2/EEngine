@@ -271,8 +271,20 @@ tasks:
     phase: J
     priority: P1
     title: Adapt reads, in-flight bytes, and upload budget to camera, IO, GPU, and frame pressure
-    state: todo
+    state: done
     dependsOn: [gpu-demand-dedup-compaction, adaptive-gpu-residency-profiles]
+    completedEvidence:
+      review: docs/reviews/2026-09-22-web-100m-phase-j-dynamic-page-scheduler.md
+      contract: docs/specs/web-geometry-dynamic-page-scheduler-v1.md
+      implementationStatus: bounded-adaptive-budget-controller-and-runtime-entry-complete
+      hardCaps: maxConcurrentReads-maxInFlightBytes-maxUploadBytesPerFrame
+      pressureInputs: [camera-state, io-throughput, gpu-pressure, frame-time]
+      cameraCutPolicy: temporary-burst-to-declared-caps
+      floorPolicy: decoded-page-bytes
+      tests:
+        - OEngine/tests/unit/geometry-page-scheduler-adaptive.test.mjs
+        - OEngine/tests/unit/geometry-page-scheduler.test.mjs
+      note: Real browser camera-cut/IO/GPU curves and formal 100M PERF remain open; device-loss safety keeps the existing generation contract.
     exitCriteria:
       - Scheduler budgets stay bounded and expose pressure, retry, cancellation, and overflow counters.
       - Camera cuts can burst within declared limits and stable views reduce streaming pressure.

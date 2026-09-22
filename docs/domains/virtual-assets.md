@@ -34,6 +34,12 @@ Required evidence covers producer neutral admission, GPU consumption, bounded co
 
 Web GLB and Offline OEGPACK producers create the same versioned Product contract. Admission validates descriptors and activation cuts, residency maps verified pages into bounded physical storage, and the active product generation publishes atomically into `GpuScene`/`GpuRenderWorld` for hierarchy work and visibility consumption.
 
+The Phase J scheduler keeps configured read concurrency, in-flight bytes, and
+upload bytes as hard caps, then adapts within them from delayed camera, IO, GPU,
+and frame pressure. Camera cuts may burst only to those caps; stable views and
+pressure reduce the active budget. Adaptive evidence is scheduling feedback and
+does not become a CPU visible-list producer.
+
 ## Owner Boundaries And Failure
 
 Providers own source/cook/cache lifetime; admission owns validation and activation transactions; residency owns page state and physical slots; the renderer owns GPU publication and consumption. Late pages, old generations, cancellation, budget failure, replacement failure, and device loss cannot mutate the currently active generation.

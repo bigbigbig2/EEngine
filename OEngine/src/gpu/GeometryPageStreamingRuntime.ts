@@ -3,7 +3,7 @@ import {
   GpuGeometryDemandReadbackRingV1,
   type GpuGeometryDemandReadbackRingOptionsV1
 } from "./GeometryDemandReadbackRing.js";
-import { GeometryPageSchedulerV1, type GeometryPageSchedulerEvidenceV1, type GeometryPageSchedulerOptionsV1 } from "./GeometryPageScheduler.js";
+import { GeometryPageSchedulerV1, type GeometryPageSchedulerEvidenceV1, type GeometryPageSchedulerOptionsV1, type GeometryPageSchedulerPressureV1, type GeometryPageSchedulerBudgetV1 } from "./GeometryPageScheduler.js";
 import { GEOMETRY_PAGE_LOCATION_PINNED, VirtualGeometryResidency, type VirtualGeometryResidencyEvidenceV1 } from "./VirtualGeometryResidency.js";
 import { unpackGeometryPageDemandHeaderV1, unpackGeometryPageDemandV1 } from "./GeometryPageDemandAbiV1.js";
 
@@ -62,6 +62,12 @@ export class GeometryPageStreamingRuntimeV1 {
   }
 
   get scheduler(): GeometryPageSchedulerV1 { return this.#scheduler; }
+
+  /** Applies delayed camera/IO/GPU/frame pressure without changing Product identity. */
+  updatePressure(pressure: GeometryPageSchedulerPressureV1): GeometryPageSchedulerBudgetV1 {
+    this.assertAlive();
+    return this.#scheduler.setPressure(pressure);
+  }
 
   /** Registers a Product source without transferring source ownership. */
   registerProduct(source: GeometryProductRevisionSourceV1): void {
