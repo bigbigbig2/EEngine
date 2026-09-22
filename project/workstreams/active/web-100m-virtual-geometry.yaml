@@ -13,6 +13,7 @@ contracts:
   - web-geometry-cooker-abi-v1
   - web-geometry-page-artifact-v1
   - web-geometry-spatial-shard-v1
+  - web-geometry-residency-profile-v1
   - web-cook-session-protocol-v1
   - web-geometry-multi-product-runtime-v1
 claims:
@@ -227,8 +228,21 @@ tasks:
     phase: H
     priority: P1
     title: Select Portable, Balanced, or HighEnd residency from negotiated WebGPU limits
-    state: todo
+    state: done
     dependsOn: [multi-product-runtime]
+    completedEvidence:
+      review: docs/reviews/2026-09-22-web-100m-phase-h-adaptive-gpu-residency.md
+      contract: docs/specs/web-geometry-residency-profile-v1.md
+      implementationStatus: implementation-and-contract-complete
+      profiles:
+        Portable: 536870912
+        Balanced: 805306368
+        HighEnd: 1073741824
+      bankCount: 4
+      pageBytes: 262144
+      contractTest: OEngine/tests/contract/geometry-product-residency-profile.test.mjs
+      testResult: 4/4
+      note: Negotiated-limit and fake-device contract evidence only; real-adapter profile, device-loss, clean 100M browser, and formal PERF evidence remain open.
     exitCriteria:
       - One Product ABI runs without recook across all supported profiles.
       - Allocation uses negotiated limits and runtime evidence rather than assumed physical VRAM.

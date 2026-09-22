@@ -14,7 +14,7 @@ import {
 import {
   reserveGeometryProductMetadataBytes
 } from "./GeometryProductGpuBudget.js";
-import { VirtualGeometryResidency } from "./VirtualGeometryResidency.js";
+import { VirtualGeometryResidency, type VirtualGeometryResidencyOptionsV1 } from "./VirtualGeometryResidency.js";
 
 /** Phase E logical multi-Product table and lifecycle ABI version. */
 export const GEOMETRY_PRODUCT_MULTI_RUNTIME_ABI_VERSION_V1 = 1;
@@ -98,6 +98,7 @@ interface ProductEntry {
  */
 export class GeometryProductMultiRuntimeV1 {
   readonly #device: GPUDevice;
+  readonly #residencyOptions: VirtualGeometryResidencyOptionsV1;
   readonly #slotCapacity: number;
   readonly #table: GPUBuffer;
   readonly #releaseTableReservation: () => void;
@@ -117,8 +118,12 @@ export class GeometryProductMultiRuntimeV1 {
   #rejectedCompletions = 0;
   #peakActive = 0;
 
-  constructor(device: GPUDevice, options: Readonly<{ readonly slotCapacity?: number }> = {}) {
+  constructor(device: GPUDevice, options: Readonly<{
+    readonly slotCapacity?: number;
+    readonly residency?: VirtualGeometryResidencyOptionsV1;
+  }> = {}) {
     this.#device = device;
+    this.#residencyOptions = options.residency ?? {};
     const slotCapacity = options.slotCapacity ?? GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1;
     if (!Number.isSafeInteger(slotCapacity) || slotCapacity < GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1 || slotCapacity >= 0xffffffff) {
       throw new RangeError(`Geometry Product multi-runtime slotCapacity must be an integer in [${GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1}, 0xfffffffe]`);
@@ -412,7 +417,8 @@ export class GeometryProductMultiRuntimeV1 {
       source,
       generation,
       slot,
-      abort.signal
+      abort.signal,
+      this.#residencyOptions
     ).then((residency) => {
       entry.residency = residency;
       return residency;

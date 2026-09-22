@@ -15,7 +15,12 @@ import {
 } from "../assets/geometry-product/GeometryProductV1.js";
 import { GEOMETRY_PAGE_LOCATION_NON_RESIDENT, GEOMETRY_PAGE_LOCATION_PINNED, GEOMETRY_PAGE_LOCATION_RESIDENT, GEOMETRY_PAGE_LOCATION_STRIDE, GEOMETRY_PRODUCT_METADATA_HEAP_HEADER_BYTES_V1, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1, packGeometryProductAssetReferenceV1, packGeometryProductMetadataHeapHeaderV1, packGeometryProductTableRecordV1 } from "./GeometryProductGpuAbiV1.js";
 import { geometryProductGpuBudgetEvidence, reserveGeometryProductMetadataBytes } from "./GeometryProductGpuBudget.js";
-import { GeometryProductSlotPool, GEOMETRY_PRODUCT_SHARED_BANK_BYTES } from "./GeometryProductSlotPool.js";
+import { GeometryProductSlotPool } from "./GeometryProductSlotPool.js";
+import {
+  selectGeometryProductResidencyProfileV1,
+  type GeometryProductResidencyProfileOptionsV1,
+  type GeometryProductResidencyProfilePlanV1
+} from "./GeometryProductResidencyProfile.js";
 export { GEOMETRY_PAGE_LOCATION_NON_RESIDENT, GEOMETRY_PAGE_LOCATION_PINNED, GEOMETRY_PAGE_LOCATION_RESIDENT, GEOMETRY_PAGE_LOCATION_STRIDE } from "./GeometryProductGpuAbiV1.js";
 
 export interface GeometryPageLocationV1 {
@@ -26,6 +31,9 @@ export interface GeometryPageLocationV1 {
 }
 
 export interface VirtualGeometryResidencyEvidenceV1 {
+  readonly residencyProfile: GeometryProductResidencyProfilePlanV1["profile"];
+  readonly profileBankBytes: number;
+  readonly profileCapacityBytes: number;
   readonly productGeneration: number;
   readonly offeredRevisions: number;
   readonly admittedRevisions: number;
@@ -57,6 +65,8 @@ export interface VirtualGeometryResidencyEvidenceV1 {
   readonly shortTermRerequests: number;
   readonly thrashBytes: number;
 }
+
+export type VirtualGeometryResidencyOptionsV1 = GeometryProductResidencyProfileOptionsV1;
 
 export interface GeometryProductGpuBindingsV1 {
   readonly productTableSlot: number;
@@ -106,6 +116,7 @@ export class VirtualGeometryResidency {
   readonly #productTableSlot: number;
   readonly #metadata: GPUBuffer;
   readonly #metadataLayout: MetadataLayout;
+  readonly #residencyProfile: GeometryProductResidencyProfilePlanV1;
   readonly #signal?: AbortSignal;
   #destroyed = false;
   #uploadedBytes = 0;
@@ -118,11 +129,19 @@ export class VirtualGeometryResidency {
   #shortTermRerequests = 0;
   #thrashBytes = 0;
 
-  private constructor(readonly device: GPUDevice, source: GeometryProductRevisionSourceV1, productGeneration: number, productTableSlot: number, signal?: AbortSignal) {
+  private constructor(
+    readonly device: GPUDevice,
+    source: GeometryProductRevisionSourceV1,
+    productGeneration: number,
+    productTableSlot: number,
+    profile: GeometryProductResidencyProfilePlanV1,
+    signal?: AbortSignal
+  ) {
     this.#source = source;
     this.#descriptor = source.descriptor;
     this.#productGeneration = productGeneration;
     this.#productTableSlot = productTableSlot;
+    this.#residencyProfile = profile;
     this.#signal = signal;
     this.#indexHierarchyImportance();
     const assetCount = source.descriptor.assetRecords.byteLength / 128;
@@ -144,14 +163,27 @@ export class VirtualGeometryResidency {
     }
   }
 
-  static async create(device: GPUDevice, source: GeometryProductRevisionSourceV1, productGeneration = 1, productTableSlot = 0, signal?: AbortSignal): Promise<VirtualGeometryResidency> {
+  static async create(
+    device: GPUDevice,
+    source: GeometryProductRevisionSourceV1,
+    productGeneration = 1,
+    productTableSlot = 0,
+    signal?: AbortSignal,
+    options: VirtualGeometryResidencyOptionsV1 = {}
+  ): Promise<VirtualGeometryResidency> {
     let owner: VirtualGeometryResidency | undefined;
     try {
       if (signal?.aborted) throw signal.reason ?? new Error("Geometry Product admission was cancelled");
       assertGeometryProductDescriptorV1(source.descriptor);
       if (!Number.isInteger(productGeneration) || productGeneration <= 0 || productGeneration === 0xffffffff) throw new RangeError("productGeneration must be a non-zero u32");
       if (!Number.isInteger(productTableSlot) || productTableSlot < 0 || productTableSlot >= 0xffffffff) throw new RangeError("productTableSlot must be a valid u32");
-      owner = new VirtualGeometryResidency(device, source, productGeneration, productTableSlot, signal);
+      const profile = selectGeometryProductResidencyProfileV1({
+        maxBufferSize: Number(device.limits.maxBufferSize),
+        maxStorageBufferBindingSize: Number(device.limits.maxStorageBufferBindingSize),
+        maxStorageBuffersPerShaderStage: Number(device.limits.maxStorageBuffersPerShaderStage ?? 16)
+      }, options);
+      if (!profile.enabled) throw new RangeError(`Geometry Product residency is unavailable: ${profile.reason}`);
+      owner = new VirtualGeometryResidency(device, source, productGeneration, productTableSlot, profile, signal);
       await owner.#fillActivationCut();
       return owner;
     } catch (error) {
@@ -164,7 +196,7 @@ export class VirtualGeometryResidency {
     const pages = [...this.#descriptor.activationPageIds];
     // All revisions bind the same four bank objects. Global slot ownership
     // prevents new/old Product overlap while keeping refinement bindings fixed.
-    this.#slotPool = GeometryProductSlotPool.retain(this.device);
+    this.#slotPool = GeometryProductSlotPool.retainWithProfile(this.device, this.#residencyProfile);
     this.#banks.push(...this.#slotPool.banks);
     if (pages.length > this.#slotPool.availableSlots) throw new RangeError("Geometry Product activation cut exceeds shared GPU slot capacity");
     for (let index = 0; index < pages.length; index++) {
@@ -216,6 +248,7 @@ export class VirtualGeometryResidency {
   }
   get productGeneration(): number { return this.#productGeneration; }
   get productTableSlot(): number { return this.#productTableSlot; }
+  get residencyProfile(): GeometryProductResidencyProfilePlanV1 { return this.#residencyProfile; }
   activatePublication(): void { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#writeProductRecord(GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1); this.#activePublication = true; }
   /** Withdraws the Product record while retaining source and resident pages for a dormant shard. */
   deactivatePublication(): void { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); this.#writeProductRecord(0); this.#activePublication = false; }
@@ -323,6 +356,9 @@ export class VirtualGeometryResidency {
     const pinnedPages = [...this.#pageLocations.values()].filter(location => (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0).length;
     const global = geometryProductGpuBudgetEvidence(this.device);
     return Object.freeze({
+      residencyProfile: this.#residencyProfile.profile,
+      profileBankBytes: this.#residencyProfile.bankBytes,
+      profileCapacityBytes: this.#residencyProfile.capacityBytes,
       productGeneration: this.#productGeneration,
       offeredRevisions: 1,
       admittedRevisions: this.#failedPages ? 0 : 1,
@@ -339,8 +375,8 @@ export class VirtualGeometryResidency {
       metadataBytes: this.#metadataLayout.byteLength,
       bankCount: this.#banks.length,
       slotCapacity: this.#slotPool?.slotCapacity ?? 0,
-      allocatedCapacityBytes: this.#metadataLayout.byteLength + this.#banks.length * GEOMETRY_PRODUCT_SHARED_BANK_BYTES,
-      sharedBankCapacityBytes: this.#banks.length * GEOMETRY_PRODUCT_SHARED_BANK_BYTES,
+      allocatedCapacityBytes: this.#metadataLayout.byteLength + this.#banks.length * this.#residencyProfile.bankBytes,
+      sharedBankCapacityBytes: this.#banks.length * this.#residencyProfile.bankBytes,
       globalAllocatedCapacityBytes: global.allocatedBytes,
       globalMetadataBytes: global.metadataBytes,
       globalTotalCapacityBytes: global.totalBytes,

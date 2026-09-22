@@ -142,6 +142,7 @@ import {
   VirtualGeometryResidency,
   VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE
 } from "../../gpu/VirtualGeometryResidency.js";
+import type { VirtualGeometryResidencyOptionsV1 } from "../../gpu/VirtualGeometryResidency.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
 import { GeometryProductAdmissionController } from "../../gpu/GeometryProductAdmission.js";
 import type { GeometryProductAdmissionTransaction } from "../../gpu/GeometryProductAdmission.js";
@@ -637,6 +638,8 @@ export interface ProductSceneSourceMapper {
 export interface ProductSceneOptions {
   readonly signal?: AbortSignal;
   readonly stream?: boolean;
+  /** Physical residency profile; Product/Page ABI and cook output are unchanged. */
+  readonly residency?: VirtualGeometryResidencyOptionsV1;
   /** Runs after the revision is mapped and before GPU publication. */
   readonly onMaterials?: (materials: readonly StandardShadeMaterial[]) => void;
   /**
@@ -1198,7 +1201,7 @@ export class MainRenderPipeline {
         publicationTail = publication;
         await publication;
       }
-    });
+    }, options.residency);
     admission.onActivated((transaction) => {
       const retirement = retirementBoundaries.get(transaction.generation);
       if (!retirement) return;
@@ -2183,6 +2186,12 @@ export class MainRenderPipeline {
         source: state.source,
         productGeneration: state.residency.productGeneration,
         productTableSlot: state.residency.productTableSlot,
+        residency: {
+          requestedProfile: state.residency.residencyProfile.profile === "Disabled"
+            ? "Portable"
+            : state.residency.residencyProfile.profile,
+          configuredCapacityBytes: state.residency.residencyProfile.capacityBytes
+        } satisfies VirtualGeometryResidencyOptionsV1,
         sceneSource: refreshProductSceneSourceForRecovery(scene, state.sceneSource),
         streamingEnabled: state.streamingEnabled
       });
@@ -2227,7 +2236,9 @@ export class MainRenderPipeline {
         this.device,
         entry.source,
         entry.productGeneration,
-        entry.productTableSlot
+        entry.productTableSlot,
+        undefined,
+        entry.residency
       );
       // A rebuilt residency must re-publish its Product table record, otherwise
       // the GPU traversal never sees the hierarchy of the restored Product.

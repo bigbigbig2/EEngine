@@ -273,8 +273,28 @@ export { VirtualGeometryResidency } from "./gpu/VirtualGeometryResidency.js";
 export type {
   GeometryPageLocationV1,
   GeometryProductGpuBindingsV1,
-  VirtualGeometryResidencyEvidenceV1
+  VirtualGeometryResidencyEvidenceV1,
+  VirtualGeometryResidencyOptionsV1
 } from "./gpu/VirtualGeometryResidency.js";
+export {
+  GEOMETRY_PRODUCT_RESIDENCY_PROFILE_ABI_VERSION_V1,
+  GEOMETRY_PRODUCT_RESIDENCY_BANK_COUNT_V1,
+  GEOMETRY_PRODUCT_PORTABLE_BANK_BYTES_V1,
+  GEOMETRY_PRODUCT_BALANCED_BANK_BYTES_V1,
+  GEOMETRY_PRODUCT_HIGH_END_BANK_BYTES_V1,
+  GEOMETRY_PRODUCT_PORTABLE_CAPACITY_BYTES_V1,
+  GEOMETRY_PRODUCT_BALANCED_CAPACITY_BYTES_V1,
+  GEOMETRY_PRODUCT_HIGH_END_CAPACITY_BYTES_V1,
+  selectGeometryProductResidencyProfileV1
+} from "./gpu/GeometryProductResidencyProfile.js";
+export type {
+  GeometryProductResidencyLimitsV1,
+  GeometryProductResidencyProfileIdV1,
+  GeometryProductResidencyProfileRequestV1,
+  GeometryProductResidencyProfileOptionsV1,
+  GeometryProductResidencyProfilePlanV1,
+  GeometryProductResidencyRuntimeEvidenceV1
+} from "./gpu/GeometryProductResidencyProfile.js";
 export {
   GEOMETRY_PRODUCT_MULTI_RUNTIME_ABI_VERSION_V1,
   GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1,

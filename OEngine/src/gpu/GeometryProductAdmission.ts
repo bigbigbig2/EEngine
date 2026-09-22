@@ -4,7 +4,7 @@ import {
   type GeometryProductProviderV1,
   type GeometryProductRevisionSourceV1
 } from "../assets/geometry-product/GeometryProductV1.js";
-import { VirtualGeometryResidency } from "./VirtualGeometryResidency.js";
+import { VirtualGeometryResidency, type VirtualGeometryResidencyOptionsV1 } from "./VirtualGeometryResidency.js";
 import type { GeometryPageSchedulerV1 } from "./GeometryPageScheduler.js";
 
 export type GeometryProductRevisionStateV1 = "offered" | "validating" | "reserving" | "filling-activation-cut" | "ready-to-activate" | "active" | "retiring" | "retired" | "failed" | "cancelled";
@@ -37,7 +37,7 @@ export class GeometryProductAdmission {
   #active = 0;
   #failed = 0;
   #cancelled = 0;
-  constructor(public device: GPUDevice) {}
+  constructor(public device: GPUDevice, readonly residencyOptions: VirtualGeometryResidencyOptionsV1 = {}) {}
 
   replaceDevice(device: GPUDevice): void { this.device = device; }
 
@@ -83,8 +83,9 @@ export class GeometryProductAdmissionController {
     private readonly publish?: (
       candidate: GeometryProductAdmissionTransaction,
       previous: GeometryProductAdmissionTransaction | undefined
-    ) => Promise<void>
-  ) { this.#admission = new GeometryProductAdmission(device); }
+    ) => Promise<void>,
+    residencyOptions: VirtualGeometryResidencyOptionsV1 = {}
+  ) { this.#admission = new GeometryProductAdmission(device, residencyOptions); }
 
   get active(): GeometryProductAdmissionTransaction | undefined { return this.#active; }
   get admission(): GeometryProductAdmission { return this.#admission; }
@@ -277,7 +278,14 @@ export class GeometryProductAdmissionTransaction {
       // VirtualGeometryResidency.create owns source release on every path once
       // descriptor validation has passed, including asynchronous fill failure.
       sourceTransferred = true;
-      this.#residency = await VirtualGeometryResidency.create(this.admission.device, this.source, this.generation, this.productTableSlot, this.#abort.signal);
+      this.#residency = await VirtualGeometryResidency.create(
+        this.admission.device,
+        this.source,
+        this.generation,
+        this.productTableSlot,
+        this.#abort.signal,
+        this.admission.residencyOptions
+      );
       if (this.#abort.signal.aborted) throw this.#abort.signal.reason ?? new Error("Geometry Product admission was cancelled");
       this.#state = "ready-to-activate"; this.admission._admitted();
       return this.#residency;
@@ -325,9 +333,23 @@ export class GeometryProductAdmissionTransaction {
   }
   async recover(device: GPUDevice): Promise<VirtualGeometryResidency> {
     if (this.#state !== "active" || !this.#residency) throw new Error("Geometry Product transaction cannot recover unless active");
+    const residencyOptions: VirtualGeometryResidencyOptionsV1 = {
+      ...this.admission.residencyOptions,
+      requestedProfile: this.#residency.residencyProfile.profile === "Disabled"
+        ? "Portable"
+        : this.#residency.residencyProfile.profile,
+      configuredCapacityBytes: this.#residency.residencyProfile.capacityBytes
+    };
     this.#residency.abandonForDeviceLoss();
     try {
-      this.#residency = await VirtualGeometryResidency.create(device, this.source, this.generation, this.productTableSlot, this.#abort.signal);
+      this.#residency = await VirtualGeometryResidency.create(
+        device,
+        this.source,
+        this.generation,
+        this.productTableSlot,
+        this.#abort.signal,
+        residencyOptions
+      );
       this.#residency.activatePublication();
       return this.#residency;
     } catch (error) {

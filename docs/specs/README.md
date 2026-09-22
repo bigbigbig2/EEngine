@@ -22,4 +22,5 @@ spec 是实现之间的精确合同，不负责解释长期取舍或报告进度
 - [Web Geometry Multi-Product Runtime V1](./web-geometry-multi-product-runtime-v1.md) — Phase E Product Table、Product-local identity、replacement/eviction/dormancy/release 与实例 ABI 合同。
 - [Web Geometry Visible-First Product Scheduler V1](./web-geometry-visible-first-product-scheduler-v1.md) — Phase F current-view/spatial priority、TTFMF 与 total cook completion 边界、后台 refinement 和取消合同。
 - [Web Geometry GPU Demand Dedup / Compaction V1](./web-geometry-demand-compaction-v1.md) — Phase G Product-local page mask、bounded priority demand queue、overflow 与 delayed readback 合同。
+- [Web Geometry Adaptive GPU Residency Profile V1](./web-geometry-residency-profile-v1.md) — Phase H negotiated-limit profile selector、共享 page-bank capacity 与 feature-off 合同。
 - [Web CookSession Protocol V1](./web-cook-session-protocol-v1.md) — draft main thread/Worker 命令事件、credit ownership 与状态机合同。
