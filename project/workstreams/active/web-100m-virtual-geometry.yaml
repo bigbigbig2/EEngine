@@ -9,15 +9,14 @@ sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
 goal: Stabilize the fixed authored-large GLB through work-bounded Web cook, complete catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal; retain 100M as a later scale gate.
 
 currentSlice:
-  id: S0
-  title: Validate bounded spatial scratch on the 100M giant source
-  target: external-spatial-scratch
+  id: S1
+  title: Validate independent 100M multi-primitive and single-giant sources
+  target: formal-100m-perf-freeze
   status: implementing
-  finding: K0, K1, and K2 passed on clean revision 6712564. Chrome OPFS probe confirmed bounded ownership and orphan cleanup. The clean 7c9518d 100M giant diagnostic passed source admission and produced Product 0, then Product 1 failed in wasm-plan with std::bad_alloc after 98 shards were planned; this is not a 100M scale pass.
+  finding: S0 external scratch passed Chrome normal, cancellation, and forced-termination cleanup probes. The clean f05f900 100M giant diagnostic materialized 1.2 GB in OPFS with 28.1 MB peak RAM scratch and released it after Product 1 failed in wasm-plan with std::bad_alloc; the full 100M scale gate remains open.
 nextTasks:
-  - Validate external scratch materialization, byte peak, and release receipts in the 100M browser diagnostic.
-  - Bound Nyx WASM work per giant shard and rerun the single-giant diagnostic past Product 1.
   - Generate and mount a separate 100M many-primitive source with independent local geometry.
+  - Bound Nyx WASM work per giant shard and rerun the single-giant diagnostic past Product 1.
   - Verify visible pixels, session spill capacity, and disposal before any formal 100M promotion.
   - Renew authored K0/K1/K2 on the next final clean revision; profile material and publication before changing worker parallelism.
 
@@ -96,7 +95,7 @@ tasks:
     phase: S0
     priority: P1
     title: Bound giant-primitive Morton index materialization with OPFS scratch
-    state: active
+    state: done
     dependsOn: [authored-large-formal-perf]
     exitCriteria:
       - A 100M primitive never allocates full-primitive JS index scratch.
@@ -106,7 +105,7 @@ tasks:
     phase: S1
     priority: P2
     title: Run the deferred clean formal 100M scale gate
-    state: todo
+    state: active
     dependsOn: [external-spatial-scratch]
     exitCriteria:
       - The authored target is already accepted.
@@ -125,9 +124,8 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence before the separate 100M scale gate.
 openGates:
-  - The 100M giant is mounted, but Product 1 fails in wasm-plan with std::bad_alloc; the diagnostic screenshot is black and full coverage, spill, settled, and disposal receipts are absent.
+  - The 100M giant is mounted, but Product 1 fails in wasm-plan with std::bad_alloc; the diagnostic screenshot is black and full coverage, spill, settled, and GPU disposal receipts are absent.
   - The 100M many-primitive source is not generated or mounted; both scale categories remain unaccepted.
-  - External scratch has a Chrome diagnostic probe but lacks an authored browser receipt for backend, external bytes, and cleanup on the actual giant source.
   - Authored K0/K1/K2 acceptance must be renewed on the final clean revision after validation and workstream changes.
 
 links:
