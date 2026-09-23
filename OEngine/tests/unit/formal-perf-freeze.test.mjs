@@ -27,13 +27,13 @@ const freeze = Object.freeze({
     timestampQuery: true
   },
   resolution: { width: 1920, height: 1080, devicePixelRatio: 1, renderScale: 1 },
-  cameraPath: { id: "web-100m-formal-camera-v1", sha256: "d".repeat(64) },
+  cameraPath: { id: "web-authored-large-formal-camera-v1", sha256: "d".repeat(64) },
   featureSet: ["core-features-and-limits", "timestamp-query"],
   workload: {
-    id: "web-100m-formal-perf-v1",
+    id: "web-authored-large-perf-v1",
     sha256: "e".repeat(64),
     sourceSha256: "f".repeat(64),
-    sourceTriangles: 100000000
+    sourceTriangles: 4871612
   }
 });
 

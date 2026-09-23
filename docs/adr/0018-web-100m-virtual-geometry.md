@@ -1,12 +1,12 @@
-# ADR-0018: Web Authored Large Virtual Geometry 可扩展生产与分片运行时
+# ADR-0018: Web `large.glb` Virtual Geometry 生产与分片运行时
 
 Status: proposed
 
 ## Context
 
 ADR-0016 与 ADR-0017 已建立 Geometry Product、page 级物理驻留、GPU demand、
-ancestor fallback、增量发布和 revision 原子替换。当前正式缺口不再定义为“先吃下
-100M triangles”，而是让浏览器稳定处理一个真实 authored 场景：
+ancestor fallback、增量发布和 revision 原子替换。当前目标是让浏览器稳定处理
+用户提供的真实 authored 场景：
 
 ```text
 large.glb
@@ -16,9 +16,8 @@ large.glb
 maximum primitive = 1,364,306 triangles
 ```
 
-该规模仍会卡住，不能再归因于 100M 目标过激。现有 GPU Virtual Geometry、
-Multi-Product、Residency 和统一渲染管线继续保留；首要结构问题集中在 CPU/WASM
-producer 的任务粒度、同步调度、spill budget 和可观测性。
+现有 GPU Virtual Geometry、Multi-Product、Residency 和统一渲染管线继续保留；
+验收重点是 CPU/WASM producer 的任务粒度、同步调度、spill budget 和可观测性。
 
 研究依据与完整备选分析保留在
 [ADR-0018 架构研究稿](../reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)。
@@ -45,14 +44,12 @@ metadata catalog
   -> bounded GPU working set
 ```
 
-100M single-giant workload 保留为 authored 目标通过后的 scale gate，不再是
-ADR-0018 当前完成声明或本机首个浏览器门禁。250M、500M 和 1B logical 继续后置。
+ADR-0018 的当前完成声明只针对上述 `large.glb` 及其生产、渲染、性能和释放证据。
+100M 仍是最终人工验证目标，待用户提供代表性模型后再单独冻结来源和验收条件；
+当前不生成、不挂载、不运行合成 100M 模型。
 
-### Scale, partition quality and physical budgets
+### Partition quality and physical budgets
 
-- 100M evidence 必须分别标识 unique-source multi-primitive、single-giant primitive
-  和 instanced-logical 三种负载，并同时记录 unique source triangles、最大 primitive
-  triangles、instance count 与 logical triangles；三者不得互相替代验收。
 - Product budget 是可测量、可调整的 workload policy。128 Ki triangles 只是 authored
   起始值；调整时同时比较 cook 长尾、首个 activation、Product/root/metadata 数量、
   边界顶点重复及驻留成本。跨 shard 的 seam、保守 bounds、LOD error 和 fallback
@@ -99,8 +96,8 @@ ADR-0018 当前完成声明或本机首个浏览器门禁。250M、500M 和 1B l
   `(ProductTableSlot, ProductGeneration, AssetRecordIndex)`。
 - PageID 保持 Product-local；ProductShard 支持独立 publish、replace、evict、release
   和 stale-generation rejection。
-- 当前每次 append 后 full scene republish 是已知 K1 性能债，但在预计几十到约一百
-  Product 的 authored 目标下不是 Product work quantum 的前置重构。
+- 增量 Scene publication 应只处理新增 Product，并保持既有 Product 的稳定身份；
+  性能结论由 `large.glb` 的 K1/K2 浏览器证据确认。
 
 ### Scheduling
 
@@ -116,7 +113,7 @@ ADR-0018 当前完成声明或本机首个浏览器门禁。250M、500M 和 1B l
 
 ### K0 — Authored cook
 
-计划中的 `web-authored-large-cook-k0` 只证明完整 cook、全 primitive coverage、任务
+`web-authored-large-cook-k0` 只证明完整 cook、全 primitive coverage、任务
 阶段证据、owner/spill budget、settled 和 disposal。它不要求 timestamp、120-frame
 warmup、480 samples 或 3 runs。
 
@@ -132,8 +129,8 @@ union(all Product.sceneAssetIndices) covers all 1,920 catalog primitives
 Product count >= 1,920
 ```
 
-Product/shard count只记录真实值。K0 的 workload 已冻结；case 只有在页面能强制上述
-断言后才允许注册，禁止创建可误通过的 placeholder。
+Product/shard count 只记录真实值。K0 的 workload 与 executable case 已登记，
+页面必须强制上述断言，禁止可误通过的 placeholder。
 
 ### K1 — Authored runtime smoke and producer closure
 
@@ -146,14 +143,8 @@ IO/decode/upload telemetry 等债务。
 `web-authored-large-perf` 是当前 `virtual-assets.performance` 的 L4 promotion case。
 它在 K0/K1 通过后，冻结 clean revision、Chrome、adapter、display、camera、feature、
 workload identity，执行 warmup、多 run、CPU/GPU P50/P95 与 camera-cut 测量。共享
-页面仍硬编码旧 Product-count/64 MiB 条件，完成 workload-driven coverage/work-budget
-实现之前不得运行 promotion。
-
-### S1 — Deferred 100M scale gate
-
-`web-100m-formal-perf` 只覆盖 `virtual-assets.scale-performance`。它用于证明架构继续
-扩展到 single-giant 100M，不得阻塞或替代 authored 目标，也不得用 authored evidence
-冒充 100M evidence。
+页面按 authored workload 验证 coverage 与 work budget。正式 promotion 仍要求
+当前 clean revision 的完整 preflight 和浏览器记录。
 
 完整验收字段和晋级边界见
 [Authored Large Gate V1](../specs/web-geometry-authored-large-gate-v1.md) 与
@@ -161,9 +152,8 @@ workload identity，执行 warmup、多 run、CPU/GPU P50/P95 与 camera-cut 测
 
 ## Consequences
 
-当前工程焦点从“同时补齐所有 100M 极端能力”收敛到“消灭不可预测的大同步 Cook
-quantum”。100M single-primitive OPFS ownership scratch、250M/500M/1B、2 GiB GPU
-residency、大规模 distributed Product 和 1000+ Product append 优化均可延后。
+当前工程焦点是 `large.glb` 的有界 Cook quantum、首次有效画面、完整渲染与
+K2 性能长尾。额外的大规模数据集不进入本工作流。
 
 代价是 producer 需要新的 work planner、task trace、session spill accounting 和
 activation-first lifecycle。任何 sharding、spill、并行或 scheduler 改造仍必须保留 Nyx
@@ -185,7 +175,6 @@ contract/oracle、独立 browser case 和当前 revision evidence 可以提升�
 4. authored K0 证明全 1,920 primitive coverage、settled、bounded owner peaks 和 disposal；
 5. runtime smoke 证明生产 GPU consumer、page demand 和 camera movement；
 6. authored formal PERF 形成当前目标的 L4 evidence；
-7. 最后才运行 deferred 100M scale gate。
 
 真实浏览器 evidence 只能来自独立 `validation/` 宿主。文档更新、旧日志、停止的运行、
-`units=3`、Product 数量猜测或 100M 合成数据都不能单独提升 authored 目标。
+`units=3` 或 Product 数量猜测都不能单独提升 authored 目标。

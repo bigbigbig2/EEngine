@@ -13,8 +13,8 @@ generations, invalid ranges, and unsupported record sizes fail closed.
 ## Contract
 
 The Product-per-Shard route incrementally admits independent revisions, appends
-their immutable tables into one scene metadata heap, republishes the packed GPU
-scene, and renders through the normal hierarchy, MeshletWork, hardware visibility,
+their immutable tables into one scene metadata heap, publishes appended scene
+state incrementally, and renders through the normal hierarchy, MeshletWork, hardware visibility,
 and shading consumers. The first admitted shard can render before total cook
 completion. No frame builds a CPU final-visible list.
 
@@ -25,11 +25,11 @@ vertex-format ranges; root node IDs and hierarchy child/group IDs are rewritten 
 the combined namespace. Page IDs remain Product-local: Product `pageBegin` selects
 the global page-location range and the local PageID indexes within it.
 
-The formal 100M route freezes a 128-slot Product Table and a 128 MiB combined
-metadata binding. Each buffer is independently limited by negotiated
+The authored workload derives Product Table slots and combined metadata capacity
+from its catalog and negotiated limits. Each buffer is independently limited by
 `maxBufferSize` and `maxStorageBufferBindingSize`. Combined plus Product-local
-descriptor metadata is tracked by a separate 256 MiB overhead ledger; decoded
-geometry remains in the shared bounded page banks and is not metadata.
+descriptor metadata is tracked separately from decoded geometry in the shared
+bounded page banks.
 
 ## Product Table ABI
 
@@ -84,6 +84,5 @@ ranges, shared page-location publication, per-instance slot/generation lanes,
 global demand-mask indexing, multi-Product streaming routing, scene merge of
 transform/material/bounds, replacement/dormancy/eviction/release, stale identity,
 and slot ABA. Current production browser performance promotion requires clean
-`web-authored-large-perf` evidence after authored K0/K1; the deferred
-`web-100m-formal-perf` case proves only the separate scale claim. Implementation
-alone is not RuntimeValidated or PerformanceEvaluated.
+`web-authored-large-perf` evidence after authored K0/K1. Implementation alone is
+not RuntimeValidated or PerformanceEvaluated.

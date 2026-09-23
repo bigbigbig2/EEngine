@@ -5,11 +5,9 @@ import { createHash } from "node:crypto";
 import { defineConfig } from "vite";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
-const formal100mSource = resolve(root, "../.local/validation/web-100m-phase-a-baseline/single-giant-100m.glb");
 const authoredLargeSource = resolve(root, "../.local/validation/web-authored-large/large.glb");
 
 const localAssets = Object.freeze([
-  Object.freeze({ route: "/assets/web-100m/single-giant-100m.glb", path: formal100mSource, label: "formal 100M source" }),
   Object.freeze({ route: "/assets/web-authored-large/large.glb", path: authoredLargeSource, label: "authored large source" })
 ]);
 
@@ -104,7 +102,7 @@ export default defineConfig({
         "virtual-product-replacement": resolve(root, "cases/virtual-product-replacement/index.html"),
         "virtual-product-device-loss": resolve(root, "cases/virtual-product-device-loss/index.html"),
         "virtual-product-offline": resolve(root, "cases/virtual-product-offline/index.html"),
-        "web-100m-formal-perf": resolve(root, "cases/web-100m-formal-perf/index.html"),
+        "web-authored-large-perf": resolve(root, "cases/web-authored-large-perf/index.html"),
         "web-authored-large-cook-k0": resolve(root, "cases/web-authored-large-cook-k0/index.html"),
         "virtual-product-observer": resolve(root, "labs/virtual-product-observer/index.html")
       }

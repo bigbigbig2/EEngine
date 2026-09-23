@@ -1,14 +1,18 @@
-# ADR-0018：Web Authored Large Virtual Geometry — Bounded Product Work 与后续 100M Scale
+# ADR-0018 历史研究稿：Web Authored Large Virtual Geometry
+
+> 本文保留早期规模探索与诊断，作为历史研究资料，不是当前实施计划。
+> 当前 ADR-0018 和活跃 workstream 仅以用户的 `large.glb` 为验证源；文中
+> 100M 负载、阶段和待办均已退出当前范围，不应据此生成或运行合成模型。
+> 100M 仅保留为将来用户提供代表性资产后人工启动的目标。
 
 **状态**：Proposed  
 **日期**：2026-09-21  
 **适用项目**：EEngine  
 **目标基线**：ADR-0016 / ADR-0017 之后的大规模虚拟几何阶段  
-**当前正式目标**：Web 端稳定加载 `large.glb`（477,591,060 bytes、4,871,612 triangles、1,920 primitives、最大 primitive 1,364,306 triangles），完成 runtime cook、渐进发布、Multi-Product、GPU consumer、streaming 和 disposal。100M 保留为后续 scale gate。
+**当前正式目标**：Web 端稳定加载 `large.glb`（477,591,060 bytes、4,871,612 triangles、1,920 primitives、最大 primitive 1,364,306 triangles），完成 runtime cook、渐进发布、Multi-Product、GPU consumer、streaming 和 disposal。
 
-> 2026-09-22 目标重置：本文早期章节中的 100M/250M/500M/1B 设计仍是长期
-> scalability architecture，但不再是当前验收顺序或完成定义。当前权威验收顺序以
-> 第 38、41、49 节的 authored K0/K1/K2 与 deferred S1 为准。
+> 本文的规模扩展章节仅保留历史推演。当前验收条件以
+> [ADR-0018](../adr/0018-web-100m-virtual-geometry.md) 和活跃 workstream 为准。
 
 ---
 

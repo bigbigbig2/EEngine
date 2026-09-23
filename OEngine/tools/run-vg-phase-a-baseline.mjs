@@ -15,7 +15,8 @@ const REQUIRED_OWNERS = Object.freeze([
 export async function runPhaseABaseline(options) {
   const sourcePath = resolve(options.source ?? "");
   const manifestPath = resolve(options.manifest ?? `${sourcePath}.manifest.json`);
-  const workloadPath = resolve(options.workload ?? "../validation/workloads/web-100m-phase-a-baseline-v1.yaml");
+  if (!options.workload) throw new Error("Phase A baseline requires an explicit workload");
+  const workloadPath = resolve(options.workload);
   const outputPath = resolve(options.output ?? "../.local/validation/web-100m-phase-a-baseline/report.json");
   const maxSourceBytes = Number(options.maxSourceBytes ?? 128 * 1024 * 1024);
   const maxWasmBytes = Number(options.maxWasmBytes ?? 128 * 1024 * 1024);
@@ -166,7 +167,7 @@ function parseArgs(argv) {
     else if (name === "--max-output-bytes") options.maxOutputBytes = Number(argv[++index]);
     else throw new Error(`unknown option: ${name}`);
   }
-  if (!options.source) throw new Error("Usage: node tools/run-vg-phase-a-baseline.mjs --source <scene.glb> [--manifest <json>] [--workload <yaml>] [--out <json>]");
+  if (!options.source || !options.workload) throw new Error("Usage: node tools/run-vg-phase-a-baseline.mjs --source <scene.glb> --workload <yaml> [--manifest <json>] [--out <json>]");
   return options;
 }
 

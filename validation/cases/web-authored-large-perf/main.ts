@@ -26,7 +26,6 @@ type FormalSource = Readonly<{
   bytes: number;
   triangles: number;
   catalogPrimitives: number;
-  minimumProducts?: number;
   productSlotCapacity: number;
   maxSourceWindowBytes: number;
   maxCanonicalInputBytes: number;
@@ -38,23 +37,6 @@ type FormalSource = Readonly<{
 }>;
 
 const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
-  "single-giant-100m": Object.freeze({
-    label: "synthetic single-giant 100M",
-    url: "/assets/web-100m/single-giant-100m.glb",
-    sha256: "730da7cd55ee00b1f98bff58e83e7081e33d7972f56bfdafc24f2b68d234b6a0",
-    bytes: 2_800_457_176,
-    triangles: 100_000_000,
-    catalogPrimitives: 1,
-    minimumProducts: 2,
-    productSlotCapacity: 128,
-    maxSourceWindowBytes: 256 * 1024 * 1024,
-    maxCanonicalInputBytes: 224 * 1024 * 1024,
-    maxDecodedProductBytes: 256 * 1024 * 1024,
-    maxSessionSpillBytes: 1024 * 1024 * 1024,
-    maxTrianglesPerProduct: 2 * 1024 * 1024,
-    maxVerticesPerProduct: 6 * 1024 * 1024,
-    maxDomainsPerProduct: 64
-  }),
   "authored-large": Object.freeze({
     label: "authored large multi-primitive",
     url: "/assets/web-authored-large/large.glb",
@@ -72,19 +54,18 @@ const SOURCES: Readonly<Record<string, FormalSource>> = Object.freeze({
     maxDomainsPerProduct: 64
   })
 });
-const CAMERA_PATH_ID = "web-100m-formal-camera-v1";
+const CAMERA_PATH_ID = "web-authored-large-formal-camera-v1";
 const CAMERA_PATH_SHA256 = "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211";
 const AUTHORED_COOK_HEARTBEAT_TIMEOUT_MS = 120_000;
-const FORMAL_COOK_HEARTBEAT_TIMEOUT_MS = 300_000;
 const COOK_HEARTBEAT_POLL_MS = 5_000;
 const MiB = 1024 * 1024;
 
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas")!;
 const status = document.querySelector<HTMLElement>("#status")!;
 const query = new URLSearchParams(location.search);
-const caseId = query.get("case") ?? "web-100m-formal-perf";
-const workloadId = query.get("workload") ?? "web-100m-formal-perf-v1";
-const sourceKey = query.get("asset") ?? "single-giant-100m";
+const caseId = query.get("case") ?? "web-authored-large-perf";
+const workloadId = query.get("workload") ?? "web-authored-large-perf-v1";
+const sourceKey = query.get("asset") ?? "authored-large";
 const isRuntimeSmoke = caseId === "web-authored-large-runtime-k1";
 const WIDTH = isRuntimeSmoke ? 1280 : 1920, HEIGHT = isRuntimeSmoke ? 720 : 1080;
 const WARMUP_FRAMES = isRuntimeSmoke ? 1 : 120, SAMPLE_FRAMES = isRuntimeSmoke ? 1 : 480, RUNS = isRuntimeSmoke ? 1 : 3;
@@ -167,10 +148,8 @@ async function run(): Promise<void> {
     canvas.height = HEIGHT;
     renderer = new Renderer({
       debug: false,
-      ...(sourceKey === "authored-large" ? {
-        textureMaxResolution: 512 as const,
-        textureBankMaxCapacities: [192, 192, 192, 192, 192] as const
-      } : {}),
+      textureMaxResolution: 512 as const,
+      textureBankMaxCapacities: [192, 192, 192, 192, 192] as const,
       requiredFeatures: isRuntimeSmoke ? [] : ["timestamp-query"],
       requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
       renderSettings: {
@@ -253,9 +232,7 @@ async function run(): Promise<void> {
 
     status.textContent = `loading and cooking ${source.label} Products`;
     const loadStarted = performance.now();
-    const cookHeartbeatTimeoutMs = sourceKey === "authored-large"
-      ? AUTHORED_COOK_HEARTBEAT_TIMEOUT_MS
-      : FORMAL_COOK_HEARTBEAT_TIMEOUT_MS;
+    const cookHeartbeatTimeoutMs = AUTHORED_COOK_HEARTBEAT_TIMEOUT_MS;
     cookHeartbeatAbort = new AbortController();
     lastCookProgressAt = performance.now();
     const runtimeProfile = resolveWebCookRuntimeProfile("portable-single");
@@ -361,9 +338,6 @@ async function run(): Promise<void> {
     const bounds = isRuntimeSmoke ? sceneBoxBounds(active.source) : sceneBounds(active.source);
     if (isRuntimeSmoke) controller.addEvidence("conservativeSphereBounds", sceneBounds(active.source));
     if (isRuntimeSmoke) controller.addEvidence("settledSceneBounds", bounds);
-    if (source.minimumProducts !== undefined && active.shardCount < source.minimumProducts) {
-      throw new Error(`${source.label} produced only ${active.shardCount} Products, expected at least ${source.minimumProducts}`);
-    }
     const taskReceipt = assertProductTaskReceipt(asset.evidence(), source.catalogPrimitives, active.shardCount);
     controller.addEvidence("multiProduct", {
       shardCount: active.shardCount,

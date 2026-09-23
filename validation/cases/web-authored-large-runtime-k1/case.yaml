@@ -1,8 +1,8 @@
 schemaVersion: 1
 id: web-authored-large-runtime-k1
 evidenceRole: promotion
-sourceCase: web-100m-formal-perf
-route: /cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-runtime-k1&workload=web-authored-large-runtime-k1-v1
+sourceCase: web-authored-large-perf
+route: /cases/web-authored-large-perf/index.html?case=web-authored-large-runtime-k1&workload=web-authored-large-runtime-k1-v1
 buildTarget: production
 workloadId: web-authored-large-runtime-k1-v1
 profile: smoke
@@ -12,7 +12,7 @@ artifacts:
   - events
   - screenshot
 changedPaths:
-  - validation/cases/web-100m-formal-perf
+  - validation/cases/web-authored-large-perf
   - validation/cases/web-authored-large-runtime-k1
   - validation/workloads/web-authored-large-runtime-k1-v1.yaml
   - OEngine/src/assets/web-cook

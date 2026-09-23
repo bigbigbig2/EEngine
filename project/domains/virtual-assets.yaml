@@ -42,7 +42,6 @@ claims:
   - virtual-assets.web-cook
   - virtual-assets.lifecycle
   - virtual-assets.performance
-  - virtual-assets.scale-performance
 checks:
   - model
   - registry
@@ -54,5 +53,4 @@ watch:
   - OEngine/src/gpu/VirtualGeometry*.ts
   - validation/cases/glb-*/**
   - validation/cases/virtual-product-*/**
-  - validation/cases/web-100m-formal-perf/**
   - validation/cases/web-authored-large-perf/**

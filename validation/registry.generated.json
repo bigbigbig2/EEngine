@@ -757,56 +757,13 @@
       "artifacts": [
         "result",
         "events",
-        "samples",
         "screenshot"
       ],
       "automatic": true,
       "buildTarget": "production",
       "caseKind": "production",
       "changedPaths": [
-        "validation/cases/web-100m-formal-perf",
-        "validation/workloads/web-100m-formal-perf-v1.yaml",
-        "OEngine/src/debug/FormalPerfFreeze.ts",
-        "OEngine/src/assets/web-cook",
-        "OEngine/src/assets/geometry-product",
-        "OEngine/src/gpu/GeometryProductMultiRuntime.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
-      ],
-      "covers": [
-        "virtual-assets.scale-performance"
-      ],
-      "decision": "ADR-0018",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.scale-performance",
-          "reason": "Chrome stable emits this platform warning while the formal geometry PERF device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "web-100m-formal-perf",
-      "kind": "perf",
-      "lab": false,
-      "level": "L4",
-      "profile": "formal-1080p",
-      "route": "/cases/web-100m-formal-perf/index.html",
-      "timeoutMs": 1800000,
-      "workloadId": "web-100m-formal-perf-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/web-100m-formal-perf",
+        "validation/cases/web-authored-large-perf",
         "validation/cases/web-authored-large-cook-k0",
         "validation/workloads/web-authored-large-cook-k0-v1.yaml",
         "validation/vite.config.ts",
@@ -843,7 +800,6 @@
       "buildTarget": "production",
       "caseKind": "production",
       "changedPaths": [
-        "validation/cases/web-100m-formal-perf",
         "validation/cases/web-authored-large-perf",
         "validation/workloads/web-authored-large-perf-v1.yaml",
         "validation/vite.config.ts",
@@ -873,8 +829,7 @@
       "lab": false,
       "level": "L4",
       "profile": "formal-1080p",
-      "route": "/cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-perf&workload=web-authored-large-perf-v1",
-      "sourceCase": "web-100m-formal-perf",
+      "route": "/cases/web-authored-large-perf/index.html",
       "timeoutMs": 1800000,
       "workloadId": "web-authored-large-perf-v1"
     },
@@ -888,7 +843,7 @@
       "buildTarget": "production",
       "caseKind": "production",
       "changedPaths": [
-        "validation/cases/web-100m-formal-perf",
+        "validation/cases/web-authored-large-perf",
         "validation/cases/web-authored-large-runtime-k1",
         "validation/workloads/web-authored-large-runtime-k1-v1.yaml",
         "OEngine/src/assets/web-cook",
@@ -918,8 +873,8 @@
       "lab": false,
       "level": "L3",
       "profile": "smoke",
-      "route": "/cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-runtime-k1&workload=web-authored-large-runtime-k1-v1",
-      "sourceCase": "web-100m-formal-perf",
+      "route": "/cases/web-authored-large-perf/index.html?case=web-authored-large-runtime-k1&workload=web-authored-large-runtime-k1-v1",
+      "sourceCase": "web-authored-large-perf",
       "timeoutMs": 300000,
       "workloadId": "web-authored-large-runtime-k1-v1"
     },
@@ -1474,119 +1429,6 @@
       "timestampRequired": false,
       "warmupFrames": 1
     },
-    "web-100m-formal-perf-v1": {
-      "cameraPath": "web-100m-formal-camera-v1",
-      "cameraPathSha256": "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211",
-      "deviceScaleFactor": 1,
-      "features": [
-        "web-cook",
-        "geometry-product",
-        "multi-product-runtime",
-        "visible-first-scheduler",
-        "gpu-demand-compaction",
-        "adaptive-residency",
-        "current-hzb-late-recheck",
-        "dynamic-page-scheduler",
-        "fixed-raster-route"
-      ],
-      "fixedCondition": {
-        "adapter": "record-from-browser-provenance",
-        "browser": "chrome-stable",
-        "cameraPath": "web-100m-formal-camera-v1",
-        "dpr": 1,
-        "featureSet": "record-negotiated-device-features",
-        "independentRuns": 3,
-        "resolution": "1920x1080"
-      },
-      "geometry": {
-        "expectedShards": 100,
-        "layout": "single-giant-primitive-sharded-product",
-        "source": "web-100m-phase-a-baseline-v1",
-        "sourceSha256": "730da7cd55ee00b1f98bff58e83e7081e33d7972f56bfdafc24f2b68d234b6a0",
-        "sourceTriangles": 100000000,
-        "targetTrianglesPerShard": 1000000
-      },
-      "id": "web-100m-formal-perf-v1",
-      "independentRuns": 3,
-      "metrics": {
-        "cameraCutRecovery": [
-          "recoveryMs",
-          "recoveryFrames"
-        ],
-        "cpu": [
-          "frameMs",
-          "buildMs",
-          "submitMs",
-          "p50",
-          "p95"
-        ],
-        "gpu": [
-          "frameMs",
-          "p50",
-          "p95"
-        ],
-        "ownerPeaks": [
-          "sourceBytes",
-          "wasmBytes",
-          "jsBytes",
-          "gpuGeometryBytes"
-        ],
-        "pages": [
-          "demand",
-          "churn",
-          "overflow"
-        ],
-        "ttfmf": "firstMeaningfulFrameMs"
-      },
-      "quality": "adr-0018-formal-100m-fixed-v1",
-      "renderScale": 1,
-      "resolution": [
-        1920,
-        1080
-      ],
-      "sampleCadence": 1,
-      "sampleFrames": 480,
-      "seed": 1801,
-      "timestampRequired": true,
-      "warmupFrames": 120
-    },
-    "web-100m-phase-a-baseline-v1": {
-      "budgets": {
-        "maxOutputBytes": 268435456,
-        "maxSourceBytes": 134217728,
-        "maxWasmBytes": 134217728
-      },
-      "cameraPath": "catalog-only-before-first-frame",
-      "deviceScaleFactor": 1,
-      "expectedCurrentPath": {
-        "firstFailureStage": "source-admission",
-        "reason": "Current WebCookCoordinator charges total GLB bytes to maxSourceBytes before catalog construction."
-      },
-      "features": [
-        "web-cook",
-        "glb-range",
-        "single-giant-primitive",
-        "owner-memory-evidence"
-      ],
-      "geometry": {
-        "generator": "OEngine/tools/generate-vg-stress.mjs",
-        "layout": "single-giant-primitive",
-        "sourceTriangles": 100000000
-      },
-      "id": "web-100m-phase-a-baseline-v1",
-      "independentRuns": 1,
-      "quality": "adr-0018-phase-a-current-path-failure-attribution-v1",
-      "renderScale": 1,
-      "resolution": [
-        1280,
-        720
-      ],
-      "sampleCadence": 1,
-      "sampleFrames": 1,
-      "seed": 1801,
-      "timestampRequired": false,
-      "warmupFrames": 1
-    },
     "web-authored-large-cook-k0-v1": {
       "acceptance": {
         "productCount": "record-only",
@@ -1604,7 +1446,7 @@
         "maxSessionSpillBytes": 1073741824,
         "maxSourceWindowBytes": 67108864
       },
-      "cameraPath": "web-100m-formal-camera-v1",
+      "cameraPath": "web-authored-large-formal-camera-v1",
       "cameraPathSha256": "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211",
       "deviceScaleFactor": 1,
       "features": [
@@ -1615,7 +1457,7 @@
       "fixedCondition": {
         "adapter": "record-from-browser-provenance",
         "browser": "chrome-stable",
-        "cameraPath": "web-100m-formal-camera-v1",
+        "cameraPath": "web-authored-large-formal-camera-v1",
         "dpr": 1,
         "featureSet": "record-negotiated-device-features",
         "resolution": "1280x720"
@@ -1715,7 +1557,7 @@
         "maxSessionSpillBytes": 1073741824,
         "maxSourceWindowBytes": 67108864
       },
-      "cameraPath": "web-100m-formal-camera-v1",
+      "cameraPath": "web-authored-large-formal-camera-v1",
       "cameraPathSha256": "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211",
       "deviceScaleFactor": 1,
       "features": [
@@ -1732,7 +1574,7 @@
       "fixedCondition": {
         "adapter": "record-from-browser-provenance",
         "browser": "chrome-stable",
-        "cameraPath": "web-100m-formal-camera-v1",
+        "cameraPath": "web-authored-large-formal-camera-v1",
         "dpr": 1,
         "featureSet": "record-negotiated-device-features",
         "independentRuns": 3,
@@ -1912,7 +1754,7 @@
         "maxSessionSpillBytes": 1073741824,
         "maxSourceWindowBytes": 67108864
       },
-      "cameraPath": "web-100m-formal-camera-v1",
+      "cameraPath": "web-authored-large-formal-camera-v1",
       "cameraPathSha256": "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211",
       "deviceScaleFactor": 1,
       "features": [
@@ -1996,7 +1838,7 @@
         "maxSessionSpillBytes": 1073741824,
         "maxSourceWindowBytes": 67108864
       },
-      "cameraPath": "web-100m-formal-camera-v1",
+      "cameraPath": "web-authored-large-formal-camera-v1",
       "cameraPathSha256": "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211",
       "deviceScaleFactor": 1,
       "features": [
@@ -2012,7 +1854,7 @@
       "fixedCondition": {
         "adapter": "record-from-browser-provenance",
         "browser": "chrome-stable",
-        "cameraPath": "web-100m-formal-camera-v1",
+        "cameraPath": "web-authored-large-formal-camera-v1",
         "dpr": 1,
         "featureSet": "record-negotiated-device-features",
         "resolution": "1280x720"

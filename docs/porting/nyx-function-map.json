@@ -93,7 +93,7 @@
       "retainedInvariants": ["root pin/bootstrap activation", "delayed demand feedback", "generation-safe page publication", "revoke-before-reuse", "resident ancestor fallback", "independent page validation"],
       "webgpuAdaptation": "MAP_READ copy rings and submission retirement replace DX12 readback/fence APIs; page bank slots remain bounded.",
       "fallback": "Missing or stale pages retain a resident ancestor and emit bounded demand; no CPU final visible list is built.",
-      "oracle": ["OEngine/tests/contract/geometry-product-multi-runtime.test.mjs", "OEngine/tests/unit/geometry-page-streaming-runtime.test.mjs", "OEngine/tests/unit/geometry-page-scheduler.test.mjs", "validation/cases/virtual-product-replacement/main.ts", "validation/cases/web-100m-formal-perf/main.ts"],
+      "oracle": ["OEngine/tests/contract/geometry-product-multi-runtime.test.mjs", "OEngine/tests/unit/geometry-page-streaming-runtime.test.mjs", "OEngine/tests/unit/geometry-page-scheduler.test.mjs", "validation/cases/virtual-product-replacement/main.ts", "validation/cases/web-authored-large-perf/main.ts"],
       "status": "verified"
     },
     {
@@ -141,9 +141,9 @@
       "retainedInvariants": ["previous-depth traversal remains authoritative", "current-depth rejection is conservative", "invalid or stale metadata fails open", "GPU output queue directly drives indirect raster"],
       "webgpuAdaptation": "A separate same-frame compute pass samples the WebGPU HZB and compacts the standard MeshletWork queue before a second hardware raster; it does not assume mesh shaders or multi-draw.",
       "fallback": "Invalid projection, Product identity, page location, source generation, or source overflow copies source work; disabling the feature removes the pass and resources.",
-      "oracle": ["OEngine/tests/oracle/current-hzb-late-recheck.test.mjs", "validation/cases/web-100m-formal-perf/main.ts"],
+      "oracle": ["OEngine/tests/oracle/current-hzb-late-recheck.test.mjs", "validation/cases/web-authored-large-perf/main.ts"],
       "status": "verified",
-      "browserEvidenceStatus": "awaiting-web-100m-formal-perf"
+      "browserEvidenceStatus": "awaiting-web-authored-large-perf"
     },
     {
       "id": "vbuffer-build-vertex",

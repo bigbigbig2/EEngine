@@ -136,6 +136,5 @@ contract/oracle 必须覆盖：
 - plan-backed Product 的 first-read cook、second-read spill hit 和 stable
   payload checksum。
 
-这些测试只能证明 producer/storage contract。authored-large browser K0/K1/K2、
-OPFS quota 行为、TTFMF 和 deferred 100M scale evidence 仍须在独立
-`validation/` host 中取得。
+这些测试只能证明 producer/storage contract。`large.glb` browser K0/K1/K2、
+OPFS quota 行为与 TTFMF 证据须在独立 `validation/` host 中取得。

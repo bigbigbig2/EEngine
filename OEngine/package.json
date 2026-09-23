@@ -21,7 +21,6 @@
     "generate:vg-stress": "node tools/generate-vg-stress.mjs",
     "inspect:glb-workload": "node tools/inspect-glb-workload.mjs",
     "inspect:gltf-workload": "node tools/inspect-glb-workload.mjs",
-    "baseline:web-100m": "npm run build:test && node tools/run-vg-phase-a-baseline.mjs",
     "audit:shaders": "node tools/audit-shader-sources.mjs --output benchmarks/shader-source-audit.json",
     "audit:nyx-function-map": "node tools/validate-nyx-function-map.mjs",
     "audit:nyx-meshlet-reference": "node tools/build-nyx-reference-harness.mjs",

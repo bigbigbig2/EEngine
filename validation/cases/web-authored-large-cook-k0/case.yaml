@@ -11,7 +11,7 @@ artifacts:
   - events
   - screenshot
 changedPaths:
-  - validation/cases/web-100m-formal-perf
+  - validation/cases/web-authored-large-perf
   - validation/cases/web-authored-large-cook-k0
   - validation/workloads/web-authored-large-cook-k0-v1.yaml
   - validation/vite.config.ts

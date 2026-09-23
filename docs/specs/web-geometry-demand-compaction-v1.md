@@ -111,5 +111,5 @@ Node contract/oracle evidence covers:
 - delayed readback, queue overflow accounting, scheduler identity/hash checks,
   retries, upload budgets, cancellation, and generation retirement.
 
-This candidate spec does not claim clean 100M browser `RuntimeValidated`, formal
-PERF, or a unified multi-Product browser consumer. Those remain workstream gates.
+This candidate spec alone does not claim browser `RuntimeValidated` or formal
+PERF. Those require accepted `large.glb` K1/K2 evidence for the current revision.

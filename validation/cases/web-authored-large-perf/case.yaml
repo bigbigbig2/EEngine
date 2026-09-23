@@ -1,8 +1,7 @@
 schemaVersion: 1
 id: web-authored-large-perf
 evidenceRole: promotion
-sourceCase: web-100m-formal-perf
-route: /cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-perf&workload=web-authored-large-perf-v1
+route: /cases/web-authored-large-perf/index.html
 buildTarget: production
 workloadId: web-authored-large-perf-v1
 profile: formal-1080p
@@ -13,7 +12,6 @@ artifacts:
   - samples
   - screenshot
 changedPaths:
-  - validation/cases/web-100m-formal-perf
   - validation/cases/web-authored-large-perf
   - validation/workloads/web-authored-large-perf-v1.yaml
   - validation/vite.config.ts

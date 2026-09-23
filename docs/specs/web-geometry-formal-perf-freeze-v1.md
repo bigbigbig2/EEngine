@@ -8,9 +8,8 @@ Decision: `ADR-0018`
 
 ## Version/Compatibility
 
-Version 1 keeps the formal receipt schema stable while switching the immediate
-ADR-0018 target to the authored-large workload. The 100M identity remains a
-separate deferred scale use of the same receipt shape.
+Version 1 freezes the formal receipt schema for the ADR-0018 authored-large
+workload.
 
 ## Contract
 
@@ -29,9 +28,6 @@ large.glb
 1,920 primitives
 maximum primitive = 1,364,306 triangles
 ```
-
-The synthetic 100M source uses the same receipt shape but is a deferred scale
-gate for `virtual-assets.scale-performance`, not the current authored claim.
 
 ## Frozen identity
 
@@ -90,13 +86,10 @@ over measured samples. CPU time is never substituted for missing GPU timing.
 3. **K2 Authored Formal PERF** runs `web-authored-large-perf` with workload
    `web-authored-large-perf-v1` and profile `formal-1080p`: 120 warmup frames,
    480 measured frames, and 3 independent runs.
-4. **S1 Deferred 100M Scale** runs `web-100m-formal-perf` only after K2. Its
-   evidence may promote `virtual-assets.scale-performance` only.
-
 The host records the first meaningful Product frame before total cook completion,
 then waits for all tasks to settle before formal samples. A camera cut explicitly
 invalidates view history and records fallback/recovery.
 
 No accepted evidence exists merely because this contract or case manifest is
 present. Old benchmark JSON, a dirty worktree, a stopped authored run, `units=3`,
-the Zorah archive, or Node-only samples cannot promote either performance claim.
+the Zorah archive, or Node-only samples cannot promote the performance claim.

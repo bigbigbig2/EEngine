@@ -14,7 +14,7 @@ features:
   - gpu-demand-compaction
   - adaptive-residency
 seed: 1801
-cameraPath: web-100m-formal-camera-v1
+cameraPath: web-authored-large-formal-camera-v1
 cameraPathSha256: 7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211
 warmupFrames: 1
 sampleFrames: 8

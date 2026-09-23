@@ -76,5 +76,5 @@ Contract coverage is in
 - low-limit and feature-off zero-bank allocation;
 - Balanced residency using four 192 MiB banks with the unchanged Product ABI.
 
-This is implementation/contract evidence only. Independent browser evidence
-across real adapters and formal 100M PERF evidence remain open.
+This is implementation/contract evidence only. Current-revision `large.glb`
+browser evidence is required for runtime and performance claims.

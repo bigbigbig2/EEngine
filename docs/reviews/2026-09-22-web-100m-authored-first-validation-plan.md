@@ -1,5 +1,8 @@
 # ADR-0018 Authored-Large Acceptance Plan (2026-09-22)
 
+> 本文记录当时的实施顺序与早期故障。当前执行目标只有用户的 `large.glb`；
+> 最新任务和验收状态以活跃 workstream、当前 revision 的 evidence 为准。
+
 ## Decision
 
 ADR-0018 的当前正式目标改为真实 authored 场景：
@@ -13,8 +16,7 @@ maximum primitive = 1,364,306 triangles
 ```
 
 该规模必须能在普通 Chrome 中稳定完成 load → runtime cook → progressive publish →
-multi-Product render → streaming → dispose。100M single-giant workload 保留为后续
-scale gate，不再是当前验收和实现排序的中心。
+multi-Product render → streaming → dispose。
 
 ## Diagnosis
 
@@ -67,7 +69,6 @@ canonical bytes、当前 phase、phase elapsed，以及 canonicalize/WASM/spill/
 | K0 | authored cook | 全 1,920 primitive coverage、实际 Product count、task trace、first Product/total cook、owner/spill peak、settled、dispose |
 | K1 | authored runtime smoke | production renderer、first frame、movement、page demand、fallback、camera cut、无 GPU error、dispose |
 | K2 | authored formal PERF | 1080p、120 warmup、480 samples、3 runs、timestamp、CPU/GPU P50/P95 |
-| S1 | deferred 100M scale | K2 后验证 single-giant scale，不参与 authored claim promotion |
 
 K0 的正确断言是：
 
@@ -78,9 +79,9 @@ union(every Product.sceneAssetIndices) == all 1,920 catalog primitive indices
 必须删除 `minimumExpectedProducts: 1920`。1920 primitives 可以合理合并为几十到约
 一百个 Product；强制 1920 Products 会放大当前 full scene republish 的 O(N²) 债务。
 
-K0 workload 已登记为 `web-authored-large-cook-k0-v1`，但 executable case 暂不注册。
-只有 validation page 实现 coverage、task trace、spill accounting、settled 和 disposal
-断言后，才创建 `web-authored-large-cook-k0` case，避免 placeholder 假通过。
+K0 workload 与 `web-authored-large-cook-k0` executable case 已登记。validation page
+必须断言 coverage、task trace、spill accounting、settled 和 disposal，避免
+placeholder 假通过。
 
 ## Work order
 
@@ -92,15 +93,15 @@ test contract and catalog coverage
   -> authored cook K0
   -> activation-first publication
   -> authored runtime smoke
-  -> session-local Product scheduling (2 workers first)
   -> authored formal PERF
-  -> deferred 100M scale gate
+  -> profile material, publication, cook tail, memory and frame time
+  -> decide whether session-local Product scheduling is justified
 ```
 
-Session-local parallelism 不提前做。若单 Product 仍可同步执行两分钟，增加 worker 只会
-并行制造多个大长尾和更高内存压力。
+Session-local parallelism 由 K2 profile 决定；增加 worker 前先确认 Product 长尾、
+内存峰值和首次有效画面的瓶颈。
 
-## Current status
+## Historical status
 
 - A–J 已完成的 GPU/runtime 架构和 contract/oracle 保留。
 - 现有 stopped run 只是调试 trace，不是 K0 pass。
@@ -114,6 +115,5 @@ Session-local parallelism 不提前做。若单 Product 仍可同步执行两分
 - `web-authored-large-perf` 已成为当前 L4 promotion case，共享页面已经消费 catalog
   coverage、32 MiB canonical、128K triangle 和 task trace 合同；但 K0/K1 尚未产生
   browser evidence，因此仍不得运行正式采样或解释为完成。
-- `web-100m-formal-perf` 已拆到独立 deferred scale claim。
-
-本轮 P0 实现不运行 100M 或 Zorah；首次真实浏览器 gate 只运行 `large.glb` K0。
+这些故障和当时的待办已由后续实现处理，不能代表当前完成状态。当前只运行
+`large.glb` 的 K0/K1/K2；以活跃 workstream 和当前 clean revision evidence 判断通过。

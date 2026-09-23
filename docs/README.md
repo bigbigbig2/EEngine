@@ -35,7 +35,7 @@ Domain Markdown frontmatter contains identity only. Contract, claim, check, and 
 Workstream YAML is the authoritative current TODO. Its first screen names the current slice, next tasks, and open gates; completed work is a short milestone summary linked to stable contracts or evidence. Detailed implementation history stays in Git. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
 
 - [Nyx producer convergence](../project/workstreams/active/nyx-convergence.yaml)
-- [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — current `large.glb` acceptance plan with deferred 100M scale gate for [ADR-0018](./adr/0018-web-100m-virtual-geometry.md)
+- [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — current `large.glb` validation and performance work for [ADR-0018](./adr/0018-web-100m-virtual-geometry.md)
 
 ## Reviews
 
@@ -43,6 +43,6 @@ Reviews are dated, non-authoritative audits. They record observations and recomm
 
 - [2026-09-21 · Documentation and validation system review](./reviews/2026-09-21-documentation-validation-system-review.md)
 - [2026-09-23 · Documentation system refactor design](./reviews/2026-09-23-documentation-system-refactor-design.md)
-- [ADR-0018 research draft · Authored-large target and deferred 100M architecture](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
+- [ADR-0018 historical research draft](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
 
 Phase records remain available in Git and under `docs/reviews/` for audit, but are no longer part of the current documentation entry path.

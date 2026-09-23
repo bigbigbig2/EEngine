@@ -16,7 +16,6 @@ invariants:
   - Product count is recorded but not equated to primitive count
   - every Product partition has a stable non-colliding Product scope identity
   - partial catalog coverage is terminal failure, never cook-complete
-  - authored evidence cannot be relabelled as 100M evidence
 validation:
   - web-authored-large-cook-k0
   - web-authored-large-perf
@@ -28,9 +27,7 @@ Owners: virtual-assets
 
 ## Version/Compatibility
 
-Version 1 replaces the immediate ADR-0018 acceptance workload with the frozen
-authored `large.glb`; it does not relabel authored evidence as deferred 100M
-scale evidence.
+Version 1 freezes the ADR-0018 acceptance workload to the authored `large.glb`.
 
 ## Contract
 
@@ -94,24 +91,20 @@ acknowledgement after artifact cleanup, then terminates; timeout/failure rejects
 instead of claiming cleanup. Immediate `dispose()` remains forced termination.
 
 The independent K0 page uses catalog coverage and work-budget assertions. Formal
-`web-authored-large-perf` remains a future promotion identity until K0 and K1
-browser evidence pass.
+`web-authored-large-perf` promotion requires accepted K0 and K1 browser evidence
+for the current clean revision.
 
 ### K1 runtime and performance
 
-After K0 passes, planned workload `web-authored-large-runtime-smoke-v1` exercises
-camera movement, page demand, ancestor fallback, camera-cut recovery, settled,
-and disposal on the same source. Its executable case is registered only after
-those actions and assertions exist. Formal authored PERF runs only after K0 and
-the producer debt items pass.
+`web-authored-large-runtime-k1` exercises camera movement, page demand, ancestor
+fallback, camera-cut recovery, settled, and disposal on the same source. Formal
+authored PERF runs only after K0 and K1 pass for the current revision.
 
-### Deferred scale target
+### Partition and capacity policy
 
-Scale receipts distinguish `unique-source-multi-primitive`, `single-giant`, and
-`instanced-logical`. Record unique source triangles, maximum primitive triangles,
-instance count, and logical triangles separately. No category proves another.
-Before single-giant acceptance, partition ownership must use bounded external
-storage; a full-primitive triangle-index scratch allocation is not scale proof.
+Partition ownership uses bounded external storage where in-memory scratch would
+exceed the admitted budget. A full-primitive triangle-index allocation is not
+evidence of bounded production.
 
 Product thresholds are workload policy. Changing them requires measured cook
 tail/activation time, Product/root/metadata counts, duplicated boundary vertices,
@@ -123,10 +116,6 @@ storage quota/usage estimates separately from the configured session spill cap;
 estimates do not reserve space, so quota failures must fail required production
 without successful settlement and release owned artifacts. Concurrent work shares
 source/canonical/WASM/inflight budgets rather than multiplying per-task limits.
-
-The synthetic single-giant 100M workload remains a later scale gate. Its result
-belongs to `virtual-assets.scale-performance`; authored evidence and 100M scale
-evidence cannot promote each other's claims.
 
 ## Validation
 

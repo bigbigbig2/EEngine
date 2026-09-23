@@ -1,19 +1,19 @@
 schemaVersion: 2
 id: web-100m-virtual-geometry
-title: Web authored-large Virtual Geometry validation with deferred scale gate
+title: Web authored-large Virtual Geometry validation
 domain: virtual-assets
 state: active
 owner: virtual-assets
 decision: ADR-0018
 sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
-goal: Stabilize the user's large.glb through work-bounded Web cook, complete catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal. Defer the separate 100M scale gate until a valid source is selected.
+goal: Stabilize the user's large.glb through work-bounded Web cook, complete catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal.
 
 currentSlice:
-  id: S1
+  id: K3
   title: Renew and profile authored large.glb validation
   target: authored-large-performance-followup
   status: implementing
-  finding: Authored large.glb K0/K1/K2 passed on clean 6712564, but those receipts are not current for the latest revision. The separate synthetic 100M source is withdrawn from active validation.
+  finding: Authored large.glb K0/K1/K2 passed on an earlier clean revision; current-revision acceptance must be renewed after the documentation change. The synthetic source is outside this workstream.
 nextTasks:
   - Renew authored large.glb K0/K1/K2 on the next final clean revision.
   - Profile material and texture work, incremental Scene publication, first useful frame, total cook, slowest Product, memory peak, and frame time on large.glb.
@@ -39,7 +39,6 @@ claims:
   - virtual-assets.lifecycle
   - visibility.gpu-closure
   - virtual-assets.performance
-  - virtual-assets.scale-performance
 
 completedMilestones:
   - range: A-E
@@ -90,27 +89,8 @@ tasks:
     exitCriteria:
       - Three clean independent runs freeze revision, browser, adapter, display, camera, features, source, and workload.
       - Receipts include TTFMF, CPU/GPU P50/P95, task timing, owner peaks, demand, churn, overflow, and recovery.
-  - id: external-spatial-scratch
-    phase: S0
-    priority: P1
-    title: Bound giant-primitive Morton index materialization with OPFS scratch
-    state: done
-    dependsOn: [authored-large-formal-perf]
-    exitCriteria:
-      - A 100M primitive never allocates full-primitive JS index scratch.
-      - External writes and shard reads preserve exact Morton-rank triangle ownership.
-      - Cancellation, errors, and normal completion release temporary storage.
-  - id: formal-100m-perf-freeze
-    phase: S1
-    priority: P2
-    title: Select a valid source before any separate formal 100M scale gate
-    state: todo
-    dependsOn: [external-spatial-scratch]
-    exitCriteria:
-      - The authored target is already accepted.
-      - Frozen identity, correctness, memory, runtime, and performance receipts satisfy the separate scale claim.
   - id: authored-large-performance-followup
-    phase: S1
+    phase: K3
     priority: P1
     title: Renew and profile large.glb production validation
     state: active
@@ -130,10 +110,9 @@ requiredEvidence:
   - Contract and oracle evidence for work bounds, identity, shard boundaries, determinism, failure atomicity, and release.
   - Clean browser evidence that visible Products reach the production GPU consumer before total cook completion.
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
-  - Formal authored-large performance evidence before the separate 100M scale gate.
+  - Formal authored-large performance evidence on the current clean revision.
 openGates:
-  - Authored large.glb K0/K1/K2 acceptance must be renewed on the final clean revision after the current workstream change.
-  - The separate 100M scale claim is unaccepted and paused until a valid source is selected; do not use the withdrawn synthetic source for the active slice.
+  - Authored large.glb K0/K1/K2 acceptance must be renewed on the final clean revision after the current documentation change.
 
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md

@@ -16,7 +16,7 @@ version 中向后兼容；改变 TTFMF/total-cook 语义、PageReady ownership �
 本规范冻结 ADR-0018 Phase F 的 producer-side visible-first 调度边界。它位于
 metadata-only GLB catalog 与 Multi-Product/Product admission 之间，负责决定首个
 Product cut、公布 activation cut 的时间边界，以及 richer refinement 的后台完成
-语义。本规范不把本地 Node/fake-device contract evidence 升级为 100M browser
+语义。本规范不把本地 Node/fake-device contract evidence 升级为 `large.glb` browser
 RuntimeValidated、Performance Evaluated 或 ADR Complete。
 
 ## Scheduling policy
@@ -123,7 +123,7 @@ recoverableFailures
 state
 ```
 
-这些字段只证明 coordinator 的本地 contract/oracle 行为。100M GLB 的真实
+这些字段只证明 coordinator 的本地 contract/oracle 行为。`large.glb` 的真实
 TTFMF、CPU/GPU working-set、browser adapter、camera path、workload hash 和正式
 PERF 必须在独立 `validation/` host、clean revision 上采集，不能由 unit/Node
 测试替代。
@@ -141,4 +141,4 @@ PERF 必须在独立 `validation/` host、clean revision 上采集，不能由 u
 
 `OEngine/tests/unit/web-cook-coordinator.test.mjs` 覆盖 activation re-read、pending
 page demand、revision replacement 和 completion wait。真实浏览器 visible-first
-画面与 100M formal PERF 仍是后续 validation gate。
+画面与正式 PERF 仍须由当前 clean revision 的浏览器 validation gate 验证。

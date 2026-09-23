@@ -34,13 +34,13 @@ test("registry rejects unowned artifacts, unbounded timeout and fuzzy allowlists
 
 test("registry gives only L4 PERF a bounded long-run timeout", () => {
   const allowed = structuredClone(registry);
-  const formal = allowed.cases.find((item) => item.id === "web-100m-formal-perf");
+  const formal = allowed.cases.find((item) => item.id === "web-authored-large-perf");
   assert.ok(formal);
   formal.timeoutMs = 1_800_000;
   assert.ok(!validateRegistry(allowed).some((error) => error.includes("timeout out of bounds")));
 
   const tooLong = structuredClone(allowed);
-  tooLong.cases.find((item) => item.id === "web-100m-formal-perf").timeoutMs = 1_800_001;
+  tooLong.cases.find((item) => item.id === "web-authored-large-perf").timeoutMs = 1_800_001;
   assert.ok(validateRegistry(tooLong).some((error) => error.includes("timeout out of bounds")));
 });
 
