@@ -276,7 +276,7 @@ async function run(): Promise<void> {
       sessionGeneration: 1,
       budgets: {
         maxConcurrentWorkers: 1,
-        maxSourceBytes: 128 * MiB,
+        maxSourceBytes: Math.max(128 * MiB, source.maxSourceWindowBytes),
         maxWasmBytes: 512 * MiB,
         maxOutputBytes: 256 * MiB,
         maxQueuedEvents: 2048
