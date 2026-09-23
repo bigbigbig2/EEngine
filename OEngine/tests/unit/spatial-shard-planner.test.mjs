@@ -135,6 +135,48 @@ test("spatial materialization scans one primitive once and preserves Morton-rank
   assert.equal(materialized.scanPasses, 1);
   assert.equal(materialized.scratchBytes, unit.triangleCount * 3 * 4);
   assert.equal(indexReads, 1, "all shard ownership must come from one index window scan");
-  const domains = await Promise.all(set.shards.map((shard, index) => canonicalizeGlbPrimitiveSpatialShardIndicesV1(unit, set, shard, materialized.triangleIndices[index], reader, options.maxSourceWindowBytes)));
+  const domains = await Promise.all(set.shards.map((shard, index) => canonicalizeGlbPrimitiveSpatialShardIndicesV1(unit, set, shard, materialized.readShard(index), reader, options.maxSourceWindowBytes)));
   assert.equal(domains.reduce((sum, domain) => sum + domain.indices.length / 3, 0), unit.triangleCount);
+  await materialized.dispose();
+});
+
+test("external spatial scratch keeps one-pass Morton ownership within the RAM cap and disposes on failure", async () => {
+  const { unit, reader } = fixture();
+  const options = { maxSourceWindowBytes: 2048, maxCanonicalWindowBytes: 2048, sourceIdentityHash: new Uint8Array(32).fill(17), bucketBits: 1, minimumTrianglesPerShard: 1, maximumTrianglesPerShard: 4 };
+  const set = await planGlbPrimitiveSpatialShardsV1(unit, reader, options);
+  let disposeCount = 0;
+  const createScratch = async bytes => {
+    assert.equal(bytes, unit.triangleCount * 12);
+    const storage = new Uint8Array(bytes);
+    return {
+      write(data, at) { storage.set(data, at); },
+      read(data, at) { data.set(storage.subarray(at, at + data.byteLength)); },
+      flush() {},
+      async dispose() { disposeCount++; }
+    };
+  };
+  const materialized = await materializeGlbPrimitiveSpatialShardsV1(unit, set, reader, options.maxSourceWindowBytes, 80, createScratch);
+  assert.equal(materialized.backend, "opfs");
+  assert.equal(materialized.externalBytes, 96);
+  assert.ok(materialized.scratchBytes <= 80);
+  assert.equal(materialized.scanPasses, 1);
+  for (const [index, shard] of set.shards.entries()) {
+    const external = await canonicalizeGlbPrimitiveSpatialShardIndicesV1(unit, set, shard, materialized.readShard(index), reader, options.maxSourceWindowBytes);
+    const rescanned = await canonicalizeGlbPrimitiveSpatialShardV1(unit, set, shard, reader, options.maxSourceWindowBytes);
+    assert.deepEqual(external.indices, rescanned.indices);
+    assert.deepEqual(external.vertices, rescanned.vertices);
+  }
+  await materialized.dispose();
+  await materialized.dispose();
+  assert.equal(disposeCount, 1);
+  assert.throws(() => materialized.readShard(0), /disposed/);
+
+  let aborted = false;
+  await assert.rejects(materializeGlbPrimitiveSpatialShardsV1(unit, set, reader, options.maxSourceWindowBytes, 80, async () => ({
+    write() { throw new Error("scratch write failed"); },
+    read() {},
+    flush() {},
+    async dispose() { aborted = true; }
+  })), /scratch write failed/);
+  assert.equal(aborted, true);
 });

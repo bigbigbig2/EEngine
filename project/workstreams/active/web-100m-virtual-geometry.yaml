@@ -9,16 +9,16 @@ sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
 goal: Stabilize the fixed authored-large GLB through work-bounded Web cook, complete catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal; retain 100M as a later scale gate.
 
 currentSlice:
-  id: K1
-  title: Activation-first and incremental Scene publication
-  target: production-performance-debt
-  status: implementing-publication
-  finding: K0 was accepted on clean revision 6bacbba with 66 Products, all 1920 primitives and 2925 reread pages. Activation-first producer ordering now passes a K0 diagnostic rerun; incremental Scene append and renderer acceptance remain open.
+  id: S0
+  title: Bounded external spatial partition scratch
+  target: external-spatial-scratch
+  status: implementing
+  finding: K0, K1, and K2 passed on clean revision 1049f71. K2 measured 5.81 s first frame, 41.94 s cook, 114.57 s settled, 1.48 GiB GPU peak, and 4.95/11.68 ms CPU/GPU frame p95; publication cost is the first optimization target before worker parallelism.
 nextTasks:
-  - Preserve K0 on the next clean publication revision.
-  - Implement incremental Scene append and validate first display before K1.
-  - Complete K1 and measure K2 before choosing Product parallelism or algorithm optimization.
-  - Before 100M, replace full-primitive index scratch with bounded external partition storage and separately validate multi-primitive and single-giant sources.
+  - Finish bounded OPFS spatial index scratch and validate RAM cap, exact ownership, cancellation, and release.
+  - Recheck authored multi-primitive K0/K1/K2 on the new clean revision.
+  - Mount separate 100M multi-primitive and single-giant sources, then validate each category independently.
+  - Profile per-shard material and sparse publication time before changing Product parallelism.
 
 contracts:
   - geometry-product-v1
@@ -76,7 +76,7 @@ tasks:
     phase: K1
     priority: P1
     title: Close producer and publication debt through an authored runtime smoke
-    state: active
+    state: done
     dependsOn: [authored-large-production-gate]
     exitCriteria:
       - Runtime smoke reaches first frame, camera movement, demand, fallback, recovery, settled state, and disposal without GPU errors.
@@ -86,17 +86,27 @@ tasks:
     phase: K2
     priority: P1
     title: Capture clean formal authored-large runtime and performance evidence
-    state: todo
+    state: done
     dependsOn: [production-performance-debt]
     exitCriteria:
       - Three clean independent runs freeze revision, browser, adapter, display, camera, features, source, and workload.
       - Receipts include TTFMF, CPU/GPU P50/P95, task timing, owner peaks, demand, churn, overflow, and recovery.
+  - id: external-spatial-scratch
+    phase: S0
+    priority: P1
+    title: Bound giant-primitive Morton index materialization with OPFS scratch
+    state: active
+    dependsOn: [authored-large-formal-perf]
+    exitCriteria:
+      - A 100M primitive never allocates full-primitive JS index scratch.
+      - External writes and shard reads preserve exact Morton-rank triangle ownership.
+      - Cancellation, errors, and normal completion release temporary storage.
   - id: formal-100m-perf-freeze
     phase: S1
     priority: P2
     title: Run the deferred clean formal 100M scale gate
     state: todo
-    dependsOn: [authored-large-formal-perf]
+    dependsOn: [external-spatial-scratch]
     exitCriteria:
       - The authored target is already accepted.
       - Frozen identity, correctness, memory, runtime, and performance receipts satisfy the separate scale claim.
@@ -114,10 +124,9 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence before the separate 100M scale gate.
 openGates:
-  - K0 acceptance on 6bacbba must be renewed when the publication changes reach a clean revision.
-  - Incremental Scene publication, automatic Product capacity, session-local scheduling, and rendered activation-first evidence remain open.
-  - Clean authored browser evidence for the production consumer, demand capacity, overflow, and negotiated residency profiles remains open.
-  - Formal authored-large K2 and deferred 100M S1 evidence do not exist.
+  - External scratch needs browser OPFS validation and cleanup after abrupt worker termination.
+  - Authored K0/K1/K2 evidence must be renewed after the spatial scratch revision is committed.
+  - 100M multi-primitive and single-giant source artifacts are not mounted; their separate scale gates remain open.
 
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md

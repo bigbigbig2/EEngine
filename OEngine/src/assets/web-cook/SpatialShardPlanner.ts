@@ -79,9 +79,28 @@ export interface GlbSpatialShardSetV1 {
  * residency.
  */
 export interface GlbSpatialShardMaterializationV1 {
-  readonly triangleIndices: readonly Uint32Array[];
+  readonly backend: "memory" | "opfs";
+  /** Peak index scratch, including one shard read buffer on the external path. */
   readonly scratchBytes: number;
+  readonly externalBytes: number;
   readonly scanPasses: number;
+  readShard(shardIndex: number): Uint32Array;
+  dispose(): Promise<void>;
+}
+
+export interface SpatialShardExternalScratchV1 {
+  write(bytes: Uint8Array, at: number): void;
+  read(bytes: Uint8Array, at: number): void;
+  flush(): void;
+  dispose(): Promise<void>;
+}
+
+interface SpatialSyncAccessHandle {
+  write(bytes: Uint8Array, options: { at: number }): number;
+  read(bytes: Uint8Array, options: { at: number }): number;
+  truncate(size: number): void;
+  flush(): void;
+  close(): void;
 }
 
 export interface MortonPartitionIntervalV1 {
@@ -191,30 +210,177 @@ export async function materializeGlbPrimitiveSpatialShardsV1(
   set: GlbSpatialShardSetV1,
   reader: GlbPrimitiveRangeReader,
   maxSourceWindowBytes: number,
-  maxScratchBytes: number
+  maxScratchBytes: number,
+  createExternalScratch: (bytes: number) => Promise<SpatialShardExternalScratchV1> = createOpfsSpatialShardScratch
 ): Promise<GlbSpatialShardMaterializationV1> {
   assertPlanBelongsToPrimitive(unit, set);
   rejectSparse(unit);
   if (!Number.isSafeInteger(maxSourceWindowBytes) || maxSourceWindowBytes <= 0) throw new RangeError("maxSourceWindowBytes must be a positive safe integer");
   if (!Number.isSafeInteger(maxScratchBytes) || maxScratchBytes <= 0) throw new RangeError("maxScratchBytes must be a positive safe integer");
-  const scratchBytes = spatialScratchBytes(set);
-  if (scratchBytes > maxScratchBytes) throw new RangeError(`spatial shard materialization requires ${scratchBytes} bytes of index scratch, cap is ${maxScratchBytes}`);
-  const triangleIndices = set.shards.map(shard => new Uint32Array(shard.triangleCount * 3));
-  const seen = new Uint32Array(set.bucketOffsets.length - 1);
-  await scanTriangles(unit, reader, { maxSourceWindowBytes, boundsMin: set.boundsMin, boundsMax: set.boundsMax, bucketBits: set.bucketBits }, { peakSourceWindowBytes: 0 },
-    (_triangle, indices, _centroid, bucket) => {
-      const rank = set.bucketOffsets[bucket]! + seen[bucket]!;
-      seen[bucket] = seen[bucket]! + 1;
-      const shardIndex = shardIndexForRank(set.shards, rank);
-      if (shardIndex < 0) throw new Error(`spatial triangle rank ${rank} is outside the shard plan`);
-      const shard = set.shards[shardIndex]!;
-      const localRank = rank - shard.triangleOrderOffset;
-      triangleIndices[shardIndex]!.set(indices, localRank * 3);
-    });
-  for (let bucket = 0; bucket < seen.length; bucket++) {
-    if (seen[bucket] !== set.bucketOffsets[bucket + 1]! - set.bucketOffsets[bucket]!) throw new Error(`spatial bucket ${bucket} ownership count is incomplete`);
+  const totalBytes = spatialScratchBytes(set);
+  const external = totalBytes > maxScratchBytes;
+  const bucketCount = set.bucketOffsets.length - 1;
+  const maxShardBytes = Math.max(...set.shards.map(shard => shard.triangleCount * 12));
+  const activeBuckets = Array.from({ length: bucketCount }, (_, index) => index)
+    .filter(index => set.bucketOffsets[index + 1]! > set.bucketOffsets[index]!).length;
+  const bufferTriangles = external
+    ? Math.min(341, Math.floor((maxScratchBytes - bucketCount * 4 - maxShardBytes) / (activeBuckets * 12)))
+    : 0;
+  if (external && bufferTriangles < 1) {
+    throw new RangeError(`spatial external shard scratch needs one bucket triple and one shard within maxScratchBytes=${maxScratchBytes}`);
   }
-  return Object.freeze({ triangleIndices: Object.freeze(triangleIndices), scratchBytes, scanPasses: 1 });
+  const scratchBytes = external
+    ? bucketCount * 4 + activeBuckets * bufferTriangles * 12 + maxShardBytes
+    : totalBytes;
+  const triangleIndices = external ? null : set.shards.map(shard => new Uint32Array(shard.triangleCount * 3));
+  const buffers = external ? Array.from({ length: bucketCount }, (_, bucket) =>
+    set.bucketOffsets[bucket + 1]! > set.bucketOffsets[bucket]!
+      ? new Uint32Array(bufferTriangles * 3) : null) : [];
+  const seen = new Uint32Array(set.bucketOffsets.length - 1);
+  const scratch = external ? await createExternalScratch(totalBytes) : null;
+  try {
+    await scanTriangles(unit, reader, { maxSourceWindowBytes, boundsMin: set.boundsMin, boundsMax: set.boundsMax, bucketBits: set.bucketBits }, { peakSourceWindowBytes: 0 },
+      (_triangle, indices, _centroid, bucket) => {
+        const ordinal = seen[bucket]!;
+        const rank = set.bucketOffsets[bucket]! + ordinal;
+        seen[bucket] = ordinal + 1;
+        if (triangleIndices !== null) {
+          const shardIndex = shardIndexForRank(set.shards, rank);
+          if (shardIndex < 0) throw new Error(`spatial triangle rank ${rank} is outside the shard plan`);
+          const shard = set.shards[shardIndex]!;
+          triangleIndices[shardIndex]!.set(indices, (rank - shard.triangleOrderOffset) * 3);
+        } else {
+          const buffer = buffers[bucket]!;
+          const local = ordinal % bufferTriangles;
+          buffer.set(indices, local * 3);
+          if (local + 1 === bufferTriangles) {
+            const bytes = new Uint8Array(buffer.buffer);
+            scratch!.write(bytes, (rank - local) * 12);
+          }
+        }
+      });
+    for (let bucket = 0; bucket < seen.length; bucket++) {
+      if (seen[bucket] !== set.bucketOffsets[bucket + 1]! - set.bucketOffsets[bucket]!) {
+        throw new Error(`spatial bucket ${bucket} ownership count is incomplete`);
+      }
+      if (scratch !== null && seen[bucket]! % bufferTriangles !== 0) {
+        const count = seen[bucket]! % bufferTriangles;
+        const bytes = new Uint8Array(buffers[bucket]!.buffer, 0, count * 12);
+        scratch.write(bytes, (set.bucketOffsets[bucket]! + seen[bucket]! - count) * 12);
+      }
+    }
+    scratch?.flush();
+  } catch (error) {
+    await scratch?.dispose();
+    throw error;
+  }
+  let disposed = false;
+  return Object.freeze({
+    backend: external ? "opfs" : "memory",
+    scratchBytes,
+    externalBytes: external ? totalBytes : 0,
+    scanPasses: 1,
+    readShard(shardIndex: number): Uint32Array {
+      if (disposed) throw new Error("spatial shard scratch is disposed");
+      const shard = set.shards[shardIndex];
+      if (shard === undefined) throw new RangeError(`spatial shard ${shardIndex} is outside the plan`);
+      if (triangleIndices !== null) return triangleIndices[shardIndex]!;
+      const result = new Uint32Array(shard.triangleCount * 3);
+      scratch!.read(new Uint8Array(result.buffer), shard.triangleOrderOffset * 12);
+      return result;
+    },
+    async dispose(): Promise<void> {
+      if (disposed) return;
+      disposed = true;
+      await scratch?.dispose();
+    }
+  });
+}
+
+async function createOpfsSpatialShardScratch(bytes: number): Promise<SpatialShardExternalScratchV1> {
+  const storage = typeof navigator === "undefined" ? undefined : navigator.storage;
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (typeof storage?.getDirectory !== "function" || !locks) {
+    throw new Error("giant spatial shard scratch requires OPFS and Web Locks in a dedicated worker");
+  }
+  const directory = await storage.getDirectory();
+  const name = `oengine-spatial-${crypto.randomUUID()}.scratch`;
+  const lease = await acquireSpatialScratchLease(locks, name);
+  let access: SpatialSyncAccessHandle | undefined;
+  try {
+    const file = await directory.getFileHandle(name, { create: true });
+    const open = (file as FileSystemFileHandle & {
+      createSyncAccessHandle?: () => Promise<SpatialSyncAccessHandle>;
+    }).createSyncAccessHandle;
+    if (typeof open !== "function") throw new Error("OPFS synchronous access is unavailable in this worker");
+    access = await open.call(file);
+    access.truncate(bytes);
+  } catch (error) {
+    try { access?.close(); } finally {
+      try { await removeSpatialScratch(directory, name); } finally { await lease(); }
+    }
+    throw error;
+  }
+  const live = access;
+  let disposed = false;
+  return {
+    write(data, at) {
+      if (disposed || live.write(data, { at }) !== data.byteLength) {
+        throw new Error("OPFS spatial shard scratch write was incomplete");
+      }
+    },
+    read(data, at) {
+      if (disposed || live.read(data, { at }) !== data.byteLength) {
+        throw new Error("OPFS spatial shard scratch read was incomplete");
+      }
+    },
+    flush() { if (disposed) throw new Error("OPFS spatial shard scratch is disposed"); live.flush(); },
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      try { live.close(); } finally {
+        try { await removeSpatialScratch(directory, name); } finally { await lease(); }
+      }
+    }
+  };
+}
+
+/** Reclaims files whose worker died before its materialization could dispose. */
+export async function cleanupOrphanedSpatialShardScratchV1(): Promise<number> {
+  const storage = typeof navigator === "undefined" ? undefined : navigator.storage;
+  const locks = typeof navigator === "undefined" ? undefined : navigator.locks;
+  if (typeof storage?.getDirectory !== "function" || !locks) return 0;
+  const directory = await storage.getDirectory();
+  let removed = 0;
+  const entries = directory as FileSystemDirectoryHandle & { keys(): AsyncIterableIterator<string> };
+  for await (const name of entries.keys()) {
+    if (!/^oengine-spatial-[0-9a-f-]{36}\.scratch$/u.test(name)) continue;
+    await locks.request(spatialScratchLockName(name), { ifAvailable: true }, async lock => {
+      if (lock === null) return;
+      await removeSpatialScratch(directory, name);
+      removed++;
+    });
+  }
+  return removed;
+}
+
+async function acquireSpatialScratchLease(locks: LockManager, name: string): Promise<() => Promise<void>> {
+  let acquired!: () => void;
+  let failed!: (error: unknown) => void;
+  const ready = new Promise<void>((resolve, reject) => { acquired = resolve; failed = reject; });
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const running = locks.request(spatialScratchLockName(name), async () => { acquired(); await held; });
+  void running.catch(failed);
+  await ready;
+  return async () => { release(); await running; };
+}
+
+function spatialScratchLockName(name: string): string { return `oengine-spatial:${name}`; }
+
+async function removeSpatialScratch(directory: FileSystemDirectoryHandle, name: string): Promise<void> {
+  try { await directory.removeEntry(name); }
+  catch (error) { if (!(error instanceof DOMException) || error.name !== "NotFoundError") throw error; }
 }
 
 /** Canonicalizes a shard from one-shot materialized triangle ownership. */

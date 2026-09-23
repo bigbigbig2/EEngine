@@ -42,9 +42,9 @@ triangle centroid
 
 Planner 不分配 `triangleCount` 规模的 Morton key/sort array。常驻 planning metadata 是 `2^bucketBits` 的 histogram、prefix 和 bucket bounds。index/position 按 source window 扫描；离散 vertex fetch 被切成不超过 `maxSourceWindowBytes` 的 accessor ranges。
 
-Materialization 一次只拥有一个 shard 的 selected indices、source-vertex remap、canonical vertices/indices 和一个 source range。encoded canonical input 必须不超过 `maxCanonicalWindowBytes`，且 shard 必须同时满足 triangle、vertex 和 domain work limits；WASM builder append 返回后立即释放。
+Materialization 进行一次 source scan。若全部 index triples 加起来不超过 RAM scratch cap，则用内存数组；否则必须在 Dedicated Worker 中用 OPFS 临时文件按 Morton rank 存放 triples。每个非空 bucket 只保留受 RAM cap 约束的小写入块，读取时只分配一个 shard 的 index triples。OPFS、Web Locks 不可用、quota 不足、短写或短读均 fail closed，不得回退到 full-primitive JS 数组。临时文件在成功、取消和失败时由 producer 释放；文件存活期间持有同名 Web Lock，Worker 启动时只回收可取得锁的遗留文件，跳过其他活跃 Worker 的 scratch。
 
-V1 为避免在 Phase C 引入 Phase D spill owner，对每个 shard 重新扫描 source primitive 并按 histogram rank 选择 triangle。这保证 payload working set 有界，代价是 giant primitive 的 source scan 次数随 shard count 增长。Phase D 可以增加临时 OPFS counting-sort scratch，但不得改变 triangle ownership、shard identity 或 Product bytes。
+`spatialScratchBytes` 报告 bucket buffers、histogram cursor 和一个 shard read buffer 的 RAM 上界；`externalBytes` 报告临时文件逻辑长度。encoded canonical input 必须不超过 `maxCanonicalWindowBytes`，且 shard 必须同时满足 triangle、vertex 和 domain work limits；WASM builder append 返回后立即释放。外存 materialization 不改变 triangle ownership、shard identity 或 Product bytes。
 
 ### Scene mapping
 

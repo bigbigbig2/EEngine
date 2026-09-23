@@ -4,6 +4,7 @@ import type { GlbRangeSourceOptions } from "../../loaders/gltf/streaming/GlbRang
 import type { GeometryCookRecipeV3 } from "../GeometryCookRecipe.js";
 import type { EmscriptenWebGeometryCookerModuleV1 } from "./wasm/WebGeometryCookerAbi.js";
 import { createPreferredWebGeometryPageSpillStoreV1, type WebGeometryPageSpillStoreV1 } from "../geometry-product/WebGeometryPageSpillStoreV1.js";
+import { cleanupOrphanedSpatialShardScratchV1 } from "./SpatialShardPlanner.js";
 
 export interface WebCookWorkerModuleFactory {
   (): EmscriptenWebGeometryCookerModuleV1 | Promise<EmscriptenWebGeometryCookerModuleV1>;
@@ -46,6 +47,7 @@ export async function installWebCookWorkerEntry(options: WebCookWorkerEntryOptio
   };
   options.port.addEventListener("message", listener);
   try {
+    await cleanupOrphanedSpatialShardScratchV1();
     const module = await options.moduleFactory();
     if (closed) throw new Error("Web Cook Worker entry was closed during module initialization");
     const spillStore = options.spillStore ?? await createPreferredWebGeometryPageSpillStoreV1({ maxBytes: options.maxSessionSpillBytes ?? checkedFallbackSpillBudget(options.maxDecodedProductBytes) });

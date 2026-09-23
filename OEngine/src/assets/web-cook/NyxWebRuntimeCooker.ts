@@ -325,7 +325,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       try {
         for (let shardIndex = 0; shardIndex < item.spatial.shards.length; shardIndex++) {
           const shard = item.spatial.shards[shardIndex]!;
-          const domain = await canonicalizeGlbPrimitiveSpatialShardIndicesV1(item.unit, item.spatial, shard, materialized.triangleIndices[shardIndex]!, { signal: context.signal, readRange: range => context.readRange(range) }, this.#maxSourceWindowBytes);
+          const domain = await canonicalizeGlbPrimitiveSpatialShardIndicesV1(item.unit, item.spatial, shard, materialized.readShard(shardIndex), { signal: context.signal, readRange: range => context.readRange(range) }, this.#maxSourceWindowBytes);
           const canonical = encodeWebCanonicalGeometryV1([domain]);
           if (canonical.byteLength > this.#maxCanonicalInputBytes) throw new Error(`spatial canonical shard ${shard.shardId} exceeds maxCanonicalInputBytes=${this.#maxCanonicalInputBytes}`);
           this.#canonicalWindows++;
@@ -336,6 +336,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
         }
       } finally {
         this.#spatialScratchBytes = 0;
+        await materialized.dispose();
       }
     }
     yield* flushWhole(this);
@@ -622,7 +623,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
           let revision: WasmGeometryProductRevisionV1 | undefined;
           try {
             this.startTaskPhase(task, "canonicalize");
-            const domain = await canonicalizeGlbPrimitiveSpatialShardIndicesV1(unit, spatial, shard, materialized.triangleIndices[shardIndex]!, {
+            const domain = await canonicalizeGlbPrimitiveSpatialShardIndicesV1(unit, spatial, shard, materialized.readShard(shardIndex), {
               signal: context.signal,
               readRange: range => context.readRange(range)
             }, this.#maxSourceWindowBytes);
@@ -655,6 +656,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
         }
       } finally {
         this.#spatialScratchBytes = 0;
+        await materialized.dispose();
       }
     }
     yield* flushOrdinary(this);
