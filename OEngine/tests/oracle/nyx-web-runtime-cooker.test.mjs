@@ -103,6 +103,8 @@ test("Nyx Web Runtime Cooker gives a spatially sharded primitive a stable Produc
   assert.deepEqual(first.sceneAssetIndices, [0]);
   assert.equal(firstModule.canonicalWindows.length, 1);
   assert.deepEqual({ primitives: firstCooker.evidence().spatialPrimitives, shards: firstCooker.evidence().spatialShards }, { primitives: 1, shards: 1 });
+  assert.equal(firstCooker.evidence().spatialExternalScratchMaterializations, 0);
+  assert.equal(firstCooker.evidence().spatialExternalScratchReleases, 0);
   first.release(); second.release();
 });
 

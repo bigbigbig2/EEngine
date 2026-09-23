@@ -10,15 +10,16 @@ goal: Stabilize the fixed authored-large GLB through work-bounded Web cook, comp
 
 currentSlice:
   id: S0
-  title: Bounded external spatial partition scratch
+  title: Validate bounded spatial scratch on the 100M giant source
   target: external-spatial-scratch
   status: implementing
-  finding: K0, K1, and K2 passed on clean revision 1049f71. K2 measured 5.81 s first frame, 41.94 s cook, 114.57 s settled, 1.48 GiB GPU peak, and 4.95/11.68 ms CPU/GPU frame p95; publication cost is the first optimization target before worker parallelism.
+  finding: K0, K1, and K2 passed on clean revision 6712564. Chrome OPFS probe confirmed bounded ownership and orphan cleanup. The clean 7c9518d 100M giant diagnostic passed source admission and produced Product 0, then Product 1 failed in wasm-plan with std::bad_alloc after 98 shards were planned; this is not a 100M scale pass.
 nextTasks:
-  - Finish bounded OPFS spatial index scratch and validate RAM cap, exact ownership, cancellation, and release.
-  - Recheck authored multi-primitive K0/K1/K2 on the new clean revision.
-  - Mount separate 100M multi-primitive and single-giant sources, then validate each category independently.
-  - Profile per-shard material and sparse publication time before changing Product parallelism.
+  - Validate external scratch materialization, byte peak, and release receipts in the 100M browser diagnostic.
+  - Bound Nyx WASM work per giant shard and rerun the single-giant diagnostic past Product 1.
+  - Generate and mount a separate 100M many-primitive source with independent local geometry.
+  - Verify visible pixels, session spill capacity, and disposal before any formal 100M promotion.
+  - Renew authored K0/K1/K2 on the next final clean revision; profile material and publication before changing worker parallelism.
 
 contracts:
   - geometry-product-v1
@@ -124,9 +125,10 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence before the separate 100M scale gate.
 openGates:
-  - External scratch needs browser OPFS validation and cleanup after abrupt worker termination.
-  - Authored K0/K1/K2 evidence must be renewed after the spatial scratch revision is committed.
-  - 100M multi-primitive and single-giant source artifacts are not mounted; their separate scale gates remain open.
+  - The 100M giant is mounted, but Product 1 fails in wasm-plan with std::bad_alloc; the diagnostic screenshot is black and full coverage, spill, settled, and disposal receipts are absent.
+  - The 100M many-primitive source is not generated or mounted; both scale categories remain unaccepted.
+  - External scratch has a Chrome diagnostic probe but lacks an authored browser receipt for backend, external bytes, and cleanup on the actual giant source.
+  - Authored K0/K1/K2 acceptance must be renewed on the final clean revision after validation and workstream changes.
 
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md

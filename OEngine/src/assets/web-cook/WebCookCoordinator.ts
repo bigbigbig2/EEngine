@@ -481,7 +481,7 @@ export class WebCookCoordinator {
           stage: "refinement",
           units: this.#completedUnits,
           bytes: this.#refinementSourceBytes,
-          timings: Object.freeze({ ...this.phaseTimings(), elapsedMs: Date.now() - startedAt, totalUnits })
+          timings: Object.freeze({ ...this.phaseTimings(), ...this.#options.cooker.evidence?.(), elapsedMs: Date.now() - startedAt, totalUnits })
         }));
       } catch {
         // The consumer is not draining events; skip this heartbeat.
@@ -578,6 +578,7 @@ export class WebCookCoordinator {
     if (!preservePublishedProducts) for (const revision of this.#liveRevisions.splice(0)) this.releaseRevision(revision);
     for (const wake of this.#creditWaiters) wake();
     this.#creditWaiters.clear();
+    try { this.publish(this.header({ type: "Progress", stage: "failed", units: this.#completedUnits, bytes: this.#refinementSourceBytes, timings: { ...this.phaseTimings(), ...this.#options.cooker.evidence?.() } })); } catch { /* preserve the terminal failure if diagnostics are saturated */ }
     // The first activation promise may already have resolved. Notify the live
     // provider before closing the session queue so later failures cannot hang it.
     try { this.publish(this.header({ type: "FatalSessionFailure", code: this.#failure })); } catch { /* transport already failed */ }

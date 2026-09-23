@@ -117,14 +117,17 @@ test("Web Cook coordinator bounds source work and emits credited Product events"
 test("Web Cook coordinator admits a giant range only with a bounded live-source capability", async () => {
   const glb = makeLargePrimitiveGlb(), product = productFixture();
   let ordinaryCalls = 0;
+  const observed = [];
   const ordinary = new WebCookCoordinator("giant-ordinary", 1, {
     budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 1024, maxOutputBytes: 262144, maxQueuedEvents: 8 },
     source: { fetch: async (_url, init) => { const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]), end = Number(range[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
-    cooker: { async cookBootstrap() { ordinaryCalls++; throw new Error("ordinary cooker should not run"); } }
+    onEvent: () => observed.push(...ordinary.drainEvents()),
+    cooker: { evidence() { return { spatialExternalScratchReleases: 1 }; }, async cookBootstrap() { ordinaryCalls++; throw new Error("ordinary cooker should not run"); } }
   });
   await ordinary.open("https://example.test/giant-ordinary.glb");
   await assert.rejects(ordinary.cookBootstrap(), /maxWasmBytes=1024/);
   assert.equal(ordinaryCalls, 0, "an unbounded producer must fail closed before cooking");
+  assert.equal(observed.find(event => event.type === "Progress" && event.stage === "failed")?.timings.spatialExternalScratchReleases, 1);
   ordinary.dispose();
 
   let boundedCalls = 0;

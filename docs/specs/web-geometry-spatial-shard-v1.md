@@ -46,6 +46,8 @@ Materialization 进行一次 source scan。若全部 index triples 加起来不�
 
 `spatialScratchBytes` 报告 bucket buffers、histogram cursor 和一个 shard read buffer 的 RAM 上界；`externalBytes` 报告临时文件逻辑长度。encoded canonical input 必须不超过 `maxCanonicalWindowBytes`，且 shard 必须同时满足 triangle、vertex 和 domain work limits；WASM builder append 返回后立即释放。外存 materialization 不改变 triangle ownership、shard identity 或 Product bytes。
 
+Producer 的 `Progress.timings` 在运行中和失败时报告 `spatialExternalScratchBytes`、`spatialExternalScratchPeakBytes`、`spatialExternalScratchMaterializations`、`spatialExternalScratchReleases`。外存释放成功后 current bytes 为 0，materializations 与 releases 对齐；失败的删除不计作 release。
+
 ### Scene mapping
 
 一个 catalog primitive 可以映射到同一 Product 内多个 asset domain：

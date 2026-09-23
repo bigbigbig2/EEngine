@@ -25,6 +25,7 @@ import {
   canonicalizeGlbPrimitiveSpatialShardIndicesV1,
   materializeGlbPrimitiveSpatialShardsV1,
   planGlbPrimitiveSpatialShardsV1,
+  type GlbSpatialShardMaterializationV1,
   type GlbSpatialShardSetV1
 } from "./SpatialShardPlanner.js";
 import type { WebGeometryPageSpillStoreV1 } from "../geometry-product/WebGeometryPageSpillStoreV1.js";
@@ -95,6 +96,10 @@ export interface NyxWebRuntimeCookerEvidence {
   readonly spatialScratchCapacityBytes: number;
   readonly spatialScratchBytes: number;
   readonly spatialScratchPeakBytes: number;
+  readonly spatialExternalScratchBytes: number;
+  readonly spatialExternalScratchPeakBytes: number;
+  readonly spatialExternalScratchMaterializations: number;
+  readonly spatialExternalScratchReleases: number;
   readonly spatialScanPasses: number;
   readonly spillCurrentBytes: number;
   readonly spillPeakBytes: number;
@@ -140,6 +145,10 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   #spatialShards = 0;
   #spatialScratchBytes = 0;
   #spatialScratchPeakBytes = 0;
+  #spatialExternalScratchBytes = 0;
+  #spatialExternalScratchPeakBytes = 0;
+  #spatialExternalScratchMaterializations = 0;
+  #spatialExternalScratchReleases = 0;
   #spatialScanPasses = 0;
   readonly #spillStore: WebGeometryPageSpillStoreV1 | undefined;
   readonly #sessionGeneration: number | undefined;
@@ -193,6 +202,10 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       spatialScratchCapacityBytes: this.#maxSourceWindowBytes,
       spatialScratchBytes: this.#spatialScratchBytes,
       spatialScratchPeakBytes: this.#spatialScratchPeakBytes,
+      spatialExternalScratchBytes: this.#spatialExternalScratchBytes,
+      spatialExternalScratchPeakBytes: this.#spatialExternalScratchPeakBytes,
+      spatialExternalScratchMaterializations: this.#spatialExternalScratchMaterializations,
+      spatialExternalScratchReleases: this.#spatialExternalScratchReleases,
       spatialScanPasses: this.#spatialScanPasses,
       spillCurrentBytes: this.#spillStore?.evidence().currentBytes ?? 0,
       spillPeakBytes: this.#spillStore?.evidence().peakBytes ?? 0,
@@ -205,6 +218,29 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   }
 
   setTaskTraceListener(listener: WebCookProductTaskTraceListener | undefined): void { this.#taskTraceListener = listener; }
+
+  private trackSpatialScratch(materialized: GlbSpatialShardMaterializationV1): void {
+    this.#spatialScratchBytes = materialized.scratchBytes;
+    this.#spatialScratchPeakBytes = Math.max(this.#spatialScratchPeakBytes, materialized.scratchBytes);
+    this.#spatialScanPasses += materialized.scanPasses;
+    if (materialized.backend === "opfs") {
+      this.#spatialExternalScratchBytes = materialized.externalBytes;
+      this.#spatialExternalScratchPeakBytes = Math.max(this.#spatialExternalScratchPeakBytes, materialized.externalBytes);
+      this.#spatialExternalScratchMaterializations++;
+    }
+  }
+
+  private async releaseSpatialScratch(materialized: GlbSpatialShardMaterializationV1): Promise<void> {
+    try {
+      await materialized.dispose();
+      if (materialized.backend === "opfs") {
+        this.#spatialExternalScratchBytes = 0;
+        this.#spatialExternalScratchReleases++;
+      }
+    } finally {
+      this.#spatialScratchBytes = 0;
+    }
+  }
 
   /**
    * Coordinator admission must use the bounded live source window rather than
@@ -319,9 +355,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       if (!item.spatial) { whole.push(item.unit); continue; }
       yield* flushWhole(this);
       const materialized = await materializeGlbPrimitiveSpatialShardsV1(item.unit, item.spatial, { signal: context.signal, readRange: range => context.readRange(range) }, this.#maxSourceWindowBytes, this.#maxSourceWindowBytes);
-      this.#spatialScratchBytes = materialized.scratchBytes;
-      this.#spatialScratchPeakBytes = Math.max(this.#spatialScratchPeakBytes, materialized.scratchBytes);
-      this.#spatialScanPasses += materialized.scanPasses;
+      this.trackSpatialScratch(materialized);
       try {
         for (let shardIndex = 0; shardIndex < item.spatial.shards.length; shardIndex++) {
           const shard = item.spatial.shards[shardIndex]!;
@@ -335,8 +369,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
           finally { this.releaseCanonicalWindow(); }
         }
       } finally {
-        this.#spatialScratchBytes = 0;
-        await materialized.dispose();
+        await this.releaseSpatialScratch(materialized);
       }
     }
     yield* flushWhole(this);
@@ -603,9 +636,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
         signal: context.signal,
         readRange: range => context.readRange(range)
       }, this.#maxSourceWindowBytes, this.#maxSourceWindowBytes);
-      this.#spatialScratchBytes = materialized.scratchBytes;
-      this.#spatialScratchPeakBytes = Math.max(this.#spatialScratchPeakBytes, materialized.scratchBytes);
-      this.#spatialScanPasses += materialized.scanPasses;
+      this.trackSpatialScratch(materialized);
       try {
         for (let shardIndex = 0; shardIndex < spatial.shards.length; shardIndex++) {
           const shard = spatial.shards[shardIndex]!;
@@ -655,8 +686,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
           yield revision;
         }
       } finally {
-        this.#spatialScratchBytes = 0;
-        await materialized.dispose();
+        await this.releaseSpatialScratch(materialized);
       }
     }
     yield* flushOrdinary(this);
