@@ -1,24 +1,23 @@
 schemaVersion: 2
 id: web-100m-virtual-geometry
-title: Web authored-large Virtual Geometry target with deferred 100M scale gate
+title: Web authored-large Virtual Geometry validation with deferred scale gate
 domain: virtual-assets
 state: active
 owner: virtual-assets
 decision: ADR-0018
 sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
-goal: Stabilize the fixed authored-large GLB through work-bounded Web cook, complete catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal; retain 100M as a later scale gate.
+goal: Stabilize the user's large.glb through work-bounded Web cook, complete catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal. Defer the separate 100M scale gate until a valid source is selected.
 
 currentSlice:
   id: S1
-  title: Validate independent 100M multi-primitive and single-giant sources
-  target: formal-100m-perf-freeze
+  title: Renew and profile authored large.glb validation
+  target: authored-large-performance-followup
   status: implementing
-  finding: S0 external scratch passed Chrome normal, cancellation, and forced-termination cleanup probes. The clean f05f900 100M giant diagnostic materialized 1.2 GB in OPFS with 28.1 MB peak RAM scratch and released it after Product 1 failed in wasm-plan with std::bad_alloc; the full 100M scale gate remains open.
+  finding: Authored large.glb K0/K1/K2 passed on clean 6712564, but those receipts are not current for the latest revision. The separate synthetic 100M source is withdrawn from active validation.
 nextTasks:
-  - Generate and mount a separate 100M many-primitive source with independent local geometry.
-  - Bound Nyx WASM work per giant shard and rerun the single-giant diagnostic past Product 1.
-  - Verify visible pixels, session spill capacity, and disposal before any formal 100M promotion.
-  - Renew authored K0/K1/K2 on the next final clean revision; profile material and publication before changing worker parallelism.
+  - Renew authored large.glb K0/K1/K2 on the next final clean revision.
+  - Profile material and texture work, incremental Scene publication, first useful frame, total cook, slowest Product, memory peak, and frame time on large.glb.
+  - Apply targeted fixes only after the authored profile identifies a bottleneck, then rerun affected acceptance.
 
 contracts:
   - geometry-product-v1
@@ -104,12 +103,21 @@ tasks:
   - id: formal-100m-perf-freeze
     phase: S1
     priority: P2
-    title: Run the deferred clean formal 100M scale gate
-    state: active
+    title: Select a valid source before any separate formal 100M scale gate
+    state: todo
     dependsOn: [external-spatial-scratch]
     exitCriteria:
       - The authored target is already accepted.
       - Frozen identity, correctness, memory, runtime, and performance receipts satisfy the separate scale claim.
+  - id: authored-large-performance-followup
+    phase: S1
+    priority: P1
+    title: Renew and profile large.glb production validation
+    state: active
+    dependsOn: [authored-large-formal-perf]
+    exitCriteria:
+      - Current clean revision has accepted authored K0, K1, and K2 receipts.
+      - Material, texture, and Scene publication costs are attributed before selecting an optimization.
 
 exitChecks:
   - model
@@ -124,9 +132,8 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence before the separate 100M scale gate.
 openGates:
-  - The 100M giant is mounted, but Product 1 fails in wasm-plan with std::bad_alloc; the diagnostic screenshot is black and full coverage, spill, settled, and GPU disposal receipts are absent.
-  - The 100M many-primitive source is not generated or mounted; both scale categories remain unaccepted.
-  - Authored K0/K1/K2 acceptance must be renewed on the final clean revision after validation and workstream changes.
+  - Authored large.glb K0/K1/K2 acceptance must be renewed on the final clean revision after the current workstream change.
+  - The separate 100M scale claim is unaccepted and paused until a valid source is selected; do not use the withdrawn synthetic source for the active slice.
 
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md
