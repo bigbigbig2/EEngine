@@ -112,6 +112,9 @@ export class WebCookProductProvider implements GeometryProductProviderV1 {
     }
     if (event.type === "Progress") {
       this.#options.onProgress?.(Object.freeze({ stage: event.stage, units: event.units, bytes: event.bytes, timings: Object.freeze({ ...event.timings }) }));
+      // End descriptor enumeration while retaining the event pump for page
+      // rereads, streaming and device recovery after producer settlement.
+      if (event.stage === "cook-complete") this.#revisions.finish();
       return;
     }
     if (event.type === "ProductTaskTrace") {

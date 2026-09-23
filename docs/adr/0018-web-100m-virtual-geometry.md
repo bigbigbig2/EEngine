@@ -48,7 +48,21 @@ metadata catalog
 100M single-giant workload 保留为 authored 目标通过后的 scale gate，不再是
 ADR-0018 当前完成声明或本机首个浏览器门禁。250M、500M 和 1B logical 继续后置。
 
-### Product work quantum
+### Scale, partition quality and physical budgets
+
+- 100M evidence 必须分别标识 unique-source multi-primitive、single-giant primitive
+  和 instanced-logical 三种负载，并同时记录 unique source triangles、最大 primitive
+  triangles、instance count 与 logical triangles；三者不得互相替代验收。
+- Product budget 是可测量、可调整的 workload policy。128 Ki triangles 只是 authored
+  起始值；调整时同时比较 cook 长尾、首个 activation、Product/root/metadata 数量、
+  边界顶点重复及驻留成本。跨 shard 的 seam、保守 bounds、LOD error 和 fallback
+  连续性必须通过 contract/oracle 与代表性视角验证，不能以更小 Product 自动推导更优。
+- 所有 GPU allocation/capacity 必须从计划和实际 negotiated device limits 推导。
+  OPFS session limit 是应用上限，不是浏览器授予的容量；使用 storage estimate 记录
+  quota/usage，写入仍处理 quota failure，并验证取消、释放、旧 generation 与部分失败。
+  CPU/source/canonical/WASM、spill 与 GPU 预算分别记账；并发任务共享总预算。
+
+### Product work policy
 
 - Product 同时受 canonical bytes、triangle count、unique vertex count 和 domain
   count 约束，禁止继续只按内存窗口定义任务大小。
@@ -96,7 +110,7 @@ ADR-0018 当前完成声明或本机首个浏览器门禁。250M、500M 和 1B l
   性能 profile。
 - 当前 `portable-pool` 只做 session-to-worker pinning，不能作为 session 内 Product
   并行的完成证据。只有 work quantum 有界、K0 通过后，才实现 session-local Product
-  scheduler，并从 2 workers 开始评估。
+  scheduler；先取得 K2 profile，再决定是否从 2 workers 开始评估。
 
 ## Validation ladder
 

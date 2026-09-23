@@ -48,6 +48,8 @@ export interface WebCookProductRevision {
  * dedicated Worker, but it never receives a GPU object or performs publication.
  */
 export interface WebRuntimeCooker {
+  /** Every offered partition is required, unlike optional richer replacements. */
+  readonly requiredIndependentProducts?: boolean;
   /**
    * Returns the producer's upper bound for live source bytes while cooking the
    * supplied units. This is deliberately not the total accessor range size:
@@ -165,6 +167,7 @@ export class WebCookCoordinator {
   readonly #releasedRevisions = new WeakSet<WebCookProductRevision>();
   /** Revisions whose activation cut finished streaming; those pages re-emit. */
   readonly #activationStreamed = new Map<string, boolean>();
+  readonly #deliveredPageKeys = new Set<string>();
   readonly #completedSceneAssets = new Set<number>();
   #productTaskEvents = 0;
   #productTasksStarted = 0;
@@ -283,6 +286,7 @@ export class WebCookCoordinator {
           const streamed = this.#acceptRevisionRevisions(revision, bootstrapUnits.length, units.length);
           if (!isFirst) {
             return streamed.catch((error: unknown) => {
+              if (this.#options.cooker.requiredIndependentProducts) throw error;
               if (!this.#abort.signal.aborted) this.recordRecoverableFailure(error);
             });
           }
@@ -291,7 +295,7 @@ export class WebCookCoordinator {
               () => { firstRevision.resolve(); },
               (error: unknown) => { firstActivationFailed = true; firstRevision.reject(error); throw error; });
         }, (error) => {
-          if (this.hasCompleteCatalogCoverage()) this.recordRecoverableFailure(error);
+          if (!this.#options.cooker.requiredIndependentProducts && this.hasCompleteCatalogCoverage()) this.recordRecoverableFailure(error);
           else reportedFailure = error;
         }));
         void producerTask.then(
@@ -303,7 +307,7 @@ export class WebCookCoordinator {
               this.fail(error);
               return;
             }
-            if (reportedFailure !== undefined && !this.hasCompleteCatalogCoverage()) {
+            if (reportedFailure !== undefined && (this.#options.cooker.requiredIndependentProducts || !this.hasCompleteCatalogCoverage())) {
               this.fail(reportedFailure, true);
               return;
             }
@@ -316,7 +320,7 @@ export class WebCookCoordinator {
               this.fail(error);
               return;
             }
-            if (this.hasCompleteCatalogCoverage()) {
+            if (!this.#options.cooker.requiredIndependentProducts && this.hasCompleteCatalogCoverage()) {
               if (!this.#abort.signal.aborted) this.recordRecoverableFailure(error);
               this.completeCook();
               return;
@@ -543,7 +547,7 @@ export class WebCookCoordinator {
     const activationStreamed = this.#activationStreamed.get(revisionKey(source.productId, revision)) === true;
     for (const pageId of unique) {
       if (!Number.isInteger(pageId) || pageId < 0 || pageId === 0xffffffff || pageId >= source.pageCount) throw new RangeError("Web Cook page request targets an invalid page");
-      if (activation.has(pageId) && !activationStreamed) continue;
+      if (activation.has(pageId) && !activationStreamed && !this.#deliveredPageKeys.has(`${revisionKey(source.productId, revision)}:${pageId}`)) continue;
       await this.emitPage(source, pageId);
     }
   }
@@ -574,6 +578,9 @@ export class WebCookCoordinator {
     if (!preservePublishedProducts) for (const revision of this.#liveRevisions.splice(0)) this.releaseRevision(revision);
     for (const wake of this.#creditWaiters) wake();
     this.#creditWaiters.clear();
+    // The first activation promise may already have resolved. Notify the live
+    // provider before closing the session queue so later failures cannot hang it.
+    try { this.publish(this.header({ type: "FatalSessionFailure", code: this.#failure })); } catch { /* transport already failed */ }
     this.#session.fail(this.#failure);
     this.#source?.release();
     this.#source = undefined;
@@ -587,7 +594,8 @@ export class WebCookCoordinator {
   private completeCook(): void {
     if (this.#totalCookAt === undefined) this.#totalCookAt = Date.now() - this.#cookStartedAt;
     if (this.#state !== "cooking") return;
-    if (!this.hasCompleteCatalogCoverage()) {
+    if (!this.hasCompleteCatalogCoverage() || (this.#options.cooker.requiredIndependentProducts &&
+        (this.#productTasksFailed > 0 || this.#productTasksCancelled > 0 || this.#productTasksStarted !== this.#productTasksCompleted))) {
       const catalogPrimitives = this.#catalog?.primitives.length ?? 0;
       const failedTask = this.#lastFailedProductTask?.task.taskId;
       const failedPhase = this.#lastFailedProductTask?.phase;
@@ -596,7 +604,7 @@ export class WebCookCoordinator {
     }
     this.#state = "complete";
     this.#cookCompletion.resolve();
-    try { this.publish(this.header({ type: "Progress", stage: "cook-complete", units: this.#completedUnits, bytes: this.#refinementSourceBytes, timings: this.phaseTimings() })); } catch { /* completion evidence remains available even if the queue is full */ }
+    try { this.publish(this.header({ type: "Progress", stage: "cook-complete", units: this.#completedUnits, bytes: this.#refinementSourceBytes, timings: { ...this.phaseTimings(), ...this.#options.cooker.evidence?.() } })); } catch { /* completion evidence remains available even if the queue is full */ }
   }
   private hasCompleteCatalogCoverage(): boolean {
     const catalogPrimitives = this.#catalog?.primitives.length ?? 0;
@@ -673,6 +681,7 @@ export class WebCookCoordinator {
     const page = await revision.readPage(pageId);
     this.#activationReadMs += Date.now() - readStartedAt;
     if (page.pageId !== pageId || page.bytes.byteLength !== WEB_COOK_PAGE_BYTES) throw new Error(`Web Cook producer returned the wrong page (revision ${revision.revision}, requested page ${pageId}, got page ${page.pageId} with ${page.bytes.byteLength} bytes, expected ${WEB_COOK_PAGE_BYTES})`);
+    this.#deliveredPageKeys.add(`${revisionKey(revision.productId, revision.revision)}:${pageId}`);
     if (!this.publish(this.header({ type: "PageReady", productId: revision.productId.slice(), revision: revision.revision, pageId, decodedHash128: page.decodedHash128, decodedPageHash128: page.decodedPageHash128, bytes: page.bytes }))) throw new Error("Web Cook output credit changed before PageReady emission");
     this.#emittedPages++;
   }

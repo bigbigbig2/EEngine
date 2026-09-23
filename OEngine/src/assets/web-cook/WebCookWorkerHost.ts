@@ -9,6 +9,8 @@ export interface WebCookWorkerHostPort {
 }
 
 export interface WebCookWorkerHostOptions {
+  /** Drains worker-owned artifact cleanup before graceful disposal acknowledgement. */
+  readonly disposeArtifacts?: () => Promise<Readonly<Record<string, number>>>;
   readonly port: WebCookWorkerHostPort;
   readonly cooker: WebRuntimeCooker;
   readonly source?: GlbRangeSourceOptions;
@@ -101,6 +103,8 @@ export class WebCookWorkerHost {
         this.#coordinator.cancel(new Error(`Web Cook cancelled: ${command.scope}`));
       } else if (command.type === "DisposeSession") {
         this.close();
+        const timings = await this.#options.disposeArtifacts?.() ?? {};
+        this.#options.port.postMessage({ protocolVersion: WEB_COOK_PROTOCOL_VERSION, sessionId: this.#sessionId, sessionGeneration: this.#generation, type: "Progress", stage: "session-disposed", units: 0, bytes: 0, timings });
         return;
       } else if (command.type === "RequestPages") {
         await this.#coordinator.requestPages(command.productId, command.revision, command.pageIds, command.priority);

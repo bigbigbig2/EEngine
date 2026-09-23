@@ -121,6 +121,7 @@ interface ActiveProductTask {
 
 /** Browser-first Nyx producer. It owns no GPU object and emits only Product bytes. */
 export class NyxWebRuntimeCooker implements WebRuntimeCooker {
+  readonly requiredIndependentProducts = true;
   readonly #module: EmscriptenWebGeometryCookerModuleV1;
   readonly #recipeInput: ArrayBuffer;
   readonly #bootstrapRecipeInput: ArrayBuffer;
@@ -176,6 +177,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   evidence(): NyxWebRuntimeCookerEvidence {
     return Object.freeze({
       maxSourceWindowBytes: this.#maxSourceWindowBytes,
+      wasmMemoryBytes: this.#module.HEAPU8.byteLength,
       maxCanonicalWindowBytes: this.#maxCanonicalInputBytes,
       maxTrianglesPerProduct: this.#workBudget.maxTriangles,
       maxVerticesPerProduct: this.#workBudget.maxVertices,
@@ -427,11 +429,13 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     revision: number,
     replaces?: { readonly productId: Uint8Array; readonly revision: number },
     sceneAssetIndices?: readonly number[],
-    producerVersion = NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION
+    producerVersion = NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION,
+    partitionIdentity?: string
   ): Promise<WasmGeometryProductRevisionV1> {
     return planWasmGeometryProductRevisionV1(this.#module, canonicalInput, recipeInput, {
       producerId: NYX_WEB_RUNTIME_PRODUCER_ID,
       producerVersion,
+      partitionIdentity,
       sourceIdentityKind: context.source.sourceIdentity.kind,
       sourceIdentityHash: context.source.sourceIdentity.hash,
       signal: context.signal,
@@ -556,7 +560,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
           owner.startTaskPhase(task, "wasm-plan");
           revision = await owner.planCanonical(
             canonical, context, recipeInput, 0, undefined, indices,
-            `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=canonical-window-v1`
+            `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=canonical-window-v2`,
+            `canonical-window-v2:${indices.join(",")}`
           );
           owner.completeTaskPhase(task, "wasm-plan");
           const spillBefore = owner.#spillStore?.evidence().currentBytes ?? 0;
@@ -644,7 +649,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
             this.startTaskPhase(task, "wasm-plan");
             revision = await this.planCanonical(
               canonical, context, recipeInput, 0, undefined, [sceneAssetIndex],
-              `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=${WEB_SPATIAL_SHARD_PARTITION_VERSION}`
+              `${NYX_WEB_RUNTIME_PLAN_PRODUCER_VERSION};partition=${WEB_SPATIAL_SHARD_PARTITION_VERSION}`,
+              `${WEB_SPATIAL_SHARD_PARTITION_VERSION}:${shard.shardId}`
             );
             this.completeTaskPhase(task, "wasm-plan");
             const spillBefore = this.#spillStore?.evidence().currentBytes ?? 0;

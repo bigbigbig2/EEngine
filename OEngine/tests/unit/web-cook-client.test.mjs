@@ -16,6 +16,21 @@ class FakeWorker {
   emitMessage(data) { for (const listener of this.listeners.get("message") ?? []) listener({ data }); }
 }
 
+test("graceful disposal waits for matching cleanup acknowledgement before terminating", async () => {
+  const worker = new FakeWorker();
+  const client = new WebCookClient({ worker, sessionId: "dispose", sessionGeneration: 1,
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 1024, maxWasmBytes: 1024, maxOutputBytes: 262144, maxQueuedEvents: 8 }, initialOutputPageCredits: 1 });
+  client.open("https://assets.test/model.glb");
+  const disposed = client.disposeAsync();
+  assert.equal(worker.terminated, false);
+  worker.emitMessage({ protocolVersion: 1, sessionId: "dispose", sessionGeneration: 2, type: "Progress", stage: "session-disposed", units: 0, bytes: 0, timings: {} });
+  assert.equal(worker.terminated, false);
+  worker.emitMessage({ protocolVersion: 1, sessionId: "dispose", sessionGeneration: 1, type: "Progress", stage: "session-disposed", units: 0, bytes: 0, timings: { spillCurrentBytes: 0, spillOwnerCount: 0 } });
+  assert.deepEqual(await disposed, { spillCurrentBytes: 0, spillOwnerCount: 0 });
+  assert.equal(worker.terminated, true);
+  assert.equal(client.state, "disposed");
+});
+
 test("Web Cook Worker factory sends an explicit real-module bootstrap", () => {
   const worker = new FakeWorker();
   const created = createWebCookWorker({

@@ -327,6 +327,31 @@ export class WebCookClient implements GeometryProductProviderV1 {
     }
   }
 
+  /** Graceful settled-session cleanup; rejects on missing acknowledgement, then terminates. */
+  async disposeAsync(timeoutMs = 10_000): Promise<Readonly<Record<string, number>>> {
+    if (this.#state !== "open") { this.dispose(); throw new Error("Graceful disposal requires an open settled session"); }
+    const worker = this.#options.worker;
+    let listener!: (event: MessageEvent<unknown>) => void;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await new Promise<Readonly<Record<string, number>>>((resolve, reject) => {
+        listener = event => {
+          const value = event.data as { sessionId?: string; sessionGeneration?: number; type?: string; stage?: string; timings?: Readonly<Record<string, number>>; code?: string };
+          if (value?.sessionId !== this.#options.sessionId || value.sessionGeneration !== this.#options.sessionGeneration) return;
+          if (value.type === "Progress" && value.stage === "session-disposed") resolve(value.timings ?? {});
+          if (value.type === "FatalSessionFailure") reject(new Error(value.code));
+        };
+        worker.addEventListener("message", listener);
+        timer = setTimeout(() => reject(new Error("Web Cook artifact disposal acknowledgement timed out")), timeoutMs);
+        this.#send({ type: "DisposeSession" });
+      });
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      worker.removeEventListener("message", listener);
+      this.dispose();
+    }
+  }
+
   dispose(): void {
     if (this.#state === "disposed") return;
     this.#admission.abort(new Error("Web Cook session disposed"));

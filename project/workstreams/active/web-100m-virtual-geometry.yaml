@@ -12,12 +12,13 @@ currentSlice:
   id: K0
   title: Authored-large production gate
   target: web-authored-large-cook-k0
-  status: blocked-on-product-identity
-  finding: The bounded product-31 diagnostic failed because ordinary windows shared a provisional Product identity and an OPFS page key resolved to another Product revision.
+  status: validating-producer-lifecycle
+  finding: Producer-only browser diagnostics pass with 66 Products, all 1920 primitives and 2925 reread pages; partition identity, required-shard failure, revision settlement, activation rereads and acknowledged artifact cleanup are covered. Clean acceptance is the remaining K0 gate.
 nextTasks:
-  - Give every ordinary Product a partition-scoped identity before spill and publication.
-  - Define partial producer failure separately from successful full-catalog settlement.
-  - Capture a clean accepted K0 browser receipt covering all 1920 catalog primitives.
+  - Capture a clean K0 browser receipt with all planned shards, exact triangle coverage, page rereads and acknowledged disposal.
+  - Implement activation-first publication and incremental Scene append before K1.
+  - Complete K1 and measure K2 before choosing Product parallelism or algorithm optimization.
+  - Before 100M, replace full-primitive index scratch with bounded external partition storage and separately validate multi-primitive and single-giant sources.
 
 contracts:
   - geometry-product-v1
@@ -33,6 +34,7 @@ contracts:
   - web-geometry-product-task-trace-v1
   - web-geometry-formal-perf-freeze-v1
 claims:
+  - virtual-assets.authored-producer
   - virtual-assets.product-consumer
   - virtual-assets.web-cook
   - virtual-assets.lifecycle
@@ -112,8 +114,7 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence before the separate 100M scale gate.
 openGates:
-  - Partition-scoped ordinary Product identity and correct spill keying are incomplete; no accepted K0 browser receipt exists.
-  - Partial producer failure and full-catalog settled terminal semantics are not yet separated.
+  - No clean passing K0 browser receipt exists yet; implementation fixes require browser acceptance.
   - Activation-first publication, incremental Scene publication, automatic Product capacity, and session-local scheduling remain open.
   - Clean authored browser evidence for the production consumer, demand capacity, overflow, and negotiated residency profiles remains open.
   - Formal authored-large K2 and deferred 100M S1 evidence do not exist.

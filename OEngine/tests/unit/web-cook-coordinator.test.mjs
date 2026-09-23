@@ -52,6 +52,56 @@ function productFixture() {
   return { descriptor, productId, page, hash };
 }
 
+for (const failure of ["activation", "remainder-spill"]) test(`required shard ${failure} failure cannot settle after primitive coverage`, async () => {
+  const glb = makeGlb(), product = productFixture();
+  const revision = ordinal => ({
+    descriptor: encodeGeometryProductDescriptorBinaryV1({ ...product.descriptor, revision: ordinal }),
+    productId: product.productId, revision: ordinal, pageCount: 1, sceneAssetIndices: [0],
+    async readPage(pageId) {
+      if (ordinal === 2 && failure === "activation") throw new Error("required activation failed");
+      return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer.slice(0) };
+    }, release() {}
+  });
+  const coordinator = new WebCookCoordinator(`required-${failure}`, 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 4 * 262144, maxQueuedEvents: 32 },
+    source: { fetch: async (_url, init) => { const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(match[1]), end = Number(match[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    cooker: { requiredIndependentProducts: true, async cookProgressive(_units, _context, publish) {
+      await publish(revision(1));
+      await publish(revision(2));
+      if (failure === "remainder-spill") throw new Error("required remainder spill failed");
+    } }
+  });
+  await coordinator.open("https://example.test/required.glb");
+  coordinator.grantOutputCredits(4, 4 * 262144);
+  await coordinator.cookBootstrap();
+  await assert.rejects(coordinator.waitForCookCompletion(), /required/);
+  assert.equal(coordinator.evidence().state, "failed");
+  assert.equal(coordinator.drainEvents().some(event => event.type === "Progress" && event.stage === "cook-complete"), false);
+  coordinator.dispose();
+});
+
+test("activation page already delivered can be reread before the cut completion flag", async () => {
+  const glb = makeGlb(), product = productFixture();
+  let requested = false, reread;
+  const events = [];
+  const coordinator = new WebCookCoordinator("activation-reread", 1, {
+    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: glb.byteLength, maxWasmBytes: 4096, maxOutputBytes: 2 * 262144, maxQueuedEvents: 32 },
+    source: { fetch: async (_url, init) => { const match = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(match[1]), end = Number(match[2]); return new Response(glb.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${glb.byteLength}`, "Content-Encoding": "identity" } }); } },
+    onEvent() {
+      const pending = coordinator.drainEvents(); events.push(...pending);
+      if (!requested && pending.some(event => event.type === "PageReady")) {
+        requested = true;
+        reread = coordinator.requestPages(product.productId, 1, new Uint32Array([0]), 0);
+      }
+    },
+    cooker: { async cookProgressive(_units, _context, publish) { await publish({ descriptor: encodeGeometryProductDescriptorBinaryV1(product.descriptor), productId: product.productId, revision: 1, pageCount: 1, sceneAssetIndices: [0], async readPage(pageId) { return { pageId, decodedHash128: product.hash.subarray(0, 16), decodedPageHash128: product.hash.subarray(0, 16), bytes: product.page.buffer.slice(0) }; }, release() {} }); } }
+  });
+  await coordinator.open("https://example.test/reread.glb"); coordinator.grantOutputCredits(2, 2 * 262144);
+  await coordinator.cookBootstrap(); await coordinator.waitForCookCompletion(); await reread;
+  assert.equal(events.filter(event => event.type === "PageReady").length, 2);
+  coordinator.dispose();
+});
+
 test("Web Cook coordinator bounds source work and emits credited Product events", async () => {
   const glb = makeGlb(), product = productFixture(), fetched = [];
   const coordinator = new WebCookCoordinator("session-a", 1, {

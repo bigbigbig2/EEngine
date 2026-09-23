@@ -59,7 +59,13 @@ export async function installWebCookWorkerEntry(options: WebCookWorkerEntryOptio
       maxDomainsPerProduct: options.maxDomainsPerProduct,
       spillStore
     });
-    host = new WebCookWorkerHost({ port: options.port, cooker, source: options.source });
+    host = new WebCookWorkerHost({ port: options.port, cooker, source: options.source,
+      disposeArtifacts: async () => {
+        await spillStore.dispose();
+        const evidence = spillStore.evidence();
+        return { spillCurrentBytes: evidence.currentBytes, spillOwnerCount: evidence.ownerCount, spillReleases: evidence.releases, spillWrites: evidence.writes };
+      }
+    });
     options.port.removeEventListener("message", listener);
     for (const value of pending.splice(0)) await host.receive(value);
     return host;

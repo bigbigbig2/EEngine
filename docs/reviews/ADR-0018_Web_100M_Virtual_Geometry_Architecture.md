@@ -120,6 +120,15 @@ Offline Cooker / OEGPACK 继续作为第二路线：
 
 # 3. 规模目标
 
+当前补充约束（权威决策见 `docs/adr/0018-web-100m-virtual-geometry.md`）：
+
+1. 分开验收 100M unique-source 多 primitive、100M single-giant 与实例累计 100M；
+   记录 unique/logical triangle count、最大 primitive 和 instance count，不互相替代。
+2. 128 Ki triangles/Product 是起始 policy；调节粒度必须同时测 cook 长尾、activation、
+   Product/root/metadata、边界重复与驻留成本，并验证跨 shard seam、LOD/fallback 连续性。
+3. GPU capacity 服从实际协商 limits；OPFS 记录 quota/usage 并处理 quota failure；
+   配置的 spill cap 不代表获授存储，CPU/WASM/spill/GPU 独立记账，并发共享总预算。
+
 阶段目标：
 
 ```text

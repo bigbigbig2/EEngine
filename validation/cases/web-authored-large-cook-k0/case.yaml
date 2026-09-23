@@ -1,8 +1,7 @@
 schemaVersion: 1
 id: web-authored-large-cook-k0
-evidenceRole: diagnostic
-sourceCase: web-100m-formal-perf
-route: /cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-cook-k0&workload=web-authored-large-cook-k0-v1
+evidenceRole: promotion
+route: /cases/web-authored-large-cook-k0/index.html
 buildTarget: production
 workloadId: web-authored-large-cook-k0-v1
 profile: smoke
@@ -19,18 +18,13 @@ changedPaths:
   - OEngine/src/assets/web-cook
   - OEngine/src/assets/geometry-product
   - OEngine/src/gpu/GeometryProductMultiRuntime.ts
-errorAllowlist:
-  - source: console:warning
-    exact: The powerPreference option is currently ignored when calling
-      requestAdapter() on Windows. See https://crbug.com/369219127
-    reason: Chrome stable emits this platform warning while the authored K0
-      cook device is captured.
-    ownerClaim: virtual-assets.performance
+errorAllowlist: []
 harness: production
 domain: virtual-assets
 caseKind: production
 kind: contract
 level: L3
 covers:
+  - virtual-assets.authored-producer
   - virtual-assets.performance
 decision: ADR-0018

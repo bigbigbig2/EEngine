@@ -35,6 +35,20 @@ created --CreateSession--> open --CancelScope--> cancelled
 
 ### 命令
 
+`Progress(stage="cook-complete")` 关闭 descriptor revision 枚举，但不关闭 page
+event pump；settled 后仍能执行 `RequestPages`。已发送的 activation page 在整个
+activation cut 完成前也允许复读，不能静默丢弃已经消费后的重复请求。
+
+声明 `requiredIndependentProducts` 的 producer 将每个 Product/shard 视为必需覆盖。
+任何 activation、remainder spill 或 task failure 都必须发送 terminal failure，不能仅
+因为 primitive 集合已覆盖而退化成 recoverable refinement；成功终态要求全部任务完成。
+
+`DisposeSession` 的 graceful consumer 等待 Worker 释放 artifact 后发出的
+`Progress(stage="session-disposed", timings={spillCurrentBytes, spillOwnerCount,
+spillReleases, spillWrites})`，然后终止 Worker。这是 host 在 session event queue
+关闭后的确认，不重新打开 queue。未确认、清理失败或超时不能声明 disposal 成功；
+立即 `dispose()` 仍为强制终止。该确认是 V1 的新增 progress stage。
+
 | 命令 | 关键字段 | 约束 |
 | --- | --- | --- |
 | `CreateSession` | `runtimeProfile`、`recipe`、`budgets`、可选 `bootstrap` | 仅 `created`；`budgets` 全部为正安全整数；`bootstrap.unitCount`/`maxSourceBytes` 若存在必须为正安全整数 |

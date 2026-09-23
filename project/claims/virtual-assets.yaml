@@ -1,5 +1,18 @@
 schemaVersion: 2
 claims:
+  - id: virtual-assets.authored-producer
+    domain: virtual-assets
+    owner: virtual-assets
+    statement: The frozen authored large source completes bounded browser production with every planned shard, exact primitive triangle coverage, verified page rereads and acknowledged artifact disposal; this claim does not prove rendering or performance.
+    level: L3
+    requiredChecks: [model, registry, changed-coverage, evidence-provenance, engine-suites, validation-suites]
+    evidencePolicy:
+      allOf: [web-authored-large-cook-k0]
+      anyOf: []
+      diagnosticCases: []
+      checkOnly: false
+    allowedDeclarations: [ImplementationComplete, RuntimeValidated]
+    watch: [OEngine/src/assets/web-cook/**, OEngine/src/assets/geometry-product/**, validation/cases/web-authored-large-cook-k0/**, validation/workloads/web-authored-large-cook-k0-v1.yaml]
   - id: virtual-assets.product-consumer
     domain: virtual-assets
     owner: virtual-assets

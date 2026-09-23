@@ -221,8 +221,7 @@ export class OpfsWebGeometryPageSpillStoreV1 implements WebGeometryPageSpillStor
       assertKey(key);
       const id = pageKey(key), name = this.fileName(key), owned = this.#owned.get(id);
       try { await this.#directory.removeEntry(name); } catch (error) { if (!(error instanceof DOMException) || error.name !== "NotFoundError") throw error; }
-      if (owned !== undefined) {
-        this.#owned.delete(id);
+      if (owned !== undefined && this.#owned.delete(id)) {
         this.#currentBytes -= owned;
         this.#releases++;
       }

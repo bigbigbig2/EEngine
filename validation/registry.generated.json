@@ -815,27 +815,20 @@
         "OEngine/src/gpu/GeometryProductMultiRuntime.ts"
       ],
       "covers": [
+        "virtual-assets.authored-producer",
         "virtual-assets.performance"
       ],
       "decision": "ADR-0018",
       "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.performance",
-          "reason": "Chrome stable emits this platform warning while the authored K0 cook device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "diagnostic",
+      "errorAllowlist": [],
+      "evidenceRole": "promotion",
       "harness": "production",
       "id": "web-authored-large-cook-k0",
       "kind": "contract",
       "lab": false,
       "level": "L3",
       "profile": "smoke",
-      "route": "/cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-cook-k0&workload=web-authored-large-cook-k0-v1",
-      "sourceCase": "web-100m-formal-perf",
+      "route": "/cases/web-authored-large-cook-k0/index.html",
       "timeoutMs": 300000,
       "workloadId": "web-authored-large-cook-k0-v1"
     },
@@ -1552,7 +1545,11 @@
     "web-authored-large-cook-k0-v1": {
       "acceptance": {
         "productCount": "record-only",
+        "requiresAllPlannedShards": true,
+        "requiresArtifactDisposalAcknowledgement": true,
         "requiresDisposed": true,
+        "requiresEveryPageReread": true,
+        "requiresExactSourceTriangleCoverage": true,
         "requiresFullCatalogCoverage": true,
         "requiresSettled": true
       },
@@ -1568,12 +1565,7 @@
       "features": [
         "web-cook",
         "geometry-product",
-        "multi-product-runtime",
-        "visible-first-scheduler",
-        "gpu-demand-compaction",
-        "adaptive-residency",
-        "current-hzb-late-recheck",
-        "dynamic-page-scheduler"
+        "visible-first-scheduler"
       ],
       "fixedCondition": {
         "adapter": "record-from-browser-provenance",
@@ -1607,15 +1599,11 @@
           "sourceBytes",
           "canonicalBytes",
           "wasmBytes",
-          "jsBytes",
-          "spillBytes",
-          "gpuGeometryBytes"
+          "spillBytes"
         ],
         "pages": [
           "pageCount",
-          "demand",
-          "churn",
-          "overflow"
+          "rereadPages"
         ],
         "productCount": "productCount",
         "taskTrace": "taskTrace",
@@ -1632,7 +1620,6 @@
       "seed": 1801,
       "taskTrace": {
         "phases": [
-          "catalog",
           "canonicalize",
           "wasm-plan",
           "spill",

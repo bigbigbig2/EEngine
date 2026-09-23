@@ -66,6 +66,8 @@ export interface WasmGeometryProductIdentifyInputV1 {
    * window digests without retaining scene-scale canonical bytes.
    */
   readonly productScopeHash?: Uint8Array;
+  /** Stable planner partition key, never a runtime task/publication ordinal. */
+  readonly partitionIdentity?: string;
   readonly revision: number;
   readonly replaces?: Readonly<{ productId: Uint8Array; revision: number }>;
   readonly sceneAssetIndices?: readonly number[];
@@ -444,7 +446,8 @@ async function resolveProductScopeHash(
     mappingView.setUint32(index * 4, value, true);
   }
   const encoded = encodeLengthPrefixed([
-    textBytes("OENGINE-GEOMETRY-PRODUCT-SCOPE-V1"),
+    textBytes("OENGINE-GEOMETRY-PRODUCT-SCOPE-V2"),
+    textBytes(options.partitionIdentity ?? "canonical-content"),
     mapping,
     ...canonicalWindowHashes.map(hash => hash.slice())
   ]);

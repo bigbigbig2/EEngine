@@ -148,6 +148,13 @@ export class WebCookRuntimeAsset implements GeometryProductProviderV1 {
 
   cancel(reason = "asset-cancelled"): void { this.#released = true; try { this.#client.cancel(reason); } finally { this.#releaseImageSource(); this.#revokeObjectUrl(); } }
   dispose(): void { this.#released = true; try { this.#client.dispose(); } finally { this.#releaseImageSource(); this.#revokeObjectUrl(); } }
+  /** After cook settlement, awaits artifact cleanup before terminating the Worker.
+   * Rejects on cleanup failure/timeout; CPU resources are released in all cases. */
+  async disposeAsync(): Promise<Readonly<Record<string, number>>> {
+    this.#released = true;
+    try { return await this.#client.disposeAsync(); }
+    finally { this.#releaseImageSource(); this.#revokeObjectUrl(); }
+  }
   evidence(): WebCookClientEvidence { return this.#client.evidence(); }
 
   #revokeObjectUrl(): void { if (this.#ownedObjectUrl !== undefined) { URL.revokeObjectURL(this.#ownedObjectUrl); this.#ownedObjectUrl = undefined; } }

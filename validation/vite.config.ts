@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createReadStream, existsSync, statSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { defineConfig } from "vite";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
@@ -13,16 +14,37 @@ const localAssets = Object.freeze([
 ]);
 
 function formalAssetPlugin() {
+  const hashes = new Map<string, Promise<string>>();
+  const sourceHash = (path: string): Promise<string> => {
+    const stat = statSync(path), key = `${path}:${stat.size}:${stat.mtimeMs}`;
+    let pending = hashes.get(key);
+    if (pending === undefined) {
+      pending = (async () => {
+        const hash = createHash("sha256");
+        for await (const chunk of createReadStream(path)) hash.update(chunk);
+        const after = statSync(path);
+        if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs) throw new Error("Validation source changed during hashing");
+        return hash.digest("hex");
+      })();
+      hashes.set(key, pending);
+    }
+    return pending;
+  };
   return {
     name: "oengine-formal-local-assets",
     configureServer(server: import("vite").ViteDevServer) {
-      for (const asset of localAssets) server.middlewares.use(asset.route, (request, response) => {
+      for (const asset of localAssets) server.middlewares.use(asset.route, async (request, response, next) => {
         if (!existsSync(asset.path)) {
           response.statusCode = 404;
           response.end(`${asset.label} is not mounted`);
           return;
         }
         const size = statSync(asset.path).size;
+        try {
+          const hash = await sourceHash(asset.path);
+          response.setHeader("ETag", `"${hash}"`);
+          response.setHeader("X-Source-SHA256", hash);
+        } catch (error) { next(error); return; }
         response.setHeader("Accept-Ranges", "bytes");
         response.setHeader("Content-Type", "model/gltf-binary");
         if (request.method === "HEAD") {
@@ -83,6 +105,7 @@ export default defineConfig({
         "virtual-product-device-loss": resolve(root, "cases/virtual-product-device-loss/index.html"),
         "virtual-product-offline": resolve(root, "cases/virtual-product-offline/index.html"),
         "web-100m-formal-perf": resolve(root, "cases/web-100m-formal-perf/index.html"),
+        "web-authored-large-cook-k0": resolve(root, "cases/web-authored-large-cook-k0/index.html"),
         "virtual-product-observer": resolve(root, "labs/virtual-product-observer/index.html")
       }
     }

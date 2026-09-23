@@ -18,6 +18,25 @@ function fixture() {
   return { page, hash, productId, descriptor };
 }
 
+test("cook-complete ends revision enumeration but preserves page requests", async () => {
+  const value = fixture();
+  let request;
+  const requested = new Promise(resolve => { request = resolve; });
+  async function* events() {
+    const header = { protocolVersion: 1, sessionId: "settled", sessionGeneration: 1 };
+    yield { ...header, type: "RevisionOffered", descriptor: encodeGeometryProductDescriptorBinaryV1(value.descriptor) };
+    yield { ...header, type: "Progress", stage: "cook-complete", units: 1, bytes: 0, timings: {} };
+    await requested;
+    yield { ...header, type: "PageReady", productId: value.productId, revision: 2, pageId: 0, decodedHash128: value.hash.subarray(0, 16), decodedPageHash128: value.hash.subarray(0, 16), bytes: value.page.buffer };
+  }
+  const provider = new WebCookProductProvider(events(), { maxBufferedPages: 1, maxBufferedBytes: 262144, returnOutputCredits() {}, requestPage() { request(); } });
+  const iterator = provider.revisions()[Symbol.asyncIterator]();
+  const first = await iterator.next();
+  assert.equal((await iterator.next()).done, true);
+  assert.equal((await first.value.readPage(0)).bytes.byteLength, 262144);
+  first.value.release(); provider.release();
+});
+
 test("Web Product provider preserves metadata events and page ownership", async () => {
   const value = fixture(), credits = [], catalogs = [], progress = [];
   async function* events() {

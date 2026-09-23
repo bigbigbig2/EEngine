@@ -83,6 +83,27 @@ class FakeDirectory {
   async removeEntry(name) { if (!this.files.delete(name)) throw new DOMException("missing", "NotFoundError"); }
 }
 
+test("OPFS concurrent release and disposal debit ownership exactly once", async () => {
+  const store = new OpfsWebGeometryPageSpillStoreV1({ directory: new FakeDirectory(), maxBytes: 262144 + 144 });
+  await store.put({ ...key(), decodedHash128: new Uint8Array(16), bytes: page(3) });
+  await Promise.all([store.release(key()), store.dispose()]);
+  assert.equal(store.evidence().currentBytes, 0);
+  assert.equal(store.evidence().ownerCount, 0);
+  assert.equal(store.evidence().releases, 1);
+});
+
+test("identical canonical content in different planner partitions has distinct stable identity", async () => {
+  const module = await loadArtifact();
+  const recipe = encodeWebGeometryCookRecipeV1();
+  const options = { producerId: "partition-test", producerVersion: "2", sourceIdentityKind: "session", sourceIdentityHash: new Uint8Array(32).fill(4), revision: 0, maxDecodedProductBytes: 262144, sceneAssetIndices: [0] };
+  const a = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), recipe, { ...options, partitionIdentity: "morton:shard-a" });
+  const b = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), recipe, { ...options, partitionIdentity: "morton:shard-b" });
+  const repeated = await planWasmGeometryProductRevisionV1(module, triangleCanonical(), recipe, { ...options, partitionIdentity: "morton:shard-a" });
+  assert.notDeepEqual(a.productId, b.productId);
+  assert.deepEqual(a.productId, repeated.productId);
+  a.release(); b.release(); repeated.release();
+});
+
 test("OPFS envelope re-reads exact bytes and rejects corruption", async () => {
   const directory = new FakeDirectory();
   const store = new OpfsWebGeometryPageSpillStoreV1({ directory, maxBytes: 2 * (262144 + 144), namespace: "test-pages" });
