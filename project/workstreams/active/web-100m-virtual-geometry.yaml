@@ -10,12 +10,11 @@ goal: Stabilize the user's large.glb through work-bounded Web cook, complete cat
 
 currentSlice:
   id: K3
-  title: Renew and profile authored large.glb validation
+  title: Profile authored large.glb performance
   target: authored-large-performance-followup
   status: implementing
-  finding: Authored large.glb K0/K1/K2 passed on an earlier clean revision; current-revision acceptance must be renewed after the documentation change. The synthetic source is outside this workstream.
+  finding: Authored large.glb K0/K1/K2 passed on a clean revision after the synthetic source was removed. K2 observed a 5.86 s first meaningful frame, 45.89 s total cook, 119.13 s settled time, and 11.80 ms GPU frame p95; material and Scene publication costs still need attribution.
 nextTasks:
-  - Renew authored large.glb K0/K1/K2 on the next final clean revision.
   - Profile material and texture work, incremental Scene publication, first useful frame, total cook, slowest Product, memory peak, and frame time on large.glb.
   - Apply targeted fixes only after the authored profile identifies a bottleneck, then rerun affected acceptance.
 
@@ -92,7 +91,7 @@ tasks:
   - id: authored-large-performance-followup
     phase: K3
     priority: P1
-    title: Renew and profile large.glb production validation
+    title: Profile large.glb production validation
     state: active
     dependsOn: [authored-large-formal-perf]
     exitCriteria:
@@ -112,7 +111,8 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence on the current clean revision.
 openGates:
-  - Authored large.glb K0/K1/K2 acceptance must be renewed on the final clean revision after the current documentation change.
+  - Material, texture, and incremental Scene publication costs are not yet attributed on large.glb.
+  - The compact evidence index cannot refresh until 18 missing historical raw artifacts are restored or an explicit pruning decision is made; accepted browser artifacts remain separate.
 
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md
