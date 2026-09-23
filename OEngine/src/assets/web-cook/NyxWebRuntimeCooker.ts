@@ -528,8 +528,8 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
   /**
    * Produces one independently owned Product for every bounded canonical
    * window or spatial shard. The WASM plan never accumulates scene-scale
-   * CookedAsset/SerializedGroup state, and each Product is fully spilled before
-   * publication so the C++ page payload owner can be released immediately.
+   * CookedAsset/SerializedGroup state. Publish the activation cut first, then
+   * spill the remaining pages before planning the next Product.
    */
   private async *planIndependentProducts(
     units: readonly GlbCookPrimitive[],
@@ -564,16 +564,6 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
             `canonical-window-v2:${indices.join(",")}`
           );
           owner.completeTaskPhase(task, "wasm-plan");
-          const spillBefore = owner.#spillStore?.evidence().currentBytes ?? 0;
-          owner.startTaskPhase(task, "spill");
-          await revision.spillAllPages();
-          task.metrics.pageCount = revision.pageCount;
-          const spillEvidence = owner.#spillStore?.evidence();
-          task.metrics.spillBytes = Math.max(0, (spillEvidence?.currentBytes ?? spillBefore) - spillBefore);
-          task.metrics.spillCurrentBytes = spillEvidence?.currentBytes ?? 0;
-          task.metrics.spillPeakBytes = spillEvidence?.peakBytes ?? 0;
-          task.metrics.spillLimitBytes = spillEvidence?.limitBytes ?? 0;
-          owner.completeTaskPhase(task, "spill");
         } catch (error) {
           revision?.release();
           owner.failTask(task, context, error);
@@ -653,16 +643,6 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
               `${WEB_SPATIAL_SHARD_PARTITION_VERSION}:${shard.shardId}`
             );
             this.completeTaskPhase(task, "wasm-plan");
-            const spillBefore = this.#spillStore?.evidence().currentBytes ?? 0;
-            this.startTaskPhase(task, "spill");
-            await revision.spillAllPages();
-            task.metrics.pageCount = revision.pageCount;
-            const spillEvidence = this.#spillStore?.evidence();
-            task.metrics.spillBytes = Math.max(0, (spillEvidence?.currentBytes ?? spillBefore) - spillBefore);
-            task.metrics.spillCurrentBytes = spillEvidence?.currentBytes ?? 0;
-            task.metrics.spillPeakBytes = spillEvidence?.peakBytes ?? 0;
-            task.metrics.spillLimitBytes = spillEvidence?.limitBytes ?? 0;
-            this.completeTaskPhase(task, "spill");
           } catch (error) {
             revision?.release();
             this.failTask(task, context, error);
@@ -687,6 +667,7 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
     _onFailure?: (error: Error) => void
   ): Promise<void> {
     if (units.length === 0) throw new Error("Nyx Web Product requires at least one GLB primitive");
+    if (this.#spillStore === undefined) throw new Error("Nyx Web progressive Product requires a spill store");
     const bootstrapKeys = new Set((context.bootstrapUnits ?? [units[0]!]).map(primitiveKey));
     const prioritized = [
       ...units.filter(unit => bootstrapKeys.has(primitiveKey(unit))),
@@ -697,10 +678,22 @@ export class NyxWebRuntimeCooker implements WebRuntimeCooker {
       for await (const revision of this.planIndependentProducts(prioritized, context, this.#recipeInput)) {
         const task = this.#revisionTasks.get(revision);
         try {
+          const spillBefore = this.#spillStore.evidence().currentBytes;
           if (task) this.startTaskPhase(task, "publish");
           await onRevision(revision);
           if (task) {
             this.completeTaskPhase(task, "publish");
+            this.startTaskPhase(task, "spill");
+          }
+          await revision.spillAllPages();
+          if (task) {
+            const spillEvidence = this.#spillStore.evidence();
+            task.metrics.pageCount = revision.pageCount;
+            task.metrics.spillBytes = Math.max(0, spillEvidence.currentBytes - spillBefore);
+            task.metrics.spillCurrentBytes = spillEvidence.currentBytes;
+            task.metrics.spillPeakBytes = spillEvidence.peakBytes;
+            task.metrics.spillLimitBytes = spillEvidence.limitBytes;
+            this.completeTaskPhase(task, "spill");
             this.finishTask(task, "completed");
           }
           offered++;

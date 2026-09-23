@@ -208,13 +208,17 @@ test("Nyx Web Runtime Cooker fails the session when a later required Product fai
   for (const revision of revisions) revision.release();
 });
 
-test("Nyx Web Runtime Cooker spills every Product before publication", async () => {
+test("Nyx Web Runtime Cooker publishes before page production and spills before completion", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();
   const module = fakeModule(sections);
   const store = spillStore();
   const cooker = new NyxWebRuntimeCooker(module, { maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144, spillStore: store });
   const revisions = [];
-  await cooker.cookProgressive([unit], cookContext, async (revision) => { revisions.push(revision); }, () => {});
+  await cooker.cookProgressive([unit], cookContext, async (revision) => {
+    assert.deepEqual(module.mutation.produceCalls, [], "publication must not wait for page production");
+    assert.equal(store.evidence().writes, 0);
+    revisions.push(revision);
+  }, () => {});
   assert.equal(revisions.length, 1);
   const [revision] = revisions;
   assert.equal(revision.hasPendingPages, false);
@@ -227,6 +231,23 @@ test("Nyx Web Runtime Cooker spills every Product before publication", async () 
   for (const revision of revisions) revision.release();
 });
 
+test("Nyx Web Runtime Cooker fails when spill fails after publication", async () => {
+  const { unit, context: cookContext } = context();
+  const cooker = new NyxWebRuntimeCooker(fakeModule(productSections()), {
+    maxCanonicalInputBytes: 8192, maxDecodedProductBytes: 262144,
+    spillStore: new MemoryWebGeometryPageSpillStoreV1({ maxBytes: 1 })
+  });
+  let published = false;
+  const trace = [];
+  cooker.setTaskTraceListener(event => trace.push(event));
+  await assert.rejects(() => cooker.cookProgressive([unit], cookContext, async () => {
+    published = true;
+  }));
+  assert.equal(published, true);
+  assert.equal(trace.some(event => event.kind === "completed"), false);
+  assert.equal(trace.at(-1).kind, "failed");
+});
+
 test("Nyx Web Runtime Cooker emits attributable Product phase and terminal trace", async () => {
   const sections = productSections(), { unit, context: cookContext } = context();
   cookContext.catalog.primitives = [unit];
@@ -235,8 +256,8 @@ test("Nyx Web Runtime Cooker emits attributable Product phase and terminal trace
   cooker.setTaskTraceListener(event => trace.push(event));
   const revisions = [];
   await cooker.cookProgressive([unit], cookContext, async revision => { revisions.push(revision); }, () => {});
-  assert.deepEqual(trace.filter(event => event.kind === "phase-started").map(event => event.phase), ["canonicalize", "wasm-plan", "spill", "publish"]);
-  assert.deepEqual(trace.filter(event => event.kind === "phase-completed").map(event => event.phase), ["canonicalize", "wasm-plan", "spill", "publish"]);
+  assert.deepEqual(trace.filter(event => event.kind === "phase-started").map(event => event.phase), ["canonicalize", "wasm-plan", "publish", "spill"]);
+  assert.deepEqual(trace.filter(event => event.kind === "phase-completed").map(event => event.phase), ["canonicalize", "wasm-plan", "publish", "spill"]);
   const terminal = trace.at(-1);
   assert.equal(terminal.kind, "completed");
   assert.equal(terminal.task.triangles, 1);

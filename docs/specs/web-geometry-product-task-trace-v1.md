@@ -53,12 +53,20 @@ V1 phases are:
 ```text
 canonicalize
 wasm-plan
-spill
 publish
+spill
 cancelled
 failed
 completed
 ```
+
+For independent Products, `publish` offers the descriptor and waits for the
+activation cut to be delivered. It precedes the remainder `spill` phase so the
+consumer can activate a Product before all of its pages are materialized.
+`completed` requires both phases to succeed; a remainder spill failure is fatal
+even when that Product has already been published. `spillBytes` includes the
+activation pages written during publication, while `spillMs` measures only the
+subsequent remainder phase. Publication does not itself prove a rendered frame.
 
 Every phase transition records `startedAt`, `endedAt`, `elapsedMs`, and
 task-local counters. The task receipt also records:
