@@ -17,7 +17,8 @@ export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1 & {
   /** Catalog primitive indices represented by the Product asset table. */
   readonly sceneAssetIndices?: readonly number[];
   /**
-   * Shared decode/residency cache for authored textures, keyed by texture index.
+   * Shared decode/residency cache for authored textures, keyed by source image,
+   * sampler and color/mipmap usage.
    *
    * A Product replacement maps the same authored images a second time while the
    * previous revision is still resident. Without sharing, both revisions hold
@@ -26,7 +27,9 @@ export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1 & {
    * Texture residency is reference counted, so a shared texture stays resident
    * until the last revision using it is released.
    */
-  readonly textureCache?: Map<number, Promise<ShadeTexture>>;
+  readonly textureCache?: Map<string, Promise<ShadeTexture>>;
+  /** Negotiated GPU dimension limit for decoded authored images. */
+  readonly maxImageDimension?: number;
 };
 export type WebCookSceneSourceResult = VirtualGeometrySceneSourceResultV1;
 export type WebCookImageReader = (imageIndex: number, signal?: AbortSignal) => Promise<{ readonly bytes: ArrayBuffer; readonly mimeType?: string }>;
@@ -112,19 +115,23 @@ export async function createWebCookSceneSourceAsync(
   if (assetCount === 0) throw new Error("The Web Cook Product asset dictionary must not be empty");
   const catalogIndices = sceneAssetIndices(catalog, assetCount, options.sceneAssetIndices);
   const materialByIndex = new Map<number, StandardShadeMaterial>();
-  const textureByIndex = options.textureCache ?? new Map<number, Promise<ShadeTexture>>();
-  const textureFor = (textureIndex: number): Promise<ShadeTexture> => {
-    let pending = textureByIndex.get(textureIndex);
+  const textureBySource = options.textureCache ?? new Map<string, Promise<ShadeTexture>>();
+  const textureFor = (textureIndex: number, usage: "srgb" | "linear" | "normal"): Promise<ShadeTexture> => {
+    const info = catalog.textures.find(value => value.textureIndex === textureIndex);
+    if (!info) throw new Error(`Web Cook material references missing texture ${textureIndex}`);
+    const imageInfo = catalog.images.find(value => value.imageIndex === info.sourceIndex);
+    if (!imageInfo) throw new Error(`Web Cook texture ${textureIndex} references missing image ${info.sourceIndex}`);
+    const key = JSON.stringify([
+      info.sourceIndex, info.sampler.magFilter ?? null, info.sampler.minFilter ?? null,
+      info.sampler.wrapS ?? null, info.sampler.wrapT ?? null, usage
+    ]);
+    let pending = textureBySource.get(key);
     if (!pending) {
-      const info = catalog.textures.find(value => value.textureIndex === textureIndex);
-      if (!info) throw new Error(`Web Cook material references missing texture ${textureIndex}`);
-      const imageInfo = catalog.images.find(value => value.imageIndex === info.sourceIndex);
-      if (!imageInfo) throw new Error(`Web Cook texture ${textureIndex} references missing image ${info.sourceIndex}`);
       pending = readImage(info.sourceIndex, signal).then(async payload => {
         if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted", "AbortError");
         const blob = new Blob([payload.bytes], { type: payload.mimeType ?? imageInfo.mimeType ?? "application/octet-stream" });
         if (typeof createImageBitmap !== "function") throw new Error("Web Cook authored textures require createImageBitmap support");
-        const bitmap = await createImageBitmap(blob);
+        const bitmap = await decodeWebCookImageBitmap(blob, options.maxImageDimension);
         const image = ShadeImage.fromImageBitmap(bitmap);
         const texture = ShadeTexture.from(image);
         texture.magFilter = filterValue(info.sampler.magFilter, false);
@@ -132,9 +139,11 @@ export async function createWebCookSceneSourceAsync(
         texture.mipmapFilter = filterValue(info.sampler.minFilter, true);
         texture.wrapS = wrapValue(info.sampler.wrapS);
         texture.wrapT = wrapValue(info.sampler.wrapT);
+        if (usage === "srgb") texture.image!.color_space = 1;
+        if (usage === "normal") texture.mipmapGenerationFilter = TextureFilterType.LinearNormal;
         return texture;
       });
-      textureByIndex.set(textureIndex, pending);
+      textureBySource.set(key, pending);
     }
     return pending;
   };
@@ -145,21 +154,20 @@ export async function createWebCookSceneSourceAsync(
     materialByIndex.set(key, material);
     if (value.baseColorTexture && typeof value.baseColorTexture === "object") {
       const slot = value.baseColorTexture as Readonly<Record<string, unknown>>;
-      material.texture_albedo = await textureFor(requireTextureIndex(slot, "baseColorTexture"));
+      material.texture_albedo = await textureFor(requireTextureIndex(slot, "baseColorTexture"), "srgb");
       applyUv(material, "base_color", slot);
-      material.texture_albedo.image!.color_space = 1;
     }
     if (!material.is_unlit) {
       const normal = value.normalTexture;
-      if (normal && typeof normal === "object") { const slot = normal as Readonly<Record<string, unknown>>; material.texture_normal = await textureFor(requireTextureIndex(slot, "normalTexture")); applyUv(material, "normal", slot); material.normal_scale = finiteScalar(slot.normalScale, 1); material.texture_normal.mipmapGenerationFilter = TextureFilterType.LinearNormal; }
+      if (normal && typeof normal === "object") { const slot = normal as Readonly<Record<string, unknown>>; material.texture_normal = await textureFor(requireTextureIndex(slot, "normalTexture"), "normal"); applyUv(material, "normal", slot); material.normal_scale = finiteScalar(slot.normalScale, 1); }
       const orm = value.metallicRoughnessTexture;
-      if (orm && typeof orm === "object") { const slot = orm as Readonly<Record<string, unknown>>; material.texture_orm = await textureFor(requireTextureIndex(slot, "metallicRoughnessTexture")); applyUv(material, "orm", slot); }
+      if (orm && typeof orm === "object") { const slot = orm as Readonly<Record<string, unknown>>; material.texture_orm = await textureFor(requireTextureIndex(slot, "metallicRoughnessTexture"), "linear"); applyUv(material, "orm", slot); }
       const occlusion = value.occlusionTexture;
-      if (occlusion && typeof occlusion === "object") { const slot = occlusion as Readonly<Record<string, unknown>>; material.texture_occlusion = await textureFor(requireTextureIndex(slot, "occlusionTexture")); applyUv(material, "occlusion", slot); material.ambient_factors.a = finiteScalar(slot.occlusionStrength, 1); }
+      if (occlusion && typeof occlusion === "object") { const slot = occlusion as Readonly<Record<string, unknown>>; material.texture_occlusion = await textureFor(requireTextureIndex(slot, "occlusionTexture"), "linear"); applyUv(material, "occlusion", slot); material.ambient_factors.a = finiteScalar(slot.occlusionStrength, 1); }
       const emissive = value.emissiveTexture;
-      if (emissive && typeof emissive === "object") { const slot = emissive as Readonly<Record<string, unknown>>; material.texture_emissive = await textureFor(requireTextureIndex(slot, "emissiveTexture")); applyUv(material, "emissive", slot); material.texture_emissive.image!.color_space = 1; }
+      if (emissive && typeof emissive === "object") { const slot = emissive as Readonly<Record<string, unknown>>; material.texture_emissive = await textureFor(requireTextureIndex(slot, "emissiveTexture"), "srgb"); applyUv(material, "emissive", slot); }
     } else if (value.emissiveTexture && typeof value.emissiveTexture === "object") {
-      const slot = value.emissiveTexture as Readonly<Record<string, unknown>>; material.texture_emissive = await textureFor(requireTextureIndex(slot, "emissiveTexture")); applyUv(material, "emissive", slot); material.texture_emissive.image!.color_space = 1;
+      const slot = value.emissiveTexture as Readonly<Record<string, unknown>>; material.texture_emissive = await textureFor(requireTextureIndex(slot, "emissiveTexture"), "srgb"); applyUv(material, "emissive", slot);
     }
     return key;
   };
@@ -174,6 +182,26 @@ export async function createWebCookSceneSourceAsync(
   for (let index = 0; index < materials.length; index++) if (!materials[index]) materials[index] = new StandardShadeMaterial();
   const { profiles, instances } = buildProfilesAndInstances(catalog, catalogIndices, materialIndices);
   return buildVirtualGeometrySceneSourceV1(descriptor.assetRecords, profiles, instances, materials, options);
+}
+
+/** The browser's external-image upload cannot accept a bitmap above the device limit. */
+export async function decodeWebCookImageBitmap(blob: Blob, maxDimension?: number): Promise<ImageBitmap> {
+  const bitmap = await createImageBitmap(blob);
+  if (maxDimension === undefined || Math.max(bitmap.width, bitmap.height) <= maxDimension) return bitmap;
+  if (!Number.isSafeInteger(maxDimension) || maxDimension < 1) {
+    bitmap.close();
+    throw new RangeError("Web Cook maxImageDimension must be a positive integer");
+  }
+  const scale = maxDimension / Math.max(bitmap.width, bitmap.height);
+  try {
+    return await createImageBitmap(bitmap, {
+      resizeWidth: Math.max(1, Math.round(bitmap.width * scale)),
+      resizeHeight: Math.max(1, Math.round(bitmap.height * scale)),
+      resizeQuality: "high"
+    });
+  } finally {
+    bitmap.close();
+  }
 }
 
 function sceneAssetIndices(catalog: WebCookSceneCatalogSnapshot, assetCount: number, requested?: readonly number[]): number[] {

@@ -1,8 +1,62 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { createWebCookSceneSourceAsync } = await import("../../.test-dist/assets/web-cook/WebCookSceneSource.js");
+const { createWebCookSceneSourceAsync, decodeWebCookImageBitmap } = await import("../../.test-dist/assets/web-cook/WebCookSceneSource.js");
+const { webCookCatalogSceneFraming } = await import("../../.test-dist/assets/web-cook/WebCookSceneBounds.js");
 const { mergeVirtualGeometryProductSceneSourcesV1 } = await import("../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js");
+
+test("Web Cook image decode fits the negotiated dimension without distorting aspect", async () => {
+  const previous = globalThis.createImageBitmap;
+  let closed = 0;
+  let requested;
+  globalThis.createImageBitmap = async (_source, options) => {
+    if (!options) return { width: 600, height: 8400, close() { closed++; } };
+    requested = options;
+    return { width: options.resizeWidth, height: options.resizeHeight, close() {} };
+  };
+  try {
+    const bitmap = await decodeWebCookImageBitmap(new Blob(), 8192);
+    assert.deepEqual([bitmap.width, bitmap.height], [585, 8192]);
+    assert.equal(requested.resizeQuality, "high");
+    assert.equal(closed, 1);
+  } finally {
+    if (previous === undefined) delete globalThis.createImageBitmap;
+    else globalThis.createImageBitmap = previous;
+  }
+});
+
+test("separate Web Cook Products use one catalog fit without moving earlier instances", async () => {
+  const translate = y => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, y, 0, 1];
+  const catalog = {
+    primitives: [0, 1].map(index => ({
+      nodeIndex: index, instanceNodeIndices: [index], boundsMin: [0, 0, 0], boundsMax: [1, 1, 1],
+      materialIndex: 0, material: {}, attributeSemantics: ["POSITION"]
+    })),
+    instances: [
+      { nodeIndex: 0, worldMatrix: translate(0) },
+      { nodeIndex: 1, worldMatrix: translate(10) }
+    ],
+    textures: [], images: []
+  };
+  const assetRecords = new Uint8Array(128);
+  const view = new DataView(assetRecords.buffer);
+  view.setFloat32(44, 1, true);
+  for (const offset of [60, 64, 68]) view.setFloat32(offset, 1, true);
+  const framing = webCookCatalogSceneFraming(catalog, { fitHeight: 2, fitBase: [0, -1, 0] });
+  const parts = [];
+  for (let index = 0; index < 2; index++) {
+    const mapped = await createWebCookSceneSourceAsync(catalog, { assetRecords }, async () => { throw new Error("no image expected"); }, undefined, {
+      sceneAssetIndices: [index], scale: framing.scale, offset: framing.offset
+    });
+    parts.push({ source: mapped.source, productTableSlot: index, productGeneration: 1, assetReferenceBegin: index });
+  }
+  const firstY = parts[0].source.currentTransforms[13];
+  const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
+  assert.equal(combined.currentTransforms[13], firstY, "later Product publication keeps the first transform");
+  assert.ok(Math.abs(combined.boundsMin[1] - framing.min[1]) < 1e-6);
+  assert.ok(Math.abs(combined.boundsMax[4] - framing.max[1]) < 1e-6);
+  assert.ok(Math.abs((combined.boundsMax[4] - combined.boundsMin[1]) - 2) < 1e-6);
+});
 
 test("multi-Product scene merge preserves transforms, materials, bounds, and Product identity", () => {
   const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
@@ -88,7 +142,7 @@ test("Web Cook async mapper materializes authored texture slots before scene sou
   }
 });
 
-test("Web Cook async mapper shares authored textures across revisions through a cache", async () => {
+test("Web Cook async mapper shares matching image usage but separates normal mip semantics", async () => {
   const previous = globalThis.createImageBitmap;
   globalThis.createImageBitmap = async () => ({ width: 2, height: 2 });
   try {
@@ -100,9 +154,11 @@ test("Web Cook async mapper shares authored textures across revisions through a 
       instances: [{ nodeIndex: 0, meshIndex: 0, worldMatrix: identity }],
       primitives: [{ assetKey: "mesh:0:0", catalogIndex: 0, nodeIndex: 0, instanceNodeIndices: [0], meshIndex: 0, primitiveIndex: 0, materialIndex: 0,
         material: { materialIndex: 0, alphaMode: "OPAQUE", doubleSided: false, baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 1, emissiveFactor: [0, 0, 0], alphaCutoff: 0.5, unlit: false,
-          baseColorTexture: { textureIndex: 0, texCoord: 0, offset: [0, 0], scale: [1, 1], rotation: 0 } },
+          baseColorTexture: { textureIndex: 0, texCoord: 0, offset: [0, 0], scale: [1, 1], rotation: 0 },
+          emissiveTexture: { textureIndex: 1, texCoord: 0, offset: [0, 0], scale: [1, 1], rotation: 0 },
+          normalTexture: { textureIndex: 2, texCoord: 0, offset: [0, 0], scale: [1, 1], rotation: 0 } },
         attributeSemantics: ["POSITION", "TEXCOORD_0", "NORMAL"], vertexCount: 3, triangleCount: 1, boundsMin: [-1, -1, -1], boundsMax: [1, 1, 1], boundsSphere: [0, 0, 0, 1] }],
-      textures: [{ textureIndex: 0, sourceIndex: 0, sampler: {} }],
+      textures: [0, 1, 2].map(textureIndex => ({ textureIndex, sourceIndex: 0, sampler: {} })),
       images: [{ imageIndex: 0, mimeType: "image/png", uri: "https://example.test/0.png" }]
     };
     let decodes = 0;
@@ -113,13 +169,15 @@ test("Web Cook async mapper shares authored textures across revisions through a 
     const cache = new Map();
     const first = await createWebCookSceneSourceAsync(catalog, { assetRecords }, readImage, undefined, { textureCache: cache });
     const second = await createWebCookSceneSourceAsync(catalog, { assetRecords }, readImage, undefined, { textureCache: cache });
-    assert.equal(decodes, 1, "the shared cache must decode each image once");
-    assert.equal(cache.size, 1);
+    assert.equal(decodes, 2, "sRGB and normal usage each decode once");
+    assert.equal(cache.size, 2);
     assert.equal(first.materials[0].texture_albedo, second.materials[0].texture_albedo, "both revisions must share one resident texture");
+    assert.equal(first.materials[0].texture_albedo, first.materials[0].texture_emissive);
+    assert.notEqual(first.materials[0].texture_albedo, first.materials[0].texture_normal);
     // Without a cache each revision owns its own texture, which is what doubles
     // the layers a size-class bank must hold during a replacement.
     const isolated = await createWebCookSceneSourceAsync(catalog, { assetRecords }, readImage);
-    assert.equal(decodes, 2);
+    assert.equal(decodes, 4);
     assert.notEqual(first.materials[0].texture_albedo, isolated.materials[0].texture_albedo);
   } finally {
     if (previous === undefined) delete globalThis.createImageBitmap;

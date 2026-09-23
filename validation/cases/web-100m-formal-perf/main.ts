@@ -85,9 +85,9 @@ const query = new URLSearchParams(location.search);
 const caseId = query.get("case") ?? "web-100m-formal-perf";
 const workloadId = query.get("workload") ?? "web-100m-formal-perf-v1";
 const sourceKey = query.get("asset") ?? "single-giant-100m";
-const isCookK0 = caseId === "web-authored-large-cook-k0";
-const WIDTH = isCookK0 ? 1280 : 1920, HEIGHT = isCookK0 ? 720 : 1080;
-const WARMUP_FRAMES = isCookK0 ? 1 : 120, SAMPLE_FRAMES = isCookK0 ? 1 : 480, RUNS = isCookK0 ? 1 : 3;
+const isRuntimeSmoke = caseId === "web-authored-large-runtime-k1";
+const WIDTH = isRuntimeSmoke ? 1280 : 1920, HEIGHT = isRuntimeSmoke ? 720 : 1080;
+const WARMUP_FRAMES = isRuntimeSmoke ? 1 : 120, SAMPLE_FRAMES = isRuntimeSmoke ? 1 : 480, RUNS = isRuntimeSmoke ? 1 : 3;
 let renderer: Renderer | undefined;
 let scene: Scene | undefined;
 let camera: PerspectiveCamera | undefined;
@@ -102,6 +102,7 @@ let cookHeartbeatAbort: AbortController | undefined;
 let lastCookProgressAt = 0;
 let lastCookProgress: Record<string, unknown> | undefined;
 let cookHeartbeatTriggered = false;
+let cookSettled = false;
 
 const controller = createValidationController({
   caseId,
@@ -120,13 +121,20 @@ async function run(): Promise<void> {
     const source = SOURCES[sourceKey];
     if (source === undefined) throw new Error(`Unknown formal PERF asset '${sourceKey}'`);
     controller.transition("negotiating");
-    const mounted = await fetch(source.url, { method: "HEAD", cache: "no-store" });
+    const mounted = await fetch(source.url, { headers: { Range: "bytes=0-11" }, cache: "no-store" });
+    const sourceHeader = mounted.status === 206 ? await mounted.arrayBuffer() : null;
+    const sourceValid = mounted.status === 206 &&
+      mounted.headers.get("content-range") === `bytes 0-11/${source.bytes}` &&
+      sourceHeader?.byteLength === 12 &&
+      new DataView(sourceHeader).getUint32(8, true) === source.bytes &&
+      mounted.headers.get("x-source-sha256") === source.sha256;
     controller.addEvidence("formalSource", {
       key: sourceKey,
       label: source.label,
       url: source.url,
-      mounted: mounted.ok,
-      contentLength: Number(mounted.headers.get("content-length") ?? 0),
+      mounted: sourceValid,
+      contentLength: source.bytes,
+      verification: "host-streamed-sha256",
       sha256: source.sha256,
       triangles: source.triangles
     });
@@ -135,8 +143,8 @@ async function run(): Promise<void> {
       controller.unsupported(`Formal source is not mounted at ${source.url}`);
       return;
     }
-    if (Number(mounted.headers.get("content-length") ?? 0) !== source.bytes) {
-      throw new Error(`Formal ${source.label} source byte length does not match the frozen workload`);
+    if (!sourceValid) {
+      throw new Error(`Formal ${source.label} source identity does not match the frozen workload`);
     }
 
     const commit = requiredQuery("revision", /^[0-9a-f]{40}$/u);
@@ -144,7 +152,7 @@ async function run(): Promise<void> {
     const dirty = requiredQuery("dirty", /^(?:true|false)$/u) === "true";
     const browserExecutableSha256 = requiredQuery("browserExecutableSha256", /^[0-9a-f]{64}$/u);
     const workloadSha256 = requiredQuery("workloadSha256", /^[0-9a-f]{64}$/u);
-    if (dirty && !isCookK0) throw new Error("Formal PERF refuses a dirty revision");
+    if (dirty && !isRuntimeSmoke) throw new Error("Formal PERF refuses a dirty revision");
 
     if (!globalThis.isSecureContext || !navigator.gpu) {
       controller.unsupported("Formal PERF requires WebGPU in a secure context");
@@ -159,7 +167,11 @@ async function run(): Promise<void> {
     canvas.height = HEIGHT;
     renderer = new Renderer({
       debug: false,
-      requiredFeatures: isCookK0 ? [] : ["timestamp-query"],
+      ...(isRuntimeSmoke ? {
+        textureMaxResolution: 512 as const,
+        textureBankMaxCapacities: [192, 192, 192, 192, 192] as const
+      } : {}),
+      requiredFeatures: isRuntimeSmoke ? [] : ["timestamp-query"],
       requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
       renderSettings: {
         resolution: { mode: "fixed", internalScale: 1 },
@@ -178,7 +190,7 @@ async function run(): Promise<void> {
     try {
       await renderer.initialize({ context, pixelRatio: 1 });
     } catch (error) {
-      if (!isCookK0 && /timestamp|feature|adapter/i.test(error instanceof Error ? error.message : String(error))) {
+      if (!isRuntimeSmoke && /timestamp|feature|adapter/i.test(error instanceof Error ? error.message : String(error))) {
         controller.unsupported(`Formal timestamp-query device is unavailable: ${error instanceof Error ? error.message : String(error)}`);
         return;
       }
@@ -188,15 +200,15 @@ async function run(): Promise<void> {
     renderer.internal_resolution_scale = 1;
     renderer.packed_visibility_current_hzb_late_recheck_enabled = true;
     renderer.profiler.configure({
-      enabled: !isCookK0,
+      enabled: true,
       warmupFrames: 0,
-      gpuSampleInterval: 1,
-      gpuCounterSampleInterval: 1,
-      historyCapacity: 4096,
+      gpuSampleInterval: isRuntimeSmoke ? 10 : 1,
+      gpuCounterSampleInterval: isRuntimeSmoke ? 10 : 1,
+      historyCapacity: isRuntimeSmoke ? 256 : 4096,
       cpuPassTimings: true
     });
-    if (!isCookK0) renderer.profiler.setMode("deep-capture");
-    if (!isCookK0 && !renderer.capabilities.features.includes("timestamp-query")) {
+    renderer.profiler.setMode("deep-capture");
+    if (!isRuntimeSmoke && !renderer.capabilities.features.includes("timestamp-query")) {
       controller.unsupported("Formal PERF requires timestamp-query capability");
       return;
     }
@@ -236,7 +248,7 @@ async function run(): Promise<void> {
         sourceTriangles: source.triangles
       }
     };
-    if (!isCookK0) assertFormalPerfFreeze(freeze, { requireClean: true, requireGpuTimestamps: true });
+    if (!isRuntimeSmoke) assertFormalPerfFreeze(freeze, { requireClean: true, requireGpuTimestamps: true });
     controller.addEvidence("freeze", freeze);
 
     status.textContent = `loading and cooking ${source.label} Products`;
@@ -307,6 +319,10 @@ async function run(): Promise<void> {
     scene = new Scene();
     const light = new DirectionalLight();
     light.intensity = 3;
+    if (isRuntimeSmoke) {
+      light.transform_local.position.set(10, 20, 10);
+      light.transform_local.lookAt({ x: 0, y: 0, z: 0 });
+    }
     scene.add(light);
     handles = await renderer.uploadWebCookedMultiProductScene(scene, asset, {
       signal: cookHeartbeatAbort.signal,
@@ -319,7 +335,8 @@ async function run(): Promise<void> {
     camera.near = 0.01;
     camera.far = 100_000;
     camera.aspect = WIDTH / HEIGHT;
-    const firstBounds = sceneBounds(handles.current().source);
+    const firstBounds = isRuntimeSmoke ? sceneBoxBounds(handles.current().source) : sceneBounds(handles.current().source);
+    if (isRuntimeSmoke) controller.addEvidence("firstSceneBounds", firstBounds);
     placeCamera(camera, firstBounds, 0, 2.4);
     let firstRendered = false;
     for (let attempt = 0; attempt < 300 && !firstRendered; attempt++) {
@@ -328,16 +345,20 @@ async function run(): Promise<void> {
     }
     if (!firstRendered) throw new Error(`${source.label} scene did not produce a first meaningful frame`);
     const ttfmfMs = performance.now() - loadStarted;
+    const firstFrameShardCount = handles.current().shardCount;
     controller.addEvidence("ttfmfMs", ttfmfMs);
 
     status.textContent = "finishing Product-per-Shard cook";
     await handles.settled();
+    cookSettled = true;
     if (cookHeartbeatTimer !== undefined) {
       window.clearInterval(cookHeartbeatTimer);
       cookHeartbeatTimer = undefined;
     }
     const active = handles.current();
-    const bounds = sceneBounds(active.source);
+    const bounds = isRuntimeSmoke ? sceneBoxBounds(active.source) : sceneBounds(active.source);
+    if (isRuntimeSmoke) controller.addEvidence("conservativeSphereBounds", sceneBounds(active.source));
+    if (isRuntimeSmoke) controller.addEvidence("settledSceneBounds", bounds);
     if (source.minimumProducts !== undefined && active.shardCount < source.minimumProducts) {
       throw new Error(`${source.label} produced only ${active.shardCount} Products, expected at least ${source.minimumProducts}`);
     }
@@ -351,12 +372,76 @@ async function run(): Promise<void> {
       cook: asset.evidence()
     });
 
-    if (isCookK0) {
-      controller.addEvidence("k0", {
+    if (isRuntimeSmoke) {
+      if (firstFrameShardCount >= active.shardCount) throw new Error("Runtime smoke did not render before the final Product publication");
+      const materialReceipt = assertAuthoredMaterials(asset, active.source);
+      controller.addEvidence("materialReceipt", materialReceipt);
+      const instances = renderer.gpuSceneEvidence();
+      if (instances.instanceSetCount !== 1 || instances.activeInstanceCount !== active.source.count ||
+          instances.bulkInstantiateCount !== 1 || instances.releaseCount !== 0) {
+        throw new Error("Runtime smoke did not preserve one append-only Product instance publication");
+      }
+      const inspectionBounds = Object.freeze({ center: [-8, 0, -160] as const, radius: 20 });
+      controller.addEvidence("inspectionBounds", inspectionBounds);
+      const beforeCut = handles.streaming?.evidence().scheduler;
+      renderer.indicate_view_change();
+      let movingFrames = 0;
+      for (let frame = 0; frame < 8; frame++) {
+        placeCamera(camera, inspectionBounds, (frame + 1) / 8, 2.4);
+        if (renderer.render(camera, scene, 1 / 60)) movingFrames++;
+        await nextFrame();
+      }
+      if (movingFrames !== 8) throw new Error(`Runtime smoke rendered only ${movingFrames}/8 camera movement frames`);
+      const coldFallback = await captureHdrStats(renderer, camera, scene, "post-color-grading");
+      if (coldFallback.nonzeroPixels < 1_000) throw new Error("Camera-cut view lost visible ancestor fallback");
+      const streamingSamples: Array<{ frame: number; requested: number; resident: number; uploadedBytes: number }> = [];
+      for (let frame = 0; frame < 120; frame++) {
+        renderer.render(camera, scene, 1 / 60);
+        await nextFrame();
+        if (frame % 20 === 19) {
+          await renderer.device.queue.onSubmittedWorkDone();
+          const sample = handles.streaming?.evidence();
+          streamingSamples.push({ frame: frame + 1, requested: sample?.scheduler.requested ?? 0, resident: sample?.scheduler.resident ?? 0, uploadedBytes: sample?.scheduler.uploadedBytes ?? 0 });
+        }
+      }
+      controller.addEvidence("streamingSamples", streamingSamples);
+      const afterRecovery = handles.streaming?.evidence().scheduler;
+      if (beforeCut === undefined || afterRecovery === undefined ||
+          afterRecovery.requested <= beforeCut.requested ||
+          afterRecovery.resident <= beforeCut.resident ||
+          streamingSamples.some((sample, index) => index > 0 && sample.resident < streamingSamples[index - 1]!.resident)) {
+        throw new Error("Camera-cut demand did not produce monotonic page recovery");
+      }
+      controller.addEvidence("cameraCutRecovery", {
+        requestedBefore: beforeCut.requested,
+        requestedAfter: afterRecovery.requested,
+        residentBefore: beforeCut.resident,
+        residentAfter: afterRecovery.resident,
+        coldFallback
+      });
+      controller.addEvidence("scenePublication", { world: renderer.gpuRenderWorldEvidence(), instances: renderer.gpuSceneEvidence() });
+      const recentProfiles = renderer.profiler.history.slice(-10);
+      controller.addEvidence("gpuCounterSamples", recentProfiles.map(profile => ({ frame: profile.frameIndex, sampled: profile.gpuCounters.sampled, pending: profile.gpuCounters.pending, dropped: profile.gpuCounters.dropped, candidateInstances: profile.gpuCounters.values.candidateInstances, visibleInstances: profile.gpuCounters.values.visibleInstances, selectedClusters: profile.gpuCounters.values.selectedClusters, shadedPixels: profile.gpuCounters.values.shadedPixels, activeLights: profile.gpuCounters.values.activeLights, shadingBinErrors: profile.gpuCounters.values.shadingBinErrors })));
+      controller.addEvidence("profilerDiagnostics", renderer.profiler.diagnostics);
+      const lighting = await captureHdrStats(renderer, camera, scene, "lighting");
+      const postColor = await captureHdrStats(renderer, camera, scene, "post-color-grading");
+      controller.addEvidence("hdrPixels", { lighting, postColor });
+      if (lighting.nonzeroPixels < 1_000 || postColor.nonzeroPixels < 1_000 || postColor.maximumRgb < 0.05 ||
+          postColor.nonzeroPixels < coldFallback.nonzeroPixels * 0.8) {
+        throw new Error(`Runtime smoke has insufficient visible HDR content: ${JSON.stringify({ lighting, postColor })}`);
+      }
+      controller.addEvidence("k1", {
         settled: true,
+        firstFrameShardCount,
         productCount: active.shardCount,
         catalogPrimitives: source.catalogPrimitives,
         taskReceipt,
+        materialReceipt,
+        cameraCutRecovery: true,
+        movingFrames,
+        ttfmfMs,
+        memory: renderer.memoryEvidence(),
+        streaming: handles.streaming?.evidence() ?? null,
         gpuErrors: gpuErrors.errors
       });
       if (gpuErrors.errors.length > 0) throw new Error(JSON.stringify(gpuErrors.errors));
@@ -365,7 +450,7 @@ async function run(): Promise<void> {
       controller.transition("sampling");
       controller.transition("draining");
       await renderer.device.queue.onSubmittedWorkDone();
-      status.textContent = "passed authored-large K0";
+      status.textContent = "passed authored-large runtime smoke";
       controller.pass();
       return;
     }
@@ -535,6 +620,65 @@ function assertProductTaskReceipt(
   });
 }
 
+function assertAuthoredMaterials(
+  asset: WebCookRuntimeAsset,
+  source: ReturnType<MultiProductSceneHandles["current"]>["source"]
+): Readonly<{ materialCount: number; texturedMaterialCount: number; referencedMaterialCount: number }> {
+  const catalog = asset.catalog;
+  if (!catalog) throw new Error("Runtime material check requires the settled catalog");
+  const authored = new Map<number, Readonly<Record<string, unknown>>>();
+  for (const primitive of catalog.primitives) {
+    authored.set(primitive.materialIndex === 0xffffffff ? 0 : primitive.materialIndex, primitive.material);
+  }
+  const referenced = new Set(source.materialIndices);
+  let texturedMaterialCount = 0;
+  for (const index of referenced) {
+    const material = source.materials[index];
+    const expected = authored.get(index);
+    if (material === undefined || expected === undefined) {
+      throw new Error(`Authored material ${index} is absent from the Scene publication`);
+    }
+    const color = expected.baseColorFactor;
+    if (Array.isArray(color) && color.length === 4 &&
+        [material.diffuse_color.r, material.diffuse_color.g, material.diffuse_color.b,
+          material.diffuse_color.a].some((value, lane) => Math.abs(value - Number(color[lane])) > 1e-5)) {
+      throw new Error(`Authored material ${index} base color differs from the catalog`);
+    }
+    const textured = expected.baseColorTexture !== undefined;
+    if (textured !== (material.texture_albedo !== undefined)) {
+      throw new Error(`Authored material ${index} base color texture binding differs from the catalog`);
+    }
+    const unlit = expected.unlit === true;
+    if (material.is_unlit !== unlit ||
+        Math.abs(material.metallic_factor - authoredScalar(expected.metallicFactor, 0)) > 1e-5 ||
+        Math.abs(material.roughness_factor - authoredScalar(expected.roughnessFactor, 1)) > 1e-5 ||
+        Math.abs(material.alpha_cutoff - authoredScalar(expected.alphaCutoff, 0.5)) > 1e-5) {
+      throw new Error(`Authored material ${index} shading factors differ from the catalog`);
+    }
+    for (const [key, bound] of [
+      ["normalTexture", material.texture_normal !== undefined],
+      ["metallicRoughnessTexture", material.texture_orm !== undefined],
+      ["occlusionTexture", material.texture_occlusion !== undefined],
+      ["emissiveTexture", material.texture_emissive !== undefined]
+    ] as const) {
+      const expectedBound = expected[key] !== undefined && (!unlit || key === "emissiveTexture");
+      if (bound !== expectedBound) {
+        throw new Error(`Authored material ${index} ${key} binding differs from the catalog`);
+      }
+    }
+    if (textured) texturedMaterialCount++;
+  }
+  return Object.freeze({
+    materialCount: source.materials.length,
+    texturedMaterialCount,
+    referencedMaterialCount: referenced.size
+  });
+}
+
+function authoredScalar(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 function sceneBounds(source: { readonly count: number; readonly boundsSpheres: Float32Array }): Readonly<{ center: readonly [number, number, number]; radius: number }> {
   let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
   for (let index = 0; index < source.count; index++) {
@@ -545,7 +689,20 @@ function sceneBounds(source: { readonly count: number; readonly boundsSpheres: F
   }
   if (![minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite)) throw new Error("formal scene bounds are invalid");
   const center = [(minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5] as const;
-  return Object.freeze({ center, radius: Math.max(0.01, Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) * 0.5) });
+  return Object.freeze({ min: [minX, minY, minZ] as const, max: [maxX, maxY, maxZ] as const, center, radius: Math.max(0.01, Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) * 0.5) });
+}
+
+function sceneBoxBounds(source: { readonly count: number; readonly boundsMin?: Float32Array; readonly boundsMax?: Float32Array }): Readonly<{ min: readonly [number, number, number]; max: readonly [number, number, number]; center: readonly [number, number, number]; radius: number }> {
+  const { boundsMin, boundsMax } = source;
+  if (boundsMin === undefined || boundsMax === undefined) throw new Error("Runtime scene source has no instance box bounds");
+  let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let index = 0; index < source.count; index++) {
+    const at = index * 3;
+    minX = Math.min(minX, boundsMin[at]!); minY = Math.min(minY, boundsMin[at + 1]!); minZ = Math.min(minZ, boundsMin[at + 2]!);
+    maxX = Math.max(maxX, boundsMax[at]!); maxY = Math.max(maxY, boundsMax[at + 1]!); maxZ = Math.max(maxZ, boundsMax[at + 2]!);
+  }
+  if (![minX, minY, minZ, maxX, maxY, maxZ].every(Number.isFinite)) throw new Error("Runtime scene box bounds are invalid");
+  return Object.freeze({ min: [minX, minY, minZ] as const, max: [maxX, maxY, maxZ] as const, center: [(minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5] as const, radius: Math.max(0.01, Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) * 0.5) });
 }
 
 function placeCamera(target: PerspectiveCamera, bounds: Readonly<{ center: readonly [number, number, number]; radius: number }>, phase: number, distance: number): void {
@@ -558,6 +715,19 @@ function placeCamera(target: PerspectiveCamera, bounds: Readonly<{ center: reado
   );
   target.transform.lookAt({ x, y, z });
   target.update();
+}
+
+async function captureHdrStats(target: Renderer, view: PerspectiveCamera, world: Scene, stage: "lighting" | "post-color-grading"): Promise<Readonly<{ maximumRgb: number; nonzeroPixels: number }>> {
+  const capture = target.requestLinearHdrCapture({ x: 384, y: 104, width: 512, height: 512, stage });
+  target.render(view, world, 1 / 60);
+  const result = await capture;
+  let maximumRgb = 0, nonzeroPixels = 0;
+  for (let offset = 0; offset < result.rgba.length; offset += 4) {
+    const rgb = Math.max(result.rgba[offset]!, result.rgba[offset + 1]!, result.rgba[offset + 2]!);
+    maximumRgb = Math.max(maximumRgb, rgb);
+    if (rgb > 0.001) nonzeroPixels++;
+  }
+  return Object.freeze({ maximumRgb, nonzeroPixels });
 }
 
 async function waitForGpuProfiles(target: Renderer, frameIndices: readonly number[]): Promise<void> {
@@ -590,9 +760,9 @@ async function disposeCase(): Promise<Record<string, unknown>> {
     cookHeartbeatTimer = undefined;
   }
   cookHeartbeatAbort?.abort("validation-dispose");
-  await handles?.release().catch(() => undefined);
+  await handles?.release();
   handles = undefined;
-  asset?.dispose();
+  const cleanup = asset?.state === "open" && cookSettled ? await asset.disposeAsync() : (asset?.dispose(), null);
   asset = undefined;
   scene = undefined;
   camera = undefined;
@@ -601,5 +771,5 @@ async function disposeCase(): Promise<Record<string, unknown>> {
   await gpuErrors?.lost.catch(() => undefined);
   gpuErrors?.remove();
   gpuErrors = undefined;
-  return { listeners: 0, rafPending, gpuOwners: 0, rendererDestroyed: true };
+  return { listeners: 0, rafPending, gpuOwners: 0, rendererDestroyed: true, cookSettled, cleanup };
 }

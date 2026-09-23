@@ -20,12 +20,12 @@ claims:
     level: L3
     requiredChecks: [model, registry, evidence-provenance]
     evidencePolicy:
-      allOf: [glb-web-product, virtual-product-offline, virtual-product-production]
+      allOf: [glb-web-product, virtual-product-offline, virtual-product-production, web-authored-large-runtime-k1]
       anyOf: []
       diagnosticCases: [oegpack-v3-component, virtual-geometry-component, virtual-product-replacement, virtual-product-observer]
       checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
-    watch: [OEngine/src/assets/**, OEngine/src/gpu/GeometryProductAdmission.ts, OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/render/pipeline/MainRenderPipeline.ts]
+    watch: [OEngine/src/assets/**, OEngine/src/gpu/GeometryProductAdmission.ts, OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/gpu/GpuRenderWorld.ts, OEngine/src/gpu/GpuScene.ts, OEngine/src/render/pipeline/MainRenderPipeline.ts]
   - id: virtual-assets.web-cook
     domain: virtual-assets
     owner: virtual-assets

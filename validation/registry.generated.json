@@ -885,6 +885,51 @@
         "screenshot"
       ],
       "automatic": true,
+      "buildTarget": "production",
+      "caseKind": "production",
+      "changedPaths": [
+        "validation/cases/web-100m-formal-perf",
+        "validation/cases/web-authored-large-runtime-k1",
+        "validation/workloads/web-authored-large-runtime-k1-v1.yaml",
+        "OEngine/src/assets/web-cook",
+        "OEngine/src/assets/geometry-product",
+        "OEngine/src/gpu/GeometryProductMultiRuntime.ts",
+        "OEngine/src/gpu/GpuRenderWorld.ts",
+        "OEngine/src/gpu/GpuScene.ts",
+        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
+      ],
+      "covers": [
+        "virtual-assets.product-consumer"
+      ],
+      "decision": "ADR-0018",
+      "domain": "virtual-assets",
+      "errorAllowlist": [
+        {
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "ownerClaim": "virtual-assets.product-consumer",
+          "reason": "Chrome stable emits this platform warning while the runtime smoke device is captured.",
+          "source": "console:warning"
+        }
+      ],
+      "evidenceRole": "promotion",
+      "harness": "production",
+      "id": "web-authored-large-runtime-k1",
+      "kind": "contract",
+      "lab": false,
+      "level": "L3",
+      "profile": "smoke",
+      "route": "/cases/web-100m-formal-perf/index.html?asset=authored-large&case=web-authored-large-runtime-k1&workload=web-authored-large-runtime-k1-v1",
+      "sourceCase": "web-100m-formal-perf",
+      "timeoutMs": 300000,
+      "workloadId": "web-authored-large-runtime-k1-v1"
+    },
+    {
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
+      "automatic": true,
       "buildTarget": "host",
       "caseKind": "component",
       "changedPaths": [
@@ -1825,6 +1870,82 @@
       "sampleCadence": 1,
       "sampleFrames": 1,
       "seed": 1801,
+      "timestampRequired": false,
+      "warmupFrames": 1
+    },
+    "web-authored-large-runtime-k1-v1": {
+      "acceptance": {
+        "firstFrameBeforeFinalProduct": true,
+        "gpuErrors": 0,
+        "movingFrames": 8,
+        "requiresAppendOnlyInstancePublication": true,
+        "requiresAuthoredMaterialMapping": true,
+        "requiresCameraCutDemandAndRecovery": true,
+        "requiresDisposed": true,
+        "requiresFullCatalogCoverage": true,
+        "requiresSettled": true
+      },
+      "budgets": {
+        "maxCanonicalInputBytes": 33554432,
+        "maxDecodedProductBytes": 134217728,
+        "maxSessionSpillBytes": 1073741824,
+        "maxSourceWindowBytes": 67108864
+      },
+      "cameraPath": "web-100m-formal-camera-v1",
+      "cameraPathSha256": "7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211",
+      "deviceScaleFactor": 1,
+      "features": [
+        "web-cook",
+        "geometry-product",
+        "multi-product-runtime",
+        "gpu-demand-compaction",
+        "adaptive-residency"
+      ],
+      "geometry": {
+        "catalogCoverage": "all-primitives",
+        "layout": "authored-multi-primitive",
+        "primitives": 1920,
+        "source": "authored-local-large-glb",
+        "sourceBytes": 477591060,
+        "sourceSha256": "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
+        "sourceTriangles": 4871612
+      },
+      "id": "web-authored-large-runtime-k1-v1",
+      "independentRuns": 1,
+      "metrics": {
+        "ownerPeaks": [
+          "sourceBytes",
+          "canonicalBytes",
+          "wasmBytes",
+          "spillBytes",
+          "gpuGeometryBytes"
+        ],
+        "pages": [
+          "demand",
+          "churn",
+          "overflow"
+        ],
+        "ttfmf": "firstMeaningfulFrameMs"
+      },
+      "quality": "adr-0018-authored-large-runtime-smoke-v1",
+      "renderScale": 1,
+      "resolution": [
+        1280,
+        720
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 8,
+      "seed": 1801,
+      "texturePolicy": {
+        "bankCapacities": [
+          192,
+          192,
+          192,
+          192,
+          192
+        ],
+        "maxDecodedDimension": 512
+      },
       "timestampRequired": false,
       "warmupFrames": 1
     },

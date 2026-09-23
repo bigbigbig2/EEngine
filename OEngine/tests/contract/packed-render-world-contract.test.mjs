@@ -432,6 +432,58 @@ test("GPU Render World publishes stage and release only when their command commi
   assert.equal(runtime.counterSink.destroyed, true);
 });
 
+test("Virtual Product append keeps the instance handle across abort, commit, and release", async () => {
+  const fixture = createPackedRegistryFixture();
+  const profile = {
+    hasAuthoredVertexColor: true, hasUv0: true, hasUv1: false,
+    hasUv2: false, hasNormal: true, hasTangent: true
+  };
+  const bindings = { productTableSlot: 2, productGeneration: 1 };
+  const source = (count) => ({
+    materials: fixture.manifest.source.materials,
+    geometryProfiles: Array.from({ length: count }, () => profile),
+    assetCount: count,
+    hierarchyMaxDepth: 1,
+    hierarchyTraversalCapacity: count,
+    hierarchyVisibleClusterCapacity: count,
+    hierarchyRasterWorkCapacity: count,
+    count,
+    geometryIndices: Uint32Array.from({ length: count }, (_, index) => index),
+    productTableSlots: new Uint32Array(count).fill(2),
+    productGenerations: new Uint32Array(count).fill(1),
+    materialIndices: new Uint32Array(count),
+    currentTransforms: identityMatrices(count),
+    boundsSpheres: new Float32Array(count * 4).fill(1)
+  });
+  const first = new FakeCommand("virtual-first");
+  fixture.registry.stageVirtualProduct(fixture.scene, source(1), bindings, first);
+  first.finish();
+  const initial = fixture.registry.runtime(fixture.scene);
+  const aborted = new FakeCommand("virtual-abort");
+  fixture.registry.stageVirtualProductAppend(fixture.scene, source(2), bindings, aborted);
+  aborted.abort();
+  assert.strictEqual(fixture.registry.runtime(fixture.scene), initial);
+  assert.equal(fixture.calls.appends.length, 1);
+
+  const append = new FakeCommand("virtual-append");
+  fixture.registry.stageVirtualProductAppend(fixture.scene, source(2), bindings, append);
+  assert.strictEqual(fixture.registry.runtime(fixture.scene), initial);
+  append.finish();
+  const current = fixture.registry.runtime(fixture.scene);
+  assert.strictEqual(current.instanceHandle, initial.instanceHandle);
+  assert.strictEqual(current.counterSink, initial.counterSink);
+  assert.equal(current.instanceCount, 2);
+  assert.equal(fixture.calls.instanceSources.length, 1);
+  assert.equal(fixture.calls.appends[1].source.count, 1);
+
+  const release = new FakeCommand("virtual-release");
+  fixture.registry.release(fixture.scene, release);
+  release.finish();
+  await settlePromises();
+  assert.equal(fixture.calls.releases.filter((entry) => entry === "instance").length, 1);
+  assert.equal(current.counterSink.destroyed, true);
+});
+
 test("GPU Render World publishes distinct material slots for geometry-dependent programs", () => {
   const fixture = createPackedRegistryFixture();
   const unlit = fixture.manifest.source.materials[0];
@@ -1355,6 +1407,7 @@ function createPackedRegistryFixture() {
     releases: [],
     patches: [],
     instanceSources: [],
+    appends: [],
     materialAssociations: []
   };
   const dummyBuffer = {};
@@ -1452,6 +1505,10 @@ function createPackedRegistryFixture() {
         calls.instanceSources.push(source);
         command.onAborted.addOne(() => calls.stages.push("instance-abort"));
         return instanceHandle;
+      },
+      append(handle, source, previousMaterialHandles, command) {
+        calls.appends.push({ handle, source, previousMaterialHandles });
+        command.onAborted.addOne(() => calls.stages.push("append-abort"));
       },
       range() {
         return { start: 3, count: 1 };

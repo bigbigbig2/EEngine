@@ -144,13 +144,14 @@ import {
 } from "../../gpu/VirtualGeometryResidency.js";
 import type { VirtualGeometryResidencyOptionsV1 } from "../../gpu/VirtualGeometryResidency.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
-import { GeometryProductMultiRuntimeV1, type GeometryProductShardHandleV1 } from "../../gpu/GeometryProductMultiRuntime.js";
+import { GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1, GeometryProductMultiRuntimeV1, type GeometryProductShardHandleV1 } from "../../gpu/GeometryProductMultiRuntime.js";
 import { GeometryProductAdmissionController } from "../../gpu/GeometryProductAdmission.js";
 import type { GeometryProductAdmissionTransaction } from "../../gpu/GeometryProductAdmission.js";
 import type { WebCookRuntimeAsset } from "../../assets/web-cook/WebCookRuntimeAsset.js";
 import type { WebCookSceneCatalogSnapshot } from "../../assets/web-cook/WebCookClient.js";
 import type { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import { createWebCookSceneSourceAsync } from "../../assets/web-cook/WebCookSceneSource.js";
+import { webCookCatalogSceneFraming, type WebCookCatalogSceneFramingV1 } from "../../assets/web-cook/WebCookSceneBounds.js";
 import { createOegPackSceneSource } from "../../assets/geometry-product/OegPackSceneSourceV1.js";
 import { buildVirtualGeometrySceneSourceV1, mergeVirtualGeometryProductSceneSourcesV1, type VirtualGeometryProductScenePartV1 } from "../../assets/geometry-product/VirtualGeometrySceneSourceV1.js";
 import type { CookedSceneGeometryProductV1 } from "../../assets/geometry-product/SceneGeometryCanonicalizerV1.js";
@@ -680,17 +681,14 @@ export interface ProductSceneHandles {
 
 export interface WebCookedSceneOptions extends ProductSceneOptions {
   /**
-   * Framing applied by the Web Cook catalog mapper.
-   *
-   * Resolved against the revision being mapped, so a bootstrap subset and its
-   * richer replacement get different scales. Use `scale`/`offset` from
-   * `webCookCatalogSceneFraming` instead when the scene must hold its size.
+   * Framing resolved once against the complete Web Cook catalog, then applied
+   * unchanged to every Product revision and shard.
    */
   readonly fitHeight?: number;
   readonly fitBase?: readonly [number, number, number];
   /** Fixed combined metadata heap used by the Product-per-Shard production route. */
   readonly multiProductMetadataBytes?: number;
-  /** Product Table capacity; the formal 100M workload uses 128 for ~100 shards. */
+  /** Product Table capacity override; otherwise estimated from the scene catalog. */
   readonly multiProductSlotCapacity?: number;
 }
 
@@ -1292,11 +1290,16 @@ export class MainRenderPipeline {
     // One cache for the whole scene lifetime. A replacement revision maps the
     // same authored images while the outgoing revision is still resident; sharing
     // the decoded textures keeps a size class from having to hold both copies.
-    const textureCache = new Map<number, Promise<ShadeTexture>>();
+    const textureCache = new Map<string, Promise<ShadeTexture>>();
+    let framing: WebCookCatalogSceneFramingV1 | undefined;
     return this.uploadProductScene(scene, asset, async (revision) => {
       const catalog = asset.catalog;
       if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
-      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { fitHeight: options.fitHeight, fitBase: options.fitBase, scale: options.scale, offset: options.offset, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache });
+      if (options.fitHeight !== undefined && framing === undefined) {
+        framing = webCookCatalogSceneFraming(catalog, { fitHeight: options.fitHeight, fitBase: options.fitBase });
+        if (framing.unknownBoundPrimitives > 0) throw new Error("Web Cook catalog fit cannot cover primitives with unknown bounds");
+      }
+      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { scale: framing?.scale ?? options.scale, offset: framing?.offset ?? options.offset, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache, maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE) });
     }, options);
   }
 
@@ -1311,12 +1314,9 @@ export class MainRenderPipeline {
     asset: WebCookRuntimeAsset,
     options: WebCookedSceneOptions = {}
   ): Promise<MultiProductSceneHandles> {
-    const runtime = new GeometryProductMultiRuntimeV1(this.device, {
-      residency: options.residency,
-      metadataBytes: options.multiProductMetadataBytes,
-      slotCapacity: options.multiProductSlotCapacity
-    });
-    const textureCache = new Map<number, Promise<ShadeTexture>>();
+    let runtime: GeometryProductMultiRuntimeV1 | undefined;
+    const textureCache = new Map<string, Promise<ShadeTexture>>();
+    let framing: WebCookCatalogSceneFramingV1 | undefined;
     const parts: VirtualGeometryProductScenePartV1[] = [];
     const shardHandles: GeometryProductShardHandleV1[] = [];
     let streaming: GeometryPageStreamingRuntimeV1 | null = null;
@@ -1331,6 +1331,20 @@ export class MainRenderPipeline {
           if (released) break;
           const catalog = asset.catalog;
           if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
+          runtime ??= new GeometryProductMultiRuntimeV1(this.device, {
+            residency: options.residency,
+            metadataBytes: options.multiProductMetadataBytes,
+            slotCapacity: options.multiProductSlotCapacity ?? Math.max(
+              GEOMETRY_PRODUCT_MULTI_RUNTIME_MIN_CAPACITY_V1,
+              catalog.primitiveCount + catalog.primitives.reduce(
+                (extra, primitive) => extra + Math.max(0, Math.ceil(primitive.triangleCount / 131_072) - 1), 0
+              )
+            )
+          });
+          if (options.fitHeight !== undefined && framing === undefined) {
+            framing = webCookCatalogSceneFraming(catalog, { fitHeight: options.fitHeight, fitBase: options.fitBase });
+            if (framing.unknownBoundPrimitives > 0) throw new Error("Web Cook catalog fit cannot cover primitives with unknown bounds");
+          }
           const shard = await runtime.load(source);
           shardHandles.push(shard);
           const mapped = await createWebCookSceneSourceAsync(
@@ -1339,12 +1353,11 @@ export class MainRenderPipeline {
             (imageIndex, signal) => asset.readImageSource(imageIndex, signal),
             options.signal,
             {
-              fitHeight: options.fitHeight,
-              fitBase: options.fitBase,
-              scale: options.scale,
-              offset: options.offset,
+              scale: framing?.scale ?? options.scale,
+              offset: framing?.offset ?? options.offset,
               sceneAssetIndices: source.sceneAssetIndices,
-              textureCache
+              textureCache,
+              maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE)
             }
           );
           parts.push(Object.freeze({
@@ -1381,14 +1394,18 @@ export class MainRenderPipeline {
         }
         if (state === undefined) throw new Error("Web Cook provider completed without an admissible Product shard");
       } catch (error) {
-        if (state === undefined) rejectFirst(error);
+        if (state === undefined) {
+          streaming?.destroy();
+          runtime?.destroy();
+          rejectFirst(error);
+        }
         throw error;
       }
     })();
     consuming.catch(() => undefined);
     await firstReady;
     return Object.freeze({
-      runtime,
+      runtime: runtime!,
       get streaming() { return streaming; },
       settled: () => consuming,
       current: () => {
@@ -1400,7 +1417,7 @@ export class MainRenderPipeline {
         released = true;
         if (this._graphics.render_world.runtime(scene) !== null) await this.releaseVirtualGeometryScene(scene);
         streaming?.destroy();
-        runtime.destroy();
+        runtime?.destroy();
       }
     });
   }
@@ -1421,9 +1438,9 @@ export class MainRenderPipeline {
         this._transparencyFeature?.releasePacked(previous, command);
         this._shadowFeatures.releaseRenderWorld(scene, previous, command);
       }
-      const handles = this._graphics.render_world.release(scene, command);
-      this._graphics.assets.releaseMany(handles, command);
-      const handle = this._graphics.render_world.stageVirtualProduct(scene, source, runtime.bindings(), command, true);
+      const handle = this._graphics.render_world.stageVirtualProductAppend(
+        scene, source, runtime.bindings(), command
+      );
       const candidate = this._graphics.render_world.previewStagedRuntime(handle);
       sparseSwap = await this._sparseShadingPublications.prepareSceneSwap(
         candidate.shadingPublication,

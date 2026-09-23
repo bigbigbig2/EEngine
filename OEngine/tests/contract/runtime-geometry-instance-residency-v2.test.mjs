@@ -507,6 +507,53 @@ test("multi-Product instances publish their own slot and generation lanes", () =
   scene.destroy();
 });
 
+test("GpuScene appends Product instances with a stable handle and rolls back an aborted append", () => {
+  const writes = [];
+  const device = fakeDevice();
+  const scene = new GpuScene(device, {
+    publicationIdentity: () => { throw new Error("Product instances do not use package identity"); }
+  });
+  const source = (slot, material) => ({
+    count: 1,
+    geometryHandles: [],
+    virtualGeometry: { productTableSlot: slot, productGeneration: 1, assetCount: 1 },
+    geometryIndices: new Uint32Array([0]),
+    materialHandles: new Uint32Array([material]),
+    currentTransforms: identityMatrices(1),
+    boundsSpheres: new Float32Array([0, 0, 0, 1])
+  });
+  const create = new SceneCommand(device, writes);
+  const handle = scene.instantiate(source(2, 7), create);
+  create.finish();
+  const begin = scene.range(handle).start;
+
+  const aborted = new SceneCommand(device, writes);
+  scene.append(handle, source(3, 9), new Uint32Array([8]), aborted);
+  assert.equal(scene.evidence().pendingMutation, "append");
+  aborted.abort();
+  assert.equal(scene.range(handle).count, 1);
+  assert.equal(scene.evidence().activeInstanceCount, 1);
+  assert.equal(scene.evidence().bulkInstantiateCount, 1);
+
+  const append = new SceneCommand(device, writes);
+  scene.append(handle, source(3, 9), new Uint32Array([8]), append);
+  const remap = writes.findLast((write) => write.size === 4);
+  assert.equal(remap.bufferOffset, begin * GPU_INSTANCE_RECORD_STRIDE +
+    GPU_INSTANCE_RECORD_OFFSETS.material_handle);
+  append.finish();
+  assert.deepEqual(scene.range(handle), { start: begin, count: 2 });
+  assert.equal(scene.evidence().activeInstanceCount, 2);
+  assert.equal(scene.evidence().bulkInstantiateCount, 1);
+  assert.equal(scene.evidence().releaseCount, 0);
+
+  const release = new SceneCommand(device, writes);
+  scene.release(handle, release);
+  release.finish();
+  assert.equal(scene.evidence().activeInstanceCount, 0);
+  assert.equal(scene.evidence().releaseCount, 1);
+  scene.destroy();
+});
+
 test("GpuScene same-command replacement reuses the released range without duplicating a free slot", () => {
   const writes = [];
   const device = fakeDevice();

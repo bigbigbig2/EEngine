@@ -285,10 +285,17 @@ export class GpuRenderWorld {
       readonly hierarchyTraversalCapacity: number;
       readonly hierarchyVisibleClusterCapacity: number;
       readonly hierarchyRasterWorkCapacity: number;
-    }>
+    }>,
+    appendFrom?: Readonly<{ runtime: GpuRenderWorldRuntime; previousCount: number }>
   ): GpuRenderWorldHandle {
-    if (this.byScene.has(scene) && this.releasingCommands.get(scene) !== command) {
+    if (this.byScene.has(scene) && this.releasingCommands.get(scene) !== command &&
+        appendFrom?.runtime !== this.byScene.get(scene)) {
       throw new Error("Scene already has a GPU Render World registration");
+    }
+    if (appendFrom !== undefined && (virtualProduct === undefined ||
+        appendFrom.previousCount !== appendFrom.runtime.instanceCount ||
+        appendFrom.previousCount >= source.count)) {
+      throw new Error("Virtual Product append requires a larger source and the active runtime");
     }
     if (virtualProduct === undefined) validateSource(source, assetHandles);
     else validateVirtualSource(source, assetHandles, virtualProduct);
@@ -375,13 +382,44 @@ export class GpuRenderWorld {
       flags: normalizedFlags,
       debugIds: source.debugIds
     };
-    const instanceHandle = this.graphics.gpu_scene.instantiate(instanceSource, command);
-    const range = this.graphics.gpu_scene.range(instanceHandle);
-    const counterSink = this.createCounterSink({
-      label: "GpuRenderWorld/disabled-counter-sink",
-      size: GPU_COUNTER_BYTE_SIZE,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
-    });
+    let instanceHandle: InstanceSetHandle;
+    let instanceBegin: number;
+    let counterSink: GPUBuffer;
+    if (appendFrom === undefined) {
+      instanceHandle = this.graphics.gpu_scene.instantiate(instanceSource, command);
+      instanceBegin = this.graphics.gpu_scene.range(instanceHandle).start;
+      counterSink = this.createCounterSink({
+        label: "GpuRenderWorld/disabled-counter-sink",
+        size: GPU_COUNTER_BYTE_SIZE,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
+      });
+    } else {
+      const begin = appendFrom.previousCount;
+      const delta: InstanceSource = {
+        ...instanceSource,
+        count: source.count - begin,
+        geometryIndices: source.geometryIndices.subarray(begin),
+        materialHandles: materialHandles.subarray(begin),
+        currentTransforms: source.currentTransforms.subarray(begin * 16),
+        previousTransforms: source.previousTransforms?.subarray(begin * 16),
+        boundsSpheres: source.boundsSpheres.subarray(begin * 4),
+        boundsMin: source.boundsMin?.subarray(begin * 3),
+        boundsMax: source.boundsMax?.subarray(begin * 3),
+        flags: normalizedFlags.subarray(begin),
+        debugIds: source.debugIds?.subarray(begin),
+        virtualGeometry: {
+          ...instanceSource.virtualGeometry!,
+          productTableSlots: source.productTableSlots?.subarray(begin),
+          productGenerations: source.productGenerations?.subarray(begin)
+        }
+      };
+      instanceHandle = appendFrom.runtime.instanceHandle;
+      instanceBegin = appendFrom.runtime.instanceBegin;
+      counterSink = appendFrom.runtime.counterSink;
+      this.graphics.gpu_scene.append(instanceHandle, delta, materialHandles.subarray(0, begin), command);
+      this.graphics.material_store.release(appendFrom.runtime.materialPublication, command);
+      this.graphics.texture_residency.release(appendFrom.runtime.materials, command);
+    }
     const handle = Object.freeze({}) as GpuRenderWorldHandle;
     const runtime: GpuRenderWorldRuntime = Object.freeze({
       handle,
@@ -405,8 +443,8 @@ export class GpuRenderWorld {
         materialStage.bindings,
         textureStage.bindings
       ),
-      instanceBegin: range.start,
-      instanceCount: range.count,
+      instanceBegin,
+      instanceCount: source.count,
       get transparentInstanceCount() {
         return classification.transparentInstanceCount;
       },
@@ -426,6 +464,7 @@ export class GpuRenderWorld {
     this.stagedRuntimes.set(handle, runtime);
     command.onFinished.addOne(() => {
       this.stagedRuntimes.delete(handle);
+      if (appendFrom !== undefined) HANDLE_RUNTIME.delete(appendFrom.runtime.handle as object);
       this.byScene.set(scene, runtime);
       this.classificationByScene.set(scene, classification);
       this.recoveryGeometry.set(scene, Object.freeze([...source.geometries]));
@@ -443,7 +482,7 @@ export class GpuRenderWorld {
     });
     command.onAborted.addOne(() => {
       this.stagedRuntimes.delete(handle);
-      this.destroyCounterSink(counterSink);
+      if (appendFrom === undefined) this.destroyCounterSink(counterSink);
     });
     return handle;
   }
@@ -493,6 +532,45 @@ export class GpuRenderWorld {
         hierarchyRasterWorkCapacity: source.hierarchyRasterWorkCapacity
       }
     );
+  }
+
+  stageVirtualProductAppend(
+    scene: Scene,
+    source: VirtualGeometrySceneSource,
+    bindings: GeometryProductGpuBindingsV1,
+    command: ShadeGPUCommandContext
+  ): GpuRenderWorldHandle {
+    const previous = this.byScene.get(scene);
+    if (previous?.sourceKind !== "virtual-product") {
+      throw new Error("Virtual Product append requires an active Product Scene");
+    }
+    if (source.geometryProfiles.length !== source.assetCount) {
+      throw new RangeError("Virtual Product geometry profile count must match assetCount");
+    }
+    return this.stageSource(scene, {
+      geometries: Object.freeze([]),
+      materials: source.materials,
+      count: source.count,
+      geometryIndices: source.geometryIndices,
+      productTableSlots: source.productTableSlots,
+      productGenerations: source.productGenerations,
+      materialIndices: source.materialIndices,
+      currentTransforms: source.currentTransforms,
+      previousTransforms: source.previousTransforms,
+      boundsSpheres: source.boundsSpheres,
+      boundsMin: source.boundsMin,
+      boundsMax: source.boundsMax,
+      flags: source.flags,
+      debugIds: source.debugIds
+    }, [], command, source.meshes, {
+      bindings,
+      assetCount: source.assetCount,
+      geometryProfiles: source.geometryProfiles,
+      hierarchyMaxDepth: source.hierarchyMaxDepth,
+      hierarchyTraversalCapacity: source.hierarchyTraversalCapacity,
+      hierarchyVisibleClusterCapacity: source.hierarchyVisibleClusterCapacity,
+      hierarchyRasterWorkCapacity: source.hierarchyRasterWorkCapacity
+    }, { runtime: previous, previousCount: previous.instanceCount });
   }
 
   /** Candidate is only visible to the submitting owner, never to frame lookup. */

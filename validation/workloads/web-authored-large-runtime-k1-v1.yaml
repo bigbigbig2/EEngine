@@ -1,0 +1,50 @@
+schemaVersion: 1
+id: web-authored-large-runtime-k1-v1
+resolution: [1280, 720]
+deviceScaleFactor: 1
+renderScale: 1
+quality: adr-0018-authored-large-runtime-smoke-v1
+texturePolicy:
+  maxDecodedDimension: 512
+  bankCapacities: [192, 192, 192, 192, 192]
+features:
+  - web-cook
+  - geometry-product
+  - multi-product-runtime
+  - gpu-demand-compaction
+  - adaptive-residency
+seed: 1801
+cameraPath: web-100m-formal-camera-v1
+cameraPathSha256: 7b9f7501b7e0a2f726d403a8fc4b0dc5b8a0b9c71a4ec1cae4f3d35a4f1ef211
+warmupFrames: 1
+sampleFrames: 8
+sampleCadence: 1
+timestampRequired: false
+independentRuns: 1
+geometry:
+  source: authored-local-large-glb
+  sourceSha256: 54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f
+  sourceBytes: 477591060
+  sourceTriangles: 4871612
+  primitives: 1920
+  layout: authored-multi-primitive
+  catalogCoverage: all-primitives
+budgets:
+  maxSourceWindowBytes: 67108864
+  maxCanonicalInputBytes: 33554432
+  maxDecodedProductBytes: 134217728
+  maxSessionSpillBytes: 1073741824
+acceptance:
+  firstFrameBeforeFinalProduct: true
+  movingFrames: 8
+  requiresSettled: true
+  requiresDisposed: true
+  requiresFullCatalogCoverage: true
+  requiresAppendOnlyInstancePublication: true
+  requiresAuthoredMaterialMapping: true
+  requiresCameraCutDemandAndRecovery: true
+  gpuErrors: 0
+metrics:
+  ttfmf: firstMeaningfulFrameMs
+  pages: [demand, churn, overflow]
+  ownerPeaks: [sourceBytes, canonicalBytes, wasmBytes, spillBytes, gpuGeometryBytes]

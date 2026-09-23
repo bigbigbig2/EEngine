@@ -184,13 +184,14 @@ export interface GpuSceneEvidence {
   readonly abortedMutationCount: number;
   readonly releaseCount: number;
   readonly privateSubmitCount: 0;
-  readonly pendingMutation: "instantiate" | "patch" | "release" | "replace" | null;
+  readonly pendingMutation: "instantiate" | "append" | "patch" | "release" | "replace" | null;
   readonly lastPatch: InstancePatchResult | null;
 }
 
 type EntryState =
   | "pending"
   | "resident"
+  | "pending-append"
   | "pending-patch"
   | "pending-release"
   | "released"
@@ -422,6 +423,96 @@ export class GpuScene {
       if (replacement !== null) this.rollbackReplacement(replacement);
       this.pendingMutation = null;
       this.pendingReleaseEntry = null;
+      throw error;
+    }
+  }
+
+  /** Extends a resident, tail-owned set without changing its handle or old records. */
+  append(
+    handle: InstanceSetHandle,
+    source: InstanceSource,
+    previousMaterialHandles: Uint32Array,
+    command: ShadeGPUCommandContext | GpuSceneCommand
+  ): void {
+    this.assertMutation(command, "append");
+    let replacement: BufferReplacement | null = null;
+    const cursorBefore = this.cursorCount;
+    let entry: InstanceSetEntry | undefined;
+    try {
+      entry = this.requireEntry(handle, "resident");
+      if (entry.start + entry.count !== cursorBefore || previousMaterialHandles.length !== entry.count) {
+        throw new Error("Instance append requires the tail set and one material handle per old instance");
+      }
+      validateInstanceSource(source);
+      const requiredCount = checkedAdd(cursorBefore, source.count, "Instance high-water count");
+      this.assertCapacity(requiredCount);
+      const appended = this.packSource(source);
+      if (requiredCount * GPU_INSTANCE_RECORD_STRIDE > this.buffer.size) {
+        replacement = this.grow(requiredCount, command);
+      }
+      const target = replacement?.next ?? this.buffer;
+      const bytes = new Uint8Array(entry.bytes.byteLength + appended.byteLength);
+      bytes.set(entry.bytes);
+      bytes.set(appended, entry.bytes.byteLength);
+      const view = new DataView(bytes.buffer);
+      let remapCount = 0;
+      for (let index = 0; index < entry.count; index++) {
+        const offset = index * GPU_INSTANCE_RECORD_STRIDE + GPU_INSTANCE_RECORD_OFFSETS.material_handle;
+        const next = previousMaterialHandles[index]!;
+        if (view.getUint32(offset, true) === next) continue;
+        view.setUint32(offset, next, true);
+        command.writeBuffer(target, (entry.start + index) * GPU_INSTANCE_RECORD_STRIDE +
+          GPU_INSTANCE_RECORD_OFFSETS.material_handle, bytes.buffer, offset, 4);
+        recordGpuQueueUpload(this.device.queue, "GpuScene/append-material-remap", 4);
+        remapCount++;
+      }
+      command.writeBuffer(target, cursorBefore * GPU_INSTANCE_RECORD_STRIDE,
+        appended.buffer, appended.byteOffset, appended.byteLength);
+      recordGpuQueueUpload(this.device.queue, "GpuScene/append-instances", appended.byteLength);
+      const lastTransformFrame = new Uint32Array(entry.count + source.count);
+      lastTransformFrame.set(entry.lastTransformFrame);
+      lastTransformFrame.fill(NEVER_PATCHED_FRAME, entry.count);
+      const nextEntry: InstanceSetEntry = {
+        ...entry,
+        count: entry.count + source.count,
+        bytes,
+        lastTransformFrame,
+        state: "resident"
+      };
+      const previous = entry;
+      const growth = replacement;
+      entry.state = "pending-append";
+      this.cursorCount = requiredCount;
+      command.onFinished.addOne(() => {
+        if (previous.state !== "pending-append") return;
+        previous.state = "released";
+        this.slots[previous.slot]!.entry = nextEntry;
+        this.activeInstanceCount += source.count;
+        this.logicalBytes += appended.byteLength;
+        this.cpuShadowBytes += appended.byteLength + source.count * Uint32Array.BYTES_PER_ELEMENT;
+        this.commitUpload({ calls: remapCount + 1, sourceBytes: remapCount * 4 + appended.byteLength,
+          uploadedBytes: remapCount * 4 + appended.byteLength });
+        if (growth !== null) {
+          this.commitReplacement(growth);
+          this.resourceEpoch++;
+        }
+        this.contentRevision++;
+        this.publishedCursorCount = this.cursorCount;
+        this.pendingMutation = null;
+      });
+      command.onAborted.addOne(() => {
+        if (previous.state !== "pending-append") return;
+        previous.state = "resident";
+        this.cursorCount = cursorBefore;
+        if (growth !== null) this.rollbackReplacement(growth);
+        this.abortedMutationCount++;
+        this.pendingMutation = null;
+      });
+    } catch (error) {
+      if (entry?.state === "pending-append") entry.state = "resident";
+      this.cursorCount = cursorBefore;
+      if (replacement !== null) this.rollbackReplacement(replacement);
+      this.pendingMutation = null;
       throw error;
     }
   }
