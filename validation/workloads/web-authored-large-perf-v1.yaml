@@ -6,6 +6,9 @@ resolution:
 deviceScaleFactor: 1
 renderScale: 1
 quality: adr-0018-authored-large-formal-v2
+texturePolicy:
+  maxDecodedDimension: 512
+  bankCapacities: [192, 192, 192, 192, 192]
 features:
   - web-cook
   - geometry-product

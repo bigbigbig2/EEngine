@@ -167,7 +167,7 @@ async function run(): Promise<void> {
     canvas.height = HEIGHT;
     renderer = new Renderer({
       debug: false,
-      ...(isRuntimeSmoke ? {
+      ...(sourceKey === "authored-large" ? {
         textureMaxResolution: 512 as const,
         textureBankMaxCapacities: [192, 192, 192, 192, 192] as const
       } : {}),

@@ -1830,6 +1830,16 @@
           "spillBytes"
         ]
       },
+      "texturePolicy": {
+        "bankCapacities": [
+          192,
+          192,
+          192,
+          192,
+          192
+        ],
+        "maxDecodedDimension": 512
+      },
       "timestampRequired": true,
       "warmupFrames": 120,
       "workBudget": {
