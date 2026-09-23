@@ -67,6 +67,8 @@ fixedCondition:
   independentRuns: 3
 metrics:
   ttfmf: firstMeaningfulFrameMs
+  cook: [totalCookMs, settledMs, slowestProductMs]
+  cookOwners: [sourcePeakBytes, canonicalPeakBytes, wasmBytes, spillPeakBytes]
   cpu: [frameMs, buildMs, submitMs, p50, p95]
   gpu: [frameMs, p50, p95]
   productTasks: [productCount, slowestProductMs, slowestWasmPlanMs, taskTrace]

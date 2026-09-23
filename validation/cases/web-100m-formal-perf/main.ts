@@ -351,6 +351,8 @@ async function run(): Promise<void> {
     status.textContent = "finishing Product-per-Shard cook";
     await handles.settled();
     cookSettled = true;
+    const settledMs = performance.now() - loadStarted;
+    controller.addEvidence("settledMs", settledMs);
     if (cookHeartbeatTimer !== undefined) {
       window.clearInterval(cookHeartbeatTimer);
       cookHeartbeatTimer = undefined;
@@ -455,6 +457,19 @@ async function run(): Promise<void> {
       return;
     }
 
+    const cookTimings = lastCookProgress?.timings as Readonly<Record<string, number>> | undefined;
+    const cookOwners = Object.freeze({
+      sourcePeakBytes: cookTimings?.peakSourceWindowBytes ?? 0,
+      canonicalPeakBytes: cookTimings?.peakCanonicalWindowBytes ?? 0,
+      wasmBytes: cookTimings?.wasmMemoryBytes ?? 0,
+      spillPeakBytes: cookTimings?.spillPeakBytes ?? 0,
+      totalCookMs: cookTimings?.totalCookMs ?? 0
+    });
+    if (Object.values(cookOwners).some(value => !Number.isFinite(value) || value <= 0)) {
+      throw new Error("Formal PERF is missing positive cook owner peaks or total cook time");
+    }
+    controller.addEvidence("cookOwners", cookOwners);
+
     controller.transition("ready");
     controller.transition("warming");
     const runs: FormalPerfRunV1[] = [];
@@ -489,7 +504,6 @@ async function run(): Promise<void> {
         if (!profile) throw new Error("formal sample has no profiler snapshot");
         jsPeak = Math.max(jsPeak, currentJsHeapBytes());
         gpuPeak = Math.max(gpuPeak, renderer.memoryEvidence().allocatedBytes);
-        const budget = asset.evidence().budget;
         const stream = handles.streaming?.evidence();
         const scheduler = stream?.scheduler;
         drafts.push({
@@ -498,8 +512,8 @@ async function run(): Promise<void> {
           cpuBuild: (profile.cpuMs["command-build"] ?? 0) + (profile.cpuMs["graph-build"] ?? 0),
           cpuSubmit: profile.cpuMs.submit ?? 0,
           ownerPeaks: {
-            sourceBytes: budget?.peakSourceBytes ?? 0,
-            wasmBytes: budget?.peakWasmBytes ?? 0,
+            sourceBytes: cookOwners.sourcePeakBytes,
+            wasmBytes: cookOwners.wasmBytes,
             jsBytes: jsPeak,
             gpuGeometryBytes: gpuPeak
           },

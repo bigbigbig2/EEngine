@@ -1757,6 +1757,17 @@
           "recoveryMs",
           "recoveryFrames"
         ],
+        "cook": [
+          "totalCookMs",
+          "settledMs",
+          "slowestProductMs"
+        ],
+        "cookOwners": [
+          "sourcePeakBytes",
+          "canonicalPeakBytes",
+          "wasmBytes",
+          "spillPeakBytes"
+        ],
         "cpu": [
           "frameMs",
           "buildMs",
