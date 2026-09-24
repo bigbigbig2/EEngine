@@ -7,6 +7,7 @@ import { defineConfig } from "vite";
 const examplesRoot = fileURLToPath(new URL(".", import.meta.url));
 const demosRoot = resolve(examplesRoot, "demos");
 const largeBasicSource = resolve(examplesRoot, "assets/oengine/web-authored-large/large.glb");
+const largeBasicOfflineRoot = resolve(examplesRoot, "../.local/offline-large");
 const pineForestSource = resolve(examplesRoot, "../.local/validation/pine-forest/pine_forest_render_geometry.glb");
 
 function collectExamplePages(directory: string): Record<string, string> {
@@ -34,6 +35,39 @@ function collectExamplePages(directory: string): Record<string, string> {
 export default defineConfig({
   root: examplesRoot,
   plugins: [{
+    name: "large-basic-offline-source",
+    configureServer(server) {
+      server.middlewares.use(async (request, response, next) => {
+        const route = request.url?.split("?")[0] ?? "";
+        const match = /^\/assets\/oengine\/offline-large\/(scene\.oescene|geometry-[0-9a-f]{20}\.oegpack)$/u.exec(route);
+        if (!match || (request.method !== "GET" && request.method !== "HEAD")) return next();
+        const source = resolve(largeBasicOfflineRoot, match[1]!);
+        let size: number;
+        try { size = (await stat(source)).size; }
+        catch { response.statusCode = 404; response.end("offline large-model artifact is not mounted"); return; }
+        const range = request.headers.range;
+        const byteRange = range?.match(/^bytes=(\d+)-(\d*)$/u);
+        if (range && !byteRange) { response.writeHead(416, { "Content-Range": `bytes */${size}` }); response.end(); return; }
+        const start = byteRange ? Number(byteRange[1]) : 0;
+        const end = byteRange ? (byteRange[2] ? Number(byteRange[2]) : size - 1) : size - 1;
+        if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end >= size) {
+          response.writeHead(416, { "Content-Range": `bytes */${size}` }); response.end(); return;
+        }
+        response.writeHead(byteRange ? 206 : 200, {
+          "Accept-Ranges": "bytes",
+          "Content-Type": match[1] === "scene.oescene" ? "application/json" : "application/octet-stream",
+          "Content-Encoding": "identity",
+          "Content-Length": end - start + 1,
+          "Cache-Control": "no-store",
+          ...(byteRange ? { "Content-Range": `bytes ${start}-${end}/${size}` } : {})
+        });
+        if (request.method === "HEAD") { response.end(); return; }
+        const stream = createReadStream(source, { start, end, highWaterMark: 256 * 1024 });
+        stream.on("error", error => response.destroy(error));
+        stream.pipe(response);
+      });
+    }
+  }, {
     name: "large-basic-range-source",
     configureServer(server) {
       server.middlewares.use(async (request, response, next) => {

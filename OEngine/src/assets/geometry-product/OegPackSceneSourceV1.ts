@@ -29,20 +29,20 @@ export function createOegPackSceneSource(
   if (packIndex < 0) throw new Error("scene manifest does not reference this Product pack");
   const assetCount = asset.descriptor.assetRecords.byteLength / 128;
   const formats = asset.pack.vertexFormats;
-  if (formats.length !== assetCount) throw new Error("OEGPACK vertex format count must match the Product asset dictionary");
-  const profiles: VirtualGeometryGeometryProfile[] = [];
-  for (let index = 0; index < assetCount; index++) {
-    const mask = formats[index]!.attributeMask;
-    if ((mask & WEB_GEOMETRY_ATTRIBUTE_NORMAL) === 0) throw new Error(`OEGPACK asset ${index} has no normal attribute`);
-    profiles.push({
+  if (formats.some(format => (format.attributeMask & WEB_GEOMETRY_ATTRIBUTE_NORMAL) === 0)) throw new Error("OEGPACK Product has a vertex format with no normal attribute");
+  // Vertex formats are Product-global and deduplicated by the Native cooker;
+  // they are not parallel to the asset dictionary. Until the material manifest
+  // carries per-domain bindings, publish the union profile for every asset.
+  const mask = formats.reduce((combined, format) => combined | format.attributeMask, 0);
+  const profile: VirtualGeometryGeometryProfile = Object.freeze({
       hasAuthoredVertexColor: (mask & WEB_GEOMETRY_ATTRIBUTE_COLOR) !== 0,
       hasUv0: (mask & WEB_GEOMETRY_ATTRIBUTE_UV0) !== 0,
       hasUv1: (mask & WEB_GEOMETRY_ATTRIBUTE_UV1) !== 0,
       hasUv2: false,
       hasNormal: true,
       hasTangent: (mask & WEB_GEOMETRY_ATTRIBUTE_TANGENT) !== 0
-    });
-  }
+  });
+  const profiles: VirtualGeometryGeometryProfile[] = Array.from({ length: assetCount }, () => profile);
   const instances: VirtualGeometrySceneInstanceV1[] = [];
   for (const [index, instance] of manifest.instances.entries()) {
     const reference = manifest.assets[instance.asset]!;

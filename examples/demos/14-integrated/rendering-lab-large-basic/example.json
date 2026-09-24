@@ -3,12 +3,13 @@
   "title": "Rendering Lab - Large Model Basic",
   "category": "14-integrated",
   "order": 13,
-  "description": "Independent large.glb geometry lab with multi-Product cooking, unlit display, and detailed loading/runtime telemetry.",
+  "description": "Pre-cooked large-model lab using an offline OEGPACK Product, unlit display, and detailed loading/runtime telemetry.",
   "tags": [
     "integrated",
     "large-model",
     "packed-scene",
-    "gltf",
+    "oegpack",
+    "offline-cook",
     "unlit",
     "effects-off",
     "profiling"

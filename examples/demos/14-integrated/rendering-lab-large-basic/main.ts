@@ -1,27 +1,26 @@
 import {
-  createDefaultWebCookWorker, load_gltf, OrbitControls, PerspectiveCamera,
-  RenderDebugView, Renderer, resolveWebCookRuntimeProfile, Scene, webCookCatalogSceneFraming,
-  type MultiProductSceneHandles, type WebCookRuntimeAsset, type WebCookSceneCatalogSnapshot
+  load_oegpack_product, OrbitControls, parseOegPackSceneManifestV3, PerspectiveCamera,
+  RenderDebugView, Renderer, resolveOegPackScenePackUrlV3, Scene,
+  type OegPackProductAsset, type ProductSceneHandles
 } from "../../../../OEngine/src/index.ts";
 import { LargeBasicPanel } from "./panel.ts";
 import { LargeBasicTelemetry } from "./telemetry.ts";
 
-const MiB = 1024 * 1024;
+const manifestUrl = "/assets/oengine/offline-large/scene.oescene";
 const canvas = document.querySelector<HTMLCanvasElement>("#viewport")!;
 const telemetry = new LargeBasicTelemetry();
 const scene = new Scene();
 const abort = new AbortController();
 let renderer: Renderer | undefined;
-let asset: WebCookRuntimeAsset | undefined;
-let handles: MultiProductSceneHandles | undefined;
+let asset: OegPackProductAsset | undefined;
+let handles: ProductSceneHandles | undefined;
 let controls: OrbitControls | undefined;
 let camera: PerspectiveCamera | undefined;
-let catalog: WebCookSceneCatalogSnapshot | undefined;
+let framing: SceneFraming | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let frameId = 0;
 let refreshId = 0;
 let closing = false;
-let settled = false;
 let meshletView = true;
 
 const panel = new LargeBasicPanel(telemetry, {
@@ -36,16 +35,21 @@ void start().catch(error => {
   telemetry.event("加载失败", message);
   console.error(error);
   panel.paint();
-  void release(false);
+  void release();
 });
 
 async function start(): Promise<void> {
   if (!navigator.gpu) throw new Error("此浏览器没有可用的 WebGPU");
   const context = canvas.getContext("webgpu");
   if (!context) throw new Error("无法创建 WebGPU canvas context");
-  const source = await fetch(telemetry.sourceUrl, { method: "HEAD" });
-  if (!source.ok) throw new Error(`large.glb 资源不可用：HTTP ${source.status}`);
-  telemetry.event("资源可用", `${source.headers.get("content-length") ?? "未知"} bytes`);
+  const manifestResponse = await fetch(manifestUrl, { headers: { "Accept-Encoding": "identity" } });
+  if (!manifestResponse.ok) throw new Error(`离线 scene manifest 不可用：HTTP ${manifestResponse.status}`);
+  const manifestText = await manifestResponse.text();
+  const manifest = parseOegPackSceneManifestV3(manifestText);
+  const manifestUrlAbsolute = new URL(manifestUrl, window.location.href).href;
+  const packUrl = resolveOegPackScenePackUrlV3(manifestUrlAbsolute, manifest.packs[0]!);
+  telemetry.manifest = manifest;
+  telemetry.event("离线 manifest 就绪", `${manifest.assets.length} assets / ${manifest.instances.length} instances`);
   renderer = new Renderer({
     debug: false,
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
@@ -69,46 +73,17 @@ async function start(): Promise<void> {
   telemetry.adapter = { identity: renderer.adapter_info, gpuTimestamp: renderer.profiler.gpuTimestampAvailable, features: renderer.capabilities.features };
   telemetry.event("WebGPU 就绪", renderer.adapter_info?.device ?? "adapter");
 
-  const profile = resolveWebCookRuntimeProfile("portable-single");
-  const worker = createDefaultWebCookWorker({
-    maxSourceWindowBytes: 64 * MiB, maxCanonicalInputBytes: 32 * MiB,
-    maxDecodedProductBytes: 128 * MiB, maxSessionSpillBytes: 1024 * MiB,
-    maxTrianglesPerProduct: 128 * 1024, maxVerticesPerProduct: 512 * 1024,
-    maxDomainsPerProduct: 64, runtimeProfile: profile.selected
-  });
-  asset = load_gltf(telemetry.sourceUrl, {
-    worker, runtimeProfile: profile.selected,
-    sessionId: `large-basic-${crypto.randomUUID()}`, sessionGeneration: 1,
-    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 128 * MiB, maxWasmBytes: 512 * MiB, maxOutputBytes: 256 * MiB, maxQueuedEvents: 2048 },
-    initialOutputPageCredits: 512, maxBufferedPages: 512, maxBufferedBytes: 128 * MiB,
-    onSceneCatalogReady: value => {
-      catalog = value;
-      telemetry.catalog = value;
-      telemetry.catalogAt = performance.now() - telemetry.startedAt;
-      telemetry.event("目录就绪", `${value.primitiveCount} primitive`);
-      panel.paint();
-    },
-    onProgress: progress => {
-      telemetry.progress = progress;
-      if (progress.stage === "cook-complete") telemetry.event("Cook 完成", `${progress.units} primitive`);
-    },
-    onProductTaskTrace: trace => telemetry.acceptTrace(trace)
-  });
+  asset = await load_oegpack_product({ kind: "http-range", url: packUrl, manifestUrl: manifestUrlAbsolute }, { signal: abort.signal });
+  telemetry.offline = asset.evidence();
+  telemetry.openedAt = performance.now() - telemetry.startedAt;
+  telemetry.event("OEGPACK 已打开", `${telemetry.offline.pageCount} pages / ${telemetry.offline.fileBytes} bytes`);
   refreshId = window.setInterval(refresh, 500);
-  handles = await renderer.uploadWebCookedMultiProductScene(scene, asset, {
-    signal: abort.signal, geometryOnly: true,
-    fitHeight: 10, fitBase: [0, -5, 0],
-    multiProductMetadataBytes: 128 * MiB, multiProductSlotCapacity: 2048,
-    onProductPublicationTiming: timing => {
-      telemetry.publications.push(timing);
-      telemetry.firstPublishedAt ??= performance.now() - telemetry.startedAt;
-      if (timing.shardIndex === 1) telemetry.event("首个 Product 发布");
-    }
-  });
+  handles = await renderer.uploadOegPackScene(scene, asset, { signal: abort.signal, fitHeight: 10, fitBase: [0, -5, 0] });
   if (closing) return;
-  if (!catalog) throw new Error("Product 已发布，但目录没有到达");
-  const framing = webCookCatalogSceneFraming(catalog, { fitHeight: 10, fitBase: [0, -5, 0] });
-  if (framing.unknownBoundPrimitives > 0) telemetry.event("目录边界不完整", String(framing.unknownBoundPrimitives));
+  framing = sceneFraming(handles.current().source);
+  telemetry.sourceCount = handles.current().source.count;
+  telemetry.firstPublishedAt = performance.now() - telemetry.startedAt;
+  telemetry.event("离线 Product 发布", `${telemetry.sourceCount} instances`);
   camera = new PerspectiveCamera();
   camera.near = Math.max(0.001, framing.radius / 10000);
   camera.far = Math.max(100, framing.radius * 30);
@@ -144,9 +119,8 @@ async function start(): Promise<void> {
   frameId = requestAnimationFrame(frame);
   await handles.settled();
   if (closing) return;
-  settled = true;
   telemetry.settledAt = performance.now() - telemetry.startedAt;
-  telemetry.event("所有 Product settled", `${handles.current().shardCount} shards`);
+  telemetry.event("离线 Product settled", `${telemetry.sourceCount} instances`);
   refresh();
 }
 
@@ -160,13 +134,13 @@ function setColorMode(meshlet: boolean): void {
 }
 
 function placeCamera(overview: boolean): void {
-  if (!camera || !controls || !catalog || !renderer) return;
-  const framing = webCookCatalogSceneFraming(catalog, { fitHeight: 10, fitBase: [0, -5, 0] });
-  const center = framing.center;
-  const extent = framing.max.map((value, axis) => value - framing.min[axis]!);
+  if (!camera || !controls || !framing || !renderer) return;
+  const currentFraming = framing;
+  const center = currentFraming.center;
+  const extent = currentFraming.max.map((value, axis) => value - currentFraming.min[axis]!);
   const mainAxis = extent.indexOf(Math.max(...extent));
   const shortExtent = Math.max(0.1, ...extent.filter((_, axis) => axis !== mainAxis));
-  const distance = overview ? framing.radius * 2.6 : Math.max(0.7, shortExtent * 2.8);
+  const distance = overview ? currentFraming.radius * 2.6 : Math.max(0.7, shortExtent * 2.8);
   const eye = [center[0], center[1] + distance * 0.38, center[2]];
   eye[mainAxis === 2 ? 0 : 2]! += distance * 1.55;
   camera.transform.position.set(eye[0]!, eye[1]!, eye[2]!);
@@ -186,16 +160,16 @@ function resize(): void {
 
 function refresh(): void {
   if (!renderer || closing) return;
-  telemetry.cook = asset?.evidence() ?? null;
-  telemetry.runtime = handles?.runtime.evidence() ?? null;
-  telemetry.streaming = handles?.streaming?.evidence() ?? null;
+  telemetry.offline = asset?.evidence() ?? null;
+  telemetry.runtime = handles?.admission.evidence() ?? null;
+  telemetry.streaming = handles?.current().streaming?.evidence() ?? null;
   telemetry.acceptMemory(renderer.memoryEvidence());
   telemetry.peakGpuBytes = Math.max(telemetry.peakGpuBytes, renderer.profiler.latest?.counters["gpu.residentBytes"] ?? 0);
   telemetry.adapter = { ...(telemetry.adapter as object), deviceErrors: renderer.profiler.diagnostics.uncapturedErrorCount + renderer.profiler.diagnostics.validationErrorCount };
   panel.paint();
 }
 
-async function release(waitForCleanup = true): Promise<void> {
+async function release(): Promise<void> {
   if (closing) return;
   closing = true;
   abort.abort(new Error("demo released"));
@@ -203,14 +177,17 @@ async function release(waitForCleanup = true): Promise<void> {
   clearInterval(refreshId);
   resizeObserver?.disconnect();
   controls?.dispose();
-  if (!settled) asset?.cancel("demo released");
   try {
-    await handles?.release();
-    if (waitForCleanup) await asset?.disposeAsync();
-    else asset?.dispose();
+    if (handles && renderer) {
+      await renderer.releaseVirtualGeometryScene(scene);
+      handles.current().streaming?.destroy();
+      handles.admission.retireActive();
+      handles.admission.retireReplaced();
+    }
+    asset?.release();
   } catch (error) {
     telemetry.error ??= error instanceof Error ? error.message : String(error);
-    asset?.dispose();
+    asset?.release();
   } finally {
     renderer?.destroy();
     canvas.getContext("webgpu")?.unconfigure();
@@ -220,4 +197,20 @@ async function release(waitForCleanup = true): Promise<void> {
   }
 }
 
-window.addEventListener("pagehide", () => { void release(false); }, { once: true });
+window.addEventListener("pagehide", () => { void release(); }, { once: true });
+
+type SceneFraming = Readonly<{ min: readonly [number, number, number]; max: readonly [number, number, number]; center: readonly [number, number, number]; radius: number }>;
+
+function sceneFraming(source: { readonly count: number; readonly boundsSpheres: Float32Array }): SceneFraming {
+  let minX = Infinity, minY = Infinity, minZ = Infinity;
+  let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+  for (let index = 0; index < source.count; index++) {
+    const x = source.boundsSpheres[index * 4]!, y = source.boundsSpheres[index * 4 + 1]!, z = source.boundsSpheres[index * 4 + 2]!, radius = source.boundsSpheres[index * 4 + 3]!;
+    minX = Math.min(minX, x - radius); minY = Math.min(minY, y - radius); minZ = Math.min(minZ, z - radius);
+    maxX = Math.max(maxX, x + radius); maxY = Math.max(maxY, y + radius); maxZ = Math.max(maxZ, z + radius);
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(maxX)) throw new Error("离线场景没有可用边界");
+  const min = [minX, minY, minZ] as const, max = [maxX, maxY, maxZ] as const;
+  const center = [(minX + maxX) * 0.5, (minY + maxY) * 0.5, (minZ + maxZ) * 0.5] as const;
+  return Object.freeze({ min, max, center, radius: Math.max(0.01, Math.hypot(maxX - minX, maxY - minY, maxZ - minZ) * 0.5) });
+}

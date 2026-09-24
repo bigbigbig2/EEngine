@@ -18,8 +18,8 @@ const meta = {
   title: "Examples/14 Integrated",
   component: ExampleFrame,
   parameters: {
-    docs: { description: { story: "Independent large.glb geometry lab with multi-Product cooking, unlit display, and detailed loading/runtime telemetry." } },
-    tags: ["integrated","large-model","packed-scene","gltf","unlit","effects-off","profiling"]
+    docs: { description: { story: "Pre-cooked large-model lab using an offline OEGPACK Product, unlit display, and detailed loading/runtime telemetry." } },
+    tags: ["integrated","large-model","packed-scene","oegpack","offline-cook","unlit","effects-off","profiling"]
   }
 } satisfies Meta<typeof ExampleFrame>;
 

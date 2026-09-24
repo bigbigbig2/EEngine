@@ -1,78 +1,33 @@
 import type {
   FrameProfileSnapshot,
-  WebCookProductTaskTraceEventV1,
-  WebCookProgress,
-  WebCookSceneCatalogSnapshot,
-  WebCookedSceneOptions
+  OegPackProductAssetEvidenceV1,
+  OegPackSceneManifestV3
 } from "../../../../OEngine/src/index.ts";
-
-export type PublicationTiming = Parameters<NonNullable<WebCookedSceneOptions["onProductPublicationTiming"]>>[0];
-export type ProductRow = {
-  ordinal: number;
-  primitive: string;
-  assets: number;
-  triangles: number;
-  pages: number;
-  phase: string;
-  elapsedMs: number;
-  canonicalizeMs: number;
-  wasmPlanMs: number;
-  spillMs: number;
-  publishMs: number;
-  spillBytes: number;
-  error?: string;
-};
 
 export class LargeBasicTelemetry {
   readonly startedAt = performance.now();
-  catalog?: WebCookSceneCatalogSnapshot;
-  catalogAt?: number;
+  manifest?: OegPackSceneManifestV3;
+  offline: OegPackProductAssetEvidenceV1 | null = null;
+  openedAt?: number;
   firstPublishedAt?: number;
   firstSubmittedAt?: number;
   settledAt?: number;
   disposedAt?: number;
-  progress?: WebCookProgress;
+  sourceCount = 0;
   error?: string;
-  readonly products = new Map<number, ProductRow>();
-  readonly publications: PublicationTiming[] = [];
-  readonly covered = new Set<number>();
   readonly frames = new Map<number, FrameProfileSnapshot>();
   readonly events: { atMs: number; label: string; detail: string }[] = [];
   peakOwnerBytes = 0;
-  peakHeapBytes = 0;
   peakGpuBytes = 0;
   runtime: unknown = null;
   streaming: unknown = null;
   memory: unknown = null;
-  cook: unknown = null;
   adapter: unknown = null;
-  readonly sourceUrl = "/assets/oengine/web-authored-large/large.glb";
+  readonly sourceUrl = "/assets/oengine/offline-large/scene.oescene";
 
   event(label: string, detail = ""): void {
     this.events.push({ atMs: performance.now() - this.startedAt, label, detail });
     if (this.events.length > 200) this.events.shift();
-  }
-
-  acceptTrace(trace: WebCookProductTaskTraceEventV1): void {
-    const task = trace.task;
-    if (trace.kind === "completed") for (const index of task.sceneAssetIndices) this.covered.add(index);
-    this.products.set(task.productOrdinal, {
-      ordinal: task.productOrdinal,
-      primitive: task.primitive,
-      assets: task.sceneAssetIndices.length,
-      triangles: task.triangles,
-      pages: trace.metrics.pageCount,
-      phase: trace.phase ?? trace.kind,
-      elapsedMs: trace.elapsedMs ?? 0,
-      canonicalizeMs: trace.metrics.canonicalizeMs,
-      wasmPlanMs: trace.metrics.wasmPlanMs,
-      spillMs: trace.metrics.spillMs,
-      publishMs: trace.metrics.publishMs,
-      spillBytes: trace.metrics.spillBytes,
-      ...(trace.error ? { error: trace.error } : {})
-    });
-    this.peakHeapBytes = Math.max(this.peakHeapBytes, trace.metrics.spillPeakBytes);
-    if (trace.kind === "failed" || trace.kind === "cancelled") this.event(trace.kind, `${task.primitive.slice(0, 80)}: ${trace.error ?? ""}`);
   }
 
   acceptFrame(snapshot: FrameProfileSnapshot): void {
@@ -102,14 +57,22 @@ export class LargeBasicTelemetry {
 
   capture(): object {
     return {
-      schema: "oengine-large-basic-demo-v1", capturedAt: new Date().toISOString(), sourceUrl: this.sourceUrl,
-      catalog: this.catalog, progress: this.progress, products: [...this.products.values()],
-      publicationTimings: this.publications, coverage: [...this.covered].sort((a, b) => a - b),
-      times: { catalogMs: this.catalogAt, firstPublishedMs: this.firstPublishedAt, firstSubmittedMs: this.firstSubmittedAt, settledMs: this.settledAt, disposedMs: this.disposedAt },
-      peaks: { ownerBytes: this.peakOwnerBytes, spillBytes: this.peakHeapBytes, gpuBytes: this.peakGpuBytes },
-      frameStats: this.frameStats(), frames: [...this.frames.values()], runtime: this.runtime,
-      streaming: this.streaming, memory: this.memory, cook: this.cook, adapter: this.adapter,
-      events: this.events, error: this.error ?? null
+      schema: "oengine-large-basic-offline-demo-v1",
+      capturedAt: new Date().toISOString(),
+      sourceUrl: this.sourceUrl,
+      manifest: this.manifest,
+      offline: this.offline,
+      sourceCount: this.sourceCount,
+      times: { openedMs: this.openedAt, firstPublishedMs: this.firstPublishedAt, firstSubmittedMs: this.firstSubmittedAt, settledMs: this.settledAt, disposedMs: this.disposedAt },
+      peaks: { ownerBytes: this.peakOwnerBytes, gpuBytes: this.peakGpuBytes },
+      frameStats: this.frameStats(),
+      frames: [...this.frames.values()],
+      runtime: this.runtime,
+      streaming: this.streaming,
+      memory: this.memory,
+      adapter: this.adapter,
+      events: this.events,
+      error: this.error ?? null
     };
   }
 }

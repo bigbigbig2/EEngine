@@ -196,3 +196,21 @@ test("Offline scene mapper builds the shared Virtual Geometry scene source", asy
   foreignAsset.release();
   asset.release();
 });
+
+test("Offline scene mapper supports Product assets that share deduplicated vertex formats", async () => {
+  const fixture = await cookedFixture();
+  const asset = await load_oegpack_product({ kind: "memory", bytes: fixture.pack, manifest: fixture.manifest });
+  const manifest = structuredClone(asset.manifest);
+  manifest.assets.push({ ...manifest.assets[0], assetRecordIndex: 1 });
+  manifest.instances.push({ ...manifest.instances[0], asset: 1, transform: Float32Array.from(manifest.instances[0].transform) });
+  const sharedFormatAsset = {
+    descriptor: { ...asset.descriptor, assetRecords: Uint8Array.from([...asset.descriptor.assetRecords, ...asset.descriptor.assetRecords]) },
+    pack: asset.pack,
+    manifest
+  };
+  assert.equal(asset.pack.vertexFormats.length, 1);
+  const mapped = createOegPackSceneSource(sharedFormatAsset);
+  assert.equal(mapped.source.geometryProfiles.length, 2);
+  assert.ok(mapped.source.geometryProfiles.every(profile => profile.hasNormal && profile.hasUv0));
+  asset.release();
+});
