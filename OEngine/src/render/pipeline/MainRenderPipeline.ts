@@ -150,7 +150,7 @@ import type { GeometryProductAdmissionTransaction } from "../../gpu/GeometryProd
 import type { WebCookRuntimeAsset } from "../../assets/web-cook/WebCookRuntimeAsset.js";
 import type { WebCookSceneCatalogSnapshot } from "../../assets/web-cook/WebCookClient.js";
 import type { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
-import { createWebCookSceneSourceAsync } from "../../assets/web-cook/WebCookSceneSource.js";
+import { createWebCookSceneSourceAsync, type WebCookSceneMappingTiming } from "../../assets/web-cook/WebCookSceneSource.js";
 import { webCookCatalogSceneFraming, type WebCookCatalogSceneFramingV1 } from "../../assets/web-cook/WebCookSceneBounds.js";
 import { createOegPackSceneSource } from "../../assets/geometry-product/OegPackSceneSourceV1.js";
 import { buildVirtualGeometrySceneSourceV1, mergeVirtualGeometryProductSceneSourcesV1, type VirtualGeometryProductScenePartV1 } from "../../assets/geometry-product/VirtualGeometrySceneSourceV1.js";
@@ -690,6 +690,18 @@ export interface WebCookedSceneOptions extends ProductSceneOptions {
   readonly multiProductMetadataBytes?: number;
   /** Product Table capacity override; otherwise estimated from the scene catalog. */
   readonly multiProductSlotCapacity?: number;
+  /** Optional per-shard diagnostic timing; called after a successful Scene publication. */
+  readonly onProductPublicationTiming?: (timing: WebCookProductPublicationTiming) => void;
+}
+
+export interface WebCookProductPublicationTiming {
+  readonly shardIndex: number;
+  readonly sourceWaitMs: number;
+  readonly runtimeLoadMs: number;
+  readonly sceneMapMs: number;
+  readonly sourceMergeMs: number;
+  readonly scenePublishMs: number;
+  readonly mapping: WebCookSceneMappingTiming;
 }
 
 export interface MultiProductSceneState {
@@ -1322,6 +1334,7 @@ export class MainRenderPipeline {
     let streaming: GeometryPageStreamingRuntimeV1 | null = null;
     let state: MultiProductSceneState | undefined;
     let released = false;
+    let lastPublishedAt = performance.now();
     let resolveFirst!: () => void;
     let rejectFirst!: (error: unknown) => void;
     const firstReady = new Promise<void>((resolve, reject) => { resolveFirst = resolve; rejectFirst = reject; });
@@ -1329,6 +1342,8 @@ export class MainRenderPipeline {
       try {
         for await (const source of asset.revisions(options.signal)) {
           if (released) break;
+          const sourceArrivedAt = performance.now();
+          const sourceWaitMs = sourceArrivedAt - lastPublishedAt;
           const catalog = asset.catalog;
           if (!catalog) throw new Error("Web Cook catalog is unavailable before Product activation");
           runtime ??= new GeometryProductMultiRuntimeV1(this.device, {
@@ -1346,7 +1361,9 @@ export class MainRenderPipeline {
             if (framing.unknownBoundPrimitives > 0) throw new Error("Web Cook catalog fit cannot cover primitives with unknown bounds");
           }
           const shard = await runtime.load(source);
+          const loadedAt = performance.now();
           shardHandles.push(shard);
+          let mapping: WebCookSceneMappingTiming | undefined;
           const mapped = await createWebCookSceneSourceAsync(
             catalog,
             source.descriptor,
@@ -1357,9 +1374,11 @@ export class MainRenderPipeline {
               offset: framing?.offset ?? options.offset,
               sceneAssetIndices: source.sceneAssetIndices,
               textureCache,
-              maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE)
+              maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE),
+              onMappingTiming: options.onProductPublicationTiming ? timing => { mapping = timing; } : undefined
             }
           );
+          const mappedAt = performance.now();
           parts.push(Object.freeze({
             source: mapped.source,
             productTableSlot: shard.productTableSlot,
@@ -1367,6 +1386,7 @@ export class MainRenderPipeline {
             assetReferenceBegin: shard.assetReferenceBegin
           }));
           const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
+          const mergedAt = performance.now();
           if (streaming === null && options.stream !== false) streaming = new GeometryPageStreamingRuntimeV1(this.device, shard.residency);
           streaming?.registerProduct(source, shard.residency);
           if (parts.length === 1) {
@@ -1391,6 +1411,16 @@ export class MainRenderPipeline {
               multiRuntime: runtime
             }));
           }
+          lastPublishedAt = performance.now();
+          if (options.onProductPublicationTiming) options.onProductPublicationTiming({
+            shardIndex: parts.length,
+            sourceWaitMs,
+            runtimeLoadMs: loadedAt - sourceArrivedAt,
+            sceneMapMs: mappedAt - loadedAt,
+            sourceMergeMs: mergedAt - mappedAt,
+            scenePublishMs: lastPublishedAt - mergedAt,
+            mapping: mapping!
+          });
         }
         if (state === undefined) throw new Error("Web Cook provider completed without an admissible Product shard");
       } catch (error) {

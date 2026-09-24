@@ -38,6 +38,7 @@ import {
 } from "./gltf/gltfLights.js";
 import { WebCookRuntimeAsset } from "../assets/web-cook/WebCookRuntimeAsset.js";
 import type { WebCookClientOptions, WebCookProgress, WebCookSceneCatalogSnapshot } from "../assets/web-cook/WebCookClient.js";
+import type { WebCookProductTaskTraceEventV1 } from "../assets/web-cook/ProductTaskTrace.js";
 import { createDefaultWebCookWorker } from "../assets/web-cook/WebCookWorkerFactory.js";
 import type { WebCookWorkerPort } from "../assets/web-cook/WebCookWorkerTransport.js";
 import { WebCookBudgetLedger } from "../assets/web-cook/WebCookBudget.js";
@@ -64,6 +65,8 @@ export interface LoadGltfOptions {
   readonly onSceneCatalogReady?: (catalog: WebCookSceneCatalogSnapshot) => void;
   /** Reports cook progress against the catalog total while the Product cooks. */
   readonly onProgress?: (progress: WebCookProgress) => void;
+  /** Optional per-Product diagnostic trace. */
+  readonly onProductTaskTrace?: (trace: WebCookProductTaskTraceEventV1) => void;
 }
 
 const DEFAULT_LOAD_GLTF_BUDGETS: WebCookBudgets = Object.freeze({
@@ -553,7 +556,8 @@ export function load_gltf(
     bootstrap: options.bootstrap,
     source: options.source,
     onSceneCatalogReady: options.onSceneCatalogReady,
-    onProgress: options.onProgress
+    onProgress: options.onProgress,
+    onProductTaskTrace: options.onProductTaskTrace
   });
 }
 

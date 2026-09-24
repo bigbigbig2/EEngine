@@ -30,7 +30,15 @@ export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1 & {
   readonly textureCache?: Map<string, Promise<ShadeTexture>>;
   /** Negotiated GPU dimension limit for decoded authored images. */
   readonly maxImageDimension?: number;
+  /** Optional diagnostic timing for this Product's material mapping. */
+  readonly onMappingTiming?: (timing: WebCookSceneMappingTiming) => void;
 };
+export interface WebCookSceneMappingTiming {
+  readonly textureCacheHits: number;
+  readonly textureCacheMisses: number;
+  readonly imageReadMs: number;
+  readonly imageDecodeMs: number;
+}
 export type WebCookSceneSourceResult = VirtualGeometrySceneSourceResultV1;
 export type WebCookImageReader = (imageIndex: number, signal?: AbortSignal) => Promise<{ readonly bytes: ArrayBuffer; readonly mimeType?: string }>;
 
@@ -116,6 +124,7 @@ export async function createWebCookSceneSourceAsync(
   const catalogIndices = sceneAssetIndices(catalog, assetCount, options.sceneAssetIndices);
   const materialByIndex = new Map<number, StandardShadeMaterial>();
   const textureBySource = options.textureCache ?? new Map<string, Promise<ShadeTexture>>();
+  const timing = options.onMappingTiming ? { textureCacheHits: 0, textureCacheMisses: 0, imageReadMs: 0, imageDecodeMs: 0 } : undefined;
   const textureFor = (textureIndex: number, usage: "srgb" | "linear" | "normal"): Promise<ShadeTexture> => {
     const info = catalog.textures.find(value => value.textureIndex === textureIndex);
     if (!info) throw new Error(`Web Cook material references missing texture ${textureIndex}`);
@@ -127,11 +136,16 @@ export async function createWebCookSceneSourceAsync(
     ]);
     let pending = textureBySource.get(key);
     if (!pending) {
+      if (timing) timing.textureCacheMisses++;
+      const readStarted = timing ? performance.now() : 0;
       pending = readImage(info.sourceIndex, signal).then(async payload => {
+        if (timing) timing.imageReadMs += performance.now() - readStarted;
         if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException("The operation was aborted", "AbortError");
         const blob = new Blob([payload.bytes], { type: payload.mimeType ?? imageInfo.mimeType ?? "application/octet-stream" });
         if (typeof createImageBitmap !== "function") throw new Error("Web Cook authored textures require createImageBitmap support");
+        const decodeStarted = timing ? performance.now() : 0;
         const bitmap = await decodeWebCookImageBitmap(blob, options.maxImageDimension);
+        if (timing) timing.imageDecodeMs += performance.now() - decodeStarted;
         const image = ShadeImage.fromImageBitmap(bitmap);
         const texture = ShadeTexture.from(image);
         texture.magFilter = filterValue(info.sampler.magFilter, false);
@@ -144,7 +158,7 @@ export async function createWebCookSceneSourceAsync(
         return texture;
       });
       textureBySource.set(key, pending);
-    }
+    } else if (timing) timing.textureCacheHits++;
     return pending;
   };
   const materialFor = async (index: number, value: Readonly<Record<string, unknown>>): Promise<number> => {
@@ -181,7 +195,9 @@ export async function createWebCookSceneSourceAsync(
   for (const [index, material] of materialByIndex) materials[index] = material;
   for (let index = 0; index < materials.length; index++) if (!materials[index]) materials[index] = new StandardShadeMaterial();
   const { profiles, instances } = buildProfilesAndInstances(catalog, catalogIndices, materialIndices);
-  return buildVirtualGeometrySceneSourceV1(descriptor.assetRecords, profiles, instances, materials, options);
+  const result = buildVirtualGeometrySceneSourceV1(descriptor.assetRecords, profiles, instances, materials, options);
+  if (timing) options.onMappingTiming?.(timing);
+  return result;
 }
 
 /** The browser's external-image upload cannot accept a bitmap above the device limit. */

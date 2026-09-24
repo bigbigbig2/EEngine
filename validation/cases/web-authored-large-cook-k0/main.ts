@@ -1,4 +1,4 @@
-import { createDefaultWebCookWorker, load_gltf_web_product, type WebCookRuntimeAsset } from "../../../OEngine/src/index.ts";
+import { createDefaultWebCookWorker, load_gltf, type WebCookRuntimeAsset } from "../../../OEngine/src/index.ts";
 import { assertGeometryProductDescriptorV1, GEOMETRY_PRODUCT_PAGE_RECORD_STRIDE } from "../../../OEngine/src/assets/geometry-product/GeometryProductV1.ts";
 import { createValidationController } from "../../harness/browser.ts";
 
@@ -31,7 +31,7 @@ async function run(): Promise<void> {
     const started = performance.now();
     let firstActivationMs: number | undefined;
     let terminalMetrics: Readonly<Record<string, number>> | undefined;
-    asset = load_gltf_web_product(source.url, {
+    asset = load_gltf(source.url, {
       worker: createDefaultWebCookWorker({ runtimeProfile: "portable-single", maxSourceWindowBytes: 64 * MiB, maxCanonicalInputBytes: 32 * MiB,
         maxDecodedProductBytes: 128 * MiB, maxSessionSpillBytes: 1024 * MiB, maxTrianglesPerProduct: 131072, maxVerticesPerProduct: 524288, maxDomainsPerProduct: 64 }),
       runtimeProfile: "portable-single", sessionId: `authored-k0-${crypto.randomUUID()}`, sessionGeneration: 1,

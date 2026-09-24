@@ -1,636 +1,369 @@
 {
+  "checkReceipts": [
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+      "dirty": true,
+      "id": "model",
+      "level": "L0",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "project-model",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "3781d575dd66612e0cf74b757db5a711fe11ae71150b4a26f45c14edf9e2b2a5",
+      "dirty": true,
+      "id": "registry",
+      "level": "L1",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "generated-registry",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "dirty": true,
+      "id": "changed-coverage",
+      "level": "L0",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "changed-coverage",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+      "dirty": true,
+      "id": "docs-frontmatter",
+      "level": "L0",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "project-model",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "5e8e68d76eb580cfac913800d72d39eee77bf7a96a8c6430fbabd20113f00f10",
+      "dirty": true,
+      "id": "evidence-provenance",
+      "level": "L1",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "evidence-provenance",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "2ab6ea57cf89fc7b2283a418eb21f195249133851d1bc7f3460ddbcfb807dfe3",
+      "dirty": true,
+      "id": "engine-suites",
+      "level": "L1",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "engine-suites",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "06f12b40577b93bbd4ef0876700c7d8cf297ae1e27f019e407dcf23694ac60f9",
+      "dirty": true,
+      "id": "validation-suites",
+      "level": "L1",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "validation-suites",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "dirty": true,
+      "id": "guard-docs",
+      "level": "L0",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "domain-doc-coverage",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "dirty": true,
+      "id": "guard-generated-source",
+      "level": "L0",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "generated-source-guard",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "dirty": true,
+      "id": "guard-legacy",
+      "level": "L0",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "retired-paths",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+      "dirty": true,
+      "id": "guard-ownership",
+      "level": "L0",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "changed-ownership",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    },
+    {
+      "completedAt": "2026-09-24T01:20:23.502Z",
+      "detailsSha256": "98538964dad0967dd49207fcfc35e7576643aa806a79d8c78b5a08298cf8d5d2",
+      "dirty": true,
+      "id": "guard-public-api",
+      "level": "L0",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "runner": "public-api-boundary",
+      "scope": "changed",
+      "status": "passed",
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+    }
+  ],
   "errors": [],
   "evidence": [
     {
       "adapter": null,
       "artifactHashes": {
-        "events": "a6f84e656063104c4c08bdfd361ad0c9b5605c838d0da5596c0e5d1b298fc7ab",
-        "screenshot": "7e501c5244b3ebc7fc2ef377613007aa7cd1c04b4c12c67b78fcc417a928e0ec"
+        "events": "a791e68073616e102805053584d6866b043967f9bcee2d03afc7ae59a7d185b0"
       },
-      "artifactPath": ".local/validation/2026-09-19T19-50-04-750Z-glb-incremental-publication-a5b87ed5-1793-46be-b307-94100c686f59/result.json",
+      "artifactPath": ".local/validation/2026-09-23T17-07-18-898Z-protocol-self-test-dcac0404-5b1f-4049-ac03-eb9dcaf74144/result.json",
       "browser": {
         "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
+        "executableSha256": "392dec76f7d4a54f6bc9c360e8d21a56c428173b6c6a90f2be38a2714d606227",
         "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": null,
-      "caseId": "glb-incremental-publication",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.web-cook",
-        "virtual-assets.lifecycle"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:50:24.477Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": false,
-      "evidenceStatus": "accepted",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "accepted",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-50-04-750Z-glb-incremental-publication-a5b87ed5-1793-46be-b307-94100c686f59",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "glb-incremental-publication-v1",
-      "workloadSha256": "4e02a004d0368df88e2c32061f7f4f1f4cb56648d6729cb16dd641f7cf0242b1"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "7adace0c3b5b2672f1e7c21f71ba5b7981c38390f90474ab14c85f57e8d075b4",
-        "screenshot": "749d606d9d9a1c4859d36c4bf508b95ce78a5a6207f26f86b26bb4ba585a8953"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-48-36-014Z-glb-web-product-8d54db5d-0fa3-4217-af1f-0938e7c699a0/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": null,
-      "caseId": "glb-web-product",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "model",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.web-cook",
-        "virtual-assets.product-consumer"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:48:56.234Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": false,
-      "evidenceStatus": "accepted",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "accepted",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-48-36-014Z-glb-web-product-8d54db5d-0fa3-4217-af1f-0938e7c699a0",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "glb-web-product-bootstrap-v1",
-      "workloadSha256": "ed4467f93e9efe201d96187270269399e540e5a1a2f1d68148dc701c52b34b62"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "680e10617a2157f61fe59ee5d23c06d1969476fd6a3bf771fa51664b85d1fac5",
-        "screenshot": "9801d37e7874ec80159853c7237527b5ee6959622303cf72a82013d2bf0094f5"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-49-03-419Z-glb-web-product-authored-texture-c02fc96c-50b4-48e4-bcbb-f5c594f59218/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": null,
-      "caseId": "glb-web-product-authored-texture",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.web-cook",
-        "materials.texture-path"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:49:21.721Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": false,
-      "evidenceStatus": "accepted",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "accepted",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-49-03-419Z-glb-web-product-authored-texture-c02fc96c-50b4-48e4-bcbb-f5c594f59218",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "glb-web-product-authored-texture-v1",
-      "workloadSha256": "d94a1e3bdee4bd15054fe33c022d3cd117937540342bd7b82eebb7964afdcb48"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "7bb650ea51d2391c939f7ec3084b7fbecbe01c33fce297490f12b13e37c78b1f",
-        "screenshot": "9801d37e7874ec80159853c7237527b5ee6959622303cf72a82013d2bf0094f5"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-59-33-385Z-glb-web-product-isolated-pthreads-a46d356e-6d2f-44f6-8eb4-a822b14ea244/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": null,
-      "caseId": "glb-web-product-isolated-pthreads",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.web-cook",
-        "virtual-assets.lifecycle",
-        "materials.texture-path"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:59:55.103Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": true,
-      "evidenceStatus": "diagnostic-only",
-      "freshness": {
-        "accepted": false,
-        "clean": false,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "diagnostic-only",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-59-33-385Z-glb-web-product-isolated-pthreads-a46d356e-6d2f-44f6-8eb4-a822b14ea244",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "glb-web-product-bootstrap-v1",
-      "workloadSha256": "ed4467f93e9efe201d96187270269399e540e5a1a2f1d68148dc701c52b34b62"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "bb741ce1ee402551826c8ba59b737707f0b1f5255109ec38e1e1e4c22ab2fa69",
-        "screenshot": "9801d37e7874ec80159853c7237527b5ee6959622303cf72a82013d2bf0094f5"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-49-42-018Z-glb-web-product-portable-pool-9309c5b5-c078-422e-bc79-eecd8206eea0/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": null,
-      "caseId": "glb-web-product-portable-pool",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.web-cook",
-        "virtual-assets.lifecycle",
-        "materials.texture-path"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:49:58.052Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": false,
-      "evidenceStatus": "accepted",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "accepted",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-49-42-018Z-glb-web-product-portable-pool-9309c5b5-c078-422e-bc79-eecd8206eea0",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "glb-web-product-bootstrap-v1",
-      "workloadSha256": "ed4467f93e9efe201d96187270269399e540e5a1a2f1d68148dc701c52b34b62"
-    },
-    {
-      "adapter": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "artifactHashes": {
-        "events": "793d40b2436efea36cf7179567352b33dec7e8048410c38bd276022367c761a5",
-        "readback": "10c1b2f0e67710de9471b6ea375817726b594a0143e6b56ceb1c44bc363fe424"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-50-31-246Z-oegpack-v3-component-444d43b9-58ba-4f08-9ac7-160665801f20/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "caseId": "oegpack-v3-component",
-      "checkIds": [
-        "evidence-provenance",
-        "model",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.product-consumer"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:50:36.132Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": false,
-      "evidenceStatus": "accepted",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "accepted",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-50-31-246Z-oegpack-v3-component-444d43b9-58ba-4f08-9ac7-160665801f20",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "oegpack-v3-decode-v1",
-      "workloadSha256": "7fe51eae7b832b129073cce36973371f9f5d57094c2e74353fbd0c1a6ad96420"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "09ddb2111d70378ba9ce3fa8557a88934dd707174319a4e10fce4c6a34295e2f"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-50-43-367Z-protocol-self-test-2c4da1ec-441e-4742-bb12-ac27b33ffa63/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
+        "version": "153.0.8010.48"
       },
       "capability": null,
       "caseId": "protocol-self-test",
+      "caseSignatureSha256": "64904f9629044c866fc2ef86114ec113a115668bf3544645cd0cdc739fef5133",
       "checkIds": [
         "changed-coverage",
+        "docs-frontmatter",
+        "engine-suites",
         "evidence-provenance",
+        "guard-docs",
+        "guard-generated-source",
+        "guard-legacy",
+        "guard-ownership",
+        "guard-public-api",
         "model",
-        "registry"
+        "registry",
+        "validation-suites"
+      ],
+      "checkReceipts": [
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+          "dirty": true,
+          "id": "model",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "project-model",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "3781d575dd66612e0cf74b757db5a711fe11ae71150b4a26f45c14edf9e2b2a5",
+          "dirty": true,
+          "id": "registry",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "generated-registry",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": true,
+          "id": "changed-coverage",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "changed-coverage",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+          "dirty": true,
+          "id": "docs-frontmatter",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "project-model",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "5e8e68d76eb580cfac913800d72d39eee77bf7a96a8c6430fbabd20113f00f10",
+          "dirty": true,
+          "id": "evidence-provenance",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "evidence-provenance",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "74a1ebf8c15936f490fc60a4ca878c638fe653313dec579ddcab335312f22fcc",
+          "dirty": true,
+          "id": "engine-suites",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "engine-suites",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "a25d772ca941a029736039be411ace6e15e30354269b168855e2748f13009047",
+          "dirty": true,
+          "id": "validation-suites",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "validation-suites",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": true,
+          "id": "guard-docs",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "domain-doc-coverage",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": true,
+          "id": "guard-generated-source",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "generated-source-guard",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": true,
+          "id": "guard-legacy",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "retired-paths",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": true,
+          "id": "guard-ownership",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "changed-ownership",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        },
+        {
+          "completedAt": "2026-09-23T17:07:18.601Z",
+          "detailsSha256": "98538964dad0967dd49207fcfc35e7576643aa806a79d8c78b5a08298cf8d5d2",
+          "dirty": true,
+          "id": "guard-public-api",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "7a494b7c435000d247bd53739a67a14e32f97424",
+          "runner": "public-api-boundary",
+          "scope": "changed",
+          "status": "passed",
+          "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb"
+        }
       ],
       "claimIds": [
         "frame.host-protocol",
         "platform.evidence"
       ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:50:49.508Z",
+      "commit": "7a494b7c435000d247bd53739a67a14e32f97424",
+      "completedAt": "2026-09-23T17:07:22.403Z",
       "contractHashes": {
-        "browser-harness": "0d90d2f698b21a353b2d628a41a9cfb90d41f175da13af0f03766c0fe6a55567",
-        "claims-and-evidence": "420204ccdc401ec58b355be8bd2af62db4bddc2172370d2db5878e8a78faba51",
+        "browser-harness": "a6372bbb7fb2c30fd3bccc954840320f620039254cb7db579594de6182ba703d",
+        "claims-and-evidence": "ae6b6551fc9e0a4a9c83eb6b11ab129265d4df8ebf2d65810d33c1edc7f5c006",
         "generated-registry": "dd67367c75114990a8df6aade361ee635edccd32eb732b8ec7a48ca04277702e",
-        "project-routing": "66f89cfaade0623fd642be70e7d642374fd41fbbc0b04101478a2972bb366bfd",
-        "validation-case": "65860fc262c77b758c5f2a81ee7bfdde4c43b3d979bf99f0c2cc266b2503b0f9"
+        "project-routing": "da3439ea00624b7c81a9e5721c63d94c3c89318d6a157cb77b53c4352053e83d",
+        "validation-case": "e7cec1a04982098cb9a3fa99befdaa4b40e02c795cf4130bb9ec710cf2deb6cf"
       },
-      "dirty": false,
-      "evidenceStatus": "accepted",
+      "dirty": true,
+      "evidenceStatus": "diagnostic-only",
       "freshness": {
         "accepted": false,
-        "clean": true,
+        "clean": false,
         "gates": {
           "artifacts": true,
           "browserErrors": true,
@@ -639,7 +372,7 @@
           "identity": true,
           "pageOutcome": true
         },
-        "registryMatches": false,
+        "registryMatches": true,
         "revisionMatches": false
       },
       "gate": {
@@ -650,192 +383,7 @@
         "identity": true,
         "pageOutcome": true
       },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "accepted",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-50-43-367Z-protocol-self-test-2c4da1ec-441e-4742-bb12-ac27b33ffa63",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "protocol-self-test-v1",
-      "workloadSha256": "fefecef834448312034d8ad7d44287b67b9eee38ded3e2f323d4a0201b7549f3"
-    },
-    {
-      "adapter": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "artifactHashes": {
-        "events": "d334c5a2fb98abbbbb4df91acd0e036e6cbdb5bf0a678b00d28201be211c48ea"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-50-57-239Z-shading-bin-component-7a959ebc-4e28-46d3-aaa0-85b26af89b77/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": {
-        "actualLimits": {
-          "maxBindGroups": 4,
-          "maxComputeInvocationsPerWorkgroup": 256,
-          "maxComputeWorkgroupSizeX": 256,
-          "maxComputeWorkgroupSizeY": 256,
-          "maxComputeWorkgroupStorageSize": 16384,
-          "maxSampledTexturesPerShaderStage": 16,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBuffersPerShaderStage": 10,
-          "maxStorageTexturesPerShaderStage": 5
-        },
-        "deviceFeatures": [
-          "core-features-and-limits",
-          "rg11b10ufloat-renderable",
-          "subgroups",
-          "texture-formats-tier1"
-        ],
-        "fingerprint": "{\"schemaVersion\":1,\"requiredFeatures\":[\"core-features-and-limits\",\"subgroups\",\"texture-formats-tier1\"],\"deviceFeatures\":[\"core-features-and-limits\",\"rg11b10ufloat-renderable\",\"subgroups\",\"texture-formats-tier1\"],\"requiredLimits\":{\"maxBindGroups\":4,\"maxComputeInvocationsPerWorkgroup\":256,\"maxComputeWorkgroupSizeX\":16,\"maxComputeWorkgroupSizeY\":16,\"maxComputeWorkgroupStorageSize\":768,\"maxSampledTexturesPerShaderStage\":16,\"maxSamplersPerShaderStage\":8,\"maxStorageBuffersPerShaderStage\":10,\"maxStorageTexturesPerShaderStage\":5},\"actualLimits\":{\"maxBindGroups\":4,\"maxComputeInvocationsPerWorkgroup\":256,\"maxComputeWorkgroupSizeX\":256,\"maxComputeWorkgroupSizeY\":256,\"maxComputeWorkgroupStorageSize\":16384,\"maxSampledTexturesPerShaderStage\":16,\"maxSamplersPerShaderStage\":16,\"maxStorageBuffersPerShaderStage\":10,\"maxStorageTexturesPerShaderStage\":5},\"subgroupMinSize\":32,\"subgroupMaxSize\":32,\"textureFormatFeatures\":[\"copy-dst\",\"render-attachment\",\"texture-binding\"],\"formatProfile\":\"r8uint:uint-sampled+render-attachment+copy-dst\"}",
-        "formatProfile": "r8uint:uint-sampled+render-attachment+copy-dst",
-        "requiredFeatures": [
-          "core-features-and-limits",
-          "subgroups",
-          "texture-formats-tier1"
-        ],
-        "requiredLimits": {
-          "maxBindGroups": 4,
-          "maxComputeInvocationsPerWorkgroup": 256,
-          "maxComputeWorkgroupSizeX": 16,
-          "maxComputeWorkgroupSizeY": 16,
-          "maxComputeWorkgroupStorageSize": 768,
-          "maxSampledTexturesPerShaderStage": 16,
-          "maxSamplersPerShaderStage": 8,
-          "maxStorageBuffersPerShaderStage": 10,
-          "maxStorageTexturesPerShaderStage": 5
-        },
-        "schemaVersion": 1,
-        "subgroupMaxSize": 32,
-        "subgroupMinSize": 32,
-        "textureFormatFeatures": [
-          "copy-dst",
-          "render-attachment",
-          "texture-binding"
-        ]
-      },
-      "caseId": "shading-bin-component",
-      "checkIds": [
-        "evidence-provenance",
-        "model",
-        "registry"
-      ],
-      "claimIds": [
-        "visibility.gpu-closure",
-        "platform.capability"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:51:04.430Z",
-      "contractHashes": {
-        "claims-and-evidence": "420204ccdc401ec58b355be8bd2af62db4bddc2172370d2db5878e8a78faba51"
-      },
-      "dirty": false,
-      "evidenceStatus": "diagnostic-only",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": false
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": false
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
       "resolution": {
         "deviceScaleFactor": 1,
         "renderScale": 1,
@@ -846,235 +394,225 @@
       },
       "result": {
         "evidenceStatus": "diagnostic-only",
-        "status": "failed"
+        "status": "passed"
       },
-      "runId": "2026-09-19T19-50-57-239Z-shading-bin-component-7a959ebc-4e28-46d3-aaa0-85b26af89b77",
-      "status": "failed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "shading-bin-component-v1",
-      "workloadSha256": "b5e0b4c4c6971fe4251a49c6b0cd0ec3ec41931bd5bd2051d448bdfc4d54c641"
+      "runId": "2026-09-23T17-07-18-898Z-protocol-self-test-dcac0404-5b1f-4049-ac03-eb9dcaf74144",
+      "status": "passed",
+      "tree": "11b347234583ad9f495cb774086c2fe7c2824bdb",
+      "workloadId": "protocol-self-test-v1",
+      "workloadSha256": "ffa27b22445cecac18b7330a7871602d7d94f1b5b06488cee7f2ec028b53845c"
     },
     {
       "adapter": null,
       "artifactHashes": {
-        "events": "610b165f23d344a18ae4256a325b63265de99f81f54063ac3948617ba119fcac"
+        "events": "d8a4d8c82302f2cca8a06fb6cb841bdc419d311f3943cbd30c35cc863dcfdb51",
+        "screenshot": "6de846494929eabef5ed7b327bf1af0235f3468cd44d4b0a9212f276e0fe0d1a"
       },
-      "artifactPath": ".local/validation/2026-09-19T19-51-13-017Z-shading-resolve-component-747a0a4f-034e-4c06-8f33-f446a56c395a/result.json",
+      "artifactPath": ".local/validation/2026-09-23T17-22-05-824Z-web-authored-large-cook-k0-dbb8666e-627d-4dd5-bbac-d2cdcb643982/result.json",
       "browser": {
         "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
+        "executableSha256": "392dec76f7d4a54f6bc9c360e8d21a56c428173b6c6a90f2be38a2714d606227",
         "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
+        "version": "153.0.8010.48"
       },
       "capability": null,
-      "caseId": "shading-resolve-component",
-      "checkIds": [
-        "evidence-provenance",
-        "registry"
-      ],
-      "claimIds": [
-        "shading.one-eval"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:53:22.982Z",
-      "contractHashes": {
-        "claims-and-evidence": "420204ccdc401ec58b355be8bd2af62db4bddc2172370d2db5878e8a78faba51"
-      },
-      "dirty": false,
-      "evidenceStatus": "diagnostic-only",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": false,
-          "freshness": false,
-          "identity": false,
-          "pageOutcome": false
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": false,
-        "freshness": false,
-        "identity": false,
-        "pageOutcome": false
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "diagnostic-only",
-        "status": "failed"
-      },
-      "runId": "2026-09-19T19-51-13-017Z-shading-resolve-component-747a0a4f-034e-4c06-8f33-f446a56c395a",
-      "status": "failed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "shading-resolve-component-v1",
-      "workloadSha256": "9978b579c8bf3005a8e96e5bd74d40064e97181245bc35fe56747744d3da43c0"
-    },
-    {
-      "adapter": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "artifactHashes": {
-        "events": "8977c0c3fc35fb2cfc82f075782efa63d2cef4bcb0a80c0a1ccade232f9db533",
-        "readback": "f75a10b2a16191c1c9271b8beafaca370c1e1f59c74bcd250cc1b93327457a16",
-        "screenshot": "8a12aabd94f00b817fd22970da894759733821fb2e92db5b208241343cae7795"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-53-30-418Z-sparse-shading-candidate-beaaa502-9c20-4bb0-b2ed-749fc563b936/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": {
-        "actualLimits": {
-          "maxBindGroups": 4,
-          "maxComputeInvocationsPerWorkgroup": 256,
-          "maxComputeWorkgroupSizeX": 256,
-          "maxComputeWorkgroupSizeY": 256,
-          "maxComputeWorkgroupStorageSize": 16384,
-          "maxSampledTexturesPerShaderStage": 16,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBuffersPerShaderStage": 12,
-          "maxStorageTexturesPerShaderStage": 5
-        },
-        "deviceFeatures": [
-          "core-features-and-limits",
-          "rg11b10ufloat-renderable",
-          "subgroups",
-          "texture-formats-tier1"
-        ],
-        "fingerprint": "{\"schemaVersion\":1,\"requiredFeatures\":[\"core-features-and-limits\",\"subgroups\",\"texture-formats-tier1\"],\"deviceFeatures\":[\"core-features-and-limits\",\"rg11b10ufloat-renderable\",\"subgroups\",\"texture-formats-tier1\"],\"requiredLimits\":{\"maxBindGroups\":4,\"maxComputeInvocationsPerWorkgroup\":256,\"maxComputeWorkgroupSizeX\":16,\"maxComputeWorkgroupSizeY\":16,\"maxComputeWorkgroupStorageSize\":768,\"maxSampledTexturesPerShaderStage\":16,\"maxSamplersPerShaderStage\":8,\"maxStorageBuffersPerShaderStage\":12,\"maxStorageTexturesPerShaderStage\":5},\"actualLimits\":{\"maxBindGroups\":4,\"maxComputeInvocationsPerWorkgroup\":256,\"maxComputeWorkgroupSizeX\":256,\"maxComputeWorkgroupSizeY\":256,\"maxComputeWorkgroupStorageSize\":16384,\"maxSampledTexturesPerShaderStage\":16,\"maxSamplersPerShaderStage\":16,\"maxStorageBuffersPerShaderStage\":12,\"maxStorageTexturesPerShaderStage\":5},\"subgroupMinSize\":32,\"subgroupMaxSize\":32,\"textureFormatFeatures\":[\"rg16float-storage\",\"rg32uint-storage\",\"rgba16float-storage\",\"rgba16uint-storage\"],\"formatProfile\":\"adr-0013-step-6-correctness-l4-v6\"}",
-        "formatProfile": "adr-0013-step-6-correctness-l4-v6",
-        "requiredFeatures": [
-          "core-features-and-limits",
-          "subgroups",
-          "texture-formats-tier1"
-        ],
-        "requiredLimits": {
-          "maxBindGroups": 4,
-          "maxComputeInvocationsPerWorkgroup": 256,
-          "maxComputeWorkgroupSizeX": 16,
-          "maxComputeWorkgroupSizeY": 16,
-          "maxComputeWorkgroupStorageSize": 768,
-          "maxSampledTexturesPerShaderStage": 16,
-          "maxSamplersPerShaderStage": 8,
-          "maxStorageBuffersPerShaderStage": 12,
-          "maxStorageTexturesPerShaderStage": 5
-        },
-        "schemaVersion": 1,
-        "subgroupMaxSize": 32,
-        "subgroupMinSize": 32,
-        "textureFormatFeatures": [
-          "rg16float-storage",
-          "rg32uint-storage",
-          "rgba16float-storage",
-          "rgba16uint-storage"
-        ]
-      },
-      "caseId": "sparse-shading-candidate",
+      "caseId": "web-authored-large-cook-k0",
+      "caseSignatureSha256": "5e77ee03fb731337a96a74dc8eb8460d979fce284766e83ff96fca7b68d285a1",
       "checkIds": [
         "changed-coverage",
+        "docs-frontmatter",
+        "engine-suites",
         "evidence-provenance",
+        "guard-docs",
+        "guard-generated-source",
+        "guard-legacy",
+        "guard-ownership",
+        "guard-public-api",
         "model",
-        "registry"
+        "registry",
+        "validation-suites"
+      ],
+      "checkReceipts": [
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+          "dirty": false,
+          "id": "model",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "project-model",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "3781d575dd66612e0cf74b757db5a711fe11ae71150b4a26f45c14edf9e2b2a5",
+          "dirty": false,
+          "id": "registry",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "generated-registry",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "changed-coverage",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "changed-coverage",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+          "dirty": false,
+          "id": "docs-frontmatter",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "project-model",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "5e8e68d76eb580cfac913800d72d39eee77bf7a96a8c6430fbabd20113f00f10",
+          "dirty": false,
+          "id": "evidence-provenance",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "evidence-provenance",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "731f238b06c57660f2b3b8778250279eb59b900232f501af1fe3c20dbdbbc1c3",
+          "dirty": false,
+          "id": "engine-suites",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "engine-suites",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "70ad4b68d4d0be63b1b3bf8a73465c297b2f1a6ffa374eac33dfd664697e454e",
+          "dirty": false,
+          "id": "validation-suites",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "validation-suites",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-docs",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "domain-doc-coverage",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-generated-source",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "generated-source-guard",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-legacy",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "retired-paths",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-ownership",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "changed-ownership",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:22:05.208Z",
+          "detailsSha256": "98538964dad0967dd49207fcfc35e7576643aa806a79d8c78b5a08298cf8d5d2",
+          "dirty": false,
+          "id": "guard-public-api",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "public-api-boundary",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        }
       ],
       "claimIds": [
-        "visibility.gpu-closure",
-        "visibility.feature-off",
-        "shading.one-eval",
-        "shading.pipeline-pruning"
+        "virtual-assets.authored-producer",
+        "virtual-assets.performance"
       ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:54:44.201Z",
+      "commit": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "completedAt": "2026-09-23T17:23:06.485Z",
       "contractHashes": {
-        "claims-and-evidence": "420204ccdc401ec58b355be8bd2af62db4bddc2172370d2db5878e8a78faba51"
+        "geometry-product-v1": "532fd1b3c4da23ad2351c36c3919d335ab5f79f9a5f877534d960681163c36aa",
+        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
+        "web-cook-session-protocol-v1": "2e7a0ea6169897711c8f01fb6ff6fbe7670f4e2a640193bdd17bc0e68b30d751",
+        "web-geometry-authored-large-gate-v1": "b096800ef760800652a633a31ec83c1fc1026a68539422bdfd7ca238bcf2e8d2",
+        "web-geometry-cooker-abi-v1": "427460f91c8ba7f76606c5f93471ddf4e1a0d84abef9de9f77293efb9bace715",
+        "web-geometry-formal-perf-freeze-v1": "8c94cbc62b709360e9671d544955100cc9795dc930b39fe4880dcccc398581c2",
+        "web-geometry-multi-product-runtime-v1": "91259ef6f7558c485021b96d69bd03edb6871dd04c4b3947b0d3a0f87cd3d13e",
+        "web-geometry-page-artifact-v1": "f0631de0884ef7bd7cb9316e5009c8d52a1dc33c4bd5f5ade4a407954eed090d",
+        "web-geometry-product-task-trace-v1": "0783abffefeb06f73b93c631519a9de04087bdcd2ac8cd5d154a9e3a15b1b934",
+        "web-geometry-product-work-budget-v1": "cf9aef3b49cbf4266feab6f33a8d640e80138b7654286d195f34895a4229dcf6",
+        "web-geometry-spatial-shard-v1": "3a86b990bf19c825423241a980344ab211347f48b47f64207e29469b8be228bb"
       },
       "dirty": false,
       "evidenceStatus": "accepted",
       "freshness": {
-        "accepted": false,
+        "accepted": true,
         "clean": true,
         "gates": {
           "artifacts": true,
@@ -1084,8 +622,8 @@
           "identity": true,
           "pageOutcome": true
         },
-        "registryMatches": false,
-        "revisionMatches": false
+        "registryMatches": true,
+        "revisionMatches": true
       },
       "gate": {
         "artifacts": true,
@@ -1095,7 +633,7 @@
         "identity": true,
         "pageOutcome": true
       },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
       "resolution": {
         "deviceScaleFactor": 1,
         "renderScale": 1,
@@ -1108,187 +646,223 @@
         "evidenceStatus": "accepted",
         "status": "passed"
       },
-      "runId": "2026-09-19T19-53-30-418Z-sparse-shading-candidate-beaaa502-9c20-4bb0-b2ed-749fc563b936",
+      "runId": "2026-09-23T17-22-05-824Z-web-authored-large-cook-k0-dbb8666e-627d-4dd5-bbac-d2cdcb643982",
       "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "sparse-shading-candidate-correctness-v6",
-      "workloadSha256": "44a727ee012dd66dbbab467fd7ccd9577d5c6b681d7f36a31b7885e675d2b33c"
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e",
+      "workloadId": "web-authored-large-cook-k0-v1",
+      "workloadSha256": "fee167e4546bb121a838e914b679ee58b0cdc80326376d1f216ac24528b4c10f"
     },
     {
-      "adapter": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
+      "adapter": null,
       "artifactHashes": {
-        "events": "d341c99a317324505df4a11d9606113c330b4422967fd3a8574c58fcbebd18cd",
-        "readback": "e10f465b8f872d3ce6a147e5178e4bdb653f17daf9b6365937828d685c1bdc0a",
-        "screenshot": "7c1eedbdb758cb8a03f871e6a67be269076dc16602b7095c5cc93512846a88b2"
+        "events": "be4c440ac4c68abcc9998aa6c85b6de1f542051cd9879fe0847103a9cdfdb003",
+        "samples": "f4765383e6a9b3e91b19bd8c96eb1355968f7e02e706eccc43027318f0415ed2",
+        "screenshot": "feb0365dde61f3705077bb122a3a74a409db25bfcbe19ca22be84c73ebbfcd55"
       },
-      "artifactPath": ".local/validation/2026-09-19T19-54-51-732Z-sparse-shading-production-216ab3f0-e71f-415f-a452-9d8f03530e0a/result.json",
+      "artifactPath": ".local/validation/2026-09-23T17-28-32-510Z-web-authored-large-perf-f223d3f9-9147-4da4-80d9-0776a5810dd8/result.json",
       "browser": {
         "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
+        "executableSha256": "392dec76f7d4a54f6bc9c360e8d21a56c428173b6c6a90f2be38a2714d606227",
+        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36",
+        "version": "153.0.8010.48"
       },
-      "capability": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "caseId": "sparse-shading-production",
+      "capability": null,
+      "caseId": "web-authored-large-perf",
+      "caseSignatureSha256": "a9250d6e23b8294566e34d5155f88c35a40d5181bcda5f00249bdeeddd3300a0",
       "checkIds": [
+        "changed-coverage",
+        "docs-frontmatter",
+        "engine-suites",
         "evidence-provenance",
+        "guard-docs",
+        "guard-generated-source",
+        "guard-legacy",
+        "guard-ownership",
+        "guard-public-api",
         "model",
-        "registry"
+        "registry",
+        "validation-suites"
+      ],
+      "checkReceipts": [
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+          "dirty": false,
+          "id": "model",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "project-model",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "3781d575dd66612e0cf74b757db5a711fe11ae71150b4a26f45c14edf9e2b2a5",
+          "dirty": false,
+          "id": "registry",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "generated-registry",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "changed-coverage",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "changed-coverage",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+          "dirty": false,
+          "id": "docs-frontmatter",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "project-model",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "5e8e68d76eb580cfac913800d72d39eee77bf7a96a8c6430fbabd20113f00f10",
+          "dirty": false,
+          "id": "evidence-provenance",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "evidence-provenance",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "00b139bf63c13b18613c67d9e9acdb34686ee1ed2b78e9447b685cc14371d25a",
+          "dirty": false,
+          "id": "engine-suites",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "engine-suites",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "7fde032cfd8ab58b58aa98906d69f3b93b37bc901319acc1530b1ea19a7db6bd",
+          "dirty": false,
+          "id": "validation-suites",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "validation-suites",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-docs",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "domain-doc-coverage",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-generated-source",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "generated-source-guard",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-legacy",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "retired-paths",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-ownership",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "changed-ownership",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:28:31.964Z",
+          "detailsSha256": "98538964dad0967dd49207fcfc35e7576643aa806a79d8c78b5a08298cf8d5d2",
+          "dirty": false,
+          "id": "guard-public-api",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "public-api-boundary",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        }
       ],
       "claimIds": [
-        "visibility.gpu-closure",
-        "shading.one-eval",
-        "frame.recovery"
+        "virtual-assets.performance"
       ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:55:10.404Z",
+      "commit": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "completedAt": "2026-09-23T17:31:21.862Z",
       "contractHashes": {
-        "claims-and-evidence": "420204ccdc401ec58b355be8bd2af62db4bddc2172370d2db5878e8a78faba51"
+        "geometry-product-v1": "532fd1b3c4da23ad2351c36c3919d335ab5f79f9a5f877534d960681163c36aa",
+        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
+        "web-cook-session-protocol-v1": "2e7a0ea6169897711c8f01fb6ff6fbe7670f4e2a640193bdd17bc0e68b30d751",
+        "web-geometry-authored-large-gate-v1": "b096800ef760800652a633a31ec83c1fc1026a68539422bdfd7ca238bcf2e8d2",
+        "web-geometry-cooker-abi-v1": "427460f91c8ba7f76606c5f93471ddf4e1a0d84abef9de9f77293efb9bace715",
+        "web-geometry-formal-perf-freeze-v1": "8c94cbc62b709360e9671d544955100cc9795dc930b39fe4880dcccc398581c2",
+        "web-geometry-multi-product-runtime-v1": "91259ef6f7558c485021b96d69bd03edb6871dd04c4b3947b0d3a0f87cd3d13e",
+        "web-geometry-page-artifact-v1": "f0631de0884ef7bd7cb9316e5009c8d52a1dc33c4bd5f5ade4a407954eed090d",
+        "web-geometry-product-task-trace-v1": "0783abffefeb06f73b93c631519a9de04087bdcd2ac8cd5d154a9e3a15b1b934",
+        "web-geometry-product-work-budget-v1": "cf9aef3b49cbf4266feab6f33a8d640e80138b7654286d195f34895a4229dcf6",
+        "web-geometry-spatial-shard-v1": "3a86b990bf19c825423241a980344ab211347f48b47f64207e29469b8be228bb"
       },
       "dirty": false,
       "evidenceStatus": "accepted",
       "freshness": {
-        "accepted": false,
+        "accepted": true,
         "clean": true,
         "gates": {
           "artifacts": true,
@@ -1298,8 +872,8 @@
           "identity": true,
           "pageOutcome": true
         },
-        "registryMatches": false,
-        "revisionMatches": false
+        "registryMatches": true,
+        "revisionMatches": true
       },
       "gate": {
         "artifacts": true,
@@ -1309,412 +883,235 @@
         "identity": true,
         "pageOutcome": true
       },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
       "resolution": {
         "deviceScaleFactor": 1,
         "renderScale": 1,
         "resolution": [
-          1280,
-          720
+          1920,
+          1080
         ]
       },
       "result": {
         "evidenceStatus": "accepted",
         "status": "passed"
       },
-      "runId": "2026-09-19T19-54-51-732Z-sparse-shading-production-216ab3f0-e71f-415f-a452-9d8f03530e0a",
+      "runId": "2026-09-23T17-28-32-510Z-web-authored-large-perf-f223d3f9-9147-4da4-80d9-0776a5810dd8",
       "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "sparse-shading-production-correctness-v1",
-      "workloadSha256": "1be67f3ff0b180b02ffdc62a1e4fa4215d83a885e59c70bc0801fe2f176dc88c"
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e",
+      "workloadId": "web-authored-large-perf-v1",
+      "workloadSha256": "ed400e47ab3a10b86a8a6a9a3441f8c19f78880a88816b237e326d18dfa911b2"
     },
     {
-      "adapter": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
+      "adapter": null,
       "artifactHashes": {
-        "events": "1efff30d556b2a87686a0b2b37f4fad6afabf061885d6918009306a0566b1c08",
-        "readback": "338ffc51cc38045825f05f1376bc9b5fb4fa1f685e19ec28809b43d61627d6a9",
-        "screenshot": "ec3fd9761652b4dee7c634dfd4f95028528a08c66e062484cdbe7cbf3a060ab0"
+        "events": "44521e28be60de3186e1fd18605ce7e8db156257e59552d970caf140e9677e07",
+        "screenshot": "ff15f1ca20c096068abd8b6f8244a0a5d1ab42e45624048bf9a96ce7fb1aa8ac"
       },
-      "artifactPath": ".local/validation/2026-09-19T19-55-17-572Z-texture-residency-component-931479aa-09f5-454d-9efd-29112b11f9e3/result.json",
+      "artifactPath": ".local/validation/2026-09-23T17-25-01-442Z-web-authored-large-runtime-k1-e284811a-5654-4ea6-a642-c889cd7aec35/result.json",
       "browser": {
         "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
+        "executableSha256": "392dec76f7d4a54f6bc9c360e8d21a56c428173b6c6a90f2be38a2714d606227",
         "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
+        "version": "153.0.8010.48"
       },
-      "capability": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "caseId": "texture-residency-component",
+      "capability": null,
+      "caseId": "web-authored-large-runtime-k1",
+      "caseSignatureSha256": "4ee1ffc379fe980b91d80441eb9b211eeaca20c36071b0b24cd038003bdd6553",
       "checkIds": [
+        "changed-coverage",
+        "docs-frontmatter",
+        "engine-suites",
         "evidence-provenance",
-        "registry"
-      ],
-      "claimIds": [
-        "materials.texture-path",
-        "materials.mip-convergence"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:55:24.268Z",
-      "contractHashes": {
-        "claims-and-evidence": "420204ccdc401ec58b355be8bd2af62db4bddc2172370d2db5878e8a78faba51"
-      },
-      "dirty": false,
-      "evidenceStatus": "accepted",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "accepted",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-55-17-572Z-texture-residency-component-931479aa-09f5-454d-9efd-29112b11f9e3",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "texture-residency-component-v1",
-      "workloadSha256": "34edb24f4e70547f145e260581ebb2902971ccb574ffbc7aa749135c562fda1f"
-    },
-    {
-      "adapter": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "artifactHashes": {
-        "events": "45df76cf3198732a2542371e3eb22418fef5cf5bd09c7096aa346dbb2ac53f77",
-        "readback": "565405379f13b214b118d71c4473c493880c3272e793927854bd2e6229ad2395"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-55-31-720Z-virtual-geometry-component-942bb3c1-08bd-4f00-83a0-10d0d774d6b6/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "caseId": "virtual-geometry-component",
-      "checkIds": [
-        "evidence-provenance",
+        "guard-docs",
+        "guard-generated-source",
+        "guard-legacy",
+        "guard-ownership",
+        "guard-public-api",
         "model",
-        "registry"
+        "registry",
+        "validation-suites"
+      ],
+      "checkReceipts": [
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+          "dirty": false,
+          "id": "model",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "project-model",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "3781d575dd66612e0cf74b757db5a711fe11ae71150b4a26f45c14edf9e2b2a5",
+          "dirty": false,
+          "id": "registry",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "generated-registry",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "changed-coverage",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "changed-coverage",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
+          "dirty": false,
+          "id": "docs-frontmatter",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "project-model",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "5e8e68d76eb580cfac913800d72d39eee77bf7a96a8c6430fbabd20113f00f10",
+          "dirty": false,
+          "id": "evidence-provenance",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "evidence-provenance",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "7a101d03ee9e511229daddf39c72a56a7aa10b1c24a31a2230506d329bc5c4f5",
+          "dirty": false,
+          "id": "engine-suites",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "engine-suites",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "f3f68f90ca690265899646129c2a1a04dd097a9b4f828765ac2539e5237fb2ff",
+          "dirty": false,
+          "id": "validation-suites",
+          "level": "L1",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "validation-suites",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-docs",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "domain-doc-coverage",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-generated-source",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "generated-source-guard",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-legacy",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "retired-paths",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+          "dirty": false,
+          "id": "guard-ownership",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "changed-ownership",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        },
+        {
+          "completedAt": "2026-09-23T17:25:00.840Z",
+          "detailsSha256": "98538964dad0967dd49207fcfc35e7576643aa806a79d8c78b5a08298cf8d5d2",
+          "dirty": false,
+          "id": "guard-public-api",
+          "level": "L0",
+          "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "runner": "public-api-boundary",
+          "scope": "full",
+          "status": "passed",
+          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+        }
       ],
       "claimIds": [
         "virtual-assets.product-consumer"
       ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:55:38.312Z",
+      "commit": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "completedAt": "2026-09-23T17:27:20.049Z",
       "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
+        "geometry-product-v1": "532fd1b3c4da23ad2351c36c3919d335ab5f79f9a5f877534d960681163c36aa",
         "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
+        "web-cook-session-protocol-v1": "2e7a0ea6169897711c8f01fb6ff6fbe7670f4e2a640193bdd17bc0e68b30d751",
+        "web-geometry-authored-large-gate-v1": "b096800ef760800652a633a31ec83c1fc1026a68539422bdfd7ca238bcf2e8d2",
+        "web-geometry-cooker-abi-v1": "427460f91c8ba7f76606c5f93471ddf4e1a0d84abef9de9f77293efb9bace715",
+        "web-geometry-formal-perf-freeze-v1": "8c94cbc62b709360e9671d544955100cc9795dc930b39fe4880dcccc398581c2",
+        "web-geometry-multi-product-runtime-v1": "91259ef6f7558c485021b96d69bd03edb6871dd04c4b3947b0d3a0f87cd3d13e",
+        "web-geometry-page-artifact-v1": "f0631de0884ef7bd7cb9316e5009c8d52a1dc33c4bd5f5ade4a407954eed090d",
+        "web-geometry-product-task-trace-v1": "0783abffefeb06f73b93c631519a9de04087bdcd2ac8cd5d154a9e3a15b1b934",
+        "web-geometry-product-work-budget-v1": "cf9aef3b49cbf4266feab6f33a8d640e80138b7654286d195f34895a4229dcf6",
+        "web-geometry-spatial-shard-v1": "3a86b990bf19c825423241a980344ab211347f48b47f64207e29469b8be228bb"
       },
       "dirty": false,
       "evidenceStatus": "accepted",
       "freshness": {
-        "accepted": false,
+        "accepted": true,
         "clean": true,
         "gates": {
           "artifacts": true,
@@ -1724,8 +1121,8 @@
           "identity": true,
           "pageOutcome": true
         },
-        "registryMatches": false,
-        "revisionMatches": false
+        "registryMatches": true,
+        "revisionMatches": true
       },
       "gate": {
         "artifacts": true,
@@ -1735,7 +1132,7 @@
         "identity": true,
         "pageOutcome": true
       },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
+      "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
       "resolution": {
         "deviceScaleFactor": 1,
         "renderScale": 1,
@@ -1748,959 +1145,29 @@
         "evidenceStatus": "accepted",
         "status": "passed"
       },
-      "runId": "2026-09-19T19-55-31-720Z-virtual-geometry-component-942bb3c1-08bd-4f00-83a0-10d0d774d6b6",
+      "runId": "2026-09-23T17-25-01-442Z-web-authored-large-runtime-k1-e284811a-5654-4ea6-a642-c889cd7aec35",
       "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "virtual-geometry-component-v1",
-      "workloadSha256": "6b08f940af59305210136b55e314b9618d91c93d127210684713fff84ce7bd6a"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "b7d472a6b2ff99c64e373fc92ecc957679972717ca51b22fc79656d538224048",
-        "screenshot": "cfe73cc19d85f4a26b78993623a215d31b9c0e534048097826f8136effc4b7cd"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-55-45-601Z-virtual-product-device-loss-77cc6b01-f89e-4ec7-8d49-f42b3bee5be5/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": null,
-      "caseId": "virtual-product-device-loss",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.lifecycle",
-        "frame.recovery"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:56:34.623Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": false,
-      "evidenceStatus": "accepted",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "accepted",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-55-45-601Z-virtual-product-device-loss-77cc6b01-f89e-4ec7-8d49-f42b3bee5be5",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "virtual-product-device-loss-v1",
-      "workloadSha256": "ff32398e585a9405fc8408d2d965a1bd6f2140514a170acafb2637e394837225"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "4dc2fbcfab965281124a6b2b6636f3deebb3a17316a7a1fde5c2a446ca905fa4",
-        "readback": "17e453aac8ad572e08fb9d7c8dfc0646a139a83a64df6652cfe40dcb99327c05",
-        "screenshot": "257ea44e2928b97d07d41e434c941759ac5654e4d6c7514a3235bf904f2dd32c"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-56-45-258Z-virtual-product-observer-fd54d73a-a884-452e-9435-d8de22444b94/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": {
-        "adapter": {
-          "features": [
-            "bgra8unorm-storage",
-            "chromium-experimental-multi-draw-indirect",
-            "chromium-experimental-sampling-resource-table",
-            "chromium-experimental-timestamp-query-inside-passes",
-            "clip-distances",
-            "core-features-and-limits",
-            "depth-clip-control",
-            "depth32float-stencil8",
-            "dual-source-blending",
-            "float32-blendable",
-            "float32-filterable",
-            "indirect-first-instance",
-            "primitive-index",
-            "rg11b10ufloat-renderable",
-            "shader-f16",
-            "subgroup-size-control",
-            "subgroups",
-            "texture-component-swizzle",
-            "texture-compression-bc",
-            "texture-compression-bc-sliced-3d",
-            "texture-compression-unaligned",
-            "texture-formats-tier1",
-            "texture-formats-tier2",
-            "timestamp-query"
-          ],
-          "info": {
-            "architecture": "turing",
-            "description": "",
-            "device": "",
-            "isFallbackAdapter": false,
-            "subgroupMaxSize": 32,
-            "subgroupMinSize": 32,
-            "vendor": "nvidia"
-          },
-          "limits": {
-            "maxBindGroups": 4,
-            "maxBindGroupsPlusVertexBuffers": 24,
-            "maxBindingsPerBindGroup": 1000,
-            "maxBufferSize": 2147483648,
-            "maxColorAttachmentBytesPerSample": 128,
-            "maxColorAttachments": 8,
-            "maxComputeInvocationsPerWorkgroup": 1024,
-            "maxComputeWorkgroupSizeX": 1024,
-            "maxComputeWorkgroupSizeY": 1024,
-            "maxComputeWorkgroupSizeZ": 64,
-            "maxComputeWorkgroupStorageSize": 32768,
-            "maxComputeWorkgroupsPerDimension": 65535,
-            "maxDynamicStorageBuffersPerPipelineLayout": 8,
-            "maxDynamicUniformBuffersPerPipelineLayout": 10,
-            "maxImmediateSize": 64,
-            "maxInterStageShaderVariables": 28,
-            "maxSampledTexturesPerShaderStage": 48,
-            "maxSamplersPerShaderStage": 16,
-            "maxStorageBufferBindingSize": 2147483644,
-            "maxStorageBuffersPerShaderStage": 16,
-            "maxStorageTexturesPerShaderStage": 8,
-            "maxTextureArrayLayers": 2048,
-            "maxTextureDimension1D": 16384,
-            "maxTextureDimension2D": 16384,
-            "maxTextureDimension3D": 2048,
-            "maxUniformBufferBindingSize": 65536,
-            "maxUniformBuffersPerShaderStage": 12,
-            "maxVertexAttributes": 30,
-            "maxVertexBufferArrayStride": 2048,
-            "maxVertexBuffers": 8,
-            "minStorageBufferOffsetAlignment": 256,
-            "minUniformBufferOffsetAlignment": 256
-          }
-        },
-        "renderer": {
-          "features": [
-            "core-features-and-limits",
-            "float32-blendable",
-            "indirect-first-instance",
-            "primitive-index",
-            "rg11b10ufloat-renderable",
-            "subgroups",
-            "texture-compression-bc",
-            "texture-formats-tier1",
-            "timestamp-query"
-          ],
-          "limits": {
-            "maxBufferSize": 2147483648,
-            "maxColorAttachmentBytesPerSample": 32,
-            "maxStorageBufferBindingSize": 2147483644,
-            "maxStorageBuffersPerShaderStage": 16
-          },
-          "record": {
-            "adapterFeatures": [
-              "bgra8unorm-storage",
-              "chromium-experimental-multi-draw-indirect",
-              "chromium-experimental-sampling-resource-table",
-              "chromium-experimental-timestamp-query-inside-passes",
-              "clip-distances",
-              "core-features-and-limits",
-              "depth-clip-control",
-              "depth32float-stencil8",
-              "dual-source-blending",
-              "float32-blendable",
-              "float32-filterable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "shader-f16",
-              "subgroup-size-control",
-              "subgroups",
-              "texture-component-swizzle",
-              "texture-compression-bc",
-              "texture-compression-bc-sliced-3d",
-              "texture-compression-unaligned",
-              "texture-formats-tier1",
-              "texture-formats-tier2",
-              "timestamp-query"
-            ],
-            "apiProbes": {
-              "immediateData": true,
-              "transientAttachments": true
-            },
-            "deviceFeatures": [
-              "core-features-and-limits",
-              "float32-blendable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "subgroups",
-              "texture-compression-bc",
-              "texture-formats-tier1",
-              "timestamp-query"
-            ],
-            "featureLevel": "core",
-            "fingerprint": "{\"featureLevel\":\"core\",\"deviceFeatures\":[\"core-features-and-limits\",\"float32-blendable\",\"indirect-first-instance\",\"primitive-index\",\"rg11b10ufloat-renderable\",\"subgroups\",\"texture-compression-bc\",\"texture-formats-tier1\",\"timestamp-query\"],\"limits\":{\"maxBindGroups\":4,\"maxBindingsPerBindGroup\":1000,\"maxSampledTexturesPerShaderStage\":16,\"maxSamplersPerShaderStage\":16,\"maxStorageBuffersPerShaderStage\":16,\"maxStorageTexturesPerShaderStage\":5,\"maxUniformBuffersPerShaderStage\":12,\"maxStorageBufferBindingSize\":2147483644,\"maxBufferSize\":2147483648,\"maxTextureArrayLayers\":256,\"maxTextureDimension2D\":8192,\"maxColorAttachmentBytesPerSample\":32,\"maxImmediateSize\":64},\"wgslLanguageFeatures\":[\"buffer_view\",\"immediate_address_space\",\"linear_indexing\",\"packed_4x8_integer_dot_product\",\"pointer_composite_access\",\"readonly_and_readwrite_storage_textures\",\"subgroup_id\",\"subgroup_uniformity\",\"swizzle_assignment\",\"texture_and_sampler_let\",\"texture_formats_tier1\",\"uniform_buffer_standard_layout\",\"unrestricted_pointer_parameters\"],\"apiProbes\":{\"immediateData\":true,\"transientAttachments\":true},\"textureBindingPolicy\":{\"textureSlotsPerBindingSet\":9,\"samplerClassCount\":6,\"maxResidentBindingSets\":4,\"reservedSampledTextureBindings\":7,\"maxShadingDispatchClasses\":64},\"shadingBindingBudget\":{\"schemaVersion\":1,\"groups\":[{\"group\":0,\"owner\":\"frame\",\"sampledTextures\":3,\"samplers\":0,\"storageBuffers\":1,\"storageTextures\":4,\"uniformBuffers\":2},{\"group\":1,\"owner\":\"scene\",\"sampledTextures\":0,\"samplers\":0,\"storageBuffers\":4,\"storageTextures\":0,\"uniformBuffers\":0},{\"group\":2,\"owner\":\"material\",\"sampledTextures\":9,\"samplers\":6,\"storageBuffers\":2,\"storageTextures\":0,\"uniformBuffers\":0},{\"group\":3,\"owner\":\"lighting\",\"sampledTextures\":4,\"samplers\":2,\"storageBuffers\":3,\"storageTextures\":0,\"uniformBuffers\":2}],\"totals\":{\"sampledTextures\":16,\"samplers\":8,\"storageBuffers\":10,\"storageTextures\":4,\"uniformBuffers\":4},\"consolidation\":[\"asset-metadata-heap\",\"vertex-payload-heap\",\"cluster-metadata-heap\",\"texture-descriptor-routing-heap\"]},\"specialization\":{\"textureCompression\":\"bc\",\"subgroups\":true,\"primitiveIndex\":true,\"shaderF16\":false,\"immediateData\":true,\"transientAttachments\":true}}",
-            "limits": {
-              "maxBindGroups": 4,
-              "maxBindingsPerBindGroup": 1000,
-              "maxBufferSize": 2147483648,
-              "maxColorAttachmentBytesPerSample": 32,
-              "maxImmediateSize": 64,
-              "maxSampledTexturesPerShaderStage": 16,
-              "maxSamplersPerShaderStage": 16,
-              "maxStorageBufferBindingSize": 2147483644,
-              "maxStorageBuffersPerShaderStage": 16,
-              "maxStorageTexturesPerShaderStage": 5,
-              "maxTextureArrayLayers": 256,
-              "maxTextureDimension2D": 8192,
-              "maxUniformBuffersPerShaderStage": 12
-            },
-            "schemaVersion": 2,
-            "shadingBindingBudget": {
-              "consolidation": [
-                "asset-metadata-heap",
-                "vertex-payload-heap",
-                "cluster-metadata-heap",
-                "texture-descriptor-routing-heap"
-              ],
-              "groups": [
-                {
-                  "group": 0,
-                  "owner": "frame",
-                  "sampledTextures": 3,
-                  "samplers": 0,
-                  "storageBuffers": 1,
-                  "storageTextures": 4,
-                  "uniformBuffers": 2
-                },
-                {
-                  "group": 1,
-                  "owner": "scene",
-                  "sampledTextures": 0,
-                  "samplers": 0,
-                  "storageBuffers": 4,
-                  "storageTextures": 0,
-                  "uniformBuffers": 0
-                },
-                {
-                  "group": 2,
-                  "owner": "material",
-                  "sampledTextures": 9,
-                  "samplers": 6,
-                  "storageBuffers": 2,
-                  "storageTextures": 0,
-                  "uniformBuffers": 0
-                },
-                {
-                  "group": 3,
-                  "owner": "lighting",
-                  "sampledTextures": 4,
-                  "samplers": 2,
-                  "storageBuffers": 3,
-                  "storageTextures": 0,
-                  "uniformBuffers": 2
-                }
-              ],
-              "schemaVersion": 1,
-              "totals": {
-                "sampledTextures": 16,
-                "samplers": 8,
-                "storageBuffers": 10,
-                "storageTextures": 4,
-                "uniformBuffers": 4
-              }
-            },
-            "specialization": {
-              "immediateData": true,
-              "primitiveIndex": true,
-              "shaderF16": false,
-              "subgroups": true,
-              "textureCompression": "bc",
-              "transientAttachments": true
-            },
-            "textureBindingPolicy": {
-              "maxResidentBindingSets": 4,
-              "maxShadingDispatchClasses": 64,
-              "reservedSampledTextureBindings": 7,
-              "samplerClassCount": 6,
-              "textureSlotsPerBindingSet": 9
-            },
-            "wgslLanguageFeatures": [
-              "buffer_view",
-              "immediate_address_space",
-              "linear_indexing",
-              "packed_4x8_integer_dot_product",
-              "pointer_composite_access",
-              "readonly_and_readwrite_storage_textures",
-              "subgroup_id",
-              "subgroup_uniformity",
-              "swizzle_assignment",
-              "texture_and_sampler_let",
-              "texture_formats_tier1",
-              "uniform_buffer_standard_layout",
-              "unrestricted_pointer_parameters"
-            ]
-          },
-          "sparseShading": {
-            "actualLimits": {
-              "maxBindGroups": 4,
-              "maxBufferSize": 2147483648,
-              "maxColorAttachmentBytesPerSample": 32,
-              "maxComputeInvocationsPerWorkgroup": 256,
-              "maxComputeWorkgroupSizeX": 256,
-              "maxComputeWorkgroupSizeY": 256,
-              "maxComputeWorkgroupStorageSize": 16384,
-              "maxSampledTexturesPerShaderStage": 16,
-              "maxSamplersPerShaderStage": 16,
-              "maxStorageBufferBindingSize": 2147483644,
-              "maxStorageBuffersPerShaderStage": 16,
-              "maxStorageTexturesPerShaderStage": 5
-            },
-            "deviceFeatures": [
-              "core-features-and-limits",
-              "float32-blendable",
-              "indirect-first-instance",
-              "primitive-index",
-              "rg11b10ufloat-renderable",
-              "subgroups",
-              "texture-compression-bc",
-              "texture-formats-tier1",
-              "timestamp-query"
-            ],
-            "fingerprint": "{\"schemaVersion\":1,\"requiredFeatures\":[\"core-features-and-limits\",\"float32-blendable\",\"indirect-first-instance\",\"subgroups\",\"texture-formats-tier1\"],\"deviceFeatures\":[\"core-features-and-limits\",\"float32-blendable\",\"indirect-first-instance\",\"primitive-index\",\"rg11b10ufloat-renderable\",\"subgroups\",\"texture-compression-bc\",\"texture-formats-tier1\",\"timestamp-query\"],\"requiredLimits\":{\"maxBindGroups\":4,\"maxBufferSize\":2147483648,\"maxColorAttachmentBytesPerSample\":32,\"maxComputeInvocationsPerWorkgroup\":256,\"maxComputeWorkgroupSizeX\":16,\"maxComputeWorkgroupSizeY\":16,\"maxComputeWorkgroupStorageSize\":768,\"maxSampledTexturesPerShaderStage\":16,\"maxSamplersPerShaderStage\":8,\"maxStorageBufferBindingSize\":2147483644,\"maxStorageBuffersPerShaderStage\":16,\"maxStorageTexturesPerShaderStage\":5},\"actualLimits\":{\"maxBindGroups\":4,\"maxBufferSize\":2147483648,\"maxColorAttachmentBytesPerSample\":32,\"maxComputeInvocationsPerWorkgroup\":256,\"maxComputeWorkgroupSizeX\":256,\"maxComputeWorkgroupSizeY\":256,\"maxComputeWorkgroupStorageSize\":16384,\"maxSampledTexturesPerShaderStage\":16,\"maxSamplersPerShaderStage\":16,\"maxStorageBufferBindingSize\":2147483644,\"maxStorageBuffersPerShaderStage\":16,\"maxStorageTexturesPerShaderStage\":5},\"subgroupMinSize\":32,\"subgroupMaxSize\":32,\"textureFormatFeatures\":[\"rg16float-storage\",\"rg32uint-storage\",\"rgba16float-storage\",\"rgba16uint-storage\",\"rgba8unorm-storage\"],\"formatProfile\":\"webgpu-2026-desktop-sparse-shading-v1\"}",
-            "formatProfile": "webgpu-2026-desktop-sparse-shading-v1",
-            "requiredFeatures": [
-              "core-features-and-limits",
-              "float32-blendable",
-              "indirect-first-instance",
-              "subgroups",
-              "texture-formats-tier1"
-            ],
-            "requiredLimits": {
-              "maxBindGroups": 4,
-              "maxBufferSize": 2147483648,
-              "maxColorAttachmentBytesPerSample": 32,
-              "maxComputeInvocationsPerWorkgroup": 256,
-              "maxComputeWorkgroupSizeX": 16,
-              "maxComputeWorkgroupSizeY": 16,
-              "maxComputeWorkgroupStorageSize": 768,
-              "maxSampledTexturesPerShaderStage": 16,
-              "maxSamplersPerShaderStage": 8,
-              "maxStorageBufferBindingSize": 2147483644,
-              "maxStorageBuffersPerShaderStage": 16,
-              "maxStorageTexturesPerShaderStage": 5
-            },
-            "schemaVersion": 1,
-            "subgroupMaxSize": 32,
-            "subgroupMinSize": 32,
-            "textureFormatFeatures": [
-              "rg16float-storage",
-              "rg32uint-storage",
-              "rgba16float-storage",
-              "rgba16uint-storage",
-              "rgba8unorm-storage"
-            ]
-          }
-        },
-        "surface": {
-          "immediateData": {
-            "bundleSetImmediates": true,
-            "computeSetImmediates": true,
-            "languageFeature": true,
-            "maxImmediateSize": 64,
-            "renderSetImmediates": true
-          },
-          "transientAttachment": {
-            "constantPresent": true,
-            "usageValue": 32
-          },
-          "wgslLanguageFeatures": [
-            "buffer_view",
-            "immediate_address_space",
-            "linear_indexing",
-            "packed_4x8_integer_dot_product",
-            "pointer_composite_access",
-            "readonly_and_readwrite_storage_textures",
-            "subgroup_id",
-            "subgroup_uniformity",
-            "swizzle_assignment",
-            "texture_and_sampler_let",
-            "texture_formats_tier1",
-            "uniform_buffer_standard_layout",
-            "unrestricted_pointer_parameters"
-          ]
-        }
-      },
-      "caseId": "virtual-product-observer",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "model",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.product-consumer",
-        "virtual-assets.web-cook",
-        "platform.evidence"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:57:29.624Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": false,
-      "evidenceStatus": "accepted",
-      "freshness": {
-        "accepted": false,
-        "clean": true,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "accepted",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-56-45-258Z-virtual-product-observer-fd54d73a-a884-452e-9435-d8de22444b94",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "virtual-product-observer-v1",
-      "workloadSha256": "f0816602b173e30bfc88f427fe8bc39df67f29a427abde871dc05ca8f640b1c8"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "f2a8003bf0d9df46a67d5ff5671df51efac16dce875fa044f9970b631db8e095",
-        "screenshot": "e0dc8a99b5e516dc67eb4497566bfaea4800a44f99030e3e755656228e2e6dbf"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-57-37-370Z-virtual-product-offline-91950027-3b04-4c03-ae27-13ac7e696c50/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": null,
-      "caseId": "virtual-product-offline",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "model",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.product-consumer",
-        "virtual-assets.lifecycle"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:57:55.097Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": true,
-      "evidenceStatus": "diagnostic-only",
-      "freshness": {
-        "accepted": false,
-        "clean": false,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "diagnostic-only",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-57-37-370Z-virtual-product-offline-91950027-3b04-4c03-ae27-13ac7e696c50",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "virtual-product-offline-v1",
-      "workloadSha256": "5dd5d9c4511700a44fb60b89654466919a680cb270e354bd497a3b8d754e24d5"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "3f6e07a8d9829f5e2d9efef131fbbe4b2832d6f7de04e71e692d6418dbad78c7",
-        "readback": "242047ed9bda833930c4ab5b5c009fd6b9602682173d129e05a671bfb2eaf34a",
-        "screenshot": "f9ced487d510bf559a0fa29c851af80ae0cfc1a7e9ae5d4818cad10b9f401ea7"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-58-02-422Z-virtual-product-production-28685738-3161-4314-a8a5-8fc0a167bd87/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": null,
-      "caseId": "virtual-product-production",
-      "checkIds": [
-        "evidence-provenance",
-        "model",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.product-consumer",
-        "visibility.gpu-closure"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:58:20.287Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": true,
-      "evidenceStatus": "diagnostic-only",
-      "freshness": {
-        "accepted": false,
-        "clean": false,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "diagnostic-only",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-58-02-422Z-virtual-product-production-28685738-3161-4314-a8a5-8fc0a167bd87",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "virtual-product-production-correctness-v1",
-      "workloadSha256": "ac037432e3b7506f3635cbb3d042d17497943074fd81ac2b4972b083f3412806"
-    },
-    {
-      "adapter": null,
-      "artifactHashes": {
-        "events": "3b83f3ea2d732e9c26676767ce8047ad9652740218752569e0dc7370cbf30aff",
-        "screenshot": "9658cca9b40c7fb5ced5600aebdf5560d50590a90f9e8e30fb0c4d7578db5c76"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-58-27-768Z-virtual-product-replacement-ca4998aa-4f4a-470b-97af-68ed2f9efabe/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": null,
-      "caseId": "virtual-product-replacement",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "model",
-        "registry"
-      ],
-      "claimIds": [
-        "virtual-assets.product-consumer",
-        "virtual-assets.lifecycle"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:59:09.236Z",
-      "contractHashes": {
-        "geometry-product-v1": "9238d38ba741c39d00671407ca6ffe2c3f27bd149af63d0395ed1eb8a89bb799",
-        "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
-        "web-cook-session-protocol-v1": "303e179913025bbcf78af4f015cf60fb914816ec904e2104a4fd65a0ab5bdd82",
-        "web-geometry-cooker-abi-v1": "b650ccb29f2e1fd8615e8984d0e50ed67819d0c011afafb383cefae4b84bf4bc"
-      },
-      "dirty": true,
-      "evidenceStatus": "diagnostic-only",
-      "freshness": {
-        "accepted": false,
-        "clean": false,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "diagnostic-only",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-58-27-768Z-virtual-product-replacement-ca4998aa-4f4a-470b-97af-68ed2f9efabe",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "virtual-product-replacement-v1",
-      "workloadSha256": "94c0487ed215724eb8e42b64b6efd601a5d7d6d3cd7dc3ba75493ea0a0bb1ee6"
-    },
-    {
-      "adapter": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "artifactHashes": {
-        "events": "cfc490a79f21276a54a409f2c02d386b1e16d860013b884d1d3322a8588a96f2",
-        "screenshot": "ad5ddf69cf68564642d3258c1ef870943750ff9fe89929dfbb7e61a281a4559d"
-      },
-      "artifactPath": ".local/validation/2026-09-19T19-59-16-394Z-webgpu-component-86e68736-28e7-4497-852b-53ee323d2d72/result.json",
-      "browser": {
-        "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "executableSha256": "be70c6ef3a171b4619a61f9488d9b8f3b337edca318877f77d9ab488de444195",
-        "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/153.0.0.0 Safari/537.36",
-        "version": "153.0.8010.50"
-      },
-      "capability": {
-        "features": [
-          "bgra8unorm-storage",
-          "chromium-experimental-multi-draw-indirect",
-          "chromium-experimental-sampling-resource-table",
-          "chromium-experimental-timestamp-query-inside-passes",
-          "clip-distances",
-          "core-features-and-limits",
-          "depth-clip-control",
-          "depth32float-stencil8",
-          "dual-source-blending",
-          "float32-blendable",
-          "float32-filterable",
-          "indirect-first-instance",
-          "primitive-index",
-          "rg11b10ufloat-renderable",
-          "shader-f16",
-          "subgroup-size-control",
-          "subgroups",
-          "texture-component-swizzle",
-          "texture-compression-bc",
-          "texture-compression-bc-sliced-3d",
-          "texture-compression-unaligned",
-          "texture-formats-tier1",
-          "texture-formats-tier2",
-          "timestamp-query"
-        ],
-        "info": {
-          "architecture": "turing",
-          "description": "",
-          "device": "",
-          "isFallbackAdapter": false,
-          "subgroupMaxSize": 32,
-          "subgroupMinSize": 32,
-          "vendor": "nvidia"
-        },
-        "limits": {
-          "maxBindGroups": 4,
-          "maxBindGroupsPlusVertexBuffers": 24,
-          "maxBindingsPerBindGroup": 1000,
-          "maxBufferSize": 2147483648,
-          "maxColorAttachmentBytesPerSample": 128,
-          "maxColorAttachments": 8,
-          "maxComputeInvocationsPerWorkgroup": 1024,
-          "maxComputeWorkgroupSizeX": 1024,
-          "maxComputeWorkgroupSizeY": 1024,
-          "maxComputeWorkgroupSizeZ": 64,
-          "maxComputeWorkgroupStorageSize": 32768,
-          "maxComputeWorkgroupsPerDimension": 65535,
-          "maxDynamicStorageBuffersPerPipelineLayout": 8,
-          "maxDynamicUniformBuffersPerPipelineLayout": 10,
-          "maxImmediateSize": 64,
-          "maxInterStageShaderVariables": 28,
-          "maxSampledTexturesPerShaderStage": 48,
-          "maxSamplersPerShaderStage": 16,
-          "maxStorageBufferBindingSize": 2147483644,
-          "maxStorageBuffersPerShaderStage": 16,
-          "maxStorageTexturesPerShaderStage": 8,
-          "maxTextureArrayLayers": 2048,
-          "maxTextureDimension1D": 16384,
-          "maxTextureDimension2D": 16384,
-          "maxTextureDimension3D": 2048,
-          "maxUniformBufferBindingSize": 65536,
-          "maxUniformBuffersPerShaderStage": 12,
-          "maxVertexAttributes": 30,
-          "maxVertexBufferArrayStride": 2048,
-          "maxVertexBuffers": 8,
-          "minStorageBufferOffsetAlignment": 256,
-          "minUniformBufferOffsetAlignment": 256
-        }
-      },
-      "caseId": "webgpu-component",
-      "checkIds": [
-        "changed-coverage",
-        "evidence-provenance",
-        "model",
-        "registry"
-      ],
-      "claimIds": [
-        "platform.capability",
-        "platform.evidence"
-      ],
-      "commit": "e6e8e2a35178b9ac37f4d99300d8e13632fa2775",
-      "completedAt": "2026-09-19T19:59:22.005Z",
-      "contractHashes": {
-        "browser-harness": "0d90d2f698b21a353b2d628a41a9cfb90d41f175da13af0f03766c0fe6a55567",
-        "claims-and-evidence": "420204ccdc401ec58b355be8bd2af62db4bddc2172370d2db5878e8a78faba51",
-        "generated-registry": "dd67367c75114990a8df6aade361ee635edccd32eb732b8ec7a48ca04277702e",
-        "project-routing": "66f89cfaade0623fd642be70e7d642374fd41fbbc0b04101478a2972bb366bfd",
-        "validation-case": "65860fc262c77b758c5f2a81ee7bfdde4c43b3d979bf99f0c2cc266b2503b0f9"
-      },
-      "dirty": true,
-      "evidenceStatus": "diagnostic-only",
-      "freshness": {
-        "accepted": false,
-        "clean": false,
-        "gates": {
-          "artifacts": true,
-          "browserErrors": true,
-          "disposed": true,
-          "freshness": true,
-          "identity": true,
-          "pageOutcome": true
-        },
-        "registryMatches": false,
-        "revisionMatches": false
-      },
-      "gate": {
-        "artifacts": true,
-        "browserErrors": true,
-        "disposed": true,
-        "freshness": true,
-        "identity": true,
-        "pageOutcome": true
-      },
-      "registrySha256": "916d82a27073828f6d344ab0967e5d6062b4a133edfbab50ac782d3d89682018",
-      "resolution": {
-        "deviceScaleFactor": 1,
-        "renderScale": 1,
-        "resolution": [
-          1280,
-          720
-        ]
-      },
-      "result": {
-        "evidenceStatus": "diagnostic-only",
-        "status": "passed"
-      },
-      "runId": "2026-09-19T19-59-16-394Z-webgpu-component-86e68736-28e7-4497-852b-53ee323d2d72",
-      "status": "passed",
-      "tree": "fc77b4860c4e710d75d7a1580094098fcc796f66",
-      "workloadId": "webgpu-component-v1",
-      "workloadSha256": "e5ef2b79d0fd74f230559cc5660e7043ea24c7cad0a15f6eebe37fc85ec7572b"
+      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e",
+      "workloadId": "web-authored-large-runtime-k1-v1",
+      "workloadSha256": "09c70455c626c2014a5572efac5d3baf71d028b9726be533c3f289b76f895392"
     }
   ],
   "generatedBy": "node tools/vibe.mjs evidence",
   "history": {
-    "glb-incremental-publication": 8,
-    "glb-web-product": 21,
-    "glb-web-product-authored-texture": 9,
-    "glb-web-product-isolated-pthreads": 7,
-    "glb-web-product-portable-pool": 7,
-    "oegpack-v3-component": 4,
-    "protocol-self-test": 3,
-    "shading-bin-component": 4,
-    "shading-resolve-component": 5,
-    "sparse-shading-candidate": 17,
-    "sparse-shading-production": 35,
-    "texture-residency-component": 5,
-    "virtual-geometry-component": 12,
-    "virtual-product-device-loss": 7,
-    "virtual-product-observer": 10,
-    "virtual-product-offline": 7,
-    "virtual-product-production": 32,
-    "virtual-product-replacement": 23,
-    "webgpu-component": 3
+    "protocol-self-test": 5,
+    "web-authored-large-cook-k0": 14,
+    "web-authored-large-perf": 12,
+    "web-authored-large-runtime-k1": 23
   },
-  "registrySha256": "bd5ad8c5662aa4ae3d784880cf8126b67c8bf91f46adc8e050d66b669bd7aee7",
-  "revision": "d00bc41d112e0fe9741c8a444143dcbd819ff05a",
+  "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
+  "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
   "schemaVersion": 1,
-  "warnings": []
+  "warnings": [
+    ".local\\validation\\2026-09-22T06-38-44-624Z-web-100m-formal-perf-134e8d78-183a-4406-b1d5-780b8d57dee5\\result.json: unmapped legacy case web-100m-formal-perf",
+    ".local\\validation\\2026-09-22T06-53-04-027Z-web-100m-formal-perf-b905528f-7baf-4831-b804-74c9a12905b3\\result.json: unmapped legacy case web-100m-formal-perf",
+    ".local\\validation\\2026-09-22T07-03-25-464Z-web-100m-formal-perf-4e228bbc-2c9b-4ef8-ba07-2f285a33c765\\result.json: unmapped legacy case web-100m-formal-perf",
+    ".local\\validation\\2026-09-23T16-11-06-117Z-web-100m-formal-perf-dfd54392-420d-4549-b956-5493011e1662\\result.json: unmapped legacy case web-100m-formal-perf",
+    ".local\\validation\\2026-09-23T16-17-07-418Z-web-100m-formal-perf-6f29b55b-7672-4db0-b604-d57331166be8\\result.json: unmapped legacy case web-100m-formal-perf",
+    ".local\\validation\\2026-09-23T16-35-20-817Z-web-100m-formal-perf-ac56a3fe-d16d-44ba-b95e-733567054c6e\\result.json: unmapped legacy case web-100m-formal-perf"
+  ]
 }

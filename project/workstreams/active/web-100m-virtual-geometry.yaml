@@ -13,9 +13,9 @@ currentSlice:
   title: Profile authored large.glb performance
   target: authored-large-performance-followup
   status: implementing
-  finding: Authored large.glb K0/K1/K2 passed on a clean revision after the synthetic source was removed. K2 observed a 5.86 s first meaningful frame, 45.89 s total cook, 119.13 s settled time, and 11.80 ms GPU frame p95; material and Scene publication costs still need attribution.
+  finding: The latest accepted authored large.glb K0/K1/K2 baseline covered 66 Products and all 1,920 primitives. K2 observed a 6.97 s first meaningful frame, 49.34 s total cook, 124.79 s settled time, and 11.80 ms GPU frame p95. These figures predate the public load_gltf entry and publication timing instrumentation; K3 attribution requires a fresh clean-revision run.
 nextTasks:
-  - Profile material and texture work, incremental Scene publication, first useful frame, total cook, slowest Product, memory peak, and frame time on large.glb.
+  - Accept K0, K1, and K2 through the public load_gltf entry on a clean revision, then analyze per-Product source wait, texture read/decode, runtime admission, Scene mapping, merge, and publication timing.
   - Apply targeted fixes only after the authored profile identifies a bottleneck, then rerun affected acceptance.
 
 contracts:

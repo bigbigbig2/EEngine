@@ -4,9 +4,10 @@ import {
   Renderer,
   Scene,
   createDefaultWebCookWorker,
-  load_gltf_web_product,
+  load_gltf,
   resolveWebCookRuntimeProfile,
   type MultiProductSceneHandles,
+  type WebCookedSceneOptions,
   type WebCookRuntimeAsset
 } from "../../../OEngine/src/index.ts";
 import {
@@ -74,6 +75,7 @@ let scene: Scene | undefined;
 let camera: PerspectiveCamera | undefined;
 let asset: WebCookRuntimeAsset | undefined;
 let handles: MultiProductSceneHandles | undefined;
+const publicationTimings: Array<Parameters<NonNullable<WebCookedSceneOptions["onProductPublicationTiming"]>>[0]> = [];
 let gpuErrors: ReturnType<typeof attachGpuErrorCollection> | undefined;
 let intentionalDeviceTeardown = false;
 let rafPending = 0;
@@ -246,7 +248,7 @@ async function run(): Promise<void> {
       maxDomainsPerProduct: source.maxDomainsPerProduct,
       runtimeProfile: runtimeProfile.selected
     });
-    asset = load_gltf_web_product(source.url, {
+    asset = load_gltf(source.url, {
       worker,
       runtimeProfile: runtimeProfile.selected,
       sessionId: `formal-${sourceKey}-${crypto.randomUUID()}`,
@@ -306,7 +308,8 @@ async function run(): Promise<void> {
       fitHeight: 10,
       fitBase: [0, -5, 0],
       multiProductMetadataBytes: 128 * MiB,
-      multiProductSlotCapacity: source.productSlotCapacity
+      multiProductSlotCapacity: source.productSlotCapacity,
+      onProductPublicationTiming: timing => { publicationTimings.push(timing); }
     });
     camera = new PerspectiveCamera();
     camera.near = 0.01;
@@ -335,6 +338,8 @@ async function run(): Promise<void> {
       cookHeartbeatTimer = undefined;
     }
     const active = handles.current();
+    if (publicationTimings.length !== active.shardCount) throw new Error("Product publication timing coverage is incomplete");
+    controller.addEvidence("publicationTimings", publicationTimings);
     const bounds = isRuntimeSmoke ? sceneBoxBounds(active.source) : sceneBounds(active.source);
     if (isRuntimeSmoke) controller.addEvidence("conservativeSphereBounds", sceneBounds(active.source));
     if (isRuntimeSmoke) controller.addEvidence("settledSceneBounds", bounds);
