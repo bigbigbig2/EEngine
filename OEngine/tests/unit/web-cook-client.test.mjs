@@ -42,6 +42,7 @@ test("Web Cook Worker factory sends an explicit real-module bootstrap", () => {
     maxTrianglesPerProduct: 131072,
     maxVerticesPerProduct: 524288,
     maxDomainsPerProduct: 64,
+    catalogPriorityWindowMs: 10000,
     createWorker: url => { assert.match(url.href, /WebCookWorkerEntrypoint\.ts$/u); return worker; }
   });
   assert.equal(created, worker);
@@ -55,7 +56,8 @@ test("Web Cook Worker factory sends an explicit real-module bootstrap", () => {
       maxSessionSpillBytes: 1073741824,
       maxTrianglesPerProduct: 131072,
       maxVerticesPerProduct: 524288,
-      maxDomainsPerProduct: 64
+      maxDomainsPerProduct: 64,
+      catalogPriorityWindowMs: 10000
     },
     transfer: []
   }]);

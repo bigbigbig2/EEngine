@@ -17,6 +17,7 @@ import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import {
   AMBIENT_OCCLUSION_DEBUG_WGSL,
   DEPTH_DEBUG_WGSL,
+  MESHLET_ID_DEBUG_WGSL,
   PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL,
   RENDER_DEBUG_VIEW_FORMAT,
   SURFACE_AO_DEBUG_WGSL,
@@ -61,6 +62,7 @@ export class RenderDebugViewPass {
     CachedRenderPipelineDescriptor
   >;
   private readonly packedVisibilityPipeline: CachedRenderPipelineDescriptor;
+  private readonly meshletIdPipeline: CachedRenderPipelineDescriptor;
 
   constructor(
     graphics: GraphicsContext,
@@ -187,6 +189,12 @@ export class RenderDebugViewPass {
       ],
       surfaceProfile
     );
+    this.meshletIdPipeline = createPipeline(
+      "Render debug/Meshlet ID",
+      MESHLET_ID_DEBUG_WGSL,
+      [uintTextureEntry(0), storageBufferEntry(1), uniformEntry(2, 16)],
+      surfaceProfile
+    );
   }
 
   addToGraph(
@@ -198,11 +206,17 @@ export class RenderDebugViewPass {
   ): ResourceId {
     const packedVisibility =
       (view === RenderDebugViewValue.VisibilityKey ||
+        view === RenderDebugViewValue.MeshletId ||
         view === RenderDebugViewValue.MaterialId) &&
       resources.packedVisibility !== null
         ? resources.packedVisibility
         : null;
-    const pipeline = packedVisibility === null
+    if (view === RenderDebugViewValue.MeshletId && packedVisibility === null) {
+      throw new Error("Meshlet ID debug view requires Packed Visibility work");
+    }
+    const pipeline = view === RenderDebugViewValue.MeshletId && packedVisibility !== null
+      ? this.meshletIdPipeline
+      : packedVisibility === null
       ? this.pipelines.get(view)
       : this.packedVisibilityPipeline;
     if (pipeline === undefined) {
@@ -216,13 +230,14 @@ export class RenderDebugViewPass {
         outputWidth,
         outputHeight,
         packedVisibility,
-        packedMaterialOnly: view === RenderDebugViewValue.MaterialId
+        packedMaterialOnly: view === RenderDebugViewValue.MaterialId,
+        meshletId: view === RenderDebugViewValue.MeshletId
       },
       (data, resolved, context) => {
         const command = requireShadeCommandContext(context.encoder);
         const lookup = data.packedVisibility?.resolve() ?? null;
         const settings = command.allocateTransientBufferAndLoad(
-          new Uint32Array(lookup === null
+          new Uint32Array(data.meshletId || lookup === null
             ? [data.outputWidth, data.outputHeight, 0, 0]
             : [
               data.outputWidth,
@@ -239,7 +254,9 @@ export class RenderDebugViewPass {
         const bindings: GPUBindingResource[] = inputIds.map((id) =>
           resolveTextureView(resolved.get(id))
         );
-        if (lookup !== null) {
+        if (data.meshletId && lookup !== null) {
+          bindings.push({ buffer: lookup.meshletWork });
+        } else if (lookup !== null) {
           bindings.push(
             { buffer: lookup.instances },
             { buffer: lookup.meshlets },
@@ -302,6 +319,7 @@ function inputResourceIds(
 ): ResourceId[] {
   switch (view) {
     case RenderDebugViewValue.VisibilityKey:
+    case RenderDebugViewValue.MeshletId:
       return [resources.visibilityKey];
     case RenderDebugViewValue.MaterialId:
       return packedVisibility

@@ -1,0 +1,17 @@
+{
+  "id": "rendering-lab-pine-forest",
+  "title": "Rendering Lab - Pine Forest",
+  "category": "14-integrated",
+  "order": 14,
+  "description": "Pine Forest render-detail geometry lab with incremental Product cooking and loading/runtime telemetry.",
+  "tags": [
+    "integrated",
+    "large-model",
+    "pine-forest",
+    "packed-scene",
+    "gltf",
+    "unlit",
+    "effects-off",
+    "profiling"
+  ]
+}

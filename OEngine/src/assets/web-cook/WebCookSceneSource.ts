@@ -14,6 +14,8 @@ import type { VirtualGeometryGeometryProfile } from "../../gpu/GpuRenderWorld.js
 import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
 
 export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1 & {
+  /** Map geometry and instances without reading authored images or materials. */
+  readonly geometryOnly?: boolean;
   /** Catalog primitive indices represented by the Product asset table. */
   readonly sceneAssetIndices?: readonly number[];
   /**
@@ -122,6 +124,16 @@ export async function createWebCookSceneSourceAsync(
   const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
   if (assetCount === 0) throw new Error("The Web Cook Product asset dictionary must not be empty");
   const catalogIndices = sceneAssetIndices(catalog, assetCount, options.sceneAssetIndices);
+  if (options.geometryOnly) {
+    const material = new StandardShadeMaterial();
+    material.diffuse_color.set(0.04, 0.38, 0.30, 1);
+    material.is_unlit = true;
+    material.draw_side = ShadeDrawSide.Double;
+    const { profiles, instances } = buildProfilesAndInstances(catalog, catalogIndices, catalogIndices.map(() => 0));
+    const result = buildVirtualGeometrySceneSourceV1(descriptor.assetRecords, profiles, instances, [material], options);
+    options.onMappingTiming?.({ textureCacheHits: 0, textureCacheMisses: 0, imageReadMs: 0, imageDecodeMs: 0 });
+    return result;
+  }
   const materialByIndex = new Map<number, StandardShadeMaterial>();
   const textureBySource = options.textureCache ?? new Map<string, Promise<ShadeTexture>>();
   const timing = options.onMappingTiming ? { textureCacheHits: 0, textureCacheMisses: 0, imageReadMs: 0, imageDecodeMs: 0 } : undefined;

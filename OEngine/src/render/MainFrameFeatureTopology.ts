@@ -178,6 +178,7 @@ export function resolveMainFrameFeatureTopology(
 function debugTopologyCode(view: RenderDebugViewT): number {
   switch (view) {
     case RenderDebugView.VisibilityKey: return 1;
+    case RenderDebugView.MeshletId: return 21;
     case RenderDebugView.Depth: return 2;
     case RenderDebugView.Velocity: return 3;
     case RenderDebugView.MaterialId: return 4;

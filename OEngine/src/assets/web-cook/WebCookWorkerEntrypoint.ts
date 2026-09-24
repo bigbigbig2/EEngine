@@ -16,6 +16,7 @@ interface BootstrapMessage {
   readonly maxTrianglesPerProduct?: number;
   readonly maxVerticesPerProduct?: number;
   readonly maxDomainsPerProduct?: number;
+  readonly catalogPriorityWindowMs?: number;
 }
 
 interface WorkerScope {
@@ -78,7 +79,8 @@ async function initialize(message: BootstrapMessage): Promise<void> {
       ...(message.maxSessionSpillBytes === undefined ? {} : { maxSessionSpillBytes: message.maxSessionSpillBytes }),
       ...(message.maxTrianglesPerProduct === undefined ? {} : { maxTrianglesPerProduct: message.maxTrianglesPerProduct }),
       ...(message.maxVerticesPerProduct === undefined ? {} : { maxVerticesPerProduct: message.maxVerticesPerProduct }),
-      ...(message.maxDomainsPerProduct === undefined ? {} : { maxDomainsPerProduct: message.maxDomainsPerProduct })
+      ...(message.maxDomainsPerProduct === undefined ? {} : { maxDomainsPerProduct: message.maxDomainsPerProduct }),
+      ...(message.catalogPriorityWindowMs === undefined ? {} : { catalogPriorityWindowMs: message.catalogPriorityWindowMs })
     });
     initialized = true;
     for (const value of pending.splice(0)) downstream?.({ data: value } as MessageEvent<unknown>);
@@ -100,7 +102,8 @@ function isBootstrapMessage(value: unknown): value is BootstrapMessage {
     typeof maxSourceWindowBytes === "number" && Number.isSafeInteger(maxSourceWindowBytes) && maxSourceWindowBytes > 0 &&
     typeof maxDecodedProductBytes === "number" && Number.isSafeInteger(maxDecodedProductBytes) && maxDecodedProductBytes > 0 &&
     optionalPositiveSafeInteger(message.maxSessionSpillBytes) && optionalPositiveSafeInteger(message.maxTrianglesPerProduct) &&
-    optionalPositiveSafeInteger(message.maxVerticesPerProduct) && optionalPositiveSafeInteger(message.maxDomainsPerProduct);
+    optionalPositiveSafeInteger(message.maxVerticesPerProduct) && optionalPositiveSafeInteger(message.maxDomainsPerProduct) &&
+    optionalPositiveSafeInteger(message.catalogPriorityWindowMs);
 }
 
 function optionalPositiveSafeInteger(value: unknown): boolean { return value === undefined || typeof value === "number" && Number.isSafeInteger(value) && value > 0; }

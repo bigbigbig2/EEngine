@@ -9,14 +9,14 @@ sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
 goal: Stabilize the user's large.glb through work-bounded Web cook, complete catalog coverage, progressive publication, Multi-Product rendering, streaming, and disposal.
 
 currentSlice:
-  id: K3
-  title: Profile authored large.glb performance
-  target: authored-large-performance-followup
-  status: implementing
-  finding: Public load_gltf K0/K1/K2 passed on clean revision 91d1563 with 66 Products and all 1,920 primitives. K2 observed a 7.74 s first meaningful frame, 55.48 s total cook, 143.38 s settled time, and 13.83 ms GPU frame p95. Per-Product publication timing measured 109.09 s in Scene publication, 11.73 s in Scene mapping including 9.26 s of image decode, 21.85 s awaiting sources, and 0.07 s in source merge. A follow-up K1 diagnostic attributed 95.87 s of append time to sparse shading preparation; final clean-revision acceptance of that subphase timing is pending.
+  id: K4
+  title: Reduce sparse shading preparation on Product append
+  target: authored-large-sparse-publication
+  status: active
+  finding: Clean revision b35aad2 accepted authored large.glb K0/K1/K2 through public load_gltf with 66 Products and all 1,920 primitives. K2 measured 7.94 s first meaningful frame, 58.40 s total cook, 165.60 s settled time, 16.42 ms GPU frame p95, and 1.55 GB GPU allocation peak. Scene publication took 129.56 s, including 119.75 s in sparse shading preparation and 5.28 s in GPU Scene staging; Scene mapping took 12.16 s, including 9.62 s image decode. The slowest Product task took 2.10 s.
 nextTasks:
-  - Accept K0, K1, and K2 on the final profiling revision and confirm sparse shading preparation dominates append latency.
-  - Profile sparse shading revision preparation below prepareSceneSwap, then avoid unnecessary pipeline rebuilds on appended Products and rerun affected acceptance.
+  - Split sparse shading preparation into shader/pipeline creation, publication planning, and resource preparation on large.glb.
+  - Reuse stable shader pipelines and revision resources where ownership allows, then rerun authored K1/K2 acceptance and compare against b35aad2.
 
 contracts:
   - geometry-product-v1
@@ -92,11 +92,20 @@ tasks:
     phase: K3
     priority: P1
     title: Profile large.glb production validation
-    state: active
+    state: done
     dependsOn: [authored-large-formal-perf]
     exitCriteria:
       - Current clean revision has accepted authored K0, K1, and K2 receipts.
       - Material, texture, and Scene publication costs are attributed before selecting an optimization.
+  - id: authored-large-sparse-publication
+    phase: K4
+    priority: P1
+    title: Reduce sparse shading preparation cost on Product append
+    state: active
+    dependsOn: [authored-large-performance-followup]
+    exitCriteria:
+      - Appended Products reuse stable shader pipelines and resources without changing publication identity or GPU consumer closure.
+      - Accepted authored K1/K2 receipts confirm complete rendering, release, and lower Scene publication latency under the same frozen workload.
 
 exitChecks:
   - model
@@ -111,8 +120,8 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence on the current clean revision.
 openGates:
-  - Sparse shading preparation dominates incremental Scene publication; its shader/pipeline creation and resource preparation costs still need separate attribution before optimizing.
-  - The compact evidence index was explicitly pruned to locally reconstructible raw artifacts; generated index refresh after final acceptance will modify the tracked index and must be kept distinct from the clean browser revision.
+  - Sparse shading preparation dominates incremental Scene publication; shader/pipeline creation and resource preparation still need separate attribution before optimizing.
+  - The compact evidence index is current for clean browser revision b35aad2, but refreshing this tracked generated file leaves the working tree dirty until the next code revision.
 
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md

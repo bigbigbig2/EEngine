@@ -14,6 +14,8 @@ export interface WebCookWorkerFactoryOptions {
   readonly maxTrianglesPerProduct?: number;
   readonly maxVerticesPerProduct?: number;
   readonly maxDomainsPerProduct?: number;
+  /** Maximum wait for main-thread catalog priorities before the Worker cooks its first cut. */
+  readonly catalogPriorityWindowMs?: number;
   readonly createWorker?: (url: URL) => WebCookWorkerPort;
   /** Number of Dedicated Workers used by portable-pool. Defaults to one. */
   readonly maxWorkers?: number;
@@ -27,6 +29,8 @@ export interface DefaultWebCookWorkerFactoryOptions {
   readonly maxTrianglesPerProduct?: number;
   readonly maxVerticesPerProduct?: number;
   readonly maxDomainsPerProduct?: number;
+  /** Maximum wait for main-thread catalog priorities before the Worker cooks its first cut. */
+  readonly catalogPriorityWindowMs?: number;
   readonly createWorker?: (url: URL) => WebCookWorkerPort;
   /**
    * `isolated-pthreads` selects the pthread cooker when the document is
@@ -99,7 +103,8 @@ export function createWebCookWorker(options: WebCookWorkerFactoryOptions): WebCo
       !optionalPositiveSafeInteger(options.maxSessionSpillBytes) ||
       !optionalPositiveSafeInteger(options.maxTrianglesPerProduct) ||
       !optionalPositiveSafeInteger(options.maxVerticesPerProduct) ||
-      !optionalPositiveSafeInteger(options.maxDomainsPerProduct)) {
+      !optionalPositiveSafeInteger(options.maxDomainsPerProduct) ||
+      !optionalPositiveSafeInteger(options.catalogPriorityWindowMs)) {
     throw new RangeError("Web Cook Worker WASM budgets must be positive safe integers");
   }
   const worker = options.createWorker
@@ -115,7 +120,8 @@ export function createWebCookWorker(options: WebCookWorkerFactoryOptions): WebCo
     ...(options.maxSessionSpillBytes === undefined ? {} : { maxSessionSpillBytes: options.maxSessionSpillBytes }),
     ...(options.maxTrianglesPerProduct === undefined ? {} : { maxTrianglesPerProduct: options.maxTrianglesPerProduct }),
     ...(options.maxVerticesPerProduct === undefined ? {} : { maxVerticesPerProduct: options.maxVerticesPerProduct }),
-    ...(options.maxDomainsPerProduct === undefined ? {} : { maxDomainsPerProduct: options.maxDomainsPerProduct })
+    ...(options.maxDomainsPerProduct === undefined ? {} : { maxDomainsPerProduct: options.maxDomainsPerProduct }),
+    ...(options.catalogPriorityWindowMs === undefined ? {} : { catalogPriorityWindowMs: options.catalogPriorityWindowMs })
   }, []);
   return worker;
 }

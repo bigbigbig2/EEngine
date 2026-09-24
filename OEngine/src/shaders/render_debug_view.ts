@@ -140,6 +140,47 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
 }
 `;
 
+/** Fullscreen read-only VisibilityKey/MeshletWork view; no atomics or extra GPU capability. */
+export const MESHLET_ID_DEBUG_WGSL = /* wgsl */ `
+${SSR_FULLSCREEN_VERTEX_WGSL}
+${DEBUG_VIEW_SETTINGS_WGSL}
+${GPU_VISIBILITY_KEY_WGSL}
+${GPU_MESHLET_RASTER_WORK_WGSL}
+${DEBUG_VIEW_COORDINATE_WGSL}
+${DEBUG_HASH_WGSL}
+
+@group(0) @binding(0) var visibility_keys: texture_2d<u32>;
+@group(0) @binding(1) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
+@group(0) @binding(2) var<uniform> settings: DebugViewSettings;
+
+@fragment
+fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
+  let coordinate = source_coordinate(position.xy, textureDimensions(visibility_keys));
+  let key = textureLoad(visibility_keys, coordinate, 0).r;
+  if !oengine_visibility_key_is_valid(key) {
+    return vec4f(0.0, 0.0, 0.0, 1.0);
+  }
+  let decoded = oengine_visibility_key_decode(key);
+  let slot = decoded.meshlet_work_slot;
+  if meshlet_work.header.generation == 0u ||
+    slot >= min(meshlet_work.header.written_count, meshlet_work.header.capacity) ||
+    slot >= arrayLength(&meshlet_work.elements) {
+    return vec4f(1.0, 0.0, 1.0, 1.0);
+  }
+  let work = meshlet_work.elements[slot];
+  if (work.packed_profile_lod >> 24u) != OENGINE_VISIBILITY_KEY_PARTITION {
+    return vec4f(1.0, 0.0, 1.0, 1.0);
+  }
+  let hash = avalanche_hash(work.meshlet_slot ^ avalanche_hash(work.geometry_slot + 0x9e3779b9u));
+  let hue = f32(hash & 65535u) / 65535.0;
+  let saturation = 0.72 + 0.23 * f32((hash >> 16u) & 255u) / 255.0;
+  let value = 0.55 + 0.27 * f32((hash >> 24u) & 255u) / 255.0;
+  let phase = fract(hue + vec3f(0.0, 2.0 / 3.0, 1.0 / 3.0));
+  let rgb = clamp(abs(phase * 6.0 - 3.0) - 1.0, vec3f(0.0), vec3f(1.0));
+  return vec4f(value * mix(vec3f(1.0), rgb, saturation), 1.0);
+}
+`;
+
 const SURFACE_DEBUG_COMMON_WGSL = /* wgsl */ `
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 ${DEBUG_VIEW_SETTINGS_WGSL}

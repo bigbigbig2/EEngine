@@ -21,6 +21,7 @@ export interface WebCookWorkerEntryOptions {
   readonly maxTrianglesPerProduct?: number;
   readonly maxVerticesPerProduct?: number;
   readonly maxDomainsPerProduct?: number;
+  readonly catalogPriorityWindowMs?: number;
   /** Optional OPFS/memory page artifact owner supplied by the Worker host. */
   readonly spillStore?: WebGeometryPageSpillStoreV1;
   /** Session-wide encoded spill budget, independent from one Product's decoded cap. */
@@ -62,6 +63,7 @@ export async function installWebCookWorkerEntry(options: WebCookWorkerEntryOptio
       spillStore
     });
     host = new WebCookWorkerHost({ port: options.port, cooker, source: options.source,
+      catalogPriorityWindowMs: options.catalogPriorityWindowMs,
       disposeArtifacts: async () => {
         await spillStore.dispose();
         const evidence = spillStore.evidence();

@@ -1,0 +1,99 @@
+{
+  "schema": "oengine-authored-glb-workload-v1",
+  "file": "large.glb",
+  "sourceSha256": "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
+  "sourceBytes": 477591060,
+  "provenance": {
+    "kind": "local-file",
+    "label": "authored-local-large-glb",
+    "license": "unknown-not-for-redistribution",
+    "sourcePath": "D:\\shu\\engine\\.local\\validation\\web-authored-large\\large.glb"
+  },
+  "container": {
+    "format": "glb",
+    "descriptorBytes": 477591060,
+    "descriptorSha256": "54b608872aec11ce07b26fad6c0ad14a662314e6480bf8d833e5088b59c9851f",
+    "jsonBytes": 1635692,
+    "binaryChunkBytes": 475955340,
+    "externalBuffers": [],
+    "virtualBuffers": [],
+    "generator": "Khronos glTF Blender I/O v5.2.40",
+    "extensionsUsed": [
+      "KHR_materials_specular",
+      "KHR_materials_ior",
+      "EXT_texture_webp"
+    ],
+    "extensionsRequired": [
+      "EXT_texture_webp"
+    ]
+  },
+  "workload": {
+    "layout": "authored-multi-primitive",
+    "sourceTriangles": 4871612,
+    "logicalInstancedTriangles": 4871612,
+    "uniquePrimitivePositionVertices": 8208149,
+    "logicalInstancedPositionVertices": 8208149,
+    "nodes": 1041,
+    "reachableNodes": 1041,
+    "leafNodes": 1031,
+    "maxNodeDepth": 3,
+    "meshes": 1028,
+    "referencedMeshes": 1028,
+    "meshInstances": 1028,
+    "primitives": 1920,
+    "materials": 630,
+    "textures": 892,
+    "images": 518,
+    "skins": 0,
+    "animations": 0,
+    "primitiveTriangleDistribution": {
+      "min": 2,
+      "p50": 10,
+      "p95": 1456,
+      "p99": 26636,
+      "max": 1364306,
+      "over1M": 2,
+      "over10M": 0,
+      "top10": [
+        1364306,
+        1152292,
+        476904,
+        236632,
+        173324,
+        151122,
+        100696,
+        83907,
+        80416,
+        75080
+      ]
+    },
+    "modeCounts": {
+      "4": 1920
+    },
+    "indexComponentTypes": {
+      "5123": 1908,
+      "5125": 12
+    }
+  },
+  "payload": {
+    "geometryAccessorViewBytes": 321101084,
+    "imageViewBytes": 154853401,
+    "geometryBufferViews": 6769,
+    "imageBufferViews": 518,
+    "meshoptCompressedViewBytes": 0,
+    "meshoptCompressedViews": 0
+  },
+  "glb": {
+    "jsonChunkBytes": 1635692,
+    "binaryChunkBytes": 475955340,
+    "generator": "Khronos glTF Blender I/O v5.2.40",
+    "extensionsUsed": [
+      "KHR_materials_specular",
+      "KHR_materials_ior",
+      "EXT_texture_webp"
+    ],
+    "extensionsRequired": [
+      "EXT_texture_webp"
+    ]
+  }
+}

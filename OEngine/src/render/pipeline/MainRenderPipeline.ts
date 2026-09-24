@@ -680,6 +680,8 @@ export interface ProductSceneHandles {
 }
 
 export interface WebCookedSceneOptions extends ProductSceneOptions {
+  /** Skip authored image/material mapping for geometry inspection. */
+  readonly geometryOnly?: boolean;
   /**
    * Framing resolved once against the complete Web Cook catalog, then applied
    * unchanged to every Product revision and shard.
@@ -1319,7 +1321,7 @@ export class MainRenderPipeline {
         framing = webCookCatalogSceneFraming(catalog, { fitHeight: options.fitHeight, fitBase: options.fitBase });
         if (framing.unknownBoundPrimitives > 0) throw new Error("Web Cook catalog fit cannot cover primitives with unknown bounds");
       }
-      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { scale: framing?.scale ?? options.scale, offset: framing?.offset ?? options.offset, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache, maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE) });
+      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { scale: framing?.scale ?? options.scale, offset: framing?.offset ?? options.offset, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache, geometryOnly: options.geometryOnly, maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE) });
     }, options);
   }
 
@@ -1382,6 +1384,7 @@ export class MainRenderPipeline {
               offset: framing?.offset ?? options.offset,
               sceneAssetIndices: source.sceneAssetIndices,
               textureCache,
+              geometryOnly: options.geometryOnly,
               maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE),
               onMappingTiming: options.onProductPublicationTiming ? timing => { mapping = timing; } : undefined
             }

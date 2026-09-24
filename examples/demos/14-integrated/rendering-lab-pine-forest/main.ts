@@ -3,20 +3,22 @@ import {
   RenderDebugView, Renderer, resolveWebCookRuntimeProfile, Scene, webCookCatalogSceneFraming,
   type MultiProductSceneHandles, type WebCookRuntimeAsset, type WebCookSceneCatalogSnapshot
 } from "../../../../OEngine/src/index.ts";
-import { LargeBasicPanel } from "./panel.ts";
-import { LargeBasicTelemetry } from "./telemetry.ts";
+import { PineForestPanel } from "./panel.ts";
+import { PineForestTelemetry } from "./telemetry.ts";
 
 const MiB = 1024 * 1024;
 const canvas = document.querySelector<HTMLCanvasElement>("#viewport")!;
-const telemetry = new LargeBasicTelemetry();
+const telemetry = new PineForestTelemetry();
 const scene = new Scene();
 const abort = new AbortController();
 let renderer: Renderer | undefined;
 let asset: WebCookRuntimeAsset | undefined;
 let handles: MultiProductSceneHandles | undefined;
+let loading: Promise<MultiProductSceneHandles> | undefined;
 let controls: OrbitControls | undefined;
 let camera: PerspectiveCamera | undefined;
 let catalog: WebCookSceneCatalogSnapshot | undefined;
+let catalogFraming: ReturnType<typeof webCookCatalogSceneFraming> | undefined;
 let resizeObserver: ResizeObserver | undefined;
 let frameId = 0;
 let refreshId = 0;
@@ -24,13 +26,14 @@ let closing = false;
 let settled = false;
 let meshletView = true;
 
-const panel = new LargeBasicPanel(telemetry, {
+const panel = new PineForestPanel(telemetry, {
   center: () => placeCamera(false), overview: () => placeCamera(true),
   reload: () => location.reload(), release: () => { void release(); }
 });
 document.querySelector("#meshlet-view")!.addEventListener("click", () => setColorMode(true));
 document.querySelector("#solid-view")!.addEventListener("click", () => setColorMode(false));
 void start().catch(error => {
+  if (closing) return;
   const message = error instanceof Error ? error.message : String(error);
   telemetry.error = message;
   telemetry.event("加载失败", message);
@@ -44,7 +47,7 @@ async function start(): Promise<void> {
   const context = canvas.getContext("webgpu");
   if (!context) throw new Error("无法创建 WebGPU canvas context");
   const source = await fetch(telemetry.sourceUrl, { method: "HEAD" });
-  if (!source.ok) throw new Error(`large.glb 资源不可用：HTTP ${source.status}`);
+  if (!source.ok) throw new Error(`Pine Forest GLB 资源不可用：HTTP ${source.status}`);
   telemetry.event("资源可用", `${source.headers.get("content-length") ?? "未知"} bytes`);
   renderer = new Renderer({
     debug: false,
@@ -69,22 +72,31 @@ async function start(): Promise<void> {
   telemetry.adapter = { identity: renderer.adapter_info, gpuTimestamp: renderer.profiler.gpuTimestampAvailable, features: renderer.capabilities.features };
   telemetry.event("WebGPU 就绪", renderer.adapter_info?.device ?? "adapter");
 
-  const profile = resolveWebCookRuntimeProfile("portable-single");
+  const cookerConcurrency = Math.max(1, navigator.hardwareConcurrency || 1);
+  const profile = resolveWebCookRuntimeProfile("auto");
   const worker = createDefaultWebCookWorker({
     maxSourceWindowBytes: 64 * MiB, maxCanonicalInputBytes: 32 * MiB,
     maxDecodedProductBytes: 128 * MiB, maxSessionSpillBytes: 1024 * MiB,
     maxTrianglesPerProduct: 128 * 1024, maxVerticesPerProduct: 512 * 1024,
-    maxDomainsPerProduct: 64, runtimeProfile: profile.selected
+    maxDomainsPerProduct: 64, runtimeProfile: profile.selected, maxWorkers: cookerConcurrency,
+    catalogPriorityWindowMs: 10_000
   });
+  telemetry.event("Web Cook 并行配置", `${profile.selected} / ${cookerConcurrency} logical cores${profile.fallbackReason ? ` / fallback: ${profile.fallbackReason}` : ""}`);
   asset = load_gltf(telemetry.sourceUrl, {
     worker, runtimeProfile: profile.selected,
-    sessionId: `large-basic-${crypto.randomUUID()}`, sessionGeneration: 1,
-    budgets: { maxConcurrentWorkers: 1, maxSourceBytes: 128 * MiB, maxWasmBytes: 512 * MiB, maxOutputBytes: 256 * MiB, maxQueuedEvents: 2048 },
+    sessionId: `pine-forest-${crypto.randomUUID()}`, sessionGeneration: 1,
+    budgets: { maxConcurrentWorkers: cookerConcurrency, maxSourceBytes: 128 * MiB, maxWasmBytes: 512 * MiB, maxOutputBytes: 256 * MiB, maxQueuedEvents: 2048 },
+    bootstrap: { unitCount: 1 },
     initialOutputPageCredits: 512, maxBufferedPages: 512, maxBufferedBytes: 128 * MiB,
     onSceneCatalogReady: value => {
       catalog = value;
       telemetry.catalog = value;
       telemetry.catalogAt = performance.now() - telemetry.startedAt;
+      for (const primitive of value.primitives) {
+        const uses = primitive.instanceNodeIndices.length;
+        const score = primitive.meshIndex === 0 ? 1_000_000 - primitive.primitiveIndex : 10_000 - uses;
+        asset?.setSourcePriority(primitive.assetKey, score, 0);
+      }
       telemetry.event("目录就绪", `${value.primitiveCount} primitive`);
       panel.paint();
     },
@@ -95,7 +107,7 @@ async function start(): Promise<void> {
     onProductTaskTrace: trace => telemetry.acceptTrace(trace)
   });
   refreshId = window.setInterval(refresh, 500);
-  handles = await renderer.uploadWebCookedMultiProductScene(scene, asset, {
+  loading = renderer.uploadWebCookedMultiProductScene(scene, asset, {
     signal: abort.signal, geometryOnly: true,
     fitHeight: 10, fitBase: [0, -5, 0],
     multiProductMetadataBytes: 128 * MiB, multiProductSlotCapacity: 2048,
@@ -105,17 +117,18 @@ async function start(): Promise<void> {
       if (timing.shardIndex === 1) telemetry.event("首个 Product 发布");
     }
   });
+  handles = await loading;
   if (closing) return;
   if (!catalog) throw new Error("Product 已发布，但目录没有到达");
-  const framing = webCookCatalogSceneFraming(catalog, { fitHeight: 10, fitBase: [0, -5, 0] });
-  if (framing.unknownBoundPrimitives > 0) telemetry.event("目录边界不完整", String(framing.unknownBoundPrimitives));
+  catalogFraming = webCookCatalogSceneFraming(catalog, { fitHeight: 10, fitBase: [0, -5, 0] });
+  if (catalogFraming.unknownBoundPrimitives > 0) telemetry.event("目录边界不完整", String(catalogFraming.unknownBoundPrimitives));
   camera = new PerspectiveCamera();
-  camera.near = Math.max(0.001, framing.radius / 10000);
-  camera.far = Math.max(100, framing.radius * 30);
+  camera.near = Math.max(0.001, catalogFraming.radius / 10000);
+  camera.far = Math.max(100, catalogFraming.radius * 30);
   controls = new OrbitControls(camera, canvas);
   controls.enableDamping = true;
-  controls.minDistance = Math.max(0.02, framing.radius / 1000);
-  controls.maxDistance = framing.radius * 15;
+  controls.minDistance = Math.max(0.02, catalogFraming.radius / 1000);
+  controls.maxDistance = catalogFraming.radius * 15;
   resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);
   resize();
@@ -160,18 +173,30 @@ function setColorMode(meshlet: boolean): void {
 }
 
 function placeCamera(overview: boolean): void {
-  if (!camera || !controls || !catalog || !renderer) return;
-  const framing = webCookCatalogSceneFraming(catalog, { fitHeight: 10, fitBase: [0, -5, 0] });
-  const center = framing.center;
-  const extent = framing.max.map((value, axis) => value - framing.min[axis]!);
+  if (!camera || !controls || !catalogFraming || !renderer) return;
+  const published = overview ? undefined : handles?.current().source;
+  const min = [...catalogFraming.min];
+  const max = [...catalogFraming.max];
+  if (published?.boundsMin && published.boundsMax) {
+    min.fill(Infinity);
+    max.fill(-Infinity);
+    for (let index = 0; index < published.count; index++) {
+      for (let axis = 0; axis < 3; axis++) {
+        min[axis] = Math.min(min[axis]!, published.boundsMin[index * 3 + axis]!);
+        max[axis] = Math.max(max[axis]!, published.boundsMax[index * 3 + axis]!);
+      }
+    }
+  }
+  const center = min.map((value, axis) => (value + max[axis]!) * 0.5);
+  const extent = max.map((value, axis) => value - min[axis]!);
   const mainAxis = extent.indexOf(Math.max(...extent));
   const shortExtent = Math.max(0.1, ...extent.filter((_, axis) => axis !== mainAxis));
-  const distance = overview ? framing.radius * 2.6 : Math.max(0.7, shortExtent * 2.8);
-  const eye = [center[0], center[1] + distance * 0.38, center[2]];
-  eye[mainAxis === 2 ? 0 : 2]! += distance * 1.55;
+  const distance = overview ? catalogFraming.radius * 2.6 : Math.max(2, Math.min(catalogFraming.radius * 0.9, shortExtent * 0.9));
+  const eye = [center[0], center[1] + distance * 1.2, center[2]];
+  eye[mainAxis === 2 ? 0 : 2]! += distance * 1.2;
   camera.transform.position.set(eye[0]!, eye[1]!, eye[2]!);
   camera.transform.lookAt({ x: center[0], y: center[1], z: center[2] });
-  controls.target.set(...center);
+  controls.target.set(center[0]!, center[1]!, center[2]!);
   controls.reset();
   renderer.indicate_view_change();
   telemetry.event(overview ? "全览视角" : "中心视角");
@@ -198,6 +223,9 @@ function refresh(): void {
 async function release(waitForCleanup = true): Promise<void> {
   if (closing) return;
   closing = true;
+  telemetry.releasingAt = performance.now() - telemetry.startedAt;
+  telemetry.event("开始释放");
+  panel.paint();
   abort.abort(new Error("demo released"));
   cancelAnimationFrame(frameId);
   clearInterval(refreshId);
@@ -205,8 +233,14 @@ async function release(waitForCleanup = true): Promise<void> {
   controls?.dispose();
   if (!settled) asset?.cancel("demo released");
   try {
+    if (loading && !handles) {
+      try { handles = await loading; } catch { /* The aborted first publication has no handle to release. */ }
+    }
+    if (handles) await handles.settled().catch(() => undefined);
+    telemetry.event("Product 发布已停止");
     await handles?.release();
-    if (waitForCleanup) await asset?.disposeAsync();
+    telemetry.event("Scene 已释放");
+    if (waitForCleanup && settled) await asset?.disposeAsync();
     else asset?.dispose();
   } catch (error) {
     telemetry.error ??= error instanceof Error ? error.message : String(error);

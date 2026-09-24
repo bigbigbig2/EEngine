@@ -58,6 +58,35 @@ test("separate Web Cook Products use one catalog fit without moving earlier inst
   assert.ok(Math.abs((combined.boundsMax[4] - combined.boundsMin[1]) - 2) < 1e-6);
 });
 
+test("geometry-only mapping preserves selected primitives and skips authored image reads", async () => {
+  const assetRecords = new Uint8Array(256);
+  for (const offset of [44, 172]) new DataView(assetRecords.buffer).setFloat32(offset, 1, true);
+  const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+  const catalog = {
+    primitives: [0, 1, 2].map(index => ({
+      nodeIndex: index, instanceNodeIndices: [index], boundsMin: [0, 0, 0], boundsMax: [1, 1, 1],
+      materialIndex: index, material: { baseColorTexture: { textureIndex: index } },
+      attributeSemantics: ["POSITION", "TEXCOORD_0"]
+    })),
+    instances: [0, 1, 2].map(index => ({ nodeIndex: index, worldMatrix: identity })),
+    textures: [], images: []
+  };
+  let reads = 0;
+  let timing;
+  const mapped = await createWebCookSceneSourceAsync(catalog, { assetRecords }, async () => { reads++; throw new Error("image read"); }, undefined, {
+    sceneAssetIndices: [2, 0], geometryOnly: true, onMappingTiming: value => { timing = value; }
+  });
+  assert.equal(reads, 0);
+  assert.equal(mapped.source.assetCount, 2);
+  assert.equal(mapped.source.count, 2);
+  assert.deepEqual([...mapped.source.geometryIndices], [0, 1]);
+  assert.deepEqual([...mapped.source.materialIndices], [0, 0]);
+  assert.equal(mapped.materials.length, 1);
+  assert.equal(mapped.materials[0].is_unlit, true);
+  assert.equal(mapped.materials[0].texture_albedo, undefined);
+  assert.deepEqual(timing, { textureCacheHits: 0, textureCacheMisses: 0, imageReadMs: 0, imageDecodeMs: 0 });
+});
+
 test("multi-Product scene merge preserves transforms, materials, bounds, and Product identity", () => {
   const identity = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
   const translated = identity.slice();

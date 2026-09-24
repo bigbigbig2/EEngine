@@ -6,8 +6,8 @@ const exampleBaseUrl = (import.meta.env.VITE_EXAMPLE_BASE_URL ?? "http://localho
 function ExampleFrame() {
   return (
     <iframe
-      title="Rendering Lab - Large Model Basic"
-      src={`${exampleBaseUrl}/demos/14-integrated/rendering-lab-large-basic/`}
+      title="Rendering Lab - Pine Forest"
+      src={`${exampleBaseUrl}/demos/14-integrated/rendering-lab-pine-forest/`}
       style={{ width: "100%", height: "100vh", border: 0, display: "block" }}
       allow="fullscreen"
     />
@@ -18,12 +18,12 @@ const meta = {
   title: "Examples/14 Integrated",
   component: ExampleFrame,
   parameters: {
-    docs: { description: { story: "Independent large.glb geometry lab with multi-Product cooking, unlit display, and detailed loading/runtime telemetry." } },
-    tags: ["integrated","large-model","packed-scene","gltf","unlit","effects-off","profiling"]
+    docs: { description: { story: "Pine Forest render-detail geometry lab with incremental Product cooking and loading/runtime telemetry." } },
+    tags: ["integrated","large-model","pine-forest","packed-scene","gltf","unlit","effects-off","profiling"]
   }
 } satisfies Meta<typeof ExampleFrame>;
 
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const RenderingLabLargeBasic: Story = { name: "Rendering Lab - Large Model Basic" };
+export const RenderingLabPineForest: Story = { name: "Rendering Lab - Pine Forest" };

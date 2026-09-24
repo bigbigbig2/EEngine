@@ -779,6 +779,22 @@ test("ADR-0009 Step 0 normalizes one screen-space diffuse owner and history", ()
   assert.throws(() => topology("both"), /Unknown screen-space diffuse mode/);
 });
 
+test("Meshlet ID debug view has a distinct compiled graph topology", () => {
+  const input = {
+    shadows: false, ssr: false, screenSpaceDiffuseMode: "off",
+    temporal: false, bloom: false, automaticExposure: false,
+    motionBlur: false, sharpening: false, fusedIndirect: false,
+    upscaleType: 0
+  };
+  const off = resolveMainFrameFeatureTopology({ ...input, debugView: "none" });
+  const meshlet = resolveMainFrameFeatureTopology({ ...input, debugView: "meshlet-id" });
+  const visibility = resolveMainFrameFeatureTopology({ ...input, debugView: "visibility-key" });
+  assert.equal(off.debug, false);
+  assert.equal(meshlet.debug, true);
+  assert.notEqual(meshlet.enabledFeatureBits, off.enabledFeatureBits);
+  assert.notEqual(meshlet.enabledFeatureBits, visibility.enabledFeatureBits);
+});
+
 test("ADR-0009 Step 0 freezes receiver-validity GI precedence and source stages", () => {
   assert.deepEqual(LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE, [
     "brick4",

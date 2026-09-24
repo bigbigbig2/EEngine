@@ -8,6 +8,7 @@
 export const RenderDebugView = {
   None: "none",
   VisibilityKey: "visibility-key",
+  MeshletId: "meshlet-id",
   Depth: "depth",
   HzbMip: "hzb-mip",
   RejectedFrustum: "rejected-frustum",
@@ -55,6 +56,7 @@ export const RENDER_DEBUG_VIEW_OPTIONS: readonly RenderDebugViewStatus[] = [
     "supported",
     "回查 RasterWork/Cluster/Meshlet/Instance/Material 的统一 VisibilityKey"
   ),
+  descriptor(RenderDebugView.MeshletId, "Meshlet ID", "supported", "按当前可见 Meshlet 的几何与局部 ID 分色"),
   descriptor(
     RenderDebugView.Depth,
     "反向 Z Depth",

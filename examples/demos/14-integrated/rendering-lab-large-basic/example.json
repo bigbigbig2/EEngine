@@ -3,7 +3,7 @@
   "title": "Rendering Lab - Large Model Basic",
   "category": "14-integrated",
   "order": 13,
-  "description": "Large GLB model with Unlit shading and effects off, automatic bounds fitting, and the shared GPU/CPU performance experiment panel.",
+  "description": "Independent large.glb geometry lab with multi-Product cooking, unlit display, and detailed loading/runtime telemetry.",
   "tags": [
     "integrated",
     "large-model",
