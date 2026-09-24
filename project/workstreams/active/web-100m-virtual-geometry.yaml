@@ -13,10 +13,10 @@ currentSlice:
   title: Profile authored large.glb performance
   target: authored-large-performance-followup
   status: implementing
-  finding: The latest accepted authored large.glb K0/K1/K2 baseline covered 66 Products and all 1,920 primitives. K2 observed a 6.97 s first meaningful frame, 49.34 s total cook, 124.79 s settled time, and 11.80 ms GPU frame p95. These figures predate the public load_gltf entry and publication timing instrumentation; K3 attribution requires a fresh clean-revision run.
+  finding: Public load_gltf K0/K1/K2 passed on clean revision 91d1563 with 66 Products and all 1,920 primitives. K2 observed a 7.74 s first meaningful frame, 55.48 s total cook, 143.38 s settled time, and 13.83 ms GPU frame p95. Per-Product publication timing measured 109.09 s in Scene publication, 11.73 s in Scene mapping including 9.26 s of image decode, 21.85 s awaiting sources, and 0.07 s in source merge. A follow-up K1 diagnostic attributed 95.87 s of append time to sparse shading preparation; final clean-revision acceptance of that subphase timing is pending.
 nextTasks:
-  - Accept K0, K1, and K2 through the public load_gltf entry on a clean revision, then analyze per-Product source wait, texture read/decode, runtime admission, Scene mapping, merge, and publication timing.
-  - Apply targeted fixes only after the authored profile identifies a bottleneck, then rerun affected acceptance.
+  - Accept K0, K1, and K2 on the final profiling revision and confirm sparse shading preparation dominates append latency.
+  - Profile sparse shading revision preparation below prepareSceneSwap, then avoid unnecessary pipeline rebuilds on appended Products and rerun affected acceptance.
 
 contracts:
   - geometry-product-v1
@@ -111,8 +111,8 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence on the current clean revision.
 openGates:
-  - Material, texture, and incremental Scene publication costs are not yet attributed on large.glb.
-  - The compact evidence index cannot refresh until 18 missing historical raw artifacts are restored or an explicit pruning decision is made; accepted browser artifacts remain separate.
+  - Sparse shading preparation dominates incremental Scene publication; its shader/pipeline creation and resource preparation costs still need separate attribution before optimizing.
+  - The compact evidence index was explicitly pruned to locally reconstructible raw artifacts; generated index refresh after final acceptance will modify the tracked index and must be kept distinct from the clean browser revision.
 
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md

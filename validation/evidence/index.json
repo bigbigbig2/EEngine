@@ -1,160 +1,160 @@
 {
   "checkReceipts": [
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
+      "completedAt": "2026-09-24T01:29:41.576Z",
       "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
-      "dirty": true,
+      "dirty": false,
       "id": "model",
       "level": "L0",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "project-model",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
+      "completedAt": "2026-09-24T01:29:41.576Z",
       "detailsSha256": "3781d575dd66612e0cf74b757db5a711fe11ae71150b4a26f45c14edf9e2b2a5",
-      "dirty": true,
+      "dirty": false,
       "id": "registry",
       "level": "L1",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "generated-registry",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
+      "completedAt": "2026-09-24T01:29:41.576Z",
       "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-      "dirty": true,
+      "dirty": false,
       "id": "changed-coverage",
       "level": "L0",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "changed-coverage",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
+      "completedAt": "2026-09-24T01:29:41.576Z",
       "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
-      "dirty": true,
+      "dirty": false,
       "id": "docs-frontmatter",
       "level": "L0",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "project-model",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
-      "detailsSha256": "5e8e68d76eb580cfac913800d72d39eee77bf7a96a8c6430fbabd20113f00f10",
-      "dirty": true,
+      "completedAt": "2026-09-24T01:29:41.576Z",
+      "detailsSha256": "1169992a8508616e0e0c388323808440d0469ee69ced8a2c9395516f7d458aa5",
+      "dirty": false,
       "id": "evidence-provenance",
       "level": "L1",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "evidence-provenance",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
-      "detailsSha256": "2ab6ea57cf89fc7b2283a418eb21f195249133851d1bc7f3460ddbcfb807dfe3",
-      "dirty": true,
+      "completedAt": "2026-09-24T01:29:41.576Z",
+      "detailsSha256": "8046a73fea0d130d6391bf1710171e417732702783e0fc5e7ab398812243241d",
+      "dirty": false,
       "id": "engine-suites",
       "level": "L1",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "engine-suites",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
-      "detailsSha256": "06f12b40577b93bbd4ef0876700c7d8cf297ae1e27f019e407dcf23694ac60f9",
-      "dirty": true,
+      "completedAt": "2026-09-24T01:29:41.576Z",
+      "detailsSha256": "66e1528abaa1d3297a86d6774f800ba4740950129ea7962809a3bbf4127a68a5",
+      "dirty": false,
       "id": "validation-suites",
       "level": "L1",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "validation-suites",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
+      "completedAt": "2026-09-24T01:29:41.576Z",
       "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-      "dirty": true,
+      "dirty": false,
       "id": "guard-docs",
       "level": "L0",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "domain-doc-coverage",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
+      "completedAt": "2026-09-24T01:29:41.576Z",
       "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-      "dirty": true,
+      "dirty": false,
       "id": "guard-generated-source",
       "level": "L0",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "generated-source-guard",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
+      "completedAt": "2026-09-24T01:29:41.576Z",
       "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-      "dirty": true,
+      "dirty": false,
       "id": "guard-legacy",
       "level": "L0",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "retired-paths",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
+      "completedAt": "2026-09-24T01:29:41.576Z",
       "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-      "dirty": true,
+      "dirty": false,
       "id": "guard-ownership",
       "level": "L0",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "changed-ownership",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     },
     {
-      "completedAt": "2026-09-24T01:20:23.502Z",
+      "completedAt": "2026-09-24T01:29:41.576Z",
       "detailsSha256": "98538964dad0967dd49207fcfc35e7576643aa806a79d8c78b5a08298cf8d5d2",
-      "dirty": true,
+      "dirty": false,
       "id": "guard-public-api",
       "level": "L0",
       "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-      "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+      "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
       "runner": "public-api-boundary",
-      "scope": "changed",
+      "scope": "full",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
     }
   ],
   "errors": [],
@@ -405,10 +405,10 @@
     {
       "adapter": null,
       "artifactHashes": {
-        "events": "d8a4d8c82302f2cca8a06fb6cb841bdc419d311f3943cbd30c35cc863dcfdb51",
+        "events": "87d79f1fc39cc664332f8e4504a25c2b05096676c04c763ccd53c968fd29f99a",
         "screenshot": "6de846494929eabef5ed7b327bf1af0235f3468cd44d4b0a9212f276e0fe0d1a"
       },
-      "artifactPath": ".local/validation/2026-09-23T17-22-05-824Z-web-authored-large-cook-k0-dbb8666e-627d-4dd5-bbac-d2cdcb643982/result.json",
+      "artifactPath": ".local/validation/2026-09-24T01-24-07-613Z-web-authored-large-cook-k0-31a50848-271e-4353-8f5c-b0a3894c4488/result.json",
       "browser": {
         "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
         "executableSha256": "392dec76f7d4a54f6bc9c360e8d21a56c428173b6c6a90f2be38a2714d606227",
@@ -434,168 +434,168 @@
       ],
       "checkReceipts": [
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
+          "completedAt": "2026-09-24T01:24:06.679Z",
           "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
           "dirty": false,
           "id": "model",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "project-model",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
+          "completedAt": "2026-09-24T01:24:06.679Z",
           "detailsSha256": "3781d575dd66612e0cf74b757db5a711fe11ae71150b4a26f45c14edf9e2b2a5",
           "dirty": false,
           "id": "registry",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "generated-registry",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
+          "completedAt": "2026-09-24T01:24:06.679Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "changed-coverage",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "changed-coverage",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
+          "completedAt": "2026-09-24T01:24:06.679Z",
           "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
           "dirty": false,
           "id": "docs-frontmatter",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "project-model",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
-          "detailsSha256": "5e8e68d76eb580cfac913800d72d39eee77bf7a96a8c6430fbabd20113f00f10",
+          "completedAt": "2026-09-24T01:24:06.679Z",
+          "detailsSha256": "1169992a8508616e0e0c388323808440d0469ee69ced8a2c9395516f7d458aa5",
           "dirty": false,
           "id": "evidence-provenance",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "evidence-provenance",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
-          "detailsSha256": "731f238b06c57660f2b3b8778250279eb59b900232f501af1fe3c20dbdbbc1c3",
+          "completedAt": "2026-09-24T01:24:06.679Z",
+          "detailsSha256": "cc011c699568271c6aed0afc6b6cf717ad224cb04a3626b0a388337670f18c94",
           "dirty": false,
           "id": "engine-suites",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "engine-suites",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
-          "detailsSha256": "70ad4b68d4d0be63b1b3bf8a73465c297b2f1a6ffa374eac33dfd664697e454e",
+          "completedAt": "2026-09-24T01:24:06.679Z",
+          "detailsSha256": "f614374498e628518b6c7c8c7b0a8b82aa8986e24e072d9181a62ffb4db28eb6",
           "dirty": false,
           "id": "validation-suites",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "validation-suites",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
+          "completedAt": "2026-09-24T01:24:06.679Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-docs",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "domain-doc-coverage",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
+          "completedAt": "2026-09-24T01:24:06.679Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-generated-source",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "generated-source-guard",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
+          "completedAt": "2026-09-24T01:24:06.679Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-legacy",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "retired-paths",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
+          "completedAt": "2026-09-24T01:24:06.679Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-ownership",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "changed-ownership",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:22:05.208Z",
+          "completedAt": "2026-09-24T01:24:06.679Z",
           "detailsSha256": "98538964dad0967dd49207fcfc35e7576643aa806a79d8c78b5a08298cf8d5d2",
           "dirty": false,
           "id": "guard-public-api",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "public-api-boundary",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         }
       ],
       "claimIds": [
         "virtual-assets.authored-producer",
         "virtual-assets.performance"
       ],
-      "commit": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
-      "completedAt": "2026-09-23T17:23:06.485Z",
+      "commit": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
+      "completedAt": "2026-09-24T01:25:16.122Z",
       "contractHashes": {
         "geometry-product-v1": "532fd1b3c4da23ad2351c36c3919d335ab5f79f9a5f877534d960681163c36aa",
         "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
@@ -646,20 +646,20 @@
         "evidenceStatus": "accepted",
         "status": "passed"
       },
-      "runId": "2026-09-23T17-22-05-824Z-web-authored-large-cook-k0-dbb8666e-627d-4dd5-bbac-d2cdcb643982",
+      "runId": "2026-09-24T01-24-07-613Z-web-authored-large-cook-k0-31a50848-271e-4353-8f5c-b0a3894c4488",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e",
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023",
       "workloadId": "web-authored-large-cook-k0-v1",
       "workloadSha256": "fee167e4546bb121a838e914b679ee58b0cdc80326376d1f216ac24528b4c10f"
     },
     {
       "adapter": null,
       "artifactHashes": {
-        "events": "be4c440ac4c68abcc9998aa6c85b6de1f542051cd9879fe0847103a9cdfdb003",
-        "samples": "f4765383e6a9b3e91b19bd8c96eb1355968f7e02e706eccc43027318f0415ed2",
+        "events": "9ad70ffefb42904f95bd0462a7ea382b549624d09ebc895bec5e45f27df1d9f0",
+        "samples": "eedb672a03ab0c395ccacd4703227ab9b86a64ac4c92fce0e47393bada5a56d0",
         "screenshot": "feb0365dde61f3705077bb122a3a74a409db25bfcbe19ca22be84c73ebbfcd55"
       },
-      "artifactPath": ".local/validation/2026-09-23T17-28-32-510Z-web-authored-large-perf-f223d3f9-9147-4da4-80d9-0776a5810dd8/result.json",
+      "artifactPath": ".local/validation/2026-09-24T01-29-42-162Z-web-authored-large-perf-0b448abd-a386-4d9f-9200-8f2e86b1b034/result.json",
       "browser": {
         "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
         "executableSha256": "392dec76f7d4a54f6bc9c360e8d21a56c428173b6c6a90f2be38a2714d606227",
@@ -685,167 +685,167 @@
       ],
       "checkReceipts": [
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
+          "completedAt": "2026-09-24T01:29:41.576Z",
           "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
           "dirty": false,
           "id": "model",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "project-model",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
+          "completedAt": "2026-09-24T01:29:41.576Z",
           "detailsSha256": "3781d575dd66612e0cf74b757db5a711fe11ae71150b4a26f45c14edf9e2b2a5",
           "dirty": false,
           "id": "registry",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "generated-registry",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
+          "completedAt": "2026-09-24T01:29:41.576Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "changed-coverage",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "changed-coverage",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
+          "completedAt": "2026-09-24T01:29:41.576Z",
           "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
           "dirty": false,
           "id": "docs-frontmatter",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "project-model",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
-          "detailsSha256": "5e8e68d76eb580cfac913800d72d39eee77bf7a96a8c6430fbabd20113f00f10",
+          "completedAt": "2026-09-24T01:29:41.576Z",
+          "detailsSha256": "1169992a8508616e0e0c388323808440d0469ee69ced8a2c9395516f7d458aa5",
           "dirty": false,
           "id": "evidence-provenance",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "evidence-provenance",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
-          "detailsSha256": "00b139bf63c13b18613c67d9e9acdb34686ee1ed2b78e9447b685cc14371d25a",
+          "completedAt": "2026-09-24T01:29:41.576Z",
+          "detailsSha256": "8046a73fea0d130d6391bf1710171e417732702783e0fc5e7ab398812243241d",
           "dirty": false,
           "id": "engine-suites",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "engine-suites",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
-          "detailsSha256": "7fde032cfd8ab58b58aa98906d69f3b93b37bc901319acc1530b1ea19a7db6bd",
+          "completedAt": "2026-09-24T01:29:41.576Z",
+          "detailsSha256": "66e1528abaa1d3297a86d6774f800ba4740950129ea7962809a3bbf4127a68a5",
           "dirty": false,
           "id": "validation-suites",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "validation-suites",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
+          "completedAt": "2026-09-24T01:29:41.576Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-docs",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "domain-doc-coverage",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
+          "completedAt": "2026-09-24T01:29:41.576Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-generated-source",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "generated-source-guard",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
+          "completedAt": "2026-09-24T01:29:41.576Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-legacy",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "retired-paths",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
+          "completedAt": "2026-09-24T01:29:41.576Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-ownership",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "changed-ownership",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:28:31.964Z",
+          "completedAt": "2026-09-24T01:29:41.576Z",
           "detailsSha256": "98538964dad0967dd49207fcfc35e7576643aa806a79d8c78b5a08298cf8d5d2",
           "dirty": false,
           "id": "guard-public-api",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "public-api-boundary",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         }
       ],
       "claimIds": [
         "virtual-assets.performance"
       ],
-      "commit": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
-      "completedAt": "2026-09-23T17:31:21.862Z",
+      "commit": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
+      "completedAt": "2026-09-24T01:32:49.668Z",
       "contractHashes": {
         "geometry-product-v1": "532fd1b3c4da23ad2351c36c3919d335ab5f79f9a5f877534d960681163c36aa",
         "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
@@ -896,19 +896,19 @@
         "evidenceStatus": "accepted",
         "status": "passed"
       },
-      "runId": "2026-09-23T17-28-32-510Z-web-authored-large-perf-f223d3f9-9147-4da4-80d9-0776a5810dd8",
+      "runId": "2026-09-24T01-29-42-162Z-web-authored-large-perf-0b448abd-a386-4d9f-9200-8f2e86b1b034",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e",
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023",
       "workloadId": "web-authored-large-perf-v1",
       "workloadSha256": "ed400e47ab3a10b86a8a6a9a3441f8c19f78880a88816b237e326d18dfa911b2"
     },
     {
       "adapter": null,
       "artifactHashes": {
-        "events": "44521e28be60de3186e1fd18605ce7e8db156257e59552d970caf140e9677e07",
+        "events": "9262f23030a128740e1dd50a1db46b0c1d33507da33c2400a4f087c3502d2ad9",
         "screenshot": "ff15f1ca20c096068abd8b6f8244a0a5d1ab42e45624048bf9a96ce7fb1aa8ac"
       },
-      "artifactPath": ".local/validation/2026-09-23T17-25-01-442Z-web-authored-large-runtime-k1-e284811a-5654-4ea6-a642-c889cd7aec35/result.json",
+      "artifactPath": ".local/validation/2026-09-24T01-26-01-467Z-web-authored-large-runtime-k1-ca83a978-cf73-4717-b27f-dd2c9850cbac/result.json",
       "browser": {
         "executable": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
         "executableSha256": "392dec76f7d4a54f6bc9c360e8d21a56c428173b6c6a90f2be38a2714d606227",
@@ -934,167 +934,167 @@
       ],
       "checkReceipts": [
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
+          "completedAt": "2026-09-24T01:26:00.823Z",
           "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
           "dirty": false,
           "id": "model",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "project-model",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
+          "completedAt": "2026-09-24T01:26:00.823Z",
           "detailsSha256": "3781d575dd66612e0cf74b757db5a711fe11ae71150b4a26f45c14edf9e2b2a5",
           "dirty": false,
           "id": "registry",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "generated-registry",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
+          "completedAt": "2026-09-24T01:26:00.823Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "changed-coverage",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "changed-coverage",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
+          "completedAt": "2026-09-24T01:26:00.823Z",
           "detailsSha256": "37629e524d0560dec316226698b7c28ff7e112443fd2f5deed0bc582b777802a",
           "dirty": false,
           "id": "docs-frontmatter",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "project-model",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
-          "detailsSha256": "5e8e68d76eb580cfac913800d72d39eee77bf7a96a8c6430fbabd20113f00f10",
+          "completedAt": "2026-09-24T01:26:00.823Z",
+          "detailsSha256": "1169992a8508616e0e0c388323808440d0469ee69ced8a2c9395516f7d458aa5",
           "dirty": false,
           "id": "evidence-provenance",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "evidence-provenance",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
-          "detailsSha256": "7a101d03ee9e511229daddf39c72a56a7aa10b1c24a31a2230506d329bc5c4f5",
+          "completedAt": "2026-09-24T01:26:00.823Z",
+          "detailsSha256": "2560719605bfa821a8faac1280878173bb9e9e9377466888c1ad003eaca764bf",
           "dirty": false,
           "id": "engine-suites",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "engine-suites",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
-          "detailsSha256": "f3f68f90ca690265899646129c2a1a04dd097a9b4f828765ac2539e5237fb2ff",
+          "completedAt": "2026-09-24T01:26:00.823Z",
+          "detailsSha256": "c21916c0cdc4647819df0b86dbf51486c85313c09289bb931393faa1792bf19d",
           "dirty": false,
           "id": "validation-suites",
           "level": "L1",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "validation-suites",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
+          "completedAt": "2026-09-24T01:26:00.823Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-docs",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "domain-doc-coverage",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
+          "completedAt": "2026-09-24T01:26:00.823Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-generated-source",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "generated-source-guard",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
+          "completedAt": "2026-09-24T01:26:00.823Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-legacy",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "retired-paths",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
+          "completedAt": "2026-09-24T01:26:00.823Z",
           "detailsSha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
           "dirty": false,
           "id": "guard-ownership",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "changed-ownership",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         },
         {
-          "completedAt": "2026-09-23T17:25:00.840Z",
+          "completedAt": "2026-09-24T01:26:00.823Z",
           "detailsSha256": "98538964dad0967dd49207fcfc35e7576643aa806a79d8c78b5a08298cf8d5d2",
           "dirty": false,
           "id": "guard-public-api",
           "level": "L0",
           "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-          "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+          "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
           "runner": "public-api-boundary",
           "scope": "full",
           "status": "passed",
-          "tree": "123fb0ec146434ba82550259088be5c0f7062f3e"
+          "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023"
         }
       ],
       "claimIds": [
         "virtual-assets.product-consumer"
       ],
-      "commit": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
-      "completedAt": "2026-09-23T17:27:20.049Z",
+      "commit": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
+      "completedAt": "2026-09-24T01:28:56.793Z",
       "contractHashes": {
         "geometry-product-v1": "532fd1b3c4da23ad2351c36c3919d335ab5f79f9a5f877534d960681163c36aa",
         "virtual-geometry-runtime-v1": "aef1fbf7042cde2237c6d7b1f8ff1eee99e8664d6a08f6d4a3eacfb84f773e5d",
@@ -1145,9 +1145,9 @@
         "evidenceStatus": "accepted",
         "status": "passed"
       },
-      "runId": "2026-09-23T17-25-01-442Z-web-authored-large-runtime-k1-e284811a-5654-4ea6-a642-c889cd7aec35",
+      "runId": "2026-09-24T01-26-01-467Z-web-authored-large-runtime-k1-ca83a978-cf73-4717-b27f-dd2c9850cbac",
       "status": "passed",
-      "tree": "123fb0ec146434ba82550259088be5c0f7062f3e",
+      "tree": "9a32a70c081eaaa11d96a3a362f270b4e5237023",
       "workloadId": "web-authored-large-runtime-k1-v1",
       "workloadSha256": "09c70455c626c2014a5572efac5d3baf71d028b9726be533c3f289b76f895392"
     }
@@ -1155,12 +1155,12 @@
   "generatedBy": "node tools/vibe.mjs evidence",
   "history": {
     "protocol-self-test": 5,
-    "web-authored-large-cook-k0": 14,
-    "web-authored-large-perf": 12,
-    "web-authored-large-runtime-k1": 23
+    "web-authored-large-cook-k0": 15,
+    "web-authored-large-perf": 13,
+    "web-authored-large-runtime-k1": 24
   },
   "registrySha256": "8b43293a577d89fece059cc87ad166c382275172fe6226e5eba8079f383c7fa5",
-  "revision": "b4abe2e143c3cb62f7331ed6ff4e9921fe75c322",
+  "revision": "91d1563b38d7e3069c3cab72c740fb57eb1f5a4c",
   "schemaVersion": 1,
   "warnings": [
     ".local\\validation\\2026-09-22T06-38-44-624Z-web-100m-formal-perf-134e8d78-183a-4406-b1d5-780b8d57dee5\\result.json: unmapped legacy case web-100m-formal-perf",

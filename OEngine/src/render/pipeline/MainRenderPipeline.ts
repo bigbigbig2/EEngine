@@ -702,6 +702,14 @@ export interface WebCookProductPublicationTiming {
   readonly sourceMergeMs: number;
   readonly scenePublishMs: number;
   readonly mapping: WebCookSceneMappingTiming;
+  readonly append?: WebCookAppendPublicationTiming;
+}
+
+export interface WebCookAppendPublicationTiming {
+  readonly stageMs: number;
+  readonly sparsePrepareMs: number;
+  readonly submitMs: number;
+  readonly commitMs: number;
 }
 
 export interface MultiProductSceneState {
@@ -1389,6 +1397,7 @@ export class MainRenderPipeline {
           const mergedAt = performance.now();
           if (streaming === null && options.stream !== false) streaming = new GeometryPageStreamingRuntimeV1(this.device, shard.residency);
           streaming?.registerProduct(source, shard.residency);
+          let appendTiming: WebCookAppendPublicationTiming | undefined;
           if (parts.length === 1) {
             options.onMaterials?.(mapped.materials);
             await this.uploadVirtualGeometryScene(scene, combined, shard.residency, streaming, undefined, {
@@ -1400,7 +1409,8 @@ export class MainRenderPipeline {
             state = Object.freeze({ source: combined, shardCount: 1, firstResidency: shard.residency, streaming });
             resolveFirst();
           } else {
-            await this.replaceMultiProductScenePublication(scene, combined, runtime);
+            await this.replaceMultiProductScenePublication(scene, combined, runtime,
+              options.onProductPublicationTiming ? timing => { appendTiming = timing; } : undefined);
             state = Object.freeze({ source: combined, shardCount: parts.length, firstResidency: shardHandles[0]!.residency, streaming });
             this._virtualProductScenes.set(scene, Object.freeze({
               residency: shardHandles[0]!.residency,
@@ -1419,7 +1429,8 @@ export class MainRenderPipeline {
             sceneMapMs: mappedAt - loadedAt,
             sourceMergeMs: mergedAt - mappedAt,
             scenePublishMs: lastPublishedAt - mergedAt,
-            mapping: mapping!
+            mapping: mapping!,
+            ...(appendTiming === undefined ? {} : { append: appendTiming })
           });
         }
         if (state === undefined) throw new Error("Web Cook provider completed without an admissible Product shard");
@@ -1455,10 +1466,12 @@ export class MainRenderPipeline {
   private async replaceMultiProductScenePublication(
     scene: Scene,
     source: VirtualGeometrySceneSource,
-    runtime: GeometryProductMultiRuntimeV1
+    runtime: GeometryProductMultiRuntimeV1,
+    onTiming?: (timing: WebCookAppendPublicationTiming) => void
   ): Promise<void> {
     const previous = this._graphics.render_world.runtime(scene);
     if (previous === null) throw new Error("Multi-Product append requires an active Scene publication");
+    const started = onTiming ? performance.now() : 0;
     const command = ShadeGPUCommandContext.create(this._graphics, "Renderer/GpuRenderWorld/multi-product-append");
     let sparseSwap: import("./SparseShadingPublicationCoordinator.js").PreparedSparseShadingPublication | undefined;
     let committed = false;
@@ -1472,14 +1485,23 @@ export class MainRenderPipeline {
         scene, source, runtime.bindings(), command
       );
       const candidate = this._graphics.render_world.previewStagedRuntime(handle);
+      const stagedAt = onTiming ? performance.now() : 0;
       sparseSwap = await this._sparseShadingPublications.prepareSceneSwap(
         candidate.shadingPublication,
         this.createSparseShadingPublicationContext(candidate)
       );
+      const preparedAt = onTiming ? performance.now() : 0;
       command.finish();
       await command.submitted;
+      const submittedAt = onTiming ? performance.now() : 0;
       sparseSwap.commit(this._frame_count);
       committed = true;
+      onTiming?.({
+        stageMs: stagedAt - started,
+        sparsePrepareMs: preparedAt - stagedAt,
+        submitMs: submittedAt - preparedAt,
+        commitMs: performance.now() - submittedAt
+      });
     } catch (error) {
       if (!command.closed) command.abort(error);
       if (!committed) sparseSwap?.abort();
