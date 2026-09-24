@@ -309,7 +309,12 @@ async function run(): Promise<void> {
       fitBase: [0, -5, 0],
       multiProductMetadataBytes: 128 * MiB,
       multiProductSlotCapacity: source.productSlotCapacity,
-      onProductPublicationTiming: timing => { publicationTimings.push(timing); }
+      onProductPublicationTiming: timing => {
+        publicationTimings.push(timing);
+        lastCookProgressAt = performance.now();
+        lastCookProgress = { type: "ProductPublicationTiming", shardIndex: timing.shardIndex, scenePublishMs: timing.scenePublishMs };
+        controller.addEvidence("currentPublication", lastCookProgress);
+      }
     });
     camera = new PerspectiveCamera();
     camera.near = 0.01;
