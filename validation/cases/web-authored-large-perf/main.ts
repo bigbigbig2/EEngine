@@ -84,6 +84,7 @@ let cookHeartbeatTimer: number | undefined;
 let cookHeartbeatAbort: AbortController | undefined;
 let lastCookProgressAt = 0;
 let lastCookProgress: Record<string, unknown> | undefined;
+let terminalCookTimings: Readonly<Record<string, number>> | undefined;
 let cookHeartbeatTriggered = false;
 let cookSettled = false;
 
@@ -266,6 +267,7 @@ async function run(): Promise<void> {
       onProgress: (progress) => {
         lastCookProgressAt = performance.now();
         lastCookProgress = { ...progress };
+        if (progress.stage === "cook-complete") terminalCookTimings = progress.timings;
         controller.addEvidence("cookProgress", progress);
         const denominator = progress.catalogPrimitives > 0 ? `/${progress.catalogPrimitives}` : "";
         status.textContent = `cooking ${source.label} Products: ${progress.stage} ${progress.units}${denominator}`;
@@ -441,7 +443,7 @@ async function run(): Promise<void> {
       return;
     }
 
-    const cookTimings = lastCookProgress?.timings as Readonly<Record<string, number>> | undefined;
+    const cookTimings = terminalCookTimings;
     const cookOwners = Object.freeze({
       sourcePeakBytes: cookTimings?.peakSourceWindowBytes ?? 0,
       canonicalPeakBytes: cookTimings?.peakCanonicalWindowBytes ?? 0,
