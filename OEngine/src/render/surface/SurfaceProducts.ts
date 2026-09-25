@@ -104,7 +104,8 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
 
 /** Semantic resource closure for the selected kernel, before physical bind-group lowering. */
 export type SurfaceResourceRole =
-  | "shading-work" | "meshlet-work" | "material-records" | "frame-view" | "radiance-output"
+  | "shading-work" | "shading-work-classes" | "meshlet-work" | "material-records"
+  | "frame-view" | "radiance-output"
   | "instance-records" | "geometry-metadata" | "vertex-payload" | "visibility-depth"
   | "virtual-product-metadata" | "virtual-product-banks"
   | "texture-routes" | "texture-banks" | "texture-samplers"
@@ -130,7 +131,8 @@ export function surfaceMaterialRequirements(
     throw new RangeError("Lit Surface program requires direct-light evaluation");
   }
   const roles: SurfaceResourceRole[] = [
-    "shading-work", "meshlet-work", "material-records", "frame-view", "radiance-output"
+    "shading-work", "shading-work-classes", "meshlet-work", "material-records",
+    "frame-view", "radiance-output"
   ];
   if (s.reconstructTriangle) {
     roles.push("instance-records", "geometry-metadata", "vertex-payload", "visibility-depth");

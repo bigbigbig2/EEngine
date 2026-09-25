@@ -4,8 +4,8 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { SHADING_WORK_WGSL } from "./ShadingWorkAbi.js";
 
-/** Temporary Phase 2 material-publication view; not a radiance or PBR output. */
-export class MaterialDiagnosticPresentPass {
+/** Presents the current Surface radiance and exposes queue overflow as an error color. */
+export class SurfacePresentPass {
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPURenderPipeline;
 
@@ -17,7 +17,7 @@ export class MaterialDiagnosticPresentPass {
     ] });
     const module = device.createShaderModule({ code: /* wgsl */ `
       ${SHADING_WORK_WGSL}
-      @group(0) @binding(0) var material_view: texture_2d<f32>;
+      @group(0) @binding(0) var surface_radiance: texture_2d<f32>;
       @group(0) @binding(1) var<uniform> output_size: vec2u;
       @group(0) @binding(2) var<storage, read> work: ShadingWorkQueueRead;
       @vertex fn vs(@builtin(vertex_index) index: u32) -> @builtin(position) vec4f {
@@ -26,9 +26,9 @@ export class MaterialDiagnosticPresentPass {
       }
       @fragment fn fs(@builtin(position) position: vec4f) -> @location(0) vec4f {
         if work.header.overflow != 0u { return vec4f(1.0, 0.0, 1.0, 1.0); }
-        let size = textureDimensions(material_view);
+        let size = textureDimensions(surface_radiance);
         let pixel = min(vec2u(position.xy) * size / output_size, size - vec2u(1u));
-        return vec4f(textureLoad(material_view, vec2i(pixel), 0).rgb, 1.0);
+        return vec4f(textureLoad(surface_radiance, vec2i(pixel), 0).rgb, 1.0);
       }
     ` });
     this.pipeline = device.createRenderPipeline({
@@ -41,7 +41,7 @@ export class MaterialDiagnosticPresentPass {
 
   addToGraph(graph: FrameGraph, input: ResourceId, queue: ResourceId, swapchain: ResourceId,
     width: number, height: number): void {
-    const present = graph.add("Surface/material diagnostic present", {}, (_data, resources, context) => {
+    const present = graph.add("Surface/present radiance", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const size = command.allocateTransientBufferAndLoad(
         new Uint32Array([width, height, 0, 0]).buffer, GPUBufferUsage.UNIFORM

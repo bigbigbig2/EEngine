@@ -47,7 +47,8 @@ test("material resource closure follows triangle, texture and direct-light deman
   assert.equal(unlit.triangleReconstruction, false);
   assert.equal(unlit.directLighting, false);
   assert.deepEqual(unlit.roles, [
-    "shading-work", "meshlet-work", "material-records", "frame-view", "radiance-output"
+    "shading-work", "shading-work-classes", "meshlet-work", "material-records",
+    "frame-view", "radiance-output"
   ]);
   const texturedPbr = { ...base, virtualGeometry: true,
     kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask: 3 }
@@ -78,18 +79,19 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   };
   const narrow = planSurfaceKernelBindings(base, desktopLimits);
   assert.deepEqual(narrow.totals, {
-    storageBuffers: 3, storageTextures: 1, sampledTextures: 0,
+    storageBuffers: 4, storageTextures: 1, sampledTextures: 0,
     samplers: 0, uniformBuffers: 1
   });
   assert.deepEqual(narrow.bindings.map(binding => binding.role), [
-    "shading-work", "meshlet-work", "material-records", "frame-view", "radiance-output"
+    "shading-work", "meshlet-work", "material-records", "frame-view", "radiance-output",
+    "shading-work-classes"
   ]);
   const full = { ...base, virtualGeometry: true, lighting: "direct",
     kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion,
       textureBankMask: 0x1ff } };
   const plan = planSurfaceKernelBindings(full, desktopLimits);
   assert.deepEqual(plan.totals, {
-    storageBuffers: 15, storageTextures: 1, sampledTextures: 10,
+    storageBuffers: 16, storageTextures: 1, sampledTextures: 10,
     samplers: 6, uniformBuffers: 2
   });
   assert.equal(new Set(plan.bindings.map(binding =>
@@ -97,8 +99,8 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   assert.equal(plan.bindings.filter(binding => binding.role === "virtual-product-banks").length, 4);
   assert.equal(plan.bindings.filter(binding => binding.role === "texture-banks").length, 9);
   assert.throws(() => planSurfaceKernelBindings(full, {
-    ...desktopLimits, maxStorageBuffersPerShaderStage: 14
-  }), /maxStorageBuffersPerShaderStage >= 15/);
+    ...desktopLimits, maxStorageBuffersPerShaderStage: 15
+  }), /maxStorageBuffersPerShaderStage >= 16/);
   assert.throws(() => planSurfaceKernelBindings(full, {
     ...desktopLimits, maxBindingsPerBindGroup: 15
   }), /maxBindingsPerBindGroup >= 16/);
@@ -130,7 +132,7 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   emitted.length = 0;
   createSurfaceBindGroupLayouts(fakeDevice, narrow);
   assert.equal(emitted.length, 1);
-  assert.equal(emitted[0].entries.length, 5);
+  assert.equal(emitted[0].entries.length, 6);
 });
 
 test("publication bindings close only the selected program's resource demand", () => {

@@ -5,6 +5,8 @@ import {
 import { encodeAssetRecordsV3, encodeGeometryProductPageRecordsV1, encodeVertexFormatsV3, type GeometryProductDescriptorV1, type GeometryProductRevisionSourceV1 } from "../../../OEngine/src/assets/geometry-product/GeometryProductV1.ts";
 import { createValidationController } from "../../harness/browser.ts";
 import { attachGpuErrorCollection, withGpuErrorScopes } from "../../harness/browser.ts";
+import { compileSurfaceProgramLayout } from "../../../OEngine/src/render/surface/SurfaceKernelBindingPlan.ts";
+import { createSurfaceMaterialProgramWgsl } from "../../../OEngine/src/shaders/surface_material_program.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 const status = document.querySelector<HTMLElement>("#status")!;
@@ -123,10 +125,34 @@ try {
   const context = canvas.getContext("webgpu");
   requireValue(context, "WebGPU canvas context unavailable");
   await renderer.initialize({ context });
+  for (const profile of [
+    { programId: 0, virtualGeometry: false, textureBankMask: 0, classId: 0 },
+    { programId: 3, virtualGeometry: false, textureBankMask: 0x1ff, classId: 3 },
+    { programId: 4, virtualGeometry: false, textureBankMask: 0, classId: 4 },
+    { programId: 15, virtualGeometry: false, textureBankMask: 0x1ff, classId: 15 },
+    { programId: 15, virtualGeometry: true, textureBankMask: 0x1ff, classId: 15 }
+  ]) {
+    const compiled = compileSurfaceProgramLayout({
+      kernel: { programId: profile.programId, outputDependencyMask: 0,
+        textureBankMask: profile.textureBankMask },
+      virtualGeometry: profile.virtualGeometry, lighting: "direct",
+      source: "phase2-surface-wgsl", capabilityFingerprint: "validation-adapter",
+      formatProfile: "rgba16float"
+    }, renderer.device.limits);
+    const module = renderer.device.createShaderModule({
+      code: createSurfaceMaterialProgramWgsl(compiled.closure, compiled.plan, profile.classId)
+    });
+    const errors = (await module.getCompilationInfo()).messages.filter(message => message.type === "error");
+    requireValue(errors.length === 0,
+      `Surface program ${profile.programId} WGSL failed: ${errors.map(error => error.message).join("; ")}`);
+  }
   collector = attachGpuErrorCollection(renderer.device, controller, () => intentionalDestroy);
   renderer.resize(1280, 720);
   const scene = new Scene();
   const material = new StandardShadeMaterial();
+  material.emissive_factor.r = 0.8;
+  material.emissive_factor.g = 0.2;
+  material.emissive_factor.b = 0.05;
   source = await createProductSource();
   residency = await VirtualGeometryResidency.create(renderer.device, source, 17, 0);
   residency.activatePublication();
@@ -177,8 +203,11 @@ try {
   requireValue(passes.includes("Visibility/build HZB"), "HZB was not built");
   requireValue(passes.includes("Surface/classify visible ShadingWork"), "GPU ShadingWork producer was not encoded");
   requireValue(passes.includes("Surface/finalize ShadingWork indirect"), "GPU ShadingWork indirect finalizer was not encoded");
-  requireValue(passes.includes("Surface/consume ShadingWork material diagnostic"), "GPU ShadingWork consumer was not encoded");
-  requireValue(passes.includes("Surface/material diagnostic present"), "Current material publication was not presented");
+  requireValue(passes.includes("Surface/scatter ShadingWork by material class"),
+    "GPU ShadingWork class ranges were not consumed by scatter");
+  requireValue(passes.some(name => name.startsWith("Surface/shade material class ")),
+    "GPU Surface material consumer was not encoded");
+  requireValue(passes.includes("Surface/present radiance"), "Surface radiance was not presented");
   requireValue(scoped.errors.length === 0, JSON.stringify(scoped.errors));
   const geometryBeforeLoss = residency.evidence();
   const lostDevice = renderer.device;

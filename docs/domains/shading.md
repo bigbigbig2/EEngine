@@ -5,7 +5,7 @@ owner: shading
 ---
 # Shading
 
-Phase 1 deliberately had no production material or lighting resolve. The previous effect-owned sparse shading, AO, GI, reflection, shadow, and temporal passes were removed from the production Renderer. Remaining `SurfaceFeature` and sparse shading source files are migration material for Phase 2, not an alternate active frame path. Phase 2 has extracted reconstruction/material/PBR WGSL into `surface_material_kernel.ts`, defined logical Surface values plus separate program/publication identity in `render/surface/SurfaceProducts.ts`, and connected the first GPU ShadingWork producer/indirect consumer. This consumer reads published material base-color factors for a **diagnostic output only**; it is not yet the extracted full material/PBR kernel.
+Phase 1 deliberately had no production material or lighting resolve. The previous effect-owned sparse shading, AO, GI, reflection, shadow, and temporal passes were removed from the production Renderer. Remaining `SurfaceFeature` and sparse shading source files are migration material for Phase 2, not an alternate active frame path. Phase 2 extracted reconstruction/material/PBR WGSL into `surface_material_kernel.ts`, defined logical Surface values plus separate program/publication identity in `render/surface/SurfaceProducts.ts`, and connected a per-class GPU ShadingWork producer/indirect Surface consumer. The new consumer executes extracted material mathematics; complete textured, lit and adaptive-frequency coverage is still in progress.
 
 The target is explicit Surface reconstruction and material demand over the visibility hit, with valid full, coarse, reconstructed, or eventually reused results for every visible sample. Phase 2 must extract existing visibility decoding, interpolation, gradients, UV transforms, texture sampling, and PBR mathematics before deleting the old Surface owner. Temporal reuse waits for a valid identity and rejection contract.
 
@@ -13,11 +13,11 @@ The target decision is [ADR-0020](../adr/0020-clean-cut-renderer.md). The [histo
 
 ## Current Production Path
 
-The single Renderer frame now runs VisibilityKey → full-rate visible-sample ShadingWork → indirect material-publication diagnostic → Present. Its queue semantics and limits are in [ShadingWork V1](../specs/shading-work-v1.md). It does not evaluate textures, gradients, normals, PBR, or direct lighting, so its output is not `SurfaceProduct.Radiance`. The logical Surface values distinguish radiance, geometric normal, shading normal, motion, and material identity without assigning a physical texture; the program key excludes Scene/material/texture publication generations, which belong to binding lifetime.
+The single Renderer frame now runs VisibilityKey → full-rate visible-sample ShadingWork → per-class indirect Surface material evaluation → radiance Present. The active PBR program uses geometry reconstruction, material evaluation and basic direct light; textured programs include explicit gradients and texture banks. Their queue semantics and limits are in [ShadingWork V1](../specs/shading-work-v1.md), and the physical resource closure is in [Surface Kernel Binding V1](../specs/surface-kernel-binding-v1.md). A virtual-geometry PBR emissive scene has run on the new GPU path, while textured/nonzero-light reference images remain open. Logical Surface values distinguish radiance, geometric normal, shading normal, motion, and material identity without assigning each a physical texture; the program key excludes Scene/material/texture publication generations, which belong to binding lifetime.
 
 ## Owner Boundaries And Failure
 
-Shading owns ShadingWork and the pending full material evaluation; Visibility owns hit production; texture residency owns physical texture availability. No old sparse shading claim or browser evidence transfers to the new owner.
+Shading owns ShadingWork and Surface material evaluation; Visibility owns hit production; texture residency owns physical texture availability. No old sparse shading claim or browser evidence transfers to the new owner.
 
 ## Main Entrypoints And Proof
 

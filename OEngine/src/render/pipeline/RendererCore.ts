@@ -13,7 +13,10 @@ import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import { ShadingWorkPass } from "../surface/ShadingWorkPass.js";
-import { MaterialDiagnosticPresentPass } from "../surface/MaterialDiagnosticPresentPass.js";
+import { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
+import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
+import { LightClusterPass } from "../passes/LightClusterPass.js";
+import { shadingProgramUsesTextures } from "../../gpu/GpuShadingProgramAbi.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
@@ -129,6 +132,7 @@ export interface RendererCapabilities {
 
 interface VisibilityGraphBindings {
   readonly job: PackedVisibilityJob;
+  readonly camera: PerspectiveCamera;
   readonly view: GPUViewContext;
   readonly hzb: HierarchicalZBuffer;
   readonly depth: GPUTextureContext;
@@ -261,7 +265,9 @@ export class Renderer {
   private _views!: ViewManager;
   private _visibilityFeature!: VisibilityFeature;
   private _shadingWork!: ShadingWorkPass;
-  private _present!: MaterialDiagnosticPresentPass;
+  private _surfaceMaterial!: SurfaceMaterialPass;
+  private _lightCluster: LightClusterPass | null = null;
+  private _present!: SurfacePresentPass;
   private readonly _renderTargets = new RenderTargets();
   private readonly _profiler = new FrameProfiler();
   private readonly _virtualProductScenes = new Map<Scene, {
@@ -1084,7 +1090,8 @@ export class Renderer {
     this._visibilityFeature = new VisibilityFeature(this._graphics);
     this._format = gpu.getPreferredCanvasFormat();
     this._shadingWork = new ShadingWorkPass(device);
-    this._present = new MaterialDiagnosticPresentPass(device, this._format);
+    this._surfaceMaterial = new SurfaceMaterialPass(device);
+    this._present = new SurfacePresentPass(device, this._format);
     const canvas = context.canvas as HTMLCanvasElement;
     this._width = Math.max(1, canvas.clientWidth || canvas.width);
     this._height = Math.max(1, canvas.clientHeight || canvas.height);
@@ -1202,16 +1209,21 @@ export class Renderer {
         prepared: this._visibilityFeature.prepare(prepareJob, runtime.counterSink, view.gpu_camera_state.buffer, command)
       };
       const graphBindings: VisibilityGraphBindings = {
-        job, view, hzb, depth: this._renderTargets.depth,
+        job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime
       };
+      const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
+        .filter(classId => (runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
+      const textureBankMasks = Array.from({ length: 4 }, (_, setId) =>
+        runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0
+      );
       const graphKey = JSON.stringify([
         width, height, this._output_resolution.x, this._output_resolution.y, this._format,
         runtime.virtualGeometry !== null, this.packed_visibility_hzb_enabled,
         job.prepared.currentHzbLateRecheck !== null,
         job.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
         this.packed_meshlet_work_compaction, this.packed_primitive_index,
-        this.packed_visibility_cone_enabled
+        this.packed_visibility_cone_enabled, activeClasses, textureBankMasks
       ]);
       const compiled = this._graphCache.getOrCreate(
         graphKey,
@@ -1384,19 +1396,127 @@ export class Renderer {
       "material-records", { kind: "imported", label: "published material records" },
       bind("material-records", bindings => bindings.runtime.materialResources.materialRecords)
     );
-    const materialDiagnostic = this._shadingWork.addToGraph(graph, {
+    const shadingWork = this._shadingWork.addToGraph(graph, {
       visibilityKey: result.frame.visibilityKey,
       meshletWork: result.frame.meshletWork.records,
       materialRecords,
       width: result.frame.domain.width,
       height: result.frame.domain.height
     });
+    const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
+      .filter(classId => (initial.runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
+    const needsDirectLight = activeClasses.some(classId => (classId & 15) >= 4);
+    const instances = graph.import_resource(
+      "scene-instances", { kind: "imported", label: "published instance records" },
+      bind("scene-instances", bindings => bindings.job.scene.instances)
+    );
+    const geometryMetadata = graph.import_resource(
+      "geometry-metadata", { kind: "imported", label: "geometry metadata" },
+      bind("geometry-metadata", bindings => bindings.job.assets.sparseShading.assetMetadataHeap)
+    );
+    const vertexPayload = graph.import_resource(
+      "vertex-payload", { kind: "imported", label: "geometry vertex payload" },
+      bind("vertex-payload", bindings => bindings.job.assets.sparseShading.vertexPayloadHeap)
+    );
+    const textureRoutes = graph.import_resource(
+      "texture-routes", { kind: "imported", label: "published texture routes" },
+      bind("texture-routes", bindings => bindings.runtime.materialResources.textureRouteRecords)
+    );
+    const textureBankMasks = Array.from({ length: 4 }, (_, setId) =>
+      initial.runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0
+    );
+    const textureBanks: number[][] = Array.from({ length: 4 }, () => []);
+    for (const setId of new Set(activeClasses
+      .filter(classId => shadingProgramUsesTextures(classId & 15))
+      .map(classId => classId >> 4))) {
+      const bindingSet = initial.runtime.materialResources.bindingSets.find(set => set.id === setId);
+      if (!bindingSet) throw new Error(`Surface texture binding set ${setId} is not resident`);
+      for (let bank = 0; bank < bindingSet.textureBanks.length; bank++) {
+        if ((bindingSet.textureBankMask & (1 << bank)) === 0) continue;
+        textureBanks[setId]![bank] = graph.import_resource(
+          `texture-set-${setId}-bank-${bank}`,
+          { kind: "imported", label: `texture set ${setId} bank ${bank}` },
+          bind(`texture-set-${setId}-bank-${bank}`, bindings => {
+            const active = bindings.runtime.materialResources.bindingSets.find(set => set.id === setId);
+            if (!active || (active.textureBankMask & (1 << bank)) === 0) {
+              throw new Error(`Surface texture bank ${setId}:${bank} is not resident`);
+            }
+            return active.textureBanks[bank]!;
+          })
+        );
+      }
+    }
+    const virtualMetadata = initial.runtime.virtualGeometry
+      ? graph.import_resource(
+          "virtual-geometry-metadata", { kind: "imported", label: "virtual geometry metadata" },
+          bind("virtual-geometry-metadata", bindings => {
+            if (!bindings.runtime.virtualGeometry) throw new Error("Virtual geometry publication changed");
+            return bindings.runtime.virtualGeometry.metadata;
+          })
+        ) : undefined;
+    const virtualBanks = initial.runtime.virtualGeometry
+      ? initial.runtime.virtualGeometry.banks.map((_, bank) => graph.import_resource(
+          `virtual-geometry-bank-${bank}`,
+          { kind: "imported", label: `virtual geometry bank ${bank}` },
+          bind(`virtual-geometry-bank-${bank}`, bindings => {
+            const resource = bindings.runtime.virtualGeometry?.banks[bank];
+            if (!resource) throw new Error(`Virtual geometry bank ${bank} is not resident`);
+            return resource;
+          })
+        )) : undefined;
+    const lightRecords = needsDirectLight ? graph.import_resource(
+      "light-records", { kind: "imported", label: "scene light records" },
+      bind("light-records", bindings => bindings.view.environment.lights.buffer_data)
+    ) : undefined;
+    const clusters = lightRecords === undefined ? undefined :
+      (this._lightCluster ??= new LightClusterPass(this._graphics)).addToGraph(
+        graph,
+        bind("surface-light-cluster", bindings => ({
+          camera: bindings.camera,
+          lights: bindings.view.environment.lights,
+          width: result.frame.domain.width,
+          height: result.frame.domain.height
+        })),
+        { camera: cameraBuffer, lightDatabase: lightRecords, hzb: builtHzb }
+      );
+    const radiance = this._surfaceMaterial.addToGraph(graph, {
+      width: result.frame.domain.width,
+      height: result.frame.domain.height,
+      frame: bind("surface-frame", bindings => ({
+        runtime: bindings.runtime,
+        assets: bindings.job.assets,
+        view: bindings.view,
+        frameIndex: bindings.view.frame_index,
+        outputWidth: this._output_resolution.x,
+        outputHeight: this._output_resolution.y
+      })),
+      activeClasses,
+      textureBankMasks,
+      virtualGeometry: initial.runtime.virtualGeometry !== null,
+      queue: shadingWork.queue,
+      classes: shadingWork.classes,
+      indirect: shadingWork.indirect,
+      meshletWork: result.frame.meshletWork.records,
+      materialRecords,
+      depth: result.frame.depth,
+      instances,
+      geometryMetadata,
+      vertexPayload,
+      virtualMetadata,
+      virtualBanks,
+      textureRoutes,
+      textureBanks,
+      lightRecords,
+      lightLookup: clusters?.lookup,
+      lightData: clusters?.data,
+      lightParams: clusters?.parameters
+    });
     const swapchain = graph.import_resource(
       "swapchain", { kind: "imported", label: "swapchain" },
       bind("swapchain", bindings => bindings.swapchain)
     );
     this._present.addToGraph(
-      graph, materialDiagnostic.color, materialDiagnostic.queue, swapchain,
+      graph, radiance, shadingWork.queue, swapchain,
       this._output_resolution.x, this._output_resolution.y
     );
     this._profiler.recordGraphCompile();
@@ -1414,6 +1534,7 @@ export class Renderer {
     this._destroyed = true;
     this._deviceLost = true;
     this._visibilityFeature?.destroy();
+    this._surfaceMaterial?.destroy();
     this._views?.destroy();
     this._environments?.destroy();
     this._frameCoordinator?.destroy();

@@ -13,7 +13,7 @@ Exact formats and shader invariants of this current production path live in `doc
 
 ## Current Production Path
 
-GPU hierarchy traversal produces bounded meshlet work, indirect raster publishes VisibilityKey/depth, and HZB consumes depth. Phase 2 now feeds VisibilityKey to the separate ShadingWork producer and GPU indirect material-publication diagnostic; the former ShadingBin/sparse resolve is not a consumer in the active frame. Counters and bounded diagnostic readback observe the visibility chain without becoming its producer.
+GPU hierarchy traversal produces bounded meshlet work, indirect raster publishes VisibilityKey/depth, and HZB consumes depth. Phase 2 feeds VisibilityKey to the ShadingWork classifier/scatter; the per-class indirect Surface material program consumes its GPU queue. The former ShadingBin/sparse resolve is not a consumer in the active frame. Counters and bounded diagnostic readback observe the visibility chain without becoming its producer.
 
 The optional Phase I current-HZB late-recheck contract is a bounded GPU hint
 queue. It may reject only conservative uncertain/expensive candidates; invalid

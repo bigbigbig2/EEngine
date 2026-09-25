@@ -3,6 +3,16 @@ export const SHADING_WORK_ABI_VERSION = 1;
 export const SHADING_WORK_HEADER_BYTES = 20;
 export const SHADING_WORK_RECORD_BYTES = 8;
 export const SHADING_WORK_THREADS = 64;
+export const SHADING_WORK_CLASS_COUNT = 64;
+export const SHADING_WORK_CLASS_BYTES = 16;
+export const SHADING_WORK_CLASS_BUFFER_BYTES = SHADING_WORK_CLASS_COUNT * SHADING_WORK_CLASS_BYTES;
+export const SHADING_WORK_INDIRECT_BYTES = (SHADING_WORK_CLASS_COUNT + 1) * 16;
+export function shadingWorkClassIndirectOffset(classId: number): number {
+  if (!Number.isInteger(classId) || classId < 0 || classId >= SHADING_WORK_CLASS_COUNT) {
+    throw new RangeError("ShadingWork class id is outside [0, 63]");
+  }
+  return (classId + 1) * 16;
+}
 export const SHADING_WORK_WGSL = /* wgsl */ `
 struct ShadingWorkHeader {
   attempted: atomic<u32>,
@@ -26,6 +36,24 @@ struct ShadingWorkHeaderRead {
 struct ShadingWorkQueueRead {
   header: ShadingWorkHeaderRead,
   records: array<ShadingWorkRecord>,
+};
+struct ShadingWorkClass {
+  count: atomic<u32>,
+  start: u32,
+  cursor: atomic<u32>,
+  dispatch_x: u32,
+};
+struct ShadingWorkClasses { entries: array<ShadingWorkClass, ${SHADING_WORK_CLASS_COUNT}>, };
+struct ShadingWorkClassRead {
+  count: u32,
+  start: u32,
+  cursor: u32,
+  dispatch_x: u32,
+};
+struct ShadingWorkClassesRead { entries: array<ShadingWorkClassRead, ${SHADING_WORK_CLASS_COUNT}>, };
+struct ShadingWorkIndirectArgs {
+  global: vec4u,
+  per_class: array<vec4u, ${SHADING_WORK_CLASS_COUNT}>,
 };
 `;
 

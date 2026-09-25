@@ -73,6 +73,7 @@ export function planSurfaceKernelBindings(
   add("frame-view", 0, 3, "uniform");
   add("radiance-output", 0, 4, "write-only-rgba16float");
   add("visibility-depth", 0, 5, "sampled-depth");
+  add("shading-work-classes", 0, 6, "read-only-storage");
 
   add("instance-records", 1, 0, "read-only-storage");
   add("geometry-metadata", 1, 1, "read-only-storage");
