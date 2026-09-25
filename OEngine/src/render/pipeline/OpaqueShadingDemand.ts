@@ -4,7 +4,59 @@ import {
   type RenderDebugView as RenderDebugViewT
 } from "../../debug/RenderDebugView.js";
 import type { OpaqueShadingDemand } from "../../gpu/GpuOpaqueShadingDemand.js";
-import { GPU_SHADING_OUTPUT_DEPENDENCY } from "../../gpu/GpuSparseShadingPipelineContract.js";
+import {
+  GPU_SHADING_OUTPUT_DEPENDENCY,
+  GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK
+} from "../../gpu/GpuSparseShadingPipelineContract.js";
+
+export type OpaqueProductRepresentation = "fused" | "deferred" | "materialized" | "absent";
+
+/** Finite physical plan for the current opaque visibility consumer. */
+export interface OpaqueSurfaceProductPlan {
+  readonly normal: "materialized" | "absent";
+  readonly diffuseReflectance: "materialized" | "absent";
+  /** One shared physical product for either compact Surface consumer. */
+  readonly materialFlags: "materialized" | "absent";
+  readonly velocity: "materialized" | "absent";
+  readonly environmentIbl: OpaqueProductRepresentation;
+}
+
+/**
+ * Lower semantic publication demand into the current bounded Surface layout.
+ * Older contract fixtures carry only the output mask; production also checks
+ * the frozen semantic demand before the graph allocates any optional output.
+ */
+export function compileOpaqueSurfaceProductPlan(input: Readonly<{
+  outputDependencyMask: number;
+  opaqueDemand?: Readonly<OpaqueShadingDemand>;
+}>): Readonly<OpaqueSurfaceProductPlan> {
+  const mask = input.outputDependencyMask;
+  if (!Number.isInteger(mask) || mask < 0 ||
+      (mask & ~GPU_SHADING_OUTPUT_DEPENDENCY_VALID_MASK) !== 0) {
+    throw new RangeError("Opaque Surface product mask is invalid");
+  }
+  const demand = input.opaqueDemand;
+  const normal = (mask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0;
+  const diffuse = (mask & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0;
+  const velocity = (mask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0;
+  const ibl = (mask & GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0;
+  if (demand !== undefined && (
+    demand.outputDependencyMask !== mask ||
+    demand.needsSurface !== normal ||
+    demand.needsDiffuseSurface !== diffuse ||
+    demand.needsVelocity !== velocity ||
+    demand.needsEnvironmentIbl !== ibl
+  )) {
+    throw new Error("Opaque Surface plan does not match the published demand");
+  }
+  return Object.freeze({
+    normal: normal ? "materialized" : "absent",
+    diffuseReflectance: diffuse ? "materialized" : "absent",
+    materialFlags: normal || diffuse ? "materialized" : "absent",
+    velocity: velocity ? "materialized" : "absent",
+    environmentIbl: ibl ? "fused" : demand?.needsIndirectComponents ? "deferred" : "absent"
+  });
+}
 
 export interface OpaqueShadingDemandInput {
   readonly opaqueLitReceiverCount: number;

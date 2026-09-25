@@ -23,6 +23,7 @@ import type { LightClusterOutputs } from "../passes/LightClusterPass.js";
 import type { ShadingBinFrameBindings } from "../passes/ShadingBinPass.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import type { SparseShadingGpuRevision } from "../pipeline/SparseShadingGpuRevision.js";
+import { compileOpaqueSurfaceProductPlan } from "../pipeline/OpaqueShadingDemand.js";
 import {
   diffuseSurfaceLiteFrame,
   directLightingFrame,
@@ -149,8 +150,8 @@ export class SurfaceFeature {
     if (snapshot.context.shadowSamplingEnabled !== (inputs.shadowAtlas !== null)) {
       throw new Error("Sparse shading shadow specialization does not match its atlas input");
     }
-    const environmentIbl = (snapshot.context.outputDependencyMask &
-      GPU_SHADING_OUTPUT_DEPENDENCY.EnvironmentIBL) !== 0;
+    const productPlan = compileOpaqueSurfaceProductPlan(snapshot.context);
+    const environmentIbl = productPlan.environmentIbl === "fused";
     if (environmentIbl && (
       inputs.environment === null ||
       inputs.diffuseIrradiance === null ||
@@ -312,7 +313,6 @@ export class SurfaceFeature {
 
     const width = snapshot.context.width;
     const height = snapshot.context.height;
-    const outputMask = snapshot.context.outputDependencyMask;
     const outputs: {
       hdr: ResourceId;
       normal: ResourceId | null;
@@ -458,29 +458,28 @@ export class SurfaceFeature {
       }
     );
     resolve.dependsOn(outputInit);
-    if ((outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0) {
+    if (productPlan.normal === "materialized") {
       outputs.normal = resolve.create(
         "SparseShading/surface-normal",
         sparseTexture(width, height, "rgba16uint",
           GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING)
       );
     }
-    if ((outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0) {
+    if (productPlan.diffuseReflectance === "materialized") {
       outputs.albedoAo = resolve.create(
         "SparseShading/surface-albedo-ao",
         sparseTexture(width, height, "rgba8unorm",
           GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING)
       );
     }
-    if ((outputMask & (GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
-        GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite)) !== 0) {
+    if (productPlan.materialFlags === "materialized") {
       outputs.material = resolve.create(
         "SparseShading/surface-material",
         sparseTexture(width, height, "rg32uint",
           GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING)
       );
     }
-    if ((outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0) {
+    if (productPlan.velocity === "materialized") {
       outputs.velocity = resolve.create(
         "SparseShading/velocity",
         sparseTexture(width, height, "rg16float",
@@ -548,10 +547,10 @@ export class SurfaceFeature {
       domain
     }) : null;
     const publishesShading =
-      (outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0 &&
+      productPlan.normal === "materialized" &&
       outputs.normal !== null && outputs.material !== null;
     const publishesDiffuse =
-      (outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0 &&
+      productPlan.diffuseReflectance === "materialized" &&
       outputs.albedoAo !== null && outputs.material !== null;
     return specializedShadingFrame({
       bins: binProduct,

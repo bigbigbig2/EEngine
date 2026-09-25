@@ -12,7 +12,7 @@ currentSlice:
   title: Freeze minimal product, work, temporal, and program-cache boundaries before changing the production renderer
   status: active
 nextTasks:
-  - Separate stable program compilation from scene publication and define the first finite product plans.
+  - Extend the first finite product plan using real consumers and cost evidence; keep Surface outputs and program publication separate.
   - Map existing meshlet and shading consumers onto a shared bounded work protocol without removing direct fast paths.
   - Define motion, exposure, stable history identity, and invalidation before integrating new lighting providers.
   - Prototype dynamic world-GI sample production and scene-change invalidation on the GTX 1650 Ti baseline during the foundation slice.
@@ -32,6 +32,8 @@ completedMilestones:
     result: The accepted target, six-module implementation route, pinned candidate survey, and faithful-port policy are documented; no runtime migration is claimed.
   - id: device-and-dynamic-gi-direction
     result: User selected the 1650 and 2060 development machines and dynamic world GI; current hardware is GTX 1650 Ti 4 GiB, i7-10750H, and 16 GiB RAM. Actual second-machine configuration remains to be read.
+  - id: first-opaque-product-and-program-boundary
+    result: Sparse shading programs now reuse device-scoped compiled pipelines across Scene revisions; publication bindings remain revision-local. The first opaque product plan drives optional Surface allocation; browser performance evidence remains open.
 tasks:
   - id: foundation-contracts
     state: active

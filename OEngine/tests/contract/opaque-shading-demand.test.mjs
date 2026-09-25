@@ -6,7 +6,7 @@ import { GPU_SHADING_OUTPUT_DEPENDENCY } from
   "../../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
 import { GpuShadingPublicationStore } from
   "../../.test-dist/gpu/GpuShadingPublicationPlan.js";
-import { deriveOpaqueShadingDemand, requiresSpatialGiQuery } from
+import { compileOpaqueSurfaceProductPlan, deriveOpaqueShadingDemand, requiresSpatialGiQuery } from
   "../../.test-dist/render/pipeline/OpaqueShadingDemand.js";
 import {
   captureGpuSparseShadingCapabilityRecord,
@@ -65,6 +65,43 @@ test("effects-off lit and unlit publications request only their real products", 
   assert.equal(empty.needsHdr, false);
   assert.equal(empty.shadowSamplingEnabled, false);
   assert.equal(empty.outputDependencyMask, 0);
+});
+
+test("opaque product planning shares physical Surface material data and preserves fused IBL", () => {
+  const lit = demand();
+  assert.deepEqual(compileOpaqueSurfaceProductPlan({ outputDependencyMask: lit.outputDependencyMask, opaqueDemand: lit }), {
+    normal: "absent",
+    diffuseReflectance: "absent",
+    materialFlags: "absent",
+    velocity: "absent",
+    environmentIbl: "fused"
+  });
+  const diffuse = demand({ debugView: RenderDebugView.BaseColor });
+  const diffusePlan = compileOpaqueSurfaceProductPlan({
+    outputDependencyMask: diffuse.outputDependencyMask, opaqueDemand: diffuse
+  });
+  assert.equal(diffusePlan.normal, "absent");
+  assert.equal(diffusePlan.diffuseReflectance, "materialized");
+  assert.equal(diffusePlan.materialFlags, "materialized");
+  const temporal = demand({ needsPreviousDepth: true });
+  const temporalPlan = compileOpaqueSurfaceProductPlan({
+    outputDependencyMask: temporal.outputDependencyMask, opaqueDemand: temporal
+  });
+  assert.equal(temporalPlan.normal, "materialized");
+  assert.equal(temporalPlan.velocity, "materialized");
+  assert.equal(temporalPlan.materialFlags, "materialized");
+  const indirect = demand({ ssgi: true });
+  assert.equal(compileOpaqueSurfaceProductPlan({
+    outputDependencyMask: indirect.outputDependencyMask, opaqueDemand: indirect
+  }).environmentIbl, "deferred");
+  assert.throws(() => compileOpaqueSurfaceProductPlan({
+    outputDependencyMask: 0, opaqueDemand: temporal
+  }), /does not match/u);
+  assert.throws(() => compileOpaqueSurfaceProductPlan({
+    outputDependencyMask: temporal.outputDependencyMask,
+    opaqueDemand: { ...temporal, needsVelocity: false }
+  }), /does not match/u);
+  assert.throws(() => compileOpaqueSurfaceProductPlan({ outputDependencyMask: 1 << 9 }), /mask is invalid/u);
 });
 
 test("advanced indirect consumers request both compact surfaces and move IBL after receiver", () => {
