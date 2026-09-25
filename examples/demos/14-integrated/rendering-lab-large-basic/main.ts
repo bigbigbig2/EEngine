@@ -62,7 +62,7 @@ async function start(): Promise<void> {
       }
     }
   });
-  await renderer.initialize({ context, pixelRatio: Math.min(devicePixelRatio, 2) });
+  await renderer.initialize({ context });
   if (closing) return;
   renderer.render_debug_view = meshletView ? RenderDebugView.MeshletId : RenderDebugView.None;
   renderer.packed_visibility_cone_enabled = true;

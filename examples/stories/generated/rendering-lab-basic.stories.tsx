@@ -18,8 +18,8 @@ const meta = {
   title: "Examples/14 Integrated",
   component: ExampleFrame,
   parameters: {
-    docs: { description: { story: "Standalone Web Worker Cook virtual-geometry demo with authored PBR materials, full effects enabled by default, and a collapsible diagnostic panel." } },
-    tags: ["integrated","virtual-geometry","web-cook","gltf","pbr","effects-toggle","profiling"]
+    docs: { description: { story: "Standalone Web Worker Cook virtual-geometry baseline: Visibility, sparse material resolve, PBR direct and IBL, linear HDR, with post effects disabled and a collapsible diagnostic panel." } },
+    tags: ["integrated","virtual-geometry","web-cook","gltf","pbr","post-off","hdr","profiling"]
   }
 } satisfies Meta<typeof ExampleFrame>;
 

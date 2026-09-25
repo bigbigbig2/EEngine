@@ -12,6 +12,12 @@ OEngine 是面向桌面 WebGPU、中大型高几何密度场景的 GPU-first 渲
 3. 机器事实只编辑 `project/`、`checks/`、case-local `case.yaml`、docs frontmatter/source ledger 和 workstream；`validation/registry.generated.json`、`validation/evidence/` 与 `docs/status.generated.md` 是生成物。检查的执行体在 `tools/check-runners.mjs`：声明式 YAML 只描述断言，新增检查必须绑定已注册的 `runner`，未注册的 runner 一律失败而不是默认通过。
 4. 普通修复和内部重构默认不新增文档。domain Markdown frontmatter 只写 `id`、`kind`、`owner`；关系由机器 manifest 生成。活跃 workstream 只保留当前 slice、下一批任务、open gates 和退出条件，阶段过程由 Git、正式 evidence 或少量长期审计 review 保存。
 
+## 提交约定
+
+- Commit message 一律使用中文。标题写清改动的对象与意图，正文说明动机、影响范围和验证状态；不写「更新」「修复」「优化」这类无信息量的单句。
+- 一个提交只承载一个连贯意图。跨 owner 或彼此独立的改动拆成多个提交，便于回溯与二分定位。
+- 正文必须区分「已运行且通过」与「未运行」的验证，并写明未运行的原因；未运行的门禁不得写成已通过。
+
 ## 不可违反的不变量
 
 - GPU producer 必须由 GPU consumer 闭环消费；CPU 可读回仅用于诊断或异步调度反馈。

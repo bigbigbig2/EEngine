@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-const { createWebCookSceneSourceAsync, decodeWebCookImageBitmap } = await import("../../.test-dist/assets/web-cook/WebCookSceneSource.js");
+const { createWebCookSceneSource, createWebCookSceneSourceAsync, decodeWebCookImageBitmap } = await import("../../.test-dist/assets/web-cook/WebCookSceneSource.js");
 const { webCookCatalogSceneFraming } = await import("../../.test-dist/assets/web-cook/WebCookSceneBounds.js");
 const { mergeVirtualGeometryProductSceneSourcesV1 } = await import("../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js");
 
@@ -48,6 +48,8 @@ test("separate Web Cook Products use one catalog fit without moving earlier inst
     const mapped = await createWebCookSceneSourceAsync(catalog, { assetRecords }, async () => { throw new Error("no image expected"); }, undefined, {
       sceneAssetIndices: [index], scale: framing.scale, offset: framing.offset
     });
+    assert.equal(mapped.materials[0].metallic_factor, 1, "missing glTF metallicFactor defaults to one");
+    assert.equal(createWebCookSceneSource(catalog, { assetRecords }, { sceneAssetIndices: [index] }).materials[0].metallic_factor, 1);
     parts.push({ source: mapped.source, productTableSlot: index, productGeneration: 1, assetReferenceBegin: index });
   }
   const firstY = parts[0].source.currentTransforms[13];

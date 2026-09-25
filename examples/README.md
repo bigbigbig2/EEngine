@@ -6,7 +6,7 @@
 
 - `00-foundations/basic-scene`：最小生产 Renderer 场景。
 - `14-integrated/rendering-lab`：只有导入的 Dungeon 模型，保留 PBR、环境光、太阳和完整效果。
-- `14-integrated/rendering-lab-basic`：独立 Web Worker Cook 虚拟几何示例；同一 Dungeon 模型，PBR 与可共存的渲染效果默认开启，支持 Meshlet ID 对照和折叠式调试面板。
+- `14-integrated/rendering-lab-basic`：独立 Web Worker Cook 虚拟几何基线；同一 Dungeon 模型走 Visibility → Sparse Material Resolve → PBR Direct + IBL → HDR，关闭后处理效果，支持 Meshlet ID 对照和折叠式调试面板。
 - `14-integrated/rendering-lab-large`：加载 `assets/oengine/large.glb`，保留 PBR、环境光、太阳和完整效果。
 - `14-integrated/rendering-lab-large-basic`：加载同一大型模型，使用 Unlit，默认关闭效果。
 

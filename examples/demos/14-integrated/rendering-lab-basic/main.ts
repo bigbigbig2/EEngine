@@ -29,8 +29,6 @@ let settled = false;
 const panel = new BasicPanel(telemetry, {
   center: () => placeCamera(false), overview: () => placeCamera(true),
   reload: () => location.reload(), release: () => { void release(); },
-  feature: (name, enabled) => configureFeature(name, enabled),
-  diffuse: value => configureDiffuse(value),
   gpuCounters: enabled => {
     if (!renderer || closing) return;
     renderer.profiler.setMode(enabled ? "record" : "live");
@@ -60,15 +58,17 @@ async function start(): Promise<void> {
     renderSettings: {
       resolution: { mode: "fixed", internalScale: 1 },
       features: {
-        shadows: true, screenSpaceDiffuseMode: "gtao", screenSpaceReflections: true,
-        temporalAntiAliasing: true, bloom: true, automaticExposure: true,
-        motionBlur: true, sharpening: true
+        shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false,
+        temporalAntiAliasing: false, bloom: false, automaticExposure: false,
+        motionBlur: false, sharpening: false
       },
-      ao: { resolutionScale: 0.5, temporalEnabled: true },
-      ssr: { resolutionScale: 0.5, temporalEnabled: true }
+      post: {
+        exposureCompensation: 1, colorGradingLift: 0, colorGradingGamma: 1,
+        colorGradingGain: 1, colorGradingSaturation: 1, colorGradingContrast: 1
+      }
     }
   });
-  await renderer.initialize({ context, pixelRatio: Math.min(devicePixelRatio, 2) });
+  await renderer.initialize({ context });
   if (closing) return;
   renderer.render_debug_view = RenderDebugView.None;
   renderer.packed_visibility_cone_enabled = true;
@@ -78,13 +78,13 @@ async function start(): Promise<void> {
   renderer.profiler.subscribe(frame => telemetry.acceptFrame(frame));
   telemetry.adapter = { identity: renderer.adapter_info, gpuTimestamp: renderer.profiler.gpuTimestampAvailable, features: renderer.capabilities.features };
   telemetry.features = { ...renderer.render_settings.features };
-  panel.syncFeatures(renderer.render_settings.features);
+  panel.paint();
   telemetry.event("WebGPU 就绪", renderer.adapter_info?.device ?? "adapter");
 
   const sun = new DirectionalLight();
   sun.name = "Rendering Lab Sun";
   sun.intensity = 2.8;
-  sun.casts_shadow = true;
+  sun.casts_shadow = false;
   const azimuth = -36 * Math.PI / 180;
   const elevation = 65 * Math.PI / 180;
   sun.forward = [Math.cos(elevation) * Math.cos(azimuth), -Math.sin(elevation), Math.cos(elevation) * Math.sin(azimuth)];
@@ -189,32 +189,6 @@ function setColorMode(meshlet: boolean): void {
   panel.setColorMode(meshlet ? "meshlet" : "pbr");
 }
 
-type BooleanFeature = "shadows" | "screenSpaceReflections" | "temporalAntiAliasing" | "bloom" | "automaticExposure" | "motionBlur" | "sharpening";
-
-function configureFeature(name: BooleanFeature, enabled: boolean): void {
-  if (!renderer || closing) return;
-  try {
-    renderer.configure({ features: { [name]: enabled } });
-    telemetry.features = { ...renderer.render_settings.features };
-    telemetry.event("渲染效果", `${name}: ${enabled ? "on" : "off"}`);
-  } catch (error) {
-    telemetry.event("效果切换失败", error instanceof Error ? error.message : String(error));
-  }
-  panel.syncFeatures(renderer.render_settings.features);
-}
-
-function configureDiffuse(value: "off" | "gtao" | "ssgi"): void {
-  if (!renderer || closing) return;
-  try {
-    renderer.configure({ features: { screenSpaceDiffuseMode: value } });
-    telemetry.features = { ...renderer.render_settings.features };
-    telemetry.event("漫反射效果", value);
-  } catch (error) {
-    telemetry.event("效果切换失败", error instanceof Error ? error.message : String(error));
-  }
-  panel.syncFeatures(renderer.render_settings.features);
-}
-
 function placeCamera(overview: boolean): void {
   if (!camera || !controls || !framing || !renderer) return;
   const center = framing.center;
@@ -241,6 +215,12 @@ function refresh(): void {
   telemetry.runtime = handles?.runtime.evidence() ?? null;
   telemetry.streaming = handles?.streaming?.evidence() ?? null;
   telemetry.texture = renderer.textureResidencyEvidence();
+  const graph = renderer.mainFrameGraphEvidence();
+  telemetry.graph = graph === null ? null : {
+    outputMode: graph.outputMode, outputFormat: graph.outputFormat,
+    passes: graph.dump.passes.filter(pass => !pass.culled).map(pass => pass.name)
+  };
+  telemetry.finalOutput = renderer.finalOutputEvidence();
   if (handles) {
     telemetry.sourceCount = handles.current().source.count;
     telemetry.assetCount = handles.current().source.assetCount;

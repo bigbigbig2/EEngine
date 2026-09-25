@@ -4,14 +4,14 @@ import test from "node:test";
 const { openGlbRangeSource } = await import("../../.test-dist/loaders/gltf/streaming/GlbRangeSource.js");
 const { buildGlbSceneCatalog } = await import("../../.test-dist/loaders/gltf/streaming/GlbSceneCatalog.js");
 
-function makeGlb() {
+function makeGlb(material = { pbrMetallicRoughness: { baseColorFactor: [0.2, 0.4, 0.6, 1], metallicFactor: 0.25, roughnessFactor: 0.75, baseColorTexture: { index: 0, texCoord: 1 } }, emissiveFactor: [0.1, 0.2, 0.3] }) {
   const jsonObject = {
     asset: { version: "2.0" },
     buffers: [{ byteLength: 42 }],
     bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }, { buffer: 0, byteOffset: 36, byteLength: 6 }],
     accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3" }, { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" }],
     meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1, material: 0 }] }],
-    materials: [{ pbrMetallicRoughness: { baseColorFactor: [0.2, 0.4, 0.6, 1], metallicFactor: 0.25, roughnessFactor: 0.75, baseColorTexture: { index: 0, texCoord: 1 } }, emissiveFactor: [0.1, 0.2, 0.3] }],
+    materials: [material],
     images: [{ uri: "data:image/png;base64,AA==" }],
     textures: [{ source: 0 }],
     nodes: [{ mesh: 0, translation: [2, 3, 4] }],
@@ -47,4 +47,20 @@ test("GLB scene catalog is metadata-first and reports exact accessor ranges", as
   assert.deepEqual(catalog.primitives[0].ranges.map(range => [range.bufferIndex, range.byteOffset, range.byteLength]), [[0, 0, 36], [0, 36, 6]]);
   assert.deepEqual([...new Uint8Array(await source.readBufferRange(0, 36, 6))], [36, 37, 38, 39, 40, 41]);
   source.release();
+});
+
+test("GLB scene catalog uses glTF's metallic factor default when omitted", async () => {
+  const bytes = makeGlb({ pbrMetallicRoughness: { metallicRoughnessTexture: { index: 0 } } });
+  const source = await openGlbRangeSource("https://example.test/default-metallic.glb", { fetch: async (_url, init) => {
+    const range = String(init.headers.Range).match(/bytes=(\d+)-(\d+)/); const start = Number(range[1]); const end = Number(range[2]);
+    return new Response(bytes.slice(start, end + 1), { status: 206, headers: { "Content-Range": `bytes ${start}-${end}/${bytes.byteLength}`, "Content-Encoding": "identity" } });
+  } });
+  try {
+    const material = buildGlbSceneCatalog(source).primitives[0].material;
+    assert.equal(material.metallicFactor, 1);
+    assert.equal(material.roughnessFactor, 1);
+    assert.equal(material.metallicRoughnessTexture.textureIndex, 0);
+  } finally {
+    source.release();
+  }
 });

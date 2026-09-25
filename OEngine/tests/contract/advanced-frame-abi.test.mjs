@@ -1573,7 +1573,8 @@ test("ADR-0013 ShadingBinFrame freezes the GPU producer-consumer identity", () =
 test("ADR-0009 Step 9 fuses normal post and preserves capture materialization", () => {
   assert.match(MAIN_PIPELINE_SOURCE, /composite: materializePostColor/);
   assert.match(MAIN_PIPELINE_SOURCE, /const fuseScenePost = !graphTopology\.debug && !materializePostColor/);
-  assert.match(MAIN_PIPELINE_SOURCE, /colorGrading: fuseScenePost/);
+  assert.match(MAIN_PIPELINE_SOURCE, /colorGrading: fuseScenePost && this\.hasActiveColorGrading\(\)/);
+  assert.match(MAIN_PIPELINE_SOURCE, /featureTopology: topology\.enabledFeatureBits \+ \(this\.hasActiveColorGrading\(\) \? 2 \*\* 31 : 0\)/);
   assert.doesNotMatch(MAIN_PIPELINE_SOURCE, /addSharpenToGraph\(/);
   assert.match(TONEMAP_PASS_SOURCE, /lastBloomFused/);
   assert.match(TONEMAP_PASS_SOURCE, /createFinalOutputGroupLayout/);

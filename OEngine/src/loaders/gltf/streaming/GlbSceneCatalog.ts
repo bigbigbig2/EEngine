@@ -294,7 +294,7 @@ function requireAttributeEncoding(accessor: GlbCookAccessor, semantic: GlbCookAt
   if (!valid) throw new Error(`GLB primitive ${mesh}:${primitive} ${semantic} component encoding is invalid`);
 }
 function materialInfo(materials: readonly GltfMaterial[], index: number | undefined, textures: readonly GltfTexture[], samplers: readonly GltfSampler[]): GlbCookMaterialDomain {
-  if (index === undefined) return Object.freeze({ materialIndex: 0xffffffff, alphaMode: "OPAQUE", doubleSided: false, baseColorFactor: [1, 1, 1, 1] as const, metallicFactor: 0, roughnessFactor: 1, emissiveFactor: [0, 0, 0] as const, alphaCutoff: 0.5, unlit: false });
+  if (index === undefined) return Object.freeze({ materialIndex: 0xffffffff, alphaMode: "OPAQUE", doubleSided: false, baseColorFactor: [1, 1, 1, 1] as const, metallicFactor: 1, roughnessFactor: 1, emissiveFactor: [0, 0, 0] as const, alphaCutoff: 0.5, unlit: false });
   const material = materials[index];
   if (!material) throw new Error(`GLB primitive references missing material ${index}`);
   const alphaMode = material.alphaMode ?? "OPAQUE";
@@ -303,7 +303,7 @@ function materialInfo(materials: readonly GltfMaterial[], index: number | undefi
   const pbr = material.pbrMetallicRoughness;
   const baseColorFactor = finiteTuple(pbr?.baseColorFactor, 4, [1, 1, 1, 1], `GLB material ${index} baseColorFactor`) as [number, number, number, number];
   const emissiveFactor = finiteTuple(material.emissiveFactor, 3, [0, 0, 0], `GLB material ${index} emissiveFactor`) as [number, number, number];
-  const metallicFactor = finiteScalar(pbr?.metallicFactor, 0, `GLB material ${index} metallicFactor`);
+  const metallicFactor = finiteScalar(pbr?.metallicFactor, 1, `GLB material ${index} metallicFactor`);
   const roughnessFactor = finiteScalar(pbr?.roughnessFactor, 1, `GLB material ${index} roughnessFactor`);
   const alphaCutoff = finiteScalar(material.alphaCutoff, 0.5, `GLB material ${index} alphaCutoff`);
   if (metallicFactor < 0 || metallicFactor > 1 || roughnessFactor < 0 || roughnessFactor > 1 || alphaCutoff < 0 || alphaCutoff > 1) throw new Error(`GLB material ${index} contains an out-of-range scalar factor`);

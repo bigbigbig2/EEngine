@@ -122,7 +122,7 @@ try {
   renderer = new Renderer({ debug: false, requiredLimits: { maxStorageBuffersPerShaderStage: 16 }, renderSettings: { features: { shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false } } });
   const context = canvas.getContext("webgpu"); requireValue(context, "WebGPU canvas context unavailable");
   const configure = context.configure.bind(context); Object.defineProperty(context, "configure", { configurable: true, value: (config: GPUCanvasConfiguration) => configure({ ...config, usage: (config.usage ?? GPUTextureUsage.RENDER_ATTACHMENT) | GPUTextureUsage.COPY_SRC }) });
-  await renderer.initialize({ context, pixelRatio: 1 });
+  await renderer.initialize({ context });
   // Product traversal and shading bind four fixed page banks. The renderer
   // configuration above is the explicit S1 capability gate for that ABI.
   collector = attachGpuErrorCollection(renderer.device, controller, () => intentionalDestroy);

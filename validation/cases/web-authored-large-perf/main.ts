@@ -170,7 +170,7 @@ async function run(): Promise<void> {
       }
     });
     try {
-      await renderer.initialize({ context, pixelRatio: 1 });
+      await renderer.initialize({ context });
     } catch (error) {
       if (!isRuntimeSmoke && /timestamp|feature|adapter/i.test(error instanceof Error ? error.message : String(error))) {
         controller.unsupported(`Formal timestamp-query device is unavailable: ${error instanceof Error ? error.message : String(error)}`);

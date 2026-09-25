@@ -4,7 +4,7 @@
     <link rel="icon" href="data:," />
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OEngine · Virtual Geometry PBR Lab</title>
+    <title>OEngine · Visibility to HDR Lab</title>
     <link rel="stylesheet" href="./style.css" />
   </head>
   <body>
@@ -22,23 +22,14 @@
         <div class="stage-caption">DUNGEON / WEB COOK <span id="color-caption">PBR</span></div>
       </div>
       <aside id="inspector" aria-label="Web geometry inspector">
-        <header class="panel-header"><div class="panel-heading"><small>OENGINE / GEOMETRY LAB</small><h1>Virtual Geometry · PBR</h1></div><button type="button" id="panel-toggle" aria-controls="panel-body" aria-expanded="true">收起</button></header>
+        <header class="panel-header"><div class="panel-heading"><small>OENGINE / GEOMETRY LAB</small><h1>Visibility → HDR</h1></div><button type="button" id="panel-toggle" aria-controls="panel-body" aria-expanded="true">收起</button></header>
         <div id="panel-body" class="panel-body">
           <div class="load-status"><span id="load-state">初始化</span><span id="progress-caption">0 / -- primitive</span></div>
           <div class="progress"><i id="progress-fill"></i></div>
           <div id="summary" class="summary"></div>
-          <details class="effects" open>
-            <summary>渲染效果 <span>独立开关，用于成本对照</span></summary>
-            <div id="effect-controls" class="effect-controls">
-              <label><span>阴影</span><input type="checkbox" data-feature="shadows" /></label>
-              <label><span>漫反射</span><select id="diffuse-mode"><option value="off">关闭</option><option value="gtao">GTAO</option><option value="ssgi">SSGI</option></select></label>
-              <label><span>屏幕空间反射</span><input type="checkbox" data-feature="screenSpaceReflections" /></label>
-              <label><span>时域抗锯齿</span><input type="checkbox" data-feature="temporalAntiAliasing" /></label>
-              <label><span>Bloom</span><input type="checkbox" data-feature="bloom" /></label>
-              <label><span>自动曝光</span><input type="checkbox" data-feature="automaticExposure" /></label>
-              <label><span>运动模糊</span><input type="checkbox" data-feature="motionBlur" /></label>
-              <label><span>锐化</span><input type="checkbox" data-feature="sharpening" /></label>
-            </div>
+          <details class="pipeline-config" open>
+            <summary>固定渲染路径 <span>后处理效果关闭</span></summary>
+            <div>Visibility → Sparse Material Resolve → PBR Direct + IBL → HDR → Final Output</div>
           </details>
           <label class="gpu-counter-control"><span>GPU 像素计数 <small>诊断采样会增加开销</small></span><input id="gpu-pixel-counters" type="checkbox" /></label>
           <nav id="tabs" aria-label="Inspector sections"></nav>

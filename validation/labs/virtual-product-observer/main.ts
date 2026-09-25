@@ -104,7 +104,7 @@ async function ensureRenderer(): Promise<void> {
   const configure = context.configure.bind(context);
   Object.defineProperty(context, "configure", { configurable: true, value: (config: GPUCanvasConfiguration) => configure({ ...config, usage: (config.usage ?? GPUTextureUsage.RENDER_ATTACHMENT) | GPUTextureUsage.COPY_SRC }) });
   renderer = new Renderer({ debug: false, requiredLimits: { maxStorageBuffersPerShaderStage: 16 }, renderSettings: { features: { shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false } } });
-  await renderer.initialize({ context, pixelRatio: Math.min(window.devicePixelRatio || 1, 2) });
+  await renderer.initialize({ context });
   renderer.profiler.configure({ enabled: true, warmupFrames: 0, gpuSampleInterval: 1, gpuCounterSampleInterval: 1, historyCapacity: 16 });
   renderer.profiler.setMode("deep-capture");
   gpuCollector?.remove();
@@ -118,8 +118,8 @@ async function ensureRenderer(): Promise<void> {
 function resize(): void {
   if (!renderer || !camera) return;
   const rect = canvas.getBoundingClientRect();
-  const width = Math.max(1, Math.floor(rect.width * Math.min(window.devicePixelRatio || 1, 2)));
-  const height = Math.max(1, Math.floor(rect.height * Math.min(window.devicePixelRatio || 1, 2)));
+  const width = Math.max(1, Math.floor(rect.width));
+  const height = Math.max(1, Math.floor(rect.height));
   canvas.width = width; canvas.height = height; renderer.resize(width, height); camera.aspect = width / height; camera.update();
 }
 function bounds(source: { readonly count: number; readonly boundsSpheres: Float32Array }): { center: [number, number, number]; radius: number } {

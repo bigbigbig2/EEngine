@@ -105,7 +105,7 @@ try {
     const configureCanvas = context.configure.bind(context);
     Object.defineProperty(context, "configure", { configurable: true, value: (descriptor: GPUCanvasConfiguration) =>
       configureCanvas({ ...descriptor, usage: (descriptor.usage ?? GPUTextureUsage.RENDER_ATTACHMENT) | GPUTextureUsage.COPY_SRC }) });
-    await renderer.initialize({ context, pixelRatio: 1 });
+    await renderer.initialize({ context });
     renderer.profiler.configure({ enabled: true, warmupFrames: 0, gpuSampleInterval: 1, gpuCounterSampleInterval: 1, historyCapacity: 512 });
     renderer.profiler.setMode("deep-capture");
     renderer.resize(1280, 720);

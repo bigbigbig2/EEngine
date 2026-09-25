@@ -49,10 +49,7 @@ async function start(): Promise<void> {
       }
     }
   });
-  await renderer.initialize({
-    context,
-    pixelRatio: window.devicePixelRatio
-  });
+  await renderer.initialize({ context });
   rendererReady = true;
 
   const scene = new Scene();

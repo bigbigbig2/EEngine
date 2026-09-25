@@ -3,14 +3,15 @@
   "title": "Rendering Lab - Basic Model",
   "category": "14-integrated",
   "order": 11,
-  "description": "Standalone Web Worker Cook virtual-geometry demo with authored PBR materials, full effects enabled by default, and a collapsible diagnostic panel.",
+  "description": "Standalone Web Worker Cook virtual-geometry baseline: Visibility, sparse material resolve, PBR direct and IBL, linear HDR, with post effects disabled and a collapsible diagnostic panel.",
   "tags": [
     "integrated",
     "virtual-geometry",
     "web-cook",
     "gltf",
     "pbr",
-    "effects-toggle",
+    "post-off",
+    "hdr",
     "profiling"
   ]
 }

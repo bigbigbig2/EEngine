@@ -11,6 +11,8 @@ export interface AuthoredMaterialSummary {
   readonly roughness: number;
   readonly baseColorTexture: boolean;
   readonly ormTexture: boolean;
+  readonly occlusionTexture: boolean;
+  readonly occlusionStrength: number;
   readonly normalTexture: boolean;
   readonly emissiveTexture: boolean;
 }
@@ -40,6 +42,8 @@ export class BasicTelemetry {
   streaming: unknown = null;
   texture: unknown = null;
   features: unknown = null;
+  graph: { outputMode: "sdr" | "hdr"; outputFormat: string; passes: string[] } | null = null;
+  finalOutput: unknown = null;
   memory: unknown = null;
   adapter: unknown = null;
   error?: string;
@@ -52,6 +56,7 @@ export class BasicTelemetry {
       if (domains.has(primitive.materialIndex)) continue;
       const material = primitive.material;
       const base = material.baseColorFactor;
+      const occlusion = material.occlusionTexture as { occlusionStrength?: unknown } | undefined;
       domains.set(primitive.materialIndex, {
         index: primitive.materialIndex,
         baseColor: Array.isArray(base) && base.length === 4 && base.every(value => typeof value === "number") ? base : [1, 1, 1, 1],
@@ -59,6 +64,8 @@ export class BasicTelemetry {
         roughness: typeof material.roughnessFactor === "number" ? material.roughnessFactor : 1,
         baseColorTexture: material.baseColorTexture !== undefined,
         ormTexture: material.metallicRoughnessTexture !== undefined,
+        occlusionTexture: material.occlusionTexture !== undefined,
+        occlusionStrength: typeof occlusion?.occlusionStrength === "number" ? occlusion.occlusionStrength : 1,
         normalTexture: material.normalTexture !== undefined,
         emissiveTexture: material.emissiveTexture !== undefined
       });
@@ -113,6 +120,7 @@ export class BasicTelemetry {
       peaks: { ownerBytes: this.peakOwnerBytes, gpuBytes: this.peakGpuBytes },
       frameStats: this.frameStats(), frames: [...this.frames.values()], publications: this.publications,
       cook: this.cook, runtime: this.runtime, streaming: this.streaming, texture: this.texture, features: this.features,
+      graph: this.graph, finalOutput: this.finalOutput,
       memory: this.memory, adapter: this.adapter, events: this.events,
       error: this.error ?? null
     };

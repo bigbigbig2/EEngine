@@ -1,8 +1,6 @@
 import { BasicTelemetry } from "./telemetry.ts";
 
-const tabs = ["概览", "Worker Cook", "虚拟几何", "材质", "帧性能", "诊断"] as const;
-type BooleanFeature = "shadows" | "screenSpaceReflections" | "temporalAntiAliasing" | "bloom" | "automaticExposure" | "motionBlur" | "sharpening";
-type Features = Readonly<Record<BooleanFeature, boolean> & { screenSpaceDiffuseMode: "off" | "gtao" | "ssgi" }>;
+const tabs = ["管线", "Worker Cook", "虚拟几何", "材质", "帧性能", "诊断"] as const;
 const seconds = (value?: number) => value === undefined ? "--" : `${(value / 1000).toFixed(2)} s`;
 const bytes = (value?: number) => value === undefined ? "--" : `${(value / 1048576).toFixed(1)} MiB`;
 const integer = (value?: number) => value === undefined ? "--" : value.toLocaleString("en-US");
@@ -21,17 +19,12 @@ export class BasicPanel {
   private colorMode: "meshlet" | "pbr" = "pbr";
   private gpuCountersEnabled = false;
 
-  constructor(private readonly telemetry: BasicTelemetry, actions: { center: () => void; overview: () => void; reload: () => void; release: () => void; feature: (name: BooleanFeature, enabled: boolean) => void; diffuse: (value: "off" | "gtao" | "ssgi") => void; gpuCounters: (enabled: boolean) => void }) {
+  constructor(private readonly telemetry: BasicTelemetry, actions: { center: () => void; overview: () => void; reload: () => void; release: () => void; gpuCounters: (enabled: boolean) => void }) {
     document.querySelector<HTMLButtonElement>("#panel-toggle")!.addEventListener("click", () => {
       const collapsed = this.inspector.classList.toggle("collapsed");
       document.querySelector(".workspace")!.classList.toggle("panel-collapsed", collapsed);
       document.querySelector("#panel-toggle")!.setAttribute("aria-expanded", String(!collapsed));
       document.querySelector("#panel-toggle")!.textContent = collapsed ? "展开" : "收起";
-    });
-    document.querySelector("#effect-controls")!.addEventListener("change", event => {
-      const target = event.target;
-      if (target instanceof HTMLInputElement && target.dataset.feature) actions.feature(target.dataset.feature as BooleanFeature, target.checked);
-      if (target instanceof HTMLSelectElement && target.id === "diffuse-mode") actions.diffuse(target.value as "off" | "gtao" | "ssgi");
     });
     document.querySelector<HTMLInputElement>("#gpu-pixel-counters")!.addEventListener("change", event => {
       this.gpuCountersEnabled = (event.target as HTMLInputElement).checked;
@@ -65,14 +58,6 @@ export class BasicPanel {
 
   setColorMode(value: "meshlet" | "pbr"): void { this.colorMode = value; this.paint(); }
 
-  syncFeatures(features: Features): void {
-    for (const input of document.querySelectorAll<HTMLInputElement>("#effect-controls input[data-feature]")) {
-      input.checked = features[input.dataset.feature as BooleanFeature];
-    }
-    document.querySelector<HTMLSelectElement>("#diffuse-mode")!.value = features.screenSpaceDiffuseMode;
-    this.paint();
-  }
-
   paint(): void {
     const t = this.telemetry;
     const state = t.error ? "失败" : t.disposedAt !== undefined ? "已释放" : t.releasingAt !== undefined ? "正在释放" : t.settledAt !== undefined ? "Cook 完成" : t.firstPublishedAt !== undefined ? "已发布，继续烘焙" : t.catalog ? "Worker Cook 中" : "读取 GLB 目录";
@@ -95,7 +80,15 @@ export class BasicPanel {
   private overview(): string {
     const t = this.telemetry;
     const frames = t.frameStats();
-    return `<h2>源与画面</h2>${rows([
+    const graph = t.graph;
+    const finalOutput = record(t.finalOutput);
+    return `<h2>固定渲染路径</h2><ol class="pipeline-flow"><li>Visibility</li><li>Sparse Material Resolve</li><li>PBR Direct + IBL</li><li>线性 HDR</li><li>Post effects：关闭</li></ol>${rows([
+      ["内部光照", "rgba16float HDR"],
+      ["DPR / 内部分辨率比例", "1 / 1"],
+      ["显示输出", graph ? `${graph.outputMode.toUpperCase()} / ${graph.outputFormat}` : "--"],
+      ["最终输出 Pass", integer(number(finalOutput.finalOutputPasses))],
+      ["Bloom / 调色 / 锐化融合", `${String(finalOutput.bloomFused ?? false)} / ${String(finalOutput.colorGradingFused ?? false)} / ${String(finalOutput.sharpeningFused ?? false)}`]
+    ])}<p class="note">普通 SDR 屏幕仍需最终输出映射；这一步不代表 Bloom、曝光或时域后处理已开启。</p><h2>实际 FrameGraph Pass</h2><ol class="pass-list">${(graph?.passes ?? []).map(name => `<li>${escapeHtml(name)}</li>`).join("") || "<li>等待首次提交</li>"}</ol><h2>源与画面</h2>${rows([
       ["模型", "dungeon_warkarma.glb"], ["路线", "GLB → Web Worker/WASM → Product → 虚拟几何"],
       ["源大小", bytes(t.catalog?.sourceBytes)], ["Primitive / 实例节点", `${integer(t.catalog?.primitiveCount)} / ${integer(t.catalog?.instances.length)}`],
       ["当前 Product 资产 / 实例", `${integer(t.assetCount)} / ${integer(t.sourceCount)}`], ["已发布 Product", integer(t.shardCount)],
@@ -146,24 +139,30 @@ export class BasicPanel {
     const authored = t.materialDomains;
     const baseColorTextureCount = authored.filter(item => item.baseColorTexture).length;
     const ormTextureCount = authored.filter(item => item.ormTexture).length;
+    const occlusionTextureCount = authored.filter(item => item.occlusionTexture).length;
+    const metallicZeroCount = authored.filter(item => item.metallic === 0).length;
+    const surfaceCounterActive = t.graph?.passes.includes("R4-B GPU Surface counters") === true;
     const sampled = this.gpuCountersEnabled
       ? [...t.frames.values()].reverse().find(frame => frame.gpuCounters.sampled && !frame.gpuCounters.pending)?.gpuCounters.values
       : undefined;
+    const surfaceSampled = surfaceCounterActive ? sampled : undefined;
     const swatch = (values: readonly number[]) => `rgb(${values.slice(0, 3).map(value => Math.round(Math.max(0, Math.min(1, value)) * 255)).join(",")})`;
     return `<h2>材质与贴图驻留</h2>${rows([
       ["材质槽位", integer(t.materialCount)],
       ["源材质", integer(authored.length)],
       ["BaseColor / 金属粗糙度贴图", `${integer(baseColorTextureCount)} / ${integer(ormTextureCount)}`],
+      ["源 AO 贴图", integer(occlusionTextureCount)],
+      ["金属系数为 0 的材质", `${integer(metallicZeroCount)} / ${integer(authored.length)}`],
       ["驻留贴图", integer(number(texture.residentTextureCount))],
       ["贴图逻辑 / 物理字节", `${bytes(number(texture.logicalResidentBytes))} / ${bytes(number(texture.physicalAllocatedBytes))}`],
       ["运行时贴图池拷贝", integer(number(texture.resizeDispatchCount))],
       ["绑定集", integer(number(texture.bindingSetCount))],
       ["绑定预检失败", integer(number(texture.bindingSetPreflightFailures))]
-    ])}<h2>GPU 像素诊断</h2>${rows([
+    ])}<h2>GPU 像素诊断</h2>${!surfaceCounterActive ? '<p class="note">当前固定管线不生成 SurfaceLite，因此这组表面像素计数不可用；“--”不代表纹理未采样。</p>' : ''}${rows([
       ["着色像素", integer(sampled?.shadedPixels)],
-      ["ORM 纹理表面像素", integer(sampled?.ormTexturePixels)],
-      ["Unlit 表面像素", integer(sampled?.unlitSurfacePixels)],
-      ["环境光采样像素", integer(sampled?.iblSampledPixels)]
+      ["ORM 纹理表面像素", integer(surfaceSampled?.ormTexturePixels)],
+      ["Unlit 表面像素", integer(surfaceSampled?.unlitSurfacePixels)],
+      ["环境光采样像素", integer(surfaceSampled?.iblSampledPixels)]
     ])}<h2>逐批发布耗时（累计）</h2>${rows([
       ["场景映射", seconds(sum(item => item.sceneMapMs))],
       ["图片读取 / 解码", `${seconds(sum(item => item.mapping.imageReadMs))} / ${seconds(sum(item => item.mapping.imageDecodeMs))}`],
@@ -173,7 +172,7 @@ export class BasicPanel {
       ["阴影", String(features.shadows ?? "--")], ["漫反射", String(features.screenSpaceDiffuseMode ?? "--")],
       ["SSR", String(features.screenSpaceReflections ?? "--")], ["TAA", String(features.temporalAntiAliasing ?? "--")],
       ["Bloom", String(features.bloom ?? "--")], ["自动曝光", String(features.automaticExposure ?? "--")]
-    ])}<p class="note">这个 GLB 的 ${authored.length} 个源材质中有 ${baseColorTextureCount} 张 BaseColor 贴图；表面颜色主要来自材质系数，金属度与粗糙度由 ${ormTextureCount} 张贴图提供。打开“GPU 像素计数”可检查实际使用纹理的着色像素。</p><details open><summary>源材质参数</summary><div class="table-scroll"><table class="material-table"><thead><tr><th>索引</th><th>基础色系数</th><th>金属度</th><th>粗糙度</th><th>纹理</th></tr></thead><tbody>${authored.map(item => `<tr><td>${item.index}</td><td><i class="swatch" style="background:${swatch(item.baseColor)}"></i>${item.baseColor.slice(0, 3).map(value => value.toFixed(2)).join(" / ")}</td><td>${item.metallic.toFixed(2)}</td><td>${item.roughness.toFixed(2)}</td><td>${[item.baseColorTexture && "颜色", item.ormTexture && "金属粗糙", item.normalTexture && "法线", item.emissiveTexture && "自发光"].filter(Boolean).join(" / ") || "无"}</td></tr>`).join("")}</tbody></table></div></details><p class="note">运行时图片通过 GPU 源纹理和渲染拷贝进入贴图池；“离线纹理包上传”只统计离线包路径，所以本示例为 0。贴图最长边限制为 1024 像素，物理字节包含贴图池预分配。</p><details><summary>完整贴图 evidence</summary>${json(t.texture)}</details>`;
+    ])}<p class="note">这个 GLB 的 ${authored.length} 个材质中，${metallicZeroCount} 个显式设置金属系数为 0；金属贴图 B 通道乘以该系数后仍为 0。${occlusionTextureCount} 个材质带 AO 贴图，R 通道只影响环境间接光；屏幕空间 AO 依固定管线设置关闭。</p><details open><summary>源材质参数</summary><div class="table-scroll"><table class="material-table"><thead><tr><th>索引</th><th>基础色系数</th><th>金属度</th><th>粗糙度</th><th>AO 强度</th><th>纹理</th></tr></thead><tbody>${authored.map(item => `<tr><td>${item.index}</td><td><i class="swatch" style="background:${swatch(item.baseColor)}"></i>${item.baseColor.slice(0, 3).map(value => value.toFixed(2)).join(" / ")}</td><td>${item.metallic.toFixed(2)}</td><td>${item.roughness.toFixed(2)}</td><td>${item.occlusionStrength.toFixed(2)}</td><td>${[item.baseColorTexture && "颜色", item.ormTexture && "金属粗糙", item.occlusionTexture && "AO", item.normalTexture && "法线", item.emissiveTexture && "自发光"].filter(Boolean).join(" / ") || "无"}</td></tr>`).join("")}</tbody></table></div></details><p class="note">运行时图片通过 GPU 源纹理和渲染拷贝进入贴图池；“离线纹理包上传”只统计离线包路径，所以本示例为 0。贴图最长边限制为 1024 像素，物理字节包含贴图池预分配。</p><details><summary>完整贴图 evidence</summary>${json(t.texture)}</details>`;
   }
 
   private frames(): string {

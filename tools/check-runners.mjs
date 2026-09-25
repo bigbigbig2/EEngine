@@ -53,11 +53,15 @@ function gitTracked(path) {
   return result.status === 0;
 }
 
-/** Extract the node:test summary lines so a failure detail is actionable. */
+/**
+ * TAP 输出用 `# tests 12`，spec reporter 用 `ℹ tests 12`；两种前缀都必须识别。
+ * 只匹配一种会让套件在另一版本下报告 `? passed, 0 failed of ? engine tests`，
+ * 测试确实运行了，但计数从证据里消失。
+ */
 function summarizeTestOutput(text) {
   const summary = {};
   for (const field of ["tests", "pass", "fail", "skipped"]) {
-    const match = text.match(new RegExp(`^\\u2139 ${field} (\\d+)$`, "mu"));
+    const match = text.match(new RegExp(`^(?:\\u2139|#)\\s*${field}\\s+(\\d+)$`, "mu"));
     if (match) summary[field] = Number.parseInt(match[1], 10);
   }
   return summary;

@@ -74,7 +74,7 @@ export function createWebCookSceneSource(
       const material = new StandardShadeMaterial();
       const base = finiteTuple(value.baseColorFactor, 4, [1, 1, 1, 1]);
       material.diffuse_color.set(base[0]!, base[1]!, base[2]!, base[3]!);
-      material.metallic_factor = finiteScalar(value.metallicFactor, 0);
+      material.metallic_factor = finiteScalar(value.metallicFactor, 1);
       material.roughness_factor = finiteScalar(value.roughnessFactor, 1);
       const emissive = finiteTuple(value.emissiveFactor, 3, [0, 0, 0]);
       material.emissive_factor.set(emissive[0]!, emissive[1]!, emissive[2]!);
@@ -241,7 +241,7 @@ function sceneAssetIndices(catalog: WebCookSceneCatalogSnapshot, assetCount: num
 function createMaterial(value: Readonly<Record<string, unknown>>): StandardShadeMaterial {
   const material = new StandardShadeMaterial();
   const base = finiteTuple(value.baseColorFactor, 4, [1, 1, 1, 1]); material.diffuse_color.set(base[0]!, base[1]!, base[2]!, base[3]!);
-  material.metallic_factor = finiteScalar(value.metallicFactor, 0); material.roughness_factor = finiteScalar(value.roughnessFactor, 1);
+  material.metallic_factor = finiteScalar(value.metallicFactor, 1); material.roughness_factor = finiteScalar(value.roughnessFactor, 1);
   const emissive = finiteTuple(value.emissiveFactor, 3, [0, 0, 0]); material.emissive_factor.set(emissive[0]!, emissive[1]!, emissive[2]!);
   material.alpha_cutoff = finiteScalar(value.alphaCutoff, 0.5); material.is_unlit = value.unlit === true;
   material.draw_side = value.doubleSided === true ? ShadeDrawSide.Double : ShadeDrawSide.Front;

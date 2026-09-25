@@ -116,10 +116,7 @@ async function start(): Promise<void> {
     }
   });
   renderer = activeRenderer;
-  await activeRenderer.initialize({
-    context,
-    pixelRatio: window.devicePixelRatio
-  });
+  await activeRenderer.initialize({ context });
   rendererReady = true;
   activeRenderer.packed_visibility_cone_enabled = true;
   activeRenderer.packed_visibility_hzb_enabled = true;

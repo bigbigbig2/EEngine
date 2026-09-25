@@ -104,15 +104,15 @@ async function ensureRenderer(): Promise<void> {
       }
     }
   });
-  await renderer.initialize({ context, pixelRatio: Math.min(window.devicePixelRatio || 1, 2) });
+  await renderer.initialize({ context });
   resize();
 }
 
 function resize(): void {
   if (!renderer || !camera) return;
   const rect = canvas.getBoundingClientRect();
-  const width = Math.max(1, Math.floor(rect.width * Math.min(window.devicePixelRatio || 1, 2)));
-  const height = Math.max(1, Math.floor(rect.height * Math.min(window.devicePixelRatio || 1, 2)));
+  const width = Math.max(1, Math.floor(rect.width));
+  const height = Math.max(1, Math.floor(rect.height));
   canvas.width = width; canvas.height = height;
   renderer.resize(width, height);
   camera.aspect = width / height;

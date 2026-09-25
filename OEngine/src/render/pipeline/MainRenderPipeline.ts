@@ -267,7 +267,6 @@ export type RendererInitializeOptions = {
   /** Required with a caller-owned device so subgroup range can be verified. */
   adapter?: GPUAdapter;
   device?: GPUDevice;
-  pixelRatio?: number;
   /** 初始化时覆盖构造器配置；只在初始化前应用一次。 */
   config?: RendererConfig;
 };
@@ -740,13 +739,22 @@ export interface OegPackSceneOptions extends ProductSceneOptions {
   readonly fitBase?: readonly [number, number, number];
 }
 
+/**
+ * 渲染器始终按 CSS 像素分辨率渲染。
+ *
+ * 设备像素比被刻意排除在渲染器输入之外：当 `resolution.internalScale` 固定为 1 时，
+ * DPR 为 2 会同时放大两个轴，使 visibility、PBR 与全屏后处理成本变为四倍，而作者内容
+ * 并没有变化。需要不同采样密度的调用方应显式修改 `resolution.internalScale`，该值会
+ * 进入帧证据。
+ */
+export const RENDER_PIXEL_RATIO = 1;
+
 export class MainRenderPipeline {
   context!: GPUCanvasContext;
   device!: GPUDevice;
   private _frame_count = 0;
   private _hzbCameraRevision = 0;
   private _hzbRenderScaleRevision = 0;
-  private _pixel_ratio = window.devicePixelRatio;
   private readonly _renderSettings = new RenderSettings();
   private readonly _render_resolution = new Vec2(1, 1);
   private _width = 1;
@@ -975,12 +983,7 @@ export class MainRenderPipeline {
   }
 
   get pixel_ratio(): number {
-    return this._pixel_ratio;
-  }
-  set pixel_ratio(ratio: number) {
-    if (ratio === this._pixel_ratio) return;
-    this._pixel_ratio = ratio;
-    this.applyFullResolutionChange();
+    return RENDER_PIXEL_RATIO;
   }
 
   get internal_resolution_scale(): number {
@@ -2176,7 +2179,6 @@ export class MainRenderPipeline {
     context,
     adapter: suppliedAdapter,
     device,
-    pixelRatio = window.devicePixelRatio,
     config
   }: RendererInitializeOptions = {}): Promise<void> {
     const gpu = navigator.gpu;
@@ -2330,7 +2332,6 @@ export class MainRenderPipeline {
     device.lost.then((info) => this.onDeviceLost(info));
     this.context = context;
     this.device = device;
-    this._pixel_ratio = pixelRatio;
     const canvas = context.canvas as HTMLCanvasElement;
     this._width = canvas.clientWidth;
     this._height = canvas.clientHeight;
@@ -2449,7 +2450,6 @@ export class MainRenderPipeline {
     });
     return {
       context: this.context,
-      pixelRatio: this._pixel_ratio,
       width: this._width,
       height: this._height,
       config: { ...this._initializationConfig, renderSettings: this.render_settings },
@@ -2462,7 +2462,7 @@ export class MainRenderPipeline {
 
   protected async restoreDeviceRecovery(checkpoint: ReturnType<MainRenderPipeline["checkpointDeviceRecovery"]>): Promise<void> {
     this.deviceEpoch = checkpoint.deviceEpoch;
-    await this.initialize({ context: checkpoint.context, pixelRatio: checkpoint.pixelRatio, config: checkpoint.config });
+    await this.initialize({ context: checkpoint.context, config: checkpoint.config });
     this.resize(checkpoint.width, checkpoint.height);
     for (const entry of checkpoint.scenes) {
       if (entry.ordinaryMeshes !== undefined) {
@@ -4483,7 +4483,7 @@ export class MainRenderPipeline {
             {
               bloom: fuseBloom,
               sharpening: !graphTopology.debug && graphTopology.sharpening,
-              colorGrading: fuseScenePost
+              colorGrading: fuseScenePost && this.hasActiveColorGrading()
             },
             bind("final-output-job", () => ({
               lift: this._renderSettings.values.post.colorGradingLift,
@@ -4760,7 +4760,9 @@ export class MainRenderPipeline {
     return createMainRenderPipelineGraphKey({
       capability: [...this.device.features].sort().join(","),
       resolution: bindings.context.resolution,
-      featureTopology: topology.enabledFeatureBits,
+      // Bit 31 distinguishes the identity-grade final-output shader from the
+      // graded variant when post values change without a feature toggle.
+      featureTopology: topology.enabledFeatureBits + (this.hasActiveColorGrading() ? 2 ** 31 : 0),
       visibilityConfiguration:
         `hardware-meshlet-visibility-key-v2-cone${this.packed_visibility_cone_enabled ? 1 : 0}` +
         `-hzb${this.packed_visibility_hzb_enabled ? 1 : 0}` +
@@ -4782,6 +4784,15 @@ export class MainRenderPipeline {
       instrumentation: instrumentationMode,
       instrumentationRevision: MAIN_GRAPH_INSTRUMENTATION_REVISION
     });
+  }
+
+  private hasActiveColorGrading(): boolean {
+    const post = this._renderSettings.values.post;
+    return post.colorGradingLift !== 0 ||
+      post.colorGradingGamma !== 1 ||
+      post.colorGradingGain !== 1 ||
+      post.colorGradingSaturation !== 1 ||
+      post.colorGradingContrast !== 1;
   }
 
   private createSparseShadingPublicationContext(
@@ -5649,12 +5660,12 @@ export class MainRenderPipeline {
   private recalculateOutputResolution(): void {
     const limit = this.device.limits.maxTextureDimension2D;
     const width = clampInteger(
-      Math.ceil(this._width * this._pixel_ratio),
+      Math.ceil(this._width * RENDER_PIXEL_RATIO),
       1,
       limit
     );
     const height = clampInteger(
-      Math.ceil(this._height * this._pixel_ratio),
+      Math.ceil(this._height * RENDER_PIXEL_RATIO),
       1,
       limit
     );
