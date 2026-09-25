@@ -1,6 +1,6 @@
 # EEngine Next：开源迁移来源与采用边界
 
-调查日期：2026-09-25。当前采用边界对应 [ADR-0020](../adr/0020-clean-cut-renderer.md) 和 [单路径重建路线](../next-renderer.md)。这是影响当前选型的来源账本，不是已移植清单。旧文中 M1–M6 标签仅是来源领域索引，不表示渐进保行为执行顺序。
+调查日期：2026-09-25。当前采用边界对应 [ADR-0020](../adr/0020-clean-cut-renderer.md) 和 [单路径重建路线](../next-renderer.md)。这是影响当前选型的来源账本，不是已移植清单；表中的模块是目标 owner，不表示迁移顺序。
 
 本轮通过 GitHub 固定 revision 的目录、许可证原文和下列标明的实现文件进行核查；未构建这些上游工程，未跑其 benchmark，也未证明移植后的 WebGPU 性能。**固定 commit 是复现调查的版本，不是自动引入依赖或升级现有来源的指令。** 本地已有 port 继续以 [geometry](./geometry.md)、[visibility](./visibility.md)、[shading](./shading.md)、[platform](./platform.md) 的既有 revision 为准。
 
@@ -10,18 +10,20 @@
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |
 | --- | --- | --- | --- |
-| M1 产品规划 / frame-runtime | 现有 FrameGraph；Filament 参考 | 参考图生命周期与裁剪，不替换本地整套图 | 产品语义、有限物理计划、跨 Provider 成本选择 |
-| M2 scan/compact / visibility | GPUPrefixSums | 完整 Reduce-Then-Scan WGSL 算法 | 队列协议、容量、间接执行和生命周期 |
-| M2 VG / virtual-assets | 现有 Nyx、meshoptimizer ledger | 继续现有忠实迁移 | 不因 Next 重写正确的 geometry 基础 |
-| M3 属性重建 / shading | The Forge VisibilityBuffer2 | 插值、解析梯度及依赖数学 | EEngine identity、资源布局、显式纹理梯度 |
-| M3 材质 / shading、materials-textures | 现有 Filament；MaterialX 可选 | 沿用 PBR；graph/lowering 参考 | 有界 binding/kernel family、去重合法性、frequency planning |
-| M4 AO / shading | XeGTAO | 深度预处理、求值、边缘感知降噪 | 产品空间适配、输出/Temporal 接口 |
-| M4 Reflection / shading、visibility | FidelityFX SDK v1.1.4 SSSR + Denoiser | 分类、工作列表、追踪、验证、完整信号重建 | WebGPU wave/绑定适配和镜面能量组合 |
-| M4 VSM / shading、virtual-assets、visibility | Timberdoodle（需原型） | 页面需求、分配、失效、缓存、采样 | 无 mesh shader 的硬件 indirect 页执行 |
-| M4 World GI / shading、virtual-assets | Atlas DDGI（候选）；Speedball（补充） | probe 更新/遮挡/状态/查询；评估软件 ray producer | 动态需求、VG 代理、非 bindless 资源与预算 |
-| M5 环境 / shading | Takram atmosphere WebGPU | LUT、太阳/天光、shadow-aware aerial transport | 去 Three/TSL 宿主、单位与环境权威 owner |
-| M5 局部介质 / shading | Adria VolumetricFog（候选） | 注入、历史、积分与合成 | bounded binding、介质输入和大气区间合成 |
-| M6 超分 / frame-runtime、shading | FidelityFX SDK v1.1.4 FSR3 Upscaler | 所选版本的完整非神经超分链 | WebGPU 后端、统一 history/exposure 接口 |
+| Renderer Core / frame-runtime | 现有 FrameGraph；Filament 参考 | 参考图生命周期与裁剪，不替换本地整套图 | 产品语义、有限物理计划、跨 Provider 成本选择 |
+| Renderer Core / visibility | GPUPrefixSums | 完整 Reduce-Then-Scan WGSL 算法 | 队列协议、容量、间接执行和生命周期 |
+| Scene & Virtual Resources / virtual-assets | 现有 Nyx、meshoptimizer ledger | 继续现有忠实迁移 | 不因 Next 重写正确的 geometry 基础 |
+| Visibility & Surface / shading | The Forge VisibilityBuffer2 | 插值、解析梯度及依赖数学 | EEngine identity、资源布局、显式纹理梯度 |
+| Visibility & Surface / shading、materials-textures | 现有 Filament；MaterialX 可选 | 沿用 PBR；graph/lowering 参考 | 有界 binding/kernel family、去重合法性、frequency planning |
+| Light Transport / shading | XeGTAO | 深度预处理、求值、边缘感知降噪 | 产品空间适配、输出/Temporal 接口 |
+| Light Transport / shading、visibility | FidelityFX SDK v1.1.4 SSSR + Denoiser | 分类、工作列表、追踪、验证、完整信号重建 | WebGPU wave/绑定适配和镜面能量组合 |
+| Light Transport / shading、virtual-assets、visibility | Timberdoodle（需原型） | 页面需求、分配、失效、缓存、采样 | 无 mesh shader 的硬件 indirect 页执行 |
+| Light Transport / shading、virtual-assets | Atlas DDGI（候选）；Speedball（补充） | probe 更新/遮挡/状态/查询；评估软件 ray producer | 动态需求、VG 代理、非 bindless 资源与预算 |
+| Light Transport / Screen GI | **尚无选定完整 donor** | 先确定近场屏幕域算法 profile 与许可，不把旧 SSGI Pass 包成新 Provider | 与 World Field/Sky 的能量边界、缺屏幕信息 fallback、历史与求值预算 |
+| Environment & Media / shading | Takram atmosphere WebGPU | LUT、太阳/天光、shadow-aware aerial transport | 去 Three/TSL 宿主、单位与环境权威 owner |
+| Environment & Media / shading | Adria VolumetricFog（候选） | 注入、历史、积分与合成 | bounded binding、介质输入和大气区间合成 |
+| Temporal & Presentation / frame-runtime、shading | FidelityFX SDK v1.1.4 FSR3 Upscaler | 所选版本的完整非神经超分链 | WebGPU 后端、统一 history/exposure 接口 |
+| Visibility & Surface / 频率分类 | FidelityFX VRS 仅作分类数学参考 | 可选的对比度/运动分类条件 | compute work 生成、重建与质量合同属本地集成，无完整 donor |
 | VT / materials-textures | **本轮尚无合格整套 donor** | 先保留 Texture Residency；不冒充 VT | 后续源码资格核查、页采样/反馈/上传闭环 |
 | Adaptive Compute Shading / shading | **无已核实整套 donor**；AMD VRS 分类参考 | 可迁移选中的分类数学，不能冒称完整算法来源 | 频率产品合同、材质频带、重建与质量控制 |
 
@@ -142,7 +144,7 @@
 - **Source**：[packages/atmosphere/src/webgpu](https://github.com/takram-design-engineering/three-geospatial/tree/b012ad06d858fc035d88aacfd73f092f93c994e4/packages/atmosphere/src/webgpu)：`AtmosphereLUTTexturesWebGPU.ts`、`AtmosphereLightNode.ts`、`multiscattering.ts`、`runtime.ts`、`AerialPerspectiveNode.ts`、`precompute.ts`、`common.ts`；`packages/atmosphere/WEBGPU.md`。
 - **检查深度**：本轮读 WebGPU 说明、multiscattering 实现与 package LICENSE，核对关联入口。说明明确为 Bruneton 4D LUT 配合 Hillaire 高阶多重散射 LUT，以及避免精度问题的散射积分路径；实施时仍需完成各入口逐项映射。
 - **License**：package LICENSE 包含 MIT 主体、Bruneton BSD 条件和 Hillaire notices。不能只写“整个算法 MIT”；复制所选代码时保留派生来源及相应条款。
-- **Local owner / Adoption**：shading 的 M5 环境 owner；not adopted，优先来源。
+- **Local owner / Adoption**：Environment & Media（当前路由 shading）；not adopted，优先来源。
 - **Retained invariants**：预计算/运行时参数一致，太阳透射、直射/间接散射和 aerial transport 在同一单位与空间下组合；所选 shadow-aware transport 不能省成单纯距离雾。光照与天空消费同一个环境状态。
 - **WebGPU differences**：TSL → WGSL 或本地生成器；不引入 Three/R3F runtime。去地理接口不等于删除行星尺度、观察高度和大气几何模型；由 EEngine 约定世界长度与局部原点映射。
 - **Fallback / lifecycle**：LUT 参数变更版本化重算/替换；未完成更新可保留上个有效环境，不能将部分新旧 LUT 混用。feature-off 清理无消费者计算，物理环境可提供稳定 Sky/IBL fallback。
@@ -155,7 +157,7 @@
 - **License**：根 MIT 已读，选取代码时仍保留文件/依赖 notice。
 - **Local owner / Adoption**：shading；not adopted，局部介质迁移候选。
 - **Retained invariants**：密度/散射输入、光注入、时域重投影与路径积分的前后依赖；不能把体积介质简化成后处理颜色 lerp 仍保留原算法名称。
-- **WebGPU differences**：HLSL 和 `ResourceDescriptorHeap` 换成明确有界 bindings；Froxel history 接 M6，Local Volume/Particles 数据接本地场景。将输入扩成统一消光/散射系数属于明确扩展，不能宣称已完整复刻 Frostbite。
+- **WebGPU differences**：HLSL 和 `ResourceDescriptorHeap` 换成明确有界 bindings；Froxel history 接 Temporal & Presentation，Local Volume/Particles 数据接本地场景。将输入扩成统一消光/散射系数属于明确扩展，不能宣称已完整复刻 Frostbite。
 - **Fallback / lifecycle**：无介质返回零散射/单位透射；resize、相机与光源变化参与 history 失效。与大气分配路径区间，透明合成按实际深度处理。
 - **Local validation**：均匀介质可解析积分对照、局部体积边界、运动历史和阴影中的光散射；验证关闭后的零成本产品裁剪。
 
@@ -169,7 +171,7 @@
 - **Local owner / Adoption**：frame-runtime/shading；not adopted，优先最终超分候选。
 - **Retained invariants**：所选版本的 motion/depth/exposure/jitter 约定、输入准备、reactivity/shading-change、重投影/累积/重建与稳定性处理。保留合法 profile 内全部必要阶段；可选 sharpening 等范围预先写清。不能替换成历史 mix + sharpen 仍称 FSR3。
 - **WebGPU differences**：HLSL/GLSL callbacks 和 wave 操作改成 WGSL；资源/格式 limits 协商；Temporal Fabric 提供公共状态而不强行替换算法内部历史语义。这里选的是 **Upscaler，不包含 Frame Generation**。
-- **Fallback / lifecycle**：analytic 基线是具名后端；后端切换/相机切换/分辨率与曝光变化的历史兼容性明确。FSR 不是 sparse/coarse shading 自动正确的保证，M3 必须提供合法输入与置信度。
+- **Fallback / lifecycle**：analytic 基线是具名后端；后端切换/相机切换/分辨率与曝光变化的历史兼容性明确。FSR 不是 sparse/coarse shading 自动正确的保证，Visibility & Surface 必须提供合法输入与置信度。
 - **Local validation**：静态细节、运动细边、遮挡揭露、透明/高亮、曝光和动态分辨率；用固定源输入/输出作对照，连同完整重建成本评估。
 
 ### R13 · FSR2：备选，不与 FSR3 内部阶段拼装
@@ -217,4 +219,4 @@
 
 语言、布局、bindings、dispatch 和缓存 owner 可以改变，只要语义保留且差异可对照。遇到 WebGPU 无法保持的核心语义，明确记录缺口并确认算法/profile 调整；未确认、未对照的部分保持未完成。源算法本身不适合目标时可以换一个完整算法，但必须具名改变采用决定，不能在同一个名称下悄悄换成简化近似。
 
-本轮没有复制任何候选进入 production，也没有引入新的 runtime dependency。下一批按 [workstream](../../project/workstreams/active/eengine-next.yaml) 直接切断旧 composition，建立最小 GPU Scene → Visibility → Present 主链；之后在新 owner 上逐项完整移植。旧 A 批次合同不再是开工前门禁。
+本轮没有复制任何候选进入 production，也没有引入新的 runtime dependency。下一批按 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 直接切断旧 composition，建立最小 GPU Scene → Visibility → Present 主链；之后在新 owner 上逐项完整移植。旧 A 批次合同不再是开工前门禁。

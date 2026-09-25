@@ -1,5 +1,5 @@
 schemaVersion: 2
-id: eengine-next
+id: eengine-next-clean-rebuild
 title: EEngine Next single-path clean-cut renderer rebuild
 domain: frame-runtime
 state: active
@@ -23,7 +23,6 @@ contracts:
   - virtual-geometry-runtime-v1
 claims:
   - frame.recovery
-  - shading.one-eval
   - shading.pipeline-pruning
   - visibility.gpu-closure
 completedMilestones:
@@ -36,7 +35,7 @@ tasks:
     dependsOn: []
     exitCriteria:
       - Renderer no longer extends MainRenderPipeline and only one production frame graph/submit path exists.
-      - GPU Scene to visibility to basic color to present is GPU-closed; old optional effects and CSM do not survive as compatibility adapters.
+      - GPU Scene to visibility to debug/base color to present is GPU-closed; old AO/SSR/SSGI/GI/CSM/TAA/NSS effect owners do not survive as compatibility adapters.
       - Old claims and checks that no longer describe current code are retired or rewritten in the same cut.
   - id: rebuild-surface-material
     state: todo
@@ -74,7 +73,10 @@ requiredEvidence:
   - Independent browser and formal GPU/performance evidence only when runtime or performance claims are made.
 openGates:
   - Phase 1 must rework old current-code claims and test expectations with the code cut; acceptance of ADR-0020 does not transfer old evidence.
+  - The pre-cut renderer Git baseline still needs a fixed tag before production code is deleted; the source ledger is pinned but the new upstream algorithms remain unported.
+  - GPU Work Runtime is not complete when only MeshletWork uses a preflight helper; ShadingWork and later Ray/Page consumers must demonstrate shared control semantics with specialized physical ABIs.
   - WebGPU VSM page raster bounds, Atlas dynamic software-BVH updates, adaptive shading benefit, full VT donor, and FSR3 WGSL adaptation remain unproven.
+  - Screen GI has no selected complete migration donor or finalized near/world/sky energy boundary; VRS classification is not an adaptive compute shading implementation.
   - Record actual browser adapter/limits and budgets on both the GTX 1650 Ti and RTX 2060 machines when each is available.
 links:
   decision: docs/adr/0020-clean-cut-renderer.md

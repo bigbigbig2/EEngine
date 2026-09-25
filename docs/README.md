@@ -4,7 +4,7 @@ The repository uses a contract-driven project OS. Machine manifests route work a
 
 ## Start Here
 
-For the accepted EEngine Next clean-cut target, start with [单路径重建路线](./next-renderer.md). It connects [ADR-0020](./adr/0020-clean-cut-renderer.md), [pinned migration sources](./porting/next-renderer.md), and the [current workstream](../project/workstreams/active/eengine-next.yaml). Target design is distinct from current runtime facts and completion evidence.
+For the accepted EEngine Next clean-cut target, start with [单路径重建路线](./next-renderer.md). It connects [ADR-0020](./adr/0020-clean-cut-renderer.md), [pinned migration sources](./porting/next-renderer.md), and the [current workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml). Target design is distinct from current runtime facts and completion evidence.
 
 1. Run `node tools/vibe.mjs context <path>` before changing code. Add `--claims`, `--cases`, or `--all` only when the compact route is insufficient.
 2. Read the matching page under [domains](./domains/), then the linked contract under [contracts](./contracts/).
@@ -37,7 +37,7 @@ Domain Markdown frontmatter contains identity only. Contract, claim, check, and 
 Workstream YAML is the authoritative current TODO. Its first screen names the current slice, next tasks, and open gates; completed work is a short milestone summary linked to stable contracts or evidence. Detailed implementation history stays in Git. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
 
 - [Nyx producer convergence](../project/workstreams/active/nyx-convergence.yaml)
-- [EEngine Next renderer](../project/workstreams/active/eengine-next.yaml) — current slice cuts old composition and boots the sole new renderer; phases and deletion boundaries live in [the implementation route](./next-renderer.md)
+- [EEngine Next renderer](../project/workstreams/active/eengine-next-clean-rebuild.yaml) — current slice cuts old composition and boots the sole new renderer; phases and deletion boundaries live in [the implementation route](./next-renderer.md)
 - [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — current `large.glb` validation and performance work for [ADR-0018](./adr/0018-web-100m-virtual-geometry.md)
 
 ## Reviews

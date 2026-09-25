@@ -36,4 +36,4 @@ GPU Work Runtime 值得成为特色，但特色来自产品规划、工作削减
 
 文档准备使用现有 `vibe verify --changed`。实施按完整算法切片运行受影响检查，复用独立 validation 场景做关键算法对照和 GPU 闭环检查；不为每个函数增加测试流程。集成和正式性能声明沿用仓库现有规则。
 
-当前任务、开放项和退出条件仅维护在 [workstream](../../project/workstreams/active/eengine-next.yaml)。本 ADR 不提升任何 runtime/performance claim。
+原 workstream 已随本 ADR 一同退出 active，历史留在 Git；当前任务见 [clean-rebuild workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。本 ADR 不提升任何 runtime/performance claim。
