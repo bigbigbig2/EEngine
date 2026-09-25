@@ -5,6 +5,7 @@ import type {
 } from "../debug/profiling/ResourceAccounting.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { GpuAssetBindings } from "../gpu/GpuAssetStore.js";
+import { planBoundedGpuWorkStream } from "../gpu/BoundedGpuWorkProtocol.js";
 import {
   MESHLET_BUCKET_SETTINGS_STRIDE,
 } from "../shaders/meshlet_bucket_visibility.js";
@@ -185,12 +186,9 @@ export class MeshletWorkCandidate {
         `${GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY}`
       );
     }
-    const queueBytes = gpuMeshletWorkQueueByteLength(inputs.capacity);
-    if (queueBytes > Number(this.device.limits.maxStorageBufferBindingSize)) {
-      throw new RangeError(
-        `MeshletWork candidate queue requires ${queueBytes} bytes but maxStorageBufferBindingSize is ${this.device.limits.maxStorageBufferBindingSize}`
-      );
-    }
+    const queueBytes = planMeshletWorkBuffer(
+      inputs.capacity, this.device.limits, "MeshletWork candidate"
+    );
     const buffers: GPUBuffer[] = [];
     const accounting: AccountingResourceHandle[] = [];
     try {
@@ -614,9 +612,12 @@ export class VirtualGeometryMeshletWorkCandidate {
     if (input.visibleClusterCapacity > Number(this.device.limits.maxComputeWorkgroupsPerDimension)) {
       throw new RangeError("S1 Product visible cluster capacity exceeds dispatch dimension");
     }
+    const queueBytes = planMeshletWorkBuffer(
+      input.capacity, this.device.limits, "Product MeshletWork"
+    );
     const queue = this.device.createBuffer({
       label: "S1 Product MeshletWork queue",
-      size: gpuMeshletWorkQueueByteLength(input.capacity),
+      size: queueBytes,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
     });
     const drawIndirect = this.device.createBuffer({
@@ -776,6 +777,27 @@ interface ProductCandidateState {
 const PRODUCT_CANDIDATE_STATE = new WeakMap<object, ProductCandidateState>();
 const PRODUCT_CANDIDATE_MODULES = new WeakMap<VirtualGeometryMeshletWorkCandidate, GPUShaderModule>();
 const PRODUCT_CANDIDATE_PIPELINES = new WeakMap<VirtualGeometryMeshletWorkCandidate, Map<string, GPUComputePipeline>>();
+
+function planMeshletWorkBuffer(capacity: number, limits: GPUSupportedLimits, name: string): number {
+  const plan = planBoundedGpuWorkStream({
+    name,
+    producer: "MeshletWorkCandidate GPU generation",
+    gpuConsumer: "MeshletBucketRaster drawIndirect and Surface resolve",
+    elementAbi: "OEngineMeshletRasterWork/v1",
+    capacity,
+    elementBytes: GPU_MESHLET_RASTER_WORK_RECORD_STRIDE,
+    prefixBytes: GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE,
+    counters: ["attempted", "written", "overflow", "consumed", "invalid"],
+    overflow: "suppress-indirect-output",
+    execution: "draw-indirect",
+    maxBufferBytes: Number(limits.maxBufferSize),
+    maxStorageBindingBytes: Number(limits.maxStorageBufferBindingSize)
+  });
+  if (plan.bufferBytes !== gpuMeshletWorkQueueByteLength(capacity)) {
+    throw new Error(`${name} control plan differs from its physical ABI`);
+  }
+  return plan.bufferBytes;
+}
 
 function assertPositiveU32(value: number, label: string): void {
   if (!Number.isSafeInteger(value) || value <= 0 || value > 0xffffffff) {

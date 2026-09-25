@@ -3,6 +3,7 @@ import {
   GPU_SHADING_PROGRAM_COUNT
 } from "./GpuShadingProgramAbi.js";
 import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS } from "./TextureBindingSetPolicy.js";
+import { planBoundedGpuWorkStream } from "./BoundedGpuWorkProtocol.js";
 
 /** ADR-0013 sparse shading work ABI. This module owns every CPU/WGSL byte contract. */
 export const GPU_SHADING_BIN_ABI_VERSION = 1;
@@ -275,24 +276,20 @@ export function preflightGpuShadingBinSizing(
     0xffffffff,
     "Shading bin heap record elements"
   );
-  const recordBytes = checkedMultiply(
-    recordElements,
-    GPU_SHADING_BIN_RECORD_STRIDE,
-    Number.MAX_SAFE_INTEGER,
-    "Shading bin record bytes"
-  );
-  const heapBytes = checkedAdd(
-    GPU_SHADING_BIN_RECORDS_OFFSET,
-    recordBytes,
-    Number.MAX_SAFE_INTEGER,
-    "Shading bin heap bytes"
-  );
-  if (heapBytes > limits.maxBufferSize) {
-    throw new RangeError("Shading bin heap exceeds maxBufferSize");
-  }
-  if (heapBytes > limits.maxStorageBufferBindingSize) {
-    throw new RangeError("Shading bin heap exceeds maxStorageBufferBindingSize");
-  }
+  const work = planBoundedGpuWorkStream({
+    name: "ShadingBin heap",
+    producer: "ShadingBinPass GPU classifier/finalizer",
+    gpuConsumer: "SparseShadingResolve dispatchIndirect",
+    elementAbi: "OEngineShadingBinMicrotile/v1",
+    capacity: recordElements,
+    elementBytes: GPU_SHADING_BIN_RECORD_STRIDE,
+    prefixBytes: GPU_SHADING_BIN_RECORDS_OFFSET,
+    counters: ["attempted", "written", "overflow"],
+    overflow: "suppress-indirect-output",
+    execution: "dispatch-indirect",
+    maxBufferBytes: limits.maxBufferSize,
+    maxStorageBindingBytes: limits.maxStorageBufferBindingSize
+  });
   const maximumRecordsPerBin = grid.microtileCount;
   shadingBinDispatchDimensions(
     maximumRecordsPerBin,
@@ -309,7 +306,7 @@ export function preflightGpuShadingBinSizing(
     allowedMaskLo: mask.lo,
     allowedMaskHi: mask.hi,
     layouts,
-    heapBytes,
+    heapBytes: work.bufferBytes,
     indirectBytes: GPU_SHADING_BIN_INDIRECT_BYTES
   });
 }

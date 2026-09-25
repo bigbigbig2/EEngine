@@ -20,6 +20,7 @@ validation:
   - OEngine/tests/contract/opaque-shading-demand.test.mjs
   - OEngine/tests/contract/shading-program-specialization.test.mjs
   - OEngine/tests/contract/advanced-frame-abi.test.mjs
+  - OEngine/tests/contract/bounded-gpu-work-protocol.test.mjs
 ---
 # Render Product、GPU Work 与 History 最小合同
 
@@ -35,7 +36,7 @@ validation:
 
 ## GPU 工作闭环
 
-- MeshletWork 和 ShadingWork 先共用协议，不强制共用元素布局或一个物理队列：每个 stream 声明 producer、GPU consumer、元素 ABI、容量、attempted/written/peak、overflow/fallback 和实际间接或直接执行方式。当前 [GpuWorkGenerationAbi](../../OEngine/src/gpu/GpuWorkGenerationAbi.ts) 的全有或全无 reservation 是 MeshletWork 的现有行为；ShadingBin 的 header/间接参数遵守其自身 ABI。
+- MeshletWork 和 ShadingWork 先共用控制面协议，不共用元素布局、header 或物理队列。[BoundedGpuWorkProtocol](../../OEngine/src/gpu/BoundedGpuWorkProtocol.ts) 在实际队列分配前核对 producer、GPU consumer、元素 ABI、容量、字节需求、设备 limits、counter 语义、溢出处理和间接执行方式；生产路径分别用它计算 MeshletWork 与 ShadingBin heap 的分配字节。两者都有 attempted/written/overflow，MeshletWork 另有 consumed/invalid，层次遍历队列另有 peak/fallback，不能强行补成同一 header。当前两条生产路径溢出时都压制本帧间接输出，不把部分结果当完整画面。各自的 WGSL reservation、finalizer、元素 ABI 和 GPU consumer 保持原样；[GpuWorkGenerationAbi](../../OEngine/src/gpu/GpuWorkGenerationAbi.ts) 是上游层次队列，不等于最终 Product MeshletWork。
 - `DirectSingleBin` 是合法的固定有界工作路径，不能为满足“所有工作必须先 compact”的形式要求而增添额外往返。新 Ray/Page 工作流只有在分类/压缩节省的 GPU 成本超过分类与间接开销，且空任务/溢出可解释时，才进入生产执行。
 - GPU producer 的本帧结果由 GPU consumer 闭环消费。CPU feedback 可以异步决定以后帧的驻留，不生成本帧最终可见列表。
 

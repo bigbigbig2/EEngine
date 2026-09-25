@@ -13,7 +13,7 @@ currentSlice:
   status: active
 nextTasks:
   - Extend the first finite product plan using real consumers and cost evidence; keep Surface outputs and program publication separate.
-  - Map existing meshlet and shading consumers onto a shared bounded work protocol without removing direct fast paths.
+  - Extend the bounded work control protocol only when a real Ray/Page consumer needs it; keep the existing MeshletWork and ShadingBin physical ABIs and direct fast paths.
   - Define motion, exposure, stable history identity, and invalidation before integrating new lighting providers.
   - Prototype dynamic world-GI sample production and scene-change invalidation on the GTX 1650 Ti baseline during the foundation slice.
   - Prepare the first complete XeGTAO or SSSR source-to-production map using the pinned migration ledger.
@@ -34,6 +34,8 @@ completedMilestones:
     result: User selected the 1650 and 2060 development machines and dynamic world GI; current hardware is GTX 1650 Ti 4 GiB, i7-10750H, and 16 GiB RAM. Actual second-machine configuration remains to be read.
   - id: first-opaque-product-and-program-boundary
     result: Sparse shading programs now reuse device-scoped compiled pipelines across Scene revisions; publication bindings remain revision-local. The first opaque product plan drives optional Surface allocation; browser performance evidence remains open.
+  - id: meshlet-shading-bounded-work-control
+    result: Production MeshletWork and ShadingBin allocation now share bounded work preflight and declare their own producer, GPU consumer, counters, overflow and indirect execution; physical ABIs and shader execution remain independent. Browser behavior and performance evidence remain open.
 tasks:
   - id: foundation-contracts
     state: active
