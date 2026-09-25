@@ -104,6 +104,28 @@ export class BasicTelemetry {
     };
   }
 
+  gpuPassStats(sampleCount = 24): { label: string; timing: Distribution }[] {
+    const samples = [...this.frames.values()]
+      .filter(frame => frame.gpu.sampled && !frame.gpu.pending && frame.gpu.segments.length > 0)
+      .slice(-sampleCount);
+    const durations = new Map<string, number[]>();
+    for (const frame of samples) {
+      const perFrame = new Map<string, number>();
+      for (const segment of frame.gpu.segments) {
+        perFrame.set(segment.label, (perFrame.get(segment.label) ?? 0) + segment.durationMs);
+      }
+      for (const [label, duration] of perFrame) {
+        const values = durations.get(label) ?? [];
+        values.push(duration);
+        durations.set(label, values);
+      }
+    }
+    return [...durations].map(([label, values]) => ({
+      label,
+      timing: this.distribution(values)
+    })).sort((left, right) => (right.timing?.p50 ?? 0) - (left.timing?.p50 ?? 0));
+  }
+
   capture(): object {
     return {
       schema: "oengine-rendering-lab-basic-web-product-v1",

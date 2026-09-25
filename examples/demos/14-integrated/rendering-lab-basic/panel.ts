@@ -178,6 +178,7 @@ export class BasicPanel {
   private frames(): string {
     const t = this.telemetry;
     const stats = t.frameStats();
+    const gpuPasses = t.gpuPassStats();
     const last = [...t.frames.values()].at(-1);
     const counters = [...t.frames.values()].reverse().find(frame => frame.gpuCounters.sampled && !frame.gpuCounters.pending)?.gpuCounters.values ?? {};
     return `<h2>最近 360 帧</h2>${rows([
@@ -185,7 +186,7 @@ export class BasicPanel {
       ["RAF P50 / P95", stat(stats.raf)], ["GPU timestamp", record(t.adapter).gpuTimestamp === true ? "可用" : "不可用"],
       ["最后帧", integer(last?.frameIndex)], ["提交 / 上传 / 回读", `${integer(last?.submits.count)} / ${bytes(last?.uploads.bytes)} / ${bytes(last?.readbacks.bytes)}`],
       ["Queue overflow mask", integer(number(counters.queueOverflowMask))]
-    ])}<p class="note">GPU 数值是采样 Pass 的耗时和；首次提交时间不代表 GPU 完成呈现。切换显示模式后请重新观察稳定帧。</p>`;
+    ])}<h2>最近 24 个 GPU 样本：最耗时 Pass</h2>${rows(gpuPasses.slice(0, 8).map(pass => [pass.label, stat(pass.timing)]))}<details><summary>其余 ${Math.max(0, gpuPasses.length - 8)} 个 Pass</summary>${rows(gpuPasses.slice(8).map(pass => [pass.label, stat(pass.timing)]))}</details><p class="note">GPU 数值是采样 Pass 的耗时和；首次提交时间不代表 GPU 完成呈现。移动相机或切换显示模式后，等待至少 24 个 GPU 样本再比较。</p>`;
   }
 
   private diagnostics(): string {
