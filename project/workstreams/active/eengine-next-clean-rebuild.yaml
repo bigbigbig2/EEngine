@@ -28,7 +28,7 @@ completedMilestones:
   - id: superseded-m1-preparation
     result: Prior foundation and source survey remain in Git and the source ledger; the behavior-preserving M1 composition task and proposed render-product-work-history-v1 contract were abandoned by ADR-0020. No new runtime is claimed.
   - id: phase1-single-path-cut
-    result: The pre-cut baseline is tagged locally. Renderer inheritance, old composition/effect owners, obsolete checks and browser cases were removed together. The single GPU Scene to indirect VisibilityKey/depth to HZB to diagnostic present chain passed a dirty-tree browser diagnostic including resize; this is not formal Runtime Validated or performance evidence.
+    result: The pre-cut baseline is tagged locally. Renderer inheritance, old composition/effect owners, obsolete checks and browser cases were removed together. The single GPU Scene to indirect VisibilityKey/depth to HZB to diagnostic present chain passed dirty-tree browser diagnostics for empty and single-Product scenes, resize, and device-loss recovery. MeshletWork capacity and fail-visible overflow have bounded CPU/contract oracles; actual GPU overflow pressure remains unmeasured. This is not formal Runtime Validated or performance evidence.
 tasks:
   - id: cut-old-composition
     state: done

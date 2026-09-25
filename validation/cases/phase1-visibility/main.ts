@@ -149,7 +149,13 @@ try {
   controller.transition("ready");
   controller.transition("warming");
   let beforeResizeKey = "";
+  let emptyPasses: string[] = [];
   const scoped = await withGpuErrorScopes(renderer.device, "Phase 1 visibility frame", async () => {
+    requireValue(renderer!.render(camera, new Scene(), 1 / 60), "Empty Scene was not presented");
+    emptyPasses = renderer!.mainFrameGraphEvidence()?.dump.passes
+      .filter(pass => !pass.culled).map(pass => pass.name) ?? [];
+    requireValue(emptyPasses.length === 1 && emptyPasses[0] === "Renderer/empty present",
+      "Empty Scene retained geometry work");
     for (let frame = 0; frame < 2; frame++) {
       requireValue(renderer!.render(camera, scene, 1 / 60), "Renderer did not submit the visibility frame");
       await nextFrame();
@@ -171,9 +177,28 @@ try {
   requireValue(passes.includes("Visibility/build HZB"), "HZB was not built");
   requireValue(passes.includes("Visibility/Phase1 present"), "VisibilityKey was not presented");
   requireValue(scoped.errors.length === 0, JSON.stringify(scoped.errors));
+  const geometryBeforeLoss = residency.evidence();
+  const lostDevice = renderer.device;
+  intentionalDestroy = true;
+  lostDevice.destroy();
+  await lostDevice.lost;
+  await collector?.lost;
+  collector?.remove();
+  renderer = await renderer.recoverAfterDeviceLoss();
+  intentionalDestroy = false;
+  collector = attachGpuErrorCollection(renderer.device, controller, () => intentionalDestroy);
+  const recovered = await withGpuErrorScopes(renderer.device, "Phase 1 recovered visibility frame", async () => {
+    requireValue(renderer!.render(camera, scene, 1 / 60), "Recovered Renderer did not submit visibility");
+    await renderer!.device.queue.onSubmittedWorkDone();
+  });
+  requireValue(recovered.errors.length === 0, JSON.stringify(recovered.errors));
+  requireValue(renderer.mainFrameGraphEvidence()?.dump.passes
+    .some(pass => !pass.culled && pass.name.includes("MeshletWork bucket producer")),
+    "Recovered Renderer did not consume GPU MeshletWork");
   controller.addEvidence("phase1", {
-    passes, frameCount: renderer.frame_count,
-    geometry: residency.evidence(), gpuErrors: scoped.errors
+    emptyPasses, passes, frameCount: renderer.frame_count,
+    geometry: geometryBeforeLoss, gpuErrors: [...scoped.errors, ...recovered.errors],
+    recoveredDevice: renderer.device !== lostDevice
   });
   status.textContent = "passed";
   controller.transition("draining");

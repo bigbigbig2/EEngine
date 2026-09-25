@@ -13,6 +13,7 @@ import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import { VisibilityPresentPass } from "../passes/VisibilityPresentPass.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
 import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
@@ -132,6 +133,10 @@ interface VisibilityGraphBindings {
   readonly depth: GPUTextureContext;
   readonly swapchain: GPUTextureView;
   readonly runtime: GpuRenderWorldRuntime;
+}
+
+interface EmptyGraphBindings {
+  readonly swapchain: GPUTextureView;
 }
 export interface ProductSceneSourceMapper {
   (revision: Readonly<{ residency: VirtualGeometryResidency; descriptor: GeometryProductDescriptorV1; source: GeometryProductRevisionSourceV1 }>): VirtualGeometrySceneSourceResultV1 | Promise<VirtualGeometrySceneSourceResultV1>;
@@ -1110,7 +1115,10 @@ export class Renderer {
   render(camera: PerspectiveCamera, scene: Scene, timeDeltaSeconds = 1 / 60): boolean {
     if (this._deviceLost || this._destroyed) return false;
     const runtime = this._graphics.render_world_if_created?.runtime(scene);
-    if (!runtime) throw new Error("Scene has no GPU Render World publication");
+    if (!runtime) {
+      if (scene.instance_count !== 0) throw new Error("Scene has no GPU Render World publication");
+      return this.renderEmptyScene();
+    }
     const frameIndex = this._frame_count;
     const streaming = this._virtualProductScenes.get(scene)?.streamingRuntime;
     if (streaming) {
@@ -1233,6 +1241,66 @@ export class Renderer {
     } finally {
       this._profiler.endFrame();
     }
+  }
+
+  private renderEmptyScene(): boolean {
+    const frameIndex = this._frame_count;
+    this._profiler.beginFrame(frameIndex);
+    const frame = this._frameCoordinator.beginFrame(frameIndex, "Renderer/visibility-frame");
+    const command = frame.command;
+    try {
+      this._graphics.encodeFrameMaintenance(command);
+      const bindings: EmptyGraphBindings = {
+        swapchain: this.context.getCurrentTexture().createView()
+      };
+      const graphKey = `empty:${this._format}`;
+      const compiled = this._graphCache.getOrCreate(graphKey,
+        () => this.compileEmptyGraph(bindings), {
+          hit: () => this._profiler.recordGraphCacheHit(),
+          miss: () => this._profiler.recordGraphCacheMiss(),
+          evict: () => this._profiler.recordGraphCacheEviction()
+        });
+      this._lastFrameGraph = Object.freeze({
+        cacheKey: graphKey,
+        dump: compiled.dump(),
+        resources: summarizeFrameGraphResources(compiled)
+      });
+      command.encodeCompiledGraph(compiled, bindings);
+      this._frameCoordinator.submitFrame(frame);
+      this._frame_count++;
+      this.onFrameFinished.send1(this._frame_count);
+      return true;
+    } catch (error) {
+      if (!command.closed) this._frameCoordinator.abortFrame(frame, error);
+      this._frame_count++;
+      this.onFrameFinished.send1(this._frame_count);
+      throw error;
+    } finally {
+      this._profiler.endFrame();
+    }
+  }
+
+  private compileEmptyGraph(initial: EmptyGraphBindings) {
+    this._profiler.recordGraphBuild();
+    const layout = new FrameGraphBindingLayout<EmptyGraphBindings>();
+    const graph = new FrameGraph("Renderer/empty-frame");
+    const swapchain = graph.import_resource(
+      "swapchain", { kind: "imported", label: "swapchain" },
+      layout.slot("swapchain", initial, bindings => bindings.swapchain)
+    );
+    const clear = graph.add("Renderer/empty present", {}, (_data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      const pass = command.gpu_encoder.beginRenderPass({ colorAttachments: [{
+        view: resolveTextureView(resources.get(swapchain)),
+        loadOp: "clear",
+        storeOp: "store",
+        clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 }
+      }] });
+      pass.end();
+    });
+    clear.write(swapchain);
+    this._profiler.recordGraphCompile();
+    return graph.compile();
   }
 
   private compileVisibilityGraph(initial: VisibilityGraphBindings) {
