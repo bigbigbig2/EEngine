@@ -1003,6 +1003,9 @@ export class Renderer {
   memoryEvidence(): GraphicsMemoryEvidence { return this._graphics.memoryEvidence(); }
   mainFrameGraphEvidence() { return this._lastFrameGraph; }
 
+  /** On-demand GPU diagnosis only; the frame path never reads ShadingWork back. */
+  diagnosticShadingFrequency() { return this._shadingWork.readDiagnosticFrequency(); }
+
   async initialize(options: RendererInitializeOptions = {}): Promise<void> {
     if (this._destroyed) throw new Error("Destroyed Renderer cannot initialize");
     const gpu = navigator.gpu;
@@ -1400,20 +1403,23 @@ export class Renderer {
       "material-records", { kind: "imported", label: "published material records" },
       bind("material-records", bindings => bindings.runtime.materialResources.materialRecords)
     );
-    const shadingWork = this._shadingWork.addToGraph(graph, {
-      visibilityKey: result.frame.visibilityKey,
-      meshletWork: result.frame.meshletWork.records,
-      materialRecords,
-      width: result.frame.domain.width,
-      height: result.frame.domain.height
-    });
-    const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
-      .filter(classId => (initial.runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
-    const needsDirectLight = activeClasses.some(classId => (classId & 15) >= 4);
     const instances = graph.import_resource(
       "scene-instances", { kind: "imported", label: "published instance records" },
       bind("scene-instances", bindings => bindings.job.scene.instances)
     );
+    const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
+      .filter(classId => (initial.runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
+    const shadingWork = this._shadingWork.addToGraph(graph, {
+      visibilityKey: result.frame.visibilityKey,
+      meshletWork: result.frame.meshletWork.records,
+      materialRecords,
+      depth: result.frame.depth,
+      instances,
+      adaptive: activeClasses.includes(0),
+      width: result.frame.domain.width,
+      height: result.frame.domain.height
+    });
+    const needsDirectLight = activeClasses.some(classId => (classId & 15) >= 4);
     const geometryMetadata = graph.import_resource(
       "geometry-metadata", { kind: "imported", label: "geometry metadata" },
       bind("geometry-metadata", bindings => bindings.job.assets.sparseShading.assetMetadataHeap)
@@ -1521,7 +1527,7 @@ export class Renderer {
     );
     this._present.addToGraph(
       graph, radiance, shadingWork.queue, swapchain,
-      this._output_resolution.x, this._output_resolution.y
+      this._output_resolution.x, this._output_resolution.y, shadingWork.frequencyPlan
     );
     this._profiler.recordGraphCompile();
     return graph.compile();

@@ -1,4 +1,4 @@
-/** Phase 2 full-rate visible-sample work; independent of the former ShadingBin layout. */
+/** Phase 2 visible Surface evaluations: full hits or frequency-plan representatives. */
 export const SHADING_WORK_ABI_VERSION = 1;
 export const SHADING_WORK_HEADER_BYTES = 20;
 export const SHADING_WORK_RECORD_BYTES = 8;

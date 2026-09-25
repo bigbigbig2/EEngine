@@ -19,7 +19,7 @@ validation:
 ---
 # Next Renderer：Product、Work、History 跨模块目标合同
 
-本合同是 [ADR-0020](../adr/0020-clean-cut-renderer.md) 的**候选目标边界**，整体尚未落地。Phase 2 已在 `SurfaceProducts.ts` 定义部分逻辑 Surface 值以及稳定程序/发布期绑定身份；当前 Renderer 有 GPU ShadingWork producer、indirect consumer 与材质发布**诊断**，其精确队列 ABI 见 [ShadingWork V1](../specs/shading-work-v1.md)。它尚未实现完整 Surface/PBR/direct lighting，也不产出正式 Surface Radiance。frontmatter 的 `validation` 目前仅检查文档模型，不证明 runtime 语义。`consumers` 列出帧入口以定位迁移，不表示其已满足本合同。
+本合同是 [ADR-0020](../adr/0020-clean-cut-renderer.md) 的**候选目标边界**，整体尚未落地。Phase 2 已在 `SurfaceProducts.ts` 定义部分逻辑 Surface 值及程序/发布期绑定身份；当前 Renderer 的 GPU ShadingWork、间接 Surface/PBR/direct consumer 与有限频率计划已有**诊断**，精确边界见 [ShadingWork V1](../specs/shading-work-v1.md) 与[频率计划 V1](../specs/shading-frequency-plan-v1.md)。完整的材质频带、净性能收益、Temporal 与正式 Surface Radiance claim 仍缺证据。frontmatter 的 `validation` 目前仅检查文档模型，不证明 runtime 语义。`consumers` 列出帧入口以定位迁移，不表示其已满足本合同。
 
 ## Semantic Product
 

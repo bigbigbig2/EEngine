@@ -328,6 +328,8 @@ try {
   requireValue(passes.some(name => name.includes("MeshletWork bucket producer")), "GPU MeshletWork raster was not encoded");
   requireValue(passes.includes("Visibility/build HZB"), "HZB was not built");
   requireValue(passes.includes("Surface/classify visible ShadingWork"), "GPU ShadingWork producer was not encoded");
+  requireValue(passes.includes("Surface/plan spatial shading frequency"),
+    "Adaptive Surface frequency plan was not GPU-produced");
   requireValue(passes.includes("Surface/finalize ShadingWork indirect"), "GPU ShadingWork indirect finalizer was not encoded");
   requireValue(passes.includes("Surface/scatter ShadingWork by material class"),
     "GPU ShadingWork class ranges were not consumed by scatter");
@@ -340,6 +342,35 @@ try {
   requireValue(passes.some(name => name.startsWith("LightCluster/")),
     "Lit material did not consume GPU light clustering");
   requireValue(passes.includes("Surface/present radiance"), "Surface radiance was not presented");
+  const frequencyDiagnostic = await renderer.diagnosticShadingFrequency();
+  requireValue(frequencyDiagnostic.overflow === 0 && frequencyDiagnostic.attempted === frequencyDiagnostic.written &&
+    frequencyDiagnostic.coarse2Blocks > 0 && frequencyDiagnostic.coarse4Blocks > 0 &&
+    frequencyDiagnostic.savedEvaluations > 0,
+  `Full/2x2/4x4 work closure did not reduce actual GPU evaluations: ${JSON.stringify(frequencyDiagnostic)}`);
+  requireValue(renderer.render(camera, scene, 1 / 60),
+    "Spatial coverage frame was not submitted after diagnostic buffer readback");
+  const unlitGrid = Array.from({ length: 20 * 15 }, (_, index) => [
+    416 + (index % 15) * 8, 108 + Math.floor(index / 15) * 8
+  ] as [number, number]);
+  const unlitClip = [[0.7, -0.8, 0], [2.3, -0.8, 0], [1.5, 0.8, 0]].map(([x, y, z]) =>
+    [0, 1, 2, 3].map(row => {
+      const matrix = camera.view_projection_matrix;
+      return matrix[row]! * x! + matrix[4 + row]! * y! +
+        matrix[8 + row]! * z! + matrix[12 + row]!;
+    }) as [number, number, number, number]
+  ) as [[number, number, number, number], [number, number, number, number], [number, number, number, number]];
+  const unlitPixels = await captureDisplayPixels(renderer.device, context, unlitGrid);
+  const unlitChecked: [number, number][] = [];
+  for (let index = 0; index < unlitGrid.length; index++) {
+    const point = unlitGrid[index]!;
+    const bary = projectedSurfaceBarycentricReference(
+      [point[0] + 0.5, point[1] + 0.5], unlitClip, [640, 360]);
+    if (!bary.valid || bary.weights.some(weight => weight < 0.08)) continue;
+    requireLitTexel(unlitPixels[index]!, [26, 179, 230], `reconstructed unlit pixel ${point}`);
+    unlitChecked.push(point);
+  }
+  requireValue(unlitChecked.length >= 20,
+    `Spatial reconstruction did not cover enough interior samples: ${unlitChecked.length}`);
   requireValue(scoped.errors.length === 0, JSON.stringify(scoped.errors));
   const runtime = renderer.graphics.render_world.runtime(scene);
   requireValue(runtime, "Published mixed-material runtime was not resident");
@@ -366,6 +397,19 @@ try {
   requireValue(renderer.render(camera, scene, 1 / 60), "Restored material frame was not submitted");
   const [restoredPixel] = await captureDisplayPixels(renderer.device, context, [[280, 220]]);
   requireLitTexel(restoredPixel!, surfacePixels.red!, "restored PBR material identity");
+  const unlitSlot = runtime.materialBinSlots[64]; // material index 1, class 0
+  requireValue(unlitSlot !== undefined && unlitSlot !== 0xffffffff,
+    "Coarse unlit material association was not published");
+  const unlitGenerationOffset = unlitSlot * GPU_SHADING_MATERIAL_RECORD_STRIDE +
+    GPU_SHADING_MATERIAL_HEADER_OFFSETS.materialGeneration;
+  renderer.device.queue.writeBuffer(runtime.materialResources.materialRecords,
+    unlitGenerationOffset, new Uint32Array([0]));
+  requireValue(renderer.render(camera, scene, 1 / 60), "Coarse identity fault frame was not submitted");
+  const coarseFaultPixels = await captureDisplayPixels(renderer.device, context, unlitChecked.slice(0, 3));
+  requireValue(coarseFaultPixels.every(pixel => pixel[0] === 255 && pixel[1] === 0 && pixel[2] === 255),
+    `Coarse reconstruction hid a material identity failure: ${JSON.stringify(coarseFaultPixels)}`);
+  renderer.device.queue.writeBuffer(runtime.materialResources.materialRecords,
+    unlitGenerationOffset, new Uint32Array([runtime.materialGeneration]));
   const geometryBeforeLoss = residency.evidence();
   const lostDevice = renderer.device;
   intentionalDestroy = true;
@@ -510,6 +554,9 @@ try {
   camera.update();
   requireValue(renderer.render(camera, complexScene, 1 / 60), "Complex VG warm frame was not submitted");
   requireValue(renderer.render(camera, complexScene, 1 / 60), "Complex VG Surface frame was not submitted");
+  requireValue(!renderer.mainFrameGraphEvidence()?.dump.passes.some(pass =>
+    !pass.culled && pass.name === "Surface/plan spatial shading frequency"),
+    "A scene without coarse-eligible materials retained the frequency pass");
   const complexGrid = Array.from({ length: 21 * 27 }, (_, index) => [
     216 + (index % 27) * 8, 100 + Math.floor(index / 27) * 8
   ] as [number, number]);
@@ -590,7 +637,8 @@ try {
   controller.addEvidence("phase1", {
     emptyPasses, passes, surfacePixels, faultPixels, restoredPixel, recoveredPixels,
     clipW, mixedWNumericSamples, mixedWOverlap, clippedAway,
-    complexSamples, minimumTextureFootprint,
+    complexSamples, minimumTextureFootprint, frequencyDiagnostic,
+    reconstructedUnlitSamples: unlitChecked.length, coarseFaultPixels,
     lightCount: scene.lights.elements.length, frameCount: renderer.frame_count,
     geometry: geometryBeforeLoss, gpuErrors: [...scoped.errors, ...recovered.errors],
     recoveredDevice: renderer.device !== lostDevice

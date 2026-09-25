@@ -2,9 +2,10 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js"
 import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { SHADING_WORK_CLASS_COUNT, SHADING_WORK_THREADS, SHADING_WORK_WGSL } from "../render/surface/ShadingWorkAbi.js";
+import { SHADING_FREQUENCY_ANCHOR_WGSL } from "./shading_frequency.js";
 
 /** Visibility creates one work item per covered sample. No CPU-visible list is built. */
-export const SHADING_WORK_CLASSIFY_WGSL = /* wgsl */ `
+export function shadingWorkClassifyWgsl(adaptive: boolean): string { return /* wgsl */ `
 ${SHADING_WORK_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
@@ -16,6 +17,8 @@ struct ShadingWorkView { width: u32, height: u32, capacity: u32, max_dispatch_x:
 @group(0) @binding(3) var<storage, read_write> classes: ShadingWorkClasses;
 @group(0) @binding(4) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(5) var<storage, read> materials: array<OEngineShadingMaterialRecord>;
+${adaptive ? "@group(0) @binding(6) var<storage, read> frequency_plan: array<u32>;" : ""}
+${adaptive ? SHADING_FREQUENCY_ANCHOR_WGSL : ""}
 @compute @workgroup_size(1)
 fn initialize() {
   atomicStore(&work.header.attempted, 0u);
@@ -35,6 +38,7 @@ fn classify(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= view.width || id.y >= view.height { return; }
   let key = textureLoad(key_texture, vec2i(id.xy), 0).x;
   if !oengine_visibility_key_is_valid(key) { return; }
+  ${adaptive ? "if any(oengine_shading_anchor(id.xy, view.width) != id.xy) { return; }" : ""}
   let work_slot = oengine_visibility_key_meshlet_work_slot(key);
   if meshlet_work.header.generation == 0u || work_slot >= meshlet_work.header.written_count {
     atomicAdd(&work.header.overflow, 1u);
@@ -56,7 +60,8 @@ fn classify(@builtin(global_invocation_id) id: vec3u) {
   atomicAdd(&classes.entries[class_id].count, 1u);
   atomicAdd(&work.header.attempted, 1u);
 }
-`;
+`; }
+export const SHADING_WORK_CLASSIFY_WGSL = shadingWorkClassifyWgsl(false);
 
 export const SHADING_WORK_FINALIZE_WGSL = /* wgsl */ `
 ${SHADING_WORK_WGSL}
@@ -90,7 +95,7 @@ fn finalize() {
 `;
 
 /** Second visibility scan writes one tightly packed record per classified hit. */
-export const SHADING_WORK_SCATTER_WGSL = /* wgsl */ `
+export function shadingWorkScatterWgsl(adaptive: boolean): string { return /* wgsl */ `
 ${SHADING_WORK_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
@@ -102,11 +107,14 @@ struct ShadingWorkView { width: u32, height: u32, capacity: u32, max_dispatch_x:
 @group(0) @binding(3) var<storage, read_write> classes: ShadingWorkClasses;
 @group(0) @binding(4) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(5) var<storage, read> materials: array<OEngineShadingMaterialRecord>;
+${adaptive ? "@group(0) @binding(6) var<storage, read> frequency_plan: array<u32>;" : ""}
+${adaptive ? SHADING_FREQUENCY_ANCHOR_WGSL : ""}
 @compute @workgroup_size(8, 8)
 fn scatter(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= view.width || id.y >= view.height { return; }
   let key = textureLoad(key_texture, vec2i(id.xy), 0).x;
   if !oengine_visibility_key_is_valid(key) { return; }
+  ${adaptive ? "if any(oengine_shading_anchor(id.xy, view.width) != id.xy) { return; }" : ""}
   let work_slot = oengine_visibility_key_meshlet_work_slot(key);
   if meshlet_work.header.generation == 0u || work_slot >= meshlet_work.header.written_count { return; }
   let meshlet = meshlet_work.elements[work_slot];
@@ -125,4 +133,5 @@ fn scatter(@builtin(global_invocation_id) id: vec3u) {
   }
   work.records[slot] = ShadingWorkRecord(id.y * view.width + id.x, key);
 }
-`;
+`; }
+export const SHADING_WORK_SCATTER_WGSL = shadingWorkScatterWgsl(false);
