@@ -10,6 +10,8 @@ import { compileSurfaceProgramLayout } from "../../../OEngine/src/render/surface
 import { createSurfaceMaterialProgramWgsl } from "../../../OEngine/src/shaders/surface_material_program.ts";
 import { Sampler2D } from "../../../OEngine/src/texture/Sampler2D.ts";
 import { evaluateGpuShadingProgramReference } from "../../../OEngine/src/gpu/GpuShadingProgramOracle.ts";
+import { GPU_SHADING_MATERIAL_HEADER_OFFSETS,
+  GPU_SHADING_MATERIAL_RECORD_STRIDE } from "../../../OEngine/src/gpu/GpuShadingMaterialAbi.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 const status = document.querySelector<HTMLElement>("#status")!;
@@ -323,6 +325,31 @@ try {
     "Lit material did not consume GPU light clustering");
   requireValue(passes.includes("Surface/present radiance"), "Surface radiance was not presented");
   requireValue(scoped.errors.length === 0, JSON.stringify(scoped.errors));
+  const runtime = renderer.graphics.render_world.runtime(scene);
+  requireValue(runtime, "Published mixed-material runtime was not resident");
+  const litSlot = runtime.materialBinSlots[5];
+  requireValue(litSlot !== undefined && litSlot !== 0xffffffff,
+    "Textured PBR material association was not published");
+  const materialGenerationOffset = litSlot * GPU_SHADING_MATERIAL_RECORD_STRIDE +
+    GPU_SHADING_MATERIAL_HEADER_OFFSETS.materialGeneration;
+  renderer.device.queue.writeBuffer(runtime.materialResources.materialRecords,
+    materialGenerationOffset, new Uint32Array([0]));
+  let faultPixels: number[][] = [];
+  const fault = await withGpuErrorScopes(renderer.device, "Phase 2 material identity fault", async () => {
+    requireValue(renderer!.render(camera, scene, 1 / 60), "Identity fault frame was not submitted");
+    faultPixels = await captureDisplayPixels(renderer!.device, context,
+      [[280, 220], [480, 180], [160, 180]]);
+  });
+  requireValue(fault.errors.length === 0, JSON.stringify(fault.errors));
+  requireValue(faultPixels[0]![0] === 255 && faultPixels[0]![1] === 0 &&
+    faultPixels[0]![2] === 255, `Corrupt generation did not fail visibly: ${faultPixels[0]}`);
+  requireLitTexel(faultPixels[1]!, surfacePixels.unlit!, "unaffected unlit class");
+  requireLitTexel(faultPixels[2]!, surfacePixels.minified!, "unaffected second PBR material");
+  renderer.device.queue.writeBuffer(runtime.materialResources.materialRecords,
+    materialGenerationOffset, new Uint32Array([runtime.materialGeneration]));
+  requireValue(renderer.render(camera, scene, 1 / 60), "Restored material frame was not submitted");
+  const [restoredPixel] = await captureDisplayPixels(renderer.device, context, [[280, 220]]);
+  requireLitTexel(restoredPixel!, surfacePixels.red!, "restored PBR material identity");
   const geometryBeforeLoss = residency.evidence();
   const lostDevice = renderer.device;
   intentionalDestroy = true;
@@ -351,7 +378,7 @@ try {
     .some(pass => !pass.culled && pass.name.includes("MeshletWork bucket producer")),
     "Recovered Renderer did not consume GPU MeshletWork");
   controller.addEvidence("phase1", {
-    emptyPasses, passes, surfacePixels, recoveredPixels,
+    emptyPasses, passes, surfacePixels, faultPixels, restoredPixel, recoveredPixels,
     lightCount: scene.lights.elements.length, frameCount: renderer.frame_count,
     geometry: geometryBeforeLoss, gpuErrors: [...scoped.errors, ...recovered.errors],
     recoveredDevice: renderer.device !== lostDevice
