@@ -1,7 +1,8 @@
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MATERIAL_VISIBILITY_FLAGS } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
-import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
+import { GPU_SHADING_MATERIAL_FLAGS, GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
+import { GPU_SHADING_PROGRAM } from "../gpu/GpuShadingProgramAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { SHADING_FREQUENCY_COARSE4_BIT, SHADING_FREQUENCY_TILE_SIZE } from "../render/surface/ShadingFrequencyPlanAbi.js";
 
@@ -36,12 +37,16 @@ fn frequency_eligible(key: u32) -> bool {
   if meshlet.material_slot_or_range >= arrayLength(&frequency_materials) ||
      meshlet.instance_slot >= arrayLength(&frequency_instances) { return false; }
   let material = frequency_materials[meshlet.material_slot_or_range];
-  // Material Appearance: only opaque untextured, uncolored factor material is
-  // currently proven constant across a primitive. Lighting: unlit has no
-  // direct/indirect/specular/shadow variation. All other classes stay full.
-  return material.program_id == 0u && material.texture_binding_set_id == 0u &&
-    material.payload.alpha_mode == 0u &&
-    material.payload.flags == ${GPU_MATERIAL_VISIBILITY_FLAGS.Valid | GPU_MATERIAL_VISIBILITY_FLAGS.Unlit}u &&
+  // Material Appearance: no authored color, alpha mask, or texture variation.
+  // The one-texel base case is certified by the material publication and
+  // TextureResidency's full-layer resize/mip chain. Lighting: unlit only.
+  let uniform_texture = material.program_id == ${GPU_SHADING_PROGRAM.UnlitTexture}u &&
+    (material.flags & ${GPU_SHADING_MATERIAL_FLAGS.UniformBaseTexture}u) != 0u &&
+    material.payload.flags == ${GPU_MATERIAL_VISIBILITY_FLAGS.Valid | GPU_MATERIAL_VISIBILITY_FLAGS.Unlit | GPU_MATERIAL_VISIBILITY_FLAGS.HasAlphaTexture}u;
+  let constant_factor = material.program_id == ${GPU_SHADING_PROGRAM.UnlitFactor}u &&
+    material.texture_binding_set_id == 0u &&
+    material.payload.flags == ${GPU_MATERIAL_VISIBILITY_FLAGS.Valid | GPU_MATERIAL_VISIBILITY_FLAGS.Unlit}u;
+  return (constant_factor || uniform_texture) && material.payload.alpha_mode == 0u &&
     frequency_static(frequency_instances[meshlet.instance_slot]);
 }
 

@@ -23,6 +23,8 @@ let residency: VirtualGeometryResidency | undefined;
 let source: GeometryProductRevisionSourceV1 | undefined;
 let complexResidency: VirtualGeometryResidency | undefined;
 let complexSource: GeometryProductRevisionSourceV1 | undefined;
+let texturedFrequencyResidency: VirtualGeometryResidency | undefined;
+let texturedFrequencySource: GeometryProductRevisionSourceV1 | undefined;
 let intentionalDestroy = false;
 let collector: ReturnType<typeof attachGpuErrorCollection> | undefined;
 
@@ -36,6 +38,8 @@ const controller = createValidationController({
   source?.release();
   complexResidency?.destroy();
   complexSource?.release();
+  texturedFrequencyResidency?.destroy();
+  texturedFrequencySource?.release();
   await collector?.lost;
   collector?.remove();
   status.textContent = "disposed";
@@ -746,13 +750,77 @@ try {
   }
   requireValue(complexSamples.every(count => count >= 5),
     `Complex VG primitives lacked numeric Surface samples: ${complexSamples}`);
+  // Both objects use the same textured-unlit program. Only the one-texel
+  // publication is constant across the primitive; the 2x2 image must remain
+  // full-rate even though its program and binding family are identical.
+  texturedFrequencySource = await createProductSource();
+  texturedFrequencyResidency = await VirtualGeometryResidency.create(
+    renderer.device, texturedFrequencySource, 17, 0);
+  texturedFrequencyResidency.activatePublication();
+  const texturedFrequencyScene = new Scene();
+  const oneTexel = new StandardShadeMaterial();
+  oneTexel.is_unlit = true;
+  oneTexel.texture_albedo = ShadeTexture.from(ShadeImage.fromSampler2D(
+    new Sampler2D(new Uint8Array([51, 153, 230, 255]), 4, 1, 1)));
+  const fourTexels = new StandardShadeMaterial();
+  fourTexels.is_unlit = true;
+  fourTexels.texture_albedo = ShadeTexture.from(ShadeImage.fromSampler2D(
+    new Sampler2D(new Uint8Array([
+      255, 32, 32, 255, 32, 255, 32, 255,
+      32, 32, 255, 255, 255, 255, 32, 255
+    ]), 4, 2, 2)));
+  await renderer.uploadVirtualGeometryScene(texturedFrequencyScene, {
+    materials: [oneTexel, fourTexels], geometryProfiles, assetCount: 1,
+    hierarchyMaxDepth: 2, hierarchyTraversalCapacity: 8,
+    hierarchyVisibleClusterCapacity: 8, hierarchyRasterWorkCapacity: 8,
+    count: 2, geometryIndices: new Uint32Array([0, 0]),
+    materialIndices: new Uint32Array([0, 1]),
+    currentTransforms: new Float32Array([
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -1.5, 0, 0, 1,
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.5, 0, 0, 1
+    ]),
+    boundsSpheres: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1])
+  }, texturedFrequencyResidency);
+  const textureGrid = Array.from({ length: 12 * 2 * 2 }, (_, index) => {
+    const right = index >= 24;
+    const local = index % 24;
+    return [
+      (right ? 416 : 96) + (local % 6) * 24,
+      126 + Math.floor(local / 6) * 24
+    ] as [number, number];
+  });
+  renderer.spatial_shading_frequency_enabled = false;
+  requireValue(renderer.render(camera, texturedFrequencyScene, 1 / 60),
+    "Full-rate textured-frequency warm frame was not submitted");
+  requireValue(renderer.render(camera, texturedFrequencyScene, 1 / 60),
+    "Full-rate textured-frequency frame was not submitted");
+  const fullTexturePixels = await captureDisplayPixels(renderer.device, context, textureGrid);
+  requireValue(!renderer.mainFrameGraphEvidence()?.dump.passes.some(pass =>
+    !pass.culled && pass.name === "Surface/plan spatial shading frequency"),
+    "Full-rate textured scene retained the frequency plan");
+  renderer.spatial_shading_frequency_enabled = true;
+  requireValue(renderer.render(camera, texturedFrequencyScene, 1 / 60),
+    "Spatial textured-frequency frame was not submitted");
+  const spatialTexturePixels = await captureDisplayPixels(renderer.device, context, textureGrid);
+  const texturedFrequency = await renderer.diagnosticShadingFrequency();
+  requireValue(texturedFrequency.overflow === 0 &&
+    texturedFrequency.attempted === texturedFrequency.written &&
+    texturedFrequency.coarse4Blocks > 0 && texturedFrequency.savedEvaluations > 0 &&
+    texturedFrequency.leftCoarseBlocks > 0 && texturedFrequency.rightCoarseBlocks === 0,
+    `One-texel texture did not close reduced ShadingWork: ${JSON.stringify(texturedFrequency)}`);
+  requireValue(spatialTexturePixels.every((pixel, index) =>
+    pixel.every((value, channel) => Math.abs(value - fullTexturePixels[index]![channel]!) <= 1)),
+    "One-/four-texel material or visibility edge changed versus full-rate");
+  requireLitTexel(spatialTexturePixels[8]!, [51, 153, 230], "one-texel coarse interior");
+  requireValue(new Set(spatialTexturePixels.slice(24).map(pixel => pixel.slice(0, 3).join(","))).size >= 3,
+    "Four-texel control did not expose varying source colors");
   controller.addEvidence("phase1", {
     emptyPasses, passes, surfacePixels, faultPixels, restoredPixel, recoveredPixels,
     clipW, mixedWNumericSamples, mixedWOverlap, clippedAway,
     complexSamples, minimumTextureFootprint, frequencyDiagnostic,
     reconstructedUnlitSamples: unlitChecked.length, coarseFaultPixels,
     frequencyTimings, frequencyTimestampAvailable, dynamicFrequency, restoredFrequency,
-    oddExtentFrequency, oddUnlit,
+    oddExtentFrequency, oddUnlit, texturedFrequency,
     lightCount: scene.lights.elements.length, frameCount: renderer.frame_count,
     geometry: geometryBeforeLoss, gpuErrors: [...scoped.errors, ...recovered.errors],
     recoveredDevice: renderer.device !== lostDevice

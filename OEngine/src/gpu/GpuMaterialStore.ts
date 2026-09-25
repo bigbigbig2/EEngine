@@ -7,12 +7,14 @@ import {
 } from "./GpuMaterialVisibilityAbi.js";
 import {
   GPU_SHADING_MATERIAL_ABI_VERSION,
+  GPU_SHADING_MATERIAL_FLAGS,
   GPU_SHADING_MATERIAL_RECORD_STRIDE,
   GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL,
   GPU_SHADING_TEXTURE_ROUTE_STRIDE,
   packGpuShadingMaterialRecord,
   packGpuShadingTextureRoute
 } from "./GpuShadingMaterialAbi.js";
+import { GPU_SHADING_PROGRAM } from "./GpuShadingProgramAbi.js";
 
 declare const GPU_MATERIAL_STAGE_HANDLE_BRAND: unique symbol;
 
@@ -168,13 +170,18 @@ export class GpuMaterialStore {
           emissive: textureRef(association.material.texture_emissive),
           occlusion: textureRef(association.material.texture_occlusion)
         }, slot, association.textureBindingSetId, textureMipRanges);
+        const baseImage = association.material.texture_albedo?.image;
+        const uniformBaseTexture = association.programId === GPU_SHADING_PROGRAM.UnlitTexture &&
+          baseImage?.width === 1 && baseImage.height === 1 && baseImage.depth === 1 &&
+          !source.textureFallback && !source.samplerFallback &&
+          source.packed.textureRef !== GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE;
         const packed = packGpuShadingMaterialRecord({
           programId: association.programId,
           textureBindingSetId: association.textureBindingSetId,
           materialGeneration: generation,
           textureGeneration: generation,
           publicationRevision: generation,
-          flags: 0
+          flags: uniformBaseTexture ? GPU_SHADING_MATERIAL_FLAGS.UniformBaseTexture : 0
         }, source.packed);
         command.writeBuffer(
           this.materialRecords,

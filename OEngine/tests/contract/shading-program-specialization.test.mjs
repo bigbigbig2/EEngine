@@ -409,7 +409,7 @@ test("sparse surface outputs preserve compact flags, RGB9E5 and unlit diffuse se
 
 test("material and texture-route publication ABI validates generations and exact strides", () => {
   assert.equal(GPU_MATERIAL_VISIBILITY_ABI_VERSION, 8);
-  assert.equal(GPU_SHADING_MATERIAL_ABI_VERSION, 3);
+  assert.equal(GPU_SHADING_MATERIAL_ABI_VERSION, 4);
   const header = {
     programId: GPU_SHADING_PROGRAM.PbrGeneric,
     textureBindingSetId: 2,

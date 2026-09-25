@@ -10,17 +10,57 @@ const [
   { GpuMaterialStore, GPU_MATERIAL_CAPACITY },
   {
     GPU_SHADING_MATERIAL_RECORD_STRIDE,
+    GPU_SHADING_MATERIAL_FLAGS,
     GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL,
     GPU_SHADING_TEXTURE_ROUTE_STRIDE,
     unpackGpuShadingMaterialHeader,
     unpackGpuShadingTextureRoute
   },
-  { StandardShadeMaterial }
+  { StandardShadeMaterial },
+  { ShadeTexture },
+  { ShadeImage },
+  { Sampler2D }
 ] = await Promise.all([
   import("../../.test-dist/gpu/GpuMaterialStore.js"),
   import("../../.test-dist/gpu/GpuShadingMaterialAbi.js"),
-  import("../../.test-dist/material/StandardShadeMaterial.js")
+  import("../../.test-dist/material/StandardShadeMaterial.js"),
+  import("../../.test-dist/texture/ShadeTexture.js"),
+  import("../../.test-dist/texture/ShadeImage.js"),
+  import("../../.test-dist/texture/Sampler2D.js")
 ]);
+
+test("material publication certifies only resident one-texel unlit base textures", () => {
+  const device = createDevice();
+  const store = new GpuMaterialStore(device);
+  const material = (width, pixels) => {
+    const result = new StandardShadeMaterial();
+    result.is_unlit = true;
+    result.texture_albedo = ShadeTexture.from(ShadeImage.fromSampler2D(
+      new Sampler2D(new Uint8Array(pixels), 4, width, 1)
+    ));
+    return result;
+  };
+  const uniform = material(1, [32, 96, 160, 255]);
+  const varying = material(2, [32, 96, 160, 255, 240, 32, 64, 255]);
+  const missing = material(1, [32, 96, 160, 255]);
+  const associations = [uniform, varying, missing].map(material => ({
+    material, programId: 2, textureBindingSetId: 0
+  }));
+  const refs = new Map([
+    [uniform, new Map([[uniform.texture_albedo, 1]])],
+    [varying, new Map([[varying.texture_albedo, 2]])],
+    [missing, new Map()]
+  ]);
+  const command = new FakeMaterialCommand(device);
+  const stage = store.stage(associations, refs, command);
+  command.finish();
+  const flags = stage.associationSlots.map(slot => unpackGpuShadingMaterialHeader(
+    stage.bindings.materialRecords.bytes,
+    slot * GPU_SHADING_MATERIAL_RECORD_STRIDE
+  ).flags);
+  assert.deepEqual(flags, [GPU_SHADING_MATERIAL_FLAGS.UniformBaseTexture, 0, 0]);
+  store.destroy();
+});
 
 test("material store publishes geometry-dependent association records in one generation", async () => {
   const device = createDevice();

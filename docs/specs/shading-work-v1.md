@@ -27,7 +27,7 @@ finalize 在分类后扫描固定 64 个计数器，给每类写 `start`、重�
 
 GPU producer 两次读取 VisibilityKey，GPU finalize 写类区间和 indirect args，scatter 写紧凑队列；GPU Surface consumer 通过各类 `dispatchWorkgroupsIndirect` 读取队列、MeshletWork、Surface/纹理绑定和灯光簇。无 hit 的像素由辐亮度目标 clear 提供背景；无效队列/材质身份写醒目错误色。frame graph 记录上述读写与先后关系。CPU readback 仅能作后续诊断，不能成为本帧消费者。
 
-程序 WGSL 覆盖重建、显式纹理梯度、PBR 和无阴影直接光；浏览器诊断已覆盖纹理、混合材质、近裁剪与非共面 Product。当前仅常量不透明 unlit factor 可 2×2/4×4；其他类仍 full。Present 依据同一计划对当前帧代表样本做身份安全的空间重建，缺失/故障仍显错；无 temporal reuse。性能净收益与更广泛材质频带仍开放，旧 Surface/Sparse owner 和旧 claim 暂不删除或替换。
+程序 WGSL 覆盖重建、显式纹理梯度、PBR 和无阴影直接光；浏览器诊断已覆盖纹理、混合材质、近裁剪与非共面 Product。当前常量不透明 unlit factor 与发布时证明为 1×1 的不透明 unlit base texture 可 2×2/4×4；普通纹理和受光类仍 full。Present 依据同一计划对当前帧代表样本做身份安全的空间重建，缺失/故障仍显错；无 temporal reuse。性能净收益与更广泛材质频带仍开放，旧 Surface/Sparse owner 和旧 claim 暂不删除或替换。
 
 ## Validation
 

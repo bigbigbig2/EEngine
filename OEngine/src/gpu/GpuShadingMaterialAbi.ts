@@ -9,12 +9,17 @@ import {
   GPU_SHADING_PROGRAM_COUNT
 } from "./GpuShadingProgramAbi.js";
 
-export const GPU_SHADING_MATERIAL_ABI_VERSION = 3;
+export const GPU_SHADING_MATERIAL_ABI_VERSION = 4;
 export const GPU_SHADING_MATERIAL_HEADER_STRIDE = 32;
 export const GPU_SHADING_MATERIAL_RECORD_STRIDE =
   GPU_SHADING_MATERIAL_HEADER_STRIDE + GPU_MATERIAL_VISIBILITY_RECORD_STRIDE;
 export const GPU_SHADING_TEXTURE_ROUTE_STRIDE = 16;
 export const GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL = 5;
+/** Publication-time facts, separate from Material Visibility payload flags. */
+export const GPU_SHADING_MATERIAL_FLAGS = Object.freeze({
+  /** Unlit base source is one texel; TextureResidency fills its physical layer and mips uniformly. */
+  UniformBaseTexture: 1 << 0
+} as const);
 
 export const GPU_SHADING_MATERIAL_HEADER_OFFSETS = Object.freeze({
   programId: 0,

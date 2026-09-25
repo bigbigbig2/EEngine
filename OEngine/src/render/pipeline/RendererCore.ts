@@ -1161,7 +1161,8 @@ export class Renderer {
       const environment = this._environments.obtain(scene);
       const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
         .filter(classId => (runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
-      const adaptiveShading = this.spatial_shading_frequency_enabled && activeClasses.includes(0);
+      const adaptiveShading = this.spatial_shading_frequency_enabled &&
+        activeClasses.some(classId => (classId & 15) === 0 || (classId & 15) === 2);
       if (activeClasses.some(classId => (classId & 15) >= 4)) {
         environment.lights.updateDirectRecords(command);
       }
@@ -1419,7 +1420,8 @@ export class Renderer {
       materialRecords,
       depth: result.frame.depth,
       instances,
-      adaptive: this.spatial_shading_frequency_enabled && activeClasses.includes(0),
+      adaptive: this.spatial_shading_frequency_enabled &&
+        activeClasses.some(classId => (classId & 15) === 0 || (classId & 15) === 2),
       width: result.frame.domain.width,
       height: result.frame.domain.height
     });
