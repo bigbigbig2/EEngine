@@ -10,6 +10,7 @@ import { compileSurfaceProgramLayout } from "../../../OEngine/src/render/surface
 import { createSurfaceMaterialProgramWgsl } from "../../../OEngine/src/shaders/surface_material_program.ts";
 import { Sampler2D } from "../../../OEngine/src/texture/Sampler2D.ts";
 import { evaluateGpuShadingProgramReference } from "../../../OEngine/src/gpu/GpuShadingProgramOracle.ts";
+import { projectedSurfaceBarycentricReference } from "../../../OEngine/src/shaders/SurfaceReconstructionOracle.ts";
 import { GPU_SHADING_MATERIAL_HEADER_OFFSETS,
   GPU_SHADING_MATERIAL_RECORD_STRIDE } from "../../../OEngine/src/gpu/GpuShadingMaterialAbi.ts";
 
@@ -377,8 +378,95 @@ try {
   requireValue(renderer.mainFrameGraphEvidence()?.dump.passes
     .some(pass => !pass.culled && pass.name.includes("MeshletWork bucket producer")),
     "Recovered Renderer did not consume GPU MeshletWork");
+  // The same tilted VG triangle crosses the camera plane (mixed-sign clip w).
+  // Changing only the near plane must preserve shading on pixels covered in
+  // both frames; it changes the hardware-clipped silhouette, not the authored
+  // vertex data or the Surface reconstruction at surviving samples.
+  camera.transform.position.set(0, -0.5, 0.7);
+  camera.transform.lookAt({ x: 0, y: 1.2, z: 0 });
+  const clipGrid = Array.from({ length: 22 * 40 }, (_, index) => [
+    8 + (index % 40) * 16, 8 + Math.floor(index / 40) * 16
+  ] as [number, number]);
+  camera.near = 0.05;
+  camera.update();
+  const clipW = [[-0.8, -0.8, 0], [0.8, -0.8, 0], [0, 0.8, 0]].map(position => {
+    const matrix = camera.view_projection_matrix;
+    return matrix[3]! * position[0]! + matrix[7]! * position[1]! +
+      matrix[11]! * position[2]! + matrix[15]!;
+  });
+  requireValue(clipW.some(value => value < 0) && clipW.some(value => value > 0),
+    `Tilted VG triangle did not cross the camera plane: ${clipW}`);
+  requireValue(renderer.render(camera, scene, 1 / 60), "Mixed-w near-clip frame was not submitted");
+  const closeClipPixels = await captureDisplayPixels(renderer.device, context, clipGrid);
+  const sourceVertices = [[-0.8, -0.8, 0], [0.8, -0.8, 0], [0, 0.8, 0]] as const;
+  const projectInstance = (offsetX: number) => sourceVertices.map(vertex => {
+    const matrix = camera.view_projection_matrix;
+    const x = vertex[0] + offsetX, y = vertex[1], z = vertex[2];
+    return [0, 1, 2, 3].map(row =>
+      matrix[row]! * x + matrix[4 + row]! * y + matrix[8 + row]! * z + matrix[12 + row]!
+    ) as [number, number, number, number];
+  }) as [[number, number, number, number], [number, number, number, number], [number, number, number, number]];
+  const projected = [0, 1.5, -1.5].map(projectInstance);
+  const inside = (weights: readonly number[]) => weights.every(value => value >= -1e-4 && value <= 1 + 1e-4);
+  let mixedWNumericSamples = 0;
+  for (let index = 0; index < clipGrid.length; index++) {
+    const pixel = clipGrid[index]!;
+    const reference = projectedSurfaceBarycentricReference(
+      [pixel[0] + 0.5, pixel[1] + 0.5], projected[0]!, [640, 360]);
+    if (!reference.valid || !inside(reference.weights) || [1, 2].some(other => {
+      const competing = projectedSurfaceBarycentricReference(
+        [pixel[0] + 0.5, pixel[1] + 0.5], projected[other]!, [640, 360]);
+      return competing.valid && inside(competing.weights);
+    })) continue;
+    const uvX = reference.weights[1] + reference.weights[2] * 0.5;
+    const uvY = reference.weights[2];
+    if (Math.abs(uvX - 0.5) < 0.15 || Math.abs(uvY - 0.5) < 0.15) continue;
+    const texel = uvY < 0.5
+      ? uvX < 0.5 ? [255, 32, 32] : [32, 255, 32]
+      : uvX < 0.5 ? [32, 32, 255] : [255, 255, 32];
+    const position = sourceVertices[0].map((_, axis) => sourceVertices.reduce((sum, vertex, i) =>
+      sum + vertex[axis]! * reference.weights[i]!, 0));
+    const lit = evaluateGpuShadingProgramReference({
+      programId: 5, outputDependencyMask: 0,
+      material: {
+        baseColorFactor: [1, 1, 1], metallicFactor: 0, roughnessFactor: 1,
+        normalScale: 1, occlusionStrength: 1, emissiveFactor: [0, 0, 0],
+        baseSample: [texel[0]! / 255, texel[1]! / 255, texel[2]! / 255, 1],
+        shadingNormal: [0, 0, 1], geometricNormal: [0, 0, 1]
+      },
+      viewDirection: [-position[0]!, -0.5 - position[1]!, 0.7],
+      directLights: [{ direction: [0, 0, 1], radiance: [3, 3, 3], visibility: 1 }],
+      preExposure: 1, gradientValid: true
+    });
+    const expected = lit.radiance.map(value => Math.max(0, Math.min(255, Math.round(value * 255))));
+    requireLitTexel(closeClipPixels[index]!, expected, `mixed-w projected Surface ${pixel}`);
+    mixedWNumericSamples++;
+  }
+  requireValue(mixedWNumericSamples >= 3,
+    `Mixed-w projected Surface found too few exclusive, stable-texel samples: ${mixedWNumericSamples}`);
+  camera.near = 1.1;
+  camera.update();
+  requireValue(renderer.render(camera, scene, 1 / 60), "Farther near-clip frame was not submitted");
+  const farClipPixels = await captureDisplayPixels(renderer.device, context, clipGrid);
+  const isSurface = (pixel: readonly number[]) => pixel.slice(0, 3).some((value, channel) =>
+    Math.abs(value - surfacePixels.background![channel]!) > 12);
+  let mixedWOverlap = 0;
+  let clippedAway = 0;
+  for (let index = 0; index < clipGrid.length; index++) {
+    const nearPixel = closeClipPixels[index]!;
+    const farPixel = farClipPixels[index]!;
+    if (isSurface(nearPixel) && isSurface(farPixel)) {
+      mixedWOverlap++;
+      requireLitTexel(farPixel, nearPixel, `mixed-w surviving pixel ${clipGrid[index]}`);
+    } else if (isSurface(nearPixel) && !isSurface(farPixel)) {
+      clippedAway++;
+    }
+  }
+  requireValue(mixedWOverlap >= 8 && clippedAway >= 2,
+    `Near clipping had insufficient GPU overlap/change: overlap=${mixedWOverlap}, clipped=${clippedAway}`);
   controller.addEvidence("phase1", {
     emptyPasses, passes, surfacePixels, faultPixels, restoredPixel, recoveredPixels,
+    clipW, mixedWNumericSamples, mixedWOverlap, clippedAway,
     lightCount: scene.lights.elements.length, frameCount: renderer.frame_count,
     geometry: geometryBeforeLoss, gpuErrors: [...scoped.errors, ...recovered.errors],
     recoveredDevice: renderer.device !== lostDevice
