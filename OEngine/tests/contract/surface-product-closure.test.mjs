@@ -5,8 +5,10 @@ import "../webgpu-test-globals.mjs";
 
 import {
   SURFACE_PRODUCT, SURFACE_PRODUCT_CONTRACTS,
-  surfaceProgramKey, surfaceBindingRevision
+  surfaceProgramKey, surfaceBindingRevision,
+  surfaceMaterialRequirements, closeSurfaceBindings
 } from "../../.test-dist/render/surface/SurfaceProducts.js";
+import { GPU_SURFACE_KERNEL_DEMAND } from "../../.test-dist/gpu/GpuSurfaceProgramSpecialization.js";
 
 test("logical Surface values distinguish normals, motion, radiance and material identity", () => {
   assert.equal(Object.keys(SURFACE_PRODUCT).length, 5);
@@ -23,6 +25,58 @@ test("logical Surface values distinguish normals, motion, radiance and material 
     assert.equal(contract.resolution, "internal-full");
     assert.equal(Object.hasOwn(contract, "textureFormat"), false);
   }
+});
+
+test("material resource closure follows triangle, texture and direct-light demands", () => {
+  const base = {
+    kernel: { programId: 0, outputDependencyMask: 0, textureBankMask: 0 },
+    virtualGeometry: false, lighting: "direct", source: "kernel",
+    layoutSignature: "new-surface", capabilityFingerprint: "portable", formatProfile: "rgba16float"
+  };
+  const unlit = surfaceMaterialRequirements(base);
+  assert.equal(unlit.triangleReconstruction, false);
+  assert.equal(unlit.directLighting, false);
+  assert.deepEqual(unlit.roles, [
+    "visibility-key", "meshlet-work", "material-records", "frame-view", "radiance-output"
+  ]);
+  const texturedPbr = { ...base, virtualGeometry: true,
+    kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask: 3 }
+  };
+  const pbr = surfaceMaterialRequirements(texturedPbr);
+  assert.equal(pbr.triangleReconstruction, true);
+  assert.equal(pbr.directLighting, true);
+  for (const role of ["instance-records", "vertex-payload", "visibility-depth",
+    "virtual-product-metadata", "virtual-product-banks", "texture-routes",
+    "texture-banks", "texture-samplers", "direct-light-records", "direct-light-clusters"]) {
+    assert.ok(pbr.roles.includes(role), role);
+  }
+  assert.throws(() => surfaceMaterialRequirements({ ...base,
+    kernel: { ...base.kernel, textureBankMask: 1 }
+  }), /no Surface consumer/);
+  assert.throws(() => surfaceMaterialRequirements({ ...texturedPbr,
+    kernel: { ...texturedPbr.kernel, textureBankMask: 0 }
+  }), /requires a texture bank/);
+});
+
+test("publication bindings close only the selected program's resource demand", () => {
+  const closure = {
+    kernel: { programId: 0, outputDependencyMask: 0, textureBankMask: 0 },
+    virtualGeometry: false, lighting: "unlit", source: "kernel",
+    layoutSignature: "new-surface", capabilityFingerprint: "portable", formatProfile: "rgba16float"
+  };
+  const revision = {
+    programKey: surfaceProgramKey(closure), publicationRevision: 1, materialGeneration: 1,
+    textureGeneration: 1, sceneResourceEpoch: 1, deviceEpoch: 1
+  };
+  const resources = Object.fromEntries(surfaceMaterialRequirements(closure).roles.map(role => [role, {}]));
+  assert.deepEqual(Object.keys(closeSurfaceBindings(closure, revision, resources).resources), Object.keys(resources));
+  assert.throws(() => closeSurfaceBindings(closure, revision,
+    Object.fromEntries(Object.entries(resources).filter(([role]) => role !== "material-records"))),
+  /missing material-records/);
+  assert.throws(() => closeSurfaceBindings(closure, revision,
+    { ...resources, "texture-routes": {} }), /no consumer/);
+  assert.throws(() => closeSurfaceBindings(closure,
+    { ...revision, programKey: "another-program" }, resources), /identity mismatch/);
 });
 
 test("Surface program closure excludes publication generations but includes shader and layout", () => {

@@ -6,7 +6,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_DECODE_PROFILE } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_MATERIAL_VISIBILITY_FLAGS } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_SHADING_PROGRAM, shadingProgramUsesTextures } from "../gpu/GpuShadingProgramAbi.js";
-import { gpuShadingProgramSpecialization } from "../gpu/GpuShadingProgramOracle.js";
+import { gpuSurfaceProgramSpecialization } from "../gpu/GpuSurfaceProgramSpecialization.js";
 import { gpuTextureBankSampleWgsl, GPU_TEXTURE_REF_INVALID } from "../gpu/GpuTextureRefAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 import { createProductionSparseDirectLightingWgsl } from "./lighting_direct.js";
@@ -243,7 +243,7 @@ fn sparse_affine(instance: OEngineInstanceRecord) -> mat4x4f { return oengine_in
 }
 
 export function textureWgsl(descriptor: Readonly<SurfaceKernelProfile>): string {
-  const specialization = gpuShadingProgramSpecialization(
+  const specialization = gpuSurfaceProgramSpecialization(
     descriptor.programId,
     descriptor.outputDependencyMask
   );
@@ -367,7 +367,7 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
 }
 
 export function materialEvaluationWgsl(descriptor: Readonly<SurfaceKernelProfile>): string {
-  const s = gpuShadingProgramSpecialization(descriptor.programId, descriptor.outputDependencyMask);
+  const s = gpuSurfaceProgramSpecialization(descriptor.programId, descriptor.outputDependencyMask);
   const writesVelocity = s.publishesVelocity;
   const velocityCode = writesVelocity
     ? "let previous_position=oengine_instance_previous_from_current(instance)*vec4f(position,1.0);let previous_clip=shading_view.previous_view_projection*previous_position;let current_clip=shading_view.current_view_projection*vec4f(position,1.0);let velocity=(current_clip.xy/current_clip.w-previous_clip.xy/previous_clip.w)*vec2f(0.5,-0.5);"

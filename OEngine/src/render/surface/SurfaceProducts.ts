@@ -1,4 +1,5 @@
 import { GPU_SHADING_PROGRAM_COUNT } from "../../gpu/GpuShadingProgramAbi.js";
+import { gpuSurfaceProgramSpecialization, GPU_SURFACE_KERNEL_DEMAND_VALID_MASK } from "../../gpu/GpuSurfaceProgramSpecialization.js";
 import type { SurfaceKernelProfile } from "../../shaders/surface_material_kernel.js";
 
 /** Logical values; none of these names promises a physical attachment. */
@@ -81,6 +82,9 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
       throw new RangeError(`Surface ${name} is invalid`);
     }
   }
+  if ((kernel.outputDependencyMask & ~GPU_SURFACE_KERNEL_DEMAND_VALID_MASK) !== 0) {
+    throw new RangeError("Surface kernel demand has reserved bits");
+  }
   if (closure.lighting !== "unlit" && closure.lighting !== "direct") {
     throw new RangeError("Surface lighting specialization is invalid");
   }
@@ -95,6 +99,77 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
     closure.virtualGeometry, closure.lighting, closure.layoutSignature,
     closure.capabilityFingerprint, closure.formatProfile, closure.source
   ]);
+}
+
+/** Semantic resource closure for the selected kernel, before physical bind-group lowering. */
+export type SurfaceResourceRole =
+  | "visibility-key" | "meshlet-work" | "material-records" | "frame-view" | "radiance-output"
+  | "instance-records" | "geometry-metadata" | "vertex-payload" | "visibility-depth"
+  | "virtual-product-metadata" | "virtual-product-banks"
+  | "texture-routes" | "texture-banks" | "texture-samplers"
+  | "direct-light-records" | "direct-light-clusters";
+
+export interface SurfaceMaterialRequirements {
+  readonly roles: readonly SurfaceResourceRole[];
+  readonly textureBankMask: number;
+  readonly triangleReconstruction: boolean;
+  readonly directLighting: boolean;
+}
+
+/** Only material and consumer demand decide this set; publication revisions cannot change it. */
+export function surfaceMaterialRequirements(
+  closure: Readonly<SurfaceProgramClosure>
+): Readonly<SurfaceMaterialRequirements> {
+  surfaceProgramKey(closure);
+  const s = gpuSurfaceProgramSpecialization(
+    closure.kernel.programId, closure.kernel.outputDependencyMask
+  );
+  const roles: SurfaceResourceRole[] = [
+    "visibility-key", "meshlet-work", "material-records", "frame-view", "radiance-output"
+  ];
+  if (s.reconstructTriangle) {
+    roles.push("instance-records", "geometry-metadata", "vertex-payload", "visibility-depth");
+    if (closure.virtualGeometry) roles.push("virtual-product-metadata", "virtual-product-banks");
+  }
+  const textured = s.baseTexture !== "never" || s.ormTexture !== "never" ||
+    s.normalTexture !== "never" || s.emissiveTexture !== "never" ||
+    s.occlusionTexture !== "never";
+  if (textured) {
+    if (closure.kernel.textureBankMask === 0) {
+      throw new RangeError("Textured Surface program requires a texture bank");
+    }
+    roles.push("texture-routes", "texture-banks", "texture-samplers");
+  } else if (closure.kernel.textureBankMask !== 0) {
+    throw new RangeError("Texture banks have no Surface consumer");
+  }
+  if (s.lit && closure.lighting === "direct") {
+    roles.push("direct-light-records", "direct-light-clusters");
+  }
+  return Object.freeze({
+    roles: Object.freeze(roles),
+    textureBankMask: closure.kernel.textureBankMask,
+    triangleReconstruction: s.reconstructTriangle,
+    directLighting: s.lit && closure.lighting === "direct"
+  });
+}
+
+/** A publication is complete only if every demanded role resolves to a live resource. */
+export function closeSurfaceBindings(
+  closure: Readonly<SurfaceProgramClosure>,
+  revision: SurfaceBindingRevision,
+  resources: Readonly<Partial<Record<SurfaceResourceRole, object>>>
+): Readonly<{ revision: Readonly<SurfaceBindingRevision>; resources: Readonly<Partial<Record<SurfaceResourceRole, object>>> }> {
+  const programKey = surfaceProgramKey(closure);
+  const identity = surfaceBindingRevision(revision);
+  if (identity.programKey !== programKey) throw new Error("Surface binding program identity mismatch");
+  const required = surfaceMaterialRequirements(closure).roles;
+  for (const role of required) {
+    if (resources[role] === undefined) throw new Error(`Surface binding missing ${role}`);
+  }
+  for (const role of Object.keys(resources) as SurfaceResourceRole[]) {
+    if (!required.includes(role)) throw new Error(`Surface binding ${role} has no consumer`);
+  }
+  return Object.freeze({ revision: identity, resources: Object.freeze({ ...resources }) });
 }
 
 /** Binding lifetime is a Scene/Product publication; the resource objects remain in the owning GPU revision. */
