@@ -12,7 +12,7 @@ currentSlice:
   title: Freeze minimal product, work, temporal, and program-cache boundaries before changing the production renderer
   status: active
 nextTasks:
-  - Extend the first finite product plan using real consumers and cost evidence; keep Surface outputs and program publication separate.
+  - Use measured consumer fanout, decode, dispatch, and bandwidth cost to justify the first recompute/materialize alternative; keep Surface outputs and program publication separate.
   - Extend the bounded work control protocol only when a real Ray/Page consumer needs it; keep the existing MeshletWork and ShadingBin physical ABIs and direct fast paths.
   - Define motion, exposure, stable history identity, and invalidation before integrating new lighting providers.
   - Prototype dynamic world-GI sample production and scene-change invalidation on the GTX 1650 Ti baseline during the foundation slice.
@@ -38,6 +38,8 @@ completedMilestones:
     result: Production MeshletWork and ShadingBin allocation now share bounded work preflight and declare their own producer, GPU consumer, counters, overflow and indirect execution; physical ABIs and shader execution remain independent. Browser behavior and performance evidence remain open.
   - id: exact-lighting-history-identity
     result: Lighting history identity now preserves independent light and probe revisions, while geometric GTAO explicitly retains history across lighting-only changes. Stable object identity, local representation invalidation, and dynamic pre-exposure remain open.
+  - id: opaque-product-attachment-cost
+    result: The finite opaque product plan now accounts for actual HDR and optional Surface attachment formats, and production allocation telemetry reads that same plan. This is a planned footprint, not measured bandwidth or a recompute-versus-materialize decision.
 tasks:
   - id: foundation-contracts
     state: active

@@ -74,7 +74,8 @@ test("opaque product planning shares physical Surface material data and preserve
     diffuseReflectance: "absent",
     materialFlags: "absent",
     velocity: "absent",
-    environmentIbl: "fused"
+    environmentIbl: "fused",
+    attachmentBytesPerPixel: 8
   });
   const diffuse = demand({ debugView: RenderDebugView.BaseColor });
   const diffusePlan = compileOpaqueSurfaceProductPlan({
@@ -83,6 +84,7 @@ test("opaque product planning shares physical Surface material data and preserve
   assert.equal(diffusePlan.normal, "absent");
   assert.equal(diffusePlan.diffuseReflectance, "materialized");
   assert.equal(diffusePlan.materialFlags, "materialized");
+  assert.equal(diffusePlan.attachmentBytesPerPixel, 20);
   const temporal = demand({ needsPreviousDepth: true });
   const temporalPlan = compileOpaqueSurfaceProductPlan({
     outputDependencyMask: temporal.outputDependencyMask, opaqueDemand: temporal
@@ -90,10 +92,18 @@ test("opaque product planning shares physical Surface material data and preserve
   assert.equal(temporalPlan.normal, "materialized");
   assert.equal(temporalPlan.velocity, "materialized");
   assert.equal(temporalPlan.materialFlags, "materialized");
+  assert.equal(temporalPlan.attachmentBytesPerPixel, 28);
   const indirect = demand({ ssgi: true });
   assert.equal(compileOpaqueSurfaceProductPlan({
     outputDependencyMask: indirect.outputDependencyMask, opaqueDemand: indirect
   }).environmentIbl, "deferred");
+  assert.equal(compileOpaqueSurfaceProductPlan({
+    outputDependencyMask: indirect.outputDependencyMask, opaqueDemand: indirect
+  }).attachmentBytesPerPixel, 28);
+  const empty = demand({ opaqueLitReceiverCount: 0, opaqueUnlitReceiverCount: 0 });
+  assert.equal(compileOpaqueSurfaceProductPlan({
+    outputDependencyMask: empty.outputDependencyMask, opaqueDemand: empty
+  }).attachmentBytesPerPixel, 0);
   assert.throws(() => compileOpaqueSurfaceProductPlan({
     outputDependencyMask: 0, opaqueDemand: temporal
   }), /does not match/u);

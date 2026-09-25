@@ -9,9 +9,6 @@ import type { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { GPU_SHADING_FRAME_STATUS_BYTES } from "../../gpu/GpuShadingFrameStatusAbi.js";
 import { GPU_SHADING_BIN_ABI_VERSION } from "../../gpu/GpuShadingBinAbi.js";
 import {
-  GPU_SHADING_OUTPUT_DEPENDENCY
-} from "../../gpu/GpuSparseShadingPipelineContract.js";
-import {
   GPU_SPARSE_SHADING_VIEW_BYTES,
   packGpuSparseShadingView
 } from "../../gpu/GpuSparseShadingFrameAbi.js";
@@ -103,7 +100,7 @@ export class SurfaceFeature {
     this.executionMode = snapshot.executionMode;
     this.outputBytesPerPixel = snapshot.pipelines.length === 0
       ? 0
-      : sparseOutputBytesPerPixel(snapshot.context.outputDependencyMask);
+      : compileOpaqueSurfaceProductPlan(snapshot.context).attachmentBytesPerPixel;
     this.resolveRan = false;
   }
 
@@ -601,16 +598,6 @@ function sparseTexture(
     usage,
     domain: "internal-full" as const
   };
-}
-
-function sparseOutputBytesPerPixel(mask: number): number {
-  let bytes = 8;
-  if ((mask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0) bytes += 8;
-  if ((mask & (GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
-      GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite)) !== 0) bytes += 8;
-  if ((mask & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0) bytes += 4;
-  if ((mask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0) bytes += 4;
-  return bytes;
 }
 
 function materialSampler(

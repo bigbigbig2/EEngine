@@ -19,6 +19,8 @@ export interface OpaqueSurfaceProductPlan {
   readonly materialFlags: "materialized" | "absent";
   readonly velocity: "materialized" | "absent";
   readonly environmentIbl: OpaqueProductRepresentation;
+  /** HDR plus optional materialized attachment bytes per internal pixel. */
+  readonly attachmentBytesPerPixel: number;
 }
 
 /**
@@ -49,12 +51,16 @@ export function compileOpaqueSurfaceProductPlan(input: Readonly<{
   )) {
     throw new Error("Opaque Surface plan does not match the published demand");
   }
+  const materialFlags = normal || diffuse;
   return Object.freeze({
     normal: normal ? "materialized" : "absent",
     diffuseReflectance: diffuse ? "materialized" : "absent",
-    materialFlags: normal || diffuse ? "materialized" : "absent",
+    materialFlags: materialFlags ? "materialized" : "absent",
     velocity: velocity ? "materialized" : "absent",
-    environmentIbl: ibl ? "fused" : demand?.needsIndirectComponents ? "deferred" : "absent"
+    environmentIbl: ibl ? "fused" : demand?.needsIndirectComponents ? "deferred" : "absent",
+    attachmentBytesPerPixel: demand?.hasOpaqueReceiver === false ? 0 :
+      8 + (normal ? 8 : 0) + (materialFlags ? 8 : 0) +
+        (diffuse ? 4 : 0) + (velocity ? 4 : 0)
   });
 }
 

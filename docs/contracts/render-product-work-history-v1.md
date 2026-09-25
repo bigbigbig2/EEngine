@@ -32,6 +32,7 @@ validation:
 - 一个逻辑产品的声明至少交代消费者、分辨率/空间、语义与颜色或物理单位、所需精度/覆盖、曝光约定和跨帧有效性。无需给每个产品分配纹理；所选执行计划在其真正的 GPU 消费者首次使用时，明确 fuse、recompute、materialize 或有效 history reuse，并声明转换 owner。
 - 当前生产路径的有界方案为：单次 compute resolve 融合材质和 direct lighting；`ShadingSurfaceLite`、`DiffuseSurfaceLite`、Velocity 根据消费者物化；缺少 receiver 时不创建对应输出；`ScreenSpaceDiffuseOffFrame` 的 AO=1 是逻辑常量，不占纹理。现行 `FrameProducts` 中的空间域、阶段、pre-exposure 和可选资源是事实来源。未来增加缓存或低频表示时必须保持这些语义，不能仅按产品名称替换纹理。
 - 当前首个有限计划由 `compileOpaqueSurfaceProductPlan` 从发布需求选择：IBL 在无后段间接消费者时融合，在有后段消费者时延后到 GI/lighting consumer；Normal、Diffuse Reflectance 与 Velocity 按需求物化；Normal 或 Diffuse 任一存在时共用一份 Material Flags。`SurfaceFeature` 只按该计划分配可选输出，计划先验证需求与发布 mask 一致。后续可增加有证据的 recompute/cache 方案，不把这套固定选择冒称全局成本优化器。
+- 计划同时给出当前物理格式的 `attachmentBytesPerPixel`：HDR 8 B，Normal 8 B，共享 Material Flags 8 B，Diffuse 4 B，Velocity 4 B；无不透明 receiver 时为 0。`SurfaceFeature` 的现有附件规模遥测直接读取同一计划，不再按 mask 维护第二份计算。分辨率乘出的值是**计划附件容量**，不是实测 GPU 带宽、实际写入量、采样流量或性能收益；重算与物化的选择仍须加入重复解码、dispatch、绑定及实测时序证据。
 - 输出 mask 和设备 capability 是程序身份的一部分；revision/generation 与具体资源绑定不进入稳定程序身份。同一 shader/layout/能力闭包可复用 GPU pipeline，每个 Scene publication 必须新建自己的绑定组缓存并验证 revision。device loss 丢弃程序缓存；输出 mask/绑定/源码变化选新程序。GPU 仍按旧提交的 serial 安全退役 revision 资源。
 
 ## GPU 工作闭环
