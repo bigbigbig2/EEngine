@@ -19,6 +19,8 @@ const status = document.querySelector<HTMLElement>("#status")!;
 let renderer: Renderer | undefined;
 let residency: VirtualGeometryResidency | undefined;
 let source: GeometryProductRevisionSourceV1 | undefined;
+let complexResidency: VirtualGeometryResidency | undefined;
+let complexSource: GeometryProductRevisionSourceV1 | undefined;
 let intentionalDestroy = false;
 let collector: ReturnType<typeof attachGpuErrorCollection> | undefined;
 
@@ -30,6 +32,8 @@ const controller = createValidationController({
   renderer?.destroy();
   residency?.destroy();
   source?.release();
+  complexResidency?.destroy();
+  complexSource?.release();
   await collector?.lost;
   collector?.remove();
   status.textContent = "disposed";
@@ -104,12 +108,16 @@ function requireLitTexel(actual: readonly number[], expected: readonly number[],
 }
 
 /** A two-page Product cut: page zero is the bootstrap, page one is a deliberate missing-page demand target. */
-async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
+async function createProductSource(complex = false): Promise<GeometryProductRevisionSourceV1> {
   const page = new Uint8Array(262144);
   const view = new DataView(page.buffer);
-  writeF32(view, 0, [0, 0, 0, 1]);
-  writeF32(view, 16, [-0.8, -0.8, -0.1]);
-  writeF32(view, 28, [0.8, 0.8, 0.1]);
+  const boundsMin = [-0.8, -0.8, complex ? -0.3 : -0.1];
+  const boundsMax = [0.8, 0.8, complex ? 0.3 : 0.1];
+  const sphere = [0, 0, 0, complex ? 1.3 : 1];
+  const vertexEnd = complex ? 208 : 176;
+  writeF32(view, 0, sphere);
+  writeF32(view, 16, boundsMin);
+  writeF32(view, 28, boundsMax);
   view.setFloat32(40, 100, true);
   view.setUint16(44, 1, true);
   view.setUint8(46, 0);
@@ -117,40 +125,47 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
   view.setUint32(48, 64, true);
   view.setUint32(52, 112, true);
   view.setUint32(56, 128, true);
-  view.setUint32(60, 176, true);
-  view.setUint16(64, 3, true);
-  view.setUint16(66, 1, true);
+  view.setUint32(60, vertexEnd, true);
+  view.setUint16(64, complex ? 4 : 3, true);
+  view.setUint16(66, complex ? 2 : 1, true);
   view.setUint32(68, 128, true);
   view.setUint32(72, 112, true);
   view.setUint32(76, 0xffffffff, true);
   view.setUint32(80, 0, true);
   view.setUint32(84, 1, true);
-  writeF32(view, 88, [-0.8, -0.8, -0.1]);
-  writeF32(view, 100, [0.8, 0.8, 0.1]);
-  page.set([0, 1, 2], 112);
+  writeF32(view, 88, boundsMin);
+  writeF32(view, 100, boundsMax);
+  page.set(complex ? [0, 1, 2, 2, 1, 3] : [0, 1, 2], 112);
   const positions: readonly (readonly [number, number, number])[] = [
-    [-0.8, -0.8, 0], [0.8, -0.8, 0], [0, 0.8, 0]
+    [-0.8, -0.8, 0], [0.8, -0.8, 0],
+    ...(complex ? [[-0.8, 0.8, 0.3], [0.8, 0.8, -0.3]] as const : [[0, 0.8, 0]] as const)
   ];
   positions.forEach((position, index) => {
-    const at = 128 + index * 16;
+    const at = 128 + index * (complex ? 20 : 16);
     const q = position.map((value, axis) => {
-      const minimum = [-0.8, -0.8, -0.1][axis]!;
-      const maximum = [0.8, 0.8, 0.1][axis]!;
+      const minimum = boundsMin[axis]!;
+      const maximum = boundsMax[axis]!;
       return Math.round((value - minimum) * 65535 / (maximum - minimum));
     });
     view.setUint16(at, q[0]!, true); view.setUint16(at + 2, q[1]!, true); view.setUint16(at + 4, q[2]!, true);
     // V3: octahedral +Z normal, then float16 UV0. The UV triangle crosses texture texels.
-    view.setUint16(at + 6, 0, true); view.setUint16(at + 8, 0, true);
-    const uv: readonly (readonly [number, number])[] = [[0, 0], [1, 0], [0.5, 1]];
+    const oct = complex ? [[0, 0], [16384, 0], [0, 16384], [11469, 11469]][index]! : [0, 0];
+    view.setUint16(at + 6, oct[0]!, true); view.setUint16(at + 8, oct[1]!, true);
+    const uv: readonly (readonly [number, number])[] = complex
+      ? [[0, 0], [1, 0], [0, 1], [1, 1]] : [[0, 0], [1, 0], [0.5, 1]];
     const half = (value: number) => value === 1 ? 0x3c00 : value === 0.5 ? 0x3800 : 0;
     view.setUint16(at + 10, half(uv[index]![0]), true);
     view.setUint16(at + 12, half(uv[index]![1]), true);
+    if (complex) page.set([
+      [255, 64, 64, 255], [64, 255, 64, 255],
+      [64, 64, 255, 255], [255, 255, 255, 255]
+    ][index]!, at + 14);
   });
   const pages = [page, page.slice()];
   const hashes = await Promise.all(pages.map(async (value) => new Uint8Array(await crypto.subtle.digest("SHA-256", value))));
   const descriptor: GeometryProductDescriptorV1 = Object.freeze({
     schemaVersion: 1,
-    productId: new Uint8Array(32).fill(0x41),
+    productId: new Uint8Array(32).fill(complex ? 0x44 : 0x41),
     revision: 0,
     producerKind: "web-runtime",
     producerId: "oengine-nyx-web-runtime",
@@ -161,18 +176,18 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
     runtimeProfile: "oengine-vg-v1-v3-decoded",
     decodedPageBytes: 262144,
     assetRecords: encodeAssetRecordsV3([{
-      assetId: "4141414141414141414141414141414141414141414141414141414141414141",
-      boundsSphere: [0, 0, 0, 1], boundsMin: [-0.8, -0.8, -0.1], boundsMax: [0.8, 0.8, 0.1],
+      assetId: complex ? "4444444444444444444444444444444444444444444444444444444444444444" : "4141414141414141414141414141414141414141414141414141414141414141",
+      boundsSphere: sphere as [number, number, number, number], boundsMin: boundsMin as [number, number, number], boundsMax: boundsMax as [number, number, number],
       rootNodeBegin: 0, rootNodeCount: 1, hierarchyBegin: 0, hierarchyCount: 3,
       groupBegin: 0, groupCount: 2, bootstrapPageBegin: 0, bootstrapPageCount: 1,
-      sourceTriangleCount: 2, leafMeshletCount: 2, totalMeshletCount: 2, flags: 0
+      sourceTriangleCount: complex ? 4 : 2, leafMeshletCount: 2, totalMeshletCount: 2, flags: 0
     }]),
     rootNodeIds: new Uint32Array([0]),
-  hierarchyNodes: (() => { const bytes = new Uint8Array(48 * 3), node = new DataView(bytes.buffer); for (const at of [0, 48, 96]) { writeF32(node, at, [0, 0, 0, 1]); writeF32(node, at + 16, [-0.8, -0.8, -0.1]); writeF32(node, at + 28, [0.8, 0.8, 0.1]); node.setFloat32(at + 40, 100, true); } node.setUint32(44, (2 << 28) | (1 << 1), true); node.setUint32(48 + 44, 1, true); node.setUint32(96 + 44, 3, true); return bytes; })(),
-    groupDirectory: (() => { const bytes = new Uint8Array(32), group = new DataView(bytes.buffer); group.setUint32(0, 0, true); group.setUint32(4, 0, true); group.setUint32(8, 176, true); group.setUint32(12, 1, true); group.setUint32(16, 1, true); group.setUint32(20, 0, true); group.setUint32(24, 176, true); return bytes; })(),
+  hierarchyNodes: (() => { const bytes = new Uint8Array(48 * 3), node = new DataView(bytes.buffer); for (const at of [0, 48, 96]) { writeF32(node, at, sphere); writeF32(node, at + 16, boundsMin); writeF32(node, at + 28, boundsMax); node.setFloat32(at + 40, 100, true); } node.setUint32(44, (2 << 28) | (1 << 1), true); node.setUint32(48 + 44, 1, true); node.setUint32(96 + 44, 3, true); return bytes; })(),
+    groupDirectory: (() => { const bytes = new Uint8Array(32), group = new DataView(bytes.buffer); group.setUint32(0, 0, true); group.setUint32(4, 0, true); group.setUint32(8, vertexEnd, true); group.setUint32(12, 1, true); group.setUint32(16, 1, true); group.setUint32(20, 0, true); group.setUint32(24, vertexEnd, true); return bytes; })(),
     pageRecords: encodeGeometryProductPageRecordsV1([{ decodedHash128: hashes[0]!.subarray(0, 16), firstGroup: 0, groupCount: 1, flags: 0, reserved: 0 }, { decodedHash128: hashes[1]!.subarray(0, 16), firstGroup: 1, groupCount: 1, flags: 0, reserved: 0 }]),
     bootstrapPageIds: new Uint32Array([0]),
-    vertexFormats: encodeVertexFormatsV3([{ strideBytes: 16, attributeMask: 11, positionOffset: 0, normalOffset: 6, tangentOffset: 0xff, uv0Offset: 10, uv1Offset: 0xff, colorOffset: 0xff }]),
+    vertexFormats: encodeVertexFormatsV3([{ strideBytes: complex ? 20 : 16, attributeMask: complex ? 43 : 11, positionOffset: 0, normalOffset: 6, tangentOffset: 0xff, uv0Offset: 10, uv1Offset: 0xff, colorOffset: complex ? 14 : 0xff }]),
     activationPageIds: new Uint32Array([0])
   });
   let released = false;
@@ -464,9 +479,118 @@ try {
   }
   requireValue(mixedWOverlap >= 8 && clippedAway >= 2,
     `Near clipping had insufficient GPU overlap/change: overlap=${mixedWOverlap}, clipped=${clippedAway}`);
+  // A separate Product exercises two non-coplanar primitives, quantized
+  // vertex colors/normals, perspective UV gradients and nonuniform scaling.
+  complexSource = await createProductSource(true);
+  complexResidency = await VirtualGeometryResidency.create(renderer.device, complexSource, 17, 0);
+  complexResidency.activatePublication();
+  const complexScene = new Scene();
+  const complexSun = new DirectionalLight();
+  complexSun.intensity = 3;
+  complexSun.forward = [0, 0, -1];
+  complexScene.addChild(complexSun);
+  const complexMaterial = new StandardShadeMaterial();
+  complexMaterial.texture_albedo = material.texture_albedo;
+  complexMaterial.base_color_uv_scale = [512, 512];
+  await renderer.uploadVirtualGeometryScene(complexScene, {
+    materials: [complexMaterial],
+    geometryProfiles: [{ hasAuthoredVertexColor: true, hasUv0: true, hasUv1: false,
+      hasUv2: false, hasNormal: true, hasTangent: false }],
+    assetCount: 1, hierarchyMaxDepth: 2, hierarchyTraversalCapacity: 8,
+    hierarchyVisibleClusterCapacity: 8, hierarchyRasterWorkCapacity: 8,
+    count: 1, geometryIndices: new Uint32Array([0]), materialIndices: new Uint32Array([0]),
+    currentTransforms: new Float32Array([
+      1.1, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, 1.7, 0, 0, 0, 0, 1
+    ]),
+    boundsSpheres: new Float32Array([0, 0, 0, 1.3])
+  }, complexResidency);
+  camera.near = 0.05;
+  camera.transform.position.set(0, 0, 4);
+  camera.transform.lookAt({ x: 0, y: 0, z: 0 });
+  camera.update();
+  requireValue(renderer.render(camera, complexScene, 1 / 60), "Complex VG warm frame was not submitted");
+  requireValue(renderer.render(camera, complexScene, 1 / 60), "Complex VG Surface frame was not submitted");
+  const complexGrid = Array.from({ length: 21 * 27 }, (_, index) => [
+    216 + (index % 27) * 8, 100 + Math.floor(index / 27) * 8
+  ] as [number, number]);
+  const complexPixels = await captureDisplayPixels(renderer.device, context, complexGrid);
+  const complexWorld = [[-0.88, -0.64, 0], [0.88, -0.64, 0],
+    [-0.88, 0.64, 0.51], [0.88, 0.64, -0.51]] as const;
+  const triangles = [[0, 1, 2], [2, 1, 3]] as const;
+  const oct = [[0, 0], [16384, 0], [0, 16384], [11469, 11469]] as const;
+  const colors = [[255, 64, 64], [64, 255, 64], [64, 64, 255], [255, 255, 255]] as const;
+  const normalize = (v: readonly number[]): [number, number, number] => {
+    const length = Math.hypot(...v);
+    return v.map(value => value / length) as [number, number, number];
+  };
+  const cross = (a: readonly number[], b: readonly number[]): [number, number, number] => [
+    a[1]! * b[2]! - a[2]! * b[1]!,
+    a[2]! * b[0]! - a[0]! * b[2]!,
+    a[0]! * b[1]! - a[1]! * b[0]!
+  ];
+  const normals = oct.map(([x, y]) => normalize([x / 32767, y / 32767,
+    1 - Math.abs(x / 32767) - Math.abs(y / 32767)]));
+  const uvs = [[0, 0], [1, 0], [0, 1], [1, 1]] as const;
+  const matrix = camera.view_projection_matrix;
+  const complexClips = complexWorld.map(([x, y, z]) => [0, 1, 2, 3].map(row =>
+    matrix[row]! * x + matrix[4 + row]! * y + matrix[8 + row]! * z + matrix[12 + row]!
+  ) as [number, number, number, number]);
+  const complexSamples = [0, 0];
+  let minimumTextureFootprint = Number.POSITIVE_INFINITY;
+  for (let index = 0; index < complexGrid.length; index++) {
+    const pixel = complexGrid[index]!;
+    for (let triangleIndex = 0; triangleIndex < triangles.length; triangleIndex++) {
+      const triangle = triangles[triangleIndex]!;
+      const clips = triangle.map(vertex => complexClips[vertex]!) as
+        [[number, number, number, number], [number, number, number, number], [number, number, number, number]];
+      const bary = projectedSurfaceBarycentricReference(
+        [pixel[0] + 0.5, pixel[1] + 0.5], clips, [640, 360]);
+      if (!bary.valid || bary.weights.some(value => value < 0.15 || value > 0.7)) continue;
+      const uvDerivative = (weights: readonly number[]) => [0, 1].map(axis =>
+        triangle.reduce<number>((sum, vertex, corner) =>
+          sum + uvs[vertex]![axis]! * weights[corner]!, 0) * 512);
+      const dx = uvDerivative(bary.ddx), dy = uvDerivative(bary.ddy);
+      const footprint = 256 * Math.max(Math.hypot(...dx), Math.hypot(...dy));
+      minimumTextureFootprint = Math.min(minimumTextureFootprint, footprint);
+      requireValue(footprint >= 256,
+        `Complex VG projected gradient did not reach the final texture mip: ${footprint}`);
+      const interpolate = (values: readonly (readonly number[])[]): [number, number, number] =>
+        values[0]!.map((_, axis) => triangle.reduce<number>((sum, vertex, corner) =>
+          sum + values[vertex]![axis]! * bary.weights[corner]!, 0)) as [number, number, number];
+      const position = interpolate(complexWorld);
+      const color = interpolate(colors).map(value => value / 255) as
+        [number, number, number];
+      const localNormal = normalize(interpolate(normals));
+      const shadingNormal = normalize([
+        localNormal[0]! / 1.1, localNormal[1]! / 0.8, localNormal[2]! / 1.7
+      ]);
+      const edge0 = complexWorld[triangle[1]]!.map((v, axis) => v - complexWorld[triangle[0]]![axis]!);
+      const edge1 = complexWorld[triangle[2]]!.map((v, axis) => v - complexWorld[triangle[0]]![axis]!);
+      const result = evaluateGpuShadingProgramReference({
+        programId: 5, outputDependencyMask: 0,
+        material: {
+          baseColorFactor: color, metallicFactor: 0, roughnessFactor: 1,
+          normalScale: 1, occlusionStrength: 1, emissiveFactor: [0, 0, 0],
+          baseSample: [144 / 255, 144 / 255, 88 / 255, 1],
+          shadingNormal, geometricNormal: normalize(cross(edge0, edge1))
+        },
+        viewDirection: [-position[0]!, -position[1]!, 4 - position[2]!],
+        directLights: [{ direction: [0, 0, 1], radiance: [3, 3, 3], visibility: 1 }],
+        preExposure: 1, gradientValid: true
+      });
+      const expected = result.radiance.map(value =>
+        Math.max(0, Math.min(255, Math.round(value * 255))));
+      requireLitTexel(complexPixels[index]!, expected,
+        `complex VG primitive ${triangleIndex} at ${pixel}`);
+      complexSamples[triangleIndex]++;
+    }
+  }
+  requireValue(complexSamples.every(count => count >= 5),
+    `Complex VG primitives lacked numeric Surface samples: ${complexSamples}`);
   controller.addEvidence("phase1", {
     emptyPasses, passes, surfacePixels, faultPixels, restoredPixel, recoveredPixels,
     clipW, mixedWNumericSamples, mixedWOverlap, clippedAway,
+    complexSamples, minimumTextureFootprint,
     lightCount: scene.lights.elements.length, frameCount: renderer.frame_count,
     geometry: geometryBeforeLoss, gpuErrors: [...scoped.errors, ...recovered.errors],
     recoveredDevice: renderer.device !== lostDevice

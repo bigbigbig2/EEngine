@@ -334,6 +334,13 @@ fn sparse_barycentric(pixel: vec2f, c0: vec4f, c1: vec4f, c2: vec4f) -> SparseBa
   result.valid=true; return result;
 }
 fn sparse_affine(instance: OEngineInstanceRecord) -> mat4x4f { return oengine_instance_current_object_to_world(instance); }
+fn sparse_world_normal(model: mat4x4f, local: vec3f, geometric: vec3f) -> vec3f {
+  let x = model[0].xyz; let y = model[1].xyz; let z = model[2].xyz;
+  let cofactors = mat3x3f(cross(y, z), cross(z, x), cross(x, y));
+  let determinant = dot(x, cofactors[0]);
+  if abs(determinant) < 1e-8 { return geometric; }
+  return normalize((cofactors * local) * sign(determinant));
+}
 `;
 }
 
@@ -482,7 +489,13 @@ export function materialEvaluationWgsl(descriptor: Readonly<SurfaceKernelProfile
   var normal_basis_valid = true;
   if sparse_has_tangent_ref(ref0) {
     let tangent_value=sparse_tangent_ref(ref0)*bary.weights.x+sparse_tangent_ref(ref1)*bary.weights.y+sparse_tangent_ref(ref2)*bary.weights.z;
-    tangent=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*tangent_value.xyz);
+    let transformed_tangent=mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*tangent_value.xyz;
+    let orthogonal_tangent=transformed_tangent-normal*dot(normal,transformed_tangent);
+    if dot(orthogonal_tangent,orthogonal_tangent)>1e-8 {
+      tangent=normalize(orthogonal_tangent);
+    } else {
+      tangent=sparse_fallback_tangent(normal);
+    }
     bitangent=normalize(cross(normal,tangent))*select(-1.0,1.0,tangent_value.w>=0.0);
   } else {
     let normal_uv_set=sparse_material_uv_set(material,1u);
@@ -560,7 +573,7 @@ fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:
 fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:u32,material_slot:u32,material:OEngineShadingMaterialRecord)->OEngineSparseSurface{
   let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices_for_work(work,meshlet_base,primitive);let ref0=sparse_vertex_ref_for_work(work,geometry_base,vertices.x);let ref1=sparse_vertex_ref_for_work(work,geometry_base,vertices.y);let ref2=sparse_vertex_ref_for_work(work,geometry_base,vertices.z);let model=sparse_affine(instance);
   let p0=model*vec4f(sparse_position_ref(ref0),1.0);let p1=model*vec4f(sparse_position_ref(ref1),1.0);let p2=model*vec4f(sparse_position_ref(ref2),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);
-  let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;let local_normal=normalize(sparse_normal_ref(ref0)*bary.weights.x+sparse_normal_ref(ref1)*bary.weights.y+sparse_normal_ref(ref2)*bary.weights.z);var normal=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*local_normal);let geometric=normalize(cross(p1.xyz-p0.xyz,p2.xyz-p0.xyz));
+  let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;let local_normal=normalize(sparse_normal_ref(ref0)*bary.weights.x+sparse_normal_ref(ref1)*bary.weights.y+sparse_normal_ref(ref2)*bary.weights.z);let geometric=normalize(cross(p1.xyz-p0.xyz,p2.xyz-p0.xyz));var normal=sparse_world_normal(model,local_normal,geometric);
   var color=vec3f(1.0);${s.authoredVertexColor !== "never" ? "if sparse_has_color_ref(ref0) { color=sparse_color_ref(ref0)*bary.weights.x+sparse_color_ref(ref1)*bary.weights.y+sparse_color_ref(ref2)*bary.weights.z; }" : ""}
   let gradient_valid=bary.valid;
   var sample_0=vec4f(1.0);var sample_1=vec4f(0.5,0.5,1.0,1.0);var sample_2=vec4f(1.0);var sample_3=vec4f(1.0);var sample_4=vec4f(1.0);
