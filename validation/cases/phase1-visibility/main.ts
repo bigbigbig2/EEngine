@@ -9,6 +9,7 @@ import { attachGpuErrorCollection, withGpuErrorScopes } from "../../harness/brow
 import { compileSurfaceProgramLayout } from "../../../OEngine/src/render/surface/SurfaceKernelBindingPlan.ts";
 import { createSurfaceMaterialProgramWgsl } from "../../../OEngine/src/shaders/surface_material_program.ts";
 import { Sampler2D } from "../../../OEngine/src/texture/Sampler2D.ts";
+import { evaluateGpuShadingProgramReference } from "../../../OEngine/src/gpu/GpuShadingProgramOracle.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 const status = document.querySelector<HTMLElement>("#status")!;
@@ -39,6 +40,64 @@ function requireValue(condition: unknown, message: string): asserts condition {
 
 function writeF32(view: DataView, at: number, values: readonly number[]): void {
   values.forEach((value, index) => view.setFloat32(at + index * 4, value, true));
+}
+
+/** Validation-only swapchain copy; no production readback or persistent GPU resource. */
+async function captureDisplayPixels(
+  device: GPUDevice, context: GPUCanvasContext,
+  points: readonly (readonly [number, number])[]
+): Promise<number[][]> {
+  const texture = context.getCurrentTexture();
+  const buffer = device.createBuffer({
+    label: "Validation/Surface final pixel samples", size: points.length * 256,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  try {
+    const encoder = device.createCommandEncoder({ label: "Validation/Surface final pixel copy" });
+    points.forEach(([x, y], index) => encoder.copyTextureToBuffer(
+      { texture, origin: [x, y] },
+      { buffer, offset: index * 256, bytesPerRow: 256 }, [1, 1, 1]
+    ));
+    device.queue.submit([encoder.finish()]);
+    await buffer.mapAsync(GPUMapMode.READ);
+    const bytes = new Uint8Array(buffer.getMappedRange());
+    const bgra = texture.format.startsWith("bgra");
+    const result = points.map((_, index) => {
+      const at = index * 256;
+      return bgra
+        ? [bytes[at + 2]!, bytes[at + 1]!, bytes[at]!, bytes[at + 3]!]
+        : [bytes[at]!, bytes[at + 1]!, bytes[at + 2]!, bytes[at + 3]!];
+    });
+    buffer.unmap();
+    return result;
+  } finally {
+    buffer.destroy();
+  }
+}
+
+function expectedLitTexel(x: number, y: number, color: readonly [number, number, number]): number[] {
+  const halfHeight = 4 * Math.tan(Math.PI / 8);
+  const halfWidth = halfHeight * (640 / 360);
+  const worldX = ((x + 0.5) / 640 * 2 - 1) * halfWidth;
+  const worldY = (1 - (y + 0.5) / 360 * 2) * halfHeight;
+  const result = evaluateGpuShadingProgramReference({
+    programId: 5, outputDependencyMask: 0,
+    material: {
+      baseColorFactor: [1, 1, 1], metallicFactor: 0, roughnessFactor: 1,
+      normalScale: 1, occlusionStrength: 1, emissiveFactor: [0, 0, 0],
+      baseSample: [color[0] / 255, color[1] / 255, color[2] / 255, 1],
+      shadingNormal: [0, 0, 1], geometricNormal: [0, 0, 1]
+    },
+    viewDirection: [-worldX, -worldY, 4],
+    directLights: [{ direction: [0, 0, 1], radiance: [3, 3, 3], visibility: 1 }],
+    preExposure: 1, gradientValid: true
+  });
+  return result.radiance.map(value => Math.max(0, Math.min(255, Math.round(value * 255))));
+}
+
+function requireLitTexel(actual: readonly number[], expected: readonly number[], label: string): void {
+  requireValue(actual.slice(0, 3).every((value, channel) => Math.abs(value - expected[channel]!) <= 4),
+    `${label} direct-light reference mismatch: actual=${actual}, expected=${expected}`);
 }
 
 /** A two-page Product cut: page zero is the bootstrap, page one is a deliberate missing-page demand target. */
@@ -169,18 +228,26 @@ try {
     new Sampler2D(new Uint8Array([255, 32, 32, 255, 32, 255, 32, 255,
       32, 32, 255, 255, 255, 255, 32, 255]), 4, 2, 2)
   ));
+  const unlit = new StandardShadeMaterial();
+  unlit.is_unlit = true;
+  unlit.diffuse_color.r = 0.1;
+  unlit.diffuse_color.g = 0.7;
+  unlit.diffuse_color.b = 0.9;
   source = await createProductSource();
   residency = await VirtualGeometryResidency.create(renderer.device, source, 17, 0);
   residency.activatePublication();
   const geometryProfiles = [{ hasAuthoredVertexColor: false, hasUv0: true, hasUv1: false, hasUv2: false, hasNormal: true, hasTangent: false }] as const;
   await renderer.uploadVirtualGeometryScene(scene, {
-    materials: [material], geometryProfiles, assetCount: 1,
+    materials: [material, unlit], geometryProfiles, assetCount: 1,
     hierarchyMaxDepth: 2, hierarchyTraversalCapacity: 8,
     hierarchyVisibleClusterCapacity: 8, hierarchyRasterWorkCapacity: 8,
-    count: 1, geometryIndices: new Uint32Array([0]),
-    materialIndices: new Uint32Array([0]),
-    currentTransforms: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
-    boundsSpheres: new Float32Array([0, 0, 0, 1])
+    count: 2, geometryIndices: new Uint32Array([0, 0]),
+    materialIndices: new Uint32Array([0, 1]),
+    currentTransforms: new Float32Array([
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.5, 0, 0, 1
+    ]),
+    boundsSpheres: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1])
   }, residency);
   const camera = new PerspectiveCamera();
   camera.near = 0.05;
@@ -192,6 +259,7 @@ try {
   controller.transition("warming");
   let beforeResizeKey = "";
   let emptyPasses: string[] = [];
+  let surfacePixels: Record<string, number[]> = {};
   const scoped = await withGpuErrorScopes(renderer.device, "Phase 1 visibility frame", async () => {
     requireValue(renderer!.render(camera, new Scene(), 1 / 60), "Empty Scene was not presented");
     emptyPasses = renderer!.mainFrameGraphEvidence()?.dump.passes
@@ -204,9 +272,24 @@ try {
     }
     beforeResizeKey = renderer!.mainFrameGraphEvidence()?.cacheKey ?? "";
     renderer!.resize(640, 360);
+    context.configure({ device: renderer!.device, format: navigator.gpu.getPreferredCanvasFormat(),
+      alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
     camera.aspect = 640 / 360;
     camera.update();
     requireValue(renderer!.render(camera, scene, 1 / 60), "Renderer did not submit after resize");
+    const [red, green, blue, yellow, unlitPixel, background] = await captureDisplayPixels(renderer!.device, context,
+      [[280, 220], [360, 220], [300, 150], [340, 150], [480, 180], [100, 100]]);
+    surfacePixels = { red: red!, green: green!, blue: blue!, yellow: yellow!,
+      unlit: unlitPixel!, background: background! };
+    requireValue(red![0]! > red![1]! * 2 && green![1]! > green![0]! * 2 &&
+      blue![2]! > blue![0]! * 2 && yellow![0]! > yellow![2]! * 2 &&
+      yellow![1]! > yellow![2]! * 2,
+    `Textured lit VG quadrants did not survive Surface shading: ${JSON.stringify(surfacePixels)}`);
+    requireLitTexel(red!, expectedLitTexel(280, 220, [255, 32, 32]), "red");
+    requireLitTexel(green!, expectedLitTexel(360, 220, [32, 255, 32]), "green");
+    requireLitTexel(blue!, expectedLitTexel(300, 150, [32, 32, 255]), "blue");
+    requireLitTexel(yellow!, expectedLitTexel(340, 150, [255, 255, 32]), "yellow");
+    requireLitTexel(unlitPixel!, [26, 179, 230], "unlit material class");
     await nextFrame();
     await renderer!.device.queue.onSubmittedWorkDone();
   });
@@ -225,6 +308,8 @@ try {
     "GPU Surface material consumer was not encoded");
   requireValue(passes.includes("Surface/shade material class 5"),
     "Textured PBR VG material class was not consumed");
+  requireValue(passes.includes("Surface/shade material class 0"),
+    "Mixed unlit material class was not consumed");
   requireValue(passes.some(name => name.startsWith("LightCluster/")),
     "Lit material did not consume GPU light clustering");
   requireValue(passes.includes("Surface/present radiance"), "Surface radiance was not presented");
@@ -239,16 +324,26 @@ try {
   renderer = await renderer.recoverAfterDeviceLoss();
   intentionalDestroy = false;
   collector = attachGpuErrorCollection(renderer.device, controller, () => intentionalDestroy);
+  context.configure({ device: renderer.device, format: navigator.gpu.getPreferredCanvasFormat(),
+    alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+  let recoveredPixels: number[][] = [];
   const recovered = await withGpuErrorScopes(renderer.device, "Phase 1 recovered visibility frame", async () => {
     requireValue(renderer!.render(camera, scene, 1 / 60), "Recovered Renderer did not submit visibility");
+    recoveredPixels = await captureDisplayPixels(renderer!.device, context,
+      [[280, 220], [360, 220], [300, 150], [340, 150], [480, 180]]);
     await renderer!.device.queue.onSubmittedWorkDone();
   });
+  for (const [index, expected] of [surfacePixels.red, surfacePixels.green,
+    surfacePixels.blue, surfacePixels.yellow, surfacePixels.unlit].entries()) {
+    requireLitTexel(recoveredPixels[index]!, expected, `recovered quadrant ${index}`);
+  }
   requireValue(recovered.errors.length === 0, JSON.stringify(recovered.errors));
   requireValue(renderer.mainFrameGraphEvidence()?.dump.passes
     .some(pass => !pass.culled && pass.name.includes("MeshletWork bucket producer")),
     "Recovered Renderer did not consume GPU MeshletWork");
   controller.addEvidence("phase1", {
-    emptyPasses, passes, lightCount: scene.lights.elements.length, frameCount: renderer.frame_count,
+    emptyPasses, passes, surfacePixels, recoveredPixels,
+    lightCount: scene.lights.elements.length, frameCount: renderer.frame_count,
     geometry: geometryBeforeLoss, gpuErrors: [...scoped.errors, ...recovered.errors],
     recoveredDevice: renderer.device !== lostDevice
   });
