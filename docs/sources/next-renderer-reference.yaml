@@ -1,0 +1,28 @@
+schemaVersion: 1
+id: next-renderer-reference
+kind: algorithm-ledger
+upstream:
+  name: EEngine Next pinned renderer migration candidates
+  repository: docs/porting/next-renderer.md
+  revision: 2026-09-25 survey with per-source immutable revisions
+license: Per-file and per-source licenses, notices, and unresolved provenance are recorded in docs/porting/next-renderer.md.
+localOwners:
+  - OEngine/src/render
+  - OEngine/src/framegraph
+  - OEngine/src/shaders
+  - OEngine/src/gpu
+sourceMap: docs/porting/next-renderer.md
+retainedInvariants:
+  - Selected algorithm profiles preserve stages, decisions, dependencies, history, failure behavior, and downstream GPU consumption.
+  - Typed GPU work streams share protocols without requiring a universal queue or unavailable WebGPU execution features.
+  - Virtual resources share a control plane while geometry, texture, shadow, and radiance retain specialized physical caches.
+  - Logical products preserve space, precision, coverage, exposure, and temporal validity across representation changes.
+differences:
+  - All new survey candidates remain not adopted until source-to-production mapping and the selected implementation are complete.
+  - Shader languages, resource bindings, command encoding, and lifecycle ownership require explicit WebGPU adaptations.
+  - Existing adopted source revisions remain authoritative; survey revisions do not automatically upgrade production ports.
+  - Full VT and adaptive compute shading have no verified complete donor in this survey.
+validation:
+  - docs/porting/next-renderer.md
+  - docs/next-renderer.md
+  - project/workstreams/active/eengine-next.yaml

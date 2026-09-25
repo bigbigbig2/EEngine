@@ -34,3 +34,4 @@ ADR 只保存跨模块、长期且仍有解释价值的决策。它不承担规�
 - [0016-D · Progressive Texture Delivery 与 Physical Residency](./0016-d-progressive-texture-residency.md)
 - [0017 · Geometry Product 增量发布与页身份解耦](./0017-incremental-geometry-product-publication.md)
 - [0018 · Web `large.glb` Virtual Geometry 生产与分片运行时（Proposed）](./0018-web-100m-virtual-geometry.md)
+- [0019 · EEngine Next 需求驱动虚拟化可见性架构](./0019-eengine-next-renderer.md) — accepted 目标方向；实施与 claim 仍按切片完成

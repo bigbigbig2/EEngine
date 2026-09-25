@@ -1,0 +1,83 @@
+schemaVersion: 2
+id: eengine-next
+title: EEngine Next renderer composition and faithful algorithm migration
+domain: frame-runtime
+state: active
+owner: frame-runtime
+decision: ADR-0019
+goal: Deliver the accepted demand-driven virtualized visibility architecture through six broad modules and faithful, bounded upstream algorithm ports.
+
+currentSlice:
+  id: foundation-contracts
+  title: Freeze minimal product, work, temporal, and program-cache boundaries before changing the production renderer
+  status: todo
+nextTasks:
+  - Separate stable program compilation from scene publication and define the first finite product plans.
+  - Map existing meshlet and shading consumers onto a shared bounded work protocol without removing direct fast paths.
+  - Define motion, exposure, stable history identity, and invalidation before integrating new lighting providers.
+  - Prototype dynamic world-GI sample production and scene-change invalidation on the GTX 1650 Ti baseline during the foundation slice.
+  - Prepare the first complete XeGTAO or SSSR source-to-production map using the pinned migration ledger.
+
+contracts:
+  - claims-and-evidence
+  - virtual-geometry-runtime-v1
+claims:
+  - frame.recovery
+  - shading.one-eval
+  - shading.pipeline-pruning
+  - visibility.gpu-closure
+completedMilestones:
+  - id: architecture-and-source-preparation
+    result: The accepted target, six-module implementation route, pinned candidate survey, and faithful-port policy are documented; no runtime migration is claimed.
+  - id: device-and-dynamic-gi-direction
+    result: User selected the 1650 and 2060 development machines and dynamic world GI; current hardware is GTX 1650 Ti 4 GiB, i7-10750H, and 16 GiB RAM. Actual second-machine configuration remains to be read.
+tasks:
+  - id: foundation-contracts
+    state: todo
+    title: Define minimal semantic products, bounded work, stable temporal identity, and program-publication separation
+    dependsOn: []
+    exitCriteria:
+      - Existing production owners and the first real consumers determine the contracts; no speculative full ABI is frozen.
+      - Adaptive frequency explicitly identifies the future contract and claim changes required by the current exactly-once semantics.
+  - id: composition-and-program-lifetime
+    state: todo
+    title: Split main-pipeline responsibilities and preserve behavior while separating stable programs from revision-local bindings
+    dependsOn:
+      - foundation-contracts
+    exitCriteria:
+      - A single production pipeline retains GPU publication, sparse and direct shading, feature-off pruning, and recovery.
+  - id: dynamic-gi-producer-feasibility
+    state: todo
+    title: Prove bounded dynamic geometry and lighting updates reach the world-GI sample producer and probe consumer
+    dependsOn:
+      - foundation-contracts
+    exitCriteria:
+      - Source mapping covers movement, insertion and removal, deformation, and light changes with explicit refit or rebuild and history invalidation.
+      - The GTX 1650 Ti experiment records update cost, convergence latency, memory, and fallback without requiring hardware RT or a static-only scene.
+  - id: first-complete-provider-port
+    state: todo
+    title: Connect a complete pinned screen-space algorithm to product, work, and temporal consumers
+    dependsOn:
+      - foundation-contracts
+      - composition-and-program-lifetime
+    exitCriteria:
+      - A bounded source profile includes license notices, stage mapping, WebGPU adaptations, fallback, and focused validation.
+      - No required algorithm stage is omitted while claiming the upstream algorithm is complete.
+exitChecks:
+  - model
+  - registry
+  - evidence-provenance
+requiredEvidence:
+  - Source-to-production mappings and focused reference checks for each actually migrated algorithm profile.
+  - Existing affected tests and independent browser evidence for changed GPU producer-consumer and lifecycle behavior.
+  - Fixed-condition GPU and image evidence before integration or performance claims are promoted.
+openGates:
+  - Measure actual browser adapters and limits on both machines; derive configurable cache budgets on the 4 GiB baseline and record the second-machine configuration when available.
+  - Dynamic geometry and lighting are required; the world-GI sample producer, acceleration-structure updates, and bounded convergence still need implementation evidence.
+  - WebGPU VSM page execution, GI sample production, and adaptive shading reconstruction have not been validated.
+  - Full VT has no qualified complete donor yet; existing texture mip residency must not be relabeled as VT.
+  - Candidate source review is not an implemented or runtime-validated port; third-party notices must follow selected code.
+links:
+  decision: docs/adr/0019-eengine-next-renderer.md
+  implementationRoute: docs/next-renderer.md
+  sourceLedger: docs/porting/next-renderer.md

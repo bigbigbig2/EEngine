@@ -10,14 +10,18 @@ paths:
   - docs/domains/shading.md
   - docs/porting/shading.md
 currentDocs:
+  - docs/next-renderer.md
+  - docs/porting/next-renderer.md
   - docs/domains/shading.md
   - docs/porting/shading.md
 contracts:
   - claims-and-evidence
 decisions:
+  - ADR-0019
   - ADR-0013
   - ADR-0015
 sources:
+  - next-renderer-reference
   - shading-reference
 claims:
   - shading.one-eval

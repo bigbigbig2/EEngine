@@ -16,3 +16,6 @@ sources:
   - id: visibility-reference
     path: docs/sources/visibility-reference.yaml
     role: Visibility and work generation references
+  - id: next-renderer-reference
+    path: docs/sources/next-renderer-reference.yaml
+    role: Pinned EEngine Next migration candidates, adoption boundaries, licenses, and fidelity requirements

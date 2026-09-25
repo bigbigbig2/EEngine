@@ -16,15 +16,18 @@ paths:
   - docs/domains/frame-runtime.md
   - docs/VALIDATION.md
 currentDocs:
+  - docs/next-renderer.md
   - docs/domains/frame-runtime.md
   - docs/VALIDATION.md
 contracts:
   - browser-harness
   - claims-and-evidence
 decisions:
+  - ADR-0019
   - ADR-0010
   - ADR-0014
 sources:
+  - next-renderer-reference
   - webgpu-capability
 claims:
   - frame.recovery

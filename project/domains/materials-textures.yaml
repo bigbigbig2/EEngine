@@ -12,14 +12,17 @@ paths:
   - validation/cases/texture-residency-component/**
   - validation/cases/glb-web-product/**
 currentDocs:
+  - docs/next-renderer.md
   - docs/domains/materials-textures.md
   - docs/porting/shading.md
 contracts:
   - claims-and-evidence
 decisions:
+  - ADR-0019
   - ADR-0011
   - ADR-0016
 sources:
+  - next-renderer-reference
   - texture-format-rules
 claims:
   - materials.texture-path
