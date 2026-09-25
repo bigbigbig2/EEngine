@@ -309,6 +309,8 @@ export class Renderer {
   packed_meshlet_work_candidate_capacity: number | undefined;
   packed_meshlet_work_compaction: "auto" | "portable" | "subgroup" = "auto";
   packed_primitive_index: "auto" | "portable" = "auto";
+  /** Spatial frequency plan for eligible Surface programs; false selects full-rate on the same pipeline. */
+  spatial_shading_frequency_enabled = true;
   onFrameFinished = new ChangeSignal<number>();
 
   constructor(config: RendererConfig = {}) {
@@ -1159,6 +1161,7 @@ export class Renderer {
       const environment = this._environments.obtain(scene);
       const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
         .filter(classId => (runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
+      const adaptiveShading = this.spatial_shading_frequency_enabled && activeClasses.includes(0);
       if (activeClasses.some(classId => (classId & 15) >= 4)) {
         environment.lights.updateDirectRecords(command);
       }
@@ -1230,7 +1233,8 @@ export class Renderer {
         job.prepared.currentHzbLateRecheck !== null,
         job.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
         this.packed_meshlet_work_compaction, this.packed_primitive_index,
-        this.packed_visibility_cone_enabled, activeClasses, textureBankMasks
+        this.packed_visibility_cone_enabled, adaptiveShading,
+        activeClasses, textureBankMasks
       ]);
       const compiled = this._graphCache.getOrCreate(
         graphKey,
@@ -1415,7 +1419,7 @@ export class Renderer {
       materialRecords,
       depth: result.frame.depth,
       instances,
-      adaptive: activeClasses.includes(0),
+      adaptive: this.spatial_shading_frequency_enabled && activeClasses.includes(0),
       width: result.frame.domain.width,
       height: result.frame.domain.height
     });
@@ -1573,6 +1577,7 @@ export class Renderer {
     this._recoveryAttempts++;
     this.shutdown();
     const replacement = new Renderer(checkpoint.config);
+    replacement.spatial_shading_frequency_enabled = this.spatial_shading_frequency_enabled;
     this._recoveryPromise = (async () => {
       try {
         await replacement.initialize({ context: checkpoint.context, config: checkpoint.config });

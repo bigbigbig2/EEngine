@@ -54,7 +54,9 @@
         "OEngine/src/render/surface/SurfaceMaterialPass.ts",
         "OEngine/src/render/surface/ShadingWorkPass.ts",
         "OEngine/src/render/surface/ShadingWorkAbi.ts",
+        "OEngine/src/render/surface/ShadingFrequencyPlanAbi.ts",
         "OEngine/src/shaders/shading_work.ts",
+        "OEngine/src/shaders/shading_frequency.ts",
         "OEngine/src/shaders/surface_material_program.ts",
         "OEngine/src/render/surface/SurfaceKernelBindingPlan.ts"
       ],

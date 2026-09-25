@@ -13,6 +13,8 @@ import { evaluateGpuShadingProgramReference } from "../../../OEngine/src/gpu/Gpu
 import { projectedSurfaceBarycentricReference } from "../../../OEngine/src/shaders/SurfaceReconstructionOracle.ts";
 import { GPU_SHADING_MATERIAL_HEADER_OFFSETS,
   GPU_SHADING_MATERIAL_RECORD_STRIDE } from "../../../OEngine/src/gpu/GpuShadingMaterialAbi.ts";
+import { GPU_INSTANCE_RECORD_OFFSETS, GPU_INSTANCE_RECORD_STRIDE } from
+  "../../../OEngine/src/gpu/GpuInstanceAbi.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 const status = document.querySelector<HTMLElement>("#status")!;
@@ -410,6 +412,116 @@ try {
     `Coarse reconstruction hid a material identity failure: ${JSON.stringify(coarseFaultPixels)}`);
   renderer.device.queue.writeBuffer(runtime.materialResources.materialRecords,
     unlitGenerationOffset, new Uint32Array([runtime.materialGeneration]));
+  // Compare identical scene/camera/resolution on the one production pipeline.
+  // This is diagnostic timing, not fixed-condition performance evidence.
+  renderer.profiler.configure({ enabled: true, gpuSampleInterval: 1 });
+  renderer.profiler.setMode("record");
+  const frequencyTimings: Array<{
+    mode: "full" | "spatial"; surfaceMedianMs: number | null;
+    phaseMediansMs: Record<string, number>; pixels: number[][];
+  }> = [];
+  const frequencyTimestampAvailable = renderer.device.features.has("timestamp-query");
+  for (const mode of ["full", "spatial"] as const) {
+    renderer.spatial_shading_frequency_enabled = mode === "spatial";
+    const measuredFrames: number[] = [];
+    for (let frame = 0; frame < 10; frame++) {
+      const index = renderer.frame_count;
+      requireValue(renderer.render(camera, scene, 1 / 60), `${mode} comparison frame was not submitted`);
+      if (frame >= 2) measuredFrames.push(index);
+      if (frame < 9) await nextFrame();
+    }
+    const names = renderer.mainFrameGraphEvidence()?.dump.passes
+      .filter(pass => !pass.culled).map(pass => pass.name) ?? [];
+    requireValue(names.includes("Surface/plan spatial shading frequency") === (mode === "spatial"),
+      `${mode} comparison retained the wrong frequency topology`);
+    const pixels = await captureDisplayPixels(renderer.device, context,
+      [[280, 220], [480, 180], [160, 180], [100, 100]]);
+    await renderer.device.queue.onSubmittedWorkDone();
+    if (frequencyTimestampAvailable) {
+      for (let attempt = 0; attempt < 100; attempt++) {
+        if (measuredFrames.every(index => renderer!.profiler.getFrame(index)?.gpu.pending === false)) break;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+    const phaseSamples = new Map<string, number[]>();
+    for (const index of measuredFrames) {
+      const profile = renderer.profiler.getFrame(index);
+      if (profile?.gpu.pending || !profile?.gpu.sampled) continue;
+      for (const segment of profile.gpu.segments) {
+        const surfaceAt = segment.label.indexOf("/Surface/");
+        if (surfaceAt < 0) continue;
+        const label = segment.label.slice(surfaceAt + 1);
+        const samples = phaseSamples.get(label) ?? [];
+        samples.push(segment.durationMs);
+        phaseSamples.set(label, samples);
+      }
+      const total = profile.gpu.segments
+        .filter(segment => segment.label.includes("/Surface/"))
+        .reduce((sum, segment) => sum + segment.durationMs, 0);
+      if (total > 0) {
+        const samples = phaseSamples.get("total") ?? [];
+        samples.push(total);
+        phaseSamples.set("total", samples);
+      }
+    }
+    const median = (values: readonly number[]) => {
+      const sorted = [...values].sort((a, b) => a - b);
+      return sorted[Math.floor(sorted.length / 2)]!;
+    };
+    frequencyTimings.push({
+      mode, surfaceMedianMs: phaseSamples.has("total") ? median(phaseSamples.get("total")!) : null,
+      phaseMediansMs: Object.fromEntries([...phaseSamples]
+        .filter(([name]) => name !== "total").map(([name, values]) => [name, median(values)])),
+      pixels
+    });
+    if (frequencyTimestampAvailable) {
+      requireValue(phaseSamples.get("total")?.length === measuredFrames.length &&
+        phaseSamples.has("Surface/present radiance"),
+      `${mode} comparison did not capture the complete Surface GPU timing slice`);
+    }
+  }
+  requireValue(frequencyTimings[0]!.pixels.every((pixel, index) =>
+    pixel.every((value, channel) => Math.abs(value - frequencyTimings[1]!.pixels[index]![channel]!) <= 1)),
+    `Full/spatial scene output differs: ${JSON.stringify(frequencyTimings)}`);
+  requireLitTexel(frequencyTimings[1]!.pixels[1]!, surfacePixels.unlit!, "spatial/full unlit equality");
+  renderer.profiler.setMode("live");
+  renderer.profiler.configure({ enabled: false });
+  renderer.spatial_shading_frequency_enabled = true;
+  const instanceBuffer = renderer.graphics.gpu_scene.bindings().instances;
+  const unlitMotionOffset = (runtime.instanceBegin + 1) * GPU_INSTANCE_RECORD_STRIDE +
+    GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine;
+  renderer.device.queue.writeBuffer(instanceBuffer, unlitMotionOffset,
+    new Float32Array([1, 0, 0, 0.2]));
+  requireValue(renderer.render(camera, scene, 1 / 60), "Dynamic-boundary frame was not submitted");
+  const [dynamicUnlit] = await captureDisplayPixels(renderer.device, context, [[480, 180]]);
+  requireLitTexel(dynamicUnlit!, surfacePixels.unlit!, "dynamic full-rate unlit fallback");
+  const dynamicFrequency = await renderer.diagnosticShadingFrequency();
+  requireValue(dynamicFrequency.overflow === 0 && dynamicFrequency.coarse2Blocks === 0 &&
+    dynamicFrequency.coarse4Blocks === 0 &&
+    dynamicFrequency.attempted === frequencyDiagnostic.attempted + frequencyDiagnostic.savedEvaluations,
+    `Dynamic identity did not restore full-rate work: ${JSON.stringify(dynamicFrequency)}`);
+  renderer.device.queue.writeBuffer(instanceBuffer, unlitMotionOffset,
+    new Float32Array([1, 0, 0, 0]));
+  requireValue(renderer.render(camera, scene, 1 / 60), "Static-frequency restoration frame was not submitted");
+  const restoredFrequency = await renderer.diagnosticShadingFrequency();
+  requireValue(restoredFrequency.coarse4Blocks > 0 && restoredFrequency.overflow === 0,
+    "Restoring instance motion identity did not restore coarse work");
+  renderer.resize(639, 359);
+  context.configure({ device: renderer.device, format: navigator.gpu.getPreferredCanvasFormat(),
+    alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+  camera.aspect = 639 / 359;
+  camera.update();
+  requireValue(renderer.render(camera, scene, 1 / 60), "Odd-extent spatial frame was not submitted");
+  const [oddUnlit] = await captureDisplayPixels(renderer.device, context, [[480, 180]]);
+  requireLitTexel(oddUnlit!, surfacePixels.unlit!, "odd-extent unlit reconstruction");
+  const oddExtentFrequency = await renderer.diagnosticShadingFrequency();
+  requireValue(oddExtentFrequency.overflow === 0 && oddExtentFrequency.coarse4Blocks > 0,
+    `Odd-extent frequency work did not close: ${JSON.stringify(oddExtentFrequency)}`);
+  renderer.resize(640, 360);
+  context.configure({ device: renderer.device, format: navigator.gpu.getPreferredCanvasFormat(),
+    alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
+  camera.aspect = 640 / 360;
+  camera.update();
   const geometryBeforeLoss = residency.evidence();
   const lostDevice = renderer.device;
   intentionalDestroy = true;
@@ -639,6 +751,8 @@ try {
     clipW, mixedWNumericSamples, mixedWOverlap, clippedAway,
     complexSamples, minimumTextureFootprint, frequencyDiagnostic,
     reconstructedUnlitSamples: unlitChecked.length, coarseFaultPixels,
+    frequencyTimings, frequencyTimestampAvailable, dynamicFrequency, restoredFrequency,
+    oddExtentFrequency, oddUnlit,
     lightCount: scene.lights.elements.length, frameCount: renderer.frame_count,
     geometry: geometryBeforeLoss, gpuErrors: [...scoped.errors, ...recovered.errors],
     recoveredDevice: renderer.device !== lostDevice

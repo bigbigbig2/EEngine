@@ -72,7 +72,7 @@ export class SurfacePresentPass {
         ...(frequencyPlan === undefined ? [] : [{ binding: 3,
           resource: { buffer: resources.get(frequencyPlan) as GPUBuffer } }])
       ] });
-      const pass = command.gpu_encoder.beginRenderPass({ colorAttachments: [{
+      const pass = command.beginRenderPass({ label: "Surface/present radiance", colorAttachments: [{
         view: resolveTextureView(resources.get(swapchain)), loadOp: "clear", storeOp: "store",
         clearValue: { r: 0, g: 0, b: 0, a: 1 }
       }] });
