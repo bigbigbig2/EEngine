@@ -17,6 +17,8 @@
 
 每个新逻辑 Product 写清语义（几何法线与着色法线不同）、空间/分辨率/过滤、精度、单位/色彩空间、pre-exposure、覆盖/缺失行为及时间身份。新 typed GPU 队列须写元素 ABI、容量、计数器、溢出行为、生产者、GPU 消费者和间接执行；CPU readback 仅用于异步反馈或诊断。历史不能以帧内 VisibilityKey 当长期身份。跨 owner 目标先见[候选 v2 合同](./contracts/render-product-work-history-v2.md)；稳定的精确布局与状态机再写入 `docs/specs/`，不先冻结猜测。
 
+**复杂算法/效果迁移强制顺序**：实施 Surface 重建/材质、频率重建、VSM、XeGTAO、SSSR、GI、环境散射、Froxel Media、FSR3 等完整算法或效果前，先查 GitHub 完整开源实现，再查论文与足以复现决策条件、阶段和数据流的详细技术文章；不限源语言。固定上游 revision、许可证和具体源文件/入口，写入[来源账本](./porting/next-renderer.md)，建立源函数/阶段 → 本地产物/阶段的逐项对照，保留关键分支、输入输出、不变量和降级条件。WebGPU API 改写可以调整绑定和调度，不能把完整算法简化成同名近似效果；缺少完整 donor 时先记录检索范围与缺口，并明确具名本地方案，不得宣称已完成上游移植。来源核对、WGSL/CPU oracle 和新主链 GPU 消费证据齐备后，才更新采用状态。简单确定性工具、ABI 编解码及绑定/生命周期胶水不强制外部调研，但应标注本地集成；不得把复杂算法拆小后按“简单”豁免。
+
 ## Keep / Extract / Rewrite / Delete
 
 | 现有资产或 owner | 决定 | 新去向和条件 |

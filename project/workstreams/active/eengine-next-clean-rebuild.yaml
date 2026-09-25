@@ -72,6 +72,7 @@ exitChecks:
   - evidence-provenance
 requiredEvidence:
   - During the destructive rebuild, focused compile, static, contract, and algorithm checks for the changed slice; no old effect-completeness gate.
+  - Before each complex algorithm/effect implementation, search and pin complete GitHub source or reproducible paper/technical description; map source stages, branches and invariants to the WebGPU port, or record the donor gap and named local design without claiming a port. Simple deterministic utilities, ABI codecs and API/lifecycle glue do not require external research.
   - Source-to-production mapping and focused reference comparison for each selected complete algorithm profile.
   - Independent browser and formal GPU/performance evidence only when runtime or performance claims are made.
 openGates:

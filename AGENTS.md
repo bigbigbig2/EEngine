@@ -27,6 +27,7 @@ OEngine 是面向桌面 WebGPU、中大型高几何密度场景的 GPU-first 渲
 - 所有渲染功能使用一条统一主管线；关闭 feature 时不保留无消费者 Pass、资源、readback 或 submit。
 - WebGPU capability/limit/feature 先协商再创建资源；Draft 能力、64 位原子、mesh/task shader、BDA 和 multi-draw 不得默认启用。
 - ABI、二进制、shader layout、状态机和 owner 边界进入 `docs/specs/` 或 `docs/contracts/`，并有对应 contract/oracle 验证。
+- 复杂算法和渲染效果实施前先查 GitHub 完整开源实现及可核验的论文、详细技术文章；优先迁移固定 revision 的完整源码，跨语言可移植。移植须逐项对照源入口、决策条件、数据依赖、阶段、不变量、WebGPU 差异与验证，不能以自写简化版、少阶段版本或同名近似效果冒充完成。确无完整可移植来源时，先在 `docs/porting/` 记录检索范围、缺口和具名本地方案。简单确定性工具、ABI 编解码、WebGPU 绑定和生命周期接线不强制外部调研，但要按本地代码验证并不得冒称上游算法；不能以拆小任务为由豁免一个复杂算法。
 - Nyx 迁移必须保留源函数/entry point、决策条件、数据依赖、不变量、差异、fallback 和验证映射；未完成对照不得宣称完成。
 - Browser validation 只在独立 `validation/` 宿主运行；examples/Storybook 不产生 Runtime Validated、Performance 或 Pipeline 完成声明。
 - Claim 状态只由当前 revision 的 evidence 推导；clean revision、完整 gate 或正式 PERF 证据不足时，声明等级不得升级。
