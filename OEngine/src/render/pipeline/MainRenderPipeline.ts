@@ -77,19 +77,13 @@ import {
 import { ShadowFeatureManager } from "../features/ShadowFeatureManager.js";
 import type { LightClusterOutputs } from "../passes/LightClusterPass.js";
 import { TransparencyFeature } from "../features/TransparencyFeature.js";
-import { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
 import { OcclusionConfidencePass } from "../passes/OcclusionConfidencePass.js";
-import { AOService } from "../features/AOService.js";
-import { ScreenSpaceDiffuseService } from "../features/ScreenSpaceDiffuseService.js";
-import { ReflectionService } from "../features/ReflectionService.js";
 import { GIService, type OpaqueLightingResult } from "../features/GIService.js";
 import { TemporalFeature } from "../features/TemporalFeature.js";
-import { PostFeature } from "../features/PostFeature.js";
 import {
   FINAL_COLOR_PYRAMID_MAX_MIPS,
   OPAQUE_COLOR_PYRAMID_MAX_MIPS,
-  SHARED_COLOR_PYRAMID_ABI_VERSION,
-  SharedColorPyramidPass
+  SHARED_COLOR_PYRAMID_ABI_VERSION
 } from "../passes/SharedColorPyramidPass.js";
 import {
   NeuralSuperSamplingPass,
@@ -226,6 +220,7 @@ import {
   type FrameContext
 } from "./FrameContext.js";
 import { createMainRenderPipelineGraphKey } from "./MainRenderPipelineGraphKey.js";
+import { OptionalFrameFeatures } from "./OptionalFrameFeatures.js";
 import {
   SparseShadingPublicationCoordinator,
   type SparseShadingPublicationCoordinatorEvidence
@@ -813,21 +808,10 @@ export class MainRenderPipeline {
   private _transparencyFeature: TransparencyFeature | null = null;
   private _packedTransparencyOwnerGeneration = 0;
   private _pendingLinearHdrCapture: PendingLinearHdrCapture | null = null;
-  private _renderDebug: RenderDebugViewPass | null = null;
   private _occlusionConfidence: OcclusionConfidencePass | null = null;
-  private _aoService: AOService | null = null;
-  private _gtaoConfigurationKey = "";
-  private _gtaoOwnerGeneration = 0;
-  private _screenSpaceDiffuseService: ScreenSpaceDiffuseService | null = null;
-  private _ssgiConfigurationKey = "";
-  private _ssgiOwnerGeneration = 0;
-  private _reflectionService: ReflectionService | null = null;
-  private _ssrConfigurationKey = "";
-  private _ssrOwnerGeneration = 0;
+  private _optionalFeatures!: OptionalFrameFeatures;
   private readonly _temporalFeature = new TemporalFeature();
   private _nss: NeuralSuperSamplingPass | null = null;
-  private _postFeature: PostFeature | null = null;
-  private _sharedColorPyramids: SharedColorPyramidPass | null = null;
   private readonly _temporalHistories = new TemporalHistoryRegistry([
     {
       name: "color",
@@ -913,12 +897,12 @@ export class MainRenderPipeline {
       );
     }
     const post = this._renderSettings.values.post;
-    this._postFeature?.syncExposure({
+    this._optionalFeatures?.post?.syncExposure({
       exposureCompensation: post.exposureCompensation,
       exposureSpeedUp: post.exposureSpeedUp,
       exposureSpeedDown: post.exposureSpeedDown
     });
-    this._postFeature?.updateTonemap(
+    this._optionalFeatures?.post?.updateTonemap(
       this._format,
       this._highDynamicRange,
       this._peakNits,
@@ -1895,7 +1879,7 @@ export class MainRenderPipeline {
   /** FX-07 bounded AO phase/history evidence; GPU handles remain private. */
   ambientOcclusionEvidence(): AmbientOcclusionRuntimeEvidence {
     const history = this._temporalHistories.state("gtao");
-    const pass = this._aoService;
+    const pass = this._optionalFeatures?.ao;
     const internalPixels = this._render_resolution.x * this._render_resolution.y;
     const aoSettings = this._renderSettings.values.ao;
     const aoEnabled =
@@ -1951,7 +1935,7 @@ export class MainRenderPipeline {
   /** ADR-0009 Step 5 SSGI phase/history evidence. */
   screenSpaceGiEvidence(): ScreenSpaceGiRuntimeEvidence {
     const history = this._temporalHistories.state("ssgi");
-    const pass = this._screenSpaceDiffuseService;
+    const pass = this._optionalFeatures?.ssgi;
     const settings = this._renderSettings.values.ssgi;
     const enabled =
       this._renderSettings.values.features.screenSpaceDiffuseMode === "ssgi";
@@ -2001,7 +1985,7 @@ export class MainRenderPipeline {
   /** FX-08 bounded SSR phase/history evidence; GPU handles remain private. */
   screenSpaceReflectionsEvidence(): ScreenSpaceReflectionsRuntimeEvidence {
     const history = this._temporalHistories.state("ssr");
-    const pass = this._reflectionService;
+    const pass = this._optionalFeatures?.ssr;
     const enabled = this._renderSettings.values.features.screenSpaceReflections;
     const resolutionScale = this._renderSettings.values.ssr.resolutionScale;
     const traceWidth = enabled ? Math.max(1, Math.ceil(this._render_resolution.x * resolutionScale)) : 0;
@@ -2031,7 +2015,7 @@ export class MainRenderPipeline {
       traceHeight,
       tracePasses: pass?.lastTracePasses ?? 0,
       prefilterPasses: enabled
-        ? this._sharedColorPyramids?.evidence().opaqueBuilds ?? 0
+        ? this._optionalFeatures?.pyramids?.evidence().opaqueBuilds ?? 0
         : 0,
       prefilterOwner: enabled ? "shared-opaque-color-pyramid" : "disabled",
       resolvePasses: pass?.lastResolvePasses ?? 0,
@@ -2039,7 +2023,7 @@ export class MainRenderPipeline {
       recurrentDenoisePasses: pass?.lastSpatialPasses ?? 0,
       temporalPasses: pass?.lastTemporalPasses ?? 0,
       compositePasses:
-        this._renderSettings.values.features.screenSpaceReflections && this._reflectionService?.lastCorrectionRan === true ? 1 : 0,
+        this._renderSettings.values.features.screenSpaceReflections && this._optionalFeatures?.ssr?.lastCorrectionRan === true ? 1 : 0,
       historyTextureCount: pass?.historyTextureCount ?? 0,
       historyBytes: pass?.historyBytes ?? 0,
       historyValid: history.valid,
@@ -2062,7 +2046,7 @@ export class MainRenderPipeline {
       ambientOcclusion: this.ambientOcclusionEvidence().historyBytes,
       screenSpaceGi: this.screenSpaceGiEvidence().historyBytes,
       screenSpaceReflections: this.screenSpaceReflectionsEvidence().historyBytes,
-      automaticExposure: this._postFeature?.automaticExposureHistoryBytes ?? 0
+      automaticExposure: this._optionalFeatures?.post?.automaticExposureHistoryBytes ?? 0
     });
     const historyBytes = Object.values(historyOwners).reduce(
       (sum, bytes) => sum + bytes,
@@ -2351,6 +2335,10 @@ export class MainRenderPipeline {
     this._frameCoordinator = new FrameCoordinator(this._graphics);
     this._sparseShadingPublications = new SparseShadingPublicationCoordinator(device, false, undefined, this.deviceEpoch);
     await this._graphics.initialize();
+    this._optionalFeatures = new OptionalFrameFeatures(
+      this._graphics, this._surfaceLiteProfile, this._profiler,
+      (resource) => this.retireAfterSubmittedWork(resource)
+    );
     this._environments = new GPUSceneEnvironmentManager(this._graphics);
     this._shadowFeatures = new ShadowFeatureManager(this._graphics);
     this._cameraStates = new GPUCameraStateManager(device);
@@ -2387,25 +2375,12 @@ export class MainRenderPipeline {
     }
     this._transparencyFeature?.destroy();
     this._transparencyFeature = null;
-    this._aoService?.destroy();
-    this._aoService = null;
-    this._gtaoConfigurationKey = "";
-    this._screenSpaceDiffuseService?.destroy();
-    this._screenSpaceDiffuseService = null;
-    this._ssgiConfigurationKey = "";
     this._occlusionConfidence?.destroy();
     this._occlusionConfidence = null;
-    this._reflectionService?.destroy();
-    this._reflectionService = null;
     this._giService?.destroy();
     this._lightingFeature?.destroy();
-    this._postFeature?.destroy();
-    this._postFeature = null;
-    this._sharedColorPyramids?.destroy();
-    this._sharedColorPyramids = null;
+    this._optionalFeatures?.destroy();
     this._temporalFeature.destroy();
-    this._renderDebug?.destroy();
-    this._renderDebug = null;
     this._surfaceFeature?.destroy();
     this._sparseShadingPublications?.destroy();
     this._visibilityFeature?.destroy();
@@ -2758,24 +2733,7 @@ export class MainRenderPipeline {
       if (sampleGpuCounters && gpuCounterBuffer === null) {
         throw new Error("GPU counter sampling has no counter buffer");
       }
-      if (featureTopology.gtao) {
-        this._aoService!.resize(
-          Math.max(1, Math.ceil(w * this._renderSettings.values.ao.resolutionScale)),
-          Math.max(1, Math.ceil(h * this._renderSettings.values.ao.resolutionScale))
-        );
-      }
-      if (featureTopology.ssgi) {
-        this._screenSpaceDiffuseService!.resize(
-          Math.max(1, Math.ceil(w * this._renderSettings.values.ssgi.resolutionScale)),
-          Math.max(1, Math.ceil(h * this._renderSettings.values.ssgi.resolutionScale))
-        );
-      }
-      if (featureTopology.ssr) {
-        this._reflectionService!.resize(
-          Math.max(1, Math.ceil(w * this._renderSettings.values.ssr.resolutionScale)),
-          Math.max(1, Math.ceil(h * this._renderSettings.values.ssr.resolutionScale))
-        );
-      }
+      this._optionalFeatures.resize(featureTopology, this._renderSettings.values, w, h);
       const temporalHistory = this._temporalHistories.state("color");
       const gtaoHistory = this._temporalHistories.state("gtao");
       const ssgiHistory = this._temporalHistories.state("ssgi");
@@ -2794,12 +2752,8 @@ export class MainRenderPipeline {
         ]);
       }
       this._temporalFeature.resetFrameEvidence();
-      this._reflectionService?.resetFrameEvidence();
-      this._screenSpaceDiffuseService?.resetFrameEvidence();
+      this._optionalFeatures.resetFrameEvidence();
       this._giService.resetFrameEvidence();
-      this._sharedColorPyramids?.resetFrameEvidence();
-      this._postFeature?.bloom()?.resetFrameEvidence();
-      this._postFeature?.automaticExposure()?.resetFrameEvidence();
       this._lastTemporalTaaPassCount = featureTopology.taa ? 1 : 0;
       this._lastTemporalClassificationPassCount = 0;
       const preparedNssSettings = featureTopology.nss
@@ -3623,7 +3577,7 @@ export class MainRenderPipeline {
             (velocityRes !== null && occlusionConfidenceRes !== null &&
               opaqueTemporalValidityRes !== null))
         ) {
-          const gtao = this._aoService!.addToGraph(
+          const gtao = this._optionalFeatures.ao!.addToGraph(
             graph,
             bind("gtao-job", (bindings) => ({
               samplers: this._graphics.samplers,
@@ -3659,9 +3613,9 @@ export class MainRenderPipeline {
             graphTopology.screenSpaceDiffuseTemporal
               ? {
                   input: bind("gtao-history-input", (bindings) =>
-                    this._aoService!.historyTexture(bindings.gtaoHistoryInputIndex)),
+                    this._optionalFeatures.ao!.historyTexture(bindings.gtaoHistoryInputIndex)),
                   output: bind("gtao-history-output", (bindings) =>
-                    this._aoService!.historyTexture(bindings.gtaoHistoryOutputIndex))
+                    this._optionalFeatures.ao!.historyTexture(bindings.gtaoHistoryOutputIndex))
                 }
               : undefined
           );
@@ -3733,12 +3687,12 @@ export class MainRenderPipeline {
             counters: gpuCounterRes,
             selection: "receiver-validity",
             precedence: LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
-            generation: Math.max(1, this._ssgiOwnerGeneration),
+            generation: Math.max(1, this._optionalFeatures.ssgiOwnerGeneration),
             preExposure: frameContext.preExposure,
             domain: surfaceDomain
           });
           const settings = this._renderSettings.values.ssgi;
-          const ssgi = this._screenSpaceDiffuseService!.addToGraph(
+          const ssgi = this._optionalFeatures.ssgi!.addToGraph(
             graph,
             bind("ssgi-job", (bindings) => ({
               samplers: this._graphics.samplers,
@@ -3781,13 +3735,13 @@ export class MainRenderPipeline {
             graphTopology.screenSpaceDiffuseTemporal
               ? {
                   aoInput: bind("ssgi-ao-history-input", (bindings) =>
-                    this._screenSpaceDiffuseService!.historyTexture(bindings.ssgiHistoryInputIndex, "ao")),
+                    this._optionalFeatures.ssgi!.historyTexture(bindings.ssgiHistoryInputIndex, "ao")),
                   aoOutput: bind("ssgi-ao-history-output", (bindings) =>
-                    this._screenSpaceDiffuseService!.historyTexture(bindings.ssgiHistoryOutputIndex, "ao")),
+                    this._optionalFeatures.ssgi!.historyTexture(bindings.ssgiHistoryOutputIndex, "ao")),
                   giInput: bind("ssgi-gi-history-input", (bindings) =>
-                    this._screenSpaceDiffuseService!.historyTexture(bindings.ssgiHistoryInputIndex, "gi")),
+                    this._optionalFeatures.ssgi!.historyTexture(bindings.ssgiHistoryInputIndex, "gi")),
                   giOutput: bind("ssgi-gi-history-output", (bindings) =>
-                    this._screenSpaceDiffuseService!.historyTexture(bindings.ssgiHistoryOutputIndex, "gi"))
+                    this._optionalFeatures.ssgi!.historyTexture(bindings.ssgiHistoryOutputIndex, "gi"))
                 }
               : undefined
           );
@@ -3960,7 +3914,7 @@ export class MainRenderPipeline {
             selected.baselineSpecular !== null
           ) {
             const completeOpaqueHdr = opaqueBaseline.hdr;
-            const opaqueColorPyramid = this._sharedColorPyramids!.addOpaqueToGraph(
+            const opaqueColorPyramid = this._optionalFeatures.pyramids!.addOpaqueToGraph(
               graph,
               opaqueBaseline,
               depthRes,
@@ -3973,7 +3927,7 @@ export class MainRenderPipeline {
                 samplers: this._graphics.samplers
               }
             );
-            const ssr = this._reflectionService!.addToGraph(
+            const ssr = this._optionalFeatures.ssr!.addToGraph(
               graph,
               bind("ssr-job", (bindings) => ({
                 width: bindings.internalWidth,
@@ -4015,12 +3969,12 @@ export class MainRenderPipeline {
               },
               graphTopology.ssrTemporal ? {
                 input: bind("ssr-history-input", (bindings) =>
-                  this._reflectionService!.historyTexture(bindings.ssrHistoryInputIndex)),
+                  this._optionalFeatures.ssr!.historyTexture(bindings.ssrHistoryInputIndex)),
                 output: bind("ssr-history-output", (bindings) =>
-                  this._reflectionService!.historyTexture(bindings.ssrHistoryOutputIndex))
+                  this._optionalFeatures.ssr!.historyTexture(bindings.ssrHistoryOutputIndex))
               } : undefined
             );
-            hdrRes = this._reflectionService!.addCorrection(graph, {
+            hdrRes = this._optionalFeatures.ssr!.addCorrection(graph, {
               hdr: completeOpaqueHdr,
               depth: depthRes,
               baselineSpecular: opaqueBaseline.baselineSpecular!,
@@ -4294,7 +4248,7 @@ export class MainRenderPipeline {
           hdrRes !== null &&
           velocityRes !== null
         ) {
-          hdrRes = this._postFeature!.obtainMotionBlur().addToGraph(
+          hdrRes = this._optionalFeatures.post!.obtainMotionBlur().addToGraph(
             graph,
             bind("motion-blur-job", (bindings) => ({
               inputWidth: bindings.internalWidth,
@@ -4316,7 +4270,7 @@ export class MainRenderPipeline {
         const debugLinearHdrRes = hdrRes;
         const finalColorPyramid =
           hdrRes !== null && (graphTopology.automaticExposure || graphTopology.bloom)
-            ? this._sharedColorPyramids!.addFinalToGraph(graph, hdrRes, {
+            ? this._optionalFeatures.pyramids!.addFinalToGraph(graph, hdrRes, {
                 width: outputWidth,
                 height: outputHeight,
                 mipLevelCount: FINAL_COLOR_PYRAMID_MAX_MIPS,
@@ -4332,15 +4286,15 @@ export class MainRenderPipeline {
             "Automatic exposure previous",
             { kind: "imported", label: "automatic exposure previous" },
             bind("automatic-exposure-previous", (bindings) =>
-              this._postFeature!.obtainAutomaticExposure().historyBuffer(bindings.exposureHistoryInputIndex))
+              this._optionalFeatures.post!.obtainAutomaticExposure().historyBuffer(bindings.exposureHistoryInputIndex))
           );
           const exposureAdapted = graph.import_resource(
             "Automatic exposure adapted",
             { kind: "imported", label: "automatic exposure adapted" },
             bind("automatic-exposure-adapted", (bindings) =>
-              this._postFeature!.obtainAutomaticExposure().historyBuffer(bindings.exposureHistoryOutputIndex))
+              this._optionalFeatures.post!.obtainAutomaticExposure().historyBuffer(bindings.exposureHistoryOutputIndex))
           );
-          exposureRes = this._postFeature!.obtainAutomaticExposure().update(
+          exposureRes = this._optionalFeatures.post!.obtainAutomaticExposure().update(
             graph,
             finalColorPyramid,
             {
@@ -4359,7 +4313,7 @@ export class MainRenderPipeline {
         let bloomReconstructedRes: ResourceId | null = null;
         let bloomNormalization = 1;
         if (hdrRes !== null && graphTopology.bloom && finalColorPyramid !== null) {
-          const bloom = this._postFeature!.addBloomToGraph(
+          const bloom = this._optionalFeatures.post!.addBloomToGraph(
             graph,
             finalColorPyramid,
             bind("bloom-job", () => ({
@@ -4377,7 +4331,7 @@ export class MainRenderPipeline {
         // Final Output. A one-shot post-grading capture is the only topology
         // that materializes this HDR boundary before the swapchain pass.
         if (hdrRes !== null && materializePostColor) {
-          hdrRes = this._postFeature!.addColorGradingToGraph(
+          hdrRes = this._optionalFeatures.post!.addColorGradingToGraph(
             graph,
             hdrRes,
             this._output_resolution.x,
@@ -4435,12 +4389,9 @@ export class MainRenderPipeline {
         // Debug 是主管线最终 HDR 的观察覆盖：不经过 TAA/Bloom 等处理，也不
         // 改写它们的历史；关闭或 unsupported 时不创建 Pass、纹理或 readback。
         if (graphTopology.debug) {
-          this._renderDebug ??= new RenderDebugViewPass(
-            this._graphics,
-            this._surfaceLiteProfile
-          );
+          const debugFeature = this._optionalFeatures.obtainDebug();
           const linearHdrDebugRes = debugLinearHdrRes;
-          hdrRes = this._renderDebug.addToGraph(
+          hdrRes = debugFeature.addToGraph(
             graph,
             this.render_debug_view,
             {
@@ -4472,7 +4423,7 @@ export class MainRenderPipeline {
         if (hdrRes !== null) {
           const fuseScenePost = !graphTopology.debug && !materializePostColor;
           const fuseBloom = fuseScenePost && bloomReconstructedRes !== null;
-          this._postFeature!.obtainTonemap(this._format).addToGraph(
+          this._optionalFeatures.post!.obtainTonemap(this._format).addToGraph(
             graph,
             {
               swapchain: swapId,
@@ -4663,10 +4614,10 @@ export class MainRenderPipeline {
       if (graphTopology.gtao && graphTopology.screenSpaceDiffuseTemporal) {
         this._temporalHistories.markProduced("gtao");
       }
-      if (graphTopology.ssgi && this._screenSpaceDiffuseService?.lastTemporalPasses === 1) {
+      if (graphTopology.ssgi && this._optionalFeatures.ssgi?.lastTemporalPasses === 1) {
         this._temporalHistories.markProduced("ssgi");
       }
-      if (graphTopology.ssr && this._reflectionService?.lastTemporalPasses === 1) {
+      if (graphTopology.ssr && this._optionalFeatures.ssr?.lastTemporalPasses === 1) {
         this._temporalHistories.markProduced("ssr");
       }
       if (graphTopology.nss) {
@@ -4775,9 +4726,10 @@ export class MainRenderPipeline {
         `-primitive-index${this.packed_primitive_index}` +
         `-setup${this.packed_triangle_setup_enabled ? 1 : 0}` +
         `-transparent-owner${this._packedTransparencyOwnerGeneration}` +
-        `-gtao-owner${this._gtaoOwnerGeneration}` +
-        `-ssgi-owner${this._ssgiOwnerGeneration}` +
-        `-ssr-owner${this._ssrOwnerGeneration}`,
+        `-gtao-owner${this._optionalFeatures.gtaoOwnerGeneration}` +
+        `-ssgi-owner${this._optionalFeatures.ssgiOwnerGeneration}` +
+        `-ssr-owner${this._optionalFeatures.ssrOwnerGeneration}` +
+        `-output-owner${this._optionalFeatures.outputOwnerGeneration}`,
       visibilityWorkCapacity: bindings.geometry.visibilityJob.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
       sparseShadingRevision: bindings.sparseRevision.snapshot.revision,
       historyFormat: bindings.context.history.formatRevision,
@@ -4964,68 +4916,7 @@ export class MainRenderPipeline {
       this.retireAfterSubmittedWork(this._occlusionConfidence);
       this._occlusionConfidence = null;
     }
-    if (topology.gtao) {
-      const configurationKey = `${topology.screenSpaceDiffuseTemporal ? 1 : 0}/${topology.screenSpaceDiffuseHalfResolution ? 1 : 0}`;
-      if (this._aoService === null || this._gtaoConfigurationKey !== configurationKey) {
-        if (this._aoService !== null) this.retireAfterSubmittedWork(this._aoService);
-        this._aoService = new AOService(
-          this._graphics,
-          topology.screenSpaceDiffuseTemporal,
-          topology.screenSpaceDiffuseHalfResolution ? 0.5 : 1,
-          this._surfaceLiteProfile
-        );
-        this._gtaoOwnerGeneration++;
-        this._gtaoConfigurationKey = configurationKey;
-      }
-    } else if (this._aoService !== null) {
-      this.retireAfterSubmittedWork(this._aoService);
-      this._aoService = null;
-      this._gtaoConfigurationKey = "";
-    }
-    if (topology.ssgi) {
-      const configurationKey = `${topology.screenSpaceDiffuseTemporal ? 1 : 0}/${topology.screenSpaceDiffuseHalfResolution ? 1 : 0}`;
-      if (this._screenSpaceDiffuseService === null || this._ssgiConfigurationKey !== configurationKey) {
-        if (this._screenSpaceDiffuseService !== null) {
-          this.retireAfterSubmittedWork(this._screenSpaceDiffuseService);
-        }
-        this._profiler.registerGpuCounterFields([
-          "ssgiEvaluatedPixels",
-          "ssgiTraceSamples",
-          "ssgiHistoryAcceptedPixels",
-          "ssgiHistoryRejectedPixels"
-        ]);
-        this._screenSpaceDiffuseService = new ScreenSpaceDiffuseService(
-          this._graphics,
-          topology.screenSpaceDiffuseTemporal,
-          topology.screenSpaceDiffuseHalfResolution ? 0.5 : 1,
-          this._surfaceLiteProfile
-        );
-        this._ssgiOwnerGeneration++;
-        this._ssgiConfigurationKey = configurationKey;
-      }
-    } else if (this._screenSpaceDiffuseService !== null) {
-      this.retireAfterSubmittedWork(this._screenSpaceDiffuseService);
-      this._screenSpaceDiffuseService = null;
-      this._ssgiConfigurationKey = "";
-    }
-    if (topology.ssr) {
-      const configurationKey = `${topology.ssrTemporal ? 1 : 0}/${topology.ssrHalfResolution ? 1 : 0}`;
-      if (this._reflectionService === null || this._ssrConfigurationKey !== configurationKey) {
-        if (this._reflectionService !== null) this.retireAfterSubmittedWork(this._reflectionService);
-        this._reflectionService = new ReflectionService(
-          this._graphics,
-          topology.ssrTemporal,
-          topology.ssrHalfResolution ? 0.5 : 1,
-          this._surfaceLiteProfile
-        );
-        this._ssrOwnerGeneration++;
-        this._ssrConfigurationKey = configurationKey;
-      }
-    } else if (this._reflectionService !== null) {
-      this.retireAfterSubmittedWork(this._reflectionService);
-      this._reflectionService = null;
-      this._ssrConfigurationKey = "";
-    }
+    this._optionalFeatures.synchronizeScreen(topology);
     if (topology.taa) {
       this._temporalFeature.obtainTaa();
     } else if (this._temporalFeature.taa() !== null) {
@@ -5056,51 +4947,11 @@ export class MainRenderPipeline {
     } else if (this._temporalFeature.colorHistoryCount() > 0) {
       this._temporalFeature.retireColorHistory();
     }
-    this._postFeature ??= new PostFeature(this._graphics);
-    if (topology.ssr || topology.bloom || topology.automaticExposure) {
-      this._sharedColorPyramids ??= new SharedColorPyramidPass(this._graphics);
-    } else if (this._sharedColorPyramids !== null) {
-      this.retireAfterSubmittedWork(this._sharedColorPyramids);
-      this._sharedColorPyramids = null;
-    }
-    // Final Output owns normal-frame grading/sharpen. A ColorGradingPass owner,
-    // once lazily created by capture instrumentation, is retained because a
-    // cached capture graph closes over it. It owns no persistent GPU resource
-    // and contributes no normal-frame pass, allocation, readback or submit.
-    if (topology.motionBlur) {
-      this._postFeature.obtainMotionBlur();
-    } else if (this._postFeature.motionBlur() !== null) {
-      this._postFeature.retireMotionBlur();
-    }
-    if (this._postFeature.sharpen() !== null) {
-      this._postFeature.retireSharpen();
-    }
-    if (topology.bloom) {
-      this._postFeature.obtainBloom();
-    } else if (this._postFeature.bloom() !== null) {
-      this._postFeature.retireBloom();
-    }
-    if (topology.automaticExposure) {
-      this._postFeature.obtainAutomaticExposure();
-      this._postFeature.syncExposure({
-        exposureCompensation: this._renderSettings.values.post.exposureCompensation,
-        exposureSpeedUp: this._renderSettings.values.post.exposureSpeedUp,
-        exposureSpeedDown: this._renderSettings.values.post.exposureSpeedDown
-      });
-    } else if (this._postFeature.automaticExposure() !== null) {
-      this._postFeature.retireAutomaticExposure();
-    }
-    if (!topology.debug && this._renderDebug !== null) {
-      this.retireAfterSubmittedWork(this._renderDebug);
-      this._renderDebug = null;
-    }
-    this._postFeature.obtainTonemap(this._format);
-    this._postFeature.updateTonemap(
-      this._format,
-      this._highDynamicRange,
-      this._peakNits,
-      this._renderSettings.values.post.exposureCompensation
-    );
+    this._optionalFeatures.synchronizeOutput(topology, this._renderSettings.values, {
+      format: this._format,
+      highDynamicRange: this._highDynamicRange,
+      peakNits: this._peakNits
+    });
   }
 
   private retireAfterSubmittedWork(resource: { destroy(): void }): void {
@@ -5522,7 +5373,7 @@ export class MainRenderPipeline {
       .filter((entry) => !entry.culled)
       .map((entry) => entry.name) ?? [];
     const hasLivePass = (name: string): boolean => livePasses.includes(name);
-    const pyramids = this._sharedColorPyramids?.evidence() ?? Object.freeze({
+    const pyramids = this._optionalFeatures?.pyramids?.evidence() ?? Object.freeze({
       opaqueBuilds: 0,
       opaqueRenderPasses: 0,
       opaqueMipLevelCount: 0,
@@ -5531,8 +5382,8 @@ export class MainRenderPipeline {
       finalMipLevelCount: 0,
       allocatedBytes: 0
     });
-    const bloom = this._postFeature?.bloom();
-    const exposure = this._postFeature?.automaticExposure();
+    const bloom = this._optionalFeatures?.post?.bloom();
+    const exposure = this._optionalFeatures?.post?.automaticExposure();
     return Object.freeze({
       abiVersion: SHARED_COLOR_PYRAMID_ABI_VERSION,
       pyramids,
@@ -5584,7 +5435,7 @@ export class MainRenderPipeline {
       passes.filter((candidate) => candidate === name).length;
     const sdrOutputPasses = countPass("Final Output SDR");
     const hdrOutputPasses = countPass("Final Output HDR");
-    const tonemap = this._postFeature?.tonemap();
+    const tonemap = this._optionalFeatures?.post?.tonemap();
     const fullResolutionIntermediates = new Set([
       "Bloom composited",
       "Color graded color",
@@ -5774,7 +5625,7 @@ export class MainRenderPipeline {
     this._highDynamicRange = highDynamicRange;
     this._peakNits = highDynamicRange ? 1000 : 80;
     if (changed) this.updateCanvasFormat();
-    this._postFeature?.updateTonemap(
+    this._optionalFeatures?.post?.updateTonemap(
       this._format,
       highDynamicRange,
       this._peakNits,
