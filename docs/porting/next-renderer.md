@@ -19,12 +19,12 @@
 | Light Transport / shading、visibility | FidelityFX SDK v1.1.4 SSSR + Denoiser | 分类、工作列表、追踪、验证、完整信号重建 | WebGPU wave/绑定适配和镜面能量组合 |
 | Light Transport / shading、virtual-assets、visibility | Timberdoodle（需原型） | 页面需求、分配、失效、缓存、采样 | 无 mesh shader 的硬件 indirect 页执行 |
 | Light Transport / shading、virtual-assets | Atlas DDGI（候选）；Speedball（补充） | probe 更新/遮挡/状态/查询；评估软件 ray producer | 动态需求、VG 代理、非 bindless 资源与预算 |
-| Light Transport / Screen GI | **尚无选定完整 donor** | 先确定近场屏幕域算法 profile 与许可，不把旧 SSGI Pass 包成新 Provider | 与 World Field/Sky 的能量边界、缺屏幕信息 fallback、历史与求值预算 |
+| Light Transport / Screen GI | **UnitySSGIURP 优先算法候选**；Wicked Engine compute 链作执行对照 | 对照完整追踪、fallback、时域、降噪、上采样；实施前固定一个完整 profile | 改写 fullscreen/URP 依赖、GPU ray work、与 World Field/Sky 的能量边界及求值预算 |
 | Environment & Media / shading | Takram atmosphere WebGPU | LUT、太阳/天光、shadow-aware aerial transport | 去 Three/TSL 宿主、单位与环境权威 owner |
 | Environment & Media / shading | Adria VolumetricFog（候选） | 注入、历史、积分与合成 | bounded binding、介质输入和大气区间合成 |
 | Temporal & Presentation / frame-runtime、shading | FidelityFX SDK v1.1.4 FSR3 Upscaler | 所选版本的完整非神经超分链 | WebGPU 后端、统一 history/exposure 接口 |
 | Visibility & Surface / 频率分类 | FidelityFX VRS 仅作分类数学参考 | 可选的对比度/运动分类条件 | compute work 生成、重建与质量合同属本地集成，无完整 donor |
-| VT / materials-textures | **本轮尚无合格整套 donor** | 先保留 Texture Residency；不冒充 VT | 后续源码资格核查、页采样/反馈/上传闭环 |
+| VT / materials-textures | **Wicked Engine 地形 VT + LibVT 通用 VT 双来源候选** | 前者取 GPU 请求/分配/驻留，后者对照页表/过滤/离线切页完整性；先保留 Texture Residency | 两者均不能整套直搬；通用资产布局、WebGPU 有界绑定、异步反馈/上传闭环需原型 |
 | Adaptive Compute Shading / shading | **无已核实整套 donor**；AMD VRS 分类参考 | 可迁移选中的分类数学，不能冒称完整算法来源 | 频率产品合同、材质频带、重建与质量控制 |
 
 ## 2. 公共基础与材质来源
@@ -192,7 +192,56 @@
 - **Fallback / lifecycle**：full-rate 可作为合法计划；history 无效或高频边界不能只复制低频结果。
 - **Local validation**：同时比较分类开销、总工作量与重建误差。该 donor 没有解决本引擎 adaptive compute shading 的完整正确性问题。
 
-## 7. 不默认采用的来源与技术
+## 7. 补充核查：可替换原空白选型的源码
+
+### R15 · UnitySSGIURP：Screen GI 完整信号链优先候选
+
+- **Upstream / Revision**：[jiaozi158/UnitySSGIURP](https://github.com/jiaozi158/UnitySSGIURP/tree/8450297537b658218be1abbc973e9240a2aab71c)，`8450297537b658218be1abbc973e9240a2aab71c`；根 `LICENSE.md` 为 MIT。
+- **Source**：[ScreenSpaceGlobalIllumination.shader](https://github.com/jiaozi158/UnitySSGIURP/blob/8450297537b658218be1abbc973e9240a2aab71c/Shaders/ScreenSpaceGlobalIllumination.shader)、`Shaders/SSGI.hlsl`、`Shaders/SSGIDenoise.hlsl`、[ScreenSpaceGlobalIlluminationURP.cs](https://github.com/jiaozi158/UnitySSGIURP/blob/8450297537b658218be1abbc973e9240a2aab71c/Runtime/ScreenSpaceGlobalIlluminationURP.cs)。已核实 host 的 history/fallback 调度和 shader 声明的 direct-light copy、trace、temporal reprojection、spatial denoise、stabilization、history depth、GI combine/upscale 阶段；未逐函数审计所有质量分支。
+- **Local owner / Adoption**：shading/temporal；**not adopted**。替换此前“完全无 Screen GI donor”的判断，作为实施前首个完整算法 profile 候选；不是已经选定的生产移植。
+- **必须保留**：直接光与间接光拆分、防止重复计能；screen hit/miss 与 Sky/Probe fallback；运动/深度历史有效性、拒绝、降噪、上采样。URP 的 ambient/APV 输入语义须与本地 World Field/Sky 显式对照，不能只搬 raymarch 函数。
+- **WebGPU 差异 / 风险**：原实现是 Unity URP fullscreen blit + GBuffer + camera history，不是 GPU ray queue，也不自动满足 EEngine 的 workload reduction。候选迁移应把昂贵 trace 变成分类后 GPU consumer，比较分类/压缩/dispatch 成本；保留信号处理语义，不能宣称上游已有该 queue。历史所有权接本地 Temporal，透明/缺屏幕数据需具名 fallback。
+- **验证映射**：固定场景比较静态/运动、遮挡揭露、屏外 hit、强 emissive、Sky/Probe 边界与能量；先证明完整阶段对照，再决定队列化是否有净收益。上游工程未运行。
+
+### R16 · Wicked Engine：compute SSGI 与地形 VT 闭环
+
+- **Upstream / Revision**：[turanszkij/WickedEngine](https://github.com/turanszkij/WickedEngine/tree/2ff1d9e7b36091d6edf9f823af77e6bc9af20e3b)，`2ff1d9e7b36091d6edf9f823af77e6bc9af20e3b`；根 `LICENSE.txt` 为 MIT。
+- **SSGI source**：[wiRenderer.cpp](https://github.com/turanszkij/WickedEngine/blob/2ff1d9e7b36091d6edf9f823af77e6bc9af20e3b/WickedEngine/wiRenderer.cpp) 的 `Postprocess_SSGI`、`shaders/ssgi_deinterleaveCS.hlsl`、`ssgiCS.hlsl`、`ssgi_upsampleCS.hlsl`。已核实 depth/color/normal atlas、deinterleave、compute GI 和 upsample 的调用链；本次未证明它含有与 R15 等价的独立时域链，因此作为 compute 组织对照，不混称 R15 的完整替代。
+- **VT source**：[wiTerrain.cpp](https://github.com/turanszkij/WickedEngine/blob/2ff1d9e7b36091d6edf9f823af77e6bc9af20e3b/WickedEngine/wiTerrain.cpp) 的 `UpdateVirtualTexturesCPU`、`virtualTextureTileRequestsCS.hlsl`、`virtualTextureTileAllocateCS.hlsl`、`virtualTextureResidencyUpdateCS.hlsl`、`terrainVirtualTextureUpdateCS.hlsl`。已核实 GPU 反馈/请求/分配、异步 readback、CPU 页决策、atlas 页生成、驻留映射及消费；当前源码定义 `NOSPARSE`，可研究不依赖硬件 sparse 的 atlas 路线。
+- **Local owner / Adoption**：shading、materials-textures/virtual-assets；**not adopted**。VT 是**地形专用**实现，不自动满足通用材质/资产 VT。
+- **WebGPU 差异 / 风险**：SSGI deinterleave 的多 UAV 输出与 WebGPU 有界 storage texture 布局冲突，需重新分段/打包并计入带宽；VT shader 使用 native bindless descriptor index，须改为有界资源表。CPU readback 仅用于异步页调度，不能变成本帧 shading 的同步依赖；页命中、缺页、mip 祖先与 eviction 时序须保留。
+- **验证映射**：SSGI 与 R15 只比较可对齐的 trace/重建阶段；VT 比较页请求、延迟上传、淘汰、缺页 fallback、跨 mip 过滤、地形外资产适用性和 4 GiB 预算。未运行上游工程。
+
+### R17 · LibVT：通用 VT 页表/过滤的第二来源
+
+- **Upstream / Revision**：[core-code/LibVT](https://github.com/core-code/LibVT/tree/464397d9e2c655f72ad59cd1166b14e29e1bad3a)，`464397d9e2c655f72ad59cd1166b14e29e1bad3a`。根 `LICENSE` 原文声明 LibVT 本体 MIT，`Dependencies/*` 各有独立许可；复制子集前按文件核对。
+- **Source**：[LibVT_PageTable.cpp](https://github.com/core-code/LibVT/blob/464397d9e2c655f72ad59cd1166b14e29e1bad3a/LibVT/LibVT_PageTable.cpp)、`LibVT_Cache.cpp`、`LibVT_Readback.cpp`、`LibVT_PageLoadingThread.cpp`、[renderVT.frag](https://github.com/core-code/LibVT/blob/464397d9e2c655f72ad59cd1166b14e29e1bad3a/LibVT/renderVT.frag)、`readback.frag`、`LibVT-Scripts/generateVirtualTextureTiles.py`。README 说明页检测、异步 stream、fallback 页表、双/三线性与各向异性过滤；已读 README、根许可和采样 shader，尚未逐函数审计所有 C++/依赖。
+- **Local owner / Adoption**：materials-textures；**not adopted**。比 R16 更适合作为通用 VT 语义和离线切页参考，但实现停留在旧 OpenGL/GLSL/PBO 架构；**不推荐整套替换**现代 WebGPU residency runtime。
+- **WebGPU 差异 / 验证**：页表坐标、tile border、显式梯度/LOD 和跨 mip fallback 可移植；GL readback/PBO、纹理格式和 CPU cache 所有权必须重建。把 R16 的 GPU demand 与 LibVT 的通用采样契约组合是**新设计**，不是任何单一上游已实现的完整 port；需测高频 UV、三线性边界、缺页与热缓存抖动。
+
+### R18 · Bevy meshlet：强对照，但不替换 WebGPU 主链
+
+- **Upstream / Revision**：[bevyengine/bevy](https://github.com/bevyengine/bevy/tree/dd66a3959725df860bb7c7217a6769d3deb661ef)，`dd66a3959725df860bb7c7217a6769d3deb661ef`；仓库标记 Apache-2.0，具体复制仍核对文件 notice。
+- **Source**：[meshlet/mod.rs](https://github.com/bevyengine/bevy/blob/dd66a3959725df860bb7c7217a6769d3deb661ef/crates/bevy_pbr/src/meshlet/mod.rs) 明确宣称高密几何 GPU-driven、预处理、meshlet culling 和单 draw；同目录 `cull_instances.wesl`、`cull_bvh.wesl`、`cull_clusters.wesl`、`visibility_buffer_hardware_raster.wesl`、`visibility_buffer_software_raster.wesl`、`visibility_buffer_resolve.wesl` 是后续源码入口。
+- **Local owner / Adoption**：virtual-assets/visibility；**reference only, not adopted**。当前 `MeshletPlugin` 明确要求 `WgpuFeatures::TEXTURE_INT64_ATOMIC`，且仅支持 Vulkan/Metal；不能因使用 WESL/wgpu 就宣称浏览器 WebGPU 可移植。用它比较层次剔除和 visibility 组织，不能替换已工作的 Nyx/VG/VisibilityKey 链。未逐 shader 审计或运行样例。
+
+### R19 · voidin：WGSL work/visibility 轻量对照
+
+- **Upstream / Revision**：[pannapudi/voidin](https://github.com/pannapudi/voidin/tree/36e84bb4e6c1bf4619df076cd2acdbeba1e63306)，`36e84bb4e6c1bf4619df076cd2acdbeba1e63306`；根 `LICENSE` MIT。
+- **Source**：[emit_draws.wgsl](https://github.com/pannapudi/voidin/blob/36e84bb4e6c1bf4619df076cd2acdbeba1e63306/shaders/emit_draws.wgsl)、`visibility.wgsl`、`shading.wgsl`、`utils/bvh.wgsl`。可对照 WGSL 生成 indirect draws、visibility 消费和软件 BVH 查询；尚未核实其所有 host-side feature/limit 与浏览器运行路径。
+- **Local owner / Adoption**：visibility/shading；**reference only, not adopted**。`shading.wgsl` 使用 `binding_array<texture_2d<f32>>`；该资源模型不能直接当作 EEngine 标准浏览器 WebGPU 的自由 bindless。这个项目也不证明本地 Work Runtime、VT 或完整 GI 已有现成替代。
+
+本轮对既有优先来源的替换判定：
+
+| 原选型 | 新候选 | 判定与理由 |
+| --- | --- | --- |
+| “Screen GI 无 donor” | R15 + R16 | **改判**：R15 已有完整信号链候选；R16 的 compute 组织另作对照。具体 WebGPU profile 尚须实施前定案。 |
+| “VT 无合格整套 donor” | R16 + R17 | **改判**：已有互补源码可设计完整通用 VT，但没有单一可直搬的 WebGPU 生产实现。先做页反馈/采样闭环原型。 |
+| 现有 Nyx/VG + The Forge visibility | R18 + R19 | **不替换**：Bevy 要求非目标原子能力；voidin 的 texture binding 假设尚未证明目标浏览器可用。只吸收可核实的算法差异。 |
+| FidelityFX SSSR、FSR3 Upscaler、XeGTAO | 本轮检索到的 Screen GI/VT/meshlet 仓库 | **不替换**：这些候选没有提供同功能、更完整且更接近 WebGPU 的整套算法证据；保持已固定来源。 |
+| Adaptive Compute Shading 本地设计 | R18/R19、FidelityFX VRS | **不冒名替换**：既无完整频率决策→稀疏执行→重建的可核实 donor，也不能把硬件 VRS image 当作 WebGPU compute shading。 |
+
+## 8. 不默认采用的来源与技术
 
 | 来源 | 本轮核查结果 | 本项目处理 |
 | --- | --- | --- |
@@ -207,7 +256,7 @@
 
 许可记录用于工程选源，不等于法律意见；关键是准确保留上游文本、版权/NOTICE 和派生来源，不把根仓库标签当作所有文件的授权证明。无需等待所有备选许可调查结束才开始已核实的宽松许可迁移。
 
-## 8. 实施时必须补齐的最小映射
+## 9. 实施时必须补齐的最小映射
 
 每个选定切片在本账本或其所属领域 ledger 中补一张表即可，不新增一套审批系统：
 
@@ -220,3 +269,16 @@
 语言、布局、bindings、dispatch 和缓存 owner 可以改变，只要语义保留且差异可对照。遇到 WebGPU 无法保持的核心语义，明确记录缺口并确认算法/profile 调整；未确认、未对照的部分保持未完成。源算法本身不适合目标时可以换一个完整算法，但必须具名改变采用决定，不能在同一个名称下悄悄换成简化近似。
 
 本轮没有复制任何候选进入 production，也没有引入新的 runtime dependency。下一批按 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 直接切断旧 composition，建立最小 GPU Scene → Visibility → Present 主链；之后在新 owner 上逐项完整移植。旧 A 批次合同不再是开工前门禁。
+
+## 10. 文章/论文：用于判定语义与边界，不冒充移植源码
+
+| 原始资料 | 对 EEngine 的具体用途 | 与开源实现的关系 |
+| --- | --- | --- |
+| [Mayer, *Virtual Texturing*（TU Wien, 2010）](https://www.cg.tuwien.ac.at/research/publications/2010/Mayer-2010-VT/) | 页表、缓存、mip/filter 与反馈链的语义对照；尤其核查 page border 和 miss fallback | R17 README 明确链接该论文；论文不替代 R16/R17 的源码许可与 WebGPU 原型 |
+| [McGuire 与 Mara, *Efficient GPU Screen-Space Ray Tracing*（JCGT, 2014）](https://jcgt.org/published/0003/04/04/) | SSR/Screen GI 的层次深度遍历、步进/命中和屏幕缺失条件；区分 ray work 减量和每 ray 成本 | R06/R15/R16 的 trace 对照；不能据此宣称 SSSR 或 SSGI port 完成 |
+| [Karis 等, *Nanite: A Deep Dive*（SIGGRAPH Advances, 2021）](https://advances.realtimerendering.com/s2021/Karis_Nanite_SIGGRAPH_Advances_2021_final.pdf) | VG 层次、可见性和流送的性能边界；审视 EEngine 自己的 hardware-first raster 选择 | 技术演讲，不是宽松许可源码；不替换现有 Nyx 来源映射 |
+| [Hillaire, *A Scalable and Production Ready Sky and Atmosphere Rendering Technique*（EGSR, 2020）](https://sebh.github.io/publications/egsr2020.pdf) | 多重散射 LUT、太阳/天空能量与 aerial perspective 的物理接口 | 与 R10 Takram WebGPU 实现交叉核对，不能把论文中的全部配置等同于该仓库已有功能 |
+| [GPUOpen, *FidelityFX SSSR* 技术页](https://gpuopen.com/fidelityfx-sssr/) | 对照分类、追踪、降噪的官方功能边界及适用条件 | R06 的固定源码 revision 仍是实际迁移基准 |
+| [Bitterli 等, *Spatiotemporal Reservoir Resampling for Real-Time Ray Tracing with Dynamic Direct Lighting*（2020）](https://research.nvidia.com/publication/2020-07_spatiotemporal-reservoir-resampling-real-time-ray-tracing-dynamic-direct) | 判断未来 ReSTIR DI 需要的候选生成、重用、可见性与历史语义 | 研究路线储备；当前浏览器 WebGPU 无成熟硬件 RT 管线，不把论文列为 Phase 4 默认 donor |
+
+本次检索后的取舍是：**Screen GI 优先评估 R15 的完整信号链，R16 仅补 compute 执行对照；VT 以 R16 的 GPU 需求链和 R17 的通用采样/资产链共同指导原型。** 两处都还没有可不改写地整套移入 WebGPU 的单一项目。R18/R19 说明“wgpu/WGSL”标签不等于目标设备能力已经成立。Adaptive Compute Shading 仍缺一个经源码核实的完整、WebGPU 可移植 donor；保持本地架构问题，不用 VRS 分类算法冒充解答。

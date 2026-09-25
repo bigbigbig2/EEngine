@@ -87,11 +87,11 @@ Phase 1 的旧效果删除清单明确包含 `AOService`、`ScreenSpaceDiffuseSe
 
 1. **VSM**：按 Timberdoodle 的页需求、分配、失效、回收、层次与采样完整映射；WebGPU 以独立光空间 caster 工作、storage indirection 和有界 indirect raster 取代 mesh shader/BDA；不留 CSM fallback。页吞吐与缺页必须可解释。
 2. **AO + Reflection**：XeGTAO 的 prefilter/evaluate/denoise；FidelityFX SSSR 的 classification、ray/denoiser work queues 与 indirect args/trace、hit validation、reprojection/prefilter/temporal resolve；共用语义深度需求，仅在表示兼容时共享物理 HZB。反射 miss 进入一致的环境/Probe fallback。
-3. **Hybrid GI**：近场 Screen GI、Atlas DDGI + software BVH 世界样本生产/Probe 更新、无限 Sky。明确 `World Sample Producer → radiance/distance samples → probe/brick update → World Radiance Field → shading consumer`；software BVH 是第一候选，raster capture、screen injection 或未来 ray backend 只能作为具名且可核验的来源。动态几何与动态光源驱动加速结构、受影响区域、历史和置信度。Probe 存储不等于样本生产；静态烘焙或纯 SSGI 不算目标完成。Screen GI 目前**未选定完整移植来源**，实施前须固定算法 profile 与近/世界/天空的能量及缺失行为，不能将旧 SSGI 包装后冒称完成。
+3. **Hybrid GI**：近场 Screen GI、Atlas DDGI + software BVH 世界样本生产/Probe 更新、无限 Sky。明确 `World Sample Producer → radiance/distance samples → probe/brick update → World Radiance Field → shading consumer`；software BVH 是第一候选，raster capture、screen injection 或未来 ray backend 只能作为具名且可核验的来源。动态几何与动态光源驱动加速结构、受影响区域、历史和置信度。Probe 存储不等于样本生产；静态烘焙或纯 SSGI 不算目标完成。Screen GI 已找到 [UnitySSGIURP 完整信号链与 Wicked Engine compute 链候选](./porting/next-renderer.md)，但**尚未选定可直接移植的 WebGPU profile**；实施前须固定近/世界/天空的能量及缺失行为，不能将旧 SSGI 包装后冒称完成。
 
 ### Phase 5 — Virtual Resource Control Plane + Media
 
-在已工作的 VG、纹理驻留、VSM、radiance field 上收敛统一预算/优先级/版本/退役/遥测，保留各自页格式、采样和物理缓存。Texture Residency 不改名冒充完整 VT；完整 VT 的反馈、页表、上传与采样要有合格来源或明确本地实现和收益。以 Adria 为候选迁移 Froxel 注入、历史、积分与合成，给 Fog、Local Volume、Light Scattering 和 Particles 统一介质表示；体积云后置。
+在已工作的 VG、纹理驻留、VSM、radiance field 上收敛统一预算/优先级/版本/退役/遥测，保留各自页格式、采样和物理缓存。Texture Residency 不改名冒充完整 VT；[Wicked Engine 地形 VT 与 LibVT 通用 VT](./porting/next-renderer.md) 是已核实的互补候选，并非单一合格 WebGPU 整套 donor。完整 VT 的反馈、页表、上传与采样须在实施前选定 profile、核实本地闭环及收益。以 Adria 为候选迁移 Froxel 注入、历史、积分与合成，给 Fog、Local Volume、Light Scattering 和 Particles 统一介质表示；体积云后置。
 
 ## 迁移、验证和待证明风险
 
@@ -101,6 +101,6 @@ Phase 1 的旧效果删除清单明确包含 `AOService`、`ScreenSpaceDiffuseSe
 
 GTX 1650 Ti 4 GiB/16 GiB RAM 是较低配置设计基线，RTX 2060 的实际 adapter/limits 待该机读取；1080p/60 FPS、动态内部分辨率和可配置预算是目标，尚非实测保证。记录 shading/ray/page/probe 工作量、分类/重建成本、物化带宽和质量；不为少几个全屏 Pass 强制所有任务进队列。WebGPU feature/limit 先协商；`shader-f16`、subgroups、`primitive-index` 等按实际 adapter/WGSL 能力选择 specialization，不能仅凭 GPU 型号假定存在。mesh shader、DX12 Work Graph、硬件 RT、自由 bindless、BDA、64 位原子、multi-draw-count 不作主链前提；详见 [WebGPU 能力合同](./WEBGPU.md)。
 
-对应阶段必须证明：VSM 页 raster 的 WebGPU 命令上界；Atlas software BVH 的动态更新与样本预算；Screen GI 完整来源与能量边界；adaptive compute shading 的净收益；完整 VT 来源；FSR3 profile 的 WGSL/capability 转换。FidelityFX VRS 只供频率分类参考，WebGPU 没有默认硬件 shading-rate attachment；分类之后的 compute work 与重建属本地集成。它们不能以复活旧链作为默认解决方案。
+对应阶段必须证明：VSM 页 raster 的 WebGPU 命令上界；Atlas software BVH 的动态更新与样本预算；Screen GI 候选完整阶段、WebGPU 改写与能量边界；adaptive compute shading 的净收益；通用 VT 来源组合后的本地完整闭环；FSR3 profile 的 WGSL/capability 转换。FidelityFX VRS 只供频率分类参考，WebGPU 没有默认硬件 shading-rate attachment；分类之后的 compute work 与重建属本地集成。它们不能以复活旧链作为默认解决方案。
 
 原讨论没有给透明/折射的最终表示、alpha 特殊材质的全链覆盖，也没有决定局部光源阴影是否虚拟化。它们不阻塞 Phase 1 的 opaque 骨架；宣称完整 Renderer 前必须在同一 Product/FrameGraph 主链内确定合法 Provider、时域和合成边界，不能为此恢复第二条 Renderer。体积云仍后置。

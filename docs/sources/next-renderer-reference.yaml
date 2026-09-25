@@ -21,7 +21,8 @@ differences:
   - All new survey candidates remain not adopted until source-to-production mapping and the selected implementation are complete.
   - Shader languages, resource bindings, command encoding, and lifecycle ownership require explicit WebGPU adaptations.
   - Existing adopted source revisions remain authoritative; survey revisions do not automatically upgrade production ports.
-  - Full VT and adaptive compute shading have no verified complete donor in this survey.
+  - Screen GI has complete-signal-chain and compute candidates, but no selected browser-WebGPU port profile; terrain VT and legacy general VT are complementary sources, not one drop-in implementation.
+  - Adaptive compute shading has no verified complete donor in this survey.
 validation:
   - docs/porting/next-renderer.md
   - docs/next-renderer.md
