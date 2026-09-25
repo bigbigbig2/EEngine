@@ -20,6 +20,7 @@ currentDocs:
   - docs/domains/frame-runtime.md
   - docs/VALIDATION.md
 contracts:
+  - render-product-work-history-v1
   - browser-harness
   - claims-and-evidence
 decisions:

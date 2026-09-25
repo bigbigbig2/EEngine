@@ -10,7 +10,7 @@ goal: Deliver the accepted demand-driven virtualized visibility architecture thr
 currentSlice:
   id: foundation-contracts
   title: Freeze minimal product, work, temporal, and program-cache boundaries before changing the production renderer
-  status: todo
+  status: active
 nextTasks:
   - Separate stable program compilation from scene publication and define the first finite product plans.
   - Map existing meshlet and shading consumers onto a shared bounded work protocol without removing direct fast paths.
@@ -19,6 +19,7 @@ nextTasks:
   - Prepare the first complete XeGTAO or SSSR source-to-production map using the pinned migration ledger.
 
 contracts:
+  - render-product-work-history-v1
   - claims-and-evidence
   - virtual-geometry-runtime-v1
 claims:
@@ -33,7 +34,7 @@ completedMilestones:
     result: User selected the 1650 and 2060 development machines and dynamic world GI; current hardware is GTX 1650 Ti 4 GiB, i7-10750H, and 16 GiB RAM. Actual second-machine configuration remains to be read.
 tasks:
   - id: foundation-contracts
-    state: todo
+    state: active
     title: Define minimal semantic products, bounded work, stable temporal identity, and program-publication separation
     dependsOn: []
     exitCriteria:

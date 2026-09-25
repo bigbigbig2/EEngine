@@ -33,10 +33,60 @@ interface CachedSparseShadingResolvePipelineRecord extends SparseShadingResolveP
   readonly groupCaches: readonly GpuBindGroupResourceCache[];
 }
 
+interface SparseShadingProgram {
+  readonly source: string;
+  readonly pipeline: GPUComputePipeline;
+  readonly bindGroupLayouts: readonly GPUBindGroupLayout[];
+}
+
+/** Device-scoped programs; revision-owned bind groups never enter this cache. */
+export class SparseShadingProgramCache {
+  private readonly programs = new Map<string, Promise<SparseShadingProgram>>();
+  private readonly sources = new Map<string, string>();
+  private readonly maxPrograms = 128;
+  private device: GPUDevice | null = null;
+
+  async obtain(device: GPUDevice, variant: Readonly<SparseShadingShaderVariant>): Promise<SparseShadingProgram> {
+    if (this.device !== null && this.device !== device) {
+      throw new Error("Sparse shading program cache cannot cross GPU devices");
+    }
+    this.device = device;
+    const key = `${variant.descriptor.cacheKey}:diagnostics${Number(variant.diagnostics)}`;
+    const existing = this.programs.get(key);
+    if (existing !== undefined && this.sources.get(key) === variant.source) {
+      this.programs.delete(key);
+      this.programs.set(key, existing);
+      return existing;
+    }
+    const pending = createProgram(device, variant);
+    this.sources.set(key, variant.source);
+    this.programs.set(key, pending);
+    while (this.programs.size > this.maxPrograms) {
+      const oldest = this.programs.keys().next().value!;
+      this.programs.delete(oldest);
+      this.sources.delete(oldest);
+    }
+    try {
+      return await pending;
+    } catch (error) {
+      if (this.programs.get(key) === pending) {
+        this.programs.delete(key);
+        this.sources.delete(key);
+      }
+      throw error;
+    }
+  }
+
+  clear(): void {
+    this.programs.clear();
+    this.sources.clear();
+    this.device = null;
+  }
+}
+
 /**
- * Revision-owned cache of creation-time-specialized shading consumers.
- * Step 6 supplies FrameGraph resources/groups; this owner only compiles once,
- * reuses pipelines, and encodes GPU-authored indirect work without submitting.
+ * Revision-owned shading consumer and bind-group cache. The optional program
+ * cache has device lifetime and shares only immutable pipelines/layouts.
  */
 export class SparseShadingResolvePass {
   private readonly records = new Map<number, Readonly<CachedSparseShadingResolvePipelineRecord>>();
@@ -75,7 +125,8 @@ export class SparseShadingResolvePass {
     publicationRevision: number,
     diagnostics = false,
     executionMode: GpuShadingExecutionMode = "sparse-microtile",
-    dispatchExtent?: Readonly<{ width: number; height: number }>
+    dispatchExtent?: Readonly<{ width: number; height: number }>,
+    programCache?: SparseShadingProgramCache
   ): Promise<SparseShadingResolvePass> {
     if (!Number.isInteger(publicationRevision) || publicationRevision <= 0 || publicationRevision > 0xffffffff) {
       throw new RangeError("Sparse shading publication revision must be a non-zero u32");
@@ -107,7 +158,15 @@ export class SparseShadingResolvePass {
     const records: CachedSparseShadingResolvePipelineRecord[] = [];
     for (const descriptor of descriptors) {
       const variant = createSparseShadingShaderVariant(descriptor, diagnostics);
-      records.push(await createPipelineRecord(device, variant));
+      const program = programCache === undefined
+        ? await createProgram(device, variant)
+        : await programCache.obtain(device, variant);
+      records.push(Object.freeze({
+        descriptor,
+        pipeline: program.pipeline,
+        bindGroupLayouts: program.bindGroupLayouts,
+        groupCaches: Object.freeze(program.bindGroupLayouts.map(() => new GpuBindGroupResourceCache()))
+      }));
     }
     return new SparseShadingResolvePass({
       device,
@@ -261,10 +320,10 @@ export class SparseShadingResolvePass {
   }
 }
 
-async function createPipelineRecord(
+async function createProgram(
   device: GPUDevice,
   variant: Readonly<SparseShadingShaderVariant>
-): Promise<Readonly<CachedSparseShadingResolvePipelineRecord>> {
+): Promise<SparseShadingProgram> {
   const descriptor = variant.descriptor;
   const module = await createCheckedShaderModule(device, descriptor.label, variant.source);
   const nativeDescriptors = gpuSparseShadingBindGroupLayoutDescriptors(
@@ -294,10 +353,9 @@ async function createPipelineRecord(
     });
   });
   return Object.freeze({
-    descriptor,
+    source: variant.source,
     pipeline,
-    bindGroupLayouts: Object.freeze(bindGroupLayouts),
-    groupCaches: Object.freeze(bindGroupLayouts.map(() => new GpuBindGroupResourceCache()))
+    bindGroupLayouts: Object.freeze(bindGroupLayouts)
   });
 }
 

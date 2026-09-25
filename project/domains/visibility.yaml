@@ -17,6 +17,7 @@ currentDocs:
   - docs/domains/visibility.md
   - docs/specs/
 contracts:
+  - render-product-work-history-v1
   - claims-and-evidence
 decisions:
   - ADR-0019

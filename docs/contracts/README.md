@@ -7,3 +7,4 @@ Contracts are the small, exact interfaces shared by owners. Long term rationale 
 - [Validation case](./validation-case.md)
 - [Browser harness](./browser-harness.md)
 - [Generated registry](./generated-registry.md)
+- [Render Product / GPU Work / History V1](./render-product-work-history-v1.md) — Next A 批次跨 owner 的最小合同，状态与尚缺项见正文。

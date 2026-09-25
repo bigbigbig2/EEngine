@@ -31,7 +31,10 @@ import {
   GPU_SHADING_PROGRAM_COUNT,
   shadingProgramUsesTextures
 } from "../../.test-dist/gpu/GpuShadingProgramAbi.js";
-import { SparseShadingResolvePass } from "../../.test-dist/render/passes/SparseShadingResolvePass.js";
+import {
+  SparseShadingProgramCache,
+  SparseShadingResolvePass
+} from "../../.test-dist/render/passes/SparseShadingResolvePass.js";
 import {
   GPU_SPARSE_SHADING_DIAGNOSTIC_FLAG,
   SPARSE_SHADING_DIAGNOSTICS_FINALIZER_WGSL,
@@ -479,6 +482,50 @@ test("resolve owner compiles once and encodes one indirect call per active bin",
     assert.throws(() => owner.encode(command, {}, 256, [], 16), /publication revision/u);
     owner.destroy();
     assert.throws(() => owner.pipelineForBin(0), /destroyed/u);
+  } finally {
+    globalThis.GPUShaderStage = previous;
+  }
+});
+
+test("stable shading programs survive revision retirement while bind groups remain revision-local", async () => {
+  const previous = globalThis.GPUShaderStage;
+  globalThis.GPUShaderStage = { COMPUTE: 4 };
+  try {
+    const fake = fakeDevice();
+    const programs = new SparseShadingProgramCache();
+    const pipeline = descriptor(GPU_SHADING_PROGRAM.UnlitFactor);
+    const first = await SparseShadingResolvePass.create(fake.device, [pipeline], 17,
+      false, "sparse-microtile", undefined, programs);
+    const firstResources = new Map();
+    const firstBindings = first.createFrameBindingsForExecution((name) => {
+      if (!firstResources.has(name)) firstResources.set(name, { name, revision: 17 });
+      return firstResources.get(name);
+    });
+    first.destroy();
+
+    const second = await SparseShadingResolvePass.create(fake.device, [pipeline], 18,
+      false, "sparse-microtile", undefined, programs);
+    const secondBindings = second.createFrameBindingsForExecution((name) => ({ name, revision: 18 }));
+    assert.equal(fake.modules.length, 1);
+    assert.equal(fake.pipelines.length, 1);
+    assert.equal(second.pipelineForBin(pipeline.binId).pipeline.value, fake.pipelines[0]);
+    assert.notEqual(secondBindings[0].groups[0], firstBindings[0].groups[0]);
+    assert.deepEqual(second.bindingCacheEvidence(), { requests: 3, creations: 3 });
+    assert.throws(() => second.encode(fakeCommand([]), {}, 0, secondBindings, 17),
+      /publication revision/u);
+
+    const changed = await SparseShadingResolvePass.create(fake.device, [
+      descriptor(GPU_SHADING_PROGRAM.UnlitFactor, GPU_SHADING_OUTPUT_DEPENDENCY.Velocity)
+    ], 19, false, "sparse-microtile", undefined, programs);
+    assert.equal(fake.pipelines.length, 2, "a different output program needs a new pipeline");
+    changed.destroy();
+    second.destroy();
+    programs.clear();
+    const restored = await SparseShadingResolvePass.create(fake.device, [pipeline], 20,
+      false, "sparse-microtile", undefined, programs);
+    assert.equal(fake.pipelines.length, 3, "device loss or owner destruction clears cached programs");
+    restored.destroy();
+    programs.clear();
   } finally {
     globalThis.GPUShaderStage = previous;
   }

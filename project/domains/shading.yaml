@@ -15,6 +15,7 @@ currentDocs:
   - docs/domains/shading.md
   - docs/porting/shading.md
 contracts:
+  - render-product-work-history-v1
   - claims-and-evidence
 decisions:
   - ADR-0019

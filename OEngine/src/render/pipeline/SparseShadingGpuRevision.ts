@@ -8,7 +8,7 @@ import {
   packGpuShadingFrameStatus
 } from "../../gpu/GpuShadingFrameStatusAbi.js";
 import { ShadingBinPass } from "../passes/ShadingBinPass.js";
-import { SparseShadingResolvePass } from "../passes/SparseShadingResolvePass.js";
+import { SparseShadingProgramCache, SparseShadingResolvePass } from "../passes/SparseShadingResolvePass.js";
 
 export interface SparseShadingGpuRevision {
   readonly snapshot: Readonly<GpuShadingPublicationSnapshot>;
@@ -83,6 +83,8 @@ export class SparseShadingPreparedGpuRevision {
  * has completed. Stable frames only read active(); they allocate nothing.
  */
 export class SparseShadingGpuRevisionOwner {
+  private readonly programs = new SparseShadingProgramCache();
+  private readonly factory: SparseShadingGpuRevisionFactory;
   private activeValue: Readonly<SparseShadingGpuRevision> | null = null;
   private retiring: Array<Readonly<{
     resources: Readonly<SparseShadingGpuRevision>;
@@ -101,8 +103,11 @@ export class SparseShadingGpuRevisionOwner {
   constructor(
     private readonly device: GPUDevice,
     private readonly diagnostics = false,
-    private readonly factory: SparseShadingGpuRevisionFactory = createGpuRevision
-  ) {}
+    factory?: SparseShadingGpuRevisionFactory
+  ) {
+    this.factory = factory ?? ((gpuDevice, snapshot, diagnosticMode) =>
+      createGpuRevision(gpuDevice, snapshot, diagnosticMode, this.programs));
+  }
 
   async prepare(
     snapshot: Readonly<GpuShadingPublicationSnapshot>
@@ -199,6 +204,7 @@ export class SparseShadingGpuRevisionOwner {
     for (const entry of this.retiring) destroyRevision(entry.resources);
     this.activeValue = null;
     this.retiring = [];
+    this.programs.clear();
     this.deviceLossCount++;
   }
 
@@ -245,6 +251,7 @@ export class SparseShadingGpuRevisionOwner {
     for (const entry of this.retiring) destroyRevision(entry.resources);
     this.activeValue = null;
     this.retiring = [];
+    this.programs.clear();
     this.destroyed = true;
   }
 
@@ -263,7 +270,8 @@ export class SparseShadingGpuRevisionOwner {
 async function createGpuRevision(
   device: GPUDevice,
   snapshot: Readonly<GpuShadingPublicationSnapshot>,
-  diagnostics: boolean
+  diagnostics: boolean,
+  programs: SparseShadingProgramCache
 ): Promise<Readonly<SparseShadingGpuRevision>> {
   if (snapshot.pipelines.length === 0) {
     return freezeRevision(snapshot, null, null, null, null);
@@ -282,7 +290,8 @@ async function createGpuRevision(
       snapshot.revision,
       diagnostics,
       snapshot.executionMode === "none" ? "sparse-microtile" : snapshot.executionMode,
-      { width: snapshot.context.width, height: snapshot.context.height }
+      { width: snapshot.context.width, height: snapshot.context.height },
+      programs
     );
     return freezeRevision(snapshot, bins, resolve, settings, status);
   } catch (error) {
