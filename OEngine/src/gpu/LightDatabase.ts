@@ -762,6 +762,13 @@ export class GPULightCollection {
     return true;
   }
 
+  /** Next direct-light consumer needs records, not the unused IBL prefilter. */
+  updateDirectRecords(command: ShadeGPUCommandContext): boolean {
+    if (this.lastSourceVersion === this.source.version) return false;
+    this.build(command);
+    return true;
+  }
+
   private updateEnvironment(command: ShadeGPUCommandContext): boolean {
     const source = this.source.environment;
     if (this.environmentSource === source) return false;

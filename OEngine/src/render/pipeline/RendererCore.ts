@@ -1153,7 +1153,13 @@ export class Renderer {
     try {
       this._graphics.encodeFrameMaintenance(command);
       this._renderTargets.setFrameIndex(frameIndex);
-      const view = this._views.obtain(GPUViewKey.from(camera, scene), this._environments.obtain(scene), command);
+      const environment = this._environments.obtain(scene);
+      const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
+        .filter(classId => (runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
+      if (activeClasses.some(classId => (classId & 15) >= 4)) {
+        environment.lights.updateDirectRecords(command);
+      }
+      const view = this._views.obtain(GPUViewKey.from(camera, scene), environment, command);
       const width = this._render_resolution.x;
       const height = this._render_resolution.y;
       view.setJitter(0, 0);
@@ -1212,8 +1218,6 @@ export class Renderer {
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime
       };
-      const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
-        .filter(classId => (runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
       const textureBankMasks = Array.from({ length: 4 }, (_, setId) =>
         runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0
       );

@@ -1,5 +1,5 @@
 import {
-  Renderer, PerspectiveCamera, Scene, StandardShadeMaterial,
+  Renderer, PerspectiveCamera, Scene, StandardShadeMaterial, DirectionalLight,
   ShadeImage, ShadeTexture,
   VirtualGeometryResidency
 } from "../../../OEngine/src/index.ts";
@@ -158,7 +158,13 @@ try {
   renderer.resize(1280, 720);
   const scene = new Scene();
   const material = new StandardShadeMaterial();
-  material.is_unlit = true;
+  material.is_unlit = false;
+  const sun = new DirectionalLight();
+  sun.intensity = 3;
+  sun.casts_shadow = false;
+  sun.forward = [0, 0, -1];
+  scene.addChild(sun);
+  requireValue(scene.lights.elements.includes(sun), "Directional light was not registered in Scene");
   material.texture_albedo = ShadeTexture.from(ShadeImage.fromSampler2D(
     new Sampler2D(new Uint8Array([255, 32, 32, 255, 32, 255, 32, 255,
       32, 32, 255, 255, 255, 255, 32, 255]), 4, 2, 2)
@@ -217,10 +223,10 @@ try {
     "GPU ShadingWork class ranges were not consumed by scatter");
   requireValue(passes.some(name => name.startsWith("Surface/shade material class ")),
     "GPU Surface material consumer was not encoded");
-  requireValue(passes.includes("Surface/shade material class 2"),
-    "Textured unlit VG material class was not consumed");
-  requireValue(!passes.some(name => name.startsWith("LightCluster/")),
-    "Unlit material retained light-cluster work");
+  requireValue(passes.includes("Surface/shade material class 5"),
+    "Textured PBR VG material class was not consumed");
+  requireValue(passes.some(name => name.startsWith("LightCluster/")),
+    "Lit material did not consume GPU light clustering");
   requireValue(passes.includes("Surface/present radiance"), "Surface radiance was not presented");
   requireValue(scoped.errors.length === 0, JSON.stringify(scoped.errors));
   const geometryBeforeLoss = residency.evidence();
@@ -242,7 +248,7 @@ try {
     .some(pass => !pass.culled && pass.name.includes("MeshletWork bucket producer")),
     "Recovered Renderer did not consume GPU MeshletWork");
   controller.addEvidence("phase1", {
-    emptyPasses, passes, frameCount: renderer.frame_count,
+    emptyPasses, passes, lightCount: scene.lights.elements.length, frameCount: renderer.frame_count,
     geometry: geometryBeforeLoss, gpuErrors: [...scoped.errors, ...recovered.errors],
     recoveredDevice: renderer.device !== lostDevice
   });
