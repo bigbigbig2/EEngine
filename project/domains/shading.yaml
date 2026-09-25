@@ -4,6 +4,7 @@ primaryOwner: shading
 owner: OEngine/src/material, OEngine/src/render, OEngine/src/shaders
 intent: Preserve material identity and deliver a valid shaded result to every visible sample through one demand-driven pipeline.
 paths:
+  - OEngine/src/render/surface/**
   - OEngine/src/render/**
   - OEngine/src/shaders/**
   - validation/cases/shading-*/**

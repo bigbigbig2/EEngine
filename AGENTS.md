@@ -1,6 +1,6 @@
 # OEngine 协作约束
 
-OEngine 是面向桌面 WebGPU、中大型高几何密度场景的 GPU-first 渲染引擎。当前重点是 GPU-ready 资产、Packed Instances、层次工作生成、Hardware-first Visibility、单次材质解析以及统一光照和时域管线；不以完整 Gameplay/ECS 或 three.js 兼容为目标。
+OEngine 是面向桌面 WebGPU、中大型高几何密度场景的 GPU-first 渲染引擎。Next 目标是 GPU-ready 资产、Packed Instances、层次 GPU Work、Hardware-first Visibility、Visibility-driven Surface、按需求和频率着色、统一 Light Transport 与 Temporal Reconstruction；当前生产链的实现事实仍由 `docs/domains/` 和当前 claim 描述。不以完整 Gameplay/ECS 或 three.js 兼容为目标。
 
 ## 工作流
 

@@ -6,7 +6,7 @@ The repository uses a contract-driven project OS. Machine manifests route work a
 
 For the accepted EEngine Next clean-cut target, start with [单路径重建路线](./next-renderer.md). It connects [ADR-0020](./adr/0020-clean-cut-renderer.md), [pinned migration sources](./porting/next-renderer.md), and the [current workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml). Target design is distinct from current runtime facts and completion evidence.
 
-1. Run `node tools/vibe.mjs context <path>` before changing code. Add `--claims`, `--cases`, or `--all` only when the compact route is insufficient.
+1. Run `node tools/vibe.mjs context <path>` before changing code. The compact route includes the primary owner, decisions, source IDs, relevant workstream slice/tasks/gates, contracts, and checks. Add `--claims`, `--cases`, or `--all` only when more detail is needed.
 2. Read the matching page under [domains](./domains/), then the linked contract under [contracts](./contracts/).
 3. Run `node tools/vibe.mjs verify --changed` after editing.
 4. Use `node tools/vibe.mjs status [domain]` to inspect claim state and `node tools/vibe.mjs evidence` to refresh evidence. Empty or partial raw input cannot remove compact records without `--force-empty` or `--force-prune`; use `evidence --check` for a read-only comparison.
@@ -32,13 +32,13 @@ Unpromoted research cannot establish a product fact, ABI, claim status, or compl
 
 Domain Markdown frontmatter contains identity only. Contract, claim, check, and case relationships come from the matching machine manifests and are shown by `context`; do not copy those lists into human pages. Ordinary fixes and internal refactors add no document by default. Add or update a contract/spec for a stable cross-owner protocol or ABI, and add an ADR only for a long-lived choice with meaningful alternatives.
 
-## Active Workstreams
+## Current Workstreams
 
-Workstream YAML is the authoritative current TODO. Its first screen names the current slice, next tasks, and open gates; completed work is a short milestone summary linked to stable contracts or evidence. Detailed implementation history stays in Git. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
+Workstream YAML is the authoritative current TODO, including paused work. Its first screen names the current slice, next tasks, and open gates; completed work is a short milestone summary linked to stable contracts or evidence. Detailed implementation history stays in Git. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
 
 - [Nyx producer convergence](../project/workstreams/active/nyx-convergence.yaml)
 - [EEngine Next renderer](../project/workstreams/active/eengine-next-clean-rebuild.yaml) — current slice cuts old composition and boots the sole new renderer; phases and deletion boundaries live in [the implementation route](./next-renderer.md)
-- [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — current `large.glb` validation and performance work for [ADR-0018](./adr/0018-web-100m-virtual-geometry.md)
+- [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — paused K4 legacy Sparse Shading publication optimization; accepted K0–K3 evidence remains historical, and `large.glb` will be rebaselined on the new Surface/Shading Runtime
 
 ## Reviews
 

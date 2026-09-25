@@ -41,9 +41,12 @@ test("context defaults to a compact actionable summary with explicit expansions"
   const input = "OEngine/src/assets/web-cook/CanonicalWindowPlanner.ts";
   const output = execFileSync(process.execPath, ["tools/vibe.mjs", "context", input], { cwd: repoRoot, encoding: "utf8" });
   const compact = JSON.parse(output);
-  assert.ok(output.split(/\r?\n/u).length < 100, "default context should remain under 100 lines");
+  assert.ok(output.split(/\r?\n/u).length < 140, "default context should remain a compact route summary");
   assert.equal(compact.owner.primary, "virtual-assets");
   assert.ok(compact.contracts.length > 0);
+  assert.ok(compact.decisions.includes("ADR-0020"));
+  assert.ok(compact.sources.includes("next-renderer-reference"));
+  assert.equal(compact.workstreams.find((item) => item.id === "web-100m-virtual-geometry")?.state, "paused");
   assert.ok(compact.checks.length > 0);
   assert.ok(compact.engineTests.testFiles > 0);
   assert.equal("claims" in compact, false);
@@ -52,6 +55,37 @@ test("context defaults to a compact actionable summary with explicit expansions"
   const expanded = JSON.parse(execFileSync(process.execPath, ["tools/vibe.mjs", "context", input, "--claims", "--cases"], { cwd: repoRoot, encoding: "utf8" }));
   assert.ok(expanded.claims.length > 0);
   assert.ok(expanded.cases.length > 0);
+
+  const all = JSON.parse(execFileSync(process.execPath, ["tools/vibe.mjs", "context", input, "--all"], { cwd: repoRoot, encoding: "utf8" }));
+  assert.ok(all.sources.some((item) => item.id === "next-renderer-reference" && item.upstream));
+  assert.ok(all.workstreams.some((item) => item.id === "nyx-convergence" && item.tasks));
+});
+
+test("Next renderer routes expose their primary owner and active cut", async () => {
+  const { loadModel, routeDomains } = await import("../../../tools/vibe-lib.mjs");
+  const model = await loadModel();
+  const expected = new Map([
+    ["OEngine/src/render/Renderer.ts", "frame-runtime"],
+    ["OEngine/src/render/runtime/RendererCore.ts", "frame-runtime"],
+    ["OEngine/src/render/scene/SceneRuntime.ts", "virtual-assets"],
+    ["OEngine/src/render/virtual/VirtualResourceRuntime.ts", "virtual-assets"],
+    ["OEngine/src/render/visibility/VisibilityRuntime.ts", "visibility"],
+    ["OEngine/src/render/surface/SurfaceRuntime.ts", "shading"],
+    ...["HierarchicalWorkGenerator", "HierarchicalZBuffer", "CurrentHzbLateRecheck", "MeshletWorkCandidate", "MeshletBucketRaster", "VisibilityBindingSet", "VisibilityWorkSet"]
+      .map((name) => [`OEngine/src/render/${name}.ts`, "visibility"])
+  ]);
+  for (const [input, owner] of expected) {
+    const route = routeDomains(model, [input]);
+    assert.equal(route.primary?.id, owner, input);
+    assert.equal(route.ambiguous, false, input);
+  }
+
+  for (const input of ["OEngine/src/render/Renderer.ts", "OEngine/src/render/surface/SurfaceRuntime.ts"]) {
+    const context = JSON.parse(execFileSync(process.execPath, ["tools/vibe.mjs", "context", input], { cwd: repoRoot, encoding: "utf8" }));
+    assert.ok(context.decisions.includes("ADR-0020"), input);
+    assert.ok(context.sources.includes("next-renderer-reference"), input);
+    assert.equal(context.workstreams.find((item) => item.id === "eengine-next-clean-rebuild")?.currentSlice.id, "cut-old-composition", input);
+  }
 });
 
 test("domain frontmatter keeps identity and leaves relationships to manifests", () => {

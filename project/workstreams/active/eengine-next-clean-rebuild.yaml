@@ -37,6 +37,7 @@ tasks:
       - Renderer no longer extends MainRenderPipeline and only one production frame graph/submit path exists.
       - GPU Scene to visibility to debug/base color to present is GPU-closed; old AO/SSR/SSGI/GI/CSM/TAA/NSS effect owners do not survive as compatibility adapters.
       - Old claims and checks that no longer describe current code are retired or rewritten in the same cut.
+      - Every old production owner actually deleted by this slice is added to checks/guards/legacy.yaml retiredPaths in the same code batch; existing paths are not retired early.
   - id: rebuild-surface-material
     state: todo
     title: Extract correct Surface mathematics and replace old sparse owner with material/frequency/compute shading
@@ -44,6 +45,7 @@ tasks:
     exitCriteria:
       - Every visible sample gets a valid full, coarse, reconstructed, or reused result under explicit Product semantics.
       - Old exactly-once claim and old SurfaceFeature/SparseShadingResolvePass ownership are removed after extraction.
+      - Remove shading's broad OEngine/src/render/** routing fallback once the old root-level owners have been deleted or assigned precise paths.
   - id: environment-temporal
     state: todo
     title: Port physical environment and full selected FSR3 Upscaler profile on the new temporal boundary
@@ -75,8 +77,8 @@ openGates:
   - Phase 1 must rework old current-code claims and test expectations with the code cut; acceptance of ADR-0020 does not transfer old evidence.
   - The pre-cut renderer Git baseline still needs a fixed tag before production code is deleted; the source ledger is pinned but the new upstream algorithms remain unported.
   - GPU Work Runtime is not complete when only MeshletWork uses a preflight helper; ShadingWork and later Ray/Page consumers must demonstrate shared control semantics with specialized physical ABIs.
-  - WebGPU VSM page raster bounds, Atlas dynamic software-BVH updates, adaptive shading benefit, full VT donor, and FSR3 WGSL adaptation remain unproven.
-  - Screen GI has no selected complete migration donor or finalized near/world/sky energy boundary; VRS classification is not an adaptive compute shading implementation.
+  - WebGPU VSM page raster bounds, Atlas dynamic software-BVH updates, adaptive shading benefit, a complete WebGPU VT profile, and FSR3 WGSL adaptation remain unproven.
+  - Screen GI has source candidates but no selected WebGPU port profile or finalized near/world/sky energy boundary; VRS classification is not an adaptive compute shading implementation.
   - Record actual browser adapter/limits and budgets on both the GTX 1650 Ti and RTX 2060 machines when each is available.
 links:
   decision: docs/adr/0020-clean-cut-renderer.md

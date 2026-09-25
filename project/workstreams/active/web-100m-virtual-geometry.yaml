@@ -2,7 +2,7 @@ schemaVersion: 2
 id: web-100m-virtual-geometry
 title: Web authored-large Virtual Geometry validation
 domain: virtual-assets
-state: active
+state: paused
 owner: virtual-assets
 decision: ADR-0018
 sourceReview: docs/reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md
@@ -10,13 +10,11 @@ goal: Stabilize the user's large.glb through work-bounded Web cook, complete cat
 
 currentSlice:
   id: K4
-  title: Reduce sparse shading preparation on Product append
+  title: K4 legacy sparse shading publication deferred by ADR-0020
   target: authored-large-sparse-publication
-  status: active
+  status: paused
   finding: Clean revision b35aad2 accepted authored large.glb K0/K1/K2 through public load_gltf with 66 Products and all 1,920 primitives. K2 measured 7.94 s first meaningful frame, 58.40 s total cook, 165.60 s settled time, 16.42 ms GPU frame p95, and 1.55 GB GPU allocation peak. Scene publication took 129.56 s, including 119.75 s in sparse shading preparation and 5.28 s in GPU Scene staging; Scene mapping took 12.16 s, including 9.62 s image decode. The slowest Product task took 2.10 s.
-nextTasks:
-  - Split sparse shading preparation into shader/pipeline creation, publication planning, and resource preparation on large.glb.
-  - Reuse stable shader pipelines and revision resources where ownership allows, then rerun authored K1/K2 acceptance and compare against b35aad2.
+nextTasks: []
 
 contracts:
   - geometry-product-v1
@@ -101,7 +99,7 @@ tasks:
     phase: K4
     priority: P1
     title: Reduce sparse shading preparation cost on Product append
-    state: active
+    state: blocked
     dependsOn: [authored-large-performance-followup]
     exitCriteria:
       - Appended Products reuse stable shader pipelines and resources without changing publication identity or GPU consumer closure.
@@ -120,8 +118,8 @@ requiredEvidence:
   - Authored runtime evidence for activation-first publication, incremental Scene publication, automatic capacity, and source/decode/upload telemetry.
   - Formal authored-large performance evidence on the current clean revision.
 openGates:
-  - Sparse shading preparation dominates incremental Scene publication; shader/pipeline creation and resource preparation still need separate attribution before optimizing.
-  - The compact evidence index is current for clean browser revision b35aad2, but refreshing this tracked generated file leaves the working tree dirty until the next code revision.
+  - K4 targets the legacy Sparse Shading owner that ADR-0020 Phase 2 will delete; do not optimize or refactor that owner during the clean rebuild.
+  - Resume only after the new Phase 2 Surface/Shading Runtime is in production; rebaseline large.glb publication and pipeline preparation against the retained b35aad2 K0-K3 evidence, then choose new work.
 
 links:
   decision: docs/adr/0018-web-100m-virtual-geometry.md

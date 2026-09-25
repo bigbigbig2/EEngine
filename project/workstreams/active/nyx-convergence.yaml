@@ -15,6 +15,7 @@ nextTasks:
   - Capture clean browser consumer evidence on a fixed large-scene workload.
   - Complete source, compiled artifact, and browser audits for remaining legacy owners.
   - Close cross-session memory accounting and failure-atomic replacement.
+  - Keep Product admission and GPU consumer evidence at the retained Scene/Visibility seam; re-prove it after the ADR-0020 cut without strengthening legacy Renderer or Sparse Shading ownership.
 
 contracts:
   - geometry-product-v1
@@ -48,6 +49,7 @@ requiredEvidence:
   - Clean browser evidence for producer-neutral admission and downstream GPU consumption.
   - Source, WASM, output, resident, and transient budgets under a fixed workload.
 openGates:
+  - Evidence gathered through the old Renderer consumer does not transfer to the new Scene/Visibility seam after the clean cut.
   - Large-scene visible-first cook and first meaningful frame evidence are incomplete.
   - Cross-session source, canonical, and WASM peak accounting is incomplete.
   - Failure-atomic replacement and bounded global residency need accepted evidence.

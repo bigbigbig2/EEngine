@@ -5,7 +5,14 @@ owner: OEngine/src/render/passes, OEngine/src/render/pipeline, OEngine/src/shade
 intent: Close GPU work generation, visibility, shading-bin classification, and indirect consumers without CPU visible-list traversal.
 paths:
   - OEngine/src/render/passes/**
+  - OEngine/src/render/visibility/**
+  - OEngine/src/render/HierarchicalWorkGenerator.ts
+  - OEngine/src/render/HierarchicalZBuffer.ts
+  - OEngine/src/render/CurrentHzbLateRecheck.ts
+  - OEngine/src/render/MeshletWorkCandidate.ts
   - OEngine/src/render/MeshletBucketRaster.ts
+  - OEngine/src/render/VisibilityBindingSet.ts
+  - OEngine/src/render/VisibilityWorkSet.ts
   - OEngine/src/gpu/GpuShading*.ts
   - OEngine/src/gpu/GpuSparseShading*.ts
   - validation/cases/sparse-shading-*/**
@@ -34,4 +41,12 @@ checks:
   - evidence-provenance
 watch:
   - OEngine/src/render/passes/**
+  - OEngine/src/render/visibility/**
+  - OEngine/src/render/HierarchicalWorkGenerator.ts
+  - OEngine/src/render/HierarchicalZBuffer.ts
+  - OEngine/src/render/CurrentHzbLateRecheck.ts
+  - OEngine/src/render/MeshletWorkCandidate.ts
+  - OEngine/src/render/MeshletBucketRaster.ts
+  - OEngine/src/render/VisibilityBindingSet.ts
+  - OEngine/src/render/VisibilityWorkSet.ts
   - validation/cases/sparse-shading-*/**

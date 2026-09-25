@@ -7,6 +7,8 @@ paths:
   - OEngine/src/assets/**
   - OEngine/src/loaders/**
   - OEngine/src/geometry/**
+  - OEngine/src/render/scene/**
+  - OEngine/src/render/virtual/**
   - OEngine/src/gpu/Geometry*.ts
   - OEngine/src/gpu/VirtualGeometry*.ts
   - validation/cases/glb-*
@@ -53,6 +55,8 @@ checks:
 watch:
   - OEngine/src/assets/**
   - OEngine/src/loaders/**
+  - OEngine/src/render/scene/**
+  - OEngine/src/render/virtual/**
   - OEngine/src/gpu/VirtualGeometry*.ts
   - validation/cases/glb-*/**
   - validation/cases/virtual-product-*/**

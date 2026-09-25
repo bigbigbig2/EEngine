@@ -2,7 +2,7 @@
 
 ## 定位
 
-OEngine 是面向桌面浏览器 WebGPU 的 GPU-first 渲染引擎核心，服务中大型、高几何密度、静态或 mostly-static 场景。它优先构建 GPU-ready 资产、紧凑 GPU 表、Packed Instances、层次工作生成、Hardware-first Visibility、单次材质解析、动态光照与时域管线。
+OEngine 是面向桌面浏览器 WebGPU 的 GPU-first 渲染引擎核心，服务中大型、高几何密度、静态或 mostly-static 场景。EEngine Next 的目标是 GPU-ready 资产、紧凑 GPU 表、Packed Instances、层次 GPU Work、Hardware-first Visibility、Visibility-driven Surface、按需求和频率着色、统一 Light Transport 与 Temporal Reconstruction。目标方向不代表当前生产链已完成这些能力。
 
 ## 目标平台与工作负载
 
@@ -17,8 +17,9 @@ OEngine 是面向桌面浏览器 WebGPU 的 GPU-first 渲染引擎核心，服�
 - Web 主路线从 GLB/glTF 通过有界 WASM + Worker Runtime Cooker 渐进生成可验证的 GPU-ready Geometry Product；独立 Native/OEGPACK 预处理是第二输入路线。两者共享 Runtime admission、Residency 与唯一 Renderer，不要求共享 Cooker 实现。
 - Runtime Asset 与 `GpuAssetStore`、`GpuScene`、Packed Scene GPU 资源所有权分离。
 - hierarchy/SSE/culling/work generation 在 GPU producer 到 indirect consumer 之间闭环。
-- Hardware-first Visibility 输出直接 `VisibilityKey`，材质按可见像素分类并解析一次。
-- 一条主管线组合 direct lighting、shadow、GI、AO、reflection、transparency、temporal 和 post。
+- Hardware-first Visibility 输出 `VisibilityKey + Depth`，为按需 Surface 重建提供 opaque fact；Surface 产品可按消费者需求重算、物化或复用。
+- Demand-driven GPU Work 将可见性、材质、ray/page/probe 等有界工作接到真实 GPU consumer；Adaptive Shading 的 full/coarse/reconstructed/reused 结果必须满足各自合法性和质量边界。
+- 一条主管线组织统一 Light Transport、物理环境、参与介质和 Temporal Reconstruction；Shadow、GI、AO、Reflection 等是具名 Provider，不各自复制 Renderer 主链。
 - Feature 关闭时移除对应 Pass、资源、history、readback 和独立 submit。
 
 ## 产品目标

@@ -8,6 +8,7 @@ paths:
   - OEngine/src/framegraph/**
   - OEngine/src/render/Renderer.ts
   - OEngine/src/render/pipeline/**
+  - OEngine/src/render/runtime/**
   - OEngine/src/gpu/GpuRenderWorld.ts
   - validation/harness/**
   - validation/src/runner/**
@@ -42,5 +43,6 @@ watch:
   - OEngine/src/core/**
   - OEngine/src/framegraph/**
   - OEngine/src/render/Renderer.ts
+  - OEngine/src/render/runtime/**
   - validation/harness/**
   - validation/src/runner/**

@@ -117,6 +117,10 @@ async function contextCommand(input, options = {}) {
   const checks = model.checks.filter((check) => all || (check.domains ?? []).some((id) => domainIds.has(id)) || (check.claims ?? []).some((id) => claimIds.has(id)));
   const routing = all ? null : routeDomains(model, paths);
   const primaryDomains = all ? domains : domains.filter((domain) => domain.id === routing?.primary?.id);
+  const sourceIds = new Set(primaryDomains.flatMap((domain) => domain.sources ?? []));
+  const selectedSources = model.sources.filter((source) => sourceIds.has(source.id));
+  const selectedWorkstreams = model.workstreams.filter((workstream) => primaryDomains.some((domain) =>
+    workstream.domain === domain.id || (domain.decisions ?? []).includes(workstream.decision)));
   const requiredLevel = requiredVerificationLevel(paths, false);
   const summary = {
     input,
@@ -125,6 +129,9 @@ async function contextCommand(input, options = {}) {
       : { primary: routing?.primary?.id ?? null, related: routing?.related?.map((entry) => entry.id) ?? [], ambiguous: routing?.ambiguous ?? false },
     documents: [...new Set(primaryDomains.flatMap((domain) => domain.currentDocs ?? []))],
     contracts: [...new Set(primaryDomains.flatMap((domain) => domain.contracts ?? []))],
+    decisions: [...new Set(primaryDomains.flatMap((domain) => domain.decisions ?? []))],
+    sources: options.includeAll ? selectedSources.map(stripPrivate) : selectedSources.map((source) => source.id),
+    workstreams: selectedWorkstreams.map(options.includeAll ? stripPrivate : summarizeWorkstream),
     implementation: primaryDomains.map((domain) => ({ id: domain.id, owner: domain.owner })),
     checks: checks.map((check) => check.id),
     checkReason: "selected from the primary/related owner domains and directly matched claims",
@@ -460,9 +467,25 @@ function summarizeCase(item) {
   return { id: item.id, evidenceRole: item.evidenceRole, level: item.level, covers: item.covers ?? [] };
 }
 
+function summarizeWorkstream(workstream) {
+  const nextTasks = workstream.nextTasks ?? [];
+  const openGates = workstream.openGates ?? [];
+  return {
+    id: workstream.id,
+    state: workstream.state,
+    currentSlice: workstream.currentSlice
+      ? { id: workstream.currentSlice.id, status: workstream.currentSlice.status }
+      : null,
+    nextTasks: nextTasks.slice(0, 2),
+    openGates: openGates.slice(0, 2),
+    ...(nextTasks.length > 2 ? { moreNextTasks: nextTasks.length - 2 } : {}),
+    ...(openGates.length > 2 ? { moreOpenGates: openGates.length - 2 } : {})
+  };
+}
+
 function printHelp() {
   console.log(`vibe commands:
-  context <path>       show compact owner, contract, check, and test guidance
+  context <path>       show compact owner, decision, source, workstream, contract, and check guidance
   context <path> --claims | --cases | --all
                        expand claim, case, or complete routed detail
   verify --changed     run affected development checks and targeted tests
