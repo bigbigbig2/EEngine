@@ -1,6 +1,6 @@
 import {
   Renderer, PerspectiveCamera, Scene, StandardShadeMaterial,
-  VirtualGeometryResidency, DirectionalLight
+  VirtualGeometryResidency
 } from "../../../OEngine/src/index.ts";
 import { encodeAssetRecordsV3, encodeGeometryProductPageRecordsV1, encodeVertexFormatsV3, type GeometryProductDescriptorV1, type GeometryProductRevisionSourceV1 } from "../../../OEngine/src/assets/geometry-product/GeometryProductV1.ts";
 import { createValidationController } from "../../harness/browser.ts";
@@ -15,8 +15,8 @@ let intentionalDestroy = false;
 let collector: ReturnType<typeof attachGpuErrorCollection> | undefined;
 
 const controller = createValidationController({
-  caseId: "virtual-product-production",
-  workloadId: "virtual-product-production-correctness-v1"
+  caseId: "phase1-visibility",
+  workloadId: "phase1-visibility-v1"
 }, async () => {
   intentionalDestroy = true;
   renderer?.destroy();
@@ -119,55 +119,65 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
 try {
   controller.transition("negotiating");
   requireValue(navigator.gpu && window.isSecureContext, "WebGPU secure context unavailable");
-  renderer = new Renderer({ debug: false, requiredLimits: { maxStorageBuffersPerShaderStage: 16 }, renderSettings: { features: { shadows: false, screenSpaceDiffuseMode: "off", screenSpaceReflections: false, temporalAntiAliasing: false, bloom: false, automaticExposure: false, motionBlur: false, sharpening: false } } });
-  const context = canvas.getContext("webgpu"); requireValue(context, "WebGPU canvas context unavailable");
-  const configure = context.configure.bind(context); Object.defineProperty(context, "configure", { configurable: true, value: (config: GPUCanvasConfiguration) => configure({ ...config, usage: (config.usage ?? GPUTextureUsage.RENDER_ATTACHMENT) | GPUTextureUsage.COPY_SRC }) });
+  renderer = new Renderer({ renderScale: 1 });
+  const context = canvas.getContext("webgpu");
+  requireValue(context, "WebGPU canvas context unavailable");
   await renderer.initialize({ context });
-  // Product traversal and shading bind four fixed page banks. The renderer
-  // configuration above is the explicit S1 capability gate for that ABI.
   collector = attachGpuErrorCollection(renderer.device, controller, () => intentionalDestroy);
-  renderer.profiler.configure({ enabled: true, warmupFrames: 0, gpuSampleInterval: 1, gpuCounterSampleInterval: 1, historyCapacity: 32 });
-  renderer.profiler.setMode("deep-capture"); renderer.resize(1280, 720);
-  const scene = new Scene(); const material = new StandardShadeMaterial(); material.is_unlit = false; material.diffuse_color.set(0.12, 0.52, 0.92, 1); material.emissive_factor.set(0.12, 0.52, 0.92);
-  const light = new DirectionalLight(); light.intensity = 3; scene.add(light);
+  renderer.resize(1280, 720);
+  const scene = new Scene();
+  const material = new StandardShadeMaterial();
   source = await createProductSource();
   residency = await VirtualGeometryResidency.create(renderer.device, source, 17, 0);
   residency.activatePublication();
-  const openedDescriptor = residency.descriptor;
   const geometryProfiles = [{ hasAuthoredVertexColor: false, hasUv0: false, hasUv1: false, hasUv2: false, hasNormal: true, hasTangent: false }] as const;
-  await renderer.uploadVirtualGeometryScene(scene, { materials: [material], geometryProfiles, assetCount: 1, hierarchyMaxDepth: 2, hierarchyTraversalCapacity: 8, hierarchyVisibleClusterCapacity: 8, hierarchyRasterWorkCapacity: 8, count: 1, geometryIndices: new Uint32Array([0]), materialIndices: new Uint32Array([0]), currentTransforms: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]), boundsSpheres: new Float32Array([0, 0, 0, 1]) }, residency);
-  requireValue(openedDescriptor.activationPageIds.length === 1 && residency.evidence().residentPages === 1, "Product activation cut was not resident");
-  const camera = new PerspectiveCamera(); camera.near = 0.05; camera.aspect = 1280 / 720; camera.transform.position.set(0, 0, 4); camera.transform.lookAt({ x: 0, y: 0, z: 0 }); camera.update();
-  controller.transition("ready"); controller.transition("warming");
-  for (let attempt = 0; attempt < 120 && !renderer.render(camera, scene, 1 / 60); attempt++) await nextFrame();
-  controller.transition("sampling");
-  const capture = renderer.requestLinearHdrCapture({ x: 636, y: 356, width: 8, height: 8, stage: "lighting" });
-  for (let attempt = 0; attempt < 120 && !renderer.render(camera, scene, 1 / 60); attempt++) await nextFrame();
-  const scoped = await withGpuErrorScopes(renderer.device, "Product production frame", async () => capture);
-  const result = await scoped.value; let maximumError = 0; for (let i = 0; i < result.rgba.length; i++) maximumError = Math.max(maximumError, Math.abs(result.rgba[i]! - [0.12, 0.52, 0.92, 1][i % 4]!));
-  const evidence = { residency: residency.evidence(), publication: renderer.sparseShadingPublicationEvidence(), frame: renderer.profiler.latest, graph: renderer.mainFrameGraphEvidence(), gpuErrors: scoped.errors };
-  const counters = (evidence.frame as { gpuCounters?: { values?: Record<string, number> } } | null)?.gpuCounters?.values ?? {};
-  const demandFrameBytes = ((evidence.frame as { uploads?: { labels?: Record<string, number> } } | null)?.uploads?.labels?.["HierarchicalWorkGenerator/demand-frame"] ?? 0);
-  controller.addEvidence("readback", { expected: [0.12, 0.52, 0.92, 1], rgba: [...result.rgba], maximumError, evidence });
-  controller.addEvidence("demandFallback", {
-    bootstrapResidentPages: evidence.residency.residentPages,
-    missingPageId: 1,
-    demandFrameBytes,
-    hierarchyNodesTested: counters["geometryNodesTested"] ?? 0,
-    clustersAccepted: counters["geometryClustersAccepted"] ?? 0,
-    traversalQueueReservations: counters["traversalQueueReservations"] ?? 0,
-    invalidVisibilityKeys: counters["invalidVisibilityKeys"] ?? 0,
-    queueOverflowMask: counters["queueOverflowMask"] ?? 0
+  await renderer.uploadVirtualGeometryScene(scene, {
+    materials: [material], geometryProfiles, assetCount: 1,
+    hierarchyMaxDepth: 2, hierarchyTraversalCapacity: 8,
+    hierarchyVisibleClusterCapacity: 8, hierarchyRasterWorkCapacity: 8,
+    count: 1, geometryIndices: new Uint32Array([0]),
+    materialIndices: new Uint32Array([0]),
+    currentTransforms: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+    boundsSpheres: new Float32Array([0, 0, 0, 1])
+  }, residency);
+  const camera = new PerspectiveCamera();
+  camera.near = 0.05;
+  camera.aspect = 1280 / 720;
+  camera.transform.position.set(0, 0, 4);
+  camera.transform.lookAt({ x: 0, y: 0, z: 0 });
+  camera.update();
+  controller.transition("ready");
+  controller.transition("warming");
+  let beforeResizeKey = "";
+  const scoped = await withGpuErrorScopes(renderer.device, "Phase 1 visibility frame", async () => {
+    for (let frame = 0; frame < 2; frame++) {
+      requireValue(renderer!.render(camera, scene, 1 / 60), "Renderer did not submit the visibility frame");
+      await nextFrame();
+    }
+    beforeResizeKey = renderer!.mainFrameGraphEvidence()?.cacheKey ?? "";
+    renderer!.resize(640, 360);
+    camera.aspect = 640 / 360;
+    camera.update();
+    requireValue(renderer!.render(camera, scene, 1 / 60), "Renderer did not submit after resize");
+    await nextFrame();
+    await renderer!.device.queue.onSubmittedWorkDone();
   });
-  requireValue(maximumError <= 0.01, `Product raster HDR mismatch (${maximumError})`);
-  requireValue(evidence.residency.residentPages === 1 && evidence.residency.uploadedBytes === 262144, "Product residency evidence is incomplete");
-  requireValue((evidence.publication.activePublicationRevision ?? 0) > 0, "Product shading publication did not commit");
-  requireValue((counters["geometryNodesTested"] ?? 0) >= 3, "GPU hierarchy did not test the root and both Group nodes");
-  requireValue((counters["geometryClustersAccepted"] ?? 0) >= 1, "GPU hierarchy did not accept the resident bootstrap Group");
-  requireValue(evidence.residency.residentPages === 1 && demandFrameBytes >= 4 && (counters["traversalQueueReservations"] ?? 0) >= 2, "missing page demand/ancestor traversal evidence is incomplete");
-  requireValue((counters["geometryQueueBytes"] ?? 0) > 0 && (counters["geometryMeshletWorksProduced"] ?? 0) > 0, "GPU meshlet work producer evidence is incomplete");
-  requireValue((counters["invalidVisibilityKeys"] ?? 0) === 0, "GPU emitted an invalid primitive VisibilityKey");
-  requireValue((counters["queueOverflowMask"] ?? 0) === 0 && (counters["meshletQueueOverflow"] ?? 0) === 0, "bounded GPU queue overflowed unexpectedly");
+  controller.transition("sampling");
+  const graph = renderer.mainFrameGraphEvidence();
+  requireValue(graph, "Phase 1 FrameGraph evidence is unavailable");
+  requireValue(beforeResizeKey !== "" && graph.cacheKey !== beforeResizeKey, "Resize reused the old FrameGraph topology");
+  const passes = graph.dump.passes.filter(pass => !pass.culled).map(pass => pass.name);
+  requireValue(passes.some(name => name.includes("MeshletWork bucket producer")), "GPU MeshletWork raster was not encoded");
+  requireValue(passes.includes("Visibility/build HZB"), "HZB was not built");
+  requireValue(passes.includes("Visibility/Phase1 present"), "VisibilityKey was not presented");
   requireValue(scoped.errors.length === 0, JSON.stringify(scoped.errors));
-  status.textContent = "passed"; controller.transition("draining"); await renderer.device.queue.onSubmittedWorkDone(); controller.pass();
-} catch (error) { controller.fail(error instanceof Error ? error.stack ?? error.message : String(error)); }
+  controller.addEvidence("phase1", {
+    passes, frameCount: renderer.frame_count,
+    geometry: residency.evidence(), gpuErrors: scoped.errors
+  });
+  status.textContent = "passed";
+  controller.transition("draining");
+  controller.pass();
+} catch (error) {
+  controller.fail(error instanceof Error ? error.stack ?? error.message : String(error));
+}

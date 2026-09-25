@@ -11,7 +11,7 @@ export type GpuSubmitOwnerKind =
   | "recovery";
 
 const GPU_SUBMIT_OWNER_BY_LABEL = new Map<string, GpuSubmitOwnerKind>([
-  ["Renderer/main-0", "render-frame"],
+  ["Renderer/visibility-frame", "render-frame"],
   ["GraphicsContext/one-shot-maintenance", "one-shot"],
   ["LPV/generate-locations", "tool"],
   ["LPV/dering", "tool"],

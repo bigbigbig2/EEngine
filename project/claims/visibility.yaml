@@ -1,28 +1,30 @@
 schemaVersion: 2
 claims:
   - id: visibility.gpu-closure
+    lifecycle: retired
     domain: visibility
     owner: visibility
     statement: GPU work generation and visibility output are consumed by GPU indirect and shading stages without CPU visible-list traversal.
     level: L3
     requiredChecks: [model, registry, evidence-provenance]
     evidencePolicy:
-      allOf: [sparse-shading-production, virtual-product-production]
+      allOf: []
       anyOf: []
-      diagnosticCases: [shading-bin-component, sparse-shading-candidate]
-      checkOnly: false
+      diagnosticCases: [shading-bin-component, phase1-visibility]
+      checkOnly: true
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [OEngine/src/render/passes/**, OEngine/src/render/MeshletBucketRaster.ts, OEngine/src/shaders/**]
   - id: visibility.feature-off
+    lifecycle: retired
     domain: visibility
     owner: visibility
     statement: Disabled visibility and sparse-shading features remove their work, resources, and submits at frame construction.
     level: L3
     requiredChecks: [registry, changed-coverage, evidence-provenance]
     evidencePolicy:
-      allOf: [sparse-shading-candidate]
+      allOf: []
       anyOf: []
       diagnosticCases: []
-      checkOnly: false
+      checkOnly: true
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [OEngine/src/render/pipeline/**, OEngine/src/render/passes/**, OEngine/src/shaders/**]

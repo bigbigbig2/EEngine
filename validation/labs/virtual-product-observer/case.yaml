@@ -17,7 +17,7 @@ changedPaths:
   - OEngine/src/assets/web-cook
   - OEngine/src/assets/geometry-product
   - OEngine/src/render/Renderer.ts
-  - OEngine/src/render/pipeline/MainRenderPipeline.ts
+  - OEngine/src/render/pipeline/RendererCore.ts
   - OEngine/src/gpu/GeometryProductAdmission.ts
   - OEngine/src/gpu/VirtualGeometryResidency.ts
 errorAllowlist:

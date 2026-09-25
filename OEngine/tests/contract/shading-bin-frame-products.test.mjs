@@ -135,19 +135,6 @@ test("production SpecializedShadingFrame validates one exact internal-full compo
   assert.equal(specializedShadingFinalControl(direct), 30);
 });
 
-test("production SurfaceFeature owns the complete ShadingBin composition", async () => {
-  const [surface, mainPipeline] = await Promise.all([
-    readFile(new URL("../../src/render/features/SurfaceFeature.ts", import.meta.url), "utf8"),
-    readFile(new URL("../../src/render/pipeline/MainRenderPipeline.ts", import.meta.url), "utf8")
-  ]);
-  assert.match(surface, /SparseShading\/clear \+ classify production Visibility MRT/u);
-  assert.match(surface, /SparseShading\/finalize production indirect arguments/u);
-  assert.match(surface, /SparseShading\/active-bin production indirect resolve/u);
-  assert.match(surface, /specializedShadingFrame\(/u);
-  assert.match(mainPipeline, /specializedShadingFinalControl\(specializedShading\)/u);
-  assert.doesNotMatch(mainPipeline, /specializedShading\?\.bins\?\.heap \?\? null/u);
-});
-
 test("compact Surface consumers validate depth before every background-sensitive read", async () => {
   const [gtao, ssgi, ssrResolve, ssrDenoise] = await Promise.all([
     readFile(new URL("../../src/shaders/gtao.ts", import.meta.url), "utf8"),

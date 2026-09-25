@@ -15,6 +15,40 @@ config:
     - validation/cases/registry.json
     - validation/src/host
     - project/claims/requirements.yaml
+    - OEngine/src/render/pipeline/FrameContext.ts
+    - OEngine/src/render/pipeline/SceneFrameBindings.ts
+    - OEngine/src/addons/debug/RendererDebugController.ts
+    - OEngine/src/addons/debug/RendererDebugUI.ts
+    - OEngine/src/addons/debug/RendererInfoModel.ts
+    - OEngine/src/render/MainFrameFeatureTopology.ts
+    - OEngine/src/render/features/AOService.ts
+    - OEngine/src/render/features/GIService.ts
+    - OEngine/src/render/features/LightingFeature.ts
+    - OEngine/src/render/features/PostFeature.ts
+    - OEngine/src/render/features/ReflectionService.ts
+    - OEngine/src/render/features/ScreenSpaceDiffuseService.ts
+    - OEngine/src/render/features/ShadowFeature.ts
+    - OEngine/src/render/features/ShadowFeatureManager.ts
+    - OEngine/src/render/features/TemporalFeature.ts
+    - OEngine/src/render/features/TransparencyFeature.ts
+    - OEngine/src/render/passes/BloomPass.ts
+    - OEngine/src/render/passes/GtaoPass.ts
+    - OEngine/src/render/passes/LongRangeDiffuseProviderPass.ts
+    - OEngine/src/render/passes/NeuralSuperSamplingPass.ts
+    - OEngine/src/render/passes/OpaqueLightingResolvePass.ts
+    - OEngine/src/render/passes/PackedCsmShadowPass.ts
+    - OEngine/src/render/passes/ScreenSpaceDiffuseResolvePass.ts
+    - OEngine/src/render/passes/ScreenSpaceReflectionsPass.ts
+    - OEngine/src/render/passes/SpecularCorrectionPass.ts
+    - OEngine/src/render/passes/SsgiPass.ts
+    - OEngine/src/render/passes/TemporalAntiAliasingPass.ts
+    - OEngine/src/render/passes/TemporalClassificationPass.ts
+    - OEngine/src/render/passes/TonemapPass.ts
+    - OEngine/src/render/pipeline/FramePlan.ts
+    - OEngine/src/render/pipeline/MainRenderPipeline.ts
+    - OEngine/src/render/pipeline/MainRenderPipelineGraphKey.ts
+    - OEngine/src/render/pipeline/OptionalFrameFeatures.ts
+    - OEngine/src/framegraph/FrameGraphNotes.ts
   inspectValidationScripts: true
   validationPackages:
     - validation/package.json

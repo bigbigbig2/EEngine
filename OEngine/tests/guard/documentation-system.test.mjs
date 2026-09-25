@@ -84,7 +84,7 @@ test("Next renderer routes expose their primary owner and active cut", async () 
     const context = JSON.parse(execFileSync(process.execPath, ["tools/vibe.mjs", "context", input], { cwd: repoRoot, encoding: "utf8" }));
     assert.ok(context.decisions.includes("ADR-0020"), input);
     assert.ok(context.sources.includes("next-renderer-reference"), input);
-    assert.equal(context.workstreams.find((item) => item.id === "eengine-next-clean-rebuild")?.currentSlice.id, "cut-old-composition", input);
+    assert.equal(context.workstreams.find((item) => item.id === "eengine-next-clean-rebuild")?.currentSlice.id, "rebuild-surface-material", input);
   }
 });
 

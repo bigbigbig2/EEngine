@@ -14,54 +14,58 @@ claims:
     allowedDeclarations: [ImplementationComplete, RuntimeValidated]
     watch: [OEngine/src/assets/web-cook/**, OEngine/src/assets/geometry-product/**, validation/cases/web-authored-large-cook-k0/**, validation/workloads/web-authored-large-cook-k0-v1.yaml]
   - id: virtual-assets.product-consumer
+    lifecycle: retired
     domain: virtual-assets
     owner: virtual-assets
     statement: Web and Offline sources enter one producer-neutral Product admission and GPU residency consumer.
     level: L3
     requiredChecks: [model, registry, evidence-provenance]
     evidencePolicy:
-      allOf: [glb-web-product, virtual-product-offline, virtual-product-production, web-authored-large-runtime-k1]
+      allOf: []
       anyOf: []
-      diagnosticCases: [oegpack-v3-component, virtual-geometry-component, virtual-product-replacement, virtual-product-observer]
-      checkOnly: false
+      diagnosticCases: [oegpack-v3-component, virtual-geometry-component, virtual-product-observer]
+      checkOnly: true
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
-    watch: [OEngine/src/assets/**, OEngine/src/gpu/GeometryProductAdmission.ts, OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/gpu/GpuRenderWorld.ts, OEngine/src/gpu/GpuScene.ts, OEngine/src/render/pipeline/MainRenderPipeline.ts]
+    watch: [OEngine/src/assets/**, OEngine/src/gpu/GeometryProductAdmission.ts, OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/gpu/GpuRenderWorld.ts, OEngine/src/gpu/GpuScene.ts, OEngine/src/render/pipeline/RendererCore.ts]
   - id: virtual-assets.web-cook
+    lifecycle: retired
     domain: virtual-assets
     owner: virtual-assets
     statement: A bounded Web GLB CookSession produces a validated Product consumed by the production renderer.
     level: L3
     requiredChecks: [registry, changed-coverage, evidence-provenance]
     evidencePolicy:
-      allOf: [glb-bootstrap-priority, glb-incremental-publication, glb-web-product-authored-texture, glb-web-product]
+      allOf: []
       anyOf: []
-      diagnosticCases: [glb-web-product-isolated-pthreads, glb-web-product-portable-pool, virtual-product-observer]
-      checkOnly: false
+      diagnosticCases: [virtual-product-observer]
+      checkOnly: true
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
     watch: [OEngine/src/assets/web-cook/**, OEngine/src/loaders/gltf/streaming/**]
   - id: virtual-assets.lifecycle
+    lifecycle: retired
     domain: virtual-assets
     owner: virtual-assets
     statement: Product replacement, page demand, and device recovery preserve generation and ownership boundaries.
     level: L3
     requiredChecks: [registry, changed-coverage, evidence-provenance]
     evidencePolicy:
-      allOf: [glb-incremental-publication, virtual-product-device-loss, virtual-product-replacement]
+      allOf: []
       anyOf: []
-      diagnosticCases: [glb-web-product-isolated-pthreads, glb-web-product-portable-pool, virtual-product-offline]
-      checkOnly: false
+      diagnosticCases: []
+      checkOnly: true
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [OEngine/src/gpu/VirtualGeometryResidency.ts, OEngine/src/gpu/GeometryPageStreamingRuntime.ts, OEngine/src/render/Renderer.ts]
   - id: virtual-assets.performance
+    lifecycle: retired
     domain: virtual-assets
     owner: virtual-assets
     statement: The fixed 477,591,060-byte authored large scene completes work-bounded Web runtime cook, covers all 1,920 catalog primitives, reaches the production renderer, and produces reproducible formal performance evidence under one frozen identity.
     level: L4
     requiredChecks: [model, registry, changed-coverage, evidence-provenance, engine-suites]
     evidencePolicy:
-      allOf: [web-authored-large-perf]
+      allOf: []
       anyOf: []
       diagnosticCases: [web-authored-large-cook-k0]
-      checkOnly: false
+      checkOnly: true
     allowedDeclarations: [PerformanceEvaluated]
     watch: [validation/cases/web-authored-large-perf/**, validation/workloads/web-authored-large-cook-k0-v1.yaml, validation/workloads/web-authored-large-runtime-smoke-v1.yaml, validation/workloads/web-authored-large-perf-v1.yaml, OEngine/src/debug/FormalPerfFreeze.ts, docs/specs/web-geometry-authored-large-gate-v1.md, docs/specs/web-geometry-formal-perf-freeze-v1.md]

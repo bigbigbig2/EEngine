@@ -438,14 +438,6 @@ export type {
 } from "./geometry/GeometryHierarchy.js";
 export { Camera } from "./camera/Camera.js";
 export { DirectionalLight } from "./light/DirectionalLight.js";
-export {
-  FramePlan,
-  createRendererFramePlan,
-  type FramePlanDump,
-  type FramePlanStageDefinition,
-  type FramePlanStageDump,
-  type FramePlanFrequency
-} from "./render/pipeline/FramePlan.js";
 export { Light } from "./light/Light.js";
 export { Mesh } from "./scene/Mesh.js";
 export { Node3D } from "./scene/Node3D.js";
@@ -456,15 +448,7 @@ export { PointLight } from "./light/PointLight.js";
 export { ProjectionMappingType } from "./loaders/ProjectionMappingType.js";
 export {
   Renderer,
-  type AmbientOcclusionRuntimeEvidence,
-  type FinalOutputRuntimeEvidence,
-  type RendererCapabilities,
-  type ScreenSpaceGiRuntimeEvidence,
-  type ScreenSpaceReflectionsRuntimeEvidence,
-  type SharedColorPyramidRuntimeEvidence,
-  type SharedDerivedProductsRuntimeEvidence,
-  type TemporalRuntimeEvidence,
-  type TextureResidencyEvidence
+  type RendererCapabilities
 } from "./render/Renderer.js";
 export type {
   MultiProductSceneHandles,
@@ -475,11 +459,10 @@ export type {
   ProductSceneSourceMapper,
   ProductSceneState,
   WebCookedSceneOptions
-} from "./render/pipeline/MainRenderPipeline.js";
+} from "./render/pipeline/RendererCore.js";
 export {
   DEFAULT_RENDERER_CONFIG,
   mergeRendererConfig,
-  rendererConfigSettingsPatch,
   validateRendererConfig
 } from "./render/RendererConfig.js";
 export type { RendererConfig } from "./render/RendererConfig.js";
@@ -487,15 +470,6 @@ export type {
   RendererDebugConfig,
   ResolvedRendererDebugConfig
 } from "./addons/debug/RendererDebugConfig.js";
-export type { RendererDebugController } from "./addons/debug/RendererDebugController.js";
-export type {
-  RendererInfoAvailability,
-  RendererInfoRow,
-  RendererInfoSection,
-  RendererInfoSectionId,
-  RendererInfoSnapshot,
-  RendererInfoValue
-} from "./addons/debug/RendererInfoModel.js";
 export { createRenderFrameContract } from "./render/RenderFrameContract.js";
 export type { RenderFrameContract } from "./render/RenderFrameContract.js";
 export {

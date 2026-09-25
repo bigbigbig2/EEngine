@@ -1,171 +1,55 @@
-import type { RenderSettingsPatch } from "./pipeline/RenderSettings.js";
-import type { ScreenSpaceDiffuseMode } from "./pipeline/FrameProducts.js";
-import type { RendererDebugConfig } from "../addons/debug/RendererDebugConfig.js";
-
-/**
- * Renderer 初始化配置。配置只在创建/初始化时作为默认值应用，运行时数值调整
- * 仍通过 Renderer.configure()，避免各 Pass 自己持有一份默认参数。
- */
+/** Phase 1 Renderer configuration. Effects return through semantic products in later phases. */
 export interface RendererConfig {
-  /** Development-only renderer controls and read-only runtime information. */
-  readonly debug?: boolean | RendererDebugConfig;
-  /** RenderSettings 的完整增量；优先级高于下方便捷开关。 */
-  readonly renderSettings?: RenderSettingsPatch;
-  /** 便捷配置会被转换为统一 RenderSettings patch。 */
-  /** Initial fixed internal scale; adaptive policy belongs to renderSettings.resolution. */
+  /** Internal visibility resolution relative to the output, in (0, 1]. */
   readonly renderScale?: number;
-  readonly aoScale?: 0.5 | 1;
-  readonly ssrScale?: 0.5 | 1;
-  readonly screenSpaceDiffuseMode?: ScreenSpaceDiffuseMode;
-  readonly enableSSSR?: boolean;
-  readonly enableTAAU?: boolean;
-  /** Maximum per-layer resolution used by the packed texture residency bank. */
   readonly textureMaxResolution?: 256 | 512 | 1024 | 2048 | 4096;
-  /** Optional bounded capacities for the 256/512/1024/2048/4096 logical banks. */
   readonly textureBankMaxCapacities?: readonly [number, number, number, number, number];
-  /** Explicit bulk Geometry upload/residency ceilings for the selected workload. */
   readonly geometryResidency?: Readonly<{
     readonly maxUploadBytes?: number;
     readonly maxResidentBytes?: number;
   }>;
-  /** 提交给 adapter/device 的额外必需能力；缺失时初始化明确失败。 */
   readonly requiredFeatures?: readonly GPUFeatureName[];
-  /** 额外的最小设备限制；缺失时初始化明确失败。 */
   readonly requiredLimits?: Readonly<{
     maxStorageBuffersPerShaderStage?: number;
     maxColorAttachmentBytesPerSample?: number;
   }>;
 }
 
-/**
- * 产品默认：固定中等偏高配置，效果默认开启；不是独立质量管线。
- */
-export const DEFAULT_RENDERER_CONFIG: RendererConfig = Object.freeze({
-  renderScale: 1,
-  aoScale: 0.5,
-  ssrScale: 0.5,
-  screenSpaceDiffuseMode: "gtao",
-  enableSSSR: true,
-  enableTAAU: true
-});
+export const DEFAULT_RENDERER_CONFIG: RendererConfig = Object.freeze({ renderScale: 1 });
 
-export function mergeRendererConfig(
-  base: RendererConfig,
-  override: RendererConfig | undefined
-): RendererConfig {
-  if (override === undefined) return base;
-  const settings = {
-    ...base.renderSettings,
-    ...override.renderSettings,
-    features: {
-      ...base.renderSettings?.features,
-      ...override.renderSettings?.features
-    },
-    ao: { ...base.renderSettings?.ao, ...override.renderSettings?.ao },
-    ssgi: { ...base.renderSettings?.ssgi, ...override.renderSettings?.ssgi },
-    ssr: { ...base.renderSettings?.ssr, ...override.renderSettings?.ssr },
-    temporal: {
-      ...base.renderSettings?.temporal,
-      ...override.renderSettings?.temporal
-    },
-    shadows: {
-      ...base.renderSettings?.shadows,
-      ...override.renderSettings?.shadows
-    },
-    post: { ...base.renderSettings?.post, ...override.renderSettings?.post },
-    physicalScale: {
-      ...base.renderSettings?.physicalScale,
-      ...override.renderSettings?.physicalScale
-    },
-    resolution: {
-      ...base.renderSettings?.resolution,
-      ...override.renderSettings?.resolution
-    }
-  };
+export function mergeRendererConfig(base: RendererConfig, override?: RendererConfig): RendererConfig {
+  if (!override) return base;
   return Object.freeze({
-    ...base,
-    ...override,
-    renderSettings: settings,
-    requiredFeatures: Object.freeze([
-      ...(base.requiredFeatures ?? []),
-      ...(override.requiredFeatures ?? [])
-    ]),
-    requiredLimits: Object.freeze({
-      ...base.requiredLimits,
-      ...override.requiredLimits
-    }),
-    geometryResidency: Object.freeze({
-      ...base.geometryResidency,
-      ...override.geometryResidency
-    })
+    ...base, ...override,
+    requiredFeatures: Object.freeze([...(base.requiredFeatures ?? []), ...(override.requiredFeatures ?? [])]),
+    requiredLimits: Object.freeze({ ...base.requiredLimits, ...override.requiredLimits }),
+    geometryResidency: Object.freeze({ ...base.geometryResidency, ...override.geometryResidency })
   });
 }
 
-/** 将产品便捷字段归一化为唯一 RenderSettings patch。 */
-export function rendererConfigSettingsPatch(
-  config: RendererConfig
-): RenderSettingsPatch {
-  return {
-    ...config.renderSettings,
-    features: {
-      ...(config.screenSpaceDiffuseMode === undefined
-        ? {}
-        : { screenSpaceDiffuseMode: config.screenSpaceDiffuseMode }),
-      ...(config.enableSSSR === undefined
-        ? {}
-        : { screenSpaceReflections: config.enableSSSR }),
-      ...(config.enableTAAU === undefined
-        ? {}
-        : { temporalAntiAliasing: config.enableTAAU }),
-      ...config.renderSettings?.features
-    },
-    ao: {
-      ...(config.aoScale === undefined ? {} : { resolutionScale: config.aoScale }),
-      ...config.renderSettings?.ao
-    },
-    ssgi: { ...config.renderSettings?.ssgi },
-    ssr: {
-      ...(config.ssrScale === undefined ? {} : { resolutionScale: config.ssrScale }),
-      ...config.renderSettings?.ssr
-    },
-    resolution: {
-      ...(config.renderScale === undefined ? {} : { internalScale: config.renderScale }),
-      ...config.renderSettings?.resolution
-    }
-  };
-}
-
 export function validateRendererConfig(config: RendererConfig): void {
-  if (typeof config.debug === "object") {
-    const rate = config.debug.infoRefreshRate;
-    if (rate !== undefined && (!Number.isFinite(rate) || rate < 1 || rate > 10)) {
-      throw new RangeError("Renderer debug infoRefreshRate must be between 1 and 10 Hz");
-    }
+  if (config.renderScale !== undefined &&
+      (!Number.isFinite(config.renderScale) || config.renderScale <= 0 || config.renderScale > 1)) {
+    throw new RangeError("Renderer renderScale must be in (0, 1]");
   }
   if (config.textureMaxResolution !== undefined &&
       ![256, 512, 1024, 2048, 4096].includes(config.textureMaxResolution)) {
-    throw new RangeError("textureMaxResolution must be one of 256, 512, 1024, 2048 or 4096");
+    throw new RangeError("textureMaxResolution must be a supported texture bank size");
   }
-  if (config.textureBankMaxCapacities !== undefined) {
-    for (const [index, capacity] of config.textureBankMaxCapacities.entries()) {
-      if (!Number.isInteger(capacity) || capacity < 1) {
-        throw new RangeError(`textureBankMaxCapacities[${index}] must be a positive integer`);
-      }
+  for (const [index, capacity] of (config.textureBankMaxCapacities ?? []).entries()) {
+    if (!Number.isInteger(capacity) || capacity < 1) {
+      throw new RangeError(`textureBankMaxCapacities[${index}] must be positive`);
     }
   }
   for (const [name, value] of Object.entries(config.geometryResidency ?? {})) {
     if (!Number.isSafeInteger(value) || value <= 0 || value % 4 !== 0) {
-      throw new RangeError(
-        `Renderer geometryResidency '${name}' must be a positive, 4-byte-aligned safe integer`
-      );
+      throw new RangeError(`geometryResidency.${name} must be a positive 4-byte-aligned integer`);
     }
   }
   for (const feature of config.requiredFeatures ?? []) {
-    if (feature.length === 0) throw new Error("Renderer required feature must not be empty");
+    if (!feature) throw new Error("Required WebGPU feature must not be empty");
   }
-  for (const [name, value] of Object.entries(config.requiredLimits ?? {})) {
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new RangeError(`Renderer required limit '${name}' must be positive`);
-    }
+  for (const [name, limit] of Object.entries(config.requiredLimits ?? {})) {
+    if (!Number.isFinite(limit) || limit <= 0) throw new RangeError(`requiredLimits.${name} must be positive`);
   }
 }

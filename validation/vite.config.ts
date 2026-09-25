@@ -93,16 +93,7 @@ export default defineConfig({
         "oegpack-v3-component": resolve(root, "cases/oegpack-v3-component/index.html"),
         "virtual-geometry-component": resolve(root, "cases/virtual-geometry-component/index.html"),
         "shading-bin-component": resolve(root, "cases/shading-bin-component/index.html"),
-        "shading-resolve-component": resolve(root, "cases/shading-resolve-component/index.html"),
-        "sparse-shading-candidate": resolve(root, "cases/sparse-shading-candidate/index.html"),
-        "sparse-shading-production": resolve(root, "cases/sparse-shading-production/index.html"),
-        "virtual-product-production": resolve(root, "cases/virtual-product-production/index.html"),
-        "glb-web-product": resolve(root, "cases/glb-web-product/index.html"),
-        "glb-incremental-publication": resolve(root, "cases/glb-incremental-publication/index.html"),
-        "virtual-product-replacement": resolve(root, "cases/virtual-product-replacement/index.html"),
-        "virtual-product-device-loss": resolve(root, "cases/virtual-product-device-loss/index.html"),
-        "virtual-product-offline": resolve(root, "cases/virtual-product-offline/index.html"),
-        "web-authored-large-perf": resolve(root, "cases/web-authored-large-perf/index.html"),
+        "phase1-visibility": resolve(root, "cases/phase1-visibility/index.html"),
         "web-authored-large-cook-k0": resolve(root, "cases/web-authored-large-cook-k0/index.html"),
         "virtual-product-observer": resolve(root, "labs/virtual-product-observer/index.html")
       }

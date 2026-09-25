@@ -86,23 +86,3 @@ test("persistent texture owners reuse their default view", () => {
   assert.equal(viewCreationCount, 1);
   texture.destroy();
 });
-
-test("the main graph retains environment texture owners instead of raw textures", () => {
-  const pipeline = readFileSync(
-    path.join(oengineRoot, "src", "render", "pipeline", "MainRenderPipeline.ts"),
-    "utf8"
-  );
-
-  assert.match(
-    pipeline,
-    /bind\("environment", \(bindings\) => bindings\.environment\.lights\.environment\)/u
-  );
-  assert.match(
-    pipeline,
-    /bindings\.environment\.lights\.diffuseIrradiance\)/u
-  );
-  assert.doesNotMatch(
-    pipeline,
-    /bindings\.environment\.lights\.(?:environment|diffuseIrradiance)\.gpu_texture/u
-  );
-});

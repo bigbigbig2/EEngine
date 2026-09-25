@@ -115,89 +115,6 @@ test("benchmark environment preserves clean-build content provenance", () => {
   assert.equal(manifest.engine.contentHash, "sha256-content");
 });
 
-const { resolveFrameSceneOwners } = await import(
-  "../../.test-dist/render/pipeline/SceneFrameBindings.js"
-);
-const {
-  computePracticalCascadeSplits,
-  snapShadowBoundsToTexelGrid
-} = await import("../../.test-dist/render/features/ShadowFeature.js");
-const { createFrameContext } = await import(
-  "../../.test-dist/render/pipeline/FrameContext.js"
-);
-const { createMainRenderPipelineGraphKey } = await import(
-  "../../.test-dist/render/pipeline/MainRenderPipelineGraphKey.js"
-);
-
-test("FrameContext freezes topology-bearing frame values", () => {
-  const context = createFrameContext({
-    frameIndex: 7,
-    timeDeltaSeconds: 1 / 60,
-    camera: { id: 1 },
-    view: { id: 2 },
-    resolution: {
-      internalWidth: 960,
-      internalHeight: 540,
-      outputWidth: 1920,
-      outputHeight: 1080,
-    },
-    featureTopology: { enabledFeatureBits: 3 },
-    history: { formatRevision: 3, color: 1, gtao: 0, ssgi: 0, ssr: 0 },
-    preExposure: { multiplier: 1, generation: 0, colorSpace: "working-linear" },
-    scene: { id: 4 },
-    instrumentation: {
-      sampleGpuTimestamps: false,
-      sampleGpuCounters: false,
-      debugFrameIndex: null,
-    },
-    capture: null,
-  });
-
-  assert.equal(Object.isFrozen(context), true);
-  assert.equal(Object.isFrozen(context.resolution), true);
-  assert.equal(Object.isFrozen(context.history), true);
-  assert.equal(Object.isFrozen(context.preExposure), true);
-  assert.equal(Object.isFrozen(context.instrumentation), true);
-  assert.throws(() => { context.resolution.internalWidth = 1; }, TypeError);
-});
-
-test("main graph key changes for every compiled topology dimension", () => {
-  const base = {
-    capability: "timestamp-query",
-    resolution: {
-      internalWidth: 960,
-      internalHeight: 540,
-      outputWidth: 1920,
-      outputHeight: 1080,
-    },
-    featureTopology: 3,
-    visibilityConfiguration: "meshlet-visibility-key-v2",
-    visibilityWorkCapacity: 64,
-    sparseShadingRevision: 7,
-    instrumentation: "none",
-    instrumentationRevision: 5,
-    historyFormat: 3,
-    outputFormat: "bgra8unorm",
-  };
-  const baseline = createMainRenderPipelineGraphKey(base);
-  const variants = [
-    { capability: "" },
-    { resolution: { ...base.resolution, internalWidth: 959 } },
-    { featureTopology: 4 },
-    { visibilityConfiguration: "meshlet-visibility-key-v2-hzb" },
-    { sparseShadingRevision: 8 },
-    { instrumentation: "counters" },
-    { historyFormat: 4 },
-  ];
-
-  for (const variant of variants) {
-    assert.notDeepEqual(
-      createMainRenderPipelineGraphKey({ ...base, ...variant }),
-      baseline
-    );
-  }
-});
-
 test("FrameCoordinator owns one close path for each render tick", () => {
   const commands = [];
   const coordinator = new FrameCoordinator({}, (_graphics, label) => {
@@ -223,42 +140,6 @@ test("FrameCoordinator owns one close path for each render tick", () => {
   assert.equal(commands.length, 2);
   assert.equal(commands[1].submitted, false);
   assert.equal(commands[1].closed, true);
-});
-
-test("Frame resolves the shared environment and authoritative Render World", () => {
-  const scene = {};
-  const environment = {};
-  const runtime = {};
-  let environmentObtains = 0;
-  const owners = resolveFrameSceneOwners(
-    scene,
-    { runtime: (candidate) => candidate === scene ? runtime : null },
-    {
-      obtain(candidate) {
-        assert.equal(candidate, scene);
-        environmentObtains++;
-        return environment;
-      }
-    }
-  );
-
-  assert.equal(owners.environment, environment);
-  assert.deepEqual(owners.geometry, { runtime });
-  assert.equal(environmentObtains, 1);
-});
-
-test("Unregistered ordinary Scene fails instead of entering the legacy renderer", () => {
-  const scene = {};
-  let environmentObtains = 0;
-  assert.throws(
-    () => resolveFrameSceneOwners(
-      scene,
-      { runtime: () => null },
-      { obtain: () => { environmentObtains++; return {}; } }
-    ),
-    /has no GPU Render World registration/
-  );
-  assert.equal(environmentObtains, 0);
 });
 
 test("Ordinary Scene adapter creates deterministic Packed dictionaries without GPU ownership", () => {
@@ -317,37 +198,7 @@ test("Ordinary Scene adapter fails visibly for missing residency and deferred sk
   );
 });
 
-test("Directional shadow practical splits are monotonic and close the far cascade", () => {
-  const splits = computePracticalCascadeSplits(0.1, 250, 3, 0.55);
-  assert.equal(splits.length, 3);
-  assert.ok(splits[0] > 0 && splits[0] < splits[1]);
-  assert.ok(splits[1] < splits[2]);
-  assert.equal(splits[2], 1);
-  assert.throws(
-    () => computePracticalCascadeSplits(0, 250, 3, 0.5),
-    /0 < near < far/
-  );
-});
-
-test("Directional shadow bounds snap their center to the atlas texel grid", () => {
-  const bounds = {
-    x0: -5.37,
-    x1: 4.63,
-    y0: -3.21,
-    y1: 6.79,
-    get width() { return this.x1 - this.x0; },
-    get height() { return this.y1 - this.y0; }
-  };
-  snapShadowBoundsToTexelGrid(bounds, 100, 80);
-  const texelX = bounds.width / 100;
-  const texelY = bounds.height / 80;
-  const centerX = 0.5 * (bounds.x0 + bounds.x1);
-  const centerY = 0.5 * (bounds.y0 + bounds.y1);
-  assert.ok(Math.abs(centerX / texelX - Math.round(centerX / texelX)) < 1e-5);
-  assert.ok(Math.abs(centerY / texelY - Math.round(centerY / texelY)) < 1e-5);
-});
-
-test("Shadow work queue overflow is fail-visible and never partially publishes a group", () => {
+test("Bounded work queue overflow is fail-visible and never partially publishes a group", () => {
   const state = createWorkQueueReservationState(4);
   assert.equal(reserveWorkQueueGroupReference(state, 3), 0);
   assert.equal(reserveWorkQueueGroupReference(state, 2), GPU_WORK_QUEUE_INVALID_OFFSET);

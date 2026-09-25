@@ -1,15 +1,16 @@
 schemaVersion: 2
 claims:
   - id: materials.texture-path
+    lifecycle: retired
     domain: materials-textures
     owner: materials-textures
     statement: Authored texture slots and MASK material state reach the production TextureResidency and shading identity path.
     level: L3
     requiredChecks: [registry, evidence-provenance]
     evidencePolicy:
-      allOf: [glb-web-product-authored-texture, texture-residency-component]
+      allOf: [texture-residency-component]
       anyOf: []
-      diagnosticCases: [glb-web-product-isolated-pthreads, glb-web-product-portable-pool]
+      diagnosticCases: []
       checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
     watch: [OEngine/src/assets/TextureAssetPackage.ts, OEngine/src/gpu/TextureResidency.ts, OEngine/src/gpu/GpuMaterialVisibilityAbi.ts]

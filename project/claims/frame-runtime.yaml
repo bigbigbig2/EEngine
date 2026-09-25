@@ -1,16 +1,17 @@
 schemaVersion: 2
 claims:
   - id: frame.recovery
+    lifecycle: retired
     domain: frame-runtime
     owner: frame-runtime
     statement: Public Renderer recovery negotiates a new device and rebuilds CPU scene state without retaining old GPU resources.
     level: L3
     requiredChecks: [registry, evidence-provenance]
     evidencePolicy:
-      allOf: [virtual-product-device-loss]
+      allOf: []
       anyOf: []
-      diagnosticCases: [sparse-shading-production]
-      checkOnly: false
+      diagnosticCases: []
+      checkOnly: true
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [OEngine/src/render/Renderer.ts, OEngine/src/gpu/GpuRenderWorld.ts, OEngine/src/framegraph/**]
   - id: frame.host-protocol

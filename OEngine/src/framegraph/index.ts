@@ -30,10 +30,3 @@ export {
 } from "./ReusableResourceManager.js";
 export type { ReusableResourceOwner } from "./ReusableResourceManager.js";
 export type { ResourceId, ResourceDescriptor, ResourceEntry, ResourceNode } from "./ResourceHandle.js";
-export {
-  MAIN_FRAME_GRAPH_NAME,
-  LPV_FRAME_GRAPH_NAME,
-  MAIN_COMMAND_LABEL,
-  OBSERVED_PASS_OR_RESOURCE_NAMES,
-  SUBMIT_SEQUENCE
-} from "./FrameGraphNotes.js";

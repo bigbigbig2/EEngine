@@ -1,0 +1,30 @@
+schemaVersion: 1
+id: phase1-visibility
+evidenceRole: diagnostic
+route: /cases/phase1-visibility/index.html
+buildTarget: production
+workloadId: phase1-visibility-v1
+profile: smoke
+timeoutMs: 120000
+artifacts:
+  - result
+  - events
+  - screenshot
+changedPaths:
+  - validation/cases/phase1-visibility
+  - OEngine/src/render/pipeline/RendererCore.ts
+  - OEngine/src/render/passes/VisibilityPresentPass.ts
+errorAllowlist:
+  - source: console:warning
+    exact: The powerPreference option is currently ignored when calling
+      requestAdapter() on Windows. See https://crbug.com/369219127
+    reason: Chrome stable emits this platform warning during adapter negotiation.
+    ownerClaim: visibility.gpu-closure
+harness: production
+domain: visibility
+caseKind: production
+kind: gpu
+level: L2
+covers:
+  - visibility.gpu-closure
+decision: ADR-0020

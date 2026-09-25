@@ -169,12 +169,14 @@ test("invalid subgroup ranges and post-device capability loss fail structurally"
   );
 });
 
-test("Step 7 production Renderer preflights and records the sparse-shading baseline", () => {
-  const source = readFileSync(new URL("../../src/render/pipeline/MainRenderPipeline.ts", import.meta.url), "utf8");
-  assert.match(source, /createGpuSparseShadingCapabilityPlan/u);
-  assert.match(source, /captureGpuSparseShadingCapabilityRecord/u);
-  assert.match(source, /sparseShading:\s*this\._sparseShadingCapability/u);
-  assert.match(source, /caller-owned GPUDevice also requires its originating GPUAdapter/u);
-  assert.match(source, /for \(const feature of sparseCapabilityPlan\.requiredFeatures\)/u);
+test("Phase 1 Renderer negotiates visibility capabilities before creating GPU owners", () => {
+  const source = readFileSync(new URL("../../src/render/pipeline/RendererCore.ts", import.meta.url), "utf8");
+  const request = source.indexOf("adapter.requestDevice(");
+  const graphics = source.indexOf("new GraphicsContext(");
+  assert.ok(request >= 0 && graphics > request);
+  assert.match(source, /"indirect-first-instance"/u);
+  assert.match(source, /"texture-formats-tier1"/u);
+  assert.match(source, /VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE/u);
+  assert.match(source, /options\.device && !options\.adapter/u);
   assert.doesNotMatch(source, /subgroup-size-control/u);
 });

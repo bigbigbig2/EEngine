@@ -26,8 +26,10 @@ The authored-large route publishes independent Products/shards. `GeometryProduct
 relocates immutable shard tables into one combined metadata heap, while `GpuScene`
 writes Product slot/generation per instance and GPU demand uses global mask ranges
 plus Product-local PageID records. One streaming runtime routes delayed completions
-back to each shard residency. The renderer consumes this binding through the normal
-hierarchy, current-HZB late recheck, indirect raster, and shading pipeline.
+back to each shard residency. The Phase 1 renderer consumes this binding through
+the hierarchy, optional current-HZB late recheck, and indirect visibility raster.
+The new material shading consumer is scheduled for Phase 2; old renderer browser
+receipts do not validate the new path.
 
 The producer applies one planner budget across canonical bytes, triangles,
 vertices, and domains, emits structured Product phase traces, and configures the

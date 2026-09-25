@@ -8,14 +8,13 @@ decision: ADR-0020
 goal: Replace the production Renderer in place, then restore complete algorithm providers on one new visibility-driven pipeline.
 
 currentSlice:
-  id: cut-old-composition
-  title: Remove MainRenderPipeline ownership and bring up the minimal new visibility-to-present chain
+  id: rebuild-surface-material
+  title: Extract Surface mathematics and build the new material demand and compute shading path
   status: active
 nextTasks:
-  - Freeze the pre-cut Git baseline; identify and retire old claim/check expectations in the same code batch that removes their producers.
-  - Replace Renderer inheritance and old recipe/feature topology with one new frame entry, GPU Scene publication, visibility, debug/base-color output, and present.
-  - Preserve GPU Scene, VG, hardware visibility, FrameGraph, and the GPU producer-consumer closure; remove orphaned old effect passes and submits.
-  - After the minimal chain, move Surface math into new owners and implement full/coarse/reuse semantics before porting old effects.
+  - Extract existing visibility decode, interpolation, derivative, UV, texture-bank, and PBR mathematics from the dormant old Surface/Sparse owner with source-to-new-owner comparisons.
+  - Define the new Surface Product semantics and bounded ShadingWork producer-consumer contract, then connect material demand and compute shading to the single Renderer frame.
+  - Implement valid full/coarse/reconstructed coverage before enabling history reuse; remove the old Surface/Sparse owner after its required mathematics and invariants have moved.
 
 contracts:
   - render-product-work-history-v2
@@ -28,9 +27,11 @@ claims:
 completedMilestones:
   - id: superseded-m1-preparation
     result: Prior foundation and source survey remain in Git and the source ledger; the behavior-preserving M1 composition task and proposed render-product-work-history-v1 contract were abandoned by ADR-0020. No new runtime is claimed.
+  - id: phase1-single-path-cut
+    result: The pre-cut baseline is tagged locally. Renderer inheritance, old composition/effect owners, obsolete checks and browser cases were removed together. The single GPU Scene to indirect VisibilityKey/depth to HZB to diagnostic present chain passed a dirty-tree browser diagnostic including resize; this is not formal Runtime Validated or performance evidence.
 tasks:
   - id: cut-old-composition
-    state: active
+    state: done
     title: Delete old composition ownership and boot one minimal Renderer path
     dependsOn: []
     exitCriteria:
@@ -39,7 +40,7 @@ tasks:
       - Old claims and checks that no longer describe current code are retired or rewritten in the same cut.
       - Every old production owner actually deleted by this slice is added to checks/guards/legacy.yaml retiredPaths in the same code batch; existing paths are not retired early.
   - id: rebuild-surface-material
-    state: todo
+    state: active
     title: Extract correct Surface mathematics and replace old sparse owner with material/frequency/compute shading
     dependsOn: [cut-old-composition]
     exitCriteria:
@@ -74,8 +75,8 @@ requiredEvidence:
   - Source-to-production mapping and focused reference comparison for each selected complete algorithm profile.
   - Independent browser and formal GPU/performance evidence only when runtime or performance claims are made.
 openGates:
-  - Phase 1 must rework old current-code claims and test expectations with the code cut; acceptance of ADR-0020 does not transfer old evidence.
-  - The pre-cut renderer Git baseline still needs a fixed tag before production code is deleted; the source ledger is pinned but the new upstream algorithms remain unported.
+  - Phase 1 has only a dirty-tree diagnostic browser run; clean-revision formal runtime and performance evidence must be captured on the new chain when such claims are made.
+  - The pre-cut renderer tag is local. The source ledger is pinned, but the selected new upstream algorithms remain unported.
   - GPU Work Runtime is not complete when only MeshletWork uses a preflight helper; ShadingWork and later Ray/Page consumers must demonstrate shared control semantics with specialized physical ABIs.
   - WebGPU VSM page raster bounds, Atlas dynamic software-BVH updates, adaptive shading benefit, a complete WebGPU VT profile, and FSR3 WGSL adaptation remain unproven.
   - Screen GI has source candidates but no selected WebGPU port profile or finalized near/world/sky energy boundary; VRS classification is not an adaptive compute shading implementation.

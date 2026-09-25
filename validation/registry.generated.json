@@ -4,266 +4,6 @@
       "artifacts": [
         "result",
         "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/glb-bootstrap-priority",
-        "OEngine/src/assets/web-cook",
-        "OEngine/src/loaders/gltf/streaming",
-        "examples/assets/three/rendering-lab"
-      ],
-      "covers": [
-        "virtual-assets.web-cook"
-      ],
-      "decision": "ADR-0016",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.web-cook",
-          "reason": "Chrome stable emits this platform warning while the Web GLB Product device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "glb-bootstrap-priority",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/glb-bootstrap-priority/index.html",
-      "timeoutMs": 300000,
-      "workloadId": "glb-bootstrap-priority-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/glb-incremental-publication",
-        "validation/package.json",
-        "OEngine/src/assets/web-cook",
-        "OEngine/src/assets/geometry-product",
-        "OEngine/src/gpu/GeometryPageScheduler.ts",
-        "OEngine/src/gpu/GeometryPageStreamingRuntime.ts",
-        "OEngine/src/gpu/GeometryProductAdmission.ts",
-        "OEngine/src/gpu/VirtualGeometryResidency.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
-      ],
-      "covers": [
-        "virtual-assets.web-cook",
-        "virtual-assets.lifecycle"
-      ],
-      "decision": "ADR-0017",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.web-cook",
-          "reason": "Chrome stable emits this platform warning while the incremental publication case captures the device.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "glb-incremental-publication",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/glb-incremental-publication/index.html",
-      "timeoutMs": 300000,
-      "workloadId": "glb-incremental-publication-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/glb-web-product",
-        "OEngine/src/assets/web-cook",
-        "OEngine/src/loaders/gltf/streaming",
-        "OEngine/src/gpu/TextureResidency.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
-      ],
-      "covers": [
-        "virtual-assets.web-cook",
-        "materials.texture-path"
-      ],
-      "decision": "ADR-0016",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.web-cook",
-          "reason": "Chrome stable emits this platform warning while the authored texture Product device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "glb-web-product-authored-texture",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/glb-web-product/index.html?source=authored-texture&case=glb-web-product-authored-texture&workload=glb-web-product-authored-texture-v1",
-      "sourceCase": "glb-web-product",
-      "timeoutMs": 240000,
-      "workloadId": "glb-web-product-authored-texture-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/glb-web-product",
-        "validation/vite.config.ts",
-        "validation/public/assets/oengine",
-        "OEngine/src/assets/web-cook",
-        "OEngine/src/loaders/gltf/streaming",
-        "OEngine/src/gpu/GeometryProductAdmission.ts",
-        "OEngine/src/gpu/VirtualGeometryResidency.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
-      ],
-      "covers": [
-        "virtual-assets.web-cook",
-        "virtual-assets.lifecycle",
-        "materials.texture-path"
-      ],
-      "decision": "ADR-0016",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.web-cook",
-          "reason": "Chrome stable emits this platform warning while the isolated pthread Web GLB Product device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "diagnostic",
-      "harness": "production",
-      "id": "glb-web-product-isolated-pthreads",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/glb-web-product/index.html?source=authored-texture&profile=isolated-pthreads&case=glb-web-product-isolated-pthreads&workload=glb-web-product-bootstrap-v1",
-      "sourceCase": "glb-web-product",
-      "timeoutMs": 240000,
-      "workloadId": "glb-web-product-bootstrap-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/glb-web-product",
-        "validation/public/assets/oengine",
-        "OEngine/src/assets/web-cook",
-        "OEngine/src/loaders/gltf/streaming",
-        "OEngine/src/gpu/GeometryProductAdmission.ts",
-        "OEngine/src/gpu/VirtualGeometryResidency.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
-      ],
-      "covers": [
-        "virtual-assets.web-cook",
-        "virtual-assets.lifecycle",
-        "materials.texture-path"
-      ],
-      "decision": "ADR-0016",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.web-cook",
-          "reason": "Chrome stable emits this platform warning while the portable pool Web GLB Product device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "diagnostic",
-      "harness": "production",
-      "id": "glb-web-product-portable-pool",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/glb-web-product/index.html?source=authored-texture&profile=portable-pool&case=glb-web-product-portable-pool&workload=glb-web-product-bootstrap-v1",
-      "sourceCase": "glb-web-product",
-      "timeoutMs": 240000,
-      "workloadId": "glb-web-product-bootstrap-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/glb-web-product",
-        "validation/public/assets/oengine",
-        "OEngine/src/assets/web-cook",
-        "OEngine/src/loaders/gltf/streaming",
-        "OEngine/src/gpu/GeometryProductAdmission.ts",
-        "OEngine/src/gpu/VirtualGeometryResidency.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
-      ],
-      "covers": [
-        "virtual-assets.web-cook",
-        "virtual-assets.product-consumer"
-      ],
-      "decision": "ADR-0016",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.web-cook",
-          "reason": "Chrome stable emits this platform warning while the Web GLB Product device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "glb-web-product",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/glb-web-product/index.html",
-      "timeoutMs": 240000,
-      "workloadId": "glb-web-product-bootstrap-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
         "readback"
       ],
       "automatic": true,
@@ -297,6 +37,44 @@
       "route": "/cases/oegpack-v3-component/index.html",
       "timeoutMs": 60000,
       "workloadId": "oegpack-v3-decode-v1"
+    },
+    {
+      "artifacts": [
+        "result",
+        "events",
+        "screenshot"
+      ],
+      "automatic": true,
+      "buildTarget": "production",
+      "caseKind": "production",
+      "changedPaths": [
+        "validation/cases/phase1-visibility",
+        "OEngine/src/render/pipeline/RendererCore.ts",
+        "OEngine/src/render/passes/VisibilityPresentPass.ts"
+      ],
+      "covers": [
+        "visibility.gpu-closure"
+      ],
+      "decision": "ADR-0020",
+      "domain": "visibility",
+      "errorAllowlist": [
+        {
+          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
+          "ownerClaim": "visibility.gpu-closure",
+          "reason": "Chrome stable emits this platform warning during adapter negotiation.",
+          "source": "console:warning"
+        }
+      ],
+      "evidenceRole": "diagnostic",
+      "harness": "production",
+      "id": "phase1-visibility",
+      "kind": "gpu",
+      "lab": false,
+      "level": "L2",
+      "profile": "smoke",
+      "route": "/cases/phase1-visibility/index.html",
+      "timeoutMs": 120000,
+      "workloadId": "phase1-visibility-v1"
     },
     {
       "artifacts": [
@@ -367,140 +145,6 @@
       "route": "/cases/shading-bin-component/index.html",
       "timeoutMs": 60000,
       "workloadId": "shading-bin-component-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "readback"
-      ],
-      "automatic": true,
-      "buildTarget": "internal-candidate",
-      "caseKind": "internal-candidate",
-      "changedPaths": [
-        "validation/cases/shading-resolve-component",
-        "OEngine/src/render/passes/SparseShadingResolvePass.ts",
-        "OEngine/src/render/passes/SparseShadingDiagnosticsPass.ts",
-        "OEngine/src/shaders/sparse_shading_resolve.ts",
-        "OEngine/src/gpu/GpuShadingMaterialAbi.ts",
-        "OEngine/src/gpu/LightDatabase.ts",
-        "OEngine/src/gpu/GpuSparseShadingFrameAbi.ts",
-        "OEngine/src/shaders/lighting_direct.ts"
-      ],
-      "covers": [
-        "shading.one-eval"
-      ],
-      "decision": "ADR-0013",
-      "domain": "shading",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "shading.one-eval",
-          "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "gpu",
-      "id": "shading-resolve-component",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/shading-resolve-component/index.html",
-      "timeoutMs": 120000,
-      "workloadId": "shading-resolve-component-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot",
-        "readback"
-      ],
-      "automatic": true,
-      "buildTarget": "internal-candidate",
-      "caseKind": "internal-candidate",
-      "changedPaths": [
-        "validation/cases/sparse-shading-candidate",
-        "OEngine/src/render/pipeline/SparseShadingCandidatePipeline.ts",
-        "OEngine/src/render/pipeline/SparseShadingCandidateExecutor.ts",
-        "OEngine/src/render/pipeline/SparseShadingCandidateRuntime.ts",
-        "OEngine/src/render/pipeline/SparseShadingGpuRevision.ts",
-        "OEngine/src/render/MeshletBucketRaster.ts",
-        "OEngine/src/render/passes/ShadingBinPass.ts",
-        "OEngine/src/render/passes/SparseShadingResolvePass.ts",
-        "OEngine/src/render/passes/TonemapPass.ts"
-      ],
-      "covers": [
-        "visibility.gpu-closure",
-        "visibility.feature-off",
-        "shading.one-eval",
-        "shading.pipeline-pruning"
-      ],
-      "decision": "ADR-0013",
-      "domain": "visibility",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "visibility.gpu-closure",
-          "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "gpu",
-      "id": "sparse-shading-candidate",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/sparse-shading-candidate/index.html",
-      "timeoutMs": 180000,
-      "workloadId": "sparse-shading-candidate-correctness-v6"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot",
-        "readback"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/sparse-shading-production",
-        "OEngine/src/render/Renderer.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
-        "OEngine/src/gpu/GpuScene.ts",
-        "OEngine/src/gpu/GpuRenderWorld.ts"
-      ],
-      "covers": [
-        "visibility.gpu-closure",
-        "shading.one-eval",
-        "frame.recovery"
-      ],
-      "decision": "ADR-0013",
-      "domain": "visibility",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "visibility.gpu-closure",
-          "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "sparse-shading-production",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/sparse-shading-production/index.html",
-      "timeoutMs": 180000,
-      "workloadId": "sparse-shading-production-correctness-v1"
     },
     {
       "artifacts": [
@@ -593,176 +237,6 @@
       "buildTarget": "production",
       "caseKind": "production",
       "changedPaths": [
-        "validation/cases/virtual-product-device-loss",
-        "OEngine/src/render/Renderer.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
-        "OEngine/src/gpu/GpuRenderWorld.ts",
-        "OEngine/src/gpu/VirtualGeometryResidency.ts",
-        "OEngine/src/assets/web-cook"
-      ],
-      "covers": [
-        "virtual-assets.lifecycle",
-        "frame.recovery"
-      ],
-      "decision": "ADR-0016",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.lifecycle",
-          "reason": "Chrome stable emits this platform warning while the recovered device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "virtual-product-device-loss",
-      "kind": "guard",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/virtual-product-device-loss/index.html",
-      "timeoutMs": 240000,
-      "workloadId": "virtual-product-device-loss-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/virtual-product-offline",
-        "validation/public/assets/oengine/offline-product-a",
-        "validation/public/assets/oengine/offline-product-b",
-        "OEngine/src/assets/geometry-product",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
-      ],
-      "covers": [
-        "virtual-assets.product-consumer",
-        "virtual-assets.lifecycle"
-      ],
-      "decision": "ADR-0016",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.product-consumer",
-          "reason": "Chrome stable emits this platform warning while the Offline Product device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "virtual-product-offline",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/virtual-product-offline/index.html",
-      "timeoutMs": 240000,
-      "workloadId": "virtual-product-offline-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot",
-        "readback"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/virtual-product-production",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
-        "OEngine/src/gpu/GpuRenderWorld.ts",
-        "OEngine/src/gpu/VirtualGeometryResidency.ts",
-        "OEngine/src/render/HierarchicalWorkGenerator.ts",
-        "OEngine/src/shaders/hierarchical_work_generation.ts",
-        "OEngine/src/render/MeshletWorkCandidate.ts",
-        "OEngine/src/render/MeshletBucketRaster.ts",
-        "OEngine/src/shaders/sparse_shading_resolve.ts"
-      ],
-      "covers": [
-        "virtual-assets.product-consumer",
-        "visibility.gpu-closure"
-      ],
-      "decision": "ADR-0016",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.product-consumer",
-          "reason": "Chrome stable emits this platform warning while the Product production device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "virtual-product-production",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/virtual-product-production/index.html",
-      "timeoutMs": 180000,
-      "workloadId": "virtual-product-production-correctness-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/virtual-product-replacement",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
-        "OEngine/src/gpu/GeometryProductAdmission.ts",
-        "OEngine/src/gpu/VirtualGeometryResidency.ts",
-        "OEngine/src/gpu/GeometryPageStreamingRuntime.ts"
-      ],
-      "covers": [
-        "virtual-assets.product-consumer",
-        "virtual-assets.lifecycle"
-      ],
-      "decision": "ADR-0016",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.product-consumer",
-          "reason": "Chrome stable emits this platform warning while the replacement device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "virtual-product-replacement",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/virtual-product-replacement/index.html",
-      "timeoutMs": 240000,
-      "workloadId": "virtual-product-replacement-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
         "validation/cases/web-authored-large-perf",
         "validation/cases/web-authored-large-cook-k0",
         "validation/workloads/web-authored-large-cook-k0-v1.yaml",
@@ -788,95 +262,6 @@
       "route": "/cases/web-authored-large-cook-k0/index.html",
       "timeoutMs": 300000,
       "workloadId": "web-authored-large-cook-k0-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "samples",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/web-authored-large-perf",
-        "validation/workloads/web-authored-large-perf-v1.yaml",
-        "validation/vite.config.ts",
-        "OEngine/src/debug/FormalPerfFreeze.ts",
-        "OEngine/src/assets/web-cook",
-        "OEngine/src/assets/geometry-product",
-        "OEngine/src/gpu/GeometryProductMultiRuntime.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
-      ],
-      "covers": [
-        "virtual-assets.performance"
-      ],
-      "decision": "ADR-0018",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.performance",
-          "reason": "Chrome stable emits this platform warning while the authored geometry PERF device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "web-authored-large-perf",
-      "kind": "perf",
-      "lab": false,
-      "level": "L4",
-      "profile": "formal-1080p",
-      "route": "/cases/web-authored-large-perf/index.html",
-      "timeoutMs": 1800000,
-      "workloadId": "web-authored-large-perf-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/web-authored-large-perf",
-        "validation/cases/web-authored-large-runtime-k1",
-        "validation/workloads/web-authored-large-runtime-k1-v1.yaml",
-        "OEngine/src/assets/web-cook",
-        "OEngine/src/assets/geometry-product",
-        "OEngine/src/gpu/GeometryProductMultiRuntime.ts",
-        "OEngine/src/gpu/GpuRenderWorld.ts",
-        "OEngine/src/gpu/GpuScene.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts"
-      ],
-      "covers": [
-        "virtual-assets.product-consumer"
-      ],
-      "decision": "ADR-0018",
-      "domain": "virtual-assets",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.product-consumer",
-          "reason": "Chrome stable emits this platform warning while the runtime smoke device is captured.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "promotion",
-      "harness": "production",
-      "id": "web-authored-large-runtime-k1",
-      "kind": "contract",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/web-authored-large-perf/index.html?case=web-authored-large-runtime-k1&workload=web-authored-large-runtime-k1-v1",
-      "sourceCase": "web-authored-large-perf",
-      "timeoutMs": 300000,
-      "workloadId": "web-authored-large-runtime-k1-v1"
     },
     {
       "artifacts": [
@@ -932,7 +317,7 @@
         "OEngine/src/assets/web-cook",
         "OEngine/src/assets/geometry-product",
         "OEngine/src/render/Renderer.ts",
-        "OEngine/src/render/pipeline/MainRenderPipeline.ts",
+        "OEngine/src/render/pipeline/RendererCore.ts",
         "OEngine/src/gpu/GeometryProductAdmission.ts",
         "OEngine/src/gpu/VirtualGeometryResidency.ts"
       ],
@@ -1122,6 +507,29 @@
       "sampleCadence": 1,
       "sampleFrames": 1,
       "seed": 16008,
+      "timestampRequired": false,
+      "warmupFrames": 1
+    },
+    "phase1-visibility-v1": {
+      "cameraPath": "single-product-triangle",
+      "deviceScaleFactor": 1,
+      "features": [
+        "product-page",
+        "hierarchy-work",
+        "meshlet-raster",
+        "visibility-key"
+      ],
+      "id": "phase1-visibility-v1",
+      "independentRuns": 1,
+      "quality": "phase1-visibility",
+      "renderScale": 1,
+      "resolution": [
+        1280,
+        720
+      ],
+      "sampleCadence": 1,
+      "sampleFrames": 2,
+      "seed": 1601,
       "timestampRequired": false,
       "warmupFrames": 1
     },
