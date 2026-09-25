@@ -233,21 +233,27 @@ try {
   unlit.diffuse_color.r = 0.1;
   unlit.diffuse_color.g = 0.7;
   unlit.diffuse_color.b = 0.9;
+  const minified = new StandardShadeMaterial();
+  minified.texture_albedo = material.texture_albedo;
+  // The logical 2x2 image lives in a 256x256 residency bank; 512x UV scale
+  // makes the physical-bank footprint reach its final 1x1 mip.
+  minified.base_color_uv_scale = [512, 512];
   source = await createProductSource();
   residency = await VirtualGeometryResidency.create(renderer.device, source, 17, 0);
   residency.activatePublication();
   const geometryProfiles = [{ hasAuthoredVertexColor: false, hasUv0: true, hasUv1: false, hasUv2: false, hasNormal: true, hasTangent: false }] as const;
   await renderer.uploadVirtualGeometryScene(scene, {
-    materials: [material, unlit], geometryProfiles, assetCount: 1,
+    materials: [material, unlit, minified], geometryProfiles, assetCount: 1,
     hierarchyMaxDepth: 2, hierarchyTraversalCapacity: 8,
     hierarchyVisibleClusterCapacity: 8, hierarchyRasterWorkCapacity: 8,
-    count: 2, geometryIndices: new Uint32Array([0, 0]),
-    materialIndices: new Uint32Array([0, 1]),
+    count: 3, geometryIndices: new Uint32Array([0, 0, 0]),
+    materialIndices: new Uint32Array([0, 1, 2]),
     currentTransforms: new Float32Array([
       1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1,
-      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.5, 0, 0, 1
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.5, 0, 0, 1,
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -1.5, 0, 0, 1
     ]),
-    boundsSpheres: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1])
+    boundsSpheres: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1])
   }, residency);
   const camera = new PerspectiveCamera();
   camera.near = 0.05;
@@ -277,10 +283,10 @@ try {
     camera.aspect = 640 / 360;
     camera.update();
     requireValue(renderer!.render(camera, scene, 1 / 60), "Renderer did not submit after resize");
-    const [red, green, blue, yellow, unlitPixel, background] = await captureDisplayPixels(renderer!.device, context,
-      [[280, 220], [360, 220], [300, 150], [340, 150], [480, 180], [100, 100]]);
+    const [red, green, blue, yellow, unlitPixel, minifiedPixel, background] = await captureDisplayPixels(renderer!.device, context,
+      [[280, 220], [360, 220], [300, 150], [340, 150], [480, 180], [160, 180], [100, 100]]);
     surfacePixels = { red: red!, green: green!, blue: blue!, yellow: yellow!,
-      unlit: unlitPixel!, background: background! };
+      unlit: unlitPixel!, minified: minifiedPixel!, background: background! };
     requireValue(red![0]! > red![1]! * 2 && green![1]! > green![0]! * 2 &&
       blue![2]! > blue![0]! * 2 && yellow![0]! > yellow![2]! * 2 &&
       yellow![1]! > yellow![2]! * 2,
@@ -290,6 +296,9 @@ try {
     requireLitTexel(blue!, expectedLitTexel(300, 150, [32, 32, 255]), "blue");
     requireLitTexel(yellow!, expectedLitTexel(340, 150, [255, 255, 32]), "yellow");
     requireLitTexel(unlitPixel!, [26, 179, 230], "unlit material class");
+    // Four source texels contribute to the 1x1 mip. A high UV gradient must not alias to LOD0.
+    requireLitTexel(minifiedPixel!, expectedLitTexel(160, 180, [144, 144, 88]),
+      "minified PBR gradient");
     await nextFrame();
     await renderer!.device.queue.onSubmittedWorkDone();
   });
@@ -330,11 +339,11 @@ try {
   const recovered = await withGpuErrorScopes(renderer.device, "Phase 1 recovered visibility frame", async () => {
     requireValue(renderer!.render(camera, scene, 1 / 60), "Recovered Renderer did not submit visibility");
     recoveredPixels = await captureDisplayPixels(renderer!.device, context,
-      [[280, 220], [360, 220], [300, 150], [340, 150], [480, 180]]);
+      [[280, 220], [360, 220], [300, 150], [340, 150], [480, 180], [160, 180]]);
     await renderer!.device.queue.onSubmittedWorkDone();
   });
   for (const [index, expected] of [surfacePixels.red, surfacePixels.green,
-    surfacePixels.blue, surfacePixels.yellow, surfacePixels.unlit].entries()) {
+    surfacePixels.blue, surfacePixels.yellow, surfacePixels.unlit, surfacePixels.minified].entries()) {
     requireLitTexel(recoveredPixels[index]!, expected, `recovered quadrant ${index}`);
   }
   requireValue(recovered.errors.length === 0, JSON.stringify(recovered.errors));
