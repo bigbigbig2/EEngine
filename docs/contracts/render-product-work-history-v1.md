@@ -26,7 +26,7 @@ validation:
 
 本合同停止作为 Next 目标合同。它仍记录当前旧生产路径的边界，供切断时提取有效不变量；新方向见 [ADR-0020](../adr/0020-clean-cut-renderer.md)。以下旧消费者和验证不得转授给新 Renderer。
 
-此合同对应 [ADR-0019](../adr/0019-eengine-next-renderer.md) 的 A 批次。它定义现有真实消费者需要的边界，**不新增二进制 ABI**。队列具体字段、产品具体格式与各算法历史仍由对应 spec/owner 维护；合同状态保持 `proposed`，直到下面尚缺的稳定身份和产品表示选择落地。
+此合同对应 [ADR-0019](../adr/0019-eengine-next-renderer.md) 的 A 批次。它定义旧生产路径真实消费者的历史边界，**不新增二进制 ABI**；状态已是 `abandoned`，不会继续冻结。队列具体字段、产品格式与各算法历史仍由旧 spec/owner 记录，不能据此约束新 Renderer。
 
 ## Product demand 与物理表示
 

@@ -25,4 +25,4 @@ differences:
 validation:
   - docs/porting/next-renderer.md
   - docs/next-renderer.md
-  - project/workstreams/active/eengine-next.yaml
+  - project/workstreams/active/eengine-next-clean-rebuild.yaml
