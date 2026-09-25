@@ -138,6 +138,9 @@ export class TemporalHistoryRegistry {
     }
     validateRevision(revision);
     validatePreExposure(preExposure);
+    if (revision.preExposureGeneration !== preExposure.generation) {
+      throw new Error("Temporal history revision and pre-exposure generation disagree");
+    }
     const nextActive = new Set(activeNames);
     for (const name of nextActive) {
       if (!this.histories.has(name)) throw new Error(`Unknown temporal history '${name}'`);
@@ -159,6 +162,11 @@ export class TemporalHistoryRegistry {
         globalReason !== "feature-toggle" &&
         state.active !== next
       ) invalidateState(state, "feature-toggle");
+      if (next && state.valid &&
+          state.descriptor.preExposure === "invalidate-on-change" &&
+          state.committedPreExposure?.multiplier !== preExposure.multiplier) {
+        invalidateState(state, "exposure-discontinuity");
+      }
       state.active = next;
       state.produced = false;
       state.lastReadValid = next && state.valid;

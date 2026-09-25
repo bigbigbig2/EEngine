@@ -1185,6 +1185,44 @@ test("ADR-0009 Step 7 scopes pre-exposure discontinuity to dependent histories",
   registry.abortFrame(1);
 });
 
+test("same-generation exposure changes invalidate only histories that cannot rescale", () => {
+  const registry = new TemporalHistoryRegistry([
+    {
+      name: "color", semantic: "working linear color", resolutionDomain: "output-full",
+      format: "rgba16float", bufferCount: 2, preExposure: "working-linear-rescale"
+    },
+    {
+      name: "feedback", semantic: "network feedback", resolutionDomain: "internal-full",
+      format: "rgba16float", bufferCount: 2, preExposure: "invalidate-on-change"
+    },
+    {
+      name: "gtao", semantic: "ambient visibility", resolutionDomain: "effect-resolution",
+      format: "rgba16float", bufferCount: 2, preExposure: "none"
+    }
+  ]);
+  const revision = {
+    outputWidth: 1280, outputHeight: 720, internalWidth: 1280, internalHeight: 720,
+    camera: 0, renderScale: 1, feature: 1, format: 1, light: "0:0",
+    scene: 1, representation: 1, device: 0, preExposureGeneration: 4, view: "main"
+  };
+  const first = preExposureContract({ multiplier: 1, generation: 4, colorSpace: "working-linear" });
+  const second = preExposureContract({ multiplier: 2, generation: 4, colorSpace: "working-linear" });
+  assert.throws(() => registry.beginFrame(0, revision, ["color"],
+    preExposureContract({ multiplier: 1, generation: 5, colorSpace: "working-linear" })),
+  /generation disagree/);
+  registry.beginFrame(0, revision, ["color", "feedback", "gtao"], first);
+  for (const name of ["color", "feedback", "gtao"]) registry.markProduced(name);
+  registry.commitFrame(0);
+
+  registry.beginFrame(1, revision, ["color", "feedback", "gtao"], second);
+  assert.equal(registry.state("color").readValid, true);
+  assert.equal(registry.state("color").preExposureScale, 2);
+  assert.equal(registry.state("feedback").readValid, false);
+  assert.equal(registry.state("feedback").lastInvalidationReason, "exposure-discontinuity");
+  assert.equal(registry.state("gtao").readValid, true);
+  registry.abortFrame(1);
+});
+
 test("lighting identity keeps independent versions and preserves geometric GTAO history", () => {
   const registry = new TemporalHistoryRegistry([
     {

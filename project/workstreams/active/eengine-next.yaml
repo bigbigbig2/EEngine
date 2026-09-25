@@ -40,6 +40,8 @@ completedMilestones:
     result: Lighting history identity now preserves independent light and probe revisions, while geometric GTAO explicitly retains history across lighting-only changes. Stable object identity, local representation invalidation, and dynamic pre-exposure remain open.
   - id: opaque-product-attachment-cost
     result: The finite opaque product plan now accounts for actual HDR and optional Surface attachment formats, and production allocation telemetry reads that same plan. This is a planned footprint, not measured bandwidth or a recompute-versus-materialize decision.
+  - id: exposure-history-boundary
+    result: Temporal history input rejects a generation mismatch before mutation and invalidates non-rescalable histories when the pre-exposure multiplier changes within one generation. Production still uses multiplier one; dynamic exposure integration remains open.
 tasks:
   - id: foundation-contracts
     state: active

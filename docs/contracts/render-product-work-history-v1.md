@@ -47,6 +47,7 @@ validation:
 - 光照输入身份由灯光版本与 Probe 版本的有序组合组成，不能将两个版本相加，否则不同变化会碰撞。默认历史在光照身份变化时失效；纯几何 GTAO history 明确声明不依赖光照版本，因此仅光照变化时可继续读取。它仍须在相机、尺寸、场景、表示或自身 feature 变化时失效；GI、SSR、Color、曝光历史维持光照依赖。
 - 帧内 `VisibilityKey` 或 MeshletWork 队列索引不可直接跨帧复用。后续产品以稳定 scene/object generation、实际几何/材质版本及投影运动/遮挡判定建立对应关系；实例替换、页/代理变化、切换表示与 disocclusion 必须使受影响的历史失效或降低置信度。AO、GI、Reflection 可保留信号专属失效粒度，不要求所有历史在每次局部变化时整帧清空。
 - 当前主管线传入的 pre-exposure multiplier 是 1；`PreExposureContract` 已存在不代表真实动态曝光缩放闭环完成。接入动态乘子后，各 HDR-like 产品与旧历史必须使用同一代曝光约定或合法 rescale。
+- 每帧传入 Registry 的 `preExposureGeneration` 必须等于 `PreExposureContract.generation`，不一致时在改变历史状态前拒绝。即使 generation 不变，乘数变化也使声明 `invalidate-on-change` 的历史失效；`working-linear-rescale` 历史保留并传递当前/已提交乘数比例，`none` 历史不受影响。这仍只是生命周期合同，生产主线尚未接入动态乘数。
 
 ## 切片退出条件
 
