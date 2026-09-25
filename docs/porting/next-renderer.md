@@ -25,9 +25,9 @@
 | Environment & Media / shading | Takram atmosphere WebGPU | LUT、太阳/天光、shadow-aware aerial transport | 去 Three/TSL 宿主、单位与环境权威 owner |
 | Environment & Media / shading | Adria VolumetricFog（候选） | 注入、历史、积分与合成 | bounded binding、介质输入和大气区间合成 |
 | Temporal & Presentation / frame-runtime、shading | FidelityFX SDK v1.1.4 FSR3 Upscaler | 所选版本的完整非神经超分链 | WebGPU 后端、统一 history/exposure 接口 |
-| Visibility & Surface / 频率分类 | FidelityFX VRS 仅作分类数学参考 | 可选的对比度/运动分类条件 | compute work 生成、重建与质量合同属本地集成，无完整 donor |
+| Visibility & Surface / 频率分类 | Intel DeferredCoarsePixelShading（R20）为完整 2×2 coarse/fallback 候选；FidelityFX VRS 仅供另一种分类数学对照 | `RequiresPerPixelShading`、coarse/full 消费与全样本写回须按数据依赖对照 | 当前 VisibilityKey 前置决策、三层频带和 4×4 策略不是上游实现，不得冠以其完成移植 |
 | VT / materials-textures | **Wicked Engine 地形 VT + LibVT 通用 VT 双来源候选** | 前者取 GPU 请求/分配/驻留，后者对照页表/过滤/离线切页完整性；先保留 Texture Residency | 两者均不能整套直搬；通用资产布局、WebGPU 有界绑定、异步反馈/上传闭环需原型 |
-| Adaptive Compute Shading / shading | **无已核实整套 donor**；AMD VRS 分类参考 | 可迁移选中的分类数学，不能冒称完整算法来源 | 频率产品合同、材质频带、重建与质量控制 |
+| Adaptive Compute Shading / shading | R20 有可核实的 2×2 coarse/fallback 完整源码，但没有吻合本地前置 VisibilityKey 决策和三层频率合同的整套 donor | 若选 R20 必须保留其所有决策、执行、写回条件，并明确扩展部分 | 产品身份、材质/光照风险、4×4、WebGPU 有界队列和重建验证 |
 
 ## 2. 公共基础与材质来源
 
@@ -197,6 +197,15 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 - **Fallback / lifecycle**：full-rate 可作为合法计划；history 无效或高频边界不能只复制低频结果。
 - **Local validation**：同时比较分类开销、总工作量与重建误差。该 donor 没有解决本引擎 adaptive compute shading 的完整正确性问题。
 
+### R20 · Intel DeferredCoarsePixelShading：2×2 coarse/full 闭环候选，未采用
+
+- **Upstream / Revision**：[GameTechDev/DeferredCoarsePixelShading](https://github.com/GameTechDev/DeferredCoarsePixelShading/tree/63ad5c1adafbfcc2869a200f50a5ea11f28b4887)，`63ad5c1adafbfcc2869a200f50a5ea11f28b4887`；仓库 `licence.txt` 为 Apache-2.0，`ComputeShaderTile.hlsl` 文件头保留 Intel 2017 版权/许可文字。本地仅在 ignored `.local/references/` 核读，不把下载文件当设计权威。
+- **Source / entry points**：[ComputeShaderTile.hlsl](https://github.com/GameTechDev/DeferredCoarsePixelShading/blob/63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ComputeShaderTile.hlsl) 的 `ComputeSurfaceDataFromGBufferAllSamplesCPS`、`RequiresPerPixelShading`、`ComputeShaderTileCS`；`GBuffer.hlsl` 的 GBuffer surface 构造；`App.cpp` 的 host 调度。已读 shader 主链和 README，未运行 DX11 样例，也未逐项审完 host 状态生命周期。
+- **源决策与阶段**：每个 2×2 block **先**取四个 GBuffer surface，再以首样本的 view-space 深度导数乘 `CPS_RATE * sqrt(2)` 比较其余深度差、以各通道法线差阈值 `sqrt(1/2) * π/180` 判定 full-rate；tile min/max 深度与 frustum 建局部光表；首样本总是着色，有风险时余下三样本各自着色（或组共享列表延迟补做），否则将首结果 splat 到其余样本；无光/无效样本有显式清零分支。不能只移植 `RequiresPerPixelShading` 而宣称完整 CPS。
+- **本地映射 / 缺口**：`ShadingWork` 目前是 VisibilityKey→全像素 class queue→每像素 Surface 消费；可映射 coarse/full 执行和覆盖写回，但上游判定依赖**已完整重建的四个 GBuffer surface**，违反本地“不能完整采样后才降频”的前置成本目标。Coverage/Identity 的深度/法线连续性可对照，但 Material Appearance 的纹理/法线图频带、emissive/alpha，Lighting 的阴影/镜面/局部光/GI 风险及 4×4 不是源代码已有的条件。选用前须记录具名扩展与另行来源/本地设计；现在 **not adopted**。
+- **WebGPU 差异 / fallback**：上游是 DX11 flat MSAA UAV + group-shared 光表和 16-bit 坐标打包；本地只有 WebGPU 核心可用，VisibilityKey、GPU compact/indirect、LightCluster 与 radiance texture 需分别建立有界 ABI、overflow 与消费者。不能把 2×2 输出复制到不同 identity、alpha/遮挡揭露或高频区域；历史复用仍禁用至 Phase 3。
+- **待验证**：固定源输入的 depth-derivative/normal 阈值 oracle、交叉三角形/材质/纹理/阴影/光边界、奇数尺寸/屏边、全覆盖与失败 fallback；记录分类+队列+着色+重建总成本，相比 full-rate 净收益。没有这些 GPU 对照，不升级采纳状态。
+
 ## 7. 补充核查：可替换原空白选型的源码
 
 ### R15 · UnitySSGIURP：Screen GI 完整信号链优先候选
@@ -244,7 +253,7 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 | “VT 无合格整套 donor” | R16 + R17 | **改判**：已有互补源码可设计完整通用 VT，但没有单一可直搬的 WebGPU 生产实现。先做页反馈/采样闭环原型。 |
 | 现有 Nyx/VG + The Forge visibility | R18 + R19 | **不替换**：Bevy 要求非目标原子能力；voidin 的 texture binding 假设尚未证明目标浏览器可用。只吸收可核实的算法差异。 |
 | FidelityFX SSSR、FSR3 Upscaler、XeGTAO | 本轮检索到的 Screen GI/VT/meshlet 仓库 | **不替换**：这些候选没有提供同功能、更完整且更接近 WebGPU 的整套算法证据；保持已固定来源。 |
-| Adaptive Compute Shading 本地设计 | R18/R19、FidelityFX VRS | **不冒名替换**：既无完整频率决策→稀疏执行→重建的可核实 donor，也不能把硬件 VRS image 当作 WebGPU compute shading。 |
+| Adaptive Compute Shading 本地设计 | R20、FidelityFX VRS | **改判但不冒名替换**：R20 有完整 2×2 coarse/full/覆盖实现，然而其先读四份 GBuffer，缺本地前置决策、材质/光照频带及 4×4；VRS image 也不能当 WebGPU compute shading。 |
 
 ## 8. 不默认采用的来源与技术
 
