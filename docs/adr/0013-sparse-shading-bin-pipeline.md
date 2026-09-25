@@ -1,6 +1,8 @@
 # ADR-0013: Sparse Shading Bin
 
-Status: accepted
+Status: superseded by ADR-0020
+
+当前代码的 sparse-bin 与 exactly-once 事实仍可用于回溯；新目标改为每个可见样本获得合法 full/coarse/reconstructed/reused 结果，见 [ADR-0020](./0020-clean-cut-renderer.md)。下文不再约束新 Renderer。
 
 ## Context
 

@@ -1,6 +1,8 @@
 # ADR-0019: EEngine Next 的需求驱动虚拟化可见性架构
 
-Status: accepted
+Status: superseded by ADR-0020
+
+本方案的保行为拆分与 CSM fallback 已被用户撤销；单路径破坏式重建见 [ADR-0020](./0020-clean-cut-renderer.md)。下文保留原决定，不能作为下一批任务依据。
 
 ## Context
 

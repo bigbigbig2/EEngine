@@ -13,7 +13,7 @@ localOwners:
   - OEngine/src/gpu
 sourceMap: docs/porting/next-renderer.md
 retainedInvariants:
-  - Selected algorithm profiles preserve stages, decisions, dependencies, history, failure behavior, and downstream GPU consumption.
+  - Selected algorithm profiles preserve stages, decisions, dependencies, history, failure behavior, and downstream GPU consumption under ADR-0020.
   - Typed GPU work streams share protocols without requiring a universal queue or unavailable WebGPU execution features.
   - Virtual resources share a control plane while geometry, texture, shadow, and radiance retain specialized physical caches.
   - Logical products preserve space, precision, coverage, exposure, and temporal validity across representation changes.

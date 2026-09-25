@@ -1,6 +1,8 @@
 # ADR-0003: 统一渲染主管线
 
-Status: accepted
+Status: superseded by ADR-0020
+
+单主管线原则继续有效；`MainRenderPipeline` 作为唯一 recipe owner 的决定已由 [ADR-0020](./0020-clean-cut-renderer.md) 取代。下文保留旧实现的历史决策，不约束新 Renderer。
 
 ## Context
 

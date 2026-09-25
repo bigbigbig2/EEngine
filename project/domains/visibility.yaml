@@ -17,12 +17,10 @@ currentDocs:
   - docs/domains/visibility.md
   - docs/specs/
 contracts:
-  - render-product-work-history-v1
+  - render-product-work-history-v2
   - claims-and-evidence
 decisions:
-  - ADR-0019
-  - ADR-0013
-  - ADR-0015
+  - ADR-0020
 sources:
   - next-renderer-reference
   - visibility-reference

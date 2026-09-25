@@ -1,6 +1,6 @@
 # EEngine Next：开源迁移来源与采用边界
 
-调查日期：2026-09-25。对应 [ADR-0019](../adr/0019-eengine-next-renderer.md) 和 [六模块路线](../next-renderer.md)。这是影响当前选型的来源账本，不是已移植清单。
+调查日期：2026-09-25。当前采用边界对应 [ADR-0020](../adr/0020-clean-cut-renderer.md) 和 [单路径重建路线](../next-renderer.md)。这是影响当前选型的来源账本，不是已移植清单。旧文中 M1–M6 标签仅是来源领域索引，不表示渐进保行为执行顺序。
 
 本轮通过 GitHub 固定 revision 的目录、许可证原文和下列标明的实现文件进行核查；未构建这些上游工程，未跑其 benchmark，也未证明移植后的 WebGPU 性能。**固定 commit 是复现调查的版本，不是自动引入依赖或升级现有来源的指令。** 本地已有 port 继续以 [geometry](./geometry.md)、[visibility](./visibility.md)、[shading](./shading.md)、[platform](./platform.md) 的既有 revision 为准。
 
@@ -108,7 +108,7 @@
 - **Local owner / Adoption**：shading/visibility/virtual-assets；not adopted，需先证明页执行模型。
 - **Retained invariants**：完整的 receiver demand → residency/allocation → dirty/invalidation → rendering → sampling 闭环；缓存重用和移动 clipmap/页失效；缺页处理必须与采样保持一致。不能只移植 page table 却宣称 VSM 完成。
 - **WebGPU differences**：选中的页面管理算法保持语义；几何发射后端替换为现有 GPU hierarchy + 有界 hardware indirect raster。页批次、viewport/atlas 映射和绑定成本需实测；不用 CPU 获取当前活跃页数后逐页扫描 caster。
-- **Fallback / lifecycle**：已有 CSM 作为对照/必要 fallback；fallback 触发与持续成本显式记录，不能让 VSM 永久空转。物理页更新、sun/geometry 变化与 history 的失效范围需连通。
+- **Fallback / lifecycle**：旧 CSM 仅供离线对照，不进入 Next production fallback；VSM 未完成时允许暂时无影。物理页更新、sun/geometry 变化与 history 的失效范围需连通，缺页采样有明确行为。
 - **Local validation**：移动相机/光源、屏幕外 caster、页溢出/回收；同时看 dirty-page 数、caster work 和实际命令开销。本轮未证明可在目标设备上高效执行。
 
 ### R08 · Atlas：DDGI 与软件 BVH 主候选
@@ -217,4 +217,4 @@
 
 语言、布局、bindings、dispatch 和缓存 owner 可以改变，只要语义保留且差异可对照。遇到 WebGPU 无法保持的核心语义，明确记录缺口并确认算法/profile 调整；未确认、未对照的部分保持未完成。源算法本身不适合目标时可以换一个完整算法，但必须具名改变采用决定，不能在同一个名称下悄悄换成简化近似。
 
-本轮没有复制任何候选进入 production，也没有引入新的 runtime dependency。接下来的优先工作是按 [workstream](../../project/workstreams/active/eengine-next.yaml) 建立基础合同和首个完整迁移切片，而非继续无边界扩充候选列表。
+本轮没有复制任何候选进入 production，也没有引入新的 runtime dependency。下一批按 [workstream](../../project/workstreams/active/eengine-next.yaml) 直接切断旧 composition，建立最小 GPU Scene → Visibility → Present 主链；之后在新 owner 上逐项完整移植。旧 A 批次合同不再是开工前门禁。

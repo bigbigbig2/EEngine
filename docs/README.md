@@ -4,7 +4,7 @@ The repository uses a contract-driven project OS. Machine manifests route work a
 
 ## Start Here
 
-For the accepted EEngine Next target, start with [模块划分与重构实施路线](./next-renderer.md). It connects the [architecture decision](./adr/0019-eengine-next-renderer.md), [pinned migration sources](./porting/next-renderer.md), and [current workstream](../project/workstreams/active/eengine-next.yaml). Target design is distinct from current runtime facts and completion evidence.
+For the accepted EEngine Next clean-cut target, start with [单路径重建路线](./next-renderer.md). It connects [ADR-0020](./adr/0020-clean-cut-renderer.md), [pinned migration sources](./porting/next-renderer.md), and the [current workstream](../project/workstreams/active/eengine-next.yaml). Target design is distinct from current runtime facts and completion evidence.
 
 1. Run `node tools/vibe.mjs context <path>` before changing code. Add `--claims`, `--cases`, or `--all` only when the compact route is insufficient.
 2. Read the matching page under [domains](./domains/), then the linked contract under [contracts](./contracts/).
@@ -37,7 +37,7 @@ Domain Markdown frontmatter contains identity only. Contract, claim, check, and 
 Workstream YAML is the authoritative current TODO. Its first screen names the current slice, next tasks, and open gates; completed work is a short milestone summary linked to stable contracts or evidence. Detailed implementation history stays in Git. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
 
 - [Nyx producer convergence](../project/workstreams/active/nyx-convergence.yaml)
-- [EEngine Next renderer](../project/workstreams/active/eengine-next.yaml) — minimal foundation contracts, composition boundaries, and the first complete algorithm migration; broad module sequence lives in [the implementation route](./next-renderer.md)
+- [EEngine Next renderer](../project/workstreams/active/eengine-next.yaml) — current slice cuts old composition and boots the sole new renderer; phases and deletion boundaries live in [the implementation route](./next-renderer.md)
 - [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — current `large.glb` validation and performance work for [ADR-0018](./adr/0018-web-100m-virtual-geometry.md)
 
 ## Reviews
@@ -47,7 +47,7 @@ Reviews are dated, non-authoritative audits. They record observations and recomm
 - [2026-09-21 · Documentation and validation system review](./reviews/2026-09-21-documentation-validation-system-review.md)
 - [2026-09-23 · Documentation system refactor design](./reviews/2026-09-23-documentation-system-refactor-design.md)
 - [ADR-0018 historical research draft](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
-- [2026-09-25 · EEngine Next final-design source review](./reviews/2026-09-25-eengine-next-final-architecture-analysis.md) — supporting audit and [original discussion archive](./reviews/2026-09-25-eengine-next-final-architecture-source.md); the accepted target decision is now ADR-0019
+- [EEngine Next clean-cut design discussion](./reviews/EEngine_Next_Renderer_Final_Architecture.md) — user-supplied design input for [ADR-0020](./adr/0020-clean-cut-renderer.md); earlier [review](./reviews/2026-09-25-eengine-next-final-architecture-analysis.md) and [discussion archive](./reviews/2026-09-25-eengine-next-final-architecture-source.md) remain historical
 
 Phase records remain available in Git and under `docs/reviews/` for audit, but are no longer part of the current documentation entry path.
 

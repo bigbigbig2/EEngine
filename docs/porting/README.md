@@ -25,7 +25,7 @@ Nyx 移植以**算法与语义忠实度**为准，不以逐行翻译、相同语
 - [platform.md](./platform.md)：WebGPU、资源生命周期、cache、readback 和 FrameGraph。
 - [next-renderer.md](./next-renderer.md)：Next 当前选型所需的固定版本候选、源码入口、许可证与 WebGPU 适配；候选不等于已采用，不覆盖上述 ledger 的既有 revision。
 
-## Next 通用算法迁移规则（ADR-0019）
+## Next 通用算法迁移规则（ADR-0020）
 
 优先迁移许可证兼容的现有实现，而不是根据算法名字自行写一个近似替代。每个迁移切片先声明有边界的 algorithm profile，固定 revision、源码入口、许可证和第三方来源，以一张简洁表映射源阶段/函数、关键条件和依赖、本地生产 owner、差异/fallback/未覆盖项及对照入口。
 

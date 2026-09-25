@@ -38,9 +38,9 @@ OEngine 的主要产品能力线是 **WebGPU 2026 Desktop**，替代过去含义
 
 WebGPU 规范保证 core adapter 至少支持 BC，或同时支持 ETC2 与 ASTC；这不等于 Runtime 可以任意选择格式。Cooker 必须生成有声明的 variant，Asset Store 再按实际启用能力选择，不能把三族压缩格式全部列为设备硬要求。
 
-### Opaque Shading Bin required limits
+### Current opaque Shading Bin required limits (legacy path)
 
-[ADR-0013](./adr/0013-sparse-shading-bin-pipeline.md) 将 opaque shading 冻结为单一 Sparse Shading Bin 管线。创建任何 Renderer-owned buffer、texture 或 pipeline 前，adapter/device 必须满足并记录以下下限：
+以下是当前旧 Sparse Shading Bin 生产路径的能力约束，**不是 [ADR-0020](./adr/0020-clean-cut-renderer.md) 新 Renderer 的永久下限**。新路径要按真实新 kernel 分别协商 feature/limit，再建立资源；旧 [ADR-0013](./adr/0013-sparse-shading-bin-pipeline.md) 已被取代。
 
 ```text
 maxComputeInvocationsPerWorkgroup >= 256

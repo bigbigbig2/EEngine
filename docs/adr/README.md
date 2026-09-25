@@ -15,7 +15,7 @@ ADR 只保存跨模块、长期且仍有解释价值的决策。它不承担规�
 
 - [0001 · GPU-first 产品范围](./0001-gpu-first-scope.md)
 - [0002 · Runtime Asset 与 GPU-driven](./0002-runtime-assets-and-gpu-driven.md)
-- [0003 · 统一渲染主管线](./0003-unified-render-pipeline.md)
+- [0003 · 统一渲染主管线（已由 0020 取代 owner）](./0003-unified-render-pipeline.md)
 - [0004 · Visibility-to-Surface（已由 0013 替代）](./0004-visibility-to-surface.md)
 - [0006 · Packed Render World 收敛](./0006-packed-render-world-convergence.md)
 - [0007 · GPU-native Runtime Assets 与 Residency](./0007-gpu-native-runtime-assets-and-residency-v2.md)
@@ -24,9 +24,9 @@ ADR 只保存跨模块、长期且仍有解释价值的决策。它不承担规�
 - [0010 · WebGPU 2026 Desktop 能力合同](./0010-webgpu-2026-capability-contract.md)
 - [0011 · Asset Codec 与 GPU-native Texture](./0011-asset-codec-and-gpu-native-texture-pipeline-v3.md)
 - [0012 · Example Library 边界](./0012-example-library-reset.md)
-- [0013 · Sparse Shading Bin](./0013-sparse-shading-bin-pipeline.md)
+- [0013 · Sparse Shading Bin（已由 0020 取代目标语义）](./0013-sparse-shading-bin-pipeline.md)
 - [0014 · 独立浏览器验证宿主](./0014-browser-validation-and-performance-host.md)
-- [0015 · Visibility-native PBR Receiver](./0015-visibility-native-pbr-receiver.md)
+- [0015 · Visibility-native PBR Receiver（已由 0020 取代 owner）](./0015-visibility-native-pbr-receiver.md)
 - [0016 · Runtime-first 虚拟化资产](./0016-virtualized-assets.md)
 - [0016-A · OEGPACK V3 与 Offline Geometry Cooker](./0016-a-geometry-pack-and-cooker.md)
 - [0016-B · Geometry Product Admission 与 Virtual Geometry Residency](./0016-b-virtual-geometry-residency.md)
@@ -34,4 +34,5 @@ ADR 只保存跨模块、长期且仍有解释价值的决策。它不承担规�
 - [0016-D · Progressive Texture Delivery 与 Physical Residency](./0016-d-progressive-texture-residency.md)
 - [0017 · Geometry Product 增量发布与页身份解耦](./0017-incremental-geometry-product-publication.md)
 - [0018 · Web `large.glb` Virtual Geometry 生产与分片运行时（Proposed）](./0018-web-100m-virtual-geometry.md)
-- [0019 · EEngine Next 需求驱动虚拟化可见性架构](./0019-eengine-next-renderer.md) — accepted 目标方向；实施与 claim 仍按切片完成
+- [0019 · EEngine Next 原渐进路线（已取代）](./0019-eengine-next-renderer.md)
+- [0020 · EEngine Next 单路径破坏式重建](./0020-clean-cut-renderer.md) — 当前目标；不代表已经切换或验证

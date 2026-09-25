@@ -1,7 +1,7 @@
 ---
 id: render-product-work-history-v1
 kind: contract
-status: proposed
+status: abandoned
 owners:
   - frame-runtime
   - visibility
@@ -22,7 +22,9 @@ validation:
   - OEngine/tests/contract/advanced-frame-abi.test.mjs
   - OEngine/tests/contract/bounded-gpu-work-protocol.test.mjs
 ---
-# Render Product、GPU Work 与 History 最小合同
+# Render Product、GPU Work 与 History 最小合同（已废弃的 A 批次）
+
+本合同停止作为 Next 目标合同。它仍记录当前旧生产路径的边界，供切断时提取有效不变量；新方向见 [ADR-0020](../adr/0020-clean-cut-renderer.md)。以下旧消费者和验证不得转授给新 Renderer。
 
 此合同对应 [ADR-0019](../adr/0019-eengine-next-renderer.md) 的 A 批次。它定义现有真实消费者需要的边界，**不新增二进制 ABI**。队列具体字段、产品具体格式与各算法历史仍由对应 spec/owner 维护；合同状态保持 `proposed`，直到下面尚缺的稳定身份和产品表示选择落地。
 

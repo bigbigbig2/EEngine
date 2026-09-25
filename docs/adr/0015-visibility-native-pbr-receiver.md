@@ -1,6 +1,8 @@
 # ADR-0015: Visibility-native PBR Receiver
 
-Status: accepted
+Status: superseded by ADR-0020
+
+Visibility-native、按需 Surface 与避免固定完整 GBuffer 的原则保留；旧 Sparse Shading owner 已由 [ADR-0020](./0020-clean-cut-renderer.md) 的新 Surface/Material owner 取代。下文为历史决定。
 
 ## Context
 
