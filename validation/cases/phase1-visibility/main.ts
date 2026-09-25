@@ -1,5 +1,6 @@
 import {
   Renderer, PerspectiveCamera, Scene, StandardShadeMaterial,
+  ShadeImage, ShadeTexture,
   VirtualGeometryResidency
 } from "../../../OEngine/src/index.ts";
 import { encodeAssetRecordsV3, encodeGeometryProductPageRecordsV1, encodeVertexFormatsV3, type GeometryProductDescriptorV1, type GeometryProductRevisionSourceV1 } from "../../../OEngine/src/assets/geometry-product/GeometryProductV1.ts";
@@ -7,6 +8,7 @@ import { createValidationController } from "../../harness/browser.ts";
 import { attachGpuErrorCollection, withGpuErrorScopes } from "../../harness/browser.ts";
 import { compileSurfaceProgramLayout } from "../../../OEngine/src/render/surface/SurfaceKernelBindingPlan.ts";
 import { createSurfaceMaterialProgramWgsl } from "../../../OEngine/src/shaders/surface_material_program.ts";
+import { Sampler2D } from "../../../OEngine/src/texture/Sampler2D.ts";
 
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
 const status = document.querySelector<HTMLElement>("#status")!;
@@ -53,7 +55,7 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
   view.setUint32(48, 64, true);
   view.setUint32(52, 112, true);
   view.setUint32(56, 128, true);
-  view.setUint32(60, 152, true);
+  view.setUint32(60, 176, true);
   view.setUint16(64, 3, true);
   view.setUint16(66, 1, true);
   view.setUint32(68, 128, true);
@@ -68,13 +70,19 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
     [-0.8, -0.8, 0], [0.8, -0.8, 0], [0, 0.8, 0]
   ];
   positions.forEach((position, index) => {
-    const at = 128 + index * 8;
+    const at = 128 + index * 16;
     const q = position.map((value, axis) => {
       const minimum = [-0.8, -0.8, -0.1][axis]!;
       const maximum = [0.8, 0.8, 0.1][axis]!;
       return Math.round((value - minimum) * 65535 / (maximum - minimum));
     });
     view.setUint16(at, q[0]!, true); view.setUint16(at + 2, q[1]!, true); view.setUint16(at + 4, q[2]!, true);
+    // V3: octahedral +Z normal, then float16 UV0. The UV triangle crosses texture texels.
+    view.setUint16(at + 6, 0, true); view.setUint16(at + 8, 0, true);
+    const uv: readonly (readonly [number, number])[] = [[0, 0], [1, 0], [0.5, 1]];
+    const half = (value: number) => value === 1 ? 0x3c00 : value === 0.5 ? 0x3800 : 0;
+    view.setUint16(at + 10, half(uv[index]![0]), true);
+    view.setUint16(at + 12, half(uv[index]![1]), true);
   });
   const pages = [page, page.slice()];
   const hashes = await Promise.all(pages.map(async (value) => new Uint8Array(await crypto.subtle.digest("SHA-256", value))));
@@ -99,10 +107,10 @@ async function createProductSource(): Promise<GeometryProductRevisionSourceV1> {
     }]),
     rootNodeIds: new Uint32Array([0]),
   hierarchyNodes: (() => { const bytes = new Uint8Array(48 * 3), node = new DataView(bytes.buffer); for (const at of [0, 48, 96]) { writeF32(node, at, [0, 0, 0, 1]); writeF32(node, at + 16, [-0.8, -0.8, -0.1]); writeF32(node, at + 28, [0.8, 0.8, 0.1]); node.setFloat32(at + 40, 100, true); } node.setUint32(44, (2 << 28) | (1 << 1), true); node.setUint32(48 + 44, 1, true); node.setUint32(96 + 44, 3, true); return bytes; })(),
-    groupDirectory: (() => { const bytes = new Uint8Array(32), group = new DataView(bytes.buffer); group.setUint32(0, 0, true); group.setUint32(4, 0, true); group.setUint32(8, 152, true); group.setUint32(12, 1, true); group.setUint32(16, 1, true); group.setUint32(20, 0, true); group.setUint32(24, 152, true); return bytes; })(),
+    groupDirectory: (() => { const bytes = new Uint8Array(32), group = new DataView(bytes.buffer); group.setUint32(0, 0, true); group.setUint32(4, 0, true); group.setUint32(8, 176, true); group.setUint32(12, 1, true); group.setUint32(16, 1, true); group.setUint32(20, 0, true); group.setUint32(24, 176, true); return bytes; })(),
     pageRecords: encodeGeometryProductPageRecordsV1([{ decodedHash128: hashes[0]!.subarray(0, 16), firstGroup: 0, groupCount: 1, flags: 0, reserved: 0 }, { decodedHash128: hashes[1]!.subarray(0, 16), firstGroup: 1, groupCount: 1, flags: 0, reserved: 0 }]),
     bootstrapPageIds: new Uint32Array([0]),
-    vertexFormats: encodeVertexFormatsV3([{ strideBytes: 8, attributeMask: 3, positionOffset: 0, normalOffset: 0, tangentOffset: 0xff, uv0Offset: 0xff, uv1Offset: 0xff, colorOffset: 0xff }]),
+    vertexFormats: encodeVertexFormatsV3([{ strideBytes: 16, attributeMask: 11, positionOffset: 0, normalOffset: 6, tangentOffset: 0xff, uv0Offset: 10, uv1Offset: 0xff, colorOffset: 0xff }]),
     activationPageIds: new Uint32Array([0])
   });
   let released = false;
@@ -150,13 +158,15 @@ try {
   renderer.resize(1280, 720);
   const scene = new Scene();
   const material = new StandardShadeMaterial();
-  material.emissive_factor.r = 0.8;
-  material.emissive_factor.g = 0.2;
-  material.emissive_factor.b = 0.05;
+  material.is_unlit = true;
+  material.texture_albedo = ShadeTexture.from(ShadeImage.fromSampler2D(
+    new Sampler2D(new Uint8Array([255, 32, 32, 255, 32, 255, 32, 255,
+      32, 32, 255, 255, 255, 255, 32, 255]), 4, 2, 2)
+  ));
   source = await createProductSource();
   residency = await VirtualGeometryResidency.create(renderer.device, source, 17, 0);
   residency.activatePublication();
-  const geometryProfiles = [{ hasAuthoredVertexColor: false, hasUv0: false, hasUv1: false, hasUv2: false, hasNormal: true, hasTangent: false }] as const;
+  const geometryProfiles = [{ hasAuthoredVertexColor: false, hasUv0: true, hasUv1: false, hasUv2: false, hasNormal: true, hasTangent: false }] as const;
   await renderer.uploadVirtualGeometryScene(scene, {
     materials: [material], geometryProfiles, assetCount: 1,
     hierarchyMaxDepth: 2, hierarchyTraversalCapacity: 8,
@@ -207,6 +217,10 @@ try {
     "GPU ShadingWork class ranges were not consumed by scatter");
   requireValue(passes.some(name => name.startsWith("Surface/shade material class ")),
     "GPU Surface material consumer was not encoded");
+  requireValue(passes.includes("Surface/shade material class 2"),
+    "Textured unlit VG material class was not consumed");
+  requireValue(!passes.some(name => name.startsWith("LightCluster/")),
+    "Unlit material retained light-cluster work");
   requireValue(passes.includes("Surface/present radiance"), "Surface radiance was not presented");
   requireValue(scoped.errors.length === 0, JSON.stringify(scoped.errors));
   const geometryBeforeLoss = residency.evidence();

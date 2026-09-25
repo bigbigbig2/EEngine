@@ -43,6 +43,10 @@ fn sparse_virtual_bank_word(bank: u32, word: u32) -> u32 {
 fn sparse_virtual_u8(bank: u32, byte_offset: u32) -> u32 {
   return (sparse_virtual_bank_word(bank, byte_offset >> 2u) >> ((byte_offset & 3u) * 8u)) & 0xffu;
 }
+fn sparse_virtual_u16(bank: u32, byte_offset: u32) -> u32 {
+  return sparse_virtual_u8(bank, byte_offset) |
+    (sparse_virtual_u8(bank, byte_offset + 1u) << 8u);
+}
 fn sparse_virtual_triangle_vertex(work: OEngineMeshletRasterWork, primitive: u32, corner: u32) -> u32 {
   let asset = oengine_geometry_product_resolve_asset_v1(&virtual_product_metadata,
     work.geometry_slot, oengine_instance_geometry_generation(instance_records[work.instance_slot]));
@@ -64,12 +68,16 @@ fn sparse_virtual_triangle_vertex(work: OEngineMeshletRasterWork, primitive: u32
   return sparse_virtual_u8(location.bank_index,
     location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset + primitive * 3u + corner);
 }
-fn sparse_virtual_position(work: OEngineMeshletRasterWork, vertex: u32) -> vec3f {
+fn sparse_virtual_vertex_ref(work: OEngineMeshletRasterWork, vertex: u32) -> SparseVertexRef {
   let asset = oengine_geometry_product_resolve_asset_v1(&virtual_product_metadata,
     work.geometry_slot, oengine_instance_geometry_generation(instance_records[work.instance_slot]));
   let group = oengine_virtual_group_v1(&virtual_product_metadata, asset, work.meshlet_slot >> 7u);
   let location = oengine_geometry_product_lookup_page_heap_v1(&virtual_product_metadata, asset, group.page_id);
-  if (!asset.valid || !group.valid || !location.valid) { return vec3f(0.0); }
+  var result = SparseVertexRef(vertex, 0u, false, 0u, 0u, 0u, 0u, 0u,
+    vec3f(0.0), vec3f(0.0));
+  if (!asset.valid || !group.valid || !location.valid) {
+    sparse_identity_error(); return result;
+  }
   let local = work.meshlet_slot & 127u;
   var header = oengine_virtual_invalid_group_header_v1();
   if (location.bank_index == 0u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_0, location, group); }
@@ -81,17 +89,23 @@ fn sparse_virtual_position(work: OEngineMeshletRasterWork, vertex: u32) -> vec3f
   else if (location.bank_index == 1u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_1, location, group, header, local); }
   else if (location.bank_index == 2u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_2, location, group, header, local); }
   else { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_3, location, group, header, local); }
-  if (!meshlet.valid || vertex >= meshlet.vertex_count) { return vec3f(0.0); }
+  if (!meshlet.valid || vertex >= meshlet.vertex_count ||
+      header.vertex_format_id >= asset.vertex_format_count) {
+    sparse_identity_error(); return result;
+  }
   let format_at = asset.vertex_format_word_offset + header.vertex_format_id * 4u;
-  let format_word0 = virtual_product_metadata[format_at];
-  let format_word1 = virtual_product_metadata[format_at + 1u];
-  let stride = format_word0 & 0xffffu;
-  let position_offset = format_word1 & 0xffu;
-  let at = location.byte_offset + group.offset_in_page + meshlet.vertex_byte_offset + vertex * stride + position_offset;
-  let q = vec3f(f32(sparse_virtual_u8(location.bank_index, at) | (sparse_virtual_u8(location.bank_index, at + 1u) << 8u)),
-    f32(sparse_virtual_u8(location.bank_index, at + 2u) | (sparse_virtual_u8(location.bank_index, at + 3u) << 8u)),
-    f32(sparse_virtual_u8(location.bank_index, at + 4u) | (sparse_virtual_u8(location.bank_index, at + 5u) << 8u))) / 65535.0;
-  return mix(meshlet.bounds_min, meshlet.bounds_max, q);
+  let format0 = virtual_product_metadata[format_at];
+  result.geometry_base = 0u;
+  result.valid = true;
+  result.bank = location.bank_index;
+  result.byte_offset = location.byte_offset + group.offset_in_page +
+    meshlet.vertex_byte_offset + vertex * (format0 & 0xffffu);
+  result.format0 = format0;
+  result.format1 = virtual_product_metadata[format_at + 1u];
+  result.format2 = virtual_product_metadata[format_at + 2u];
+  result.bounds_min = meshlet.bounds_min;
+  result.bounds_max = meshlet.bounds_max;
+  return result;
 }` : "";
   const reconstructForWorkWgsl = virtualGeometry ? /* wgsl */ `
 fn sparse_work_is_virtual(work: OEngineMeshletRasterWork) -> bool {
@@ -105,20 +119,100 @@ fn sparse_meshlet_vertices_for_work(work: OEngineMeshletRasterWork, meshlet_base
   }
   return sparse_meshlet_vertices(meshlet_base, primitive);
 }
-fn sparse_position_for_work(work: OEngineMeshletRasterWork, geometry_base: u32, vertex: u32) -> vec3f {
-  if (sparse_work_is_virtual(work)) { return sparse_virtual_position(work, vertex); }
-  return sparse_position(geometry_base, vertex);
+fn sparse_vertex_ref_for_work(work: OEngineMeshletRasterWork, geometry_base: u32,
+  vertex: u32) -> SparseVertexRef {
+  if (sparse_work_is_virtual(work)) { return sparse_virtual_vertex_ref(work, vertex); }
+  return SparseVertexRef(vertex, geometry_base, true, 0u, 0u, 0u, 0u, 0u,
+    vec3f(0.0), vec3f(0.0));
 }` : /* wgsl */ `
 fn sparse_meshlet_vertices_for_work(work: OEngineMeshletRasterWork, meshlet_base: u32, primitive: u32) -> vec3u {
   return sparse_meshlet_vertices(meshlet_base, primitive);
 }
-fn sparse_position_for_work(work: OEngineMeshletRasterWork, geometry_base: u32, vertex: u32) -> vec3f {
-  return sparse_position(geometry_base, vertex);
+fn sparse_vertex_ref_for_work(_work: OEngineMeshletRasterWork, geometry_base: u32,
+  vertex: u32) -> SparseVertexRef {
+  return SparseVertexRef(vertex, geometry_base, true, 0u, 0u, 0u, 0u, 0u,
+    vec3f(0.0), vec3f(0.0));
 }`;
+  const virtualAttributeWgsl = virtualGeometry ? /* wgsl */ `
+fn sparse_ref_is_virtual(vertex_ref: SparseVertexRef) -> bool { return vertex_ref.format0 != 0u; }
+fn sparse_position_ref(vertex_ref: SparseVertexRef) -> vec3f {
+  if !sparse_ref_is_virtual(vertex_ref) { return sparse_position(vertex_ref.geometry_base, vertex_ref.vertex); }
+  let at = vertex_ref.byte_offset + (vertex_ref.format1 & 0xffu);
+  let q = vec3f(f32(sparse_virtual_u16(vertex_ref.bank, at)),
+    f32(sparse_virtual_u16(vertex_ref.bank, at + 2u)),
+    f32(sparse_virtual_u16(vertex_ref.bank, at + 4u))) / 65535.0;
+  return mix(vertex_ref.bounds_min, vertex_ref.bounds_max, q);
+}
+fn sparse_virtual_oct(vertex_ref: SparseVertexRef, at: u32) -> vec3f {
+  let packed = sparse_virtual_u16(vertex_ref.bank, at) |
+    (sparse_virtual_u16(vertex_ref.bank, at + 2u) << 16u);
+  let encoded = unpack2x16snorm(packed);
+  var n = vec3f(encoded, 1.0 - abs(encoded.x) - abs(encoded.y));
+  if n.z < 0.0 {
+    n = vec3f((1.0 - abs(n.y)) * select(-1.0, 1.0, n.x >= 0.0),
+      (1.0 - abs(n.x)) * select(-1.0, 1.0, n.y >= 0.0), n.z);
+  }
+  return normalize(n);
+}
+fn sparse_normal_ref(vertex_ref: SparseVertexRef) -> vec3f {
+  if !sparse_ref_is_virtual(vertex_ref) { return sparse_normal(vertex_ref.geometry_base, vertex_ref.vertex); }
+  return sparse_virtual_oct(vertex_ref, vertex_ref.byte_offset + ((vertex_ref.format1 >> 8u) & 0xffu));
+}
+fn sparse_tangent_ref(vertex_ref: SparseVertexRef) -> vec4f {
+  if !sparse_ref_is_virtual(vertex_ref) { return sparse_tangent(vertex_ref.geometry_base, vertex_ref.vertex); }
+  let offset = (vertex_ref.format1 >> 16u) & 0xffu;
+  if offset == 0xffu { return vec4f(1.0, 0.0, 0.0, 1.0); }
+  let at = vertex_ref.byte_offset + offset;
+  let sign = select(1.0, -1.0, sparse_virtual_u16(vertex_ref.bank, at + 4u) >= 0x8000u);
+  return vec4f(sparse_virtual_oct(vertex_ref, at), sign);
+}
+fn sparse_uv_ref(vertex_ref: SparseVertexRef, uv_set: u32) -> vec2f {
+  if !sparse_ref_is_virtual(vertex_ref) { return sparse_uv(vertex_ref.geometry_base, vertex_ref.vertex, uv_set); }
+  let bit = select(8u, 16u, uv_set == 1u);
+  let offset = select((vertex_ref.format1 >> 24u) & 0xffu, vertex_ref.format2 & 0xffu,
+    uv_set == 1u);
+  if uv_set > 1u || ((vertex_ref.format0 >> 16u) & bit) == 0u || offset == 0xffu {
+    return vec2f(0.0);
+  }
+  let at = vertex_ref.byte_offset + offset;
+  return unpack2x16float(sparse_virtual_u16(vertex_ref.bank, at) |
+    (sparse_virtual_u16(vertex_ref.bank, at + 2u) << 16u));
+}
+fn sparse_color_ref(vertex_ref: SparseVertexRef) -> vec3f {
+  if !sparse_ref_is_virtual(vertex_ref) { return sparse_color(vertex_ref.geometry_base, vertex_ref.vertex); }
+  let offset = (vertex_ref.format2 >> 8u) & 0xffu;
+  if ((vertex_ref.format0 >> 16u) & 32u) == 0u || offset == 0xffu { return vec3f(1.0); }
+  let at = vertex_ref.byte_offset + offset;
+  return vec3f(f32(sparse_virtual_u8(vertex_ref.bank, at)),
+    f32(sparse_virtual_u8(vertex_ref.bank, at + 1u)),
+    f32(sparse_virtual_u8(vertex_ref.bank, at + 2u))) / 255.0;
+}
+fn sparse_has_tangent_ref(vertex_ref: SparseVertexRef) -> bool {
+  if !sparse_ref_is_virtual(vertex_ref) { return sparse_meta_u32(vertex_ref.geometry_base, 51u) != 0u; }
+  return ((vertex_ref.format0 >> 16u) & 4u) != 0u;
+}
+fn sparse_has_color_ref(vertex_ref: SparseVertexRef) -> bool {
+  if !sparse_ref_is_virtual(vertex_ref) { return sparse_meta_u32(vertex_ref.geometry_base, 44u) != 0u; }
+  return ((vertex_ref.format0 >> 16u) & 32u) != 0u;
+}` : /* wgsl */ `
+fn sparse_position_ref(vertex_ref: SparseVertexRef) -> vec3f { return sparse_position(vertex_ref.geometry_base, vertex_ref.vertex); }
+fn sparse_normal_ref(vertex_ref: SparseVertexRef) -> vec3f { return sparse_normal(vertex_ref.geometry_base, vertex_ref.vertex); }
+fn sparse_tangent_ref(vertex_ref: SparseVertexRef) -> vec4f { return sparse_tangent(vertex_ref.geometry_base, vertex_ref.vertex); }
+fn sparse_uv_ref(vertex_ref: SparseVertexRef, uv_set: u32) -> vec2f { return sparse_uv(vertex_ref.geometry_base, vertex_ref.vertex, uv_set); }
+fn sparse_color_ref(vertex_ref: SparseVertexRef) -> vec3f { return sparse_color(vertex_ref.geometry_base, vertex_ref.vertex); }
+fn sparse_has_tangent_ref(vertex_ref: SparseVertexRef) -> bool { return sparse_meta_u32(vertex_ref.geometry_base, 51u) != 0u; }
+fn sparse_has_color_ref(vertex_ref: SparseVertexRef) -> bool { return sparse_meta_u32(vertex_ref.geometry_base, 44u) != 0u; }
+`;
   return /* wgsl */ `
 ${GPU_INSTANCE_RECORD_WGSL}
 const SPARSE_GEOMETRY_WORDS: u32 = 60u;
 const SPARSE_MESHLET_WORDS: u32 = 28u;
+struct SparseVertexRef {
+  vertex: u32, geometry_base: u32, valid: bool,
+  bank: u32, byte_offset: u32,
+  format0: u32, format1: u32, format2: u32,
+  bounds_min: vec3f, bounds_max: vec3f,
+}
 ${virtualProductWgsl}
 ${reconstructForWorkWgsl}
 
@@ -209,6 +303,7 @@ fn sparse_fallback_tangent(normal: vec3f) -> vec3f {
   return normalize(cross(axis, normal));
 }
 fn sparse_color(geometry_base: u32, vertex: u32) -> vec3f { return sparse_stream(geometry_base, 53u, vertex, vec4f(1.0)).xyz; }
+${virtualAttributeWgsl}
 
 struct SparseBarycentric { weights: vec3f, ddx: vec3f, ddy: vec3f, valid: bool, }
 fn sparse_projected_pixel(value: vec4f) -> vec2f {
@@ -385,15 +480,15 @@ export function materialEvaluationWgsl(descriptor: Readonly<SurfaceKernelProfile
   var tangent: vec3f;
   var bitangent: vec3f;
   var normal_basis_valid = true;
-  if sparse_meta_u32(geometry_base, 51u) != 0u {
-    let tangent_value=sparse_tangent(geometry_base,vertices.x)*bary.weights.x+sparse_tangent(geometry_base,vertices.y)*bary.weights.y+sparse_tangent(geometry_base,vertices.z)*bary.weights.z;
+  if sparse_has_tangent_ref(ref0) {
+    let tangent_value=sparse_tangent_ref(ref0)*bary.weights.x+sparse_tangent_ref(ref1)*bary.weights.y+sparse_tangent_ref(ref2)*bary.weights.z;
     tangent=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*tangent_value.xyz);
     bitangent=normalize(cross(normal,tangent))*select(-1.0,1.0,tangent_value.w>=0.0);
   } else {
     let normal_uv_set=sparse_material_uv_set(material,1u);
-    let normal_uv0=sparse_transform_uv_1(material,sparse_uv(geometry_base,vertices.x,normal_uv_set),false);
-    let normal_uv1=sparse_transform_uv_1(material,sparse_uv(geometry_base,vertices.y,normal_uv_set),false);
-    let normal_uv2=sparse_transform_uv_1(material,sparse_uv(geometry_base,vertices.z,normal_uv_set),false);
+    let normal_uv0=sparse_transform_uv_1(material,sparse_uv_ref(ref0,normal_uv_set),false);
+    let normal_uv1=sparse_transform_uv_1(material,sparse_uv_ref(ref1,normal_uv_set),false);
+    let normal_uv2=sparse_transform_uv_1(material,sparse_uv_ref(ref2,normal_uv_set),false);
     let edge1=p1.xyz-p0.xyz;
     let edge2=p2.xyz-p0.xyz;
     let duv1=normal_uv1-normal_uv0;
@@ -429,7 +524,7 @@ export function materialEvaluationWgsl(descriptor: Readonly<SurfaceKernelProfile
   if ${condition} {
     if !sparse_texture_route_valid(material_slot, ${slot}u, ${ref}) { sparse_identity_error(); return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u); }
     let uv_set_${slot}=sparse_material_uv_set(material,${slot}u);
-    let uv${slot}_0=sparse_uv(geometry_base,vertices.x,uv_set_${slot});let uv${slot}_1=sparse_uv(geometry_base,vertices.y,uv_set_${slot});let uv${slot}_2=sparse_uv(geometry_base,vertices.z,uv_set_${slot});
+    let uv${slot}_0=sparse_uv_ref(ref0,uv_set_${slot});let uv${slot}_1=sparse_uv_ref(ref1,uv_set_${slot});let uv${slot}_2=sparse_uv_ref(ref2,uv_set_${slot});
     let uv_${slot}=uv${slot}_0*bary.weights.x+uv${slot}_1*bary.weights.y+uv${slot}_2*bary.weights.z;let uv_${slot}_dx=(uv${slot}_0*bary.ddx.x+uv${slot}_1*bary.ddx.y+uv${slot}_2*bary.ddx.z)/shading_view.upscale_ratio.x;let uv_${slot}_dy=(uv${slot}_0*bary.ddy.x+uv${slot}_1*bary.ddy.y+uv${slot}_2*bary.ddy.z)/shading_view.upscale_ratio.y;
     let sampled_${slot}=sparse_sample(${ref},sparse_sampler_${slot}(material),sparse_transform_uv_${slot}(material,uv_${slot},false),sparse_transform_uv_${slot}(material,uv_${slot}_dx,true),sparse_transform_uv_${slot}(material,uv_${slot}_dy,true),gradient_valid,${fallback});
     sample_${slot}=sampled_${slot};
@@ -452,10 +547,10 @@ fn sparse_evaluate(material_slot:u32,material:OEngineShadingMaterialRecord)->OEn
       descriptor.programId === GPU_SHADING_PROGRAM.UnlitTextureColor;
     return /* wgsl */ `
 fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:u32,material_slot:u32,material:OEngineShadingMaterialRecord)->OEngineSparseSurface{
-  let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices_for_work(work,meshlet_base,primitive);let model=sparse_affine(instance);
-  let p0=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.x),1.0);let p1=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.y),1.0);let p2=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.z),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;
-  var color=vec3f(1.0);${usesColor ? "color=sparse_color(geometry_base,vertices.x)*bary.weights.x+sparse_color(geometry_base,vertices.y)*bary.weights.y+sparse_color(geometry_base,vertices.z)*bary.weights.z;" : ""}
-  var base_sample=vec4f(1.0);${usesBase ? `let uv_set=sparse_material_uv_set(material,0u);let u0=sparse_uv(geometry_base,vertices.x,uv_set);let u1=sparse_uv(geometry_base,vertices.y,uv_set);let u2=sparse_uv(geometry_base,vertices.z,uv_set);let uv=u0*bary.weights.x+u1*bary.weights.y+u2*bary.weights.z;let uv_dx=(u0*bary.ddx.x+u1*bary.ddx.y+u2*bary.ddx.z)/shading_view.upscale_ratio.x;let uv_dy=(u0*bary.ddy.x+u1*bary.ddy.y+u2*bary.ddy.z)/shading_view.upscale_ratio.y;if !sparse_texture_route_valid(material_slot,0u,material.payload.texture_ref){sparse_identity_error();return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u);}base_sample=sparse_sample(material.payload.texture_ref,sparse_sampler_0(material),sparse_transform_uv_0(material,uv,false),sparse_transform_uv_0(material,uv_dx,true),sparse_transform_uv_0(material,uv_dy,true),bary.valid,vec4f(1.0));` : ""}
+  let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices_for_work(work,meshlet_base,primitive);let ref0=sparse_vertex_ref_for_work(work,geometry_base,vertices.x);let ref1=sparse_vertex_ref_for_work(work,geometry_base,vertices.y);let ref2=sparse_vertex_ref_for_work(work,geometry_base,vertices.z);let model=sparse_affine(instance);
+  let p0=model*vec4f(sparse_position_ref(ref0),1.0);let p1=model*vec4f(sparse_position_ref(ref1),1.0);let p2=model*vec4f(sparse_position_ref(ref2),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;
+  var color=vec3f(1.0);${usesColor ? "color=sparse_color_ref(ref0)*bary.weights.x+sparse_color_ref(ref1)*bary.weights.y+sparse_color_ref(ref2)*bary.weights.z;" : ""}
+  var base_sample=vec4f(1.0);${usesBase ? `let uv_set=sparse_material_uv_set(material,0u);let u0=sparse_uv_ref(ref0,uv_set);let u1=sparse_uv_ref(ref1,uv_set);let u2=sparse_uv_ref(ref2,uv_set);let uv=u0*bary.weights.x+u1*bary.weights.y+u2*bary.weights.z;let uv_dx=(u0*bary.ddx.x+u1*bary.ddx.y+u2*bary.ddx.z)/shading_view.upscale_ratio.x;let uv_dy=(u0*bary.ddy.x+u1*bary.ddy.y+u2*bary.ddy.z)/shading_view.upscale_ratio.y;if !sparse_texture_route_valid(material_slot,0u,material.payload.texture_ref){sparse_identity_error();return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u);}base_sample=sparse_sample(material.payload.texture_ref,sparse_sampler_0(material),sparse_transform_uv_0(material,uv,false),sparse_transform_uv_0(material,uv_dx,true),sparse_transform_uv_0(material,uv_dy,true),bary.valid,vec4f(1.0));` : ""}
   ${velocityCode}let factor=material.payload.base_color_factor;
   var surface_flags=OENGINE_SURFACE_FLAG_VALID|OENGINE_SURFACE_FLAG_UNLIT;${motionFlagCode}${usesBase ? "if !bary.valid{surface_flags|=OENGINE_SURFACE_FLAG_GRADIENT_FALLBACK;}" : ""}
   return OEngineSparseSurface(factor.xyz*color*base_sample.xyz,factor.w*base_sample.a,vec3f(0.0,0.0,1.0),material.payload.pbr_factors.y,vec3f(0.0,0.0,1.0),material.payload.pbr_factors.x,vec3f(0.0),1.0,position,velocity,textureLoad(visibility_depth,vec2i(pixel),0),surface_flags);
@@ -463,10 +558,10 @@ fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:
   }
   return /* wgsl */ `
 fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:u32,material_slot:u32,material:OEngineShadingMaterialRecord)->OEngineSparseSurface{
-  let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices_for_work(work,meshlet_base,primitive);let model=sparse_affine(instance);
-  let p0=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.x),1.0);let p1=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.y),1.0);let p2=model*vec4f(sparse_position_for_work(work,geometry_base,vertices.z),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);
-  let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;let local_normal=normalize(sparse_normal(geometry_base,vertices.x)*bary.weights.x+sparse_normal(geometry_base,vertices.y)*bary.weights.y+sparse_normal(geometry_base,vertices.z)*bary.weights.z);var normal=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*local_normal);let geometric=normalize(cross(p1.xyz-p0.xyz,p2.xyz-p0.xyz));
-  var color=vec3f(1.0);${s.authoredVertexColor !== "never" ? "if sparse_meta_u32(geometry_base,44u)!=0u { color=sparse_color(geometry_base,vertices.x)*bary.weights.x+sparse_color(geometry_base,vertices.y)*bary.weights.y+sparse_color(geometry_base,vertices.z)*bary.weights.z; }" : ""}
+  let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices_for_work(work,meshlet_base,primitive);let ref0=sparse_vertex_ref_for_work(work,geometry_base,vertices.x);let ref1=sparse_vertex_ref_for_work(work,geometry_base,vertices.y);let ref2=sparse_vertex_ref_for_work(work,geometry_base,vertices.z);let model=sparse_affine(instance);
+  let p0=model*vec4f(sparse_position_ref(ref0),1.0);let p1=model*vec4f(sparse_position_ref(ref1),1.0);let p2=model*vec4f(sparse_position_ref(ref2),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);
+  let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;let local_normal=normalize(sparse_normal_ref(ref0)*bary.weights.x+sparse_normal_ref(ref1)*bary.weights.y+sparse_normal_ref(ref2)*bary.weights.z);var normal=normalize(mat3x3f(model[0].xyz,model[1].xyz,model[2].xyz)*local_normal);let geometric=normalize(cross(p1.xyz-p0.xyz,p2.xyz-p0.xyz));
+  var color=vec3f(1.0);${s.authoredVertexColor !== "never" ? "if sparse_has_color_ref(ref0) { color=sparse_color_ref(ref0)*bary.weights.x+sparse_color_ref(ref1)*bary.weights.y+sparse_color_ref(ref2)*bary.weights.z; }" : ""}
   let gradient_valid=bary.valid;
   var sample_0=vec4f(1.0);var sample_1=vec4f(0.5,0.5,1.0,1.0);var sample_2=vec4f(1.0);var sample_3=vec4f(1.0);var sample_4=vec4f(1.0);
   ${needsBase ? sample(0, "material.payload.texture_ref", "vec4f(1.0)", generic ? `(material.payload.texture_ref!=${GPU_TEXTURE_REF_INVALID}u)` : "true") : ""}

@@ -143,13 +143,13 @@ test("PbrOrm specialization reads only ORM texture data and required geometry", 
     0,
     2
   )).source;
-  assert.match(source, /sparse_normal\(geometry_base/u);
+  assert.match(source, /sparse_normal_ref\(ref0\)/u);
   assert.match(source, /sparse_texture_route_valid\(material_slot,\s*2u/u);
   assert.doesNotMatch(source, /sparse_texture_route_valid\(material_slot,\s*0u/u);
   assert.doesNotMatch(source, /sparse_texture_route_valid\(material_slot,\s*1u/u);
   assert.doesNotMatch(source, /sparse_texture_route_valid\(material_slot,\s*3u/u);
-  assert.doesNotMatch(source, /sparse_tangent\(geometry_base,vertices/u);
-  assert.match(source, /sparse_color\(geometry_base,vertices/u);
+  assert.doesNotMatch(source, /let tangent_value=sparse_tangent_ref\(ref0\)/u);
+  assert.match(source, /sparse_color_ref\(ref0\)/u);
   assert.match(source, /fn sparse_transform_uv_2\(/u);
   assert.match(source, /fn sparse_sampler_2\(/u);
   assert.doesNotMatch(source, /fn sparse_transform_uv_[013]\(/u);
@@ -170,7 +170,7 @@ test("PbrGeneric retains all material-conditional texture slots", () => {
   }
   assert.match(source, /material\.payload\.occlusion_texture_ref/u);
   assert.match(source, /material\.payload\.occlusion_uv_set/u);
-  assert.match(source, /sparse_uv\(geometry_base,vertices\.x,uv_set_4\)/u);
+  assert.match(source, /sparse_uv_ref\(ref0,uv_set_4\)/u);
   assert.match(source, /material\.payload\.flags&/u);
 });
 
@@ -180,7 +180,7 @@ test("normal-textured PBR derives a transformed tangent basis when geometry omit
     0,
     2
   )).source;
-  assert.match(source, /sparse_meta_u32\(geometry_base, 51u\) != 0u/u);
+  assert.match(source, /sparse_has_tangent_ref\(ref0\)/u);
   assert.match(source, /normal_uv0=sparse_transform_uv_1/u);
   assert.match(source, /derived_tangent=\(edge1\*duv2\.y-edge2\*duv1\.y\)/u);
   assert.match(source, /normal_basis_valid=false/u);
