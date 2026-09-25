@@ -8,15 +8,14 @@ decision: ADR-0019
 goal: Deliver the accepted demand-driven virtualized visibility architecture through six broad modules and faithful, bounded upstream algorithm ports.
 
 currentSlice:
-  id: foundation-contracts
-  title: Freeze minimal product, work, temporal, and program-cache boundaries before changing the production renderer
+  id: composition-and-program-lifetime
+  title: Split the production main-pipeline ownership and establish the product planning seam
   status: active
 nextTasks:
-  - Use measured consumer fanout, decode, dispatch, and bandwidth cost to justify the first recompute/materialize alternative; keep Surface outputs and program publication separate.
-  - Extend the bounded work control protocol only when a real Ray/Page consumer needs it; keep the existing MeshletWork and ShadingBin physical ABIs and direct fast paths.
-  - Define motion, exposure, stable history identity, and invalidation before integrating new lighting providers.
-  - Prototype dynamic world-GI sample production and scene-change invalidation on the GTX 1650 Ti baseline during the foundation slice.
-  - Prepare the first complete XeGTAO or SSSR source-to-production map using the pinned migration ledger.
+  - Continue M1 by moving the main FrameGraph recipe behind a typed product/Provider composition boundary; retain one graph and one submit path.
+  - Separate scene publication and recovery/observation ownership from the frame orchestrator without breaking GPU producer-consumer closure.
+  - Compare the first recompute/materialize choice using consumer fanout, decode, dispatch, and bandwidth evidence on the 1650 Ti baseline.
+  - Keep dynamic world-GI producer feasibility and full XeGTAO/SSSR porting as later gates; do not replace M1 with a GI implementation.
 
 contracts:
   - render-product-work-history-v1
@@ -28,6 +27,8 @@ claims:
   - shading.pipeline-pruning
   - visibility.gpu-closure
 completedMilestones:
+  - id: foundation-contract-boundaries
+    result: First product, bounded work, temporal-history and program-publication contracts are in production. Remaining adaptive frequency and dynamic exposure choices remain explicit future gates.
   - id: architecture-and-source-preparation
     result: The accepted target, six-module implementation route, pinned candidate survey, and faithful-port policy are documented; no runtime migration is claimed.
   - id: device-and-dynamic-gi-direction
@@ -44,14 +45,14 @@ completedMilestones:
     result: Temporal history input rejects a generation mismatch before mutation and invalidates non-rescalable histories when the pre-exposure multiplier changes within one generation. Production still uses multiplier one; dynamic exposure integration remains open.
 tasks:
   - id: foundation-contracts
-    state: active
+    state: done
     title: Define minimal semantic products, bounded work, stable temporal identity, and program-publication separation
     dependsOn: []
     exitCriteria:
       - Existing production owners and the first real consumers determine the contracts; no speculative full ABI is frozen.
       - Adaptive frequency explicitly identifies the future contract and claim changes required by the current exactly-once semantics.
   - id: composition-and-program-lifetime
-    state: todo
+    state: active
     title: Split main-pipeline responsibilities and preserve behavior while separating stable programs from revision-local bindings
     dependsOn:
       - foundation-contracts
