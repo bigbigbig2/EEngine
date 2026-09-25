@@ -5,7 +5,7 @@ owner: shading
 ---
 # Shading
 
-Phase 1 deliberately has no production material or lighting resolve. VisibilityKey is displayed as diagnostic color; the previous effect-owned sparse shading, AO, GI, reflection, shadow, and temporal passes were removed from the production Renderer. Remaining `SurfaceFeature` and sparse shading source files are migration material for Phase 2, not an alternate active frame path. Phase 2 has extracted reconstruction/material/PBR WGSL into `surface_material_kernel.ts` and defined logical Surface values plus separate program/publication identity in `render/surface/SurfaceProducts.ts`; these are preparation, not yet a GPU material consumer.
+Phase 1 deliberately had no production material or lighting resolve. The previous effect-owned sparse shading, AO, GI, reflection, shadow, and temporal passes were removed from the production Renderer. Remaining `SurfaceFeature` and sparse shading source files are migration material for Phase 2, not an alternate active frame path. Phase 2 has extracted reconstruction/material/PBR WGSL into `surface_material_kernel.ts`, defined logical Surface values plus separate program/publication identity in `render/surface/SurfaceProducts.ts`, and connected the first GPU ShadingWork producer/indirect consumer. This consumer reads published material base-color factors for a **diagnostic output only**; it is not yet the extracted full material/PBR kernel.
 
 The target is explicit Surface reconstruction and material demand over the visibility hit, with valid full, coarse, reconstructed, or eventually reused results for every visible sample. Phase 2 must extract existing visibility decoding, interpolation, gradients, UV transforms, texture sampling, and PBR mathematics before deleting the old Surface owner. Temporal reuse waits for a valid identity and rejection contract.
 
@@ -13,11 +13,11 @@ The target decision is [ADR-0020](../adr/0020-clean-cut-renderer.md). The [histo
 
 ## Current Production Path
 
-There is no active material evaluation in the current frame. Material and texture source contracts remain available for the Phase 2 GPU consumer. The logical Surface values distinguish radiance, geometric normal, shading normal, motion, and material identity without assigning a physical texture; the program key excludes Scene/material/texture publication generations, which belong to binding lifetime.
+The single Renderer frame now runs VisibilityKey → full-rate visible-sample ShadingWork → indirect material-publication diagnostic → Present. Its queue semantics and limits are in [ShadingWork V1](../specs/shading-work-v1.md). It does not evaluate textures, gradients, normals, PBR, or direct lighting, so its output is not `SurfaceProduct.Radiance`. The logical Surface values distinguish radiance, geometric normal, shading normal, motion, and material identity without assigning a physical texture; the program key excludes Scene/material/texture publication generations, which belong to binding lifetime.
 
 ## Owner Boundaries And Failure
 
-The future shading owner will own material evaluation, specialization, and typed outputs. Visibility owns hit production; texture residency owns physical texture availability. No old sparse shading claim or browser evidence transfers to the new owner.
+Shading owns ShadingWork and the pending full material evaluation; Visibility owns hit production; texture residency owns physical texture availability. No old sparse shading claim or browser evidence transfers to the new owner.
 
 ## Main Entrypoints And Proof
 

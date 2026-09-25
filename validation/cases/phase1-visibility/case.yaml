@@ -13,7 +13,10 @@ artifacts:
 changedPaths:
   - validation/cases/phase1-visibility
   - OEngine/src/render/pipeline/RendererCore.ts
-  - OEngine/src/render/passes/VisibilityPresentPass.ts
+  - OEngine/src/render/surface/MaterialDiagnosticPresentPass.ts
+  - OEngine/src/render/surface/ShadingWorkPass.ts
+  - OEngine/src/render/surface/ShadingWorkAbi.ts
+  - OEngine/src/shaders/shading_work.ts
 errorAllowlist:
   - source: console:warning
     exact: The powerPreference option is currently ignored when calling

@@ -13,7 +13,7 @@ Exact formats and shader invariants of this current production path live in `doc
 
 ## Current Production Path
 
-GPU hierarchy traversal produces bounded meshlet work, indirect raster publishes VisibilityKey/depth, and HZB consumes depth. The Phase 1 present pass converts VisibilityKey to diagnostic color without evaluating a material. The former ShadingBin/sparse resolve is not a consumer in the active frame. Counters and bounded diagnostic readback observe the chain without becoming its producer.
+GPU hierarchy traversal produces bounded meshlet work, indirect raster publishes VisibilityKey/depth, and HZB consumes depth. Phase 2 now feeds VisibilityKey to the separate ShadingWork producer and GPU indirect material-publication diagnostic; the former ShadingBin/sparse resolve is not a consumer in the active frame. Counters and bounded diagnostic readback observe the visibility chain without becoming its producer.
 
 The optional Phase I current-HZB late-recheck contract is a bounded GPU hint
 queue. It may reject only conservative uncertain/expensive candidates; invalid
@@ -22,8 +22,8 @@ submit when current-HZB data is unavailable.
 
 ## Owner Boundaries And Failure
 
-Visibility owns hierarchy work generation, raster, visibility output, queue ABI/capacity/overflow, and indirect consumers. Asset residency owns page availability; Phase 2 will establish the new Surface/material consumer. Missing identity, overflow, and zero work must produce a closed, consumer-safe state without orphan resources or submits.
+Visibility owns hierarchy work generation, raster, visibility output, queue ABI/capacity/overflow, and indirect raster consumers. Shading owns the new ShadingWork queue and its material consumer; asset residency owns page availability. Missing identity, overflow, and zero work must produce a closed, consumer-safe state without orphan resources or submits.
 
 ## Main Entrypoints And Proof
 
-Primary entrypoints are `RendererCore.ts`, `VisibilityFeature.ts`, `HierarchicalWorkGenerator.ts`, `MeshletBucketRaster.ts`, `PackedVisibilityPass.ts`, `HierarchicalZBuffer.ts`, and `VisibilityPresentPass.ts`. The `phase1-visibility` browser case is diagnostic evidence, not a formal claim promotion.
+Primary entrypoints are `RendererCore.ts`, `VisibilityFeature.ts`, `HierarchicalWorkGenerator.ts`, `MeshletBucketRaster.ts`, `PackedVisibilityPass.ts`, and `HierarchicalZBuffer.ts`. The `phase1-visibility` browser case now also checks the active ShadingWork diagnostic chain; its evidence remains diagnostic, not a formal claim promotion.

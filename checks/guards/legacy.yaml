@@ -44,6 +44,7 @@ config:
     - OEngine/src/render/passes/TemporalAntiAliasingPass.ts
     - OEngine/src/render/passes/TemporalClassificationPass.ts
     - OEngine/src/render/passes/TonemapPass.ts
+    - OEngine/src/render/passes/VisibilityPresentPass.ts
     - OEngine/src/render/pipeline/FramePlan.ts
     - OEngine/src/render/pipeline/MainRenderPipeline.ts
     - OEngine/src/render/pipeline/MainRenderPipelineGraphKey.ts

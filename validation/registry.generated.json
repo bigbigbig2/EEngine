@@ -50,7 +50,10 @@
       "changedPaths": [
         "validation/cases/phase1-visibility",
         "OEngine/src/render/pipeline/RendererCore.ts",
-        "OEngine/src/render/passes/VisibilityPresentPass.ts"
+        "OEngine/src/render/surface/MaterialDiagnosticPresentPass.ts",
+        "OEngine/src/render/surface/ShadingWorkPass.ts",
+        "OEngine/src/render/surface/ShadingWorkAbi.ts",
+        "OEngine/src/shaders/shading_work.ts"
       ],
       "covers": [
         "visibility.gpu-closure"

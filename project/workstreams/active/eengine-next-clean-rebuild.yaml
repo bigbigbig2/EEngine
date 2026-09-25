@@ -12,9 +12,9 @@ currentSlice:
   title: Extract Surface mathematics and build the new material demand and compute shading path
   status: active
 nextTasks:
-  - Extract existing visibility decode, interpolation, derivative, UV, texture-bank, and PBR mathematics from the dormant old Surface/Sparse owner with source-to-new-owner comparisons.
-  - Define the new Surface Product semantics and bounded ShadingWork producer-consumer contract, then connect material demand and compute shading to the single Renderer frame.
-  - Implement valid full/coarse/reconstructed coverage before enabling history reuse; remove the old Surface/Sparse owner after its required mathematics and invariants have moved.
+  - Replace the ShadingWork material-publication diagnostic with complete extracted Surface reconstruction, texture gradients/banks, PBR evaluation, and basic direct lighting on the single Renderer frame; do not call base-color factors final radiance.
+  - Implement conservative three-layer frequency classification and valid full/coarse/spatially reconstructed coverage; no temporal reuse before Phase 3 history identity/rejection.
+  - Remove the old Surface/Sparse owner after the complete GPU consumer closes, then replace shading.one-eval and narrow shading owner routing.
 
 contracts:
   - render-product-work-history-v2
@@ -78,6 +78,7 @@ openGates:
   - Phase 1 has only a dirty-tree diagnostic browser run; clean-revision formal runtime and performance evidence must be captured on the new chain when such claims are made.
   - The pre-cut renderer tag is local. The source ledger is pinned, but the selected new upstream algorithms remain unported.
   - GPU Work Runtime is not complete when only MeshletWork uses a preflight helper; ShadingWork and later Ray/Page consumers must demonstrate shared control semantics with specialized physical ABIs.
+  - ShadingWork V1 is GPU-closed in a diagnostic browser scene, but its consumer reads only material base-color factors; full texture/gradient/PBR/direct lighting and adaptive frequency remain unimplemented. The dirty-tree browser run is not formal quality or runtime evidence.
   - WebGPU VSM page raster bounds, Atlas dynamic software-BVH updates, adaptive shading benefit, a complete WebGPU VT profile, and FSR3 WGSL adaptation remain unproven.
   - Screen GI has source candidates but no selected WebGPU port profile or finalized near/world/sky energy boundary; VRS classification is not an adaptive compute shading implementation.
   - Record actual browser adapter/limits and budgets on both the GTX 1650 Ti and RTX 2060 machines when each is available.

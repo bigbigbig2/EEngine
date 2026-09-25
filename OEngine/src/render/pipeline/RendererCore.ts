@@ -12,7 +12,8 @@ import { RenderTargets } from "../RenderTargets.js";
 import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
-import { VisibilityPresentPass } from "../passes/VisibilityPresentPass.js";
+import { ShadingWorkPass } from "../surface/ShadingWorkPass.js";
+import { MaterialDiagnosticPresentPass } from "../surface/MaterialDiagnosticPresentPass.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
@@ -249,7 +250,7 @@ export interface OegPackSceneOptions extends ProductSceneOptions {
  * 渲染器始终按 CSS 像素分辨率渲染。
  *
 
-/** Single Phase 1 composition root. The only frame path is GPU Scene -> GPU Visibility -> Present. */
+/** Single Renderer composition root; Phase 2 material evaluation is being rebuilt in place. */
 export class Renderer {
   context!: GPUCanvasContext;
   device!: GPUDevice;
@@ -259,7 +260,8 @@ export class Renderer {
   private _cameraStates!: GPUCameraStateManager;
   private _views!: ViewManager;
   private _visibilityFeature!: VisibilityFeature;
-  private _present!: VisibilityPresentPass;
+  private _shadingWork!: ShadingWorkPass;
+  private _present!: MaterialDiagnosticPresentPass;
   private readonly _renderTargets = new RenderTargets();
   private readonly _profiler = new FrameProfiler();
   private readonly _virtualProductScenes = new Map<Scene, {
@@ -1081,7 +1083,8 @@ export class Renderer {
     this._views = new ViewManager(this._graphics, this._cameraStates);
     this._visibilityFeature = new VisibilityFeature(this._graphics);
     this._format = gpu.getPreferredCanvasFormat();
-    this._present = new VisibilityPresentPass(device, this._format);
+    this._shadingWork = new ShadingWorkPass(device);
+    this._present = new MaterialDiagnosticPresentPass(device, this._format);
     const canvas = context.canvas as HTMLCanvasElement;
     this._width = Math.max(1, canvas.clientWidth || canvas.width);
     this._height = Math.max(1, canvas.clientHeight || canvas.height);
@@ -1377,12 +1380,23 @@ export class Renderer {
         }
       );
     }
+    const materialRecords = graph.import_resource(
+      "material-records", { kind: "imported", label: "published material records" },
+      bind("material-records", bindings => bindings.runtime.materialResources.materialRecords)
+    );
+    const materialDiagnostic = this._shadingWork.addToGraph(graph, {
+      visibilityKey: result.frame.visibilityKey,
+      meshletWork: result.frame.meshletWork.records,
+      materialRecords,
+      width: result.frame.domain.width,
+      height: result.frame.domain.height
+    });
     const swapchain = graph.import_resource(
       "swapchain", { kind: "imported", label: "swapchain" },
       bind("swapchain", bindings => bindings.swapchain)
     );
     this._present.addToGraph(
-      graph, result.frame.visibilityKey, swapchain,
+      graph, materialDiagnostic.color, materialDiagnostic.queue, swapchain,
       this._output_resolution.x, this._output_resolution.y
     );
     this._profiler.recordGraphCompile();

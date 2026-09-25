@@ -1,0 +1,32 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import "../webgpu-test-globals.mjs";
+import {
+  shadingWorkCapacity, SHADING_WORK_HEADER_BYTES, SHADING_WORK_RECORD_BYTES,
+  SHADING_WORK_THREADS
+} from "../../.test-dist/render/surface/ShadingWorkAbi.js";
+
+const limits = {
+  maxBufferSize: 128 * 1024 * 1024,
+  maxStorageBufferBindingSize: 128 * 1024 * 1024,
+  maxComputeWorkgroupsPerDimension: 65535
+};
+
+test("full coverage reserves exactly one bounded record per pixel", () => {
+  const selected = shadingWorkCapacity(1920, 1080, limits);
+  assert.equal(selected.capacity, 1920 * 1080);
+  assert.equal(selected.queueBytes,
+    SHADING_WORK_HEADER_BYTES + 1920 * 1080 * SHADING_WORK_RECORD_BYTES);
+  assert.equal(SHADING_WORK_THREADS, 64);
+});
+
+test("unsupported extents fail before GPU allocation instead of truncating samples", () => {
+  assert.throws(() => shadingWorkCapacity(1920, 1080, {
+    ...limits, maxStorageBufferBindingSize: 8 * 1024 * 1024
+  }), /storage-buffer limit/);
+  assert.throws(() => shadingWorkCapacity(1920, 1080, {
+    ...limits, maxComputeWorkgroupsPerDimension: 64
+  }), /workgroup limit/);
+  assert.throws(() => shadingWorkCapacity(0, 1080, limits), /positive integers/);
+});

@@ -174,9 +174,9 @@
       "source": "MiniEngine/Model/Shaders/VBufferMesh.slang",
       "sourceSymbols": ["pixelMain"],
       "implementation": ["OEngine/src/shaders/meshlet_bucket_visibility.ts", "OEngine/src/gpu/GpuVisibilityKeyAbi.ts"],
-      "consumer": ["OEngine/src/render/passes/VisibilityPresentPass.ts", "OEngine/src/gpu/GpuVisibilityKeyAbi.ts"],
+      "consumer": ["OEngine/src/render/surface/ShadingWorkPass.ts", "OEngine/src/gpu/GpuVisibilityKeyAbi.ts"],
       "retainedInvariants": ["alpha-test decision", "primitive identity and depth", "two-sided/material routing"],
-      "webgpuAdaptation": "WGSL fragment outputs write VisibilityKey and depth; Phase 1 presents GPU-authored identity directly while Surface reconstruction is rebuilt.",
+      "webgpuAdaptation": "WGSL fragment outputs write VisibilityKey and depth; Phase 2 ShadingWork consumes GPU-authored identity while complete Surface reconstruction is rebuilt.",
       "fallback": "Unsupported material texture or invalid key fails closed and is counted; no silent opaque fallback.",
       "oracle": ["OEngine/tests/contract/packed-render-world-contract.test.mjs"],
       "status": "verified"

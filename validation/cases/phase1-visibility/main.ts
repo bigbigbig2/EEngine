@@ -175,7 +175,10 @@ try {
   const passes = graph.dump.passes.filter(pass => !pass.culled).map(pass => pass.name);
   requireValue(passes.some(name => name.includes("MeshletWork bucket producer")), "GPU MeshletWork raster was not encoded");
   requireValue(passes.includes("Visibility/build HZB"), "HZB was not built");
-  requireValue(passes.includes("Visibility/Phase1 present"), "VisibilityKey was not presented");
+  requireValue(passes.includes("Surface/classify visible ShadingWork"), "GPU ShadingWork producer was not encoded");
+  requireValue(passes.includes("Surface/finalize ShadingWork indirect"), "GPU ShadingWork indirect finalizer was not encoded");
+  requireValue(passes.includes("Surface/consume ShadingWork material diagnostic"), "GPU ShadingWork consumer was not encoded");
+  requireValue(passes.includes("Surface/material diagnostic present"), "Current material publication was not presented");
   requireValue(scoped.errors.length === 0, JSON.stringify(scoped.errors));
   const geometryBeforeLoss = residency.evidence();
   const lostDevice = renderer.device;
