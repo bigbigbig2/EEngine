@@ -1,6 +1,7 @@
 import { GPU_SHADING_PROGRAM_COUNT } from "../../gpu/GpuShadingProgramAbi.js";
 import { gpuSurfaceProgramSpecialization, GPU_SURFACE_KERNEL_DEMAND_VALID_MASK } from "../../gpu/GpuSurfaceProgramSpecialization.js";
 import type { SurfaceKernelProfile } from "../../shaders/surface_material_kernel.js";
+import { GPU_TEXTURE_BANK_ALL_MASK } from "../../gpu/GpuTextureRefAbi.js";
 
 /** Logical values; none of these names promises a physical attachment. */
 export const SURFACE_PRODUCT = Object.freeze({
@@ -103,11 +104,12 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
 
 /** Semantic resource closure for the selected kernel, before physical bind-group lowering. */
 export type SurfaceResourceRole =
-  | "visibility-key" | "meshlet-work" | "material-records" | "frame-view" | "radiance-output"
+  | "shading-work" | "meshlet-work" | "material-records" | "frame-view" | "radiance-output"
   | "instance-records" | "geometry-metadata" | "vertex-payload" | "visibility-depth"
   | "virtual-product-metadata" | "virtual-product-banks"
   | "texture-routes" | "texture-banks" | "texture-samplers"
-  | "direct-light-records" | "direct-light-clusters";
+  | "direct-light-records" | "direct-light-cluster-lookup"
+  | "direct-light-cluster-data" | "direct-light-cluster-params";
 
 export interface SurfaceMaterialRequirements {
   readonly roles: readonly SurfaceResourceRole[];
@@ -124,8 +126,11 @@ export function surfaceMaterialRequirements(
   const s = gpuSurfaceProgramSpecialization(
     closure.kernel.programId, closure.kernel.outputDependencyMask
   );
+  if (s.lit && closure.lighting !== "direct") {
+    throw new RangeError("Lit Surface program requires direct-light evaluation");
+  }
   const roles: SurfaceResourceRole[] = [
-    "visibility-key", "meshlet-work", "material-records", "frame-view", "radiance-output"
+    "shading-work", "meshlet-work", "material-records", "frame-view", "radiance-output"
   ];
   if (s.reconstructTriangle) {
     roles.push("instance-records", "geometry-metadata", "vertex-payload", "visibility-depth");
@@ -135,7 +140,8 @@ export function surfaceMaterialRequirements(
     s.normalTexture !== "never" || s.emissiveTexture !== "never" ||
     s.occlusionTexture !== "never";
   if (textured) {
-    if (closure.kernel.textureBankMask === 0) {
+    if (closure.kernel.textureBankMask === 0 ||
+        (closure.kernel.textureBankMask & ~GPU_TEXTURE_BANK_ALL_MASK) !== 0) {
       throw new RangeError("Textured Surface program requires a texture bank");
     }
     roles.push("texture-routes", "texture-banks", "texture-samplers");
@@ -143,7 +149,8 @@ export function surfaceMaterialRequirements(
     throw new RangeError("Texture banks have no Surface consumer");
   }
   if (s.lit && closure.lighting === "direct") {
-    roles.push("direct-light-records", "direct-light-clusters");
+    roles.push("direct-light-records", "direct-light-cluster-lookup",
+      "direct-light-cluster-data", "direct-light-cluster-params");
   }
   return Object.freeze({
     roles: Object.freeze(roles),

@@ -9,6 +9,16 @@ import {
   surfaceMaterialRequirements, closeSurfaceBindings
 } from "../../.test-dist/render/surface/SurfaceProducts.js";
 import { GPU_SURFACE_KERNEL_DEMAND } from "../../.test-dist/gpu/GpuSurfaceProgramSpecialization.js";
+import { planSurfaceKernelBindings, compileSurfaceProgramLayout,
+  createSurfaceBindGroupLayouts } from
+  "../../.test-dist/render/surface/SurfaceKernelBindingPlan.js";
+
+const desktopLimits = Object.freeze({
+  maxBindGroups: 4, maxBindingsPerBindGroup: 16,
+  maxStorageBuffersPerShaderStage: 16, maxStorageTexturesPerShaderStage: 1,
+  maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 6,
+  maxUniformBuffersPerShaderStage: 2
+});
 
 test("logical Surface values distinguish normals, motion, radiance and material identity", () => {
   assert.equal(Object.keys(SURFACE_PRODUCT).length, 5);
@@ -37,7 +47,7 @@ test("material resource closure follows triangle, texture and direct-light deman
   assert.equal(unlit.triangleReconstruction, false);
   assert.equal(unlit.directLighting, false);
   assert.deepEqual(unlit.roles, [
-    "visibility-key", "meshlet-work", "material-records", "frame-view", "radiance-output"
+    "shading-work", "meshlet-work", "material-records", "frame-view", "radiance-output"
   ]);
   const texturedPbr = { ...base, virtualGeometry: true,
     kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask: 3 }
@@ -47,7 +57,9 @@ test("material resource closure follows triangle, texture and direct-light deman
   assert.equal(pbr.directLighting, true);
   for (const role of ["instance-records", "vertex-payload", "visibility-depth",
     "virtual-product-metadata", "virtual-product-banks", "texture-routes",
-    "texture-banks", "texture-samplers", "direct-light-records", "direct-light-clusters"]) {
+    "texture-banks", "texture-samplers", "direct-light-records",
+    "direct-light-cluster-lookup", "direct-light-cluster-data",
+    "direct-light-cluster-params"]) {
     assert.ok(pbr.roles.includes(role), role);
   }
   assert.throws(() => surfaceMaterialRequirements({ ...base,
@@ -56,6 +68,69 @@ test("material resource closure follows triangle, texture and direct-light deman
   assert.throws(() => surfaceMaterialRequirements({ ...texturedPbr,
     kernel: { ...texturedPbr.kernel, textureBankMask: 0 }
   }), /requires a texture bank/);
+});
+
+test("physical Surface closure stays within the negotiated WebGPU envelope", () => {
+  const base = {
+    kernel: { programId: 0, outputDependencyMask: 0, textureBankMask: 0 },
+    virtualGeometry: false, lighting: "unlit", source: "kernel",
+    layoutSignature: "generated", capabilityFingerprint: "desktop", formatProfile: "rgba16float"
+  };
+  const narrow = planSurfaceKernelBindings(base, desktopLimits);
+  assert.deepEqual(narrow.totals, {
+    storageBuffers: 3, storageTextures: 1, sampledTextures: 0,
+    samplers: 0, uniformBuffers: 1
+  });
+  assert.deepEqual(narrow.bindings.map(binding => binding.role), [
+    "shading-work", "meshlet-work", "material-records", "frame-view", "radiance-output"
+  ]);
+  const full = { ...base, virtualGeometry: true, lighting: "direct",
+    kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion,
+      textureBankMask: 0x1ff } };
+  const plan = planSurfaceKernelBindings(full, desktopLimits);
+  assert.deepEqual(plan.totals, {
+    storageBuffers: 15, storageTextures: 1, sampledTextures: 10,
+    samplers: 6, uniformBuffers: 2
+  });
+  assert.equal(new Set(plan.bindings.map(binding =>
+    `${binding.group}:${binding.binding}`)).size, plan.bindings.length);
+  assert.equal(plan.bindings.filter(binding => binding.role === "virtual-product-banks").length, 4);
+  assert.equal(plan.bindings.filter(binding => binding.role === "texture-banks").length, 9);
+  assert.throws(() => planSurfaceKernelBindings(full, {
+    ...desktopLimits, maxStorageBuffersPerShaderStage: 14
+  }), /maxStorageBuffersPerShaderStage >= 15/);
+  assert.throws(() => planSurfaceKernelBindings(full, {
+    ...desktopLimits, maxBindingsPerBindGroup: 15
+  }), /maxBindingsPerBindGroup >= 16/);
+  assert.throws(() => planSurfaceKernelBindings(full, {
+    ...desktopLimits, maxBindGroups: 3
+  }), /maxBindGroups >= 4/);
+  assert.notEqual(plan.signature, narrow.signature);
+  const compiled = compileSurfaceProgramLayout({
+    kernel: full.kernel, virtualGeometry: full.virtualGeometry,
+    lighting: full.lighting, source: full.source,
+    capabilityFingerprint: full.capabilityFingerprint,
+    formatProfile: full.formatProfile
+  }, desktopLimits);
+  assert.equal(compiled.closure.layoutSignature, plan.signature);
+  assert.equal(compiled.plan.signature, plan.signature);
+  const emitted = [];
+  const fakeDevice = { createBindGroupLayout(descriptor) {
+    emitted.push(descriptor);
+    return descriptor;
+  } };
+  createSurfaceBindGroupLayouts(fakeDevice, plan);
+  assert.equal(emitted.length, 4);
+  assert.equal(emitted[0].entries.find(entry => entry.binding === 4)
+    .storageTexture.format, "rgba16float");
+  assert.equal(emitted[0].entries.find(entry => entry.binding === 5)
+    .texture.sampleType, "depth");
+  assert.equal(emitted[2].entries.find(entry => entry.binding === 9)
+    .texture.viewDimension, "2d-array");
+  emitted.length = 0;
+  createSurfaceBindGroupLayouts(fakeDevice, narrow);
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].entries.length, 5);
 });
 
 test("publication bindings close only the selected program's resource demand", () => {

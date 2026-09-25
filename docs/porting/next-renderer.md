@@ -6,6 +6,8 @@
 
 所有新增候选当前 Adoption 均为 **not adopted**。下表的“优先/候选/参考”只表示实施推荐；完成实际迁移后，逐项写入本地生产文件、源函数映射、差异和验证，再改为 `traceable local port` 或其他真实采用方式。
 
+复杂算法与渲染效果实施前必须先搜完整 GitHub 源码及可核验论文/详细技术文章，优先跨语言忠实移植固定版本。每项 ledger 需写清源 entry point、完整阶段与关键条件、本地对应入口、WebGPU 必须差异、fallback、oracle/GPU 验证；找不到完整 donor 时记录检索范围与缺口，选择具名本地方案，不得以缩减算法冒充迁移完成。简单确定性工具、ABI 编解码、绑定、队列及资源生命周期接线不强制外部调研，但属本地集成，须与来源算法分别标识；不能将一个复杂效果拆分后按简单任务豁免。
+
 ## 1. 推荐总表
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |
@@ -51,6 +53,8 @@
 - **Fallback / lifecycle**：已有 Surface/visibility 作为迁移对照；必要 unsupported material 仍经统一主管线的合法 provider 处理，不能静默错误着色。
 - **Local validation**：透视平面、高 UV 梯度、退化/近裁剪案例，与参考插值/梯度对照；复用现有 sparse-shading validation。未运行上游工程。
 - **Phase 2 extraction state**：旧 `sparse_shading_resolve.ts` 的 `geometryWgsl`（普通/VG 顶点解码、透视权重和梯度）、`textureWgsl`（bank、UV/采样器与显式梯度）、`materialEvaluationWgsl`（材质、法线、AO 和运动）及 `lightingWgsl`（现有 direct/IBL 数学）移入 `surface_material_kernel.ts`，由旧的已停用程序生成器暂时引用；新文件使用独立 `SurfaceKernelProfile`，不依赖旧稀疏管线描述符。程序特化的 16 类依赖表已从旧 oracle 提到 `GpuSurfaceProgramSpecialization.ts`，新 kernel 不再经过旧 sparse 合同；旧 oracle 暂时复用这份纯数学/程序表直到删除。`SurfaceProducts.ts` 现在声明逻辑 Product、程序身份与按程序/需求推导的**语义资源闭包**，并校验发布期资源集合；这尚不是物理 WGSL binding layout 或 GPU consumer。**来源对照**：固定源 `CalcFullBary` 的透视权重对应本地 `sparse_barycentric`；其 `m_ddx/m_ddy` 为相邻一像素的**投影差分**，原本地实现是无穷小商法则导数，二者在强透视下不同；新 owner 已改用 `(w+wx)/(sum+ix)-w/sum` 与 y 对应式，并加入退化面积、近零齐次 w 与投影分母守卫。`Interpolate2DWithDeriv` 对应本地 UV 顶点值与上述权重/差分的点积；后续 UV transform 的梯度只旋转/缩放、不加 offset，供 `textureSampleGrad`；无效梯度沿本地显式 LOD fallback。普通/VG 顶点解码、材质 bank、Filament-derived direct/IBL 不来自该 The Forge 文件，分别保持 EEngine/Filament 来源，不冒称 The Forge 移植。`SurfaceReconstructionOracle` 对照相邻像素差分；裁剪后的三角形、混合符号 w、纹理 footprint 与参考实画面尚待新 GPU 消费者验证。Renderer now has bounded full-rate GPU ShadingWork production, indirect finalization and a GPU consumer of published material records; see [ShadingWork V1](../specs/shading-work-v1.md). The consumer is only a base-color publication diagnostic: it does not yet execute the extracted texture/gradient/PBR kernel or direct lighting. R02 remains `not adopted`; the old Renderer browser path is not new-path acceptance evidence.
+
+R02 的新阶段补充：[Surface Kernel Binding V1](../specs/surface-kernel-binding-v1.md) 已将逻辑材质需求降低为新 ShadingWork 消费者的物理 WebGPU 布局，并对全特化 15 个 storage buffer 与设备限额作静态核算；它是 EEngine 本地 ABI 集成，不是 The Forge 或 Filament 的算法移植。完整 WGSL consumer、纹理/光照 GPU 实画面和身份校验仍未接通，因此 R02 保持 `not adopted`。
 
 ### R03 · Filament：沿用 PBR，参考图与照明组织
 
