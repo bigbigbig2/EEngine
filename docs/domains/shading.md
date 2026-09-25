@@ -5,7 +5,7 @@ owner: shading
 ---
 # Shading
 
-Phase 1 deliberately has no production material or lighting resolve. VisibilityKey is displayed as diagnostic color; the previous effect-owned sparse shading, AO, GI, reflection, shadow, and temporal passes were removed from the production Renderer. Remaining `SurfaceFeature` and sparse shading source files are migration material for Phase 2, not an alternate active frame path.
+Phase 1 deliberately has no production material or lighting resolve. VisibilityKey is displayed as diagnostic color; the previous effect-owned sparse shading, AO, GI, reflection, shadow, and temporal passes were removed from the production Renderer. Remaining `SurfaceFeature` and sparse shading source files are migration material for Phase 2, not an alternate active frame path. Phase 2 has extracted reconstruction/material/PBR WGSL into `surface_material_kernel.ts` and defined logical Surface values plus separate program/publication identity in `render/surface/SurfaceProducts.ts`; these are preparation, not yet a GPU material consumer.
 
 The target is explicit Surface reconstruction and material demand over the visibility hit, with valid full, coarse, reconstructed, or eventually reused results for every visible sample. Phase 2 must extract existing visibility decoding, interpolation, gradients, UV transforms, texture sampling, and PBR mathematics before deleting the old Surface owner. Temporal reuse waits for a valid identity and rejection contract.
 
@@ -13,7 +13,7 @@ The target decision is [ADR-0020](../adr/0020-clean-cut-renderer.md). The [histo
 
 ## Current Production Path
 
-There is no active material evaluation in the Phase 1 frame. Material and texture source contracts remain available for the Phase 2 extraction.
+There is no active material evaluation in the current frame. Material and texture source contracts remain available for the Phase 2 GPU consumer. The logical Surface values distinguish radiance, geometric normal, shading normal, motion, and material identity without assigning a physical texture; the program key excludes Scene/material/texture publication generations, which belong to binding lifetime.
 
 ## Owner Boundaries And Failure
 
