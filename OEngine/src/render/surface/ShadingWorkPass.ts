@@ -11,7 +11,8 @@ import {
 } from "../../shaders/shading_work.js";
 import { SHADING_FREQUENCY_PLAN_WGSL } from "../../shaders/shading_frequency.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
-import { SHADING_FREQUENCY_COARSE4_BIT, shadingFrequencyPlanCapacity } from "./ShadingFrequencyPlanAbi.js";
+import { SHADING_FREQUENCY_COARSE4_BIT, SHADING_FREQUENCY_TILE_SIZE,
+  shadingFrequencyPlanCapacity } from "./ShadingFrequencyPlanAbi.js";
 
 export interface ShadingWorkInputs {
   readonly visibilityKey: ResourceId;
@@ -30,6 +31,8 @@ export class ShadingWorkPass {
   private diagnosticPlan: GPUBuffer | null = null;
   private diagnosticPlanBytes = 0;
   private diagnosticPlanTilesX = 0;
+  private diagnosticPlanWidth = 0;
+  private diagnosticPlanHeight = 0;
   private readonly classifyLayout: GPUBindGroupLayout;
   private readonly adaptiveClassifyLayout: GPUBindGroupLayout;
   private readonly frequencyLayout: GPUBindGroupLayout;
@@ -152,6 +155,8 @@ export class ShadingWorkPass {
         this.diagnosticPlan = resources.get(frequencyPlan!) as GPUBuffer;
         this.diagnosticPlanBytes = planBytes;
         this.diagnosticPlanTilesX = tilesX;
+        this.diagnosticPlanWidth = width;
+        this.diagnosticPlanHeight = height;
       });
       frequency.read(input.visibilityKey);
       frequency.read(input.depth);
@@ -246,6 +251,8 @@ export class ShadingWorkPass {
         this.diagnosticPlan = null;
         this.diagnosticPlanBytes = 0;
         this.diagnosticPlanTilesX = 0;
+        this.diagnosticPlanWidth = 0;
+        this.diagnosticPlanHeight = 0;
       }
     });
     scatter.read(input.visibilityKey);
@@ -268,6 +275,7 @@ export class ShadingWorkPass {
     attempted: number; written: number; overflow: number;
     coarse2Blocks: number; coarse4Blocks: number; savedEvaluations: number;
     leftCoarseBlocks: number; rightCoarseBlocks: number;
+    outOfBoundsCoarseBlocks: number;
   }>> {
     if (!this.diagnosticQueue || !this.diagnosticPlan) {
       throw new Error("No adaptive ShadingWork frame is available for diagnosis");
@@ -287,13 +295,25 @@ export class ShadingWorkPass {
       const words = new Uint32Array(staging.getMappedRange().slice(0));
       let coarse2Blocks = 0, coarse4Blocks = 0;
       let leftCoarseBlocks = 0, rightCoarseBlocks = 0;
+      let outOfBoundsCoarseBlocks = 0;
       for (let i = SHADING_WORK_HEADER_BYTES / 4; i < words.length; i++) {
         const mask = words[i]!;
-        if ((mask & SHADING_FREQUENCY_COARSE4_BIT) !== 0) coarse4Blocks++;
-        else for (let cell = 0; cell < 4; cell++) if ((mask & (1 << cell)) !== 0) coarse2Blocks++;
+        const tile = i - SHADING_WORK_HEADER_BYTES / 4;
+        const tileX = tile % this.diagnosticPlanTilesX;
+        const originX = tileX * SHADING_FREQUENCY_TILE_SIZE;
+        const originY = Math.floor(tile / this.diagnosticPlanTilesX) * SHADING_FREQUENCY_TILE_SIZE;
+        if ((mask & SHADING_FREQUENCY_COARSE4_BIT) !== 0) {
+          coarse4Blocks++;
+          if (originX + 4 > this.diagnosticPlanWidth ||
+              originY + 4 > this.diagnosticPlanHeight) outOfBoundsCoarseBlocks++;
+        } else for (let cell = 0; cell < 4; cell++) {
+          if ((mask & (1 << cell)) === 0) continue;
+          coarse2Blocks++;
+          if (originX + (cell & 1) * 2 + 2 > this.diagnosticPlanWidth ||
+              originY + (cell >> 1) * 2 + 2 > this.diagnosticPlanHeight) outOfBoundsCoarseBlocks++;
+        }
         if (mask !== 0) {
-          if ((i - SHADING_WORK_HEADER_BYTES / 4) % this.diagnosticPlanTilesX <
-              this.diagnosticPlanTilesX / 2) leftCoarseBlocks++;
+          if (tileX < this.diagnosticPlanTilesX / 2) leftCoarseBlocks++;
           else rightCoarseBlocks++;
         }
       }
@@ -302,7 +322,7 @@ export class ShadingWorkPass {
         attempted: words[0]!, written: words[1]!, overflow: words[2]!,
         coarse2Blocks, coarse4Blocks,
         savedEvaluations: coarse4Blocks * 15 + coarse2Blocks * 3,
-        leftCoarseBlocks, rightCoarseBlocks
+        leftCoarseBlocks, rightCoarseBlocks, outOfBoundsCoarseBlocks
       });
     } finally {
       staging.destroy();

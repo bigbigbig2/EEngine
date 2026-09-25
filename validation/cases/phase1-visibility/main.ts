@@ -492,18 +492,37 @@ try {
   renderer.profiler.configure({ enabled: false });
   renderer.spatial_shading_frequency_enabled = true;
   const instanceBuffer = renderer.graphics.gpu_scene.bindings().instances;
+  const unlitCurrentOffset = (runtime.instanceBegin + 1) * GPU_INSTANCE_RECORD_STRIDE +
+    GPU_INSTANCE_RECORD_OFFSETS.current_affine;
   const unlitMotionOffset = (runtime.instanceBegin + 1) * GPU_INSTANCE_RECORD_STRIDE +
     GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine;
+  requireValue(renderer.render(camera, scene, 1 / 60), "Static movement-control frame was not submitted");
+  const [staticBoundary] = await captureDisplayPixels(renderer.device, context, [[535, 180]]);
+  renderer.device.queue.writeBuffer(instanceBuffer, unlitCurrentOffset,
+    new Float32Array([1, 0, 0, 1.7]));
   renderer.device.queue.writeBuffer(instanceBuffer, unlitMotionOffset,
-    new Float32Array([1, 0, 0, 0.2]));
+    new Float32Array([1, 0, 0, -0.2]));
+  renderer.spatial_shading_frequency_enabled = false;
+  requireValue(renderer.render(camera, scene, 1 / 60), "Moving full-rate frame was not submitted");
+  const movedGrid = [[480, 180], [500, 180], [520, 180], [535, 180]] as const;
+  const movedFullPixels = await captureDisplayPixels(renderer.device, context, movedGrid);
+  renderer.spatial_shading_frequency_enabled = true;
   requireValue(renderer.render(camera, scene, 1 / 60), "Dynamic-boundary frame was not submitted");
-  const [dynamicUnlit] = await captureDisplayPixels(renderer.device, context, [[480, 180]]);
-  requireLitTexel(dynamicUnlit!, surfacePixels.unlit!, "dynamic full-rate unlit fallback");
+  const movedSpatialPixels = await captureDisplayPixels(renderer.device, context, movedGrid);
+  requireValue(movedSpatialPixels.every((pixel, index) =>
+    pixel.every((value, channel) => Math.abs(value - movedFullPixels[index]![channel]!) <= 1)),
+    "Moving geometry changed between full-rate and spatial paths");
+  requireLitTexel(movedSpatialPixels[3]!, surfacePixels.unlit!, "moved unlit boundary");
+  requireValue(staticBoundary!.slice(0, 3).some((value, channel) =>
+    Math.abs(value - movedSpatialPixels[3]![channel]!) > 12),
+    "GPU instance transform did not move the visible silhouette");
   const dynamicFrequency = await renderer.diagnosticShadingFrequency();
   requireValue(dynamicFrequency.overflow === 0 && dynamicFrequency.coarse2Blocks === 0 &&
-    dynamicFrequency.coarse4Blocks === 0 &&
-    dynamicFrequency.attempted === frequencyDiagnostic.attempted + frequencyDiagnostic.savedEvaluations,
+    dynamicFrequency.coarse4Blocks === 0 && dynamicFrequency.savedEvaluations === 0 &&
+    dynamicFrequency.attempted === dynamicFrequency.written,
     `Dynamic identity did not restore full-rate work: ${JSON.stringify(dynamicFrequency)}`);
+  renderer.device.queue.writeBuffer(instanceBuffer, unlitCurrentOffset,
+    new Float32Array([1, 0, 0, 1.5]));
   renderer.device.queue.writeBuffer(instanceBuffer, unlitMotionOffset,
     new Float32Array([1, 0, 0, 0]));
   requireValue(renderer.render(camera, scene, 1 / 60), "Static-frequency restoration frame was not submitted");
@@ -514,17 +533,36 @@ try {
   context.configure({ device: renderer.device, format: navigator.gpu.getPreferredCanvasFormat(),
     alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   camera.aspect = 639 / 359;
+  camera.transform.position.set(1.5, 0, 0.5);
+  camera.transform.lookAt({ x: 1.5, y: 0, z: 0 });
   camera.update();
+  const oddEdgeGrid = [[0, 180], [1, 180], [2, 180], [320, 180],
+    [636, 180], [637, 180], [638, 180]] as const;
+  renderer.spatial_shading_frequency_enabled = false;
+  requireValue(renderer.render(camera, scene, 1 / 60), "Odd-extent full-rate warm frame was not submitted");
+  requireValue(renderer.render(camera, scene, 1 / 60), "Odd-extent full-rate frame was not submitted");
+  const oddFullPixels = await captureDisplayPixels(renderer.device, context, oddEdgeGrid);
+  renderer.spatial_shading_frequency_enabled = true;
   requireValue(renderer.render(camera, scene, 1 / 60), "Odd-extent spatial frame was not submitted");
-  const [oddUnlit] = await captureDisplayPixels(renderer.device, context, [[480, 180]]);
-  requireLitTexel(oddUnlit!, surfacePixels.unlit!, "odd-extent unlit reconstruction");
+  const oddSpatialPixels = await captureDisplayPixels(renderer.device, context, oddEdgeGrid);
+  const oddUnlit = oddSpatialPixels[3];
+  requireValue(oddSpatialPixels.every((pixel, index) =>
+    pixel.every((value, channel) => Math.abs(value - oddFullPixels[index]![channel]!) <= 1)),
+    "Odd screen-edge pixels differ from full-rate output");
+  for (const index of [0, 3, 6]) {
+    requireLitTexel(oddSpatialPixels[index]!, surfacePixels.unlit!,
+      `odd screen-edge unlit reconstruction at ${oddEdgeGrid[index]}`);
+  }
   const oddExtentFrequency = await renderer.diagnosticShadingFrequency();
-  requireValue(oddExtentFrequency.overflow === 0 && oddExtentFrequency.coarse4Blocks > 0,
+  requireValue(oddExtentFrequency.overflow === 0 && oddExtentFrequency.coarse4Blocks > 0 &&
+    oddExtentFrequency.outOfBoundsCoarseBlocks === 0,
     `Odd-extent frequency work did not close: ${JSON.stringify(oddExtentFrequency)}`);
   renderer.resize(640, 360);
   context.configure({ device: renderer.device, format: navigator.gpu.getPreferredCanvasFormat(),
     alphaMode: "opaque", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_SRC });
   camera.aspect = 640 / 360;
+  camera.transform.position.set(0, 0, 4);
+  camera.transform.lookAt({ x: 0, y: 0, z: 0 });
   camera.update();
   const geometryBeforeLoss = residency.evidence();
   const lostDevice = renderer.device;
@@ -758,6 +796,11 @@ try {
     renderer.device, texturedFrequencySource, 17, 0);
   texturedFrequencyResidency.activatePublication();
   const texturedFrequencyScene = new Scene();
+  const texturedFrequencySun = new DirectionalLight();
+  texturedFrequencySun.intensity = 3;
+  texturedFrequencySun.casts_shadow = false;
+  texturedFrequencySun.forward = [0, 0, -1];
+  texturedFrequencyScene.addChild(texturedFrequencySun);
   const oneTexel = new StandardShadeMaterial();
   oneTexel.is_unlit = true;
   oneTexel.texture_albedo = ShadeTexture.from(ShadeImage.fromSampler2D(
@@ -769,17 +812,21 @@ try {
       255, 32, 32, 255, 32, 255, 32, 255,
       32, 32, 255, 255, 255, 255, 32, 255
     ]), 4, 2, 2)));
+  const normalMapped = new StandardShadeMaterial();
+  normalMapped.texture_normal = ShadeTexture.from(ShadeImage.fromSampler2D(
+    new Sampler2D(new Uint8Array([192, 128, 239, 255]), 4, 1, 1)));
   await renderer.uploadVirtualGeometryScene(texturedFrequencyScene, {
-    materials: [oneTexel, fourTexels], geometryProfiles, assetCount: 1,
+    materials: [oneTexel, fourTexels, normalMapped], geometryProfiles, assetCount: 1,
     hierarchyMaxDepth: 2, hierarchyTraversalCapacity: 8,
     hierarchyVisibleClusterCapacity: 8, hierarchyRasterWorkCapacity: 8,
-    count: 2, geometryIndices: new Uint32Array([0, 0]),
-    materialIndices: new Uint32Array([0, 1]),
+    count: 3, geometryIndices: new Uint32Array([0, 0, 0]),
+    materialIndices: new Uint32Array([0, 1, 2]),
     currentTransforms: new Float32Array([
       1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -1.5, 0, 0, 1,
-      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.5, 0, 0, 1
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1.5, 0, 0, 1,
+      1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1
     ]),
-    boundsSpheres: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1])
+    boundsSpheres: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1])
   }, texturedFrequencyResidency);
   const textureGrid = Array.from({ length: 12 * 2 * 2 }, (_, index) => {
     const right = index >= 24;
@@ -788,7 +835,7 @@ try {
       (right ? 416 : 96) + (local % 6) * 24,
       126 + Math.floor(local / 6) * 24
     ] as [number, number];
-  });
+  }).concat(([[312, 180], [320, 180], [328, 180], [320, 164]] as [number, number][]));
   renderer.spatial_shading_frequency_enabled = false;
   requireValue(renderer.render(camera, texturedFrequencyScene, 1 / 60),
     "Full-rate textured-frequency warm frame was not submitted");
@@ -812,8 +859,39 @@ try {
     pixel.every((value, channel) => Math.abs(value - fullTexturePixels[index]![channel]!) <= 1)),
     "One-/four-texel material or visibility edge changed versus full-rate");
   requireLitTexel(spatialTexturePixels[8]!, [51, 153, 230], "one-texel coarse interior");
-  requireValue(new Set(spatialTexturePixels.slice(24).map(pixel => pixel.slice(0, 3).join(","))).size >= 3,
+  requireValue(new Set(spatialTexturePixels.slice(24, 48).map(pixel => pixel.slice(0, 3).join(","))).size >= 3,
     "Four-texel control did not expose varying source colors");
+  const normalReference = evaluateGpuShadingProgramReference({
+    programId: 8, outputDependencyMask: 0,
+    material: {
+      baseColorFactor: [1, 1, 1], metallicFactor: 0, roughnessFactor: 1,
+      normalScale: 1, occlusionStrength: 1, emissiveFactor: [0, 0, 0],
+      normalSample: [192 / 255, 128 / 255, 239 / 255, 1],
+      tangent: [1, 0, 0, 1], shadingNormal: [0, 0, 1], geometricNormal: [0, 0, 1]
+    },
+    viewDirection: [0, 0, 4],
+    directLights: [{ direction: [0, 0, 1], radiance: [3, 3, 3], visibility: 1 }],
+    preExposure: 1, gradientValid: true
+  });
+  const expectedNormalPixel = normalReference.radiance.map(value =>
+    Math.max(0, Math.min(255, Math.round(value * 255))));
+  const flatReference = evaluateGpuShadingProgramReference({
+    programId: 4, outputDependencyMask: 0,
+    material: {
+      baseColorFactor: [1, 1, 1], metallicFactor: 0, roughnessFactor: 1,
+      normalScale: 1, occlusionStrength: 1, emissiveFactor: [0, 0, 0],
+      shadingNormal: [0, 0, 1], geometricNormal: [0, 0, 1]
+    },
+    viewDirection: [0, 0, 4],
+    directLights: [{ direction: [0, 0, 1], radiance: [3, 3, 3], visibility: 1 }],
+    preExposure: 1, gradientValid: true
+  });
+  requireValue(Math.abs(flatReference.radiance[0]! - normalReference.radiance[0]!) > 0.08,
+    "Normal-map control did not perturb the direct-light response");
+  for (let index = 48; index < textureGrid.length; index++) {
+    requireLitTexel(spatialTexturePixels[index]!, expectedNormalPixel,
+      `full-rate normal-map tangent basis at ${textureGrid[index]}`);
+  }
   controller.addEvidence("phase1", {
     emptyPasses, passes, surfacePixels, faultPixels, restoredPixel, recoveredPixels,
     clipW, mixedWNumericSamples, mixedWOverlap, clippedAway,
