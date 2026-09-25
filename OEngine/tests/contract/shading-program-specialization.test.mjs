@@ -508,6 +508,7 @@ test("stable shading programs survive revision retirement while bind groups rema
     const secondBindings = second.createFrameBindingsForExecution((name) => ({ name, revision: 18 }));
     assert.equal(fake.modules.length, 1);
     assert.equal(fake.pipelines.length, 1);
+    assert.deepEqual(programs.evidence(), { builds: 1, hits: 1, entries: 1 });
     assert.equal(second.pipelineForBin(pipeline.binId).pipeline.value, fake.pipelines[0]);
     assert.notEqual(secondBindings[0].groups[0], firstBindings[0].groups[0]);
     assert.deepEqual(second.bindingCacheEvidence(), { requests: 3, creations: 3 });
@@ -518,9 +519,11 @@ test("stable shading programs survive revision retirement while bind groups rema
       descriptor(GPU_SHADING_PROGRAM.UnlitFactor, GPU_SHADING_OUTPUT_DEPENDENCY.Velocity)
     ], 19, false, "sparse-microtile", undefined, programs);
     assert.equal(fake.pipelines.length, 2, "a different output program needs a new pipeline");
+    assert.deepEqual(programs.evidence(), { builds: 2, hits: 1, entries: 2 });
     changed.destroy();
     second.destroy();
     programs.clear();
+    assert.deepEqual(programs.evidence(), { builds: 2, hits: 1, entries: 0 });
     const restored = await SparseShadingResolvePass.create(fake.device, [pipeline], 20,
       false, "sparse-microtile", undefined, programs);
     assert.equal(fake.pipelines.length, 3, "device loss or owner destruction clears cached programs");

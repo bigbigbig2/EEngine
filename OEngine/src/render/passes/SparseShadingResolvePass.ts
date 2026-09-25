@@ -45,6 +45,8 @@ export class SparseShadingProgramCache {
   private readonly sources = new Map<string, string>();
   private readonly maxPrograms = 128;
   private device: GPUDevice | null = null;
+  private builds = 0;
+  private hits = 0;
 
   async obtain(device: GPUDevice, variant: Readonly<SparseShadingShaderVariant>): Promise<SparseShadingProgram> {
     if (this.device !== null && this.device !== device) {
@@ -54,11 +56,13 @@ export class SparseShadingProgramCache {
     const key = `${variant.descriptor.cacheKey}:diagnostics${Number(variant.diagnostics)}`;
     const existing = this.programs.get(key);
     if (existing !== undefined && this.sources.get(key) === variant.source) {
+      this.hits++;
       this.programs.delete(key);
       this.programs.set(key, existing);
       return existing;
     }
     const pending = createProgram(device, variant);
+    this.builds++;
     this.sources.set(key, variant.source);
     this.programs.set(key, pending);
     while (this.programs.size > this.maxPrograms) {
@@ -81,6 +85,10 @@ export class SparseShadingProgramCache {
     this.programs.clear();
     this.sources.clear();
     this.device = null;
+  }
+
+  evidence(): Readonly<{ builds: number; hits: number; entries: number }> {
+    return Object.freeze({ builds: this.builds, hits: this.hits, entries: this.programs.size });
   }
 }
 

@@ -5205,6 +5205,9 @@ export class MainRenderPipeline {
       const textureEvidence = this._graphics.texture_residency_if_created?.evidence();
       const sparseEvidence = this._sparseShadingPublications?.evidence();
       const sparseGpu = sparseEvidence?.gpu;
+      profiler.recordCounter("sparseShading.programBuilds", sparseGpu?.programBuilds ?? 0);
+      profiler.recordCounter("sparseShading.programCacheHits", sparseGpu?.programCacheHits ?? 0);
+      profiler.recordCounter("sparseShading.cachedPrograms", sparseGpu?.cachedPrograms ?? 0);
       const executionMode = this._surfaceFeature?.lastExecutionMode ?? "none";
       const executionModeCode = executionMode === "direct-single-bin"
         ? 1
