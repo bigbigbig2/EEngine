@@ -18,8 +18,8 @@ const meta = {
   title: "Examples/14 Integrated",
   component: ExampleFrame,
   parameters: {
-    docs: { description: { story: "Dungeon model only, with Unlit shading and effects off, a shared camera and detailed GPU/CPU performance experiment panel." } },
-    tags: ["integrated","packed-scene","gltf","unlit","effects-off","profiling"]
+    docs: { description: { story: "Standalone Web Worker Cook virtual-geometry demo with authored PBR materials, full effects enabled by default, and a collapsible diagnostic panel." } },
+    tags: ["integrated","virtual-geometry","web-cook","gltf","pbr","effects-toggle","profiling"]
   }
 } satisfies Meta<typeof ExampleFrame>;
 
