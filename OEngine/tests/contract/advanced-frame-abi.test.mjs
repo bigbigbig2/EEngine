@@ -1088,7 +1088,7 @@ test("ADR-0009 Step 7 advances and invalidates histories at submission boundarie
     renderScale: 0.75,
     feature: 1,
     format: 5,
-    light: 2,
+    light: "2:0",
     scene: 3,
     representation: 1,
     device: 0,
@@ -1158,7 +1158,7 @@ test("ADR-0009 Step 7 scopes pre-exposure discontinuity to dependent histories",
     renderScale: 1,
     feature: 1,
     format: 5,
-    light: 0,
+    light: "0:0",
     scene: 1,
     representation: 1,
     device: 0,
@@ -1182,6 +1182,40 @@ test("ADR-0009 Step 7 scopes pre-exposure discontinuity to dependent histories",
   assert.equal(registry.state("color").lastInvalidationReason, "exposure-discontinuity");
   assert.equal(registry.state("gtao").readValid, true);
   assert.equal(registry.state("gtao").preExposureScale, 1);
+  registry.abortFrame(1);
+});
+
+test("lighting identity keeps independent versions and preserves geometric GTAO history", () => {
+  const registry = new TemporalHistoryRegistry([
+    {
+      name: "color", semantic: "lit color", resolutionDomain: "output-full",
+      format: "rgba16float", bufferCount: 2, preExposure: "working-linear-rescale"
+    },
+    {
+      name: "gtao", semantic: "geometric ambient visibility",
+      resolutionDomain: "effect-resolution", format: "rgba16float",
+      bufferCount: 2, preExposure: "none", lightingDependent: false
+    }
+  ]);
+  const revision = {
+    outputWidth: 1280, outputHeight: 720, internalWidth: 1280, internalHeight: 720,
+    camera: 0, renderScale: 1, feature: 1, format: 1,
+    light: "2:0", scene: 1, representation: 1, device: 0,
+    preExposureGeneration: 0, view: "main"
+  };
+  const exposure = preExposureContract({
+    multiplier: 1, generation: 0, colorSpace: "working-linear"
+  });
+  registry.beginFrame(0, revision, ["color", "gtao"], exposure);
+  registry.markProduced("color");
+  registry.markProduced("gtao");
+  registry.commitFrame(0);
+
+  // Both pairs sum to two; their independent source revisions are different.
+  registry.beginFrame(1, { ...revision, light: "1:1" }, ["color", "gtao"], exposure);
+  assert.equal(registry.state("color").readValid, false);
+  assert.equal(registry.state("color").lastInvalidationReason, "lighting-change");
+  assert.equal(registry.state("gtao").readValid, true);
   registry.abortFrame(1);
 });
 

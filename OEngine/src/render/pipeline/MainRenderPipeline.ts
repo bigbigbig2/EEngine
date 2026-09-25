@@ -843,7 +843,8 @@ export class MainRenderPipeline {
       resolutionDomain: "effect-resolution",
       format: "rgba16float",
       bufferCount: 2,
-      preExposure: "none"
+      preExposure: "none",
+      lightingDependent: false
     },
     {
       name: "ssgi",
@@ -2615,7 +2616,7 @@ export class MainRenderPipeline {
         renderScale: this._hzbRenderScaleRevision,
         feature: featureTopology.enabledFeatureBits,
         format: MAIN_GRAPH_HISTORY_FORMAT_REVISION,
-        light: scene.lights.version + scene.light_probe_volume.version,
+        light: `${scene.lights.version}:${scene.light_probe_volume.version}`,
         scene: scene.id,
         representation: MAIN_HISTORY_REPRESENTATION_REVISION +
           (featureTopology.nss ? this._nss!.historyRepresentationRevision : 0),

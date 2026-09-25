@@ -36,6 +36,8 @@ export interface TemporalHistoryDescriptor {
   readonly format: string;
   readonly bufferCount: number;
   readonly preExposure: TemporalHistoryPreExposureConvention;
+  /** Pure geometric signals may retain history across lighting-only changes. */
+  readonly lightingDependent?: boolean;
 }
 
 export interface TemporalHistoryRevision {
@@ -48,7 +50,8 @@ export interface TemporalHistoryRevision {
   /** Whole-frame topology generation; catches downstream semantic changes. */
   readonly feature: number;
   readonly format: number;
-  readonly light: number;
+  /** Exact identity of the lighting inputs, not a sum of independent revisions. */
+  readonly light: string;
   readonly scene: number;
   readonly representation: number;
   readonly device: number;
@@ -254,6 +257,9 @@ export class TemporalHistoryRegistry {
         reason === "exposure-discontinuity" &&
         state.descriptor.preExposure === "none"
       ) continue;
+      if (reason === "lighting-change" && state.descriptor.lightingDependent === false) {
+        continue;
+      }
       invalidateState(state, reason);
     }
   }
@@ -323,6 +329,10 @@ function validateDescriptor(descriptor: TemporalHistoryDescriptor): void {
     throw new Error("Temporal history name and semantic must not be empty");
   }
   if (descriptor.format.length === 0) throw new Error("Temporal history format must not be empty");
+  if (descriptor.lightingDependent !== undefined &&
+      typeof descriptor.lightingDependent !== "boolean") {
+    throw new TypeError("Temporal history lightingDependent must be boolean");
+  }
   if (!Number.isInteger(descriptor.bufferCount) || descriptor.bufferCount <= 0) {
     throw new RangeError("Temporal history bufferCount must be a positive integer");
   }
@@ -347,7 +357,6 @@ function validateRevision(revision: TemporalHistoryRevision): void {
     ["camera", revision.camera],
     ["feature", revision.feature],
     ["format", revision.format],
-    ["light", revision.light],
     ["scene", revision.scene],
     ["representation", revision.representation],
     ["device", revision.device],
@@ -362,6 +371,9 @@ function validateRevision(revision: TemporalHistoryRevision): void {
     throw new RangeError("Temporal history renderScale must be finite and positive");
   }
   if (revision.view.length === 0) throw new Error("Temporal history view identity must not be empty");
+  if (typeof revision.light !== "string" || revision.light.length === 0) {
+    throw new Error("Temporal history lighting identity must not be empty");
+  }
 }
 
 function validatePreExposure(value: PreExposureContract): void {

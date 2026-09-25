@@ -36,6 +36,8 @@ completedMilestones:
     result: Sparse shading programs now reuse device-scoped compiled pipelines across Scene revisions; publication bindings remain revision-local. The first opaque product plan drives optional Surface allocation; browser performance evidence remains open.
   - id: meshlet-shading-bounded-work-control
     result: Production MeshletWork and ShadingBin allocation now share bounded work preflight and declare their own producer, GPU consumer, counters, overflow and indirect execution; physical ABIs and shader execution remain independent. Browser behavior and performance evidence remain open.
+  - id: exact-lighting-history-identity
+    result: Lighting history identity now preserves independent light and probe revisions, while geometric GTAO explicitly retains history across lighting-only changes. Stable object identity, local representation invalidation, and dynamic pre-exposure remain open.
 tasks:
   - id: foundation-contracts
     state: active

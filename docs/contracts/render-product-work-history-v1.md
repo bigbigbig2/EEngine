@@ -43,6 +43,7 @@ validation:
 ## Temporal identity 与失效
 
 - [TemporalHistoryRegistry](../../OEngine/src/render/TemporalHistoryRegistry.ts) 拥有尺寸域、活动状态、提交/中止、ping-pong、曝光缩放及整帧拓扑失效；信号 owner 仍拥有方差、置信度、拒绝/滤波算法。不同语义/空间/表示的 history 不互换。
+- 光照输入身份由灯光版本与 Probe 版本的有序组合组成，不能将两个版本相加，否则不同变化会碰撞。默认历史在光照身份变化时失效；纯几何 GTAO history 明确声明不依赖光照版本，因此仅光照变化时可继续读取。它仍须在相机、尺寸、场景、表示或自身 feature 变化时失效；GI、SSR、Color、曝光历史维持光照依赖。
 - 帧内 `VisibilityKey` 或 MeshletWork 队列索引不可直接跨帧复用。后续产品以稳定 scene/object generation、实际几何/材质版本及投影运动/遮挡判定建立对应关系；实例替换、页/代理变化、切换表示与 disocclusion 必须使受影响的历史失效或降低置信度。AO、GI、Reflection 可保留信号专属失效粒度，不要求所有历史在每次局部变化时整帧清空。
 - 当前主管线传入的 pre-exposure multiplier 是 1；`PreExposureContract` 已存在不代表真实动态曝光缩放闭环完成。接入动态乘子后，各 HDR-like 产品与旧历史必须使用同一代曝光约定或合法 rescale。
 
