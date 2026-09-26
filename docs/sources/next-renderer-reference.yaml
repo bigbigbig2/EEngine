@@ -4,7 +4,7 @@ kind: algorithm-ledger
 upstream:
   name: EEngine Next pinned renderer migration candidates
   repository: docs/porting/next-renderer.md
-  revision: 2026-09-25 survey with per-source immutable revisions
+  revision: 2026-09-25 survey plus 2026-09-27 Frame Program source review, with per-source immutable revisions
 license: Per-file and per-source licenses, notices, and unresolved provenance are recorded in docs/porting/next-renderer.md.
 localOwners:
   - OEngine/src/render

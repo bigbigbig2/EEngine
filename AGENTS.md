@@ -16,7 +16,7 @@
 
 - 不得恢复 retired legacy renderer/effect owner，且只有一条 production renderer path。
 - 不得引入本帧 GPU→CPU→GPU visible/work control，也不得为功能添加独立 frame submit。
-- 已固定来源的复杂上游算法不得以少阶段或近似实现冒充完整 port。查完整开源实现、论文和技术资料，固定 revision/许可证，逐项对照源入口、分支、数据依赖、阶段与 WebGPU 差异；确无可移植来源时记录具名本地方案。
+- 完整算法或效果实施前，先查 GitHub 上可核验的完整开源实现，再查论文与足以复现决策条件、阶段和数据流的详细技术文章；不限源语言。选择来源时固定 revision、许可证和具体源文件/入口，写入 `docs/porting/next-renderer.md`，建立源函数/阶段到本地产物/阶段的逐项映射，保留关键分支、输入输出、不变量和降级条件。WebGPU API 可调整绑定与调度，不得把完整算法缩成同名近似效果；缺少完整 donor 时记录检索范围、缺口及具名本地方案，不宣称上游移植完成。来源核对、WGSL/CPU oracle 与新主链真实 GPU 消费证据齐备后，才提升采用状态。简单确定性工具、ABI 编解码及绑定/生命周期胶水标注为本地集成，不强制外部调研；复杂算法不得拆小后据此豁免。
 - 真实编译失败必须修复。
 
 其他架构设计原则见整体设计。能力与 limit 在创建资源前协商；GPU work 的 producer、consumer、容量和溢出行为必须清楚；Loader 不拥有长期 GPU 资源；Renderer 只作 composition root。具体 ABI 或跨 owner 协议稳定后再写 `docs/specs/`、`docs/contracts/`，无需为中间状态制造文档或伪测试。

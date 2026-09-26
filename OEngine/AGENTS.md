@@ -44,12 +44,12 @@ src/index.ts
 
 - 新增渲染算法、数学函数、材质模型、资产处理、压缩或调试能力前，先检查 `docs/porting/` 的当前来源和采用边界。
 - 优先使用许可证兼容且经过测试/benchmark 的成熟库或实现；C++/Rust/native 项目默认作为 Cooker、WASM/native tool 或 CPU reference，不把其线程模型、allocator、descriptor 或高级 GPU capability 直接带入 WebGPU runtime。
-- 复杂算法选择 donor 时固定 upstream URL、commit/tag、许可证与源入口；完整源函数/阶段映射和本地回归可在该大模块收口时集中记录，不要求每个中间修改批次同步文档。
+- 复杂算法或效果开工前先按根规则查完整 GitHub 源码、论文和详细技术文章，固定 upstream URL、commit/tag、许可证与具体源入口；先确定所选完整 profile 和源阶段映射，实施中可持续补充本地对应关系，不要求每个中间修改批次同步文档。
 - Next 重构先查 `docs/porting/next-renderer.md`，遵循 `docs/porting/README.md` 的完整算法 profile 迁移规则；不能为省事删掉关键阶段、条件、历史/失效或边界处理后仍称完整移植。WebGPU 执行模型适配与算法行为变化必须区分，后者明确记录并确认调整方向。
 - 数学和材质实现也必须对齐坐标系、矩阵布局、深度范围、切线空间、颜色空间、BRDF 和数值容差；短函数不能成为无验证重写的理由。
 - 上游实现如果导致额外的 JS allocation、全量复制、固定全屏扫描、每材质 draw、CPU readback 或不可解释的 GPU 长尾，必须保留算法参考但拒绝其 runtime 结构。
 - ADR-0020 明确列入 Clean-Cut 的旧 owner 可在替代算法尚未完成时删除；同批撤销或重写失效的 claim/check，并把真实删除的路径加入 retired-path guard。删除旧实现不代表新算法完成。
-- 新的上游算法移植须完成许可证与源函数映射、真实 GPU producer/consumer 和生命周期；模块收口运行 typecheck、build 与必要的 targeted tests。正式质量、性能证据和 claim 晋级留到 Next Renderer 最终验收，不能提前宣称这些等级。
+- 新的上游算法移植须完成许可证与源函数映射、WGSL/CPU oracle、真实新主链 GPU producer/consumer 和生命周期；这些证据齐备后才更新来源账本中的采用状态。模块收口运行 typecheck、build 与必要的 targeted tests。正式质量、性能证据和 claim 晋级留到 Next Renderer 最终验收，不能提前宣称这些等级。
 
 ## 验证
 

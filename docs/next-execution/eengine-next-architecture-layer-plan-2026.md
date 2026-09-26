@@ -68,6 +68,8 @@
 
 ## 3. 模块 A：Frame Program 与语义事实层
 
+本节是整体顺序摘要；源码事实、关键取舍与详细迁移步骤分别展开在[模块 A 设计](../next-design/frame-program-module-a.md)和[模块 A 执行](./frame-program-module-a.md)。
+
 ### 3.1 为什么它先于 VSM
 
 当前 `RendererCore` 直接选择环境、Surface、FSR3 与 Present 的资源/Pass 顺序。若现在插入 VSM，它需要在这里再加页需求、分配、caster、atlas 与 lighting 分支，进一步固化巨型 composition root。先建立 Frame Program 的消费者需求与物理 lowering，才可使 VSM 通过 Shadow owner 注册固定 topology，动态页量留给 GPU。
@@ -81,7 +83,7 @@
 ### 3.3 实施顺序
 
 1. 从 `RendererCore.ts` 的当前主帧构图读取真实 producer/consumer 表，标记 Graph 中当前 imported、transient 和 persistent 资源；记录历史 A/B 纹理与拓扑 key 的关系。只为**当前有消费者的事实**建新接口。
-2. 抽出 Frame Program 的请求与结果：scene/view revision、feature profile、semantic products、field demand、available lanes、persistent handles；把物理资源选择留给 lowering。首次仅表达当前 Visibility → Surface → Environment → FSR3/Present，不预先造所有未来效果节点。
+2. 抽出 Frame Program 的请求与结果：scene/view 的结构形状、feature profile、semantic products、field demand、available lanes、persistent binding 角色；本帧 scene/view revision 与真实物理对象只走执行期 bindings。首次仅表达当前 Visibility → Surface → Environment → FSR3/Present，不预先造所有未来效果节点。
 3. 把 `RendererCore` 内按固定顺序的 pass 注册逐步迁到各 owner 的 `addToGraph`/registration API。每移动一段，即从当前主链切走原调用；不维护第二套可运行主链。Graph 编译后的节点必须存在实际输入/输出依赖，feature-off 无消费者节点自然裁剪。
 4. 将 graph key 定义为有限的 topology identity（profile、layout/capability specialization、consumer demand）。history ping-pong、atlas generation、环境 LUT revision、当前 active scene generation 由 persistent handle 与 per-frame binding 传入，不使 graph cache 组合爆炸。
 5. 将 pipeline/layout/bind group 生命周期分为 device 创建、product publication、frame reuse、device recovery。`SurfaceMaterialPass.ts` 当前按 active class 动态建 pipeline 的热路径留给 Surface v2 修改；本模块先给 Frame Program 预热入口和稳定资源依赖。

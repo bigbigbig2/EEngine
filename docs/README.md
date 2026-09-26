@@ -9,6 +9,8 @@
 3. [当前 workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml)：唯一活跃模块与紧随其后的模块。
 4. `node tools/vibe.mjs context <path>`：查询路径 owner、对应 current docs 和上述 Next 入口。该命令只导航，不检查 claim/evidence/browser 状态。
 
+当前模块 A 的独立文档：[Frame Program 设计](next-design/frame-program-module-a.md)与[Frame Program 执行步骤](next-execution/frame-program-module-a.md)。两份文档描述目标和待实施步骤，当前源码事实仍以 `docs/domains/` 与代码为准。
+
 ## 文档分层
 
 | 位置 | 作用 | 更新时点 |

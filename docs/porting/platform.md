@@ -29,16 +29,16 @@
 
 ## PLAT-FRAMEGRAPH · FrameGraph and resource ownership
 
-- Local owner/source: `OEngine/src/framegraph/FrameGraph.ts`、`ShadeGPUCommandContext.ts`、`render/pipeline/FramePlan.ts`。
-- Upstream: WebGPU specification plus Babylon.js/PlayCanvas/Renderling engineering references。
-- Revision: external engines are design references only; no source revision is claimed as a local port。
-- Upstream source: public frame-graph、pipeline-cache、bind-group-cache and WebGPU backend implementations reviewed conceptually。
-- License: no expressive external source copied；each future port must pin its own compatible license/revision。
-- Adoption: OEngine-authored implementation informed by public engineering patterns。
+- Local owner/source: `OEngine/src/framegraph/FrameGraph.ts`、`CompiledFrameGraphCache.ts`、`ShadeGPUCommandContext.ts` 与当前 `render/pipeline/RendererCore.ts` 的构图入口；`FramePlan.ts` 已不在生产源码中。
+- Upstream: WebGPU specification and the Granite/Filament FrameGraph architecture comparison in [Next R21](./next-renderer.md)；旧 Babylon.js/PlayCanvas/Renderling 概念参考不作为本模块移植来源。
+- Revision: Granite `1b2d1801d2910fb09ebcded2f0bb3a3a781103b5`，Filament `41f996de8fcc2d6b60b73159aa1bc44a05a40700`；两者仅作固定源码对照，不是本地 port。
+- Upstream source: Granite `renderer/render_graph.cpp/.hpp`、Filament `filament/src/fg/FrameGraph.cpp` 与同目录资源/Pass 节点，具体入口及来源许可见 R21。
+- License: Granite MIT、Filament Apache-2.0；未复制表达性源码。未来任何真正 port 须另行固定其 source/profile/notice。
+- Adoption: OEngine-authored Semantic Frame Program 与现有 FrameGraph；R21 仅为 `reference only, not adopted`。
 - Retained invariants: explicit reads/writes、stable resource identity、topological order、pruning、persistent/transient separation and one main submit。
-- OEngine/WebGPU differences: FramePlan validates cross-graph order without creating another encoder；FrameGraph owns OEngine resource domains and late-bound jobs。
+- OEngine/WebGPU differences: 当前 RendererCore 决定语义顺序，FrameGraph 负责资源依赖、裁剪与 late-bound jobs；模块 A 将语义顺序交给本地 Frame Program，不创建第二个 encoder。
 - Fallback/lifecycle: disabled/unconsumed nodes allocate nothing；in-flight destruction occurs after GPU completion；abort invalidates uncommitted histories。
-- Local validation: framegraph dependency/resource tests、FramePlan dump、submit/readback counters。
+- Local validation: 模块 A 收口时按真实 Program/Graph 产物检查 dependency/resource、编译图 dump、submit/readback counters；旧 FramePlan dump 不是当前检查入口。
 
 ## PLAT-CACHE-READBACK · Cache and asynchronous evidence
 

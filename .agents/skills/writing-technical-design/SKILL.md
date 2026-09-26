@@ -18,8 +18,13 @@ and decision quality, while following EEngine's established document system.
    Show owner boundaries and the data path from producer to GPU consumer.
 3. Compare viable designs against GPU work, bandwidth, memory, quality,
    WebGPU capabilities, lifecycle, and source portability. State assumptions
-   and unresolved risks. Pin versions and licenses when selecting upstream
-   implementations; do not label a candidate survey as a completed port.
+   and unresolved risks. Before a complete algorithm or effect, inspect full
+   GitHub source, then papers and detailed technical articles. Pin revision,
+   license, concrete source entries, and map source stages, branches, inputs,
+   outputs and fallbacks to the proposed local stages in `docs/porting/next-renderer.md`.
+   Distinguish reference architecture and local integration from a source port.
+   Do not mark a port adopted before source review, WGSL/CPU oracle, and real
+   production GPU producer-to-consumer evidence exist.
 4. Describe the chosen design, discarded alternatives, deletion/cutover
    boundary, and the smallest meaningful validation evidence. Match the
    detail to the decision; avoid speculative class and buffer layouts.

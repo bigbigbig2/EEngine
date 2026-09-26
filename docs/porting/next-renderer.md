@@ -69,6 +69,15 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 - **Fallback / lifecycle**：稳定程序缓存与 revision-local 绑定分离；device loss/resize 按本地 owner 管理。
 - **Local validation**：图裁剪/feature-off 与现有材质参考检查；只迁移实际选择的数学/功能，不追求 API 同构。
 
+### R21 · Granite / Filament FrameGraph：模块 A 的架构对照，非算法移植
+
+- **检索范围与日期**：2026-09-27 核查 Granite 的完整 render graph 实现与许可证、R03 已固定的 Filament FrameGraph 源，以及 GDC 2017 [FrameGraph: Extensible Rendering Architecture in Frostbite](https://www.gdcvault.com/play/1024612/FrameGraph-Extensible-Rendering-Architecture-in) 的公开技术讲解。比较的是资源依赖、编译、裁剪、物理资源与执行边界；没有找到可直接承担 EEngine `Visibility Fact → Surface Field Demand → Temporal/Presentation` 语义规划的完整 donor。这个结论仅覆盖上述来源，不声称穷尽所有仓库。
+- **Upstream / Revision / License**：[Themaister/Granite](https://github.com/Themaister/Granite/tree/1b2d1801d2910fb09ebcded2f0bb3a3a781103b5) 固定 `1b2d1801d2910fb09ebcded2f0bb3a3a781103b5`，根 `LICENSE` 为 MIT（已读）；Filament 沿用 R03 的 `41f996de8fcc2d6b60b73159aa1bc44a05a40700`、根 Apache-2.0。GDC 讲解是架构资料，非可复制源码或许可证来源。
+- **具体源入口**：Granite [`renderer/render_graph.cpp`](https://github.com/Themaister/Granite/blob/1b2d1801d2910fb09ebcded2f0bb3a3a781103b5/renderer/render_graph.cpp) / `render_graph.hpp` 的 `RenderGraph::add_pass`、`traverse_dependencies`、`bake`、`build_aliases`、`build_physical_resources`、`enqueue_render_passes`；Filament R03 [`filament/src/fg/FrameGraph.cpp`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/filament/src/fg/FrameGraph.cpp) 的 `FrameGraph::addPassInternal`、`compile`、`execute`、`import`，并对照同目录 `ResourceNode.cpp`、`PassNode.cpp`。本轮读取了 Granite 源文件的上述入口与许可证、Filament 的 `FrameGraph.cpp` 入口和许可证；未构建或运行上游工程。
+- **源职责 → 本地对应**：Granite/Filament 的 pass 注册和资源读写声明 → 已存在的 `FrameGraph.add` / `import_resource`；依赖遍历、裁剪与执行排序 → 已存在的 `FrameGraph.compile`；物理资源生命周期和导入 → `FrameGraphResourceManager` 与 `FrameGraphBindingLayout`。这些只是架构对照，**没有复制上游函数或把它们登记为本地 port**。两者均不提供模块 A 所需的语义产品需求闭包、Topology Identity/Physical Resource Identity 切分和 WebGPU 单提交生命周期；具名本地方案为 **EEngine Semantic Frame Program**，负责这层薄编排并 lower 到现有 FrameGraph。
+- **保留与拒绝**：保留显式资源边、无消费者节点裁剪、可复用图编译、imported/persistent/transient 分离；拒绝直接搬 Granite 的 Vulkan barrier、跨队列同步、物理 render pass 和 native descriptor 结构，也不把 Filament FrameGraph 称作 semantic product compiler。GPU 动态工作数仍由本地 Visibility/ShadingWork 产生、GPU 消费，不能通过本帧读回变更拓扑。
+- **Adoption / 验证**：`reference only, not adopted`；模块 A 是本地架构集成，不存在可晋级的“Granite/Filament 完整算法移植”。本地检查点为 topology key 稳定性、late binding 正确性、producer→consumer 边、单 submit、feature-off 裁剪，以及模块收口 typecheck/build/必要 targeted tests。浏览器、性能和 formal evidence 留到整体 Next 验收。
+
 ### R04 · MaterialX：可选的离线图与 WGSL lowering 参考
 
 - **Upstream / Revision**：[AcademySoftwareFoundation/MaterialX](https://github.com/AcademySoftwareFoundation/MaterialX/tree/2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7)，`2d516f56752abbb8bc5d6d438bfb7970d1b6f8f7`。
