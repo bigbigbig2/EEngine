@@ -4,11 +4,11 @@ The repository uses a contract-driven project OS. Machine manifests route work a
 
 ## Start Here
 
-For the accepted EEngine Next clean-cut target, start with [单路径重建路线](./next-renderer.md). It connects [ADR-0020](./adr/0020-clean-cut-renderer.md), [pinned migration sources](./porting/next-renderer.md), and the [current workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml). Target design is distinct from current runtime facts and completion evidence.
+For the accepted EEngine Next clean-cut target, start with [单路径重建路线](./next-renderer.md). The current human-readable drafts are [整体架构设计](./next-design/renderer-architecture.md) and [详细执行文档](./next-execution/renderer-plan.md). They expand [ADR-0020](./adr/0020-clean-cut-renderer.md), [pinned migration sources](./porting/next-renderer.md), and the [current workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml). Target design is distinct from current runtime facts and completion evidence.
 
-1. Run `node tools/vibe.mjs context <path>` before changing code. The compact route includes the primary owner, decisions, source IDs, relevant workstream slice/tasks/gates, contracts, and checks. Add `--claims`, `--cases`, or `--all` only when more detail is needed.
+1. Run `node tools/vibe.mjs context <path>` before changing code. The compact route includes the primary owner, decisions, source IDs, relevant workstream slice/modules, contracts, and suggested checks. Add `--claims`, `--cases`, or `--all` only when more detail is needed.
 2. Read the matching page under [domains](./domains/), then the linked contract under [contracts](./contracts/).
-3. During the destructive rebuild, use `node tools/vibe.mjs context <path>` for navigation. Run `verify --changed` only when closing a large module; reserve `verify --full` and browser acceptance for final Next Renderer integration.
+3. During the destructive rebuild, use `node tools/vibe.mjs context <path>` for navigation. At a large module's completion, run typecheck, build, and necessary targeted tests; `verify --changed` is optional. Reserve `verify --full` and browser acceptance for final Next Renderer integration.
 4. Use `node tools/vibe.mjs status [domain]` to inspect claim state and `node tools/vibe.mjs evidence` to refresh evidence. Empty or partial raw input cannot remove compact records without `--force-empty` or `--force-prune`; use `evidence --check` for a read-only comparison.
 
 ## Source Of Truth
@@ -34,10 +34,10 @@ Domain Markdown frontmatter contains identity only. Contract, claim, check, and 
 
 ## Current Workstreams
 
-Workstream YAML is the authoritative current TODO, including paused work. Its first screen names the current slice, next tasks, and open gates; completed work is a short milestone summary linked to stable contracts or evidence. Detailed implementation history stays in Git. Task state is one of `todo`, `active`, `done`, or `blocked`; a workstream cannot become `done` while it has unfinished tasks or open gates.
+Workstream YAML is the authoritative current TODO, including paused work. During the Next rebuild, the active workstream stays compact: current module, goal, next modules, architecture rules, and deferred validation. Detailed design and execution reasoning live in the human documents; implementation history stays in Git. Missing browser runs, evidence, claims, or future phases do not block ongoing module coding.
 
 - [Nyx producer convergence](../project/workstreams/active/nyx-convergence.yaml)
-- [EEngine Next renderer](../project/workstreams/active/eengine-next-clean-rebuild.yaml) — current slice cuts old composition and boots the sole new renderer; phases and deletion boundaries live in [the implementation route](./next-renderer.md)
+- [EEngine Next renderer](../project/workstreams/active/eengine-next-clean-rebuild.yaml) — Phase 3 production integration is recorded done; VSM is the next module. The [architecture draft](./next-design/renderer-architecture.md) and [execution draft](./next-execution/renderer-plan.md) describe the proposed refinement; the [implementation route](./next-renderer.md) retains the existing phase overview.
 - [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — paused K4 legacy Sparse Shading publication optimization; accepted K0–K3 evidence remains historical, and `large.glb` will be rebaselined on the new Surface/Shading Runtime
 
 ## Reviews

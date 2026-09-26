@@ -1,6 +1,6 @@
 # EEngine Next：单路径破坏式重建执行路线
 
-本页是 [ADR-0020](./adr/0020-clean-cut-renderer.md) 的实施边界；[workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml) 只记录当前切片，[来源账本](./porting/next-renderer.md) 记录算法版本与移植映射。用户的[终版设计讨论](./reviews/EEngine_Next_Renderer_Final_Architecture.md)是设计输入，不是当前代码事实。重构期间允许功能暂退，旧实现留在 Git；不建第二条 Renderer，也不以旧功能全量通过作为每一步门禁。
+本页是 [ADR-0020](./adr/0020-clean-cut-renderer.md) 的阶段概要；新的人读讨论稿分别为[整体架构设计](./next-design/renderer-architecture.md)与[详细执行文档](./next-execution/renderer-plan.md)。[workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml) 只记录当前切片，[来源账本](./porting/next-renderer.md) 记录算法版本与移植映射。用户的[终版设计讨论](./reviews/EEngine_Next_Renderer_Final_Architecture.md)是设计输入，不是当前代码事实。重构期间允许功能暂退，旧实现留在 Git；不建第二条 Renderer，也不以旧功能全量通过作为每一步门禁。
 
 ## 权威与完成口径
 
