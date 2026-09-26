@@ -22,13 +22,17 @@ export class PhysicalEnvironmentRuntime {
     if (this.ticket !== null) throw new Error("Physical environment submission is already recorded");
     const active = this.state.active?.snapshot;
     if (active !== undefined && this.luts.ready && sameEnvironment(active, snapshot)) return null;
-    this.ticket = this.luts.record(encoder) ?? 0;
+    // The Earth LUT depends on the pinned atmospheric profile, not the sun,
+    // scene scale or shadow inputs. Rebuild it only when that profile changes.
+    this.ticket = this.luts.record(encoder,
+      active !== undefined && active.lutGeneration !== snapshot.lutGeneration) ?? 0;
     const generation = this.state.stage(snapshot, true);
     this.pendingParameters = new Float32Array([
       snapshot.sunDirectionWorld[0], snapshot.sunDirectionWorld[1], snapshot.sunDirectionWorld[2],
       snapshot.worldToUnit,
       snapshot.sunIrradiance[0], snapshot.sunIrradiance[1], snapshot.sunIrradiance[2],
-      generation
+      generation,
+      snapshot.skyLuminanceScale
     ]).buffer;
     this.pendingGeneration = generation;
     return generation;
@@ -42,7 +46,10 @@ export class PhysicalEnvironmentRuntime {
 
   commit(generation: number): EnvironmentPublication {
     if (this.pendingGeneration !== generation || this.ticket === null) throw new Error("Stale physical environment generation");
-    if (this.ticket !== 0) this.luts.commit(this.ticket);
+    if (this.ticket !== 0) {
+      this.luts.commit(this.ticket);
+      if (this.luts.hasRetired) this.luts.retireCompleted(this.device.queue.onSubmittedWorkDone());
+    }
     this.ticket = null;
     this.pendingGeneration = null;
     this.pendingParameters = null;

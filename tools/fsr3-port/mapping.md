@@ -5,18 +5,18 @@ The mapping is anchored to the original SDK host order in
 algorithm stages remain separate even where the SDK schedules helper functions
 inside one dispatch.
 
-| Algorithm stage | Upstream entry / implementation | SDK host scheduling | Future EEngine owner |
+| Algorithm stage | Upstream entry / implementation | SDK host scheduling | EEngine production owner |
 | --- | --- | --- | --- |
-| Prepare Inputs | `PrepareInputs` in `ffx_fsr3upscaler_prepare_inputs.h`; HLSL/GLSL `prepare_inputs_pass` | `PREPARE_INPUTS` | FSR3 WebGPU input preparation pass |
-| Prepare Reactivity | `PrepareReactivity` plus disocclusion, divergence and thin feature tests in `ffx_fsr3upscaler_prepare_reactivity.h` | `PREPARE_REACTIVITY` | FSR3 WebGPU reactivity pass |
-| Luma Pyramid | `ComputeAutoExposure` and the included SPD luminance reduction in `ffx_fsr3upscaler_luma_pyramid.h` | `LUMA_PYRAMID` | FSR3 WebGPU luma pyramid pass |
-| Shading Change | `ShadingChange` in `ffx_fsr3upscaler_shading_change.h` | `SHADING_CHANGE` | FSR3 WebGPU shading change pass |
-| Shading Change Pyramid | `ComputeShadingChangePyramid` in `ffx_fsr3upscaler_shading_change_pyramid.h`, using SPD | `SHADING_CHANGE_PYRAMID` | FSR3 WebGPU shading change pyramid pass |
-| Reproject | `ComputeReprojectedUVs` and `ReprojectHistoryColor` in `ffx_fsr3upscaler_reproject.h` | internal to `ACCUMULATE` | FSR3 WebGPU accumulate implementation |
-| Accumulate | `Accumulate` and `ComputeBaseAccumulationWeight` in `ffx_fsr3upscaler_accumulate.h` | `ACCUMULATE` or mutually exclusive `ACCUMULATE_SHARPEN` | FSR3 WebGPU accumulation pass |
-| Upsample | `ComputeUpsampledColorAndWeight` and its Lanczos/sample helpers in `ffx_fsr3upscaler_upsample.h` | internal to `ACCUMULATE` | FSR3 WebGPU accumulation implementation |
-| Luma Instability | `LumaInstability` in `ffx_fsr3upscaler_luma_instability.h` | `LUMA_INSTABILITY` | FSR3 WebGPU instability pass |
-| RCAS | `RCAS` in `ffx_fsr3upscaler_rcas.h` | optional `RCAS` after accumulation | FSR3 WebGPU RCAS pass |
+| Prepare Inputs | `PrepareInputs` in `ffx_fsr3upscaler_prepare_inputs.h`; HLSL/GLSL `prepare_inputs_pass` | `PREPARE_INPUTS` | `Fsr3PrepareInputsPass.ts` |
+| Prepare Reactivity | `PrepareReactivity` plus disocclusion, divergence and thin feature tests in `ffx_fsr3upscaler_prepare_reactivity.h` | `PREPARE_REACTIVITY` | `Fsr3PrepareReactivityPass.ts` |
+| Luma Pyramid | `ComputeAutoExposure` and the included SPD luminance reduction in `ffx_fsr3upscaler_luma_pyramid.h` | `LUMA_PYRAMID` | `Fsr3LumaPyramidPass.ts` |
+| Shading Change | `ShadingChange` in `ffx_fsr3upscaler_shading_change.h` | `SHADING_CHANGE` | `Fsr3ShadingChangePass.ts` |
+| Shading Change Pyramid | `ComputeShadingChangePyramid` in `ffx_fsr3upscaler_shading_change_pyramid.h`, using SPD | `SHADING_CHANGE_PYRAMID` | `Fsr3ShadingChangePyramidPass.ts` |
+| Reproject | `ComputeReprojectedUVs` and `ReprojectHistoryColor` in `ffx_fsr3upscaler_reproject.h` | internal to `ACCUMULATE` | `Fsr3AccumulateShader.ts` |
+| Accumulate | `Accumulate` and `ComputeBaseAccumulationWeight` in `ffx_fsr3upscaler_accumulate.h` | `ACCUMULATE` or mutually exclusive `ACCUMULATE_SHARPEN` | `Fsr3AccumulatePass.ts`, `Fsr3AccumulateShader.ts` |
+| Upsample | `ComputeUpsampledColorAndWeight` and its Lanczos/sample helpers in `ffx_fsr3upscaler_upsample.h` | internal to `ACCUMULATE` | `Fsr3AccumulateShader.ts` |
+| Luma Instability | `LumaInstability` in `ffx_fsr3upscaler_luma_instability.h` | `LUMA_INSTABILITY` | `Fsr3LumaInstabilityPass.ts` |
+| RCAS | `RCAS` in `ffx_fsr3upscaler_rcas.h` | optional `RCAS` after accumulation | `Fsr3RcasPass.ts` |
 
 The main dispatch order is `Prepare Inputs -> Luma Pyramid -> Shading Change
 Pyramid -> Shading Change -> Prepare Reactivity -> Luma Instability ->
@@ -31,8 +31,8 @@ constant-buffer identifiers). The HLSL and GLSL callback
 headers preserve binding names and access direction. The host source's
 `srvTextureBindingTable`, `uavTextureBindingTable`, and
 `constantBufferBindingTable` patch shader reflection names to those identifiers;
-the future WGSL lowering must preserve that table rather than infer bindings
-from a reduced stage list.
+the WGSL stage bindings are explicit in the local passes, with resources
+lowered to WebGPU texture and buffer binding limits.
 
 The `Fsr3UpscalerConstants` layout is copied from
 `ffx_fsr3upscaler_private.h` and includes current/previous render and upscale
@@ -45,6 +45,9 @@ minimum disocclusion accumulation. The exact field order is recorded in
 ## Port boundary
 
 The HLSL and GLSL entry sources are preserved as review references. WGSL
-translation is a later stage-port task and must map every source function,
-branch, dependency, dispatch dimension, resource access, and fallback. No
-approximate reconstruction kernel is present in this directory.
+translation is in `OEngine/src/render/passes/fsr3/`. SPD is serialized into
+per-mip dispatches on the same frame encoder, reconstructed depth uses an
+atomic buffer, and unavailable reactive/transparency producers bind a zero
+mask. The runtime uses low-resolution motion vectors, inverted depth, HDR
+input, f32 arithmetic, and RCAS. GPU behavior and visual quality remain
+deferred to final Next Renderer acceptance.

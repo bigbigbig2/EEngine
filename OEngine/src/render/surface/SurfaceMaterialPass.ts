@@ -84,7 +84,7 @@ export class SurfaceMaterialPass {
     }));
   }
 
-  addToGraph(graph: FrameGraph, input: SurfaceMaterialInputs): ResourceId {
+  addToGraph(graph: FrameGraph, input: SurfaceMaterialInputs): { radiance: ResourceId; motion: ResourceId } {
     const frameView = graph.import_resource(
       "surface-frame-view", { kind: "imported", label: "Surface frame view" }, this.viewBuffer
     );
@@ -130,7 +130,7 @@ export class SurfaceMaterialPass {
     });
     let output = radiance;
     let motion = input.motionOutput;
-    clear.write(motion);
+    motion = clear.write(motion);
     for (const classId of input.activeClasses) {
       const programId = classId & 15;
       const textureSet = classId >> 4;
@@ -186,7 +186,7 @@ export class SurfaceMaterialPass {
       output = passNode.write(inputOutput);
       motion = passNode.write(motion);
     }
-    return output;
+    return { radiance: output, motion };
   }
 
   private resolveBinding(

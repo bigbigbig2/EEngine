@@ -30,4 +30,5 @@ test("atmosphere boundary rejects non-normalized sun and negative shadow lengths
   const state = new PhysicalEnvironmentState();
   assert.throws(() => state.stage({ ...snapshot, sunDirectionWorld: [0, 2, 0] }, true), /normalized/);
   assert.throws(() => state.stage({ ...snapshot, shadowLength: [-1, 0] }, true), /non-negative/);
+  assert.throws(() => state.stage({ ...snapshot, shadowLength: [1, 0] }, true), /VSM producer/);
 });

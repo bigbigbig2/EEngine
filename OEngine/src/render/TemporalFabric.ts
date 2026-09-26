@@ -29,7 +29,7 @@ export class TemporalFabric {
   private activeFrame: number | null = null;
 
   constructor(descriptors: readonly TemporalHistoryDescriptor[] = [
-    { name: "color", semantic: "surface-radiance", resolutionDomain: "internal-full", format: "rgba16float",
+    { name: "color", semantic: "fsr3-upscaled-radiance", resolutionDomain: "output-full", format: "rgba16float",
       bufferCount: 2, preExposure: "working-linear-rescale", lightingDependent: true },
     { name: "depth", semantic: "surface-depth", resolutionDomain: "internal-full", format: "r32float",
       bufferCount: 2, preExposure: "none", lightingDependent: false },

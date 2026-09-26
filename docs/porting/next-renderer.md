@@ -151,11 +151,11 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 - **Source**：[packages/atmosphere/src/webgpu](https://github.com/takram-design-engineering/three-geospatial/tree/b012ad06d858fc035d88aacfd73f092f93c994e4/packages/atmosphere/src/webgpu)：`AtmosphereLUTTexturesWebGPU.ts`、`AtmosphereLightNode.ts`、`multiscattering.ts`、`runtime.ts`、`AerialPerspectiveNode.ts`、`precompute.ts`、`common.ts`；`packages/atmosphere/WEBGPU.md`。
 - **检查深度**：本轮读 WebGPU 说明、multiscattering 实现与 package LICENSE，核对关联入口。说明明确为 Bruneton 4D LUT 配合 Hillaire 高阶多重散射 LUT，以及避免精度问题的散射积分路径；实施时仍需完成各入口逐项映射。
 - **License**：package LICENSE 包含 MIT 主体、Bruneton BSD 条件和 Hillaire notices。不能只写“整个算法 MIT”；复制所选代码时保留派生来源及相应条款。
-- **Local owner / Adoption**：Environment & Media（路由 shading）；LUT source port in progress。`tools/atmosphere-port/` 保存固定原始源码、逐文件 SHA-256、锁定的离线 TSL 编译依赖；四个 LUT 阶段生成到 `OEngine/src/shaders/atmosphere/lut.ts`，资源实现为 `AtmosphereLutResources.ts`。Three 不进入运行时。Sun/Sky/aerial 消费者、共享物理环境状态和 Renderer 接线尚未完成，不能声明 Physical Environment 已迁移。
+- **Local owner / Adoption**：Environment & Media（路由 shading）；选定的无影 Non-Geospatial production profile 已接入 Sun、Sky、aerial 与单一 Renderer 路径。`tools/atmosphere-port/` 固定原始源码、SHA-256 和离线 TSL 依赖；四个 LUT 阶段生成于 `OEngine/src/shaders/atmosphere/lut.ts`，运行时由 `AtmosphereLutResources.ts` 拥有。场景原点映射至地表 6360 km，局部 Y 向上；Sun/Sky/aerial 共用环境参数和版本。正式 GPU 画质与 adoption 留到最终验收。
 - **Non-Geospatial 强制范围**：以固定版本 `storybook-webgpu/src/atmosphere/NonGeospatial-Story.tsx` 为局部场景光照接入依据，原文件已归档到 `tools/atmosphere-port/upstream/`。不得在 EEngine 或迁移工具直接依赖 `@takram/*` npm 包；只移植核对后的源码和资源，Three 仅作离线 TSL 编译器。该示例实际接入 AtmosphereLight，并未接入 SkyNode/aerial；Phase 3 的 Sky/aerial 仍需独立闭环。逐入口映射与重现命令见 `tools/atmosphere-port/README.md`。
 - **Retained invariants**：预计算/运行时参数一致，太阳透射、直射/间接散射和 aerial transport 在同一单位与空间下组合；所选 shadow-aware transport 不能省成单纯距离雾。光照与天空消费同一个环境状态。
 - **WebGPU differences**：TSL → WGSL 或本地生成器；不引入 Three/R3F runtime。去地理接口不等于删除行星尺度、观察高度和大气几何模型；由 EEngine 约定世界长度与局部原点映射。
-- **Fallback / lifecycle**：LUT 参数变更版本化重算/替换；未完成更新可保留上个有效环境，不能将部分新旧 LUT 混用。feature-off 清理无消费者计算，物理环境可提供稳定 Sky/IBL fallback。
+- **Fallback / lifecycle**：固定 Earth LUT 不因太阳或天空参数更新而重算；LUT profile 版本变更时整组替换，并在最后一次 frame 使用完成后退役旧组。Phase 3 使用显式零 shadow length，非零输入在 VSM 生产者接入前拒绝；不将未实现的阴影散射分支冒充完成。
 - **Local validation**：固定太阳高度和观察高度下对照透射、天光与 aerial perspective；检查太阳方向/曝光/长度转换，而不只比较天空截图。
 
 ### R11 · Adria：Froxel 局部介质候选
@@ -175,11 +175,11 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 
 - **Upstream / Revision**：与 R06 相同的 [FidelityFX SDK v1.1.4](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55)，`c6efa6bf7f2027b3ec94f28578bb5965eabb9e55`。
 - **Source**：[fsr3upscaler GPU 目录](https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/tree/c6efa6bf7f2027b3ec94f28578bb5965eabb9e55/sdk/include/FidelityFX/gpu/fsr3upscaler)，`ffx_fsr3upscaler_{prepare_inputs,prepare_reactivity,luma_pyramid,shading_change,shading_change_pyramid,accumulate,reproject,upsample,luma_instability,rcas}.h` 及其 common/callback 依赖；host `sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp`。
-- **检查深度 / License**：核对该 tag 的源码目录、MIT `sdk/LICENSE.txt` 和选中 shader headers，读 accumulate；实施前需按 host 时序展开完整阶段映射。没有跑 FSR 样例或完成 WGSL 移植。
-- **Local owner / Adoption**：frame-runtime/shading；not adopted，优先最终超分候选。
+- **检查深度 / License**：固定 SDK v1.1.4 源子集、MIT `sdk/LICENSE.txt`、host 时序与资源 ABI 于 `tools/fsr3-port`。本地 `OEngine/src/render/passes/fsr3/` 实现所选 Upscaler 的 Prepare Inputs、Luma/Shading SPD、Shading Change、Prepare Reactivity、Luma Instability、Accumulate/Reproject/Upsample 与 RCAS，统一 FrameGraph 内执行。
+- **Local owner / Adoption**：frame-runtime/shading；production implementation integrated。源码完整性、typecheck/build 和针对性测试完成；GPU 运行、视觉质量和正式 adoption 留到 Next Renderer 总体验收，不从编译结果推断。
 - **Retained invariants**：所选版本的 motion/depth/exposure/jitter 约定、输入准备、reactivity/shading-change、重投影/累积/重建与稳定性处理。保留合法 profile 内全部必要阶段；可选 sharpening 等范围预先写清。不能替换成历史 mix + sharpen 仍称 FSR3。
 - **WebGPU differences**：HLSL/GLSL callbacks 和 wave 操作改成 WGSL；资源/格式 limits 协商；Temporal Fabric 提供公共状态而不强行替换算法内部历史语义。这里选的是 **Upscaler，不包含 Frame Generation**。
-- **Fallback / lifecycle**：analytic 基线是具名后端；后端切换/相机切换/分辨率与曝光变化的历史兼容性明确。FSR 不是 sparse/coarse shading 自动正确的保证，Visibility & Surface 必须提供合法输入与置信度。
+- **Fallback / lifecycle**：当前生产路径只运行 FSR3；旧 analytic baseline 不再作为并行运行时后端。相机切换/明显 cut、分辨率与曝光变化使用 Temporal Fabric 有效性和 FSR3 自有 history 重置。FSR 不是 sparse/coarse shading 自动正确的保证，Visibility & Surface 必须提供合法输入与置信度。
 - **Local validation**：静态细节、运动细边、遮挡揭露、透明/高亮、曝光和动态分辨率；用固定源输入/输出作对照，连同完整重建成本评估。
 
 ### R13 · FSR2：备选，不与 FSR3 内部阶段拼装
@@ -305,4 +305,4 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 | [Bitterli 等, *Spatiotemporal Reservoir Resampling for Real-Time Ray Tracing with Dynamic Direct Lighting*（2020）](https://research.nvidia.com/publication/2020-07_spatiotemporal-reservoir-resampling-real-time-ray-tracing-dynamic-direct) | 判断未来 ReSTIR DI 需要的候选生成、重用、可见性与历史语义 | 研究路线储备；当前浏览器 WebGPU 无成熟硬件 RT 管线，不把论文列为 Phase 4 默认 donor |
 
 本次检索后的取舍是：**Screen GI 优先评估 R15 的完整信号链，R16 仅补 compute 执行对照；VT 以 R16 的 GPU 需求链和 R17 的通用采样/资产链共同指导原型。** 两处都还没有可不改写地整套移入 WebGPU 的单一项目。R18/R19 说明“wgpu/WGSL”标签不等于目标设备能力已经成立。Adaptive Compute Shading 仍缺一个经源码核实的完整、WebGPU 可移植 donor；保持本地架构问题，不用 VRS 分类算法冒充解答。
-R12 source acquisition is fixed in `tools/fsr3-port`: the exact SDK revision, 59-file host/GPU source subset, license copies, per-file SHA-256 digests, ten-stage mapping, callback/resource declarations, compile recipe, host dispatch order, and `Fsr3UpscalerConstants` layout are checked by `node tools/fsr3-port/validate.mjs`. R12 remains `not adopted`; this evidence does not claim a WGSL port or production execution. The Phase 3D audit keeps the FSR3 gate open until every selected stage has a faithful WGSL provider, FrameGraph resource lifetime, and production dispatch validation, with no FSR2 or Frame Generation source mixed in.
+R12 的固定源码、60 个文件 digest、十阶段映射、资源/常量 ABI 和 host 时序由 `node tools/fsr3-port/validate.mjs` 检查。对应 WGSL 阶段已进入唯一 Renderer FrameGraph；低频 Surface 先物化颜色与 motion，移动相机使用 full-rate Surface。这里记录的是 production integration，GPU 运行、视觉质量和正式 adoption 仍留给 Next Renderer 最终验收。

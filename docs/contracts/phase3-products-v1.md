@@ -14,7 +14,7 @@ invariants:
   - environment products consumed by one frame carry one immutable environment generation
   - temporal products carry frame revision and history validity before reuse
 validation:
-  - node tools/vibe.mjs verify --changed
+  - focused module-close tests; final GPU acceptance is deferred
 ---
 # Phase 3 Product Semantics
 
@@ -27,11 +27,11 @@ an entry to production merely because a type or pass has the same name.
 | `PhysicalSun` | `PhysicalEnvironmentRuntime` | Surface direct lighting | environment | production |
 | `SkyRadiance` | `PhysicalEnvironmentRuntime` | Sky background and aerial transport | environment | production: shared 3D scattering and higher-order LUT |
 | `SkyIrradiance` | `PhysicalEnvironmentRuntime` | Surface indirect environment lighting | environment | production |
-| `AerialScattering` | `AerialPerspectivePass` | Present | environment | production: camera-to-point LUT transport |
-| `Motion` | Surface material path | Temporal Fabric | frame | production: rg16float product |
-| `TemporalDepth` | Visibility depth | Temporal Fabric | frame | production: visibility depth plus GPU history |
-| `PreExposure` | `RadiometryContract` | Surface and Temporal Fabric | pre-exposure | blocked: production exposure owner remains open |
-| `TemporalReconstructedColor` | EEngine Analytic Temporal Baseline | Present | frame | production baseline; FSR3 remains source-fixed/open |
+| `AerialScattering` | `AerialPerspectivePass` | FSR3 Upscaler, Present | environment | production: camera-to-point LUT transport |
+| `Motion` | Surface material path | FSR3 Upscaler, Temporal Fabric | frame | production: rg16float product, spatial frequency resolved before FSR3 |
+| `TemporalDepth` | Visibility depth | FSR3 Upscaler, Temporal Fabric | frame | production: current visibility depth and GPU reconstructed previous depth |
+| `PreExposure` | `RadiometryRuntime` | Surface, FSR3, Temporal Fabric | pre-exposure | production: frame contract and history scaling |
+| `TemporalReconstructedColor` | FSR3 Upscaler | Present | frame | production integration: output-full radiance; GPU quality acceptance deferred |
 
 All environment entries carry one immutable `EnvironmentPublication` generation.
 All temporal entries carry the frame revision and history validity that selected

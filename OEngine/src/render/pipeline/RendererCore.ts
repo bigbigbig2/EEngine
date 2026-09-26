@@ -14,6 +14,7 @@ import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import { ShadingWorkPass } from "../surface/ShadingWorkPass.js";
 import { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
+import { SurfaceFrequencyResolvePass } from "../surface/SurfaceFrequencyResolvePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
@@ -59,8 +60,7 @@ import { DEFAULT_RENDERER_CONFIG, mergeRendererConfig, validateRendererConfig, t
 import { TEXTURE_RESIDENCY_MAX_SIZE } from "../../gpu/TextureResidency.js";
 import type { GraphicsMemoryEvidence, GraphicsOwnerCreationEvidence } from "../../gpu/GraphicsContext.js";
 import { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
-import { TemporalGpuHistory } from "../TemporalGpuHistory.js";
-import { AnalyticTemporalBaselinePass } from "../passes/AnalyticTemporalBaselinePass.js";
+import { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
 import { RadiometryRuntime, type PreExposureContract } from "../RadiometryContract.js";
 
 export interface RendererInitializeOptions {
@@ -138,6 +138,7 @@ export interface RendererCapabilities {
 }
 
 interface VisibilityGraphBindings {
+  readonly adaptiveShading: boolean;
   readonly job: PackedVisibilityJob;
   readonly camera: PerspectiveCamera;
   readonly view: GPUViewContext;
@@ -274,14 +275,14 @@ export class Renderer {
   private _visibilityFeature!: VisibilityFeature;
   private _shadingWork!: ShadingWorkPass;
   private _surfaceMaterial!: SurfaceMaterialPass;
+  private _surfaceFrequencyResolve!: SurfaceFrequencyResolvePass;
   private _lightCluster: LightClusterPass | null = null;
   private _physicalSky: PhysicalSkyPass | null = null;
   private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
-  private _temporalGpuHistory!: TemporalGpuHistory;
-  private _analyticTemporal!: AnalyticTemporalBaselinePass;
+  private _fsr3!: Fsr3UpscalerRuntime;
   private readonly _radiometry = new RadiometryRuntime();
   private readonly _renderTargets = new RenderTargets();
   private readonly _profiler = new FrameProfiler();
@@ -295,7 +296,8 @@ export class Renderer {
   }>();
   private readonly _streamingCameraMatrices = new Map<Scene, Float32Array>();
   private readonly _previousViewMatrices = new WeakMap<GPUViewContext, Float32Array>();
-  private readonly _cameraRevisions = new WeakMap<PerspectiveCamera, { signature: string; revision: number }>();
+  private _activeCamera: PerspectiveCamera | null = null;
+  private _cameraRevision = 0;
   private readonly _rendererConfig: RendererConfig;
   private _initializationConfig: RendererConfig | null = null;
   private _capabilities: RendererCapabilities | null = null;
@@ -1112,11 +1114,11 @@ export class Renderer {
     this._format = gpu.getPreferredCanvasFormat();
     this._shadingWork = new ShadingWorkPass(device);
     this._surfaceMaterial = new SurfaceMaterialPass(device);
+    this._surfaceFrequencyResolve = new SurfaceFrequencyResolvePass(device);
     this._present = new SurfacePresentPass(device, this._format);
     this._physicalSky = new PhysicalSkyPass(this._graphics);
     this._aerialPerspective = new AerialPerspectivePass(device);
-    this._temporalGpuHistory = new TemporalGpuHistory(device);
-    this._analyticTemporal = new AnalyticTemporalBaselinePass(device);
+    this._fsr3 = new Fsr3UpscalerRuntime(device);
     // The pinned Takram LUT profile is device-local and recorded into the
     // first frame submission; consumers can bind its immutable views by
     // generation without owning the LUT lifetime.
@@ -1186,23 +1188,19 @@ export class Renderer {
     let environmentGeneration: number | null | undefined;
     const preExposure: PreExposureContract = this._radiometry.beginFrame(
       this._environmentRuntime === null ? 0 :
-        (this._environmentRuntime.state.active?.generation ?? 1)
+        scene.physical_environment.revision + 1
     );
-    const cameraSignature = JSON.stringify([
-      camera.near, camera.far, camera.aspect,
-      ...Array.from(camera.transform.matrix), ...Array.from(camera.projection_matrix)
-    ]);
-    const cameraRecord = this._cameraRevisions.get(camera);
-    const cameraRevision = cameraRecord?.signature === cameraSignature
-      ? cameraRecord.revision : (cameraRecord?.revision ?? 0) + 1;
-    this._cameraRevisions.set(camera, { signature: cameraSignature, revision: cameraRevision });
+    if (this._activeCamera !== camera) {
+      this._activeCamera = camera;
+      this._cameraRevision++;
+    }
     const frameJitter = this._temporal.begin({
       frameIndex, output: [this._output_resolution.x, this._output_resolution.y],
       internal: [this._render_resolution.x, this._render_resolution.y],
-      cameraRevision, sceneRevision: runtime.shadingPublication.revision,
+      cameraRevision: this._cameraRevision, sceneRevision: runtime.shadingPublication.revision,
       representationRevision: Math.round(this.resolutionScale * 1_000_000) ^
         (this._render_resolution.x << 1) ^ (this._render_resolution.y << 17),
-      lightRevision: `environment:${this._environmentRuntime?.state.active?.generation ?? 0}`, view: "main", renderScale: this.resolutionScale,
+      lightRevision: `environment:${scene.physical_environment.revision}`, view: "main", renderScale: this.resolutionScale,
       featureRevision: Number(this.packed_visibility_hzb_enabled), formatRevision: 1,
       deviceRevision: this.deviceEpoch,
       preExposure,
@@ -1212,19 +1210,8 @@ export class Renderer {
     try {
       this._graphics.encodeFrameMaintenance(command);
       this._renderTargets.setFrameIndex(frameIndex);
-      this._temporalGpuHistory.ensure(this._render_resolution.x, this._render_resolution.y);
-      this._temporalGpuHistory.writeParameters((buffer, data) =>
-        command.writeBuffer(buffer, 0, data, 0, data.byteLength),
-        this._render_resolution.x, this._render_resolution.y,
-        this._temporal.histories.state("color").readValid);
-      environmentGeneration = this._environmentRuntime?.record(command.gpu_encoder, {
-        lutGeneration: 1,
-        worldToUnit: 0.001,
-        sunDirectionWorld: [0.39036003, 0.8922514, 0.22306285],
-        sunIrradiance: [1.474, 1.8504, 1.91198],
-        skyLuminanceScale: 1,
-        shadowLength: [0, 0]
-      });
+      environmentGeneration = this._environmentRuntime?.record(command.gpu_encoder,
+        scene.physical_environment.snapshot());
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         this._environmentRuntime!.writeParameters((buffer, data) =>
           command.writeBuffer(buffer, 0, data, 0, data.byteLength));
@@ -1232,7 +1219,7 @@ export class Renderer {
       const environment = this._environments.obtain(scene);
       const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
         .filter(classId => (runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
-      const adaptiveShading = this.spatial_shading_frequency_enabled &&
+      let adaptiveShading = this.spatial_shading_frequency_enabled &&
         activeClasses.some(classId => (classId & 15) === 0 || (classId & 15) === 2);
       if (activeClasses.some(classId => (classId & 15) >= 4)) {
         environment.lights.updateDirectRecords(command);
@@ -1254,13 +1241,25 @@ export class Renderer {
         for (let index = 0; index < 16; index++) {
           matrixDelta = Math.max(matrixDelta, Math.abs(currentViewMatrix[index]! - previousViewMatrix[index]!));
         }
+        // Representative Surface motion is constant only for a stationary view.
+        // Use full-rate Surface when the camera moves so FSR3 receives per-pixel motion.
+        if (matrixDelta > 1e-6) adaptiveShading = false;
         if (matrixDelta > 0.25) {
           hzb.invalidate("camera-cut");
           this._temporal.histories.invalidate("camera-cut");
-          this._temporalGpuHistory.invalidate();
+          this._fsr3.invalidate();
         }
       }
       this._previousViewMatrices.set(view, currentViewMatrix);
+      this._fsr3.prepareFrame(command, {
+        renderWidth: width, renderHeight: height,
+        outputWidth: this._output_resolution.x, outputHeight: this._output_resolution.y,
+        jitter: frameJitter, cameraNear: camera.near, cameraFar: camera.far,
+        cameraFovY: camera.fov, cameraInfiniteFar: camera.isInfiniteFar,
+        frameTimeMs: Math.max(0, timeDeltaSeconds * 1000),
+        preExposure: preExposure.multiplier,
+        reset: !this._temporal.histories.state("color").readValid
+      });
       hzb.beginFrame(frameIndex, {
         renderScale: Math.round(this.resolutionScale * 1_000_000),
         feature: Number(this.packed_visibility_hzb_enabled) |
@@ -1298,7 +1297,8 @@ export class Renderer {
       };
       const graphBindings: VisibilityGraphBindings = {
         job, camera, view, hzb, depth: this._renderTargets.depth,
-        swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure
+        swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
+        adaptiveShading
       };
       const textureBankMasks = Array.from({ length: 4 }, (_, setId) =>
         runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0
@@ -1311,7 +1311,8 @@ export class Renderer {
         this.packed_meshlet_work_compaction, this.packed_primitive_index,
         this.packed_visibility_cone_enabled, adaptiveShading,
         activeClasses, textureBankMasks,
-        this._temporalGpuHistory.readIndex, this._temporalGpuHistory.writeIndex
+        environmentGeneration ?? this._environmentRuntime?.state.active?.generation ?? 0,
+        this._fsr3.generation, this._fsr3.readIndex, this._fsr3.writeIndex
       ]);
       const compiled = this._graphCache.getOrCreate(
         graphKey,
@@ -1334,9 +1335,12 @@ export class Renderer {
       view.finish_frame(command, frameIndex);
       this._frameCoordinator.submitFrame(frame);
       this._temporal.commit(frameIndex);
-      this._temporalGpuHistory.commit();
+      this._fsr3.commit();
       temporalActive = false;
       if (environmentGeneration !== undefined && environmentGeneration !== null) this._environmentRuntime?.commit(environmentGeneration);
+      if (environmentGeneration !== undefined && environmentGeneration !== null) {
+        this._environmentRuntime?.luts.retireCompleted(command.gpuDone);
+      }
       if (streaming) {
         void streaming.consumeAfterCompletion(frameIndex, command.gpuDone, Date.now()).catch(() => undefined);
       }
@@ -1349,6 +1353,7 @@ export class Renderer {
         try { this._temporal.abort(frameIndex); }
         catch (abortError) { console.error("Temporal abort failed after render error", abortError); }
       }
+      this._fsr3.invalidate();
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         try { this._environmentRuntime?.abort(environmentGeneration); }
         catch (abortError) { console.error("Environment abort failed after render error", abortError); }
@@ -1511,8 +1516,7 @@ export class Renderer {
       materialRecords,
       depth: result.frame.depth,
       instances,
-      adaptive: this.spatial_shading_frequency_enabled &&
-        activeClasses.some(classId => (classId & 15) === 0 || (classId & 15) === 2),
+      adaptive: initial.adaptiveShading,
       width: result.frame.domain.width,
       height: result.frame.domain.height
     });
@@ -1596,7 +1600,7 @@ export class Renderer {
       format: "rg16float", domain: "internal-full",
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
     });
-    const radiance = this._surfaceMaterial.addToGraph(graph, {
+    const surface = this._surfaceMaterial.addToGraph(graph, {
       width: result.frame.domain.width,
       height: result.frame.domain.height,
       frame: bind("surface-frame", bindings => ({
@@ -1639,11 +1643,6 @@ export class Renderer {
       ),
       motionOutput: motion
     });
-    const temporalRadiance = this._analyticTemporal.addToGraph(graph, {
-      color: radiance, depth: result.frame.depth, motion, history: this._temporalGpuHistory,
-      valid: this._temporal.histories.state("color").readValid,
-      width: result.frame.domain.width, height: result.frame.domain.height
-    });
     const atmosphereEnvironment = this._environmentRuntime === null ? undefined : graph.import_resource(
       "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
       this._environmentRuntime.luts.views.transmittance
@@ -1656,10 +1655,13 @@ export class Renderer {
       "physical-environment-higher-order-scattering", { kind: "imported", label: "Physical Environment higher-order scattering" },
       this._environmentRuntime.luts.views.higherOrderScattering
     );
+    const fullRateSurface = shadingWork.frequencyPlan === undefined ? surface :
+      this._surfaceFrequencyResolve.addToGraph(graph, surface.radiance, surface.motion, shadingWork.frequencyPlan,
+        result.frame.domain.width, result.frame.domain.height);
     const environmentRadiance = atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || this._physicalSky === null
-      ? temporalRadiance
+      ? fullRateSurface.radiance
       : this._physicalSky.addToGraph(graph, {
-          hdr: temporalRadiance, depth: result.frame.depth, camera: cameraBuffer,
+          hdr: fullRateSurface.radiance, depth: result.frame.depth, camera: cameraBuffer,
           transmittance: atmosphereEnvironment, scattering: skyRadiance,
           higherOrder: higherOrderScattering, environment: physicalEnvironmentSun!
         });
@@ -1669,13 +1671,18 @@ export class Renderer {
           camera: cameraBuffer, environment: physicalEnvironmentSun,
           transmittance: atmosphereEnvironment, scattering: skyRadiance,
           higherOrder: higherOrderScattering, width: result.frame.domain.width, height: result.frame.domain.height });
+    const reconstructedRadiance = this._fsr3.addToGraph(graph, {
+      color: aerialRadiance, depth: result.frame.depth, motion: fullRateSurface.motion,
+      width: result.frame.domain.width, height: result.frame.domain.height,
+      outputWidth: this._output_resolution.x, outputHeight: this._output_resolution.y
+    });
     const swapchain = graph.import_resource(
       "swapchain", { kind: "imported", label: "swapchain" },
       bind("swapchain", bindings => bindings.swapchain)
     );
     this._present.addToGraph(
-      graph, aerialRadiance, shadingWork.queue, swapchain,
-      this._output_resolution.x, this._output_resolution.y, shadingWork.frequencyPlan
+      graph, reconstructedRadiance, shadingWork.queue, swapchain,
+      this._output_resolution.x, this._output_resolution.y
     );
     this._profiler.recordGraphCompile();
     return graph.compile();
@@ -1695,8 +1702,7 @@ export class Renderer {
     this._surfaceMaterial?.destroy();
     this._physicalSky?.destroy();
     this._aerialPerspective?.destroy();
-    this._temporalGpuHistory?.destroy();
-    this._analyticTemporal?.destroy();
+    this._fsr3?.destroy();
     this._views?.destroy();
     this._environments?.destroy();
     this._environmentRuntime?.destroy();

@@ -15,6 +15,57 @@ export interface PhysicalEnvironmentSnapshot {
   readonly shadowLength: readonly [number, number];
 }
 
+/** Authoritative scene/world input for the pinned Earth atmosphere profile. */
+export class PhysicalEnvironmentInput {
+  readonly profile = "takram-earth-default" as const;
+  worldToUnit = 0.001;
+  sunDirectionWorld: [number, number, number] = [0.39036003, 0.8922514, 0.22306285];
+  sunIrradiance: [number, number, number] = [1.474, 1.8504, 1.91198];
+  skyLuminanceScale = 1;
+  shadowLength: [number, number] = [0, 0];
+  revision = 0;
+
+  setSun(direction: readonly [number, number, number], irradiance: readonly [number, number, number]): void {
+    this.sunDirectionWorld = [...direction] as [number, number, number];
+    this.sunIrradiance = [...irradiance] as [number, number, number];
+    this.revision++;
+  }
+
+  setWorldScale(worldToUnit: number): void {
+    if (!Number.isFinite(worldToUnit) || worldToUnit <= 0) throw new RangeError("worldToUnit must be positive");
+    this.worldToUnit = worldToUnit;
+    this.revision++;
+  }
+
+  setSkyLuminanceScale(scale: number): void {
+    if (!Number.isFinite(scale) || scale < 0) throw new RangeError("sky luminance scale must be non-negative");
+    this.skyLuminanceScale = scale;
+    this.revision++;
+  }
+
+  setShadowLength(length: readonly [number, number]): void {
+    if (length.length !== 2 || length.some(value => !Number.isFinite(value) || value < 0)) {
+      throw new RangeError("shadow lengths must be finite and non-negative");
+    }
+    if (length[0] !== 0 || length[1] !== 0) {
+      throw new RangeError("Nonzero atmosphere shadow length requires the Phase 4 VSM producer");
+    }
+    this.shadowLength = [...length] as [number, number];
+    this.revision++;
+  }
+
+  snapshot(): Omit<PhysicalEnvironmentSnapshot, "generation"> {
+    return Object.freeze({
+      lutGeneration: 1,
+      worldToUnit: this.worldToUnit,
+      sunDirectionWorld: Object.freeze([...this.sunDirectionWorld]) as readonly [number, number, number],
+      sunIrradiance: Object.freeze([...this.sunIrradiance]) as readonly [number, number, number],
+      skyLuminanceScale: this.skyLuminanceScale,
+      shadowLength: Object.freeze([...this.shadowLength]) as readonly [number, number]
+    });
+  }
+}
+
 export type EnvironmentPublication = Readonly<{
   readonly generation: number;
   readonly snapshot: PhysicalEnvironmentSnapshot;
@@ -72,5 +123,8 @@ function validateSnapshot(snapshot: Omit<PhysicalEnvironmentSnapshot, "generatio
   if (Math.abs(length - 1) > 1e-3) throw new RangeError("Sun direction must be normalized");
   if (snapshot.shadowLength[0] < 0 || snapshot.shadowLength[1] < 0) {
     throw new RangeError("Shadow lengths must be non-negative");
+  }
+  if (snapshot.shadowLength[0] !== 0 || snapshot.shadowLength[1] !== 0) {
+    throw new RangeError("Nonzero atmosphere shadow length requires the Phase 4 VSM producer");
   }
 }

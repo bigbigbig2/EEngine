@@ -20,6 +20,7 @@ import {
   SceneChangeSet,
   type SceneChangeSnapshot
 } from "./SceneChangeSet.js";
+import { PhysicalEnvironmentInput } from "../render/environment/PhysicalEnvironmentState.js";
 
 function max2(e: number, t: number): number {
   return fmax(e, t);
@@ -1337,6 +1338,8 @@ export class Scene extends Node3D {
   lights = new SceneLights();
   light_probe_volume = new LightProbeVolume();
   volumetrics = new SceneVolumetrics();
+  /** World environment authority; local lights do not own the physical sun. */
+  physical_environment = new PhysicalEnvironmentInput();
   private readonly changeSet = new SceneChangeSet();
 
   constructor() {

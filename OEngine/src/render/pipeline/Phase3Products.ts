@@ -57,7 +57,7 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
     AerialScattering: Object.freeze({
       name: PHASE3_PRODUCT.AerialScattering,
       owner: "AerialPerspectivePass",
-      consumers: Object.freeze(["Present"]),
+      consumers: Object.freeze(["FSR3 Upscaler", "Present"]),
       generation: "environment",
       state: "production",
       reason: "AerialPerspectivePass reconstructs the camera-to-point segment and applies Takram LUT transmittance plus in-scattering."
@@ -65,34 +65,34 @@ export const PHASE3_PRODUCT_CONTRACTS: Readonly<Record<Phase3ProductName, Phase3
     Motion: Object.freeze({
       name: PHASE3_PRODUCT.Motion,
       owner: "Surface material path",
-      consumers: Object.freeze(["Temporal Fabric"]),
+      consumers: Object.freeze(["FSR3 Upscaler", "Temporal Fabric"]),
       generation: "frame",
       state: "production",
-      reason: "Surface material programs write the rg16float motion product and the analytic temporal consumer marks it produced."
+      reason: "Surface material programs write rg16float motion; spatial frequency resolves it before the FSR3 input preparation pass."
     }),
     TemporalDepth: Object.freeze({
       name: PHASE3_PRODUCT.TemporalDepth,
       owner: "Visibility depth",
-      consumers: Object.freeze(["Temporal Fabric"]),
+      consumers: Object.freeze(["FSR3 Upscaler", "Temporal Fabric"]),
       generation: "frame",
       state: "production",
-      reason: "Analytic Temporal Baseline reads visibility depth and writes the ping-pong depth history."
+      reason: "FSR3 consumes current visibility depth and reconstructs previous-frame depth on the GPU; Temporal Fabric tracks the logical depth revision."
     }),
     PreExposure: Object.freeze({
       name: PHASE3_PRODUCT.PreExposure,
-      owner: "RadiometryContract",
-      consumers: Object.freeze(["Surface radiance", "Temporal Fabric"]),
+      owner: "RadiometryRuntime",
+      consumers: Object.freeze(["Surface radiance", "FSR3 Upscaler", "Temporal Fabric"]),
       generation: "pre-exposure",
       state: "production",
       reason: "RadiometryRuntime owns one immutable frame contract; environment-generation and multiplier changes advance the shared generation consumed by Surface and Temporal Fabric."
     }),
     TemporalReconstructedColor: Object.freeze({
       name: PHASE3_PRODUCT.TemporalReconstructedColor,
-      owner: "Temporal backend",
+      owner: "FSR3 Upscaler",
       consumers: Object.freeze(["Present"]),
       generation: "frame",
       state: "production",
-      reason: "EEngine Analytic Temporal Baseline is connected to FrameGraph and Present; it is explicitly not FSR3."
+      reason: "The pinned FSR3 Upscaler stages write output-full radiance in the unified FrameGraph before Present."
     })
   });
 

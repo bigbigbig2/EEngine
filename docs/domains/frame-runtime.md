@@ -5,7 +5,7 @@ owner: frame-runtime
 ---
 # Frame Runtime
 
-`Renderer` is the single composition root. The former `MainRenderPipeline` and effect recipe topology were removed by the Phase 1 cut under [ADR-0020](../adr/0020-clean-cut-renderer.md). The current frame is GPU Scene publication -> hierarchy/MeshletWork -> indirect VisibilityKey/depth -> ShadingWork/Surface products -> analytic temporal reconstruction -> Physical Sky/Aerial transport -> present.
+`Renderer` is the single composition root. The former `MainRenderPipeline` and effect recipe topology were removed by the Phase 1 cut under [ADR-0020](../adr/0020-clean-cut-renderer.md). The current frame is GPU Scene publication -> hierarchy/MeshletWork -> indirect VisibilityKey/depth -> ShadingWork/Surface products -> Physical Sky/Aerial transport -> FSR3 Upscaler -> present.
 
 `RendererCore.ts` owns capability negotiation, frame lifetime, the compiled FrameGraph cache, one frame submission, resize, Product publication, and device-loss recovery. `Renderer.ts` only exports this implementation. The graph imports current per-frame GPU bindings through `FrameGraphBindingLayout`; a structural key selects its compiled topology. Output resolution follows canvas CSS size without device pixel ratio, while internal render scale is explicit. The Phase 1 present pass maps internal VisibilityKey texels to output pixels.
 
@@ -19,15 +19,27 @@ to the live View each frame. Begin/commit/abort is scoped to the submitted frame
 transaction; abort is attempted only after begin and cannot replace the original
 render error.
 
-Device-local ping-pong color/depth/motion textures are allocated by
-`TemporalGpuHistory`, read and written by the named `EEngine Analytic Temporal
-Baseline` FrameGraph pass, and invalidated through the real camera/scene/
-representation/device revisions. Surface writes the motion product and the
-visibility depth is reused as TemporalDepth. `RadiometryRuntime` owns the
-neutral PreExposure contract and advances its generation when the environment
-or multiplier changes. This baseline is infrastructure and
-is explicitly not an FSR3 implementation; the pinned FSR3 source subset is
-fixed separately and remains open until the faithful WGSL backend exists.
+`Fsr3UpscalerRuntime` owns output-resolution color history, internal luma and
+accumulation histories, and frame-info ping-pong. Its pinned Upscaler stages run
+inside the Renderer FrameGraph before the existing frame submit. Surface motion
+and visibility depth feed FSR3 after Physical Sky and Aerial transport; the
+output-full image reaches Present without internal shading-frequency anchoring.
+When spatial frequency is enabled, Surface first materializes full-rate color
+and motion from its GPU plan before Sky/Aerial/FSR3 read them. Camera movement
+selects full-rate Surface evaluation so FSR3 receives per-pixel motion.
+`TemporalFabric` tracks logical validity and jitter; a stable camera identity,
+camera-cut detection, scene/representation/environment revisions, resize, abort,
+and device recovery invalidate the relevant history. `RadiometryRuntime` owns
+the working-linear PreExposure contract. The older analytic pass is no longer
+on the production path.
+
+The Non-Geospatial Earth profile maps scene origin to the planet surface at
+6360 km with local Y up. Sun, Sky and aerial consumers use the same mapping and
+environment generation. Sun and sky edits update parameters without rebuilding
+the fixed Earth LUT; a LUT-profile change creates a new set and retires the old
+set after its last frame completes. The Phase 3 profile uses zero shadow length
+until VSM supplies a shadow product. Browser quality, lifecycle matrix and
+performance comparisons remain part of final Next Renderer acceptance.
 
 ## Current Production Path
 

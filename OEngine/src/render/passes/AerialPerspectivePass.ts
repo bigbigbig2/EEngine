@@ -21,21 +21,18 @@ ${ATMOSPHERE_RUNTIME_WGSL}
   let pixel = vec2i(id.xy); let uv = (vec2f(id.xy) + 0.5) / vec2f(size);
   let scene_color = textureLoad(scene, pixel, 0); let d = textureLoad(depth, pixel, 0);
   let camera_position_m = camera.transform[3].xyz;
-  let camera_position = camera_position_m * environment.world_to_unit;
-  let clip_sky = vec4f(uv * vec2f(2.0,-2.0) + vec2f(-1.0,1.0), 0.0, 1.0);
-  let sky_world = camera.view_projection_matrix_inverse * clip_sky;
-  let ray = normalize(sky_world.xyz / max(sky_world.w, 1e-5) - camera_position_m);
+  let camera_position = atmosphere_world_to_planet(camera_position_m, environment.world_to_unit);
   let sun = normalize(-environment.sun_direction_world);
   if (d <= 0.0001) {
-    textureStore(output, pixel, vec4f(atmosphere_sky(camera_position, ray, sun,
-      transmittance, scattering, higher_order, lut_sampler), scene_color.a));
+    textureStore(output, pixel, scene_color);
     return;
   }
   let clip = vec4f(uv * vec2f(2.0,-2.0) + vec2f(-1.0,1.0), d, 1.0);
   let world = camera.view_projection_matrix_inverse * clip;
-  let point = world.xyz / max(world.w, 1e-5) * environment.world_to_unit;
+  let point = atmosphere_world_to_planet(world.xyz / max(world.w, 1e-5), environment.world_to_unit);
   let transport = atmosphere_to_point(camera_position, point, sun, transmittance, scattering, higher_order, lut_sampler);
-  textureStore(output, pixel, vec4f(scene_color.rgb * transport.transmittance + transport.inscattering, scene_color.a));
+  textureStore(output, pixel, vec4f(scene_color.rgb * transport.transmittance +
+    transport.inscattering * environment.sky_luminance_scale, scene_color.a));
 }
 `;
 

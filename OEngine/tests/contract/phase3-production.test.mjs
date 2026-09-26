@@ -17,14 +17,17 @@ test("Physical Environment production consumers share the pinned runtime transpo
   assert.match(aerial, /node\.write\(output\)/);
 });
 
-test("Temporal production path materializes motion and GPU history", () => {
+test("FSR3 production path consumes Surface motion in the unified frame graph", () => {
   const surface = read("src/render/surface/SurfaceMaterialPass.ts");
-  const baseline = read("src/render/passes/AnalyticTemporalBaselinePass.ts");
+  const fsr3 = read("src/render/passes/fsr3/Fsr3UpscalerRuntime.ts");
   const renderer = read("src/render/pipeline/RendererCore.ts");
   assert.match(surface, /motionOutput/);
-  assert.match(baseline, /EEngine Analytic Temporal Baseline/);
-  assert.match(baseline, /previousColor/);
-  assert.match(baseline, /outputMotionHistory/);
+  assert.match(surface, /return \{ radiance: output, motion \}/);
+  assert.match(fsr3, /this\.prepareInputs\.addToGraph/);
+  assert.match(fsr3, /this\.accumulate\.addToGraph/);
+  assert.match(fsr3, /this\.rcas\.addToGraph/);
+  assert.match(renderer, /this\._fsr3\.addToGraph/);
+  assert.doesNotMatch(renderer, /AnalyticTemporalBaselinePass|TemporalGpuHistory/);
   assert.match(renderer, /markProduced\("motion"\)/);
   assert.match(renderer, /_temporal\.abort\(frameIndex\)/);
 });

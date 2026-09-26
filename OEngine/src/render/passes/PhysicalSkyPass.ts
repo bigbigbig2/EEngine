@@ -27,10 +27,10 @@ struct SkyVertex { @builtin(position) position: vec4f, @location(0) uv: vec2f };
   if (textureLoad(depth, pixel, 0) > 0.0001) { discard; }
   let clip = vec4f(uv * vec2f(2.0,-2.0) + vec2f(-1.0,1.0), 0.0, 1.0);
   let world = camera.view_projection_matrix_inverse * clip;
-  let camera_position = camera.transform[3].xyz * environment.world_to_unit;
+  let camera_position = atmosphere_world_to_planet(camera.transform[3].xyz, environment.world_to_unit);
   let direction = normalize(world.xyz / max(world.w, 1e-5) - camera.transform[3].xyz);
   return vec4f(atmosphere_sky(camera_position, direction, normalize(-environment.sun_direction_world),
-    transmittance, scattering, higher_order, lut_sampler), 1.0);
+    transmittance, scattering, higher_order, lut_sampler) * environment.sky_luminance_scale, 1.0);
 }
 `;
 

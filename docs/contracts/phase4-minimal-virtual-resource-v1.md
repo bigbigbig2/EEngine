@@ -14,7 +14,7 @@ invariants:
   - replaced resources retire only after their final FrameGraph use completes
   - telemetry is diagnostic feedback and never a CPU-visible render-list producer
 validation:
-  - node tools/vibe.mjs verify --changed
+  - module-close targeted checks; final acceptance after the planned providers
 ---
 # Phase 4 Minimal Virtual Resource Contract
 

@@ -1,0 +1,70 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { Fsr3UpscalerRuntime } from "../../.test-dist/render/passes/fsr3/Fsr3UpscalerRuntime.js";
+
+globalThis.GPUShaderStage = { COMPUTE: 1 };
+globalThis.GPUBufferUsage = { UNIFORM: 1, COPY_DST: 2 };
+globalThis.GPUTextureUsage = { TEXTURE_BINDING: 1, STORAGE_BINDING: 2, COPY_DST: 4 };
+
+function harness() {
+  const writes = [];
+  const device = {
+    limits: { maxTextureDimension2D: 8192, maxStorageBufferBindingSize: 1 << 27,
+      maxBufferSize: 1 << 28 },
+    queue: { writeBuffer() {}, writeTexture() {} },
+    createShaderModule: () => ({}),
+    createBindGroupLayout: () => ({}),
+    createPipelineLayout: () => ({}),
+    createComputePipeline: () => ({}),
+    createSampler: () => ({}),
+    createBuffer: () => ({ destroy() {} }),
+    createTexture: () => ({ destroy() {} })
+  };
+  const command = { writeBuffer(_buffer, _offset, data) { writes.push(new DataView(data)); } };
+  return { device, command, writes };
+}
+
+const frame = {
+  renderWidth: 640, renderHeight: 360, outputWidth: 1280, outputHeight: 720,
+  jitter: [0.5, -0.25], cameraNear: 0.1, cameraFar: 1000,
+  cameraFovY: Math.PI / 3, cameraInfiniteFar: true,
+  frameTimeMs: 16.67, preExposure: 1, reset: true
+};
+
+test("FSR3 frame constants follow camera jitter and retain history across ordinary frames", () => {
+  const h = harness();
+  const fsr3 = new Fsr3UpscalerRuntime(h.device);
+  fsr3.prepareFrame(h.command, frame);
+  assert.equal(fsr3.generation, 1);
+  assert.equal(h.writes[0].getFloat32(64, true), -0.25);
+  assert.equal(h.writes[0].getFloat32(68, true), 0.125);
+  assert.equal(h.writes[0].getFloat32(124, true), 0);
+  fsr3.commit();
+  fsr3.prepareFrame(h.command, { ...frame, jitter: [-0.5, 0.25],
+    preExposure: 2, reset: false });
+  assert.equal(fsr3.generation, 1);
+  assert.equal(h.writes[1].getFloat32(72, true), -0.25);
+  assert.equal(h.writes[1].getFloat32(76, true), 0.125);
+  assert.ok(Math.abs(h.writes[1].getFloat32(96, true) - (-0.5 / 640)) < 1e-9);
+  assert.equal(h.writes[1].getFloat32(116, true), 2);
+  assert.equal(h.writes[1].getFloat32(124, true), 1);
+  fsr3.invalidate();
+  fsr3.prepareFrame(h.command, { ...frame, reset: true });
+  assert.equal(fsr3.generation, 2);
+  assert.equal(h.writes[2].getFloat32(124, true), 0);
+  fsr3.commit();
+  fsr3.destroy();
+});
+
+test("FSR3 finite inverted depth reconstructs the camera near and far planes", () => {
+  const h = harness();
+  const fsr3 = new Fsr3UpscalerRuntime(h.device);
+  fsr3.prepareFrame(h.command, { ...frame, cameraInfiniteFar: false });
+  const constants = h.writes[0];
+  const x = constants.getFloat32(48, true);
+  const y = constants.getFloat32(52, true);
+  assert.ok(Math.abs(y / (1 - x) - frame.cameraNear) < 1e-5);
+  assert.ok(Math.abs(y / (0 - x) - frame.cameraFar) < 1e-3);
+  fsr3.commit();
+  fsr3.destroy();
+});

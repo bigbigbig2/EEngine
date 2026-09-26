@@ -13,6 +13,7 @@ import { createProductionSparseDirectLightingWgsl } from "./lighting_direct.js";
 import { OENGINE_ENVIRONMENT_BRDF_WGSL } from "./environment_brdf.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "./environment_ibl.js";
 import { SPECULAR_AMBIENT_OCCLUSION_WGSL } from "./specular_ambient_occlusion.js";
+import { ATMOSPHERE_WORLD_COORDINATES_WGSL } from "./atmosphere/coordinates.js";
 
 /** Shader-semantic specialization only; publication revisions and bind groups are not part of the kernel identity. */
 export interface SurfaceKernelProfile {
@@ -397,7 +398,9 @@ struct PhysicalEnvironmentSun {
   world_to_unit: f32,
   irradiance: vec3f,
   generation: f32,
+  sky_luminance_scale: f32,
 }
+${ATMOSPHERE_WORLD_COORDINATES_WGSL}
 ${createProductionSparseDirectLightingWgsl(shadowSamplingEnabled)}
 ${environmentIblEnabled ? `${OCTAHEDRAL_SAMPLE_WGSL}
 ${OENGINE_ENVIRONMENT_BRDF_WGSL}
@@ -430,10 +433,12 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
     vec2f(pixel) + vec2f(0.5),
     surface.view_depth
   );
-  let environment_position = surface.position_ws * physical_environment_sun.world_to_unit;
+  let environment_position = atmosphere_world_to_planet(surface.position_ws,
+    physical_environment_sun.world_to_unit);
   let environment_radius = length(environment_position);
   let environment_altitude = clamp((environment_radius - 6360.0) / 60.0, 0.0, 1.0);
-  let environment_mu_s = clamp(dot(normalize(surface.position_ws), normalize(-physical_environment_sun.direction_world)), -1.0, 1.0);
+  let environment_mu_s = clamp(dot(normalize(environment_position),
+    normalize(-physical_environment_sun.direction_world)), -1.0, 1.0);
   let sun_transmittance = textureSampleLevel(physical_environment_transmittance, physical_sky_sampler,
     atmosphere_transmittance_uv(environment_radius, environment_mu_s), 0.0).rgb;
   var sun_incident: GpuPrimitiveTypeTable;
@@ -446,7 +451,8 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
   let physical_sun = sun_reflected.diffuse + sun_reflected.specular;
   let sky_irradiance = textureSampleLevel(physical_sky_irradiance, physical_sky_sampler,
     vec2f(environment_mu_s * 0.5 + 0.5, environment_altitude), 0.0).rgb *
-    (vec3f(114974.91644, 71305.954816, 65310.548555) * 0.000013207021769386792);
+    (vec3f(114974.91644, 71305.954816, 65310.548555) * 0.000013207021769386792) *
+    physical_environment_sun.sky_luminance_scale;
   let physical_sky = sky_irradiance * material.diffuse * material.occlusion * ${1 / Math.PI};
   ${environmentIblEnabled ? `
   let no_v = clamp(dot(surface.shading_normal, geometry.view_direction), 0.0, 1.0);
