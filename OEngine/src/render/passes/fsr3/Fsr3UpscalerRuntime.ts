@@ -34,6 +34,11 @@ export interface Fsr3FrameInput {
   readonly reset: boolean;
 }
 
+/** Resolve physical resources from the active frame, never from graph creation. */
+export type Fsr3GraphResourceBinder = <T extends object>(
+  name: string, resolve: (runtime: Fsr3UpscalerRuntime) => T
+) => T;
+
 /** One FSR3 Upscaler owner and one graph chain inside the Renderer frame submit. */
 export class Fsr3UpscalerRuntime {
   private readonly prepareInputs: Fsr3PrepareInputsPass;
@@ -48,6 +53,7 @@ export class Fsr3UpscalerRuntime {
   private readonly rcasConstants: GPUBuffer;
   private readonly defaultMask: GPUTexture;
   private histories: Fsr3HistoryTextures | null = null;
+  private lastSubmittedGpuDone: Promise<void> | null = null;
   private size: readonly [number, number, number, number] = [0, 0, 0, 0];
   private index: 0 | 1 = 0;
   private generationValue = 0;
@@ -135,26 +141,26 @@ export class Fsr3UpscalerRuntime {
   addToGraph(graph: FrameGraph, input: {
     color: ResourceId; depth: ResourceId; motion: ResourceId;
     width: number; height: number; outputWidth: number; outputHeight: number;
-  }): ResourceId {
-    const histories = this.histories;
-    if (!histories || !this.pending) throw new Error("FSR3 frame must be prepared before graph build");
-    const read = this.readIndex;
-    const write = this.writeIndex;
-    const imported = (name: string, texture: GPUTexture, domain?: "internal-full" | "output-full") =>
-      graph.import_resource(name, { kind: "imported", label: name, ...(domain ? { domain } : {}) }, texture);
-    const constants = graph.import_resource("FSR3/constants", { kind: "imported", label: "FSR3 constants" }, this.constants);
-    const rcasConstants = graph.import_resource("FSR3/RCAS constants", { kind: "imported", label: "FSR3 RCAS constants" }, this.rcasConstants);
-    const defaultMask = imported("FSR3/default mask", this.defaultMask);
-    const previousColor = imported("FSR3/previous color", histories.color[read], "output-full");
-    const currentColor = imported("FSR3/current color", histories.color[write], "output-full");
-    const previousLuma = imported("FSR3/previous luma", histories.luma[read], "internal-full");
-    const currentLuma = imported("FSR3/current luma", histories.luma[write], "internal-full");
-    const previousLumaHistory = imported("FSR3/previous luma history", histories.lumaHistory[read], "internal-full");
-    const currentLumaHistory = imported("FSR3/current luma history", histories.lumaHistory[write], "internal-full");
-    const previousAccumulation = imported("FSR3/previous accumulation", histories.accumulation[read], "internal-full");
-    const currentAccumulation = imported("FSR3/current accumulation", histories.accumulation[write], "internal-full");
-    const previousFrameInfo = imported("FSR3/previous frame info", histories.frameInfo[read]);
-    const currentFrameInfo = imported("FSR3/current frame info", histories.frameInfo[write]);
+  }, bind: Fsr3GraphResourceBinder): ResourceId {
+    if (!this.histories || !this.pending) throw new Error("FSR3 frame must be prepared before graph build");
+    const imported = (name: string, resolve: (runtime: Fsr3UpscalerRuntime) => GPUTexture,
+      domain?: "internal-full" | "output-full") =>
+      graph.import_resource(name, { kind: "imported", label: name, ...(domain ? { domain } : {}) }, bind(name, resolve));
+    const constants = graph.import_resource("FSR3/constants", { kind: "imported", label: "FSR3 constants" },
+      bind("constants", runtime => runtime.constants));
+    const rcasConstants = graph.import_resource("FSR3/RCAS constants", { kind: "imported", label: "FSR3 RCAS constants" },
+      bind("rcas-constants", runtime => runtime.rcasConstants));
+    const defaultMask = imported("FSR3/default mask", runtime => runtime.defaultMask);
+    const previousColor = imported("FSR3/previous color", runtime => runtime.graphHistory("color", "read"), "output-full");
+    const currentColor = imported("FSR3/current color", runtime => runtime.graphHistory("color", "write"), "output-full");
+    const previousLuma = imported("FSR3/previous luma", runtime => runtime.graphHistory("luma", "read"), "internal-full");
+    const currentLuma = imported("FSR3/current luma", runtime => runtime.graphHistory("luma", "write"), "internal-full");
+    const previousLumaHistory = imported("FSR3/previous luma history", runtime => runtime.graphHistory("lumaHistory", "read"), "internal-full");
+    const currentLumaHistory = imported("FSR3/current luma history", runtime => runtime.graphHistory("lumaHistory", "write"), "internal-full");
+    const previousAccumulation = imported("FSR3/previous accumulation", runtime => runtime.graphHistory("accumulation", "read"), "internal-full");
+    const currentAccumulation = imported("FSR3/current accumulation", runtime => runtime.graphHistory("accumulation", "write"), "internal-full");
+    const previousFrameInfo = imported("FSR3/previous frame info", runtime => runtime.graphHistory("frameInfo", "read"));
+    const currentFrameInfo = imported("FSR3/current frame info", runtime => runtime.graphHistory("frameInfo", "write"));
     const prepared = this.prepareInputs.addToGraph(graph, {
       color: input.color, depth: input.depth, motion: input.motion, constants,
       currentLuma, width: input.width, height: input.height
@@ -202,16 +208,22 @@ export class Fsr3UpscalerRuntime {
     });
   }
 
-  commit(): void {
+  commit(gpuDone: Promise<void>): void {
     if (!this.pending) throw new Error("FSR3 frame was not prepared");
     this.index = this.writeIndex;
     this.previousJitter = this.pending.jitter;
     this.previousPreExposure = this.pending.preExposure;
     this.frameIndex = this.pending.frameIndex;
     this.pending = null;
+    this.lastSubmittedGpuDone = gpuDone;
   }
 
   invalidate(): void { this.frameIndex = -1; this.pending = null; }
+
+  private graphHistory(name: keyof Fsr3HistoryTextures, role: "read" | "write"): GPUTexture {
+    if (!this.pending || !this.histories) throw new Error("FSR3 history binding requires an active prepared frame");
+    return this.histories[name][role === "read" ? this.readIndex : this.writeIndex];
+  }
 
   destroy(): void {
     this.destroyHistories();
@@ -255,7 +267,13 @@ export class Fsr3UpscalerRuntime {
 
   private destroyHistories(): void {
     if (!this.histories) return;
-    for (const pair of Object.values(this.histories)) for (const texture of pair) texture.destroy();
+    const histories = this.histories;
     this.histories = null;
+    const destroy = (): void => {
+      for (const pair of Object.values(histories)) for (const texture of pair) texture.destroy();
+    };
+    const gpuDone = this.lastSubmittedGpuDone;
+    if (gpuDone) void gpuDone.then(destroy, destroy);
+    else destroy();
   }
 }

@@ -1,6 +1,6 @@
 # Module A 执行：Frame Program 与语义事实层
 
-> 状态：待实施；本文件是人读的代码迁移路线，不表示这些步骤已经完成。目标与取舍见[模块 A 设计](../next-design/frame-program-module-a.md)，上层顺序见[整体架构执行计划](./eengine-next-architecture-layer-plan-2026.md)。当前 workstream 的 `currentSlice` 仍为 `frame-program`，完成整个大模块后才推进到 Surface v2。
+> 状态：模块 A 已按当前生产链完成（2026-09-27）；本文件保留迁移路线供后续追溯。实现事实见[Frame Runtime](../domains/frame-runtime.md)，目标与取舍见[模块 A 设计](../next-design/frame-program-module-a.md)。workstream 的 `currentSlice` 已推进到 Surface v2；浏览器矩阵和性能验收仍在最终阶段。
 
 ## 0. 执行纪律与边界
 

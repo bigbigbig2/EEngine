@@ -5,7 +5,7 @@ owner: shading
 ---
 # Shading Frequency Plan V1
 
-Status: draft
+Status: historical Phase 2 design; Module A production is full-rate only. Surface v2 will define the replacement frequency contract. The diagnostic flag remains temporarily for old validation source compatibility and does not select a production graph variant.
 
 Owners: Visibility & Surface / shading
 

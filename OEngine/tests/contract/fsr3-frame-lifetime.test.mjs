@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Fsr3UpscalerRuntime } from "../../.test-dist/render/passes/fsr3/Fsr3UpscalerRuntime.js";
+import { FrameGraph } from "../../.test-dist/framegraph/FrameGraph.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 1 };
 globalThis.GPUBufferUsage = { UNIFORM: 1, COPY_DST: 2 };
@@ -8,6 +9,7 @@ globalThis.GPUTextureUsage = { TEXTURE_BINDING: 1, STORAGE_BINDING: 2, COPY_DST:
 
 function harness() {
   const writes = [];
+  const textures = [];
   const device = {
     limits: { maxTextureDimension2D: 8192, maxStorageBufferBindingSize: 1 << 27,
       maxBufferSize: 1 << 28 },
@@ -18,10 +20,15 @@ function harness() {
     createComputePipeline: () => ({}),
     createSampler: () => ({}),
     createBuffer: () => ({ destroy() {} }),
-    createTexture: () => ({ destroy() {} })
+    createTexture: (descriptor) => {
+      const texture = { label: descriptor.label, destroyed: false,
+        destroy() { this.destroyed = true; } };
+      textures.push(texture);
+      return texture;
+    }
   };
   const command = { writeBuffer(_buffer, _offset, data) { writes.push(new DataView(data)); } };
-  return { device, command, writes };
+  return { device, command, writes, textures };
 }
 
 const frame = {
@@ -39,7 +46,7 @@ test("FSR3 frame constants follow camera jitter and retain history across ordina
   assert.equal(h.writes[0].getFloat32(64, true), -0.25);
   assert.equal(h.writes[0].getFloat32(68, true), 0.125);
   assert.equal(h.writes[0].getFloat32(124, true), 0);
-  fsr3.commit();
+  fsr3.commit(Promise.resolve());
   fsr3.prepareFrame(h.command, { ...frame, jitter: [-0.5, 0.25],
     preExposure: 2, reset: false });
   assert.equal(fsr3.generation, 1);
@@ -52,7 +59,7 @@ test("FSR3 frame constants follow camera jitter and retain history across ordina
   fsr3.prepareFrame(h.command, { ...frame, reset: true });
   assert.equal(fsr3.generation, 2);
   assert.equal(h.writes[2].getFloat32(124, true), 0);
-  fsr3.commit();
+  fsr3.commit(Promise.resolve());
   fsr3.destroy();
 });
 
@@ -65,6 +72,45 @@ test("FSR3 finite inverted depth reconstructs the camera near and far planes", (
   const y = constants.getFloat32(52, true);
   assert.ok(Math.abs(y / (1 - x) - frame.cameraNear) < 1e-5);
   assert.ok(Math.abs(y / (0 - x) - frame.cameraFar) < 1e-3);
-  fsr3.commit();
+  fsr3.commit(Promise.resolve());
+  fsr3.destroy();
+});
+
+test("FSR3 graph roles follow the prepared frame and retired histories wait for GPU completion", async () => {
+  const h = harness();
+  const fsr3 = new Fsr3UpscalerRuntime(h.device);
+  fsr3.prepareFrame(h.command, frame);
+  const graph = new FrameGraph("fsr3-history-binding");
+  const imported = (name) => graph.import_resource(name, { kind: "imported", label: name }, {});
+  const resolvers = new Map();
+  fsr3.addToGraph(graph, {
+    color: imported("color"), depth: imported("depth"), motion: imported("motion"),
+    width: 640, height: 360, outputWidth: 1280, outputHeight: 720
+  }, (name, resolve) => {
+    resolvers.set(name, resolve);
+    return resolve(fsr3);
+  });
+  const read = resolvers.get("FSR3/previous color");
+  const write = resolvers.get("FSR3/current color");
+  assert.ok(read && write);
+  const firstRead = read(fsr3);
+  const firstWrite = write(fsr3);
+  let finishGpu;
+  const gpuDone = new Promise(resolve => { finishGpu = resolve; });
+  fsr3.commit(gpuDone);
+  fsr3.prepareFrame(h.command, { ...frame, reset: false });
+  assert.equal(read(fsr3), firstWrite);
+  assert.equal(write(fsr3), firstRead);
+  fsr3.commit(gpuDone);
+  fsr3.prepareFrame(h.command, { ...frame, reset: true });
+  assert.equal(firstRead.destroyed, false);
+  assert.equal(firstWrite.destroyed, false);
+  assert.notEqual(read(fsr3), firstRead);
+  finishGpu();
+  await gpuDone;
+  await Promise.resolve();
+  assert.equal(firstRead.destroyed, true);
+  assert.equal(firstWrite.destroyed, true);
+  fsr3.invalidate();
   fsr3.destroy();
 });

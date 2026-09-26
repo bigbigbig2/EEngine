@@ -3,7 +3,7 @@ import { Vec2 } from "../../core/math/Vec2.js";
 import { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { captureWebGpuCapabilityRecord } from "../../gpu/WebGpuCapabilityRecord.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
-import { FrameGraph, FrameGraphBindingLayout, type CompiledFrameGraphDump } from "../../framegraph/FrameGraph.js";
+import type { CompiledFrameGraphDump } from "../../framegraph/FrameGraph.js";
 import { summarizeFrameGraphResources, type FrameResourceSummary } from "../../framegraph/FrameResourceSummary.js";
 import { CompiledFrameGraphCache } from "../../framegraph/CompiledFrameGraphCache.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -14,13 +14,13 @@ import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import { ShadingWorkPass } from "../surface/ShadingWorkPass.js";
 import { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
-import { SurfaceFrequencyResolvePass } from "../surface/SurfaceFrequencyResolvePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
-import { shadingProgramUsesTextures } from "../../gpu/GpuShadingProgramAbi.js";
-import { resolveTextureView } from "../RenderTargetViews.js";
+import { buildFrameProgram } from "../program/FrameProgram.js";
+import { assertFrameProgramBindings, type SceneFrameBindings, type EmptyFrameBindings } from "../program/FrameProgramBindings.js";
+import { lowerFrameProgram, type FrameProgramOwners } from "../program/FrameProgramLowering.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
 import { TemporalFabric } from "../TemporalFabric.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
@@ -28,8 +28,6 @@ import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
 import type { GeometryHierarchyView } from "../../geometry/GeometryHierarchy.js";
 import type { Scene } from "../../scene/Scene.js";
-import type { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
-import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GPUViewContext } from "../ViewContext.js";
 import type { ShadeTexture } from "../../texture/ShadeTexture.js";
 import type { GeometryAssetPackage } from "../../assets/GeometryAssetPackage.js";
@@ -137,21 +135,6 @@ export interface RendererCapabilities {
   readonly record: import("../../gpu/WebGpuCapabilityRecord.js").WebGpuCapabilityRecord;
 }
 
-interface VisibilityGraphBindings {
-  readonly adaptiveShading: boolean;
-  readonly job: PackedVisibilityJob;
-  readonly camera: PerspectiveCamera;
-  readonly view: GPUViewContext;
-  readonly hzb: HierarchicalZBuffer;
-  readonly depth: GPUTextureContext;
-  readonly swapchain: GPUTextureView;
-  readonly runtime: GpuRenderWorldRuntime;
-  readonly preExposure: PreExposureContract;
-}
-
-interface EmptyGraphBindings {
-  readonly swapchain: GPUTextureView;
-}
 export interface ProductSceneSourceMapper {
   (revision: Readonly<{ residency: VirtualGeometryResidency; descriptor: GeometryProductDescriptorV1; source: GeometryProductRevisionSourceV1 }>): VirtualGeometrySceneSourceResultV1 | Promise<VirtualGeometrySceneSourceResultV1>;
 }
@@ -275,7 +258,6 @@ export class Renderer {
   private _visibilityFeature!: VisibilityFeature;
   private _shadingWork!: ShadingWorkPass;
   private _surfaceMaterial!: SurfaceMaterialPass;
-  private _surfaceFrequencyResolve!: SurfaceFrequencyResolvePass;
   private _lightCluster: LightClusterPass | null = null;
   private _physicalSky: PhysicalSkyPass | null = null;
   private _aerialPerspective: AerialPerspectivePass | null = null;
@@ -327,7 +309,7 @@ export class Renderer {
   packed_meshlet_work_candidate_capacity: number | undefined;
   packed_meshlet_work_compaction: "auto" | "portable" | "subgroup" = "auto";
   packed_primitive_index: "auto" | "portable" = "auto";
-  /** Spatial frequency plan for eligible Surface programs; false selects full-rate on the same pipeline. */
+  /** Deprecated diagnostic knob; Module A forces full-rate Surface until Surface v2. */
   spatial_shading_frequency_enabled = true;
   onFrameFinished = new ChangeSignal<number>();
 
@@ -1114,10 +1096,7 @@ export class Renderer {
     this._format = gpu.getPreferredCanvasFormat();
     this._shadingWork = new ShadingWorkPass(device);
     this._surfaceMaterial = new SurfaceMaterialPass(device);
-    this._surfaceFrequencyResolve = new SurfaceFrequencyResolvePass(device);
     this._present = new SurfacePresentPass(device, this._format);
-    this._physicalSky = new PhysicalSkyPass(this._graphics);
-    this._aerialPerspective = new AerialPerspectivePass(device);
     this._fsr3 = new Fsr3UpscalerRuntime(device);
     // The pinned Takram LUT profile is device-local and recorded into the
     // first frame submission; consumers can bind its immutable views by
@@ -1125,6 +1104,8 @@ export class Renderer {
     if (Number(device.limits.maxTextureDimension3D) >= 256 &&
         Number(device.limits.maxStorageTexturesPerShaderStage) >= 2) {
       this._environmentRuntime = new PhysicalEnvironmentRuntime(device);
+      this._physicalSky = new PhysicalSkyPass(this._graphics);
+      this._aerialPerspective = new AerialPerspectivePass(device);
     }
     const canvas = context.canvas as HTMLCanvasElement;
     this._width = Math.max(1, canvas.clientWidth || canvas.width);
@@ -1154,6 +1135,18 @@ export class Renderer {
       canvas.style.height = `${this._height}px`;
     }
     this.context.configure({ device: this.device, format: this._format, alphaMode: "opaque" });
+  }
+
+  private frameProgramOwners(): FrameProgramOwners {
+    return {
+      visibility: this._visibilityFeature,
+      shadingWork: this._shadingWork,
+      surface: this._surfaceMaterial,
+      present: this._present,
+      sky: this._physicalSky,
+      aerial: this._aerialPerspective,
+      lightCluster: () => (this._lightCluster ??= new LightClusterPass(this._graphics))
+    };
   }
 
   render(camera: PerspectiveCamera, scene: Scene, timeDeltaSeconds = 1 / 60): boolean {
@@ -1219,8 +1212,6 @@ export class Renderer {
       const environment = this._environments.obtain(scene);
       const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
         .filter(classId => (runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
-      let adaptiveShading = this.spatial_shading_frequency_enabled &&
-        activeClasses.some(classId => (classId & 15) === 0 || (classId & 15) === 2);
       if (activeClasses.some(classId => (classId & 15) >= 4)) {
         environment.lights.updateDirectRecords(command);
       }
@@ -1241,9 +1232,7 @@ export class Renderer {
         for (let index = 0; index < 16; index++) {
           matrixDelta = Math.max(matrixDelta, Math.abs(currentViewMatrix[index]! - previousViewMatrix[index]!));
         }
-        // Representative Surface motion is constant only for a stationary view.
-        // Use full-rate Surface when the camera moves so FSR3 receives per-pixel motion.
-        if (matrixDelta > 1e-6) adaptiveShading = false;
+        // Camera motion invalidates temporal data, but never changes graph topology.
         if (matrixDelta > 0.25) {
           hzb.invalidate("camera-cut");
           this._temporal.histories.invalidate("camera-cut");
@@ -1295,28 +1284,36 @@ export class Renderer {
         ...prepareJob,
         prepared: this._visibilityFeature.prepare(prepareJob, runtime.counterSink, view.gpu_camera_state.buffer, command)
       };
-      const graphBindings: VisibilityGraphBindings = {
+      const graphBindings: SceneFrameBindings = {
+        kind: "scene",
+        deviceEpoch: this.deviceEpoch,
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
-        adaptiveShading
+        fsr3: this._fsr3, environment: this._environmentRuntime
       };
       const textureBankMasks = Array.from({ length: 4 }, (_, setId) =>
         runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0
       );
-      const graphKey = JSON.stringify([
-        width, height, this._output_resolution.x, this._output_resolution.y, this._format,
-        runtime.virtualGeometry !== null, this.packed_visibility_hzb_enabled,
-        job.prepared.currentHzbLateRecheck !== null,
-        job.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
-        this.packed_meshlet_work_compaction, this.packed_primitive_index,
-        this.packed_visibility_cone_enabled, adaptiveShading,
+      const program = buildFrameProgram({
+        kind: "scene", outputWidth: this._output_resolution.x,
+        outputHeight: this._output_resolution.y, outputFormat: this._format,
+        capabilityProfile: String(this.deviceEpoch), internalWidth: width, internalHeight: height,
+        virtualGeometry: runtime.virtualGeometry !== null,
+        virtualBankCount: runtime.virtualGeometry?.banks.length ?? 0,
+        previousHzb: this.packed_visibility_hzb_enabled,
+        currentHzbLateRecheck: job.prepared.currentHzbLateRecheck !== null,
+        meshletWorkCapacity: job.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
+        meshletWorkCompaction: this.packed_meshlet_work_compaction,
+        primitiveIndex: this.packed_primitive_index,
+        coneCulling: this.packed_visibility_cone_enabled,
         activeClasses, textureBankMasks,
-        environmentGeneration ?? this._environmentRuntime?.state.active?.generation ?? 0,
-        this._fsr3.generation, this._fsr3.readIndex, this._fsr3.writeIndex
-      ]);
+        physicalEnvironment: this._environmentRuntime !== null
+      });
+      assertFrameProgramBindings(program, graphBindings);
+      const graphKey = program.key;
       const compiled = this._graphCache.getOrCreate(
         graphKey,
-        () => this.compileVisibilityGraph(graphBindings),
+        () => lowerFrameProgram(program, graphBindings, this.frameProgramOwners()),
         {
           hit: () => this._profiler.recordGraphCacheHit(),
           miss: () => this._profiler.recordGraphCacheMiss(),
@@ -1335,7 +1332,7 @@ export class Renderer {
       view.finish_frame(command, frameIndex);
       this._frameCoordinator.submitFrame(frame);
       this._temporal.commit(frameIndex);
-      this._fsr3.commit();
+      this._fsr3.commit(command.gpuDone);
       temporalActive = false;
       if (environmentGeneration !== undefined && environmentGeneration !== null) this._environmentRuntime?.commit(environmentGeneration);
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
@@ -1373,12 +1370,18 @@ export class Renderer {
     const command = frame.command;
     try {
       this._graphics.encodeFrameMaintenance(command);
-      const bindings: EmptyGraphBindings = {
+      const bindings: EmptyFrameBindings = {
+        kind: "empty",
+        deviceEpoch: this.deviceEpoch,
         swapchain: this.context.getCurrentTexture().createView()
       };
-      const graphKey = `empty:${this._format}`;
+      const program = buildFrameProgram({ kind: "empty", outputWidth: this._output_resolution.x,
+        outputHeight: this._output_resolution.y, outputFormat: this._format,
+        capabilityProfile: String(this.deviceEpoch) });
+      assertFrameProgramBindings(program, bindings);
+      const graphKey = program.key;
       const compiled = this._graphCache.getOrCreate(graphKey,
-        () => this.compileEmptyGraph(bindings), {
+        () => lowerFrameProgram(program, bindings), {
           hit: () => this._profiler.recordGraphCacheHit(),
           miss: () => this._profiler.recordGraphCacheMiss(),
           evict: () => this._profiler.recordGraphCacheEviction()
@@ -1401,291 +1404,6 @@ export class Renderer {
     } finally {
       this._profiler.endFrame();
     }
-  }
-
-  private compileEmptyGraph(initial: EmptyGraphBindings) {
-    this._profiler.recordGraphBuild();
-    const layout = new FrameGraphBindingLayout<EmptyGraphBindings>();
-    const graph = new FrameGraph("Renderer/empty-frame");
-    const swapchain = graph.import_resource(
-      "swapchain", { kind: "imported", label: "swapchain" },
-      layout.slot("swapchain", initial, bindings => bindings.swapchain)
-    );
-    const clear = graph.add("Renderer/empty present", {}, (_data, resources, context) => {
-      const command = context.encoder as ShadeGPUCommandContext;
-      const pass = command.gpu_encoder.beginRenderPass({ colorAttachments: [{
-        view: resolveTextureView(resources.get(swapchain)),
-        loadOp: "clear",
-        storeOp: "store",
-        clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 }
-      }] });
-      pass.end();
-    });
-    clear.write(swapchain);
-    this._profiler.recordGraphCompile();
-    return graph.compile();
-  }
-
-  private compileVisibilityGraph(initial: VisibilityGraphBindings) {
-    this._profiler.recordGraphBuild();
-    const layout = new FrameGraphBindingLayout<VisibilityGraphBindings>();
-    const bind = <T extends object>(name: string, resolve: (bindings: VisibilityGraphBindings) => T): T =>
-      layout.slot(name, initial, resolve);
-    const graph = new FrameGraph("Renderer/visibility-frame");
-    const depth = graph.import_resource(
-      "depth", { kind: "imported", label: "depth32float" },
-      bind("depth", bindings => bindings.depth)
-    );
-    const cameraBuffer = graph.import_resource(
-      "camera", { kind: "imported", label: "current camera" },
-      bind("camera", bindings => bindings.view.gpu_camera_state.buffer)
-    );
-    const counters = graph.import_resource(
-      "visibility-counters", { kind: "imported", label: "counter sink" },
-      bind("counter-sink", bindings => bindings.runtime.counterSink)
-    );
-    const work = graph.import_resource(
-      "meshlet-work", { kind: "imported", label: "GPU MeshletWork" },
-      bind("meshlet-work", bindings => {
-        const queue = bindings.job.prepared.workSet.meshletWorkCandidate;
-        if (!queue) throw new Error("Visibility did not prepare MeshletWork");
-        return queue.queue;
-      })
-    );
-    const previousHzb = this.packed_visibility_hzb_enabled
-      ? graph.import_resource(
-          "previous-hzb", { kind: "imported", label: "previous HZB" },
-          bind("previous-hzb", bindings => bindings.hzb.getPreviousTexture())
-        )
-      : undefined;
-    let result = this._visibilityFeature.addToGraph(
-      graph, bind("visibility-job", bindings => bindings.job),
-      { camera: cameraBuffer, counters, meshletWorkRecords: work, previousHzb, depth }
-    );
-    const hzbCurrent = graph.import_resource(
-      "current-hzb", { kind: "imported", label: "current HZB" },
-      bind("current-hzb", bindings => bindings.hzb.getCurrentTexture())
-    );
-    const hzbBuilder = graph.add(
-      "Visibility/build HZB",
-      bind("hzb-build", bindings => ({ hzb: bindings.hzb, depth: bindings.depth })),
-      (data, _resources, context) => {
-        data.hzb.build((context.encoder as ShadeGPUCommandContext).gpu_encoder, data.depth);
-      }
-    );
-    hzbBuilder.read(result.frame.depth);
-    const builtHzb = hzbBuilder.write(hzbCurrent);
-    if (initial.job.prepared.currentHzbLateRecheck) {
-      const filteredWork = graph.import_resource(
-        "late-recheck-work", { kind: "imported", label: "filtered MeshletWork" },
-        bind("late-work", bindings => bindings.job.prepared.currentHzbLateRecheck!.queue)
-      );
-      const filteredIndirect = graph.import_resource(
-        "late-recheck-indirect", { kind: "imported", label: "filtered indirect draw" },
-        bind("late-indirect", bindings => bindings.job.prepared.currentHzbLateRecheck!.drawIndirect)
-      );
-      result = this._visibilityFeature.addCurrentHzbLateRecheckToGraph(
-        graph, bind("late-visibility-job", bindings => bindings.job),
-        {
-          camera: cameraBuffer,
-          counters: result.counters,
-          currentHzb: builtHzb,
-          sourceMeshletWork: result.frame.meshletWork.records,
-          filteredMeshletWork: filteredWork,
-          filteredDrawIndirect: filteredIndirect,
-          visibilityKey: result.frame.visibilityKey,
-          shadingBinId: result.frame.shadingBinId,
-          depth: result.frame.depth,
-          sourceFrame: result.frame
-        }
-      );
-    }
-    const materialRecords = graph.import_resource(
-      "material-records", { kind: "imported", label: "published material records" },
-      bind("material-records", bindings => bindings.runtime.materialResources.materialRecords)
-    );
-    const instances = graph.import_resource(
-      "scene-instances", { kind: "imported", label: "published instance records" },
-      bind("scene-instances", bindings => bindings.job.scene.instances)
-    );
-    const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
-      .filter(classId => (initial.runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
-    const shadingWork = this._shadingWork.addToGraph(graph, {
-      visibilityKey: result.frame.visibilityKey,
-      meshletWork: result.frame.meshletWork.records,
-      materialRecords,
-      depth: result.frame.depth,
-      instances,
-      adaptive: initial.adaptiveShading,
-      width: result.frame.domain.width,
-      height: result.frame.domain.height
-    });
-    const needsDirectLight = activeClasses.some(classId => (classId & 15) >= 4);
-    const geometryMetadata = graph.import_resource(
-      "geometry-metadata", { kind: "imported", label: "geometry metadata" },
-      bind("geometry-metadata", bindings => bindings.job.assets.sparseShading.assetMetadataHeap)
-    );
-    const vertexPayload = graph.import_resource(
-      "vertex-payload", { kind: "imported", label: "geometry vertex payload" },
-      bind("vertex-payload", bindings => bindings.job.assets.sparseShading.vertexPayloadHeap)
-    );
-    const textureRoutes = graph.import_resource(
-      "texture-routes", { kind: "imported", label: "published texture routes" },
-      bind("texture-routes", bindings => bindings.runtime.materialResources.textureRouteRecords)
-    );
-    const textureBankMasks = Array.from({ length: 4 }, (_, setId) =>
-      initial.runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0
-    );
-    const textureBanks: number[][] = Array.from({ length: 4 }, () => []);
-    for (const setId of new Set(activeClasses
-      .filter(classId => shadingProgramUsesTextures(classId & 15))
-      .map(classId => classId >> 4))) {
-      const bindingSet = initial.runtime.materialResources.bindingSets.find(set => set.id === setId);
-      if (!bindingSet) throw new Error(`Surface texture binding set ${setId} is not resident`);
-      for (let bank = 0; bank < bindingSet.textureBanks.length; bank++) {
-        if ((bindingSet.textureBankMask & (1 << bank)) === 0) continue;
-        textureBanks[setId]![bank] = graph.import_resource(
-          `texture-set-${setId}-bank-${bank}`,
-          { kind: "imported", label: `texture set ${setId} bank ${bank}` },
-          bind(`texture-set-${setId}-bank-${bank}`, bindings => {
-            const active = bindings.runtime.materialResources.bindingSets.find(set => set.id === setId);
-            if (!active || (active.textureBankMask & (1 << bank)) === 0) {
-              throw new Error(`Surface texture bank ${setId}:${bank} is not resident`);
-            }
-            return active.textureBanks[bank]!;
-          })
-        );
-      }
-    }
-    const virtualMetadata = initial.runtime.virtualGeometry
-      ? graph.import_resource(
-          "virtual-geometry-metadata", { kind: "imported", label: "virtual geometry metadata" },
-          bind("virtual-geometry-metadata", bindings => {
-            if (!bindings.runtime.virtualGeometry) throw new Error("Virtual geometry publication changed");
-            return bindings.runtime.virtualGeometry.metadata;
-          })
-        ) : undefined;
-    const virtualBanks = initial.runtime.virtualGeometry
-      ? initial.runtime.virtualGeometry.banks.map((_, bank) => graph.import_resource(
-          `virtual-geometry-bank-${bank}`,
-          { kind: "imported", label: `virtual geometry bank ${bank}` },
-          bind(`virtual-geometry-bank-${bank}`, bindings => {
-            const resource = bindings.runtime.virtualGeometry?.banks[bank];
-            if (!resource) throw new Error(`Virtual geometry bank ${bank} is not resident`);
-            return resource;
-          })
-        )) : undefined;
-    const lightRecords = needsDirectLight ? graph.import_resource(
-      "light-records", { kind: "imported", label: "scene light records" },
-      bind("light-records", bindings => bindings.view.environment.lights.buffer_data)
-    ) : undefined;
-    const physicalEnvironmentSun = this._environmentRuntime === null ? undefined : graph.import_resource(
-      "physical-environment-sun", { kind: "imported", label: "Physical Environment Sun" },
-      this._environmentRuntime.parameters
-    );
-    const clusters = lightRecords === undefined ? undefined :
-      (this._lightCluster ??= new LightClusterPass(this._graphics)).addToGraph(
-        graph,
-        bind("surface-light-cluster", bindings => ({
-          camera: bindings.camera,
-          lights: bindings.view.environment.lights,
-          width: result.frame.domain.width,
-          height: result.frame.domain.height
-        })),
-        { camera: cameraBuffer, lightDatabase: lightRecords, hzb: builtHzb }
-      );
-    const motionSeed = graph.add("Surface/allocate motion product", {}, () => {});
-    const motion = motionSeed.create("Surface/motion", {
-      kind: "transient_texture", width: result.frame.domain.width, height: result.frame.domain.height,
-      format: "rg16float", domain: "internal-full",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-    });
-    const surface = this._surfaceMaterial.addToGraph(graph, {
-      width: result.frame.domain.width,
-      height: result.frame.domain.height,
-      frame: bind("surface-frame", bindings => ({
-        runtime: bindings.runtime,
-        assets: bindings.job.assets,
-        view: bindings.view,
-        frameIndex: bindings.view.frame_index,
-        outputWidth: this._output_resolution.x,
-        outputHeight: this._output_resolution.y,
-        preExposure: initial.preExposure
-      })),
-      activeClasses,
-      textureBankMasks,
-      virtualGeometry: initial.runtime.virtualGeometry !== null,
-      queue: shadingWork.queue,
-      classes: shadingWork.classes,
-      indirect: shadingWork.indirect,
-      meshletWork: result.frame.meshletWork.records,
-      materialRecords,
-      depth: result.frame.depth,
-      instances,
-      geometryMetadata,
-      vertexPayload,
-      virtualMetadata,
-      virtualBanks,
-      textureRoutes,
-      textureBanks,
-      lightRecords,
-      lightLookup: clusters?.lookup,
-      lightData: clusters?.data,
-      lightParams: clusters?.parameters,
-      physicalEnvironmentSun,
-      physicalEnvironmentTransmittance: this._environmentRuntime === null ? undefined : graph.import_resource(
-        "physical-environment-sun-transmittance", { kind: "imported", label: "Physical Environment sun transmittance" },
-        this._environmentRuntime.luts.views.transmittance
-      ),
-      physicalSkyIrradiance: this._environmentRuntime === null ? undefined : graph.import_resource(
-        "physical-environment-sky-irradiance", { kind: "imported", label: "Physical Environment sky irradiance" },
-        this._environmentRuntime.luts.views.irradiance
-      ),
-      motionOutput: motion
-    });
-    const atmosphereEnvironment = this._environmentRuntime === null ? undefined : graph.import_resource(
-      "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
-      this._environmentRuntime.luts.views.transmittance
-    );
-    const skyRadiance = this._environmentRuntime === null ? undefined : graph.import_resource(
-      "physical-environment-sky-radiance", { kind: "imported", label: "Physical Environment sky radiance" },
-      this._environmentRuntime.luts.views.scattering
-    );
-    const higherOrderScattering = this._environmentRuntime === null ? undefined : graph.import_resource(
-      "physical-environment-higher-order-scattering", { kind: "imported", label: "Physical Environment higher-order scattering" },
-      this._environmentRuntime.luts.views.higherOrderScattering
-    );
-    const fullRateSurface = shadingWork.frequencyPlan === undefined ? surface :
-      this._surfaceFrequencyResolve.addToGraph(graph, surface.radiance, surface.motion, shadingWork.frequencyPlan,
-        result.frame.domain.width, result.frame.domain.height);
-    const environmentRadiance = atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || this._physicalSky === null
-      ? fullRateSurface.radiance
-      : this._physicalSky.addToGraph(graph, {
-          hdr: fullRateSurface.radiance, depth: result.frame.depth, camera: cameraBuffer,
-          transmittance: atmosphereEnvironment, scattering: skyRadiance,
-          higherOrder: higherOrderScattering, environment: physicalEnvironmentSun!
-        });
-    const aerialRadiance = atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || physicalEnvironmentSun === undefined || this._aerialPerspective === null
-      ? environmentRadiance
-      : this._aerialPerspective.addToGraph(graph, { scene: environmentRadiance, depth: result.frame.depth,
-          camera: cameraBuffer, environment: physicalEnvironmentSun,
-          transmittance: atmosphereEnvironment, scattering: skyRadiance,
-          higherOrder: higherOrderScattering, width: result.frame.domain.width, height: result.frame.domain.height });
-    const reconstructedRadiance = this._fsr3.addToGraph(graph, {
-      color: aerialRadiance, depth: result.frame.depth, motion: fullRateSurface.motion,
-      width: result.frame.domain.width, height: result.frame.domain.height,
-      outputWidth: this._output_resolution.x, outputHeight: this._output_resolution.y
-    });
-    const swapchain = graph.import_resource(
-      "swapchain", { kind: "imported", label: "swapchain" },
-      bind("swapchain", bindings => bindings.swapchain)
-    );
-    this._present.addToGraph(
-      graph, reconstructedRadiance, shadingWork.queue, swapchain,
-      this._output_resolution.x, this._output_resolution.y
-    );
-    this._profiler.recordGraphCompile();
-    return graph.compile();
   }
 
   destroy(): void {

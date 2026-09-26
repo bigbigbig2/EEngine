@@ -8,14 +8,12 @@ decision: ADR-0020
 goal: Establish the final architecture's Frame Program, Surface and Temporal boundaries on the single production path, then integrate planned providers in large continuous modules.
 
 currentSlice:
-  id: frame-program
-  title: Frame Program and semantic product architecture
+  id: surface-v2
+  title: Surface, material and lighting v2
   status: active
-  goal: Move topology and semantic demand out of RendererCore into a single Frame Program while retaining real Visibility to Surface to Presentation consumption.
+  goal: Rebuild Surface kernel, material and lighting ownership on the Frame Program production path, restoring GPU-driven dense and adaptive work without camera-driven topology changes.
 
 nextModules:
-  - id: surface-v2
-    title: Surface, material and lighting v2
   - id: surface-fields-xegtao
     title: Fuse and demand-materialized Surface fields with XeGTAO as the first real consumer
   - id: temporal-presentation
@@ -54,5 +52,5 @@ deferredValidation:
 links:
   design: docs/next-design/eengine-next-overall-architecture-final-2026.md
   execution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
-  currentDesign: docs/next-design/frame-program-module-a.md
-  currentExecution: docs/next-execution/frame-program-module-a.md
+  currentDesign: docs/next-design/eengine-next-overall-architecture-final-2026.md
+  currentExecution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
