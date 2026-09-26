@@ -4,6 +4,28 @@ primaryOwner: frame-runtime
 owner: OEngine/src/core, OEngine/src/framegraph, OEngine/src/render/Renderer.ts, OEngine/src/gpu/GpuRenderWorld.ts
 intent: Make device, frame, resize, feature-off, replacement, and recovery lifecycles explicit and observable.
 paths:
+  - OEngine/src/render/DynamicResolutionScaling.ts
+  - OEngine/src/render/FrameCoordinator.ts
+  - OEngine/src/render/GPUCameraState.ts
+  - OEngine/src/render/GeometryWorkBudget.ts
+  - OEngine/src/render/HilbertNoiseTexture.ts
+  - OEngine/src/render/MomentOitReference.ts
+  - OEngine/src/render/NssModel.ts
+  - OEngine/src/render/PackedCameraUniform.ts
+  - OEngine/src/render/RenderFeatureRegistry.ts
+  - OEngine/src/render/RenderFrameContract.ts
+  - OEngine/src/render/RenderTargetViews.ts
+  - OEngine/src/render/RenderTargets.ts
+  - OEngine/src/render/RendererConfig.ts
+  - OEngine/src/render/STATIC_GRAPHICS_ENGINE_ASSETS.ts
+  - OEngine/src/render/TemporalHistoryRegistry.ts
+  - OEngine/src/render/TemporalJitterController.ts
+  - OEngine/src/render/TemporalResolveContract.ts
+  - OEngine/src/render/VelocityMatrices.ts
+  - OEngine/src/render/ViewContext.ts
+  - OEngine/src/render/ViewManager.ts
+  - OEngine/src/render/create_frame_loop.ts
+  - OEngine/src/render/nss_model.generated.ts
   - OEngine/src/core/**
   - OEngine/src/framegraph/**
   - OEngine/src/render/Renderer.ts

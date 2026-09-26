@@ -5,7 +5,7 @@ owner: shading
 ---
 # Surface Kernel Binding V1
 
-Status: draft; physical planning and full-rate GPU material consumer connected; broad image comparison pending.
+Status: frozen for the finite Phase 2 structural profile; formal image quality and performance acceptance remain open.
 
 Owners: Visibility & Surface / shading
 
@@ -26,10 +26,10 @@ V1 describes only the new ShadingWork compute consumer's resource closure. It do
 
 The widest virtual-geometry, textured, directly lit program consumes 16 read-only storage buffers, 10 sampled textures, 6 samplers, 2 uniforms and one `rgba16float` storage texture. Group 2 uses 16 binding slots. A plain unlit factor program consumes only 4 read-only storage buffers, one uniform and one storage texture. The planner rejects insufficient limits; it never silently drops texture banks, direct lighting, geometry data or visible work. Current Renderer admission already negotiates at least 16 storage buffers per shader stage for Virtual Geometry. The new consumer executes active material classes through class-specific GPU indirect dispatch. Narrow and widest virtual PBR WGSL variants compile in the diagnostic browser; a virtual PBR scene with nonzero emissive radiance runs on the GPU.
 
-The material consumer binds these roles from the same Scene/Product publication and checks material, texture, geometry, queue and route identity before evaluating a hit. `ShadingWork` remains GPU-produced and indirect-consumed. Shader branches use extracted perspective reconstruction, gradients, material/texture evaluation and basic direct-light math; the full textured and nonzero-light paths still require real scene comparison. A single PBR emissive diagnostic cannot establish that all material variants or lighting conditions are correct.
+The material consumer binds these roles from the same Scene/Product publication and checks material, texture, geometry, queue and route identity before evaluating a hit. `ShadingWork` remains GPU-produced and indirect-consumed. Shader branches use extracted perspective reconstruction, gradients, material/texture evaluation and basic direct-light math; textured and nonzero-light paths have diagnostic numerical comparisons; formal scene quality acceptance remains open. A single PBR emissive diagnostic cannot establish that all material variants or lighting conditions are correct.
 
 Source provenance: perspective interpolation and projected one-pixel gradients are mapped to The Forge `CalcFullBary` / `Interpolate2DWithDeriv` in [R02](../porting/next-renderer.md); texture bank residency and GPU Scene records are EEngine ABI; PBR/direct-light mathematics follows the existing Filament-derived implementation. This WebGPU binding layout is local integration code, not a claim of upstream algorithm migration.
 
 ## Validation
 
-The Surface Product contract checks narrow and widest closures, exact binding kinds, slot uniqueness, omission of unused groups and failure at insufficient limits. The independent browser diagnostic compiles representative WGSL programs and runs the emissive virtual PBR frame through the new graph, including device-loss recovery. Texture gradients, nonzero local/directional lights, mixed classes and reference-image comparisons remain open before this spec can be frozen.
+The Surface Product contract checks narrow and widest closures, exact binding kinds, slot uniqueness, omission of unused groups and failure at insufficient limits. The independent browser diagnostic compiles representative WGSL programs and runs the emissive virtual PBR frame through the new graph, including device-loss recovery. Texture gradients, nonzero direct light and mixed classes have diagnostic numerical comparisons. Broader tangent/lighting combinations and formal image/performance evidence remain open independently of this structural contract. See [Surface/Work V1](../contracts/surface-work-v1.md) for exact product, plan invalidation and lifetime limits.

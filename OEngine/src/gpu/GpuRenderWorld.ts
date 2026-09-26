@@ -15,7 +15,7 @@ import type {
   GpuShadingGeometryPublication,
   GpuShadingInstancePublication,
   GpuShadingMaterialPublication
-} from "./GpuShadingPublicationPlan.js";
+} from "./GpuShadingPublication.js";
 import {
   deriveGpuShadingIdentity,
   GPU_SHADING_DEPENDENCY,

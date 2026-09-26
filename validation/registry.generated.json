@@ -61,6 +61,7 @@
         "OEngine/src/render/surface/SurfaceKernelBindingPlan.ts"
       ],
       "covers": [
+        "shading.surface-structure",
         "visibility.gpu-closure"
       ],
       "decision": "ADR-0020",
@@ -112,47 +113,6 @@
       "route": "/cases/protocol-self-test/index.html",
       "timeoutMs": 15000,
       "workloadId": "protocol-self-test-v1"
-    },
-    {
-      "artifacts": [
-        "result",
-        "events",
-        "readback"
-      ],
-      "automatic": true,
-      "buildTarget": "internal-candidate",
-      "caseKind": "internal-candidate",
-      "changedPaths": [
-        "validation/cases/shading-bin-component",
-        "OEngine/src/gpu/GpuShadingBinAbi.ts",
-        "OEngine/src/gpu/GpuSparseShadingCapability.ts",
-        "OEngine/src/render/passes/ShadingBinPass.ts",
-        "OEngine/src/shaders/shading_bin_classify.ts"
-      ],
-      "covers": [
-        "visibility.gpu-closure",
-        "platform.capability"
-      ],
-      "decision": "ADR-0013",
-      "domain": "shading",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "visibility.gpu-closure",
-          "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "diagnostic",
-      "harness": "gpu",
-      "id": "shading-bin-component",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L3",
-      "profile": "smoke",
-      "route": "/cases/shading-bin-component/index.html",
-      "timeoutMs": 60000,
-      "workloadId": "shading-bin-component-v1"
     },
     {
       "artifacts": [
@@ -556,32 +516,6 @@
       "sampleCadence": 1,
       "sampleFrames": 1,
       "seed": 0,
-      "timestampRequired": false,
-      "warmupFrames": 1
-    },
-    "shading-bin-component-v1": {
-      "cameraPath": "none",
-      "componentExtent": [
-        65,
-        67
-      ],
-      "deviceScaleFactor": 1,
-      "features": [
-        "core-features-and-limits",
-        "subgroups",
-        "texture-formats-tier1"
-      ],
-      "id": "shading-bin-component-v1",
-      "independentRuns": 1,
-      "quality": "adr-0013-step-4-l3-v1",
-      "renderScale": 1,
-      "resolution": [
-        1280,
-        720
-      ],
-      "sampleCadence": 1,
-      "sampleFrames": 2,
-      "seed": 13004,
       "timestampRequired": false,
       "warmupFrames": 1
     },

@@ -1,5 +1,18 @@
 schemaVersion: 2
 claims:
+  - id: shading.surface-structure
+    domain: shading
+    owner: shading
+    statement: The finite Surface Work V1 structure separates program and publication identity, bounds work capacity and retires the old Surface Sparse owners; this is not a runtime quality or performance claim.
+    level: L1
+    requiredChecks: [model, registry, engine-suites, guard-legacy, guard-ownership, evidence-provenance]
+    evidencePolicy:
+      allOf: []
+      anyOf: []
+      diagnosticCases: [phase1-visibility]
+      checkOnly: true
+    allowedDeclarations: [ImplementationComplete]
+    watch: [OEngine/src/render/surface/**, OEngine/src/shaders/surface_material*, OEngine/src/gpu/GpuShadingPublication.ts, docs/contracts/surface-work-v1.md, checks/guards/legacy.yaml]
   - id: shading.one-eval
     lifecycle: retired
     domain: shading

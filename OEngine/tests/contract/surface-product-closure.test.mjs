@@ -9,6 +9,8 @@ import {
   surfaceMaterialRequirements, closeSurfaceBindings
 } from "../../.test-dist/render/surface/SurfaceProducts.js";
 import { GPU_SURFACE_KERNEL_DEMAND } from "../../.test-dist/gpu/GpuSurfaceProgramSpecialization.js";
+import { shadingProgramUsesTextures } from "../../.test-dist/gpu/GpuShadingProgramAbi.js";
+import { createSurfaceMaterialProgramWgsl } from "../../.test-dist/shaders/surface_material_program.js";
 import { planSurfaceKernelBindings, compileSurfaceProgramLayout,
   createSurfaceBindGroupLayouts } from
   "../../.test-dist/render/surface/SurfaceKernelBindingPlan.js";
@@ -18,6 +20,32 @@ const desktopLimits = Object.freeze({
   maxStorageBuffersPerShaderStage: 16, maxStorageTexturesPerShaderStage: 1,
   maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 6,
   maxUniformBuffersPerShaderStage: 2
+});
+
+test("all production Surface classes emit exactly their planned bindings without the retired resolve", () => {
+  for (const virtualGeometry of [false, true]) {
+    for (let classId = 0; classId < 64; classId++) {
+      const programId = classId & 15;
+      const compiled = compileSurfaceProgramLayout({
+        kernel: { programId, outputDependencyMask: 0,
+          textureBankMask: shadingProgramUsesTextures(programId) ? 0x1ff : 0 },
+        virtualGeometry, lighting: programId >= 4 ? "direct" : "unlit",
+        source: "surface-material-kernel-v1", capabilityFingerprint: "webgpu-core",
+        formatProfile: "rgba16float"
+      }, desktopLimits);
+      const source = createSurfaceMaterialProgramWgsl(compiled.closure, compiled.plan, classId);
+      const actual = [...source.matchAll(/@group\((\d+)\)\s*@binding\((\d+)\)/gu)]
+        .map(match => `${match[1]}:${match[2]}`).sort();
+      const expected = compiled.plan.bindings.map(binding =>
+        `${binding.group}:${binding.binding}`).sort();
+      assert.deepEqual(actual, expected, `class ${classId}, VG ${virtualGeometry}`);
+      assert.equal(new Set(actual).size, actual.length);
+      assert.match(source, /fn shade\(/u);
+      assert.doesNotMatch(source, /fn shading_resolve\(/u);
+      assert.throws(() => createSurfaceMaterialProgramWgsl(
+        compiled.closure, compiled.plan, classId ^ 1), /does not match/u);
+    }
+  }
 });
 
 test("logical Surface values distinguish normals, motion, radiance and material identity", () => {

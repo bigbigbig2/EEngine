@@ -64,6 +64,13 @@ test("context defaults to a compact actionable summary with explicit expansions"
 test("Next renderer routes expose their primary owner and active cut", async () => {
   const { loadModel, routeDomains } = await import("../../../tools/vibe-lib.mjs");
   const model = await loadModel();
+  const rebuild = model.workstreams.find(item => item.id === "eengine-next-clean-rebuild");
+  const current = rebuild.tasks.find(task => task.id === rebuild.currentSlice.id);
+  assert.ok(current, "current slice must name a declared task");
+  for (const dependency of current.dependsOn) {
+    assert.equal(rebuild.tasks.find(task => task.id === dependency)?.state, "done",
+      `current slice requires completed ${dependency}`);
+  }
   const expected = new Map([
     ["OEngine/src/render/Renderer.ts", "frame-runtime"],
     ["OEngine/src/render/runtime/RendererCore.ts", "frame-runtime"],
@@ -84,7 +91,7 @@ test("Next renderer routes expose their primary owner and active cut", async () 
     const context = JSON.parse(execFileSync(process.execPath, ["tools/vibe.mjs", "context", input], { cwd: repoRoot, encoding: "utf8" }));
     assert.ok(context.decisions.includes("ADR-0020"), input);
     assert.ok(context.sources.includes("next-renderer-reference"), input);
-    assert.equal(context.workstreams.find((item) => item.id === "eengine-next-clean-rebuild")?.currentSlice.id, "rebuild-surface-material", input);
+    assert.equal(context.workstreams.find((item) => item.id === "eengine-next-clean-rebuild")?.currentSlice.id, current.id, input);
   }
 });
 

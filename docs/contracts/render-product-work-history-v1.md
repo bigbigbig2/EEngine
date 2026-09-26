@@ -30,7 +30,7 @@ validation:
 
 ## Product demand 与物理表示
 
-- [OpaqueShadingDemand](../../OEngine/src/render/pipeline/OpaqueShadingDemand.ts) 只从不可变 receiver summary、功能拓扑和调试需求派生；不能从本帧 CPU 可见列表或 GPU readback 推导。该快照同时供 publication 与 FrameGraph 使用，摄像机移动不触发无关程序重编。
+- `OpaqueShadingDemand` (retired; historical contract) 只从不可变 receiver summary、功能拓扑和调试需求派生；不能从本帧 CPU 可见列表或 GPU readback 推导。该快照同时供 publication 与 FrameGraph 使用，摄像机移动不触发无关程序重编。
 - 一个逻辑产品的声明至少交代消费者、分辨率/空间、语义与颜色或物理单位、所需精度/覆盖、曝光约定和跨帧有效性。无需给每个产品分配纹理；所选执行计划在其真正的 GPU 消费者首次使用时，明确 fuse、recompute、materialize 或有效 history reuse，并声明转换 owner。
 - 当前生产路径的有界方案为：单次 compute resolve 融合材质和 direct lighting；`ShadingSurfaceLite`、`DiffuseSurfaceLite`、Velocity 根据消费者物化；缺少 receiver 时不创建对应输出；`ScreenSpaceDiffuseOffFrame` 的 AO=1 是逻辑常量，不占纹理。现行 `FrameProducts` 中的空间域、阶段、pre-exposure 和可选资源是事实来源。未来增加缓存或低频表示时必须保持这些语义，不能仅按产品名称替换纹理。
 - 当前首个有限计划由 `compileOpaqueSurfaceProductPlan` 从发布需求选择：IBL 在无后段间接消费者时融合，在有后段消费者时延后到 GI/lighting consumer；Normal、Diffuse Reflectance 与 Velocity 按需求物化；Normal 或 Diffuse 任一存在时共用一份 Material Flags。`SurfaceFeature` 只按该计划分配可选输出，计划先验证需求与发布 mask 一致。后续可增加有证据的 recompute/cache 方案，不把这套固定选择冒称全局成本优化器。

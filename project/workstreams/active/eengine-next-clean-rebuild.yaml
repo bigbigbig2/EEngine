@@ -8,27 +8,30 @@ decision: ADR-0020
 goal: Replace the production Renderer in place, then restore complete algorithm providers on one new visibility-driven pipeline.
 
 currentSlice:
-  id: rebuild-surface-material
-  title: Extract Surface mathematics and build the new material demand and compute shading path
-  status: active
+  id: environment-temporal
+  title: Establish physical environment and temporal reconstruction on the single new chain
+  status: todo
 nextTasks:
-  - Validate cross-primitive/material and local-light discontinuities, then decide whether any lit or normal-mapped frequency band is safe; the current normal-map check covers only one derived-tangent direct-light case. Keep the one-texel unlit band diagnostic and prohibit temporal reuse before Phase 3 history identity/rejection.
-  - Compare classification + queue + shading + reconstruction against full-rate under fixed scenes and conditions on both target adapters before claiming net GPU benefit.
-  - Remove the old Surface/Sparse owner after the complete GPU consumer closes, then replace shading.one-eval and narrow shading owner routing.
+  - Start Phase 3 by mapping the pinned Takram environment source profile to production owners, shared physical units, Sun/Sky outputs and the temporary legal unshadowed aerial interface; retain complete selected scattering stages.
+  - Establish motion, depth, exposure, jitter, stable identity and history begin/commit/abort with real Product consumers, then port the selected complete FSR3 Upscaler profile without frame generation or mixed FSR2 stages.
+  - Before Phase 4, define minimal virtual identity, generation, budget and safe retirement contracts. Keep formal quality, dual-adapter net GPU cost and Phase 4 lit/normal frequency expansion as independent open gates.
 
 contracts:
+  - surface-work-v1
   - render-product-work-history-v2
   - claims-and-evidence
   - virtual-geometry-runtime-v1
 claims:
+  - shading.surface-structure
   - frame.recovery
-  - shading.pipeline-pruning
   - visibility.gpu-closure
 completedMilestones:
   - id: superseded-m1-preparation
     result: Prior foundation and source survey remain in Git and the source ledger; the behavior-preserving M1 composition task and proposed render-product-work-history-v1 contract were abandoned by ADR-0020. No new runtime is claimed.
   - id: phase1-single-path-cut
     result: The pre-cut baseline is tagged locally. Renderer inheritance, old composition/effect owners, obsolete checks and browser cases were removed together. The single GPU Scene to indirect VisibilityKey/depth to HZB to diagnostic present chain passed dirty-tree browser diagnostics for empty and single-Product scenes, resize, and device-loss recovery. MeshletWork capacity and fail-visible overflow have bounded CPU/contract oracles; actual GPU overflow pressure remains unmeasured. This is not formal Runtime Validated or performance evidence.
+  - id: phase2-surface-owner-cut
+    result: Extracted live Scene publication records and retained Surface mathematics/view/material ABI; deleted old Surface/Sparse owners, private classifier, publication store, descriptor and obsolete tests/case. Surface Work V1 freezes the finite profile and plan/lifetime boundary; root Render routes are explicit. Changed and phase integration checks cover the new structure, not formal runtime quality or dual-adapter performance. No old claim evidence transfers.
 tasks:
   - id: cut-old-composition
     state: done
@@ -40,11 +43,13 @@ tasks:
       - Old claims and checks that no longer describe current code are retired or rewritten in the same cut.
       - Every old production owner actually deleted by this slice is added to checks/guards/legacy.yaml retiredPaths in the same code batch; existing paths are not retired early.
   - id: rebuild-surface-material
-    state: active
+    state: done
     title: Extract correct Surface mathematics and replace old sparse owner with material/frequency/compute shading
     dependsOn: [cut-old-composition]
     exitCriteria:
-      - Every visible sample gets a valid full, coarse, reconstructed, or reused result under explicit Product semantics.
+      - Every visible sample gets a valid full or spatially reconstructed result under the finite Phase 2 profile; no temporal reuse or general adaptive shading claim. Unsupported frequency bands remain full-rate.
+      - Implemented Surface semantics, stable program versus publication bindings, finite plan invalidation, and ShadingWork producer/consumer/capacity/overflow have precise contracts and focused checks; declared but unproduced Products are identified.
+      - Replacement Surface claim declarations describe implemented scope and inherit no retired evidence; formal runtime and performance promotion remain independent.
       - Old exactly-once claim and old SurfaceFeature/SparseShadingResolvePass ownership are removed after extraction.
       - Remove shading's broad OEngine/src/render/** routing fallback once the old root-level owners have been deleted or assigned precise paths.
   - id: environment-temporal
@@ -53,6 +58,7 @@ tasks:
     dependsOn: [rebuild-surface-material]
     exitCriteria:
       - Sun/Sky/atmosphere and final reconstruction have source-to-production maps and focused behavior checks.
+      - Real consumers close Product space, exposure, representation and temporal identity; minimal virtual identity, generation, budget and safe retirement contracts exist before Phase 4.
   - id: light-transport
     state: todo
     title: Port VSM, XeGTAO, SSSR, and dynamic Screen/Atlas DDGI/Sky GI as complete providers
@@ -60,6 +66,7 @@ tasks:
     exitCriteria:
       - Light-space caster generation, dynamic world sample production, fallback, and temporal consumers close on the GPU.
       - CSM and old effect services are absent from production.
+      - Lit/normal frequency policy is evaluated with actual lighting discontinuities; unsafe bands stay full-rate. Cross-domain typed Work control is demonstrated by GPU consumers, not merely preflight helpers.
   - id: virtual-control-media
     state: todo
     title: Converge virtual-resource control and port local Froxel media
@@ -76,6 +83,8 @@ requiredEvidence:
   - Source-to-production mapping and focused reference comparison for each selected complete algorithm profile.
   - Independent browser and formal GPU/performance evidence only when runtime or performance claims are made.
 openGates:
+  - Phase 2 is structurally complete under the finite Surface Work V1 scope. The new L1 structural declaration does not promote runtime or performance evidence; clean-revision formal acceptance remains separate.
+  - Wider lit/normal coarse shading belongs to Phase 4 consumer integration; temporal reuse requires Phase 3. Fixed-condition classification/queue/shading/reconstruction and whole-frame comparisons on both adapters govern performance claims and default policy, not old-owner deletion.
   - Phase 1 has only a dirty-tree diagnostic browser run; clean-revision formal runtime and performance evidence must be captured on the new chain when such claims are made.
   - The pre-cut renderer tag is local. The source ledger is pinned, but the selected new upstream algorithms remain unported.
   - GPU Work Runtime is not complete when only MeshletWork uses a preflight helper; ShadingWork and later Ray/Page consumers must demonstrate shared control semantics with specialized physical ABIs.

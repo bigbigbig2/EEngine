@@ -2,11 +2,6 @@ import type {
   FrameGraphResourceDomain,
   ResourceId
 } from "../../framegraph/ResourceHandle.js";
-import {
-  GPU_SHADING_BIN_ABI_VERSION,
-  GPU_SHADING_BIN_MICROTILE_HEIGHT,
-  GPU_SHADING_BIN_MICROTILE_WIDTH
-} from "../../gpu/GpuShadingBinAbi.js";
 
 export type ResolutionDomain = FrameGraphResourceDomain;
 
@@ -43,18 +38,6 @@ export interface VisibilityFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
-/** GPU-produced sparse work consumed only through per-bin indirect dispatches. */
-export interface ShadingBinFrame {
-  readonly abiVersion: number;
-  readonly heap: ResourceId;
-  readonly indirectArgs: ResourceId;
-  readonly generation: number;
-  readonly activeBinMaskLo: number;
-  readonly activeBinMaskHi: number;
-  readonly microtileWidth: 8;
-  readonly microtileHeight: 8;
-  readonly domain: TextureDomain<"internal-full">;
-}
 
 export function meshletWorkFrame(input: MeshletWorkFrame): MeshletWorkFrame {
   requireResourceId(input.records, "MeshletWorkFrame.records");
@@ -104,38 +87,7 @@ export interface DirectLightingFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
-/**
- * Opaque result produced by the ADR-0013 specialized per-bin kernels.
- * Optional products are physically absent when their creation-time output
- * dependency is absent; consumers must never infer an attachment from a
- * shader/program name.
- */
-export interface SpecializedShadingFrame {
-  /** Sparse queue product; physically absent for DirectSingleBin. */
-  readonly bins: ShadingBinFrame | null;
-  /** DirectSingleBin fail-closed status; sparse mode keeps this in bins.heap. */
-  readonly status: ResourceId | null;
-  readonly direct: DirectLightingFrame;
-  readonly shading: ShadingSurfaceLiteFrame | null;
-  readonly diffuse: DiffuseSurfaceLiteFrame | null;
-  readonly velocity: ResourceId | null;
-  readonly domain: TextureDomain<"internal-full">;
-}
 
-/**
- * Returns the fail-closed control consumed by Final Output. SparseMicrotile
- * stores it in the queue heap; DirectSingleBin owns the same 32-byte prefix in
- * its lightweight status buffer. The two products are mutually exclusive.
- */
-export function specializedShadingFinalControl(
-  frame: Readonly<SpecializedShadingFrame>
-): ResourceId {
-  const control = frame.bins?.heap ?? frame.status;
-  if (control === null) {
-    throw new Error("SpecializedShadingFrame has no Final Output control resource");
-  }
-  return control;
-}
 
 export type ScreenSpaceDiffuseMode = "off" | "gtao" | "ssgi";
 export type LongRangeDiffuseProvider = "brick4" | "probe-volume" | "ibl" | "black";
@@ -389,30 +341,6 @@ export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   });
 }
 
-export function shadingBinFrame(input: ShadingBinFrame): ShadingBinFrame {
-  if (input.abiVersion !== GPU_SHADING_BIN_ABI_VERSION) {
-    throw new Error(
-      `ShadingBinFrame ABI ${input.abiVersion} does not match ${GPU_SHADING_BIN_ABI_VERSION}`
-    );
-  }
-  requireRequiredResourceId(input.heap, "ShadingBinFrame.heap");
-  requireRequiredResourceId(input.indirectArgs, "ShadingBinFrame.indirectArgs");
-  requirePositiveInteger(input.generation, "ShadingBinFrame generation");
-  requireU32(input.activeBinMaskLo, "ShadingBinFrame activeBinMaskLo");
-  requireU32(input.activeBinMaskHi, "ShadingBinFrame activeBinMaskHi");
-  if (
-    input.microtileWidth !== GPU_SHADING_BIN_MICROTILE_WIDTH ||
-    input.microtileHeight !== GPU_SHADING_BIN_MICROTILE_HEIGHT
-  ) {
-    throw new RangeError(
-      `ShadingBinFrame microtile shape must be ${GPU_SHADING_BIN_MICROTILE_WIDTH}x${GPU_SHADING_BIN_MICROTILE_HEIGHT}`
-    );
-  }
-  return Object.freeze({
-    ...input,
-    domain: requireInternalFullDomain(input.domain, "ShadingBinFrame")
-  });
-}
 
 /** 创建统一的 Opaque HDR 产品，并在 composition seam 处验证 internal-full 域。 */
 export function opaqueLightingFrame(input: OpaqueLightingFrame): OpaqueLightingFrame {
@@ -450,37 +378,6 @@ export function directLightingFrame(input: DirectLightingFrame): DirectLightingF
   });
 }
 
-/** Validate the sole production opaque-shading composition seam. */
-export function specializedShadingFrame(
-  input: SpecializedShadingFrame
-): SpecializedShadingFrame {
-  const domain = requireInternalFullDomain(input.domain, "SpecializedShadingFrame");
-  const bins = input.bins === null ? null : shadingBinFrame(input.bins);
-  const direct = directLightingFrame(input.direct);
-  const shading = input.shading === null
-    ? null
-    : shadingSurfaceLiteFrame(input.shading);
-  const diffuse = input.diffuse === null
-    ? null
-    : diffuseSurfaceLiteFrame(input.diffuse);
-  if (bins !== null) requireMatchingDomain(bins.domain, domain, "SpecializedShadingFrame.bins");
-  requireMatchingDomain(direct.domain, domain, "SpecializedShadingFrame.direct");
-  if (shading !== null) {
-    requireMatchingDomain(shading.domain, domain, "SpecializedShadingFrame.shading");
-  }
-  if (diffuse !== null) {
-    requireMatchingDomain(diffuse.domain, domain, "SpecializedShadingFrame.diffuse");
-  }
-  if (input.velocity !== null) {
-    requireResourceId(input.velocity, "SpecializedShadingFrame.velocity");
-  }
-  if (bins === null) {
-    requireResourceId(input.status, "SpecializedShadingFrame.status");
-  } else if (input.status !== null) {
-    throw new Error("SpecializedShadingFrame.status must be null when sparse bins are present");
-  }
-  return Object.freeze({ ...input, bins, direct, shading, diffuse, domain });
-}
 
 /** Freeze the producer/consumer ABI for one clustered-light frame. */
 export function lightClusterFrame(input: LightClusterFrame): LightClusterFrame {

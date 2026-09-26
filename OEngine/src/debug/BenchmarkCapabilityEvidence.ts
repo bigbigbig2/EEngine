@@ -379,15 +379,15 @@ export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
   longRangeNonresidentFallbacks: supported("LongRangeDiffuseProviderPass/residency-fallback reducer"),
   longRangeProviderUnassigned: supported("LongRangeDiffuseProviderPass/provider-identity validator"),
   longRangeProviderDuplicates: supported("LongRangeDiffuseProviderPass/provider-identity validator"),
-  shadingBinFrameFlags: supported("SparseShadingCounterPass production safety sampler"),
-  shadingBinErrors: supported("SparseShadingCounterPass production safety sampler"),
-  shadingBinAttempted: supported("SparseShadingCounterPass production safety sampler"),
-  shadingBinWritten: supported("SparseShadingCounterPass production safety sampler"),
-  shadingBinOverflow: supported("SparseShadingCounterPass production safety sampler"),
-  shadingBinIndirectWorkgroups: supported("SparseShadingCounterPass production safety sampler"),
-  shadingBinGeneratedMaskLo: supported("SparseShadingCounterPass production safety sampler"),
-  shadingBinGeneratedMaskHi: supported("SparseShadingCounterPass production safety sampler"),
-  shadingBinIndirectNonzeroWords: supported("SparseShadingCounterPass production safety sampler")
+  shadingBinFrameFlags: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
+  shadingBinErrors: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
+  shadingBinAttempted: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
+  shadingBinWritten: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
+  shadingBinOverflow: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
+  shadingBinIndirectWorkgroups: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
+  shadingBinGeneratedMaskLo: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
+  shadingBinGeneratedMaskHi: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI"),
+  shadingBinIndirectNonzeroWords: unsupported("rebuild-surface-material", "Old sparse counter producer retired; new Surface diagnostics are not this counter ABI")
 } as const satisfies Record<GpuCounterFieldName, CounterEvidenceDeclaration>;
 
 export function createBenchmarkCapabilityEvidence(

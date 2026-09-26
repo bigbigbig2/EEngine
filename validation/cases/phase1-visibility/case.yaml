@@ -34,5 +34,6 @@ caseKind: production
 kind: gpu
 level: L2
 covers:
+  - shading.surface-structure
   - visibility.gpu-closure
 decision: ADR-0020

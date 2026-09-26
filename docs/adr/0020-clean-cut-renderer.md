@@ -20,6 +20,12 @@ Light Transport 以 Direct Light Visibility、Indirect Radiance、Reflection 为
 
 WebGPU 采用静态有界 kernel graph + GPU 动态工作量，协商设备 feature/limit 后建资源。当前设计不依赖 mesh/task shader、Work Graph、硬件 RT、自由 bindless heap、BDA、64 位原子或 multi-draw-count。1650 Ti 4 GiB 为较低配置预算基线，2060 机器另行实测；60 FPS/1080p 是目标而非已达性能声明。
 
+## 阶段收口约束
+
+Phase 2 先完成 Surface 提取、旧 owner 删除、精确合同和路由收口；有限空间频率 profile 之外由同一新链 full-rate 正确消费，不等待通用 lit/normal 降频或双机性能实验才删除旧 owner。广泛受光降频随 Phase 4 的真实 Light Transport 消费者推进；history reuse 必须等待 Phase 3。这不降低选定上游算法的完整移植要求。
+
+结构退出、选定功能实现与正式质量/性能声明分别记录。跨消费者 Product 计划随实际消费者落地；最小虚拟身份、generation、预算和安全退役合同在 Phase 4 前明确，Phase 5 收敛控制面。workstream 只能细化执行路线，不得自行添加阻塞阶段收口的研究任务。
+
 ## Consequences
 
 本 ADR 取代 [ADR-0003](./0003-unified-render-pipeline.md) 的 `MainRenderPipeline` owner、[ADR-0013](./0013-sparse-shading-bin-pipeline.md) 的每 hit 完整求值目标、[ADR-0015](./0015-visibility-native-pbr-receiver.md) 的旧 Sparse Shading owner，以及 [ADR-0019](./0019-eengine-next-renderer.md) 的保行为迁移和 CSM fallback。仍保留一条主管线、需求裁剪、GPU 闭环、Visibility-native Surface 等相容原则。旧代码运行事实和现有 evidence 不因 ADR 被接受而自动消失；第一次代码切断时同步撤销不再成立的 claim/contract 及其测试期待。

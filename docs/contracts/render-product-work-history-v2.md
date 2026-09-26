@@ -23,6 +23,8 @@ validation:
 
 ## Semantic Product
 
+Phase 2 已实现的有限 Surface/Work 边界单独冻结在 [Surface/Work V1](./surface-work-v1.md)。本 v2 整体继续 proposed：独立 motion/normal 产品、跨消费者表示规划、Temporal 与跨域 Work Runtime 不因旧 owner 删除而自动完成。
+
 Producer 声明值的语义、空间/坐标、分辨率及 footprint、过滤规则、精度、物理单位/颜色空间、pre-exposure、覆盖与缺失行为、时间身份；Consumer 声明需求与可接受的表示。几何法线与着色法线、camera HZB 与 AO/SSR 深度层级、辐射与可见性不能只因字段名近似就互换。Renderer Core 按 `Consumer Demand → Semantic Product → Provider → Representation → Execution Domain → FrameGraph` 在配置/发布变化时从有限合法方案选择融合、重算、物化和有效复用，并消除无消费者的生产者。FrameGraph 拥有执行依赖与资源生命周期，不代替 Product 决策。物理 texture/buffer 不是 Product 的身份。
 
 ## Typed GPU Work
@@ -41,4 +43,4 @@ Device-lifetime program identity 包含 shader、layout、能力和 kernel speci
 
 ## 状态与首次验证
 
-Phase 1 建新主链时先验证 GPU 闭环、队列边界和 feature-off；Phase 2 以第一套新 Surface/频率消费者把本合同从候选收敛为精确实现合同，并在同批次修改旧 claim 与测试。原 [v1](./render-product-work-history-v1.md) 已废弃，现存代码事实仍归原有 domain/spec；不能用 v1 测试结果给 v2 宣称通过。
+Phase 1 建新主链时先验证 GPU 闭环、队列边界和 feature-off。Phase 2 收敛已实现的 Surface/Work 部分至精确合同/spec 与新 claim，明确 schema-only 产品、有限频率 profile 和生产消费者；不把本合同整体（特别是 Temporal）提前标记完成。旧 shading claims 已 retired，新声明不得继承其 evidence。Phase 3 再关闭 History 与实际跨消费者表示边界，Phase 4 用 Ray/Page 检验 Work 共享控制语义。有限 profile 之外 full-rate 是合法结果，不要求所有材质在 Phase 2 降频。删除旧 owner 不以双机性能为前置条件；净收益与正式质量仍须独立证明。原 [v1](./render-product-work-history-v1.md) 已废弃，现存代码事实仍归原有 domain/spec；不能用 v1 测试结果给 v2 宣称通过。

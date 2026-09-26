@@ -50,6 +50,24 @@ config:
     - OEngine/src/render/pipeline/MainRenderPipelineGraphKey.ts
     - OEngine/src/render/pipeline/OptionalFrameFeatures.ts
     - OEngine/src/framegraph/FrameGraphNotes.ts
+    - OEngine/src/shaders/shading_bin_classify.ts
+    - OEngine/src/shaders/sparse_shading_resolve.ts
+    - OEngine/src/render/features/SurfaceFeature.ts
+    - OEngine/src/render/passes/ShadingBinPass.ts
+    - OEngine/src/render/passes/SparseShadingCounterPass.ts
+    - OEngine/src/render/passes/SparseShadingDiagnosticsPass.ts
+    - OEngine/src/render/passes/SparseShadingResolvePass.ts
+    - OEngine/src/render/pipeline/OpaqueShadingDemand.ts
+    - OEngine/src/render/pipeline/SparseShadingCandidateExecutor.ts
+    - OEngine/src/render/pipeline/SparseShadingCandidatePipeline.ts
+    - OEngine/src/render/pipeline/SparseShadingCandidateRuntime.ts
+    - OEngine/src/render/pipeline/SparseShadingGpuRevision.ts
+    - OEngine/src/render/pipeline/SparseShadingPublicationCoordinator.ts
+    - validation/cases/shading-bin-component/main.ts
+    - OEngine/src/gpu/GpuShadingPublicationPlan.ts
+    - OEngine/src/gpu/GpuSparseShadingPipelineContract.ts
+    - OEngine/src/gpu/GpuOpaqueShadingDemand.ts
+    - OEngine/src/gpu/GpuShadingFrameStatusAbi.ts
   inspectValidationScripts: true
   validationPackages:
     - validation/package.json

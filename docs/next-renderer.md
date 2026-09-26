@@ -2,6 +2,12 @@
 
 本页是 [ADR-0020](./adr/0020-clean-cut-renderer.md) 的实施边界；[workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml) 只记录当前切片，[来源账本](./porting/next-renderer.md) 记录算法版本与移植映射。用户的[终版设计讨论](./reviews/EEngine_Next_Renderer_Final_Architecture.md)是设计输入，不是当前代码事实。重构期间允许功能暂退，旧实现留在 Git；不建第二条 Renderer，也不以旧功能全量通过作为每一步门禁。
 
+## 权威与完成口径
+
+ADR-0020 决定架构，本页决定阶段范围与顺序，active workstream 记录当前切片和未完成项；workstream 不得自行扩大阶段退出条件。ADR-0019 是历史决定，学习指南和设计讨论只解释目标。实现事实见 `docs/domains/` 和源码；声明等级由当前 revision 的 evidence 推导，过期生成状态页不代表当前进度。
+
+结构完成、选定功能实现、正式质量/性能验证分别记录。旧 owner 删除不依赖双机性能结论；结构结束也不自动获得 RuntimeValidated 或 Performance。一个批次完成连贯的 owner 切换、合同、路由与相关检查，不以重复增加局部诊断替代阶段收口。
+
 ## 六个一级模块与决策时间
 
 | 模块 | 拥有的结果 | 边界 |
@@ -49,7 +55,7 @@ Phase 1 的旧效果删除清单明确包含 `AOService`、`ScreenSpaceDiffuseSe
 | --- | --- | --- |
 | ADR-0003、0013、0015、0019 | 标记 superseded；新目标以 ADR-0020 为准 | 一条主管线、GPU 闭环和需求裁剪等相容原则仍有效；旧 owner/exactly-once/CSM fallback 不再指挥新实现 |
 | `render-product-work-history-v1` | 停止作为 Next 冻结目标，保留历史现状说明 | 新 Product、Work 和 History 语义进入新的 contract/spec；旧消费者删除时移除旧引用 |
-| `shading.one-eval` 等旧路径 claim 和既有 evidence | 目前仍描述旧代码事实，不转授给新 Renderer | Phase 1/2 同批次撤销或重写声明、检查与 case 期待；新 claim 从新 revision 的证据开始 |
+| `shading.one-eval` 等旧路径 claim 和既有 evidence | `shading.one-eval` 与 `shading.pipeline-pruning` 已 retired，历史 evidence 不转授给新 Renderer | Phase 2 建立新 Surface 声明、检查与 case 期待；新 claim 从新 revision 的证据开始 |
 | 旧 M1 workstream | 从 active 移除；历史留在 Git，新建 `eengine-next-clean-rebuild` | 不再要求 split main pipeline 且 preserve behavior |
 
 ## 切断顺序
@@ -77,19 +83,32 @@ Phase 1 的旧效果删除清单明确包含 `AOService`、`ScreenSpaceDiffuseSe
 
 1. 提取旧 visibility 解码、透视属性、解析梯度、UV/贴图和 Filament-derived PBR；用固定 The Forge 来源对照数学，建立新 Product schema 与材质程序/绑定闭包。
 2. 频率分类同时看三层：**Coverage/Identity**（深度、轮廓、运动、揭露和连续性），**Material Appearance**（贴图/法线/颜色频带、有效粗糙度范围、emissive/alpha/特殊材质），**Lighting**（阴影边界、镜面瓣、局部光变化、反射/GI 方差）。先用保守元数据和廉价几何/时间信息选候选，再执行 full、2×2 或 4×4 的真实消费与空间重建；不能完整采样后才决定降频，也不能只凭 roughness factor 降频。Phase 2 无合法 history 时一律不启用 temporal reuse，Phase 3 建成身份/拒绝合同后再开放。高频材质、法线、镜面、边缘和 disocclusion 保留所需频率；每个可见样本有合法结果。
-3. 程序身份只由 shader/layout/capability/kernel specialization 等稳定闭包决定；scene/publication revision、纹理/实例 generation 只进入 revision-local bindings。基本 direct lighting 接通后删旧 Surface/Sparse owner；同步替换 `shading.one-eval` 旧声明。验证梯度、材质/纹理、绑定 revision、边界、运动和队列净收益。
+3. 程序身份只由 shader/layout/capability/kernel specialization 等稳定闭包决定；scene/publication revision、纹理/实例 generation 只进入 revision-local bindings。基本 direct lighting 接通后完成剩余依赖提取并删除旧 Surface/Sparse owner；建立新 Surface 声明和检查，旧 `shading.one-eval` 保持 retired。按真实消费者迁移必要 ABI/资源，不按 Sparse 名称批量删除。
+
+**本阶段收口顺序与退出条件：**
+
+- 先完成数学/ABI/生命周期提取与旧 owner 删除，同批删除仅服务旧链的测试和检查、登记实际 retiredPaths、收窄 shading 宽泛路由；仍有合法消费者的代码必须明确新 owner。
+- 新 Surface 的程序/绑定闭包、GPU producer/consumer、容量/溢出和每个可见样本的有效结果具有精确合同及受影响验证。逻辑值声明不等于对应产品已生产；法线、运动等逐项区分 schema 与实际消费者。
+- 本阶段采用有限频率 profile：静态 opaque unlit factor 与已认证 1×1 unlit base texture 可作 coarse 候选；未证明安全的纹理、受光、法线及其他材质由同一新链 full-rate 求值。保留覆盖/身份边界与运动检查，禁止 history reuse。本地 profile 不冒称完整 CPS/VRS 移植或通用自适应着色。
+- 补齐当前 Surface 有限计划的需求、资源角色、配置/发布失效与 lowering 边界；不要求此阶段实现尚无消费者的通用规划器。完整跨消费者表示选择随 Phase 3/4 落地。
+- 运行受影响编译、静态、合同与关键数学检查，修复已知结果正确性问题；阶段集成使用既定 `verify --full`。正式浏览器验收与双机净收益独立记录，不作为删除旧 owner 的前置条件。
+
+广泛 lit/normal 降频和跨光照不连续的频带研究移到 Phase 4 的真实 Light Transport 消费者集成；Temporal reuse 移到 Phase 3 身份/拒绝合同之后。分类、队列、着色、重建及整帧净收益在固定条件下与同链 full-rate 比较，决定默认策略；未证明收益不得宣称性能提升，也不强制所有便宜工作先 compact。这是阶段范围的明确调整，不表示这些目标已完成。
 
 ### Phase 3 — Physical Environment + Temporal
 
 1. 以 Takram 固定来源迁移非地理物理环境；保留 Bruneton/Hillaire LUT、太阳透射、直射/间接散射及 shadow-aware aerial transport 的选定 profile，建立 Sun direct、Sky indirect、atmosphere/aerial 共用的单位、坐标和环境版本接口。Phase 3 先保留合法无影输入和阴影接口，Phase 4 再接 VSM；去 Three/TSL 宿主不等于删行星/观察高度模型。
 2. 建公共时间身份、motion、depth、jitter、exposure、history 生命周期；将 FidelityFX SDK v1.1.4 的 **FSR3 Upscaler** 作为首选最终重建完整 profile 移植，不包含 frame generation。解析型重建可作具名最小后端；FSR2 是需重新决策的独立替代来源，**不作为同时保留的运行时 fallback**，也不与 FSR3 内部阶段拼接。
-3. 静态/运动/遮挡揭露/分辨率和曝光变化逐项检查；信号去噪不与最终超分内部历史混为一体。
+3. 静态/运动/遮挡揭露/分辨率和曝光变化逐项检查；信号去噪不与最终超分内部历史混为一体。以真实环境和重建消费者落实 Product 的空间、单位、曝光、表示选择与 history 失效，不能只增加产品枚举。
+4. 进入 Phase 4 前明确虚拟资源最小控制合同：逻辑身份、generation、预算归属、缺页/溢出及 submission 安全退役；不提前构造万能缓存。VSM/GI 接入时沿用该边界，Phase 5 再收敛跨域调度。
 
 ### Phase 4 — Light Transport
 
 1. **VSM**：按 Timberdoodle 的页需求、分配、失效、回收、层次与采样完整映射；WebGPU 以独立光空间 caster 工作、storage indirection 和有界 indirect raster 取代 mesh shader/BDA；不留 CSM fallback。页吞吐与缺页必须可解释。
 2. **AO + Reflection**：XeGTAO 的 prefilter/evaluate/denoise；FidelityFX SSSR 的 classification、ray/denoiser work queues 与 indirect args/trace、hit validation、reprojection/prefilter/temporal resolve；共用语义深度需求，仅在表示兼容时共享物理 HZB。反射 miss 进入一致的环境/Probe fallback。
 3. **Hybrid GI**：近场 Screen GI、Atlas DDGI + software BVH 世界样本生产/Probe 更新、无限 Sky。明确 `World Sample Producer → radiance/distance samples → probe/brick update → World Radiance Field → shading consumer`；software BVH 是第一候选，raster capture、screen injection 或未来 ray backend 只能作为具名且可核验的来源。动态几何与动态光源驱动加速结构、受影响区域、历史和置信度。Probe 存储不等于样本生产；静态烘焙或纯 SSGI 不算目标完成。Screen GI 已找到 [UnitySSGIURP 完整信号链与 Wicked Engine compute 链候选](./porting/next-renderer.md)，但**尚未选定可直接移植的 WebGPU profile**；实施前须固定近/世界/天空的能量及缺失行为，不能将旧 SSGI 包装后冒称完成。
+
+4. 随真实阴影/反射/GI 消费者推进受光材质频率策略，按完整来源映射保留必要阶段；未证明安全者保持 full-rate。检验 Meshlet/Shading/Ray/Page 专用 ABI 下的共享预算、计数、溢出和生命周期，不能以 CPU preflight helper 代替 GPU Work Runtime 完成证据。固定场景测量完整成本后决定频率默认策略，双机结论仅在两台实际验证后声明。
 
 ### Phase 5 — Virtual Resource Control Plane + Media
 

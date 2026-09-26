@@ -4,6 +4,13 @@ primaryOwner: visibility
 owner: OEngine/src/render/passes, OEngine/src/render/pipeline, OEngine/src/shaders, OEngine/src/gpu
 intent: Close GPU work generation, visibility, shading-bin classification, and indirect consumers without CPU visible-list traversal.
 paths:
+  - OEngine/src/render/features/VisibilityFeature.ts
+  - OEngine/src/render/HierarchyOcclusionReference.ts
+  - OEngine/src/render/HzbHistory.ts
+  - OEngine/src/render/HzbReference.ts
+  - OEngine/src/render/LargeTriangleSetupCache.ts
+  - OEngine/src/render/TriangleFilterReference.ts
+  - OEngine/src/render/VisibilityBufferContract.ts
   - OEngine/src/render/passes/**
   - OEngine/src/render/visibility/**
   - OEngine/src/render/HierarchicalWorkGenerator.ts

@@ -9,7 +9,7 @@ claims:
     evidencePolicy:
       allOf: [webgpu-component]
       anyOf: []
-      diagnosticCases: [shading-bin-component]
+      diagnosticCases: []
       checkOnly: false
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete]
     watch: [OEngine/src/gpu/GraphicsContext.ts, OEngine/src/gpu/GpuSparseShadingCapability.ts, validation/cases/webgpu-component/**]

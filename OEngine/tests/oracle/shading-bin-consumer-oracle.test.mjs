@@ -13,8 +13,8 @@ import {
   reconstructAttributeReference
 } from "../../.test-dist/gpu/GpuShadingProgramOracle.js";
 import {
-  GPU_SHADING_OUTPUT_DEPENDENCY
-} from "../../.test-dist/gpu/GpuSparseShadingPipelineContract.js";
+  GPU_SURFACE_KERNEL_DEMAND
+} from "../../.test-dist/gpu/GpuSurfaceProgramSpecialization.js";
 
 const BASE_MATERIAL = Object.freeze({
   baseColorFactor: [0.8, 0.5, 0.25],
@@ -63,15 +63,15 @@ test("all sixteen slots expose a compile-time specialization and exact output ma
       assert.equal(specialization.outputDependencyMask, outputMask);
       assert.equal(
         specialization.publishesShadingSurface,
-        (outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite) !== 0
+        (outputMask & GPU_SURFACE_KERNEL_DEMAND.ShadingSurface) !== 0
       );
       assert.equal(
         specialization.publishesDiffuseSurface,
-        (outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite) !== 0
+        (outputMask & GPU_SURFACE_KERNEL_DEMAND.DiffuseSurface) !== 0
       );
       assert.equal(
         specialization.publishesVelocity,
-        (outputMask & GPU_SHADING_OUTPUT_DEPENDENCY.Velocity) !== 0
+        (outputMask & GPU_SURFACE_KERNEL_DEMAND.Motion) !== 0
       );
       assert.equal(specialization.lit, programId >= GPU_SHADING_PROGRAM.PbrFactor);
     }
@@ -79,7 +79,7 @@ test("all sixteen slots expose a compile-time specialization and exact output ma
   assert.equal(gpuShadingProgramSpecialization(GPU_SHADING_PROGRAM.UnlitFactor, 0).reconstructTriangle, false);
   assert.equal(gpuShadingProgramSpecialization(
     GPU_SHADING_PROGRAM.UnlitFactor,
-    GPU_SHADING_OUTPUT_DEPENDENCY.Velocity
+    GPU_SURFACE_KERNEL_DEMAND.Motion
   ).reconstructTriangle, true);
 });
 
@@ -192,9 +192,9 @@ test("PBR reference retains Filament-style Fresnel/GGX, shadow visibility and Pr
 });
 
 test("texture gradient fallback and output products are explicit and consumer-driven", () => {
-  const mask = GPU_SHADING_OUTPUT_DEPENDENCY.ShadingSurfaceLite |
-    GPU_SHADING_OUTPUT_DEPENDENCY.DiffuseSurfaceLite |
-    GPU_SHADING_OUTPUT_DEPENDENCY.Velocity;
+  const mask = GPU_SURFACE_KERNEL_DEMAND.ShadingSurface |
+    GPU_SURFACE_KERNEL_DEMAND.DiffuseSurface |
+    GPU_SURFACE_KERNEL_DEMAND.Motion;
   const textured = evaluateGpuShadingProgramReference(input(GPU_SHADING_PROGRAM.PbrGeneric, {
     outputDependencyMask: mask,
     gradientValid: false
