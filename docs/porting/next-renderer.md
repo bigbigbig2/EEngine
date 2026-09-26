@@ -151,7 +151,8 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 - **Source**：[packages/atmosphere/src/webgpu](https://github.com/takram-design-engineering/three-geospatial/tree/b012ad06d858fc035d88aacfd73f092f93c994e4/packages/atmosphere/src/webgpu)：`AtmosphereLUTTexturesWebGPU.ts`、`AtmosphereLightNode.ts`、`multiscattering.ts`、`runtime.ts`、`AerialPerspectiveNode.ts`、`precompute.ts`、`common.ts`；`packages/atmosphere/WEBGPU.md`。
 - **检查深度**：本轮读 WebGPU 说明、multiscattering 实现与 package LICENSE，核对关联入口。说明明确为 Bruneton 4D LUT 配合 Hillaire 高阶多重散射 LUT，以及避免精度问题的散射积分路径；实施时仍需完成各入口逐项映射。
 - **License**：package LICENSE 包含 MIT 主体、Bruneton BSD 条件和 Hillaire notices。不能只写“整个算法 MIT”；复制所选代码时保留派生来源及相应条款。
-- **Local owner / Adoption**：Environment & Media（当前路由 shading）；not adopted，优先来源。
+- **Local owner / Adoption**：Environment & Media（路由 shading）；LUT source port in progress。`tools/atmosphere-port/` 保存固定原始源码、逐文件 SHA-256、锁定的离线 TSL 编译依赖；四个 LUT 阶段生成到 `OEngine/src/shaders/atmosphere/lut.ts`，资源实现为 `AtmosphereLutResources.ts`。Three 不进入运行时。Sun/Sky/aerial 消费者、共享物理环境状态和 Renderer 接线尚未完成，不能声明 Physical Environment 已迁移。
+- **Non-Geospatial 强制范围**：以固定版本 `storybook-webgpu/src/atmosphere/NonGeospatial-Story.tsx` 为局部场景光照接入依据，原文件已归档到 `tools/atmosphere-port/upstream/`。不得在 EEngine 或迁移工具直接依赖 `@takram/*` npm 包；只移植核对后的源码和资源，Three 仅作离线 TSL 编译器。该示例实际接入 AtmosphereLight，并未接入 SkyNode/aerial；Phase 3 的 Sky/aerial 仍需独立闭环。逐入口映射与重现命令见 `tools/atmosphere-port/README.md`。
 - **Retained invariants**：预计算/运行时参数一致，太阳透射、直射/间接散射和 aerial transport 在同一单位与空间下组合；所选 shadow-aware transport 不能省成单纯距离雾。光照与天空消费同一个环境状态。
 - **WebGPU differences**：TSL → WGSL 或本地生成器；不引入 Three/R3F runtime。去地理接口不等于删除行星尺度、观察高度和大气几何模型；由 EEngine 约定世界长度与局部原点映射。
 - **Fallback / lifecycle**：LUT 参数变更版本化重算/替换；未完成更新可保留上个有效环境，不能将部分新旧 LUT 混用。feature-off 清理无消费者计算，物理环境可提供稳定 Sky/IBL fallback。

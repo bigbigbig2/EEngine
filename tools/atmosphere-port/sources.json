@@ -1,0 +1,386 @@
+{
+  "repository": "https://github.com/takram-design-engineering/three-geospatial",
+  "revision": "b012ad06d858fc035d88aacfd73f092f93c994e4",
+  "files": [
+    {
+      "path": "upstream/atmosphere/LICENSE",
+      "sha256": "8b599265b84ce96cb442c20e3bf18f07f1b0aec1811bc596ffa93cae81a5cda7"
+    },
+    {
+      "path": "upstream/atmosphere/package.json",
+      "sha256": "b80d0bea9ab5f1c6cd9b8b53054b4ed0069754d906dacbc3735a8553f80032a2"
+    },
+    {
+      "path": "upstream/atmosphere/src/AerialPerspectiveEffect.ts",
+      "sha256": "392f6e4c65c1616f47a45d41b2c5579d6712cde058dd40ba7fbdac015d8dbbdb"
+    },
+    {
+      "path": "upstream/atmosphere/src/AtmosphereMaterialBase.ts",
+      "sha256": "afadaaea4d13933e602151247b03c534137ea1b6d440a07f8f16f261fa7b9966"
+    },
+    {
+      "path": "upstream/atmosphere/src/AtmosphereParameters.ts",
+      "sha256": "5efd03169f8592c53fc56c93cf6bd8136995adb1aae01ae123fd37e1f5e12595"
+    },
+    {
+      "path": "upstream/atmosphere/src/celestialDirections.ts",
+      "sha256": "9aa4ba73573e32f10f8db3dfb7c021724ca567a144c6788fe4ee1564ea14aef4"
+    },
+    {
+      "path": "upstream/atmosphere/src/constants.ts",
+      "sha256": "c49a0b01969c79715e3f3a80f81755123c1a47ae28442d39c0907d46d99eb0a9"
+    },
+    {
+      "path": "upstream/atmosphere/src/getAltitudeCorrectionOffset.ts",
+      "sha256": "873ff1832a08b1da0b1d52698b6a95e1ded4c021569c09b9dc6f7a9cd217efb7"
+    },
+    {
+      "path": "upstream/atmosphere/src/getSunLightColor.ts",
+      "sha256": "66a988c53d4e5707cd091748a3c9ba5558bed0ffa888b7d9bfc0178560ba4875"
+    },
+    {
+      "path": "upstream/atmosphere/src/helpers/colorMatchingFunctions.ts",
+      "sha256": "e9a21623503f68c6faf25ae600b1598247960dd241ad7a7780dfbec170176a3c"
+    },
+    {
+      "path": "upstream/atmosphere/src/helpers/functions.ts",
+      "sha256": "14a8cf4a3139b8df88f1240b73cebf930847984d85d3358a3260904c320dfed0"
+    },
+    {
+      "path": "upstream/atmosphere/src/helpers/requestIdleCallback.ts",
+      "sha256": "8b77b1ef71c02b666cfdf27538c0fb5872270f0e83a64974fc5bfb96525b629d"
+    },
+    {
+      "path": "upstream/atmosphere/src/helpers/sampleTexture.test.ts",
+      "sha256": "87159c8b288391f331adb6d5ee14aad09025adf21c07f9a1d0cee807193fceff"
+    },
+    {
+      "path": "upstream/atmosphere/src/helpers/sampleTexture.ts",
+      "sha256": "1029d680514492dc3ddc6ab339b653ae2e87fee5ab61db26ac0c691d59ada587"
+    },
+    {
+      "path": "upstream/atmosphere/src/index.ts",
+      "sha256": "c59d85482bbf75466c3d1da7531a64529669402de4172279c65c440d8ffe6c04"
+    },
+    {
+      "path": "upstream/atmosphere/src/LightingMaskPass.ts",
+      "sha256": "ef87aade416d1874528e4efb549662bb93264cf11a35e0922066ee561f571ff7"
+    },
+    {
+      "path": "upstream/atmosphere/src/PrecomputedTexturesGenerator.ts",
+      "sha256": "f3352015844ab8bf8d387c4d7a693e1e8f85bf59b4598f1c7094d068f35995ef"
+    },
+    {
+      "path": "upstream/atmosphere/src/PrecomputedTexturesLoader.ts",
+      "sha256": "9c217c0ca79365699106614f891708f0fac94412ae41ff8104a0c2c899e1b840"
+    },
+    {
+      "path": "upstream/atmosphere/src/r3f/AerialPerspective.tsx",
+      "sha256": "a4a7b19d840fcceb0444ab552a53065fd584b8343567fdd7dcf10cac94cc4a76"
+    },
+    {
+      "path": "upstream/atmosphere/src/r3f/Atmosphere.tsx",
+      "sha256": "5e2feac95df452e99d2b30c4c4f26b0100c21379dc6842e1959d3aae360c590e"
+    },
+    {
+      "path": "upstream/atmosphere/src/r3f/index.ts",
+      "sha256": "e09454ae9bf892957ec2a3df624808130cce6db840bdc0fe62c7e45a2d959dab"
+    },
+    {
+      "path": "upstream/atmosphere/src/r3f/LightingMask.tsx",
+      "sha256": "4cdb12cb4353607bbdebf8bfe7e7f4cd388ec817c0ecaa123a9871150d44f791"
+    },
+    {
+      "path": "upstream/atmosphere/src/r3f/separateProps.ts",
+      "sha256": "561ad024cf94aa9e2ffb6f862c8491f333649d20ca3ff0f3ab94f00d2205b237"
+    },
+    {
+      "path": "upstream/atmosphere/src/r3f/Sky.tsx",
+      "sha256": "9c4688e1b5e37a72490432d4c9d55b8d348f807006bdcf12e1b3989f6f6749b6"
+    },
+    {
+      "path": "upstream/atmosphere/src/r3f/SkyLight.tsx",
+      "sha256": "ef2d38e2df7eba4b368e807650e8b5a195c8958568244bf7853e5e6a7946030b"
+    },
+    {
+      "path": "upstream/atmosphere/src/r3f/Stars.tsx",
+      "sha256": "5be30d936aa16ea389ca823215ec1be09b879b37f0786f1449dd739446a3d6cf"
+    },
+    {
+      "path": "upstream/atmosphere/src/r3f/SunLight.tsx",
+      "sha256": "c2b92a2d1160f12b1c1d6f564ab858a8b1248cb4d5bbc54c56a5b8782196c11e"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/aerialPerspectiveEffect.frag",
+      "sha256": "ef5214d451ae28d02e35cc8dad3d0bc23c4fc8210520f406c737c12a98262607"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/aerialPerspectiveEffect.vert",
+      "sha256": "c8b5f8b043e53adc3a8d47dfd3620bd7236e386881c8361084f10abdc6e622a0"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/bruneton/common.glsl",
+      "sha256": "de7a1f2b12aa9e135a61c36d0d5b4a324071b0b7250fc449f883a8aa1038f610"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/bruneton/definitions.glsl",
+      "sha256": "090590d2c0426aba452943d9ab5f77b5d788deb9a1c5d93867cd660b675f5a00"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/bruneton/index.ts",
+      "sha256": "1802032ce3ec23f4ae72c506a079f8a2fa88d1c1c9ce5e904874cc51562a0401"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/bruneton/precompute.glsl",
+      "sha256": "12d5659839d8fbebeb0ba8054ca63b38fcd91fe069f45be0d8240413086b20c9"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/bruneton/runtime.glsl",
+      "sha256": "31eca3400c9d06be0d4f9f5c7cfa4e1f2d63296f28114e9f5957920ce652769f"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/index.ts",
+      "sha256": "7992a39d6cde5e050eb78461a8bf9ad986175a94826e835c110b3967290bd249"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/lightingMask.frag",
+      "sha256": "d2079d4cff7e81243c2e1b5b9aef1ad07872c820dfb5a41476264e6350208b82"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/precompute/directIrradiance.frag",
+      "sha256": "ca1e6d67ec9e48974f0474f2cc334432c733a6293e6bc9329b248260e7c7bd93"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/precompute/indirectIrradiance.frag",
+      "sha256": "2f0343a0d96be72c42b021b8d50ea104c013bc422fc2560db0f5b52a7d86b4fe"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/precompute/multipleScattering.frag",
+      "sha256": "80773e7e35cc7027d8e4617abac1389736f89f17c0901b7942b08f49eb28d9dd"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/precompute/scatteringDensity.frag",
+      "sha256": "61a0dd0844f4ec176d879d4cfec81861c8fb9aa521ceb688cef1da1c2066bf42"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/precompute/singleScattering.frag",
+      "sha256": "bcb23ebfd4cecf733a44aee329c9c9489a12ffb8d7da1218eb005b6f9bc9a894"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/precompute/transmittance.frag",
+      "sha256": "9205ef21ac34b8bf8a556f0b6feba81e6cd9cd2134aa2f9675d672b3152c7f41"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/sky.frag",
+      "sha256": "1f6e74910657f682a2b8187fecb70e5645f4a6c2c970b549d40870e86b5fd3da"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/sky.glsl",
+      "sha256": "79d7ec26f47e8c6a320b4284c2ea79b49345c1342d1807e879388d419a80ffc5"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/sky.vert",
+      "sha256": "c8399649e924c7029e81a1e1b117f541d7d65fb7d9b46139f2ac4086aabb9b5e"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/stars.frag",
+      "sha256": "92d40c3e032cca05a4440eafb25cf8473b54cbba77ebfbd14cb2a38707999aff"
+    },
+    {
+      "path": "upstream/atmosphere/src/shaders/stars.vert",
+      "sha256": "4f2c5bec57e0a6c6672b28145ded8450be632a15feac244ec154e9a91a475ff4"
+    },
+    {
+      "path": "upstream/atmosphere/src/SkyLightProbe.ts",
+      "sha256": "9f164caca9fcc2edef78873c5c022fcb4ca5cb5b45cc64ec49d8d046a7356fdc"
+    },
+    {
+      "path": "upstream/atmosphere/src/SkyMaterial.ts",
+      "sha256": "5ab4a38bc63fcdb29dfa3c133c153f2c103581f40a99b59275e5be5aabdba4ad"
+    },
+    {
+      "path": "upstream/atmosphere/src/StarsGeometry.ts",
+      "sha256": "60747398549e3a6d3ff3789163502b219472fa2e69a5e0305112fe9987ba09eb"
+    },
+    {
+      "path": "upstream/atmosphere/src/StarsMaterial.ts",
+      "sha256": "1d1df0413ffd5c75503743f58a1400b1a871b8c64d4cb28ff9fb128dc1a3ce5c"
+    },
+    {
+      "path": "upstream/atmosphere/src/SunDirectionalLight.ts",
+      "sha256": "9034267b8e0d4827a2a330ff2fc1891ab0b28e79d60fd7813904bc567e2fcb72"
+    },
+    {
+      "path": "upstream/atmosphere/src/types.ts",
+      "sha256": "53f2c47c6dd177dc6c52a1082f228e0ff0f4b408f343e775d339b6a38ab6a887"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/accessors.ts",
+      "sha256": "565295396367e93b80c0ed69ec07d175db9e313de288975658fb68a4444eea55"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AerialPerspectiveNode.ts",
+      "sha256": "b170d886dba5836c67aff0d546a11b4364ba645cfedb0f7115ab7349cefdb18a"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AtmosphereContext.ts",
+      "sha256": "052bfa42cec375c73219afd7c0c1a98494bcd593ce4438010e4f52db579b4a27"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AtmosphereContextBase.ts",
+      "sha256": "e4418de798046fad75ef5304bf0b3e0254002281c4e0c916c98b4eb5a39bfe85"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AtmosphereLight.ts",
+      "sha256": "2a687dbefdb101d07aa85ec63e404d0641b9af8f86678134d0c86e98199c0622"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AtmosphereLightNode.ts",
+      "sha256": "6bd1429e0147bed17d826132bd8d94b55f75b15eb06389942eba9cc9e1eebc51"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AtmosphereLUTNode.ts",
+      "sha256": "d1f175b9bcc766214dbd6bde8637f590de734242495d6c3666d666f181373e18"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AtmosphereLUTTextures.ts",
+      "sha256": "83a0d173552b0a4a17bef6442f315f715a077eb06dce8a3feee2014706d642d7"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AtmosphereLUTTexturesWebGL.ts",
+      "sha256": "c94a1f3569b67e97fd8bc39ab84a5e70e492c466876aa59712c14edb5ba3d6c7"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AtmosphereLUTTexturesWebGPU.ts",
+      "sha256": "b9abdb9086bcee4816c0932d28dba821976c3e07257413705bf7889d25a26b24"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/AtmosphereParameters.ts",
+      "sha256": "3449d096d1aa7facc8eac6f0db12c56051a8af937f0738ccd6c514910bd3f5d8"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/common.ts",
+      "sha256": "ffbcb4a3e59f944c2e0219485980e5cea45fbc86a89a133b13aadfb03818e3fb"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/dimensional.ts",
+      "sha256": "d1d38764f526160956b7c3ec0071f22f354ac341d70492ab570d405aa7901a4c"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/index.ts",
+      "sha256": "95c3cde43ab2a5fe7e11666946b13baaf93f92b3f1b959f2d0c0c156797747ba"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/MoonNode.ts",
+      "sha256": "a8b463f7e0a91b06e125456a19af6031b001685a11001f376a8d7f3288fd0eef"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/multiscattering.ts",
+      "sha256": "5a41f7a3b4cb8dbdf5278b1dfb68802662e81c33d3fdb58ae4fcc24103525070"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/precompute.ts",
+      "sha256": "6a9723fae8c85e19d98f8ed2af9b59e149a53c83a700bb21d3175aad96fc4289"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/runtime.ts",
+      "sha256": "ca12263b38cb06102a48ec0687d1e165262026d84d7c69f22f60c14785e31d3a"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/ShadowLengthNode/common.ts",
+      "sha256": "13be15b1073a02a46054f44f66508752013ea2eb7a2ace6d6c97f908b5376e3e"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/ShadowLengthNode/CoordinateNode.ts",
+      "sha256": "1afb7f2d7f5f6efedd516df8a1e91a293c703de9e3f034b55ccaa7474df94c33"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/ShadowLengthNode/EpipolarShadowLengthNode.ts",
+      "sha256": "9f8c95ceb480fe22a2fcebc152472b5a870d71c77128c5aa47db5a59a66db454"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/ShadowLengthNode/MinMaxLevelsNode.ts",
+      "sha256": "806d15e116efa097204e13e5ce02966abfa1c1751af44e97c8731a101e4f5dab"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/ShadowLengthNode/SliceEndpointsNode.ts",
+      "sha256": "8a4196b166531f0e3d256f3fc45f01d637c8b5ae2581be7cdfd3b476989fd463"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/ShadowLengthNode/SliceUVDirectionNode.ts",
+      "sha256": "8916e6a25c1ccc352a9dba47c2a112e8bb9b06b14b78988c4d33e13d6b4c44cc"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/ShadowLengthNode/UnwarpEpipolarNode.ts",
+      "sha256": "19f34b207d54dc99d4bbba2be39fdd41892b55e0f307545b1f02513bc2f3ab77"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/ShadowLengthNode.ts",
+      "sha256": "5a52ddd5860da3134eb36a88b1c0091c010c4cfcc3baa74f915431afcceec6f4"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/ShadowLengthSampleLocations.ts",
+      "sha256": "77d8c6810f9035db7f682c3385c62a7e2bec9da3f7a55c2b44d5774edb130585"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/SkyEnvironmentNode.ts",
+      "sha256": "62e72b0a2a1d51c1428920e4e2e5700ce1cd8929618092e508bcf0b2e0408bc1"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/SkyNode.ts",
+      "sha256": "882202f8f8ad06faad6529ec8ab6ead2ab6227b39f1f32d2d8cde46465eaa975"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/Stars.ts",
+      "sha256": "776a3f3b53d9da2bd8d28d2fe5961605ca6fc266f4ef2a77f73594d00d651918"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/StarsNode.ts",
+      "sha256": "1519c1c26de527a083ad5dfb666f215e25592d437af366ca2b414ed6c18afbcf"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/StarsNodeMaterial.ts",
+      "sha256": "2ab21228cc92f8f44473571303c058233d8845b3c50240ee19dae630fedf910d"
+    },
+    {
+      "path": "upstream/atmosphere/src/webgpu/SunNode.ts",
+      "sha256": "62e6ee384b865c73260ea1a10b4fd36843057a5705427bb4f8eb8fc5028de38d"
+    },
+    {
+      "path": "upstream/atmosphere/WEBGPU.md",
+      "sha256": "a89eb3022c59f4dd7c777a6ab60f8e2e6afcbb1f19566b2883970ee01cc7c187"
+    },
+    {
+      "path": "upstream/packages/core/LICENSE",
+      "sha256": "ca688f79cd37f3d6fc3f1ebbb19eeffb2344a20aecc4db03d34bb65a9181b883"
+    },
+    {
+      "path": "upstream/packages/core/src/types.ts",
+      "sha256": "5c5bdcd4e973a3e1e207e1caa6bfa179eddf5b05e8592660c06d4aa07ddd2f1f"
+    },
+    {
+      "path": "upstream/packages/core/src/webgpu/FnLayout.ts",
+      "sha256": "bb002e65c00bd8013b1cc3a7cceca1b4bde9c1eeac01c5490116e56fd0f15b10"
+    },
+    {
+      "path": "upstream/packages/core/src/webgpu/FnVar.ts",
+      "sha256": "02eeacb3c6e2c7ca588f15d8d7bb12bfd6365aa791e307b1e9ea8a63e3211039"
+    },
+    {
+      "path": "upstream/packages/core/src/webgpu/node.ts",
+      "sha256": "3e4cdb1414fb4285347d3755c485c0189e925045ecb93e311b8a35982f2bfaf7"
+    },
+    {
+      "path": "upstream/packages/core/src/webgpu/STBNTextureNode.ts",
+      "sha256": "c7ca0614158ccd5a19e2bfbd753a8e0aaa50bccbd700d3a4654fc850c1ec2f9f"
+    },
+    {
+      "path": "upstream/storybook-webgpu/src/atmosphere/NonGeospatial-Story.tsx",
+      "sha256": "a0dae7e49eda6f5ca14060caf88a4a34e2e7b8aa24fc81ef0f7ac07d56af8fee"
+    },
+    {
+      "path": "upstream/storybook-webgpu/src/atmosphere/NonGeospatial.stories.tsx",
+      "sha256": "2cea830346072c62325dcd0c746bf6fb4173d727aeb9849fba91d2b5c502cf88"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "eengine-atmosphere-port",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "generate": "node generate.mjs",
+    "check": "node generate.mjs --check"
+  },
+  "dependencies": {
+    "three": "0.183.2",
+    "tiny-invariant": "1.3.3",
+    "esbuild": "0.25.12",
+    "naga-wasi-cli": "0.1.0"
+  }
+}

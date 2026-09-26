@@ -10,7 +10,7 @@ goal: Replace the production Renderer in place, then restore complete algorithm 
 currentSlice:
   id: environment-temporal
   title: Establish physical environment and temporal reconstruction on the single new chain
-  status: todo
+  status: active
 nextTasks:
   - Start Phase 3 by mapping the pinned Takram environment source profile to production owners, shared physical units, Sun/Sky outputs and the temporary legal unshadowed aerial interface; retain complete selected scattering stages.
   - Establish motion, depth, exposure, jitter, stable identity and history begin/commit/abort with real Product consumers, then port the selected complete FSR3 Upscaler profile without frame generation or mixed FSR2 stages.
@@ -53,7 +53,7 @@ tasks:
       - Old exactly-once claim and old SurfaceFeature/SparseShadingResolvePass ownership are removed after extraction.
       - Remove shading's broad OEngine/src/render/** routing fallback once the old root-level owners have been deleted or assigned precise paths.
   - id: environment-temporal
-    state: todo
+    state: active
     title: Port physical environment and full selected FSR3 Upscaler profile on the new temporal boundary
     dependsOn: [rebuild-surface-material]
     exitCriteria:

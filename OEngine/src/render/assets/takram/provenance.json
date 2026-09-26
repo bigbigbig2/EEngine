@@ -1,0 +1,46 @@
+{
+  "repository": "https://github.com/takram-design-engineering/three-geospatial",
+  "revision": "b012ad06d858fc035d88aacfd73f092f93c994e4",
+  "files": [
+    {
+      "path": "stbn.bin",
+      "source": "packages/core/assets/stbn.bin",
+      "url": "https://media.githubusercontent.com/media/takram-design-engineering/three-geospatial/b012ad06d858fc035d88aacfd73f092f93c994e4/packages/core/assets/stbn.bin",
+      "sha256": "51f52f21e5578384585050390821a0a486dcb81e11a716fa7b92fbb6515ba852",
+      "bytes": 1048576,
+      "role": "runtime-noise"
+    },
+    {
+      "path": "transmittance.bin",
+      "source": "packages/atmosphere/assets/transmittance.bin",
+      "url": "https://media.githubusercontent.com/media/takram-design-engineering/three-geospatial/b012ad06d858fc035d88aacfd73f092f93c994e4/packages/atmosphere/assets/transmittance.bin",
+      "sha256": "a2a0dd1464048d92e7bfdf385a9108e8d9c3e2748684f1f64523587d5894180a",
+      "bytes": 131072,
+      "role": "upstream-precomputed-reference-pending-profile-match"
+    },
+    {
+      "path": "irradiance.bin",
+      "source": "packages/atmosphere/assets/irradiance.bin",
+      "url": "https://media.githubusercontent.com/media/takram-design-engineering/three-geospatial/b012ad06d858fc035d88aacfd73f092f93c994e4/packages/atmosphere/assets/irradiance.bin",
+      "sha256": "126bd4ff0419e04c877639caf9e3cd64a139ae511cf315a23a0c989fc47b51a5",
+      "bytes": 8192,
+      "role": "upstream-precomputed-reference-pending-profile-match"
+    },
+    {
+      "path": "scattering.bin",
+      "source": "packages/atmosphere/assets/scattering.bin",
+      "url": "https://media.githubusercontent.com/media/takram-design-engineering/three-geospatial/b012ad06d858fc035d88aacfd73f092f93c994e4/packages/atmosphere/assets/scattering.bin",
+      "sha256": "82c505fe6e3b7f1995c650cc8a1478f42bd510029bf63845e9485c078aef6617",
+      "bytes": 8388608,
+      "role": "upstream-precomputed-reference-pending-profile-match"
+    },
+    {
+      "path": "higher_order_scattering.bin",
+      "source": "packages/atmosphere/assets/higher_order_scattering.bin",
+      "url": "https://media.githubusercontent.com/media/takram-design-engineering/three-geospatial/b012ad06d858fc035d88aacfd73f092f93c994e4/packages/atmosphere/assets/higher_order_scattering.bin",
+      "sha256": "857847f34fc9c856866506015a3d3fc4bd60c18eaf961bde8d6e567df503d6bc",
+      "bytes": 8388608,
+      "role": "upstream-precomputed-reference-pending-profile-match"
+    }
+  ]
+}

@@ -8,6 +8,8 @@ paths:
   - OEngine/src/render/DirectLightingReference.ts
   - OEngine/src/render/IblAlignment.ts
   - OEngine/src/render/surface/**
+  - OEngine/src/render/environment/**
+  - OEngine/src/render/assets/takram/**
   - OEngine/src/shaders/**
   - validation/cases/shading-*/**
   - docs/domains/shading.md
@@ -35,6 +37,8 @@ checks:
   - evidence-provenance
 watch:
   - OEngine/src/render/surface/**
+  - OEngine/src/render/environment/**
+  - OEngine/src/render/assets/takram/**
   - OEngine/src/render/ClusteredLightingReference.ts
   - OEngine/src/render/DirectLightingReference.ts
   - OEngine/src/render/IblAlignment.ts
