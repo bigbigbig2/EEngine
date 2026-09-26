@@ -19,6 +19,7 @@ import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { shadingProgramUsesTextures } from "../../gpu/GpuShadingProgramAbi.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
+import { TemporalFabric } from "../TemporalFabric.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
 import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
@@ -268,6 +269,7 @@ export class Renderer {
   private _surfaceMaterial!: SurfaceMaterialPass;
   private _lightCluster: LightClusterPass | null = null;
   private _present!: SurfacePresentPass;
+  private readonly _temporal = new TemporalFabric();
   private readonly _renderTargets = new RenderTargets();
   private readonly _profiler = new FrameProfiler();
   private readonly _virtualProductScenes = new Map<Scene, {
@@ -1155,6 +1157,16 @@ export class Renderer {
     this._profiler.beginFrame(frameIndex);
     const frame = this._frameCoordinator.beginFrame(frameIndex, "Renderer/visibility-frame");
     const command = frame.command;
+    this._temporal.begin({
+      frameIndex, output: [this._output_resolution.x, this._output_resolution.y],
+      internal: [this._render_resolution.x, this._render_resolution.y],
+      cameraRevision: 1, sceneRevision: 1, representationRevision: 1,
+      lightRevision: "environment:1", view: "main", renderScale: this.resolutionScale,
+      featureRevision: Number(this.packed_visibility_hzb_enabled), formatRevision: 1,
+      deviceRevision: this.deviceEpoch,
+      preExposure: { generation: 0, multiplier: 1, colorSpace: "working-linear" },
+      temporalEnabled: true, nssEnabled: false, taaJitter: [0, 0], nssJitter: [0, 0]
+    });
     try {
       this._graphics.encodeFrameMaintenance(command);
       this._renderTargets.setFrameIndex(frameIndex);
@@ -1252,8 +1264,10 @@ export class Renderer {
         resources: summarizeFrameGraphResources(compiled)
       });
       command.encodeCompiledGraph(compiled, graphBindings);
+      this._temporal.markProduced("color");
       view.finish_frame(command, frameIndex);
       this._frameCoordinator.submitFrame(frame);
+      this._temporal.commit(frameIndex);
       if (streaming) {
         void streaming.consumeAfterCompletion(frameIndex, command.gpuDone, Date.now()).catch(() => undefined);
       }
@@ -1299,6 +1313,7 @@ export class Renderer {
       return true;
     } catch (error) {
       if (!command.closed) this._frameCoordinator.abortFrame(frame, error);
+      this._temporal.abort(frameIndex);
       this._frame_count++;
       this.onFrameFinished.send1(this._frame_count);
       throw error;
