@@ -151,9 +151,8 @@ struct PipelineCacheKey {
 };
 
 @group(0) @binding(0) var<uniform> camera: CommandEncoder;
-@group(0) @binding(1) var<uniform> view: PipelineCacheKey;
-@group(0) @binding(2) var sec_radix_passes: texture_2d<f32>;
-@group(0) @binding(3) var segment_height: sampler;
+@group(0) @binding(1) var sec_radix_passes: texture_2d<f32>;
+@group(0) @binding(2) var segment_height: sampler;
 
 ${OCTAHEDRAL_SAMPLE_WGSL}
 ${FULLSCREEN_TRIANGLE_WGSL}

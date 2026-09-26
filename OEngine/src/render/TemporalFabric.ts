@@ -1,6 +1,6 @@
 import { TemporalHistoryRegistry, type TemporalHistoryDescriptor, type TemporalHistoryRevision } from "./TemporalHistoryRegistry.js";
 import { TemporalJitterController, resolveFrameJitter } from "./TemporalJitterController.js";
-import type { PreExposureContract } from "./pipeline/FrameProducts.js";
+import type { PreExposureContract } from "./RadiometryContract.js";
 
 export interface TemporalFabricFrame {
   readonly frameIndex: number;
@@ -29,11 +29,11 @@ export class TemporalFabric {
   private activeFrame: number | null = null;
 
   constructor(descriptors: readonly TemporalHistoryDescriptor[] = [
-    { name: "color", semantic: "surface-radiance", resolutionDomain: "output-full", format: "rgba16float",
+    { name: "color", semantic: "surface-radiance", resolutionDomain: "internal-full", format: "rgba16float",
       bufferCount: 2, preExposure: "working-linear-rescale", lightingDependent: true },
-    { name: "depth", semantic: "surface-depth", resolutionDomain: "output-full", format: "r32float",
+    { name: "depth", semantic: "surface-depth", resolutionDomain: "internal-full", format: "r32float",
       bufferCount: 2, preExposure: "none", lightingDependent: false },
-    { name: "motion", semantic: "surface-motion", resolutionDomain: "output-full", format: "rg16float",
+    { name: "motion", semantic: "surface-motion", resolutionDomain: "internal-full", format: "rg16float",
       bufferCount: 2, preExposure: "none", lightingDependent: false }
   ]) { this.histories = new TemporalHistoryRegistry(descriptors); }
 

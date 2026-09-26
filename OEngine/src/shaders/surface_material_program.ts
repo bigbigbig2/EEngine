@@ -7,6 +7,7 @@ import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js
 import type { SurfacePhysicalBindingPlan, SurfacePhysicalBinding } from "../render/surface/SurfaceKernelBindingPlan.js";
 import type { SurfaceProgramClosure } from "../render/surface/SurfaceProducts.js";
 import { SHADING_WORK_THREADS, SHADING_WORK_WGSL } from "../render/surface/ShadingWorkAbi.js";
+import { ATMOSPHERE_RUNTIME_WGSL } from "./atmosphere/runtime.js";
 import {
   geometryWgsl, isFastUnlitFactor, lightingWgsl, materialEvaluationWgsl, textureWgsl
 } from "./surface_material_kernel.js";
@@ -60,12 +61,13 @@ fn sparse_texture_route_valid(material_slot: u32, slot: u32, texture_ref: u32) -
       }`
     : "";
   const evaluation = fastUnlit
-    ? "let radiance = material.payload.base_color_factor.xyz; let alpha = material.payload.base_color_factor.w;"
+    ? "let radiance = material.payload.base_color_factor.xyz; let alpha = material.payload.base_color_factor.w; let motion_value = vec2f(0.0);"
     : `let surface = sparse_evaluate_geometry(pixel, work,
         oengine_visibility_key_local_primitive(item.visibility_key), material_slot, material);
       if surface_identity_failed { textureStore(output_hdr, vec2i(pixel), SURFACE_ERROR_COLOR); return; }
       let radiance = ${specialization.lit ? "sparse_direct(surface, pixel)" : "surface.base_color"};
-      let alpha = surface.alpha;`;
+      let alpha = surface.alpha;
+      let motion_value = surface.velocity;`;
   return [
     SHADING_WORK_WGSL,
     GPU_VISIBILITY_KEY_WGSL,
@@ -85,6 +87,7 @@ fn sparse_texture_route_valid(material_slot: u32, slot: u32, texture_ref: u32) -
     specialization.reconstructTriangle ? geometryWgsl(closure.virtualGeometry) : "",
     usesTextures ? textureWgsl(kernel) : "",
     specialization.lit ? lightingWgsl(false, false) : "",
+    specialization.lit ? ATMOSPHERE_RUNTIME_WGSL : "",
     fastUnlit ? "" : materialEvaluationWgsl(kernel),
     /* wgsl */ `
 @compute @workgroup_size(${SHADING_WORK_THREADS})
@@ -120,6 +123,7 @@ fn shade(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) l
   ${geometryCheck}
   ${evaluation}
   textureStore(output_hdr, vec2i(pixel), vec4f(radiance * shading_view.pre_exposure, alpha));
+  textureStore(output_motion, vec2i(pixel), vec4f(motion_value, 0.0, 0.0));
 }`
   ].filter(Boolean).join("\n");
 }
@@ -133,6 +137,7 @@ function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): string {
     case "material-records": return `${prefix} var<storage, read> material_records: array<OEngineShadingMaterialRecord>;`;
     case "frame-view": return `${prefix} var<uniform> shading_view: OEngineSparseShadingView;`;
     case "radiance-output": return `${prefix} var output_hdr: texture_storage_2d<rgba16float, write>;`;
+    case "motion-output": return `${prefix} var output_motion: texture_storage_2d<rg16float, write>;`;
     case "visibility-depth": return `${prefix} var visibility_depth: texture_depth_2d;`;
     case "instance-records": return `${prefix} var<storage, read> instance_records: array<OEngineInstanceRecord>;`;
     case "geometry-metadata": return `${prefix} var<storage, read> asset_metadata_heap: array<u32>;`;
@@ -150,5 +155,9 @@ function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): string {
     case "direct-light-cluster-lookup": return `${prefix} var<storage, read> cluster_lookup: array<ClusterMetadata>;`;
     case "direct-light-cluster-data": return `${prefix} var<storage, read> cluster_data: ClusterData;`;
     case "direct-light-cluster-params": return `${prefix} var<uniform> cluster_parameters: vec3f;`;
+    case "physical-environment-sun": return `${prefix} var<uniform> physical_environment_sun: PhysicalEnvironmentSun;`;
+    case "physical-environment-transmittance": return `${prefix} var physical_environment_transmittance: texture_2d<f32>;`;
+    case "physical-sky-irradiance": return `${prefix} var physical_sky_irradiance: texture_2d<f32>;`;
+    case "physical-sky-irradiance-sampler": return `${prefix} var physical_sky_sampler: sampler;`;
   }
 }

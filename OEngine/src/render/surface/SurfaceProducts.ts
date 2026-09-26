@@ -105,12 +105,14 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
 /** Semantic resource closure for the selected kernel, before physical bind-group lowering. */
 export type SurfaceResourceRole =
   | "shading-work" | "shading-work-classes" | "meshlet-work" | "material-records"
-  | "frame-view" | "radiance-output"
+  | "frame-view" | "radiance-output" | "motion-output"
   | "instance-records" | "geometry-metadata" | "vertex-payload" | "visibility-depth"
   | "virtual-product-metadata" | "virtual-product-banks"
   | "texture-routes" | "texture-banks" | "texture-samplers"
   | "direct-light-records" | "direct-light-cluster-lookup"
-  | "direct-light-cluster-data" | "direct-light-cluster-params";
+  | "direct-light-cluster-data" | "direct-light-cluster-params"
+  | "physical-environment-sun" | "physical-environment-transmittance"
+  | "physical-sky-irradiance" | "physical-sky-irradiance-sampler";
 
 export interface SurfaceMaterialRequirements {
   readonly roles: readonly SurfaceResourceRole[];
@@ -132,7 +134,7 @@ export function surfaceMaterialRequirements(
   }
   const roles: SurfaceResourceRole[] = [
     "shading-work", "shading-work-classes", "meshlet-work", "material-records",
-    "frame-view", "radiance-output"
+    "frame-view", "radiance-output", "motion-output"
   ];
   if (s.reconstructTriangle) {
     roles.push("instance-records", "geometry-metadata", "vertex-payload", "visibility-depth");
@@ -152,7 +154,10 @@ export function surfaceMaterialRequirements(
   }
   if (s.lit && closure.lighting === "direct") {
     roles.push("direct-light-records", "direct-light-cluster-lookup",
-      "direct-light-cluster-data", "direct-light-cluster-params");
+      "direct-light-cluster-data", "direct-light-cluster-params",
+      "physical-environment-sun", "physical-sky-irradiance", "physical-sky-irradiance-sampler",
+      "physical-environment-transmittance",
+      "motion-output");
   }
   return Object.freeze({
     roles: Object.freeze(roles),

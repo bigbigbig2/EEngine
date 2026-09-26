@@ -8,17 +8,19 @@ decision: ADR-0020
 goal: Replace the production Renderer in place, then restore complete algorithm providers on one new visibility-driven pipeline.
 
 currentSlice:
-  id: environment-temporal
-  title: Establish physical environment and temporal reconstruction on the single new chain
+  id: fsr3-source-and-port
+  title: Phase 3C FSR3 source and faithful stage port
   status: active
 nextTasks:
-  - Start Phase 3 by mapping the pinned Takram environment source profile to production owners, shared physical units, Sun/Sky outputs and the temporary legal unshadowed aerial interface; retain complete selected scattering stages.
-  - Establish motion, depth, exposure, jitter, stable identity and history begin/commit/abort with real Product consumers, then port the selected complete FSR3 Upscaler profile without frame generation or mixed FSR2 stages.
-  - Before Phase 4, define minimal virtual identity, generation, budget and safe retirement contracts. Keep formal quality, dual-adapter net GPU cost and Phase 4 lit/normal frequency expansion as independent open gates.
+  - Port the pinned selected FSR3 Upscaler stages to WGSL with source-to-stage mapping and no FSR2 or Frame Generation mixing.
+  - Add the selected-stage backend to the current FrameGraph with complete resource lifetime and focused source/reference checks.
+  - Retain the minimal virtual resource contract as a public seam only; defer concrete VT, VSM cache and universal manager implementations.
 
 contracts:
   - surface-work-v1
   - render-product-work-history-v2
+  - phase3-products-v1
+  - phase4-minimal-virtual-resource-v1
   - claims-and-evidence
   - virtual-geometry-runtime-v1
 claims:
@@ -32,6 +34,10 @@ completedMilestones:
     result: The pre-cut baseline is tagged locally. Renderer inheritance, old composition/effect owners, obsolete checks and browser cases were removed together. The single GPU Scene to indirect VisibilityKey/depth to HZB to diagnostic present chain passed dirty-tree browser diagnostics for empty and single-Product scenes, resize, and device-loss recovery. MeshletWork capacity and fail-visible overflow have bounded CPU/contract oracles; actual GPU overflow pressure remains unmeasured. This is not formal Runtime Validated or performance evidence.
   - id: phase2-surface-owner-cut
     result: Extracted live Scene publication records and retained Surface mathematics/view/material ABI; deleted old Surface/Sparse owners, private classifier, publication store, descriptor and obsolete tests/case. Surface Work V1 freezes the finite profile and plan/lifetime boundary; root Render routes are explicit. Changed and phase integration checks cover the new structure, not formal runtime quality or dual-adapter performance. No old claim evidence transfers.
+  - id: phase3-environment-temporal-wiring
+    result: Historical note from the oversized Phase 3 slice; execution is now split into Phase 3A through 3D. Do not use this milestone as evidence that downstream Temporal or FSR3 work is complete.
+  - id: phase3c-source-fixed
+    result: The FidelityFX SDK 1.1.4 FSR3 Upscaler source subset is vendored under tools/fsr3-port at the ledger commit. Host dispatch, HLSL/GLSL entries, common/callback/resource declarations, compile recipe, license copies, stage mapping, resource identifiers, constant layout, and per-file SHA-256 digests pass focused source validation. WGSL stage execution remains open and no FSR3 completion claim is made.
 tasks:
   - id: cut-old-composition
     state: done
@@ -52,17 +58,40 @@ tasks:
       - Replacement Surface claim declarations describe implemented scope and inherit no retired evidence; formal runtime and performance promotion remain independent.
       - Old exactly-once claim and old SurfaceFeature/SparseShadingResolvePass ownership are removed after extraction.
       - Remove shading's broad OEngine/src/render/** routing fallback once the old root-level owners have been deleted or assigned precise paths.
-  - id: environment-temporal
-    state: active
-    title: Port physical environment and full selected FSR3 Upscaler profile on the new temporal boundary
+  - id: environment-production-closure
+    state: done
+    title: "Phase 3A: Physical Environment production closure (audit open)"
     dependsOn: [rebuild-surface-material]
     exitCriteria:
-      - Sun/Sky/atmosphere and final reconstruction have source-to-production maps and focused behavior checks.
-      - Real consumers close Product space, exposure, representation and temporal identity; minimal virtual identity, generation, budget and safe retirement contracts exist before Phase 4.
+      - Sun/Sky/atmosphere and aerial perspective have source-to-production maps and focused behavior checks.
+      - One immutable environment generation is consumed by Physical Sun, Sky background and Aerial Perspective.
+      - LUT record/commit/abort and feature-off lifecycle are owned by PhysicalEnvironmentRuntime; DirectVisibility=1 is the explicit pre-VSM semantic.
+  - id: temporal-production-closure
+    state: active
+    title: "Phase 3B: Temporal production closure (audit open)"
+    dependsOn: [environment-production-closure]
+    exitCriteria:
+      - Motion, depth, exposure, jitter, identity and history begin/commit/abort have real Product consumers.
+  - id: fsr3-source-and-port
+    state: active
+    title: "Phase 3C: FSR3 source fixed; port the complete selected stage chain"
+    dependsOn: [temporal-production-closure]
+    exitCriteria:
+      - The pinned FidelityFX SDK FSR3 Upscaler source subset, license, immutable digests, stage mapping, host dispatch mapping, resource table and constant layout are fixed under tools/fsr3-port.
+      - The selected stages are translated and executed as complete WGSL providers without frame generation or mixed FSR2 stages; source fixation alone does not satisfy this criterion.
+  - id: phase3-integration-close
+    state: active
+    title: "Phase 3D: integration close"
+    dependsOn: [fsr3-source-and-port]
+    exitCriteria:
+      - PhysicalSun, SkyRadiance, SkyIrradiance and AerialScattering have real production consumers using one immutable environment generation; no old world-sun/HDR owner or CSM fallback exists.
+      - Motion, TemporalDepth, PreExposure and TemporalReconstructedColor have real temporal producers/consumers, GPU history and rejection evidence for camera cut, resize, device loss and incompatible revisions.
+      - The pinned FSR3 profile has a faithful selected-stage WGSL backend and FrameGraph dispatch; source fixation alone does not satisfy this criterion.
+      - The minimal virtual identity/generation/budget/residency/retirement/telemetry contract is documented without implementing a universal manager, VT or VSM cache.
   - id: light-transport
     state: todo
     title: Port VSM, XeGTAO, SSSR, and dynamic Screen/Atlas DDGI/Sky GI as complete providers
-    dependsOn: [environment-temporal]
+    dependsOn: [environment-production-closure]
     exitCriteria:
       - Light-space caster generation, dynamic world sample production, fallback, and temporal consumers close on the GPU.
       - CSM and old effect services are absent from production.
@@ -83,6 +112,12 @@ requiredEvidence:
   - Source-to-production mapping and focused reference comparison for each selected complete algorithm profile.
   - Independent browser and formal GPU/performance evidence only when runtime or performance claims are made.
 openGates:
+  - Phase-level exit criteria do not block a vertical slice whose upstream source and local inputs are ready. Agents must continue the current slice when downstream slices or Phase 4 systems are absent.
+  - If workstream, AGENTS, current docs or contract wording conflicts with ADR-0020 or the accepted slice order, treat stale execution wording as editable in the same batch; stop only for an actual architecture-level conflict.
+  - Phase 3A environment closure is implemented in the current production graph; focused browser acceptance and source-to-runtime visual comparison remain required before promoting formal runtime claims.
+  - Phase 3B has a production PreExposure owner (`RadiometryRuntime`); focused exposure-discontinuity evidence remains an audit item. GPU history, motion, depth, jitter and analytic baseline are connected. Execution proceeds to the next slice without waiting on that downstream audit.
+  - Phase 3C remains open: tools/fsr3-port fixes source, mapping and digests only; no WGSL stage providers, production backend or FrameGraph dispatch are present.
+  - Phase 3D must not mark Phase 3 complete while any of the preceding gates remain open. Product declarations and the minimal virtual contract are not completion evidence.
   - Phase 2 is structurally complete under the finite Surface Work V1 scope. The new L1 structural declaration does not promote runtime or performance evidence; clean-revision formal acceptance remains separate.
   - Wider lit/normal coarse shading belongs to Phase 4 consumer integration; temporal reuse requires Phase 3. Fixed-condition classification/queue/shading/reconstruction and whole-frame comparisons on both adapters govern performance claims and default policy, not old-owner deletion.
   - Phase 1 has only a dirty-tree diagnostic browser run; clean-revision formal runtime and performance evidence must be captured on the new chain when such claims are made.
@@ -90,7 +125,7 @@ openGates:
   - GPU Work Runtime is not complete when only MeshletWork uses a preflight helper; ShadingWork and later Ray/Page consumers must demonstrate shared control semantics with specialized physical ABIs.
   - ShadingWork V1 indirectly executes the new Surface material consumer. Browser diagnostics compare textured/gradient PBR, nonzero direct light, mixed unlit/PBR classes, fail-visible material identity, mixed-sign-w near clipping, two non-coplanar VG triangles with vertex color/normal and high UV gradients, and one derived-tangent normal-map case against numeric references. Nonuniform-scale normal transformation was corrected. Authored tangent handedness, broader normal/lighting combinations and formal runtime/quality evidence remain open; diagnostics do not upgrade claims.
   - Pre-material spatial frequency V1 GPU-plans eligible static opaque unlit factor and publication-certified 1x1 unlit base-texture tiles: 2x2/4x4 representatives flow through ShadingWork indirect Surface consumers and Present reconstructs all covered samples. A mixed 1x1/2x2 unlit-texture and normal-mapped lit diagnostic produced coarse blocks only on the 1x1 half, closed the GPU queue without overflow, and matched the full-rate presented samples. Moving a GPU instance restored full work and matched full-rate output; a 639x359 viewport with covered screen edges matched full-rate output and had no out-of-bounds coarse block. Exploratory GPU timestamps cover the Surface plan, queue, shading and Present A/B, but vary across runs; fixed-condition whole-frame net benefit, cross-primitive/light boundaries and formal evidence remain open. This is an EEngine local design using R20's closure semantics, not an Intel CPS port.
-  - WebGPU VSM page raster bounds, Atlas dynamic software-BVH updates, adaptive shading benefit, a complete WebGPU VT profile, and FSR3 WGSL adaptation remain unproven.
+  - WebGPU VSM page raster bounds, Atlas dynamic software-BVH updates, adaptive shading benefit, a complete WebGPU VT profile, and clean-revision formal FSR3/environment browser acceptance remain unproven.
   - Screen GI has source candidates but no selected WebGPU port profile or finalized near/world/sky energy boundary; R20 coarse-pixel source is not adopted and VRS classification alone is not an adaptive compute shading implementation.
   - Record actual browser adapter/limits and budgets on both the GTX 1650 Ti and RTX 2060 machines when each is available.
 links:

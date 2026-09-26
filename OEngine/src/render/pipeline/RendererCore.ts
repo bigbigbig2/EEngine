@@ -16,6 +16,8 @@ import { ShadingWorkPass } from "../surface/ShadingWorkPass.js";
 import { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
+import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
+import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
 import { shadingProgramUsesTextures } from "../../gpu/GpuShadingProgramAbi.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
@@ -56,6 +58,10 @@ import { DEFAULT_GEOMETRY_WORK_BUDGET, type GeometryWorkBudget } from "../Geomet
 import { DEFAULT_RENDERER_CONFIG, mergeRendererConfig, validateRendererConfig, type RendererConfig } from "../RendererConfig.js";
 import { TEXTURE_RESIDENCY_MAX_SIZE } from "../../gpu/TextureResidency.js";
 import type { GraphicsMemoryEvidence, GraphicsOwnerCreationEvidence } from "../../gpu/GraphicsContext.js";
+import { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
+import { TemporalGpuHistory } from "../TemporalGpuHistory.js";
+import { AnalyticTemporalBaselinePass } from "../passes/AnalyticTemporalBaselinePass.js";
+import { RadiometryRuntime, type PreExposureContract } from "../RadiometryContract.js";
 
 export interface RendererInitializeOptions {
   context?: GPUCanvasContext;
@@ -139,6 +145,7 @@ interface VisibilityGraphBindings {
   readonly depth: GPUTextureContext;
   readonly swapchain: GPUTextureView;
   readonly runtime: GpuRenderWorldRuntime;
+  readonly preExposure: PreExposureContract;
 }
 
 interface EmptyGraphBindings {
@@ -268,8 +275,14 @@ export class Renderer {
   private _shadingWork!: ShadingWorkPass;
   private _surfaceMaterial!: SurfaceMaterialPass;
   private _lightCluster: LightClusterPass | null = null;
+  private _physicalSky: PhysicalSkyPass | null = null;
+  private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
+  private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
+  private _temporalGpuHistory!: TemporalGpuHistory;
+  private _analyticTemporal!: AnalyticTemporalBaselinePass;
+  private readonly _radiometry = new RadiometryRuntime();
   private readonly _renderTargets = new RenderTargets();
   private readonly _profiler = new FrameProfiler();
   private readonly _virtualProductScenes = new Map<Scene, {
@@ -282,6 +295,7 @@ export class Renderer {
   }>();
   private readonly _streamingCameraMatrices = new Map<Scene, Float32Array>();
   private readonly _previousViewMatrices = new WeakMap<GPUViewContext, Float32Array>();
+  private readonly _cameraRevisions = new WeakMap<PerspectiveCamera, { signature: string; revision: number }>();
   private readonly _rendererConfig: RendererConfig;
   private _initializationConfig: RendererConfig | null = null;
   private _capabilities: RendererCapabilities | null = null;
@@ -1099,6 +1113,17 @@ export class Renderer {
     this._shadingWork = new ShadingWorkPass(device);
     this._surfaceMaterial = new SurfaceMaterialPass(device);
     this._present = new SurfacePresentPass(device, this._format);
+    this._physicalSky = new PhysicalSkyPass(this._graphics);
+    this._aerialPerspective = new AerialPerspectivePass(device);
+    this._temporalGpuHistory = new TemporalGpuHistory(device);
+    this._analyticTemporal = new AnalyticTemporalBaselinePass(device);
+    // The pinned Takram LUT profile is device-local and recorded into the
+    // first frame submission; consumers can bind its immutable views by
+    // generation without owning the LUT lifetime.
+    if (Number(device.limits.maxTextureDimension3D) >= 256 &&
+        Number(device.limits.maxStorageTexturesPerShaderStage) >= 2) {
+      this._environmentRuntime = new PhysicalEnvironmentRuntime(device);
+    }
     const canvas = context.canvas as HTMLCanvasElement;
     this._width = Math.max(1, canvas.clientWidth || canvas.width);
     this._height = Math.max(1, canvas.clientHeight || canvas.height);
@@ -1157,19 +1182,53 @@ export class Renderer {
     this._profiler.beginFrame(frameIndex);
     const frame = this._frameCoordinator.beginFrame(frameIndex, "Renderer/visibility-frame");
     const command = frame.command;
-    this._temporal.begin({
+    let temporalActive = false;
+    let environmentGeneration: number | null | undefined;
+    const preExposure: PreExposureContract = this._radiometry.beginFrame(
+      this._environmentRuntime === null ? 0 :
+        (this._environmentRuntime.state.active?.generation ?? 1)
+    );
+    const cameraSignature = JSON.stringify([
+      camera.near, camera.far, camera.aspect,
+      ...Array.from(camera.transform.matrix), ...Array.from(camera.projection_matrix)
+    ]);
+    const cameraRecord = this._cameraRevisions.get(camera);
+    const cameraRevision = cameraRecord?.signature === cameraSignature
+      ? cameraRecord.revision : (cameraRecord?.revision ?? 0) + 1;
+    this._cameraRevisions.set(camera, { signature: cameraSignature, revision: cameraRevision });
+    const frameJitter = this._temporal.begin({
       frameIndex, output: [this._output_resolution.x, this._output_resolution.y],
       internal: [this._render_resolution.x, this._render_resolution.y],
-      cameraRevision: 1, sceneRevision: 1, representationRevision: 1,
-      lightRevision: "environment:1", view: "main", renderScale: this.resolutionScale,
+      cameraRevision, sceneRevision: runtime.shadingPublication.revision,
+      representationRevision: Math.round(this.resolutionScale * 1_000_000) ^
+        (this._render_resolution.x << 1) ^ (this._render_resolution.y << 17),
+      lightRevision: `environment:${this._environmentRuntime?.state.active?.generation ?? 0}`, view: "main", renderScale: this.resolutionScale,
       featureRevision: Number(this.packed_visibility_hzb_enabled), formatRevision: 1,
       deviceRevision: this.deviceEpoch,
-      preExposure: { generation: 0, multiplier: 1, colorSpace: "working-linear" },
-      temporalEnabled: true, nssEnabled: false, taaJitter: [0, 0], nssJitter: [0, 0]
+      preExposure,
+      temporalEnabled: true, nssEnabled: false
     });
+    temporalActive = true;
     try {
       this._graphics.encodeFrameMaintenance(command);
       this._renderTargets.setFrameIndex(frameIndex);
+      this._temporalGpuHistory.ensure(this._render_resolution.x, this._render_resolution.y);
+      this._temporalGpuHistory.writeParameters((buffer, data) =>
+        command.writeBuffer(buffer, 0, data, 0, data.byteLength),
+        this._render_resolution.x, this._render_resolution.y,
+        this._temporal.histories.state("color").readValid);
+      environmentGeneration = this._environmentRuntime?.record(command.gpu_encoder, {
+        lutGeneration: 1,
+        worldToUnit: 0.001,
+        sunDirectionWorld: [0.39036003, 0.8922514, 0.22306285],
+        sunIrradiance: [1.474, 1.8504, 1.91198],
+        skyLuminanceScale: 1,
+        shadowLength: [0, 0]
+      });
+      if (environmentGeneration !== undefined && environmentGeneration !== null) {
+        this._environmentRuntime!.writeParameters((buffer, data) =>
+          command.writeBuffer(buffer, 0, data, 0, data.byteLength));
+      }
       const environment = this._environments.obtain(scene);
       const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
         .filter(classId => (runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
@@ -1181,7 +1240,7 @@ export class Renderer {
       const view = this._views.obtain(GPUViewKey.from(camera, scene), environment, command);
       const width = this._render_resolution.x;
       const height = this._render_resolution.y;
-      view.setJitter(0, 0);
+      view.setJitter(frameJitter[0], frameJitter[1]);
       view.setViewportSize(width, height);
       view.setUpscaleRatio(this._output_resolution.x / width, this._output_resolution.y / height);
       this._graphics.render_world.encodePendingPatch(scene, command);
@@ -1195,7 +1254,11 @@ export class Renderer {
         for (let index = 0; index < 16; index++) {
           matrixDelta = Math.max(matrixDelta, Math.abs(currentViewMatrix[index]! - previousViewMatrix[index]!));
         }
-        if (matrixDelta > 0.25) hzb.invalidate("camera-cut");
+        if (matrixDelta > 0.25) {
+          hzb.invalidate("camera-cut");
+          this._temporal.histories.invalidate("camera-cut");
+          this._temporalGpuHistory.invalidate();
+        }
       }
       this._previousViewMatrices.set(view, currentViewMatrix);
       hzb.beginFrame(frameIndex, {
@@ -1235,7 +1298,7 @@ export class Renderer {
       };
       const graphBindings: VisibilityGraphBindings = {
         job, camera, view, hzb, depth: this._renderTargets.depth,
-        swapchain: this.context.getCurrentTexture().createView(), runtime
+        swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure
       };
       const textureBankMasks = Array.from({ length: 4 }, (_, setId) =>
         runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0
@@ -1247,7 +1310,8 @@ export class Renderer {
         job.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
         this.packed_meshlet_work_compaction, this.packed_primitive_index,
         this.packed_visibility_cone_enabled, adaptiveShading,
-        activeClasses, textureBankMasks
+        activeClasses, textureBankMasks,
+        this._temporalGpuHistory.readIndex, this._temporalGpuHistory.writeIndex
       ]);
       const compiled = this._graphCache.getOrCreate(
         graphKey,
@@ -1265,9 +1329,14 @@ export class Renderer {
       });
       command.encodeCompiledGraph(compiled, graphBindings);
       this._temporal.markProduced("color");
+      this._temporal.markProduced("depth");
+      this._temporal.markProduced("motion");
       view.finish_frame(command, frameIndex);
       this._frameCoordinator.submitFrame(frame);
       this._temporal.commit(frameIndex);
+      this._temporalGpuHistory.commit();
+      temporalActive = false;
+      if (environmentGeneration !== undefined && environmentGeneration !== null) this._environmentRuntime?.commit(environmentGeneration);
       if (streaming) {
         void streaming.consumeAfterCompletion(frameIndex, command.gpuDone, Date.now()).catch(() => undefined);
       }
@@ -1276,6 +1345,14 @@ export class Renderer {
       return true;
     } catch (error) {
       if (!command.closed) this._frameCoordinator.abortFrame(frame, error);
+      if (temporalActive) {
+        try { this._temporal.abort(frameIndex); }
+        catch (abortError) { console.error("Temporal abort failed after render error", abortError); }
+      }
+      if (environmentGeneration !== undefined && environmentGeneration !== null) {
+        try { this._environmentRuntime?.abort(environmentGeneration); }
+        catch (abortError) { console.error("Environment abort failed after render error", abortError); }
+      }
       this._frame_count++;
       this.onFrameFinished.send1(this._frame_count);
       throw error;
@@ -1313,7 +1390,6 @@ export class Renderer {
       return true;
     } catch (error) {
       if (!command.closed) this._frameCoordinator.abortFrame(frame, error);
-      this._temporal.abort(frameIndex);
       this._frame_count++;
       this.onFrameFinished.send1(this._frame_count);
       throw error;
@@ -1499,6 +1575,10 @@ export class Renderer {
       "light-records", { kind: "imported", label: "scene light records" },
       bind("light-records", bindings => bindings.view.environment.lights.buffer_data)
     ) : undefined;
+    const physicalEnvironmentSun = this._environmentRuntime === null ? undefined : graph.import_resource(
+      "physical-environment-sun", { kind: "imported", label: "Physical Environment Sun" },
+      this._environmentRuntime.parameters
+    );
     const clusters = lightRecords === undefined ? undefined :
       (this._lightCluster ??= new LightClusterPass(this._graphics)).addToGraph(
         graph,
@@ -1510,6 +1590,12 @@ export class Renderer {
         })),
         { camera: cameraBuffer, lightDatabase: lightRecords, hzb: builtHzb }
       );
+    const motionSeed = graph.add("Surface/allocate motion product", {}, () => {});
+    const motion = motionSeed.create("Surface/motion", {
+      kind: "transient_texture", width: result.frame.domain.width, height: result.frame.domain.height,
+      format: "rg16float", domain: "internal-full",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+    });
     const radiance = this._surfaceMaterial.addToGraph(graph, {
       width: result.frame.domain.width,
       height: result.frame.domain.height,
@@ -1519,7 +1605,8 @@ export class Renderer {
         view: bindings.view,
         frameIndex: bindings.view.frame_index,
         outputWidth: this._output_resolution.x,
-        outputHeight: this._output_resolution.y
+        outputHeight: this._output_resolution.y,
+        preExposure: initial.preExposure
       })),
       activeClasses,
       textureBankMasks,
@@ -1540,14 +1627,54 @@ export class Renderer {
       lightRecords,
       lightLookup: clusters?.lookup,
       lightData: clusters?.data,
-      lightParams: clusters?.parameters
+      lightParams: clusters?.parameters,
+      physicalEnvironmentSun,
+      physicalEnvironmentTransmittance: this._environmentRuntime === null ? undefined : graph.import_resource(
+        "physical-environment-sun-transmittance", { kind: "imported", label: "Physical Environment sun transmittance" },
+        this._environmentRuntime.luts.views.transmittance
+      ),
+      physicalSkyIrradiance: this._environmentRuntime === null ? undefined : graph.import_resource(
+        "physical-environment-sky-irradiance", { kind: "imported", label: "Physical Environment sky irradiance" },
+        this._environmentRuntime.luts.views.irradiance
+      ),
+      motionOutput: motion
     });
+    const temporalRadiance = this._analyticTemporal.addToGraph(graph, {
+      color: radiance, depth: result.frame.depth, motion, history: this._temporalGpuHistory,
+      valid: this._temporal.histories.state("color").readValid,
+      width: result.frame.domain.width, height: result.frame.domain.height
+    });
+    const atmosphereEnvironment = this._environmentRuntime === null ? undefined : graph.import_resource(
+      "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
+      this._environmentRuntime.luts.views.transmittance
+    );
+    const skyRadiance = this._environmentRuntime === null ? undefined : graph.import_resource(
+      "physical-environment-sky-radiance", { kind: "imported", label: "Physical Environment sky radiance" },
+      this._environmentRuntime.luts.views.scattering
+    );
+    const higherOrderScattering = this._environmentRuntime === null ? undefined : graph.import_resource(
+      "physical-environment-higher-order-scattering", { kind: "imported", label: "Physical Environment higher-order scattering" },
+      this._environmentRuntime.luts.views.higherOrderScattering
+    );
+    const environmentRadiance = atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || this._physicalSky === null
+      ? temporalRadiance
+      : this._physicalSky.addToGraph(graph, {
+          hdr: temporalRadiance, depth: result.frame.depth, camera: cameraBuffer,
+          transmittance: atmosphereEnvironment, scattering: skyRadiance,
+          higherOrder: higherOrderScattering, environment: physicalEnvironmentSun!
+        });
+    const aerialRadiance = atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || physicalEnvironmentSun === undefined || this._aerialPerspective === null
+      ? environmentRadiance
+      : this._aerialPerspective.addToGraph(graph, { scene: environmentRadiance, depth: result.frame.depth,
+          camera: cameraBuffer, environment: physicalEnvironmentSun,
+          transmittance: atmosphereEnvironment, scattering: skyRadiance,
+          higherOrder: higherOrderScattering, width: result.frame.domain.width, height: result.frame.domain.height });
     const swapchain = graph.import_resource(
       "swapchain", { kind: "imported", label: "swapchain" },
       bind("swapchain", bindings => bindings.swapchain)
     );
     this._present.addToGraph(
-      graph, radiance, shadingWork.queue, swapchain,
+      graph, aerialRadiance, shadingWork.queue, swapchain,
       this._output_resolution.x, this._output_resolution.y, shadingWork.frequencyPlan
     );
     this._profiler.recordGraphCompile();
@@ -1566,8 +1693,14 @@ export class Renderer {
     this._deviceLost = true;
     this._visibilityFeature?.destroy();
     this._surfaceMaterial?.destroy();
+    this._physicalSky?.destroy();
+    this._aerialPerspective?.destroy();
+    this._temporalGpuHistory?.destroy();
+    this._analyticTemporal?.destroy();
     this._views?.destroy();
     this._environments?.destroy();
+    this._environmentRuntime?.destroy();
+    this._environmentRuntime = null;
     this._frameCoordinator?.destroy();
     this._graphCache.destroy();
     this._renderTargets.destroy();
@@ -1594,6 +1727,7 @@ export class Renderer {
     this._recoveryAttempts++;
     this.shutdown();
     const replacement = new Renderer(checkpoint.config);
+    replacement.deviceEpoch = this.deviceEpoch + 1;
     replacement.spatial_shading_frequency_enabled = this.spatial_shading_frequency_enabled;
     this._recoveryPromise = (async () => {
       try {

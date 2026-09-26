@@ -1,0 +1,645 @@
+{
+  "schemaVersion": 1,
+  "status": "source-fixed-port-incomplete",
+  "repository": "https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK",
+  "revision": "c6efa6bf7f2027b3ec94f28578bb5965eabb9e55",
+  "version": "AMD FidelityFX SDK 1.1.4",
+  "profile": "FSR3 Upscaler only; Frame Generation is excluded",
+  "sourceSubset": {
+    "host": "sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp",
+    "gpuHeaders": "sdk/include/FidelityFX/gpu/fsr3upscaler",
+    "hlslEntries": "sdk/src/backends/dx12/shaders/fsr3upscaler",
+    "glslEntries": "sdk/src/backends/vk/shaders/fsr3upscaler",
+    "compileRecipe": "sdk/include/FidelityFX/gpu/fsr3upscaler/CMakeCompileFSR3UpscalerShaders.txt"
+  },
+  "licenses": [
+    "upstream/LICENSE.txt",
+    "upstream/docs/license.md",
+    "upstream/sdk/LICENSE.txt"
+  ],
+  "stages": [
+    {
+      "id": "prepare-inputs",
+      "sourceFunction": "PrepareInputs",
+      "entryStem": "ffx_fsr3upscaler_prepare_inputs_pass",
+      "hostPass": "FFX_FSR3UPSCALER_PASS_PREPARE_INPUTS"
+    },
+    {
+      "id": "prepare-reactivity",
+      "sourceFunction": "PrepareReactivity",
+      "entryStem": "ffx_fsr3upscaler_prepare_reactivity_pass",
+      "hostPass": "FFX_FSR3UPSCALER_PASS_PREPARE_REACTIVITY"
+    },
+    {
+      "id": "luma-pyramid",
+      "sourceFunction": "ComputeAutoExposure plus SPD luminance reduction",
+      "entryStem": "ffx_fsr3upscaler_luma_pyramid_pass",
+      "hostPass": "FFX_FSR3UPSCALER_PASS_LUMA_PYRAMID"
+    },
+    {
+      "id": "shading-change",
+      "sourceFunction": "ShadingChange",
+      "entryStem": "ffx_fsr3upscaler_shading_change_pass",
+      "hostPass": "FFX_FSR3UPSCALER_PASS_SHADING_CHANGE"
+    },
+    {
+      "id": "shading-change-pyramid",
+      "sourceFunction": "ComputeShadingChangePyramid",
+      "entryStem": "ffx_fsr3upscaler_shading_change_pyramid_pass",
+      "hostPass": "FFX_FSR3UPSCALER_PASS_SHADING_CHANGE_PYRAMID"
+    },
+    {
+      "id": "reproject",
+      "sourceFunction": "ComputeReprojectedUVs/ReprojectHistoryColor",
+      "entryStem": "ffx_fsr3upscaler_accumulate_pass",
+      "hostPass": "internal to accumulate"
+    },
+    {
+      "id": "accumulate",
+      "sourceFunction": "Accumulate",
+      "entryStem": "ffx_fsr3upscaler_accumulate_pass",
+      "hostPass": "FFX_FSR3UPSCALER_PASS_ACCUMULATE or _ACCUMULATE_SHARPEN"
+    },
+    {
+      "id": "upsample",
+      "sourceFunction": "ComputeUpsampledColorAndWeight",
+      "entryStem": "ffx_fsr3upscaler_accumulate_pass",
+      "hostPass": "internal to accumulate"
+    },
+    {
+      "id": "luma-instability",
+      "sourceFunction": "LumaInstability",
+      "entryStem": "ffx_fsr3upscaler_luma_instability_pass",
+      "hostPass": "FFX_FSR3UPSCALER_PASS_LUMA_INSTABILITY"
+    },
+    {
+      "id": "rcas",
+      "sourceFunction": "RCAS",
+      "entryStem": "ffx_fsr3upscaler_rcas_pass",
+      "hostPass": "FFX_FSR3UPSCALER_PASS_RCAS (optional sharpening)"
+    }
+  ],
+  "hostDispatch": {
+    "source": "sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp",
+    "mainOrder": [
+      "PREPARE_INPUTS",
+      "LUMA_PYRAMID",
+      "SHADING_CHANGE_PYRAMID",
+      "SHADING_CHANGE",
+      "PREPARE_REACTIVITY",
+      "LUMA_INSTABILITY",
+      "ACCUMULATE or ACCUMULATE_SHARPEN",
+      "RCAS when sharpening is enabled"
+    ],
+    "separateDispatch": "GENERATE_REACTIVE is exposed by ffxFsr3UpscalerContextGenerateReactiveDescription",
+    "frameGeneration": false,
+    "independentSubmit": false
+  },
+  "constants": {
+    "source": "sdk/src/components/fsr3upscaler/ffx_fsr3upscaler_private.h",
+    "struct": "Fsr3UpscalerConstants",
+    "fields": [
+      "renderSize[2]",
+      "previousFrameRenderSize[2]",
+      "upscaleSize[2]",
+      "previousFrameUpscaleSize[2]",
+      "maxRenderSize[2]",
+      "maxUpscaleSize[2]",
+      "deviceToViewDepth[4]",
+      "jitterOffset[2]",
+      "previousFrameJitterOffset[2]",
+      "motionVectorScale[2]",
+      "downscaleFactor[2]",
+      "motionVectorJitterCancellation[2]",
+      "tanHalfFOV",
+      "jitterPhaseCount",
+      "deltaTime",
+      "deltaPreExposure",
+      "viewSpaceToMetersFactor",
+      "frameIndex",
+      "velocityFactor",
+      "reactivenessScale",
+      "shadingChangeScale",
+      "accumulationAddedPerFrame",
+      "minDisocclusionAccumulation"
+    ]
+  },
+  "resourceTable": [
+    {
+      "name": "NULL",
+      "id": 0
+    },
+    {
+      "name": "INPUT_OPAQUE_ONLY",
+      "id": 1
+    },
+    {
+      "name": "INPUT_COLOR",
+      "id": 2
+    },
+    {
+      "name": "INPUT_MOTION_VECTORS",
+      "id": 3
+    },
+    {
+      "name": "INPUT_DEPTH",
+      "id": 4
+    },
+    {
+      "name": "INPUT_EXPOSURE",
+      "id": 5
+    },
+    {
+      "name": "INPUT_REACTIVE_MASK",
+      "id": 6
+    },
+    {
+      "name": "INPUT_TRANSPARENCY_AND_COMPOSITION_MASK",
+      "id": 7
+    },
+    {
+      "name": "RECONSTRUCTED_PREVIOUS_NEAREST_DEPTH",
+      "id": 8
+    },
+    {
+      "name": "DILATED_MOTION_VECTORS",
+      "id": 9
+    },
+    {
+      "name": "DILATED_DEPTH",
+      "id": 10
+    },
+    {
+      "name": "INTERNAL_UPSCALED_COLOR",
+      "id": 11
+    },
+    {
+      "name": "ACCUMULATION",
+      "id": 12
+    },
+    {
+      "name": "NEW_LOCKS",
+      "id": 13
+    },
+    {
+      "name": "LUMA_HISTORY",
+      "id": 14
+    },
+    {
+      "name": "DEBUG_OUTPUT",
+      "id": 15
+    },
+    {
+      "name": "LANCZOS_LUT",
+      "id": 16
+    },
+    {
+      "name": "SPD_ATOMIC_COUNT",
+      "id": 17
+    },
+    {
+      "name": "UPSCALED_OUTPUT",
+      "id": 18
+    },
+    {
+      "name": "RCAS_INPUT",
+      "id": 19
+    },
+    {
+      "name": "ACCUMULATION_1",
+      "id": 20
+    },
+    {
+      "name": "ACCUMULATION_2",
+      "id": 21
+    },
+    {
+      "name": "INTERNAL_UPSCALED_COLOR_1",
+      "id": 22
+    },
+    {
+      "name": "INTERNAL_UPSCALED_COLOR_2",
+      "id": 23
+    },
+    {
+      "name": "INTERNAL_DEFAULT_REACTIVITY",
+      "id": 24
+    },
+    {
+      "name": "INTERNAL_DEFAULT_TRANSPARENCY_AND_COMPOSITION",
+      "id": 25
+    },
+    {
+      "name": "DILATED_REACTIVE_MASKS",
+      "id": 26
+    },
+    {
+      "name": "SPD_MIPS",
+      "id": 27
+    },
+    {
+      "name": "SPD_MIPS_LEVEL_0",
+      "id": 27
+    },
+    {
+      "name": "SPD_MIPS_LEVEL_1",
+      "id": 28
+    },
+    {
+      "name": "SPD_MIPS_LEVEL_2",
+      "id": 29
+    },
+    {
+      "name": "SPD_MIPS_LEVEL_3",
+      "id": 30
+    },
+    {
+      "name": "SPD_MIPS_LEVEL_4",
+      "id": 31
+    },
+    {
+      "name": "SPD_MIPS_LEVEL_5",
+      "id": 32
+    },
+    {
+      "name": "INTERNAL_DEFAULT_EXPOSURE",
+      "id": 33
+    },
+    {
+      "name": "FRAME_INFO",
+      "id": 34
+    },
+    {
+      "name": "AUTOREACTIVE",
+      "id": 35
+    },
+    {
+      "name": "AUTOCOMPOSITION_DEPRECATED",
+      "id": 36
+    },
+    {
+      "name": "LUMA_HISTORY_1",
+      "id": 37
+    },
+    {
+      "name": "LUMA_HISTORY_2",
+      "id": 38
+    },
+    {
+      "name": "LUMA_1",
+      "id": 40
+    },
+    {
+      "name": "LUMA_2",
+      "id": 41
+    },
+    {
+      "name": "SHADING_CHANGE",
+      "id": 42
+    },
+    {
+      "name": "FARTHEST_DEPTH",
+      "id": 43
+    },
+    {
+      "name": "FARTHEST_DEPTH_MIP1",
+      "id": 44
+    },
+    {
+      "name": "CURRENT_LUMA",
+      "id": 45
+    },
+    {
+      "name": "PREVIOUS_LUMA",
+      "id": 46
+    },
+    {
+      "name": "LUMA_INSTABILITY",
+      "id": 48
+    },
+    {
+      "name": "COUNT",
+      "id": 60
+    }
+  ],
+  "constantBufferTable": [
+    {
+      "name": "FSR3UPSCALER",
+      "id": 0
+    },
+    {
+      "name": "SPD",
+      "id": 1
+    },
+    {
+      "name": "RCAS",
+      "id": 2
+    },
+    {
+      "name": "GENREACTIVE",
+      "id": 3
+    }
+  ],
+  "files": [
+    {
+      "path": "upstream/docs/license.md",
+      "upstreamPath": "docs/license.md",
+      "sha256": "a335c2bb2bd28184b9a30b6e35b0c7e4aa7826abd1c388fc2aa02405e9d04f03"
+    },
+    {
+      "path": "upstream/LICENSE.txt",
+      "upstreamPath": "LICENSE.txt",
+      "sha256": "c93d509cd69d50698796c9c3274247352736ef122a3197ace2010f0978e21aa6"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/ffx_common_types.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/ffx_common_types.h",
+      "sha256": "a19560f837c09f0c990e98b5925b731135d908e372af41c5895cbfa70cc9e5c8"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/ffx_core_cpu.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/ffx_core_cpu.h",
+      "sha256": "bdb58574cf3ba80803c4198b4661e3a1cd63c877d59833f22bf15962b164a7fe"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/ffx_core_glsl.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/ffx_core_glsl.h",
+      "sha256": "01afe5b65549b2c0951b494ca4bf570ee2aa89a64344e4c7d98ef86e6613ab42"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/ffx_core_gpu_common_half.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/ffx_core_gpu_common_half.h",
+      "sha256": "d10466cbf027c8c23858a25f8e8cbbbf521d29f373db663c9354221651e9a498"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/ffx_core_gpu_common.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/ffx_core_gpu_common.h",
+      "sha256": "0e3c50cb0b4592c051d87e028a1dfa54fbd097942ebb3146964db801dec095d0"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/ffx_core_hlsl.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/ffx_core_hlsl.h",
+      "sha256": "98722d4b1331c437f5aee645e6f12ed722b721f2ffcb0ec523ee817857f394c7"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/ffx_core_portability.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/ffx_core_portability.h",
+      "sha256": "a7c3a1c213ec083bec401181036cffe7a222af2c430c0bab6bd8c14e83e8a567"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/ffx_core.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/ffx_core.h",
+      "sha256": "e439aa5f516b2d2ebf070ff1d24561f04fa5f00262a2e4f760764a7d07de7997"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr1/ffx_fsr1.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr1/ffx_fsr1.h",
+      "sha256": "5d608d9d0645da03a3aa6c729c5ad990c6f222053eab850b8e218607c1baaa9d"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/CMakeCompileFSR3UpscalerShaders.txt",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/CMakeCompileFSR3UpscalerShaders.txt",
+      "sha256": "7e9200dc2d615d89b9a4168c317b8f3b152a72298904b3b42722a446d41108a5"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_accumulate.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_accumulate.h",
+      "sha256": "7212a028c6ff3ca4a76f9d62b7f64f5f5adce0f108067d8995c7bc795234afbc"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_callbacks_glsl.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_callbacks_glsl.h",
+      "sha256": "875c2b8d8df93716fb46271886c768a9ef40c5ccc11ade39397952b4a4e54321"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_callbacks_hlsl.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_callbacks_hlsl.h",
+      "sha256": "85d6250e9b89d431167e98400e6e2db64227769b393c97ca6aad077581179114"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_common.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_common.h",
+      "sha256": "4898aa014fef875d3644b9b3bed03f31a963349e17ad553198f87ae8af82cb3f"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_debug_view.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_debug_view.h",
+      "sha256": "51849bd2f758e2b15375c6a21633fea2f7433a19eb3d74d1d07f8ead36a695ba"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_luma_instability.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_luma_instability.h",
+      "sha256": "82d13d21e161732e48b267d28906f067a8df306ead5aeeed65a1ef66b3e06003"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_luma_pyramid.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_luma_pyramid.h",
+      "sha256": "fa6eeaf8197b214ee1853d73da3c66cd0c8fc24444a65237b0023bd68f10d887"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_prepare_inputs.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_prepare_inputs.h",
+      "sha256": "acae0499b8805c363c105895afc28fc90e549b38c8bffdcbec1cf9e2f842abb0"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_prepare_reactivity.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_prepare_reactivity.h",
+      "sha256": "ddf7a6d9cd6e357328e972e0b654da977edcb2e337c992b06d6256eeae339e03"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_rcas.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_rcas.h",
+      "sha256": "f1d8a9152bd3ceda8a10dafe44e0c6d27109b345fc4a5704f71c6bf23d6c5cb4"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_reproject.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_reproject.h",
+      "sha256": "d2d01ea2f59658e5494414448f11435879bdac871c3ad7c84b951248bc223702"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_resources.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_resources.h",
+      "sha256": "10c6f7619a6c1ff9983fdff9bac565789b1cda52f97ef60b491498223e7b7097"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_sample.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_sample.h",
+      "sha256": "e8de656c71b15537ddd891b7485492b7829e6aec1dea96256fbc246c9a7c7366"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_shading_change_pyramid.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_shading_change_pyramid.h",
+      "sha256": "b1e94d7cbb1b7d6e4556e4a080577a62fde07efbc8379b52223d322ed4b75912"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_shading_change.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_shading_change.h",
+      "sha256": "13e772ff9bd32244fb990704055040f8dbb945c014cc6f0fdbf553188b300e7e"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_upsample.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/fsr3upscaler/ffx_fsr3upscaler_upsample.h",
+      "sha256": "c51f3af61b43fd779a6685202886dbb5dab3bfea989f8b5060c8c9ab4a93207b"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/gpu/spd/ffx_spd.h",
+      "upstreamPath": "sdk/include/FidelityFX/gpu/spd/ffx_spd.h",
+      "sha256": "d276f32ee18948cb053c991f3c8821f9664c93f12cb2483dd2978f333bca67b2"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/host/ffx_assert.h",
+      "upstreamPath": "sdk/include/FidelityFX/host/ffx_assert.h",
+      "sha256": "d64fb7b916773d2ac96903fc699e438099b8702ecf5ce7aba051bd7e0a109ee1"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/host/ffx_error.h",
+      "upstreamPath": "sdk/include/FidelityFX/host/ffx_error.h",
+      "sha256": "511ba2b3d99aaa3ac450de7c548244647df146939a7de105bd85713bde4a36c0"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/host/ffx_fsr3upscaler.h",
+      "upstreamPath": "sdk/include/FidelityFX/host/ffx_fsr3upscaler.h",
+      "sha256": "686cf613f70a1b01a9fa1302fb15f896b86cf2a68b069b3f5f2b5c0bcd9ea15b"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/host/ffx_interface.h",
+      "upstreamPath": "sdk/include/FidelityFX/host/ffx_interface.h",
+      "sha256": "0b012be0256c47663905e51fa31873f8bf2c5536c40211e1b01cf117eb5988d6"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/host/ffx_message.h",
+      "upstreamPath": "sdk/include/FidelityFX/host/ffx_message.h",
+      "sha256": "48c125292b054be1ad208e36b24fb174a9cae80a3fd780a2cb52c4674e6bf4fe"
+    },
+    {
+      "path": "upstream/sdk/include/FidelityFX/host/ffx_types.h",
+      "upstreamPath": "sdk/include/FidelityFX/host/ffx_types.h",
+      "sha256": "057535d46b7241bb25163a21dc4e59b0029f2d3da6a474b1c1028f921d5eb6f8"
+    },
+    {
+      "path": "upstream/sdk/LICENSE.txt",
+      "upstreamPath": "sdk/LICENSE.txt",
+      "sha256": "c93d509cd69d50698796c9c3274247352736ef122a3197ace2010f0978e21aa6"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_accumulate_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_accumulate_pass.hlsl",
+      "sha256": "8b6ec90940ef477dee3d9aa7d5f49b95ab2fb4632e490284fe8c86fe4d440a25"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_autogen_reactive_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_autogen_reactive_pass.hlsl",
+      "sha256": "b71d32a30464fd2828f319c8edbda9bc9f619d03daca12a2ad004471f8141603"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_debug_view_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_debug_view_pass.hlsl",
+      "sha256": "2745d5f95fcb43344efbd3d43d54a6f9b8c4bacdc00f2c0ecd3840a30274bc45"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_luma_instability_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_luma_instability_pass.hlsl",
+      "sha256": "1e1fbd9b8294c309115e33e844088fe7d779a13aa11dbc4721420c942cb0b187"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_luma_pyramid_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_luma_pyramid_pass.hlsl",
+      "sha256": "fbe6a56f20a2748248f236cd6f81aa4ae3ca0b85f4c536f5c467477d82fad5d3"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_prepare_inputs_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_prepare_inputs_pass.hlsl",
+      "sha256": "5510c1ce4ffb4b32db3f08bba50260c786f3c5e4df961e54209f15e191f26a31"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_prepare_reactivity_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_prepare_reactivity_pass.hlsl",
+      "sha256": "ab8d862707007733c9fb603d6b093bc7429c52e1713c5a63baddb1440dc158ae"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_rcas_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_rcas_pass.hlsl",
+      "sha256": "b015e84520b3e2e3b0e0b621857dd2fa201fd37c7f5eff8437200d1f7eabf594"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_shading_change_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_shading_change_pass.hlsl",
+      "sha256": "4465a7cd440192e864981e72ce7994c27d1285f6df703fcb210e6288a048f6a7"
+    },
+    {
+      "path": "upstream/sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_shading_change_pyramid_pass.hlsl",
+      "upstreamPath": "sdk/src/backends/dx12/shaders/fsr3upscaler/ffx_fsr3upscaler_shading_change_pyramid_pass.hlsl",
+      "sha256": "8dc2d508f54fbc937c5ef8d1a0699d3926351d4af5d2f9d2e5d20964306c468c"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_accumulate_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_accumulate_pass.glsl",
+      "sha256": "f551f709c59adb3f41441938ee6d8921b1649a4d1eefcff600f3995896c8ae7f"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_autogen_reactive_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_autogen_reactive_pass.glsl",
+      "sha256": "9db80cb7bce6605e770a12e938fbf8f7d4ffe60faebd2325f27355bea075760d"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_debug_view_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_debug_view_pass.glsl",
+      "sha256": "977f97707f02852f763c578b4cb38a8cf1697e21410fb138209732342e24f2f6"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_luma_instability_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_luma_instability_pass.glsl",
+      "sha256": "e6351bb08531980a54097507f9729f3ee70a440e29e661c3ce4a2a69f7a02dc9"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_luma_pyramid_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_luma_pyramid_pass.glsl",
+      "sha256": "6312d1abcea30b1618a9875fa14a6ddffef2a7ec18291ac5c302787a040a13ca"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_prepare_inputs_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_prepare_inputs_pass.glsl",
+      "sha256": "0d2a32594ae940bad84aa95e037f41db0fa8bb4c11a0156c11c1e4415d81ec9d"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_prepare_reactivity_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_prepare_reactivity_pass.glsl",
+      "sha256": "e7c7f383f5da9a99e0daf5009c5a2729382eb2bea90472daaa9482437114d562"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_rcas_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_rcas_pass.glsl",
+      "sha256": "c9d252840709f99debbd24078951d23cf78d0c52480f86ed22b1d85e1ddd3496"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_shading_change_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_shading_change_pass.glsl",
+      "sha256": "79edde3239b1d9c46a645fbc2239c7b6db3b7dbf909768781c3f7406c48b24bc"
+    },
+    {
+      "path": "upstream/sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_shading_change_pyramid_pass.glsl",
+      "upstreamPath": "sdk/src/backends/vk/shaders/fsr3upscaler/ffx_fsr3upscaler_shading_change_pyramid_pass.glsl",
+      "sha256": "cf069e6c99135dbf51ddff38e46e5db5ec19abb5e286635be3ec702dbd68fede"
+    },
+    {
+      "path": "upstream/sdk/src/components/fsr3upscaler/CMakeLists.txt",
+      "upstreamPath": "sdk/src/components/fsr3upscaler/CMakeLists.txt",
+      "sha256": "5ab7270349b15e4f6bb000adffbebcc388b15d0eb1fe73ff8b2159dc46fbc300"
+    },
+    {
+      "path": "upstream/sdk/src/components/fsr3upscaler/ffx_fsr3upscaler_private.h",
+      "upstreamPath": "sdk/src/components/fsr3upscaler/ffx_fsr3upscaler_private.h",
+      "sha256": "89935ce16720ce8b164538e886df29929716e947b47c72ca3243fed833286bdd"
+    },
+    {
+      "path": "upstream/sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp",
+      "upstreamPath": "sdk/src/components/fsr3upscaler/ffx_fsr3upscaler.cpp",
+      "sha256": "0b1f1227535971a818c6367f1c27f115db682aea4371fa0c15e8dbd3b0ba5764"
+    },
+    {
+      "path": "upstream/sdk/src/shared/ffx_object_management.h",
+      "upstreamPath": "sdk/src/shared/ffx_object_management.h",
+      "sha256": "e388d1af28f4d3f7388e524257b9692be867884cff720414031d9768995bf223"
+    }
+  ]
+}

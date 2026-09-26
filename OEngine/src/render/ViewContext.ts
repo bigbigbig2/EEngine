@@ -96,11 +96,13 @@ export class GPUViewContext {
   setJitter(x: number, y: number): void {
     this.jitter[0] = x;
     this.jitter[1] = y;
+    this.camera.setViewportOffset(x / Math.max(1, this.width), y / Math.max(1, this.height));
   }
 
   setJitterDelta(x: number, y: number): void {
     this.jitter[0] = x;
     this.jitter[1] = y;
+    this.camera.setViewportOffset(x / Math.max(1, this.width), y / Math.max(1, this.height));
   }
 
   get resolution(): Uint32Array {

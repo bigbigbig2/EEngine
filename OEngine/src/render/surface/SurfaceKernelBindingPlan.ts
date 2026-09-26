@@ -4,7 +4,7 @@ import { surfaceMaterialRequirements } from "./SurfaceProducts.js";
 /** Physical lowering of one Surface program's logical demand, independent of a scene revision. */
 export type SurfaceBindingKind =
   | "read-only-storage" | "uniform" | "sampled-depth"
-  | "sampled-array" | "filtering-sampler" | "write-only-rgba16float";
+  | "sampled-array" | "sampled-2d" | "filtering-sampler" | "write-only-rgba16float" | "write-only-rg16float";
 
 export interface SurfacePhysicalBinding {
   readonly group: 0 | 1 | 2 | 3;
@@ -72,6 +72,7 @@ export function planSurfaceKernelBindings(
   add("material-records", 0, 2, "read-only-storage");
   add("frame-view", 0, 3, "uniform");
   add("radiance-output", 0, 4, "write-only-rgba16float");
+  add("motion-output", 0, 7, "write-only-rg16float");
   add("visibility-depth", 0, 5, "sampled-depth");
   add("shading-work-classes", 0, 6, "read-only-storage");
 
@@ -97,6 +98,10 @@ export function planSurfaceKernelBindings(
   add("direct-light-cluster-lookup", 3, 1, "read-only-storage");
   add("direct-light-cluster-data", 3, 2, "read-only-storage");
   add("direct-light-cluster-params", 3, 3, "uniform");
+  add("physical-environment-sun", 3, 4, "uniform");
+  add("physical-sky-irradiance", 3, 5, "sampled-2d");
+  add("physical-sky-irradiance-sampler", 3, 6, "filtering-sampler");
+  add("physical-environment-transmittance", 3, 7, "sampled-2d");
 
   const resolvedRoles = new Set(bindings.map(binding => binding.role));
   for (const role of roles) {
@@ -112,7 +117,7 @@ export function planSurfaceKernelBindings(
     storageBuffers: bindings.filter(binding => binding.kind === "read-only-storage").length,
     storageTextures: bindings.filter(binding => binding.kind === "write-only-rgba16float").length,
     sampledTextures: bindings.filter(binding =>
-      binding.kind === "sampled-depth" || binding.kind === "sampled-array").length,
+      binding.kind === "sampled-depth" || binding.kind === "sampled-array" || binding.kind === "sampled-2d").length,
     samplers: bindings.filter(binding => binding.kind === "filtering-sampler").length,
     uniformBuffers: bindings.filter(binding => binding.kind === "uniform").length
   });
@@ -173,11 +178,17 @@ export function createSurfaceBindGroupLayouts(
           case "sampled-array":
             entry.texture = { sampleType: "float", viewDimension: "2d-array" };
             break;
+          case "sampled-2d":
+            entry.texture = { sampleType: "float", viewDimension: "2d" };
+            break;
           case "filtering-sampler":
             entry.sampler = { type: "filtering" };
             break;
           case "write-only-rgba16float":
             entry.storageTexture = { access: "write-only", format: "rgba16float" };
+            break;
+          case "write-only-rg16float":
+            entry.storageTexture = { access: "write-only", format: "rg16float" };
             break;
         }
         return entry;

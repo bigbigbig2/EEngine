@@ -392,6 +392,12 @@ export function lightingWgsl(
   environmentIblEnabled: boolean
 ): string {
   return /* wgsl */ `
+struct PhysicalEnvironmentSun {
+  direction_world: vec3f,
+  world_to_unit: f32,
+  irradiance: vec3f,
+  generation: f32,
+}
 ${createProductionSparseDirectLightingWgsl(shadowSamplingEnabled)}
 ${environmentIblEnabled ? `${OCTAHEDRAL_SAMPLE_WGSL}
 ${OENGINE_ENVIRONMENT_BRDF_WGSL}
@@ -424,6 +430,24 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
     vec2f(pixel) + vec2f(0.5),
     surface.view_depth
   );
+  let environment_position = surface.position_ws * physical_environment_sun.world_to_unit;
+  let environment_radius = length(environment_position);
+  let environment_altitude = clamp((environment_radius - 6360.0) / 60.0, 0.0, 1.0);
+  let environment_mu_s = clamp(dot(normalize(surface.position_ws), normalize(-physical_environment_sun.direction_world)), -1.0, 1.0);
+  let sun_transmittance = textureSampleLevel(physical_environment_transmittance, physical_sky_sampler,
+    atmosphere_transmittance_uv(environment_radius, environment_mu_s), 0.0).rgb;
+  var sun_incident: GpuPrimitiveTypeTable;
+  sun_incident.direction = normalize(-physical_environment_sun.direction_world);
+  sun_incident.color = physical_environment_sun.irradiance * sun_transmittance;
+  sun_incident.radius = 0.004675;
+  sun_incident.distance = 1.496e11;
+  var sun_reflected = ReflectedLight(vec3f(0.0), vec3f(0.0));
+  re_direct_physical(sun_incident, geometry, material, &sun_reflected);
+  let physical_sun = sun_reflected.diffuse + sun_reflected.specular;
+  let sky_irradiance = textureSampleLevel(physical_sky_irradiance, physical_sky_sampler,
+    vec2f(environment_mu_s * 0.5 + 0.5, environment_altitude), 0.0).rgb *
+    (vec3f(114974.91644, 71305.954816, 65310.548555) * 0.000013207021769386792);
+  let physical_sky = sky_irradiance * material.diffuse * material.occlusion * ${1 / Math.PI};
   ${environmentIblEnabled ? `
   let no_v = clamp(dot(surface.shading_normal, geometry.view_direction), 0.0, 1.0);
   let dfg = textureSampleLevel(
@@ -463,7 +487,7 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
   let environment_diffuse_contribution = irradiance * material.diffuse *
     energy * ${1 / Math.PI} * material.occlusion;
   return direct + environment_specular_contribution + environment_diffuse_contribution;` : `
-  return direct;`}
+  return direct + physical_sun + physical_sky;`}
 }
 `;
 }
