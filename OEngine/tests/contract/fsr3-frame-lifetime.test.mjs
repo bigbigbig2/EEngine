@@ -21,7 +21,8 @@ function harness() {
     createSampler: () => ({}),
     createBuffer: () => ({ destroy() {} }),
     createTexture: (descriptor) => {
-      const texture = { label: descriptor.label, destroyed: false,
+      const texture = { label: descriptor.label, width: descriptor.size[0], height: descriptor.size[1],
+        format: descriptor.format, destroyed: false,
         destroy() { this.destroyed = true; } };
       textures.push(texture);
       return texture;
@@ -42,6 +43,8 @@ test("FSR3 frame constants follow camera jitter and retain history across ordina
   const h = harness();
   const fsr3 = new Fsr3UpscalerRuntime(h.device);
   fsr3.prepareFrame(h.command, frame);
+  fsr3.assertPreparedFrame(640, 360, 1280, 720);
+  assert.throws(() => fsr3.assertPreparedFrame(800, 360, 1280, 720), /prepared frame/);
   assert.equal(fsr3.generation, 1);
   assert.equal(h.writes[0].getFloat32(64, true), -0.25);
   assert.equal(h.writes[0].getFloat32(68, true), 0.125);
@@ -83,13 +86,26 @@ test("FSR3 graph roles follow the prepared frame and retired histories wait for 
   const graph = new FrameGraph("fsr3-history-binding");
   const imported = (name) => graph.import_resource(name, { kind: "imported", label: name }, {});
   const resolvers = new Map();
-  fsr3.addToGraph(graph, {
+  const output = fsr3.addToGraph(graph, {
     color: imported("color"), depth: imported("depth"), motion: imported("motion"),
     width: 640, height: 360, outputWidth: 1280, outputHeight: 720
   }, (name, resolve) => {
     resolvers.set(name, resolve);
     return resolve(fsr3);
   });
+  const present = graph.add("test/consume reconstructed color", {}, () => {});
+  present.read(output);
+  present.make_side_effect();
+  const dump = graph.compile().dump();
+  const executable = dump.executablePassOrder.map(id => dump.passes[id].name);
+  for (const stage of ["FSR3/Prepare Inputs", "FSR3/Luma SPD source",
+    "FSR3/Shading SPD source", "FSR3/Shading Change", "FSR3/Prepare Reactivity",
+    "FSR3/Luma Instability", "FSR3/Accumulate", "FSR3/RCAS",
+    "test/consume reconstructed color"]) {
+    assert.ok(executable.includes(stage), stage);
+  }
+  assert.equal(dump.resources.find(entry => entry.name === "FSR3/previous color").imported, true);
+  assert.equal(dump.resources.find(entry => entry.name === "FSR3/current color").imported, true);
   const read = resolvers.get("FSR3/previous color");
   const write = resolvers.get("FSR3/current color");
   assert.ok(read && write);
@@ -99,6 +115,7 @@ test("FSR3 graph roles follow the prepared frame and retired histories wait for 
   const gpuDone = new Promise(resolve => { finishGpu = resolve; });
   fsr3.commit(gpuDone);
   fsr3.prepareFrame(h.command, { ...frame, reset: false });
+  fsr3.assertPreparedFrame(640, 360, 1280, 720);
   assert.equal(read(fsr3), firstWrite);
   assert.equal(write(fsr3), firstRead);
   fsr3.commit(gpuDone);

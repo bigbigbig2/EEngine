@@ -11,7 +11,7 @@ import type { LightClusterPass } from "../passes/LightClusterPass.js";
 import type { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import type { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
-import type { FrameProgram } from "./FrameProgram.js";
+import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 
 export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
@@ -24,6 +24,19 @@ export type FrameProgramOwners = Readonly<{
 }>;
 
 type SceneBind = <T extends object>(name: string, resolve: (bindings: SceneFrameBindings) => T) => T;
+
+function assertTextureProduct(plan: FrameProgram, graph: FrameGraph,
+  product: FrameProduct, resource: ResourceId): void {
+  const fact = plan.facts.find(entry => entry.product === product);
+  if (!fact) throw new Error(`Frame Program has no demand for ${product}`);
+  const descriptor = graph.getDescriptor(resource);
+  if (descriptor?.kind !== "transient_texture") return; // Imported descriptors are checked against frame bindings.
+  if (fact.extent === null || descriptor.width !== fact.extent[0] ||
+      descriptor.height !== fact.extent[1] || descriptor.format !== fact.format ||
+      (descriptor.domain !== undefined && descriptor.domain !== fact.domain)) {
+    throw new Error(`Frame Program ${product} descriptor does not match its semantic fact`);
+  }
+}
 
 /** Lower the semantic plan to the one existing FrameGraph execution path. */
 export function lowerFrameProgram(
@@ -69,6 +82,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     layout.slot(name, initial, resolve);
   const graph = new FrameGraph("Renderer/visibility-frame");
   const { result, cameraBuffer, builtHzb } = lowerVisibility(plan, graph, bind, owners);
+  assertTextureProduct(plan, graph, "visibility", result.frame.visibilityKey);
   const materialRecords = graph.import_resource(
     "material-records", { kind: "imported", label: "published material records" },
     bind("material-records", bindings => bindings.runtime.materialResources.materialRecords)
@@ -160,12 +174,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       })),
       { camera: cameraBuffer, lightDatabase: lightRecords, hzb: builtHzb! }
     );
-  const motionSeed = graph.add("Surface/allocate motion product", {}, () => {});
-  const motion = motionSeed.create("Surface/motion", {
-    kind: "transient_texture", width: result.frame.domain.width, height: result.frame.domain.height,
-    format: "rg16float", domain: "internal-full",
-    usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-  });
   const surface = owners.surface.addToGraph(graph, {
     width: result.frame.domain.width,
     height: result.frame.domain.height,
@@ -206,9 +214,10 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     physicalSkyIrradiance: !plan.request.physicalEnvironment ? undefined : graph.import_resource(
       "physical-environment-sky-irradiance", { kind: "imported", label: "Physical Environment sky irradiance" },
       bind("physical-environment-sky-irradiance", bindings => bindings.environment!.luts.views.irradiance)
-    ),
-    motionOutput: motion
+    )
   });
+  assertTextureProduct(plan, graph, "surface-radiance", surface.radiance);
+  assertTextureProduct(plan, graph, "surface-motion", surface.motion);
   lowerPresentation(plan, initial, owners, graph, bind, cameraBuffer, result, surface, shadingWork.queue, physicalEnvironmentSun);
   return graph.compile();
 }
@@ -317,17 +326,20 @@ function lowerPresentation(
         transmittance: atmosphereEnvironment, scattering: skyRadiance,
         higherOrder: higherOrderScattering, environment: physicalEnvironmentSun!
       });
+  if (plan.request.physicalEnvironment) assertTextureProduct(plan, graph, "sky-radiance", environmentRadiance);
   const aerialRadiance = !plan.stages.includes("aerial") || atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || physicalEnvironmentSun === undefined || owners.aerial === null
     ? environmentRadiance
     : owners.aerial.addToGraph(graph, { scene: environmentRadiance, depth: result.frame.depth,
         camera: cameraBuffer, environment: physicalEnvironmentSun,
         transmittance: atmosphereEnvironment, scattering: skyRadiance,
         higherOrder: higherOrderScattering, width: result.frame.domain.width, height: result.frame.domain.height });
+  if (plan.request.physicalEnvironment) assertTextureProduct(plan, graph, "aerial-radiance", aerialRadiance);
   const reconstructedRadiance = initial.fsr3.addToGraph(graph, {
     color: aerialRadiance, depth: result.frame.depth, motion: surface.motion,
     width: result.frame.domain.width, height: result.frame.domain.height,
     outputWidth: plan.request.outputWidth, outputHeight: plan.request.outputHeight
   }, (name, resolve) => bind(`fsr3/${name}`, bindings => resolve(bindings.fsr3)));
+  assertTextureProduct(plan, graph, "reconstructed-color", reconstructedRadiance);
   const swapchain = graph.import_resource(
     "swapchain", { kind: "imported", label: "swapchain" },
     bind("swapchain", bindings => bindings.swapchain)

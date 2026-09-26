@@ -54,7 +54,7 @@ the same Program entry and the same `FrameCoordinator` submit owner.
 
 | Semantic edge | Graph resource and physical owner | Lifetime and binding |
 | --- | --- | --- |
-| Scene/meshlet work → VisibilityKey/depth | imported MeshletWork queue from prepared Visibility job; depth from RenderTargets; VisibilityKey transient from VisibilityFeature | Job, scene and depth rebind each frame; class/work capacity and dimensions shape the key |
+| Scene/meshlet work → VisibilityKey/depth | imported MeshletWork queue from prepared Visibility job; depth from RenderTargets; VisibilityKey transient from VisibilityFeature | Job, scene and depth rebind each frame; dimensions and registered feature shape the key; work capacity is a current job binding |
 | Visibility depth → HZB and lighting | current/previous HZB textures from per-View HierarchicalZBuffer | HZB feature selection shapes the graph; camera cuts invalidate history without changing topology; current HZB is built only when an enabled consumer needs it |
 | VisibilityKey/meshlet work → ShadingWork → Surface | GPU ShadingWork queue, class/indirect resources and full-rate radiance/motion from Surface owners | Class set, bank masks and virtual bank count shape the graph; same-layout scene/material publications rebind |
 | Surface radiance/depth → Sky/Aerial | imported Sun buffer and transmittance/scattering/higher-order/irradiance LUT views from PhysicalEnvironmentRuntime | Optional environment stages; LUT generation is resolved per frame, with old LUTs retired after GPU completion |
@@ -62,7 +62,7 @@ the same Program entry and the same `FrameCoordinator` submit owner.
 
 The versioned key contains the current topology's internal/output dimensions,
 output format, device epoch profile, virtual geometry/bank shape, HZB and late
-recheck selection, MeshletWork capacity/path, class set, texture bank masks and
+recheck selection, class set, sampled texture bank masks and
 environment stage selection. Camera motion, scene generation, swapchain identity,
 FSR3 read/write index and environment LUT generation are per-frame bindings or
 owner state. The obsolete parallel `FrameGraphKey.ts` was removed. Same-shape

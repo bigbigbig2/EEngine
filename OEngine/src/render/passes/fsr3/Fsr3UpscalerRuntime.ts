@@ -85,6 +85,27 @@ export class Fsr3UpscalerRuntime {
   get readIndex(): 0 | 1 { return this.index; }
   get writeIndex(): 0 | 1 { return (1 - this.index) as 0 | 1; }
 
+  /** CPU-known shape check before a cached graph binds this frame's histories. */
+  assertPreparedFrame(renderWidth: number, renderHeight: number,
+    outputWidth: number, outputHeight: number): void {
+    if (!this.pending || !this.histories ||
+        this.size[0] !== renderWidth || this.size[1] !== renderHeight ||
+        this.size[2] !== outputWidth || this.size[3] !== outputHeight) {
+      throw new Error("FSR3 prepared frame does not match the Frame Program domain");
+    }
+    for (const [name, pair] of Object.entries(this.histories) as
+      [keyof Fsr3HistoryTextures, [GPUTexture, GPUTexture]][]) {
+      if (pair[0] === pair[1]) throw new Error(`FSR3 ${name} read/write history aliases`);
+      const width = name === "color" ? outputWidth : name === "frameInfo" ? 1 : renderWidth;
+      const height = name === "color" ? outputHeight : name === "frameInfo" ? 1 : renderHeight;
+      const format: GPUTextureFormat = name === "color" || name === "lumaHistory" ? "rgba16float" :
+        name === "luma" ? "r16float" : name === "accumulation" ? "r8unorm" : "rgba32float";
+      if (pair.some(texture => texture.width !== width || texture.height !== height || texture.format !== format)) {
+        throw new Error(`FSR3 ${name} history descriptor changed`);
+      }
+    }
+  }
+
   prepareFrame(command: ShadeGPUCommandContext, frame: Fsr3FrameInput): void {
     if (this.pending) throw new Error("FSR3 frame already prepared");
     const size = [frame.renderWidth, frame.renderHeight, frame.outputWidth, frame.outputHeight] as const;

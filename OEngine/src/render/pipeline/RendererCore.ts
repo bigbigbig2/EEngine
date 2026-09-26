@@ -18,7 +18,7 @@ import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
-import { buildFrameProgram } from "../program/FrameProgram.js";
+import { FrameProgramCache, type FrameProgram } from "../program/FrameProgram.js";
 import { assertFrameProgramBindings, type SceneFrameBindings, type EmptyFrameBindings } from "../program/FrameProgramBindings.js";
 import { lowerFrameProgram, type FrameProgramOwners } from "../program/FrameProgramLowering.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
@@ -298,8 +298,10 @@ export class Renderer {
   private _recoveryAttempts = 0;
   private _recoveryCheckpoint: ReturnType<Renderer["checkpointRecovery"]> | null = null;
   private _streamingGpuFrameTimeMs = 0;
-  private _lastFrameGraph: Readonly<{ cacheKey: string; dump: CompiledFrameGraphDump; resources: FrameResourceSummary }> | null = null;
+  private _lastFrameGraph: Readonly<{ cacheKey: string; dump: CompiledFrameGraphDump;
+    resources: FrameResourceSummary; program: Pick<FrameProgram, "products" | "facts" | "stages" | "bindingRoles"> }> | null = null;
   private readonly _graphCache = new CompiledFrameGraphCache(8);
+  private readonly _programCache = new FrameProgramCache(8);
   protected deviceEpoch = 1;
   packed_visibility_sse_threshold = 4;
   packed_geometry_work_budget: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET;
@@ -1178,6 +1180,7 @@ export class Renderer {
     const frame = this._frameCoordinator.beginFrame(frameIndex, "Renderer/visibility-frame");
     const command = frame.command;
     let temporalActive = false;
+    let activeHzb: HierarchicalZBuffer | null = null;
     let environmentGeneration: number | null | undefined;
     const preExposure: PreExposureContract = this._radiometry.beginFrame(
       this._environmentRuntime === null ? 0 :
@@ -1224,6 +1227,7 @@ export class Renderer {
       this._graphics.render_world.encodePendingPatch(scene, command);
       view.update(command);
       const hzb = view.hierarchical_z_buffer;
+      activeHzb = hzb;
       hzb.resetFrameStatistics();
       const currentViewMatrix = Float32Array.from(camera.view_projection_matrix);
       const previousViewMatrix = this._previousViewMatrices.get(view);
@@ -1294,18 +1298,14 @@ export class Renderer {
       const textureBankMasks = Array.from({ length: 4 }, (_, setId) =>
         runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0
       );
-      const program = buildFrameProgram({
-        kind: "scene", outputWidth: this._output_resolution.x,
+      const program = this._programCache.getOrCreate({
+        kind: "scene", intent: "present", viewFamily: "main", outputWidth: this._output_resolution.x,
         outputHeight: this._output_resolution.y, outputFormat: this._format,
         capabilityProfile: String(this.deviceEpoch), internalWidth: width, internalHeight: height,
         virtualGeometry: runtime.virtualGeometry !== null,
         virtualBankCount: runtime.virtualGeometry?.banks.length ?? 0,
         previousHzb: this.packed_visibility_hzb_enabled,
         currentHzbLateRecheck: job.prepared.currentHzbLateRecheck !== null,
-        meshletWorkCapacity: job.prepared.workSet.meshletWorkCandidate?.capacity ?? 0,
-        meshletWorkCompaction: this.packed_meshlet_work_compaction,
-        primitiveIndex: this.packed_primitive_index,
-        coneCulling: this.packed_visibility_cone_enabled,
         activeClasses, textureBankMasks,
         physicalEnvironment: this._environmentRuntime !== null
       });
@@ -1323,7 +1323,9 @@ export class Renderer {
       this._lastFrameGraph = Object.freeze({
         cacheKey: graphKey,
         dump: compiled.dump(),
-        resources: summarizeFrameGraphResources(compiled)
+        resources: summarizeFrameGraphResources(compiled),
+        program: { products: program.products, facts: program.facts,
+          stages: program.stages, bindingRoles: program.bindingRoles }
       });
       command.encodeCompiledGraph(compiled, graphBindings);
       this._temporal.markProduced("color");
@@ -1350,6 +1352,7 @@ export class Renderer {
         try { this._temporal.abort(frameIndex); }
         catch (abortError) { console.error("Temporal abort failed after render error", abortError); }
       }
+      activeHzb?.invalidate("explicit");
       this._fsr3.invalidate();
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         try { this._environmentRuntime?.abort(environmentGeneration); }
@@ -1375,7 +1378,7 @@ export class Renderer {
         deviceEpoch: this.deviceEpoch,
         swapchain: this.context.getCurrentTexture().createView()
       };
-      const program = buildFrameProgram({ kind: "empty", outputWidth: this._output_resolution.x,
+      const program = this._programCache.getOrCreate({ kind: "empty", intent: "present", viewFamily: "main", outputWidth: this._output_resolution.x,
         outputHeight: this._output_resolution.y, outputFormat: this._format,
         capabilityProfile: String(this.deviceEpoch) });
       assertFrameProgramBindings(program, bindings);
@@ -1389,7 +1392,9 @@ export class Renderer {
       this._lastFrameGraph = Object.freeze({
         cacheKey: graphKey,
         dump: compiled.dump(),
-        resources: summarizeFrameGraphResources(compiled)
+        resources: summarizeFrameGraphResources(compiled),
+        program: { products: program.products, facts: program.facts,
+          stages: program.stages, bindingRoles: program.bindingRoles }
       });
       command.encodeCompiledGraph(compiled, bindings);
       this._frameCoordinator.submitFrame(frame);
@@ -1427,6 +1432,7 @@ export class Renderer {
     this._environmentRuntime = null;
     this._frameCoordinator?.destroy();
     this._graphCache.destroy();
+    this._programCache.clear();
     this._renderTargets.destroy();
     this._graphics?.destroy();
     this._virtualProductScenes.clear();

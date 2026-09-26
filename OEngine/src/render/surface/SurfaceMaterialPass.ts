@@ -51,8 +51,6 @@ export interface SurfaceMaterialInputs {
   readonly physicalEnvironmentSun?: ResourceId;
   readonly physicalEnvironmentTransmittance?: ResourceId;
   readonly physicalSkyIrradiance?: ResourceId;
-  /** Motion is required for every temporal-enabled Surface program. */
-  readonly motionOutput: ResourceId;
 }
 
 type Program = Readonly<{
@@ -116,7 +114,7 @@ export class SurfaceMaterialPass {
         colorAttachments: [{ view: resolveTextureView(resources.get(radiance)),
           loadOp: "clear", storeOp: "store",
           clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 } }, {
-            view: resolveTextureView(resources.get(input.motionOutput)), loadOp: "clear" as const,
+            view: resolveTextureView(resources.get(initialMotion)), loadOp: "clear" as const,
             storeOp: "store" as const, clearValue: { r: 0, g: 0, b: 0, a: 0 }
           }]
       });
@@ -129,8 +127,13 @@ export class SurfaceMaterialPass {
         GPUTextureUsage.TEXTURE_BINDING
     });
     let output = radiance;
-    let motion = input.motionOutput;
-    motion = clear.write(motion);
+    const initialMotion = clear.create("Surface/motion", {
+      kind: "transient_texture", width: input.width, height: input.height,
+      format: "rg16float", domain: "internal-full",
+      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING |
+        GPUTextureUsage.TEXTURE_BINDING
+    });
+    let motion = initialMotion;
     for (const classId of input.activeClasses) {
       const programId = classId & 15;
       const textureSet = classId >> 4;
@@ -158,6 +161,7 @@ export class SurfaceMaterialPass {
       }
       const activeProgram = program;
       const inputOutput = output;
+      const motionOutput = motion;
       const passNode = graph.add(`Surface/shade material class ${classId}`, input.frame,
         (_frame, resources, context) => {
           const groups = activeProgram.layouts.map((layout, groupIndex) =>
@@ -166,7 +170,7 @@ export class SurfaceMaterialPass {
               .map(binding => ({
                 binding: binding.binding,
                 resource: this.resolveBinding(binding, input, currentView, inputOutput,
-                  textureSet, resources)
+                  motionOutput, textureSet, resources)
               })) }));
           const pass = (context.encoder as ShadeGPUCommandContext)
             .beginComputePass({ label: `Surface/shade material class ${classId}` });
@@ -179,27 +183,27 @@ export class SurfaceMaterialPass {
       for (const binding of activeProgram.bindings) {
         if (binding.role === "radiance-output" || binding.role === "motion-output" || binding.role === "texture-samplers" || binding.role === "physical-sky-irradiance-sampler") continue;
         if (binding.role === "frame-view") passNode.read(currentView);
-        else passNode.read(this.resolveResourceId(binding, input, textureSet));
+        else passNode.read(this.resolveResourceId(binding, input, textureSet, motionOutput));
       }
       passNode.read(input.indirect);
       passNode.read(inputOutput);
       output = passNode.write(inputOutput);
-      motion = passNode.write(motion);
+      motion = passNode.write(motionOutput);
     }
     return { radiance: output, motion };
   }
 
   private resolveBinding(
     binding: Readonly<SurfacePhysicalBinding>, input: SurfaceMaterialInputs,
-    view: ResourceId, output: ResourceId, textureSet: number,
+    view: ResourceId, output: ResourceId, motion: ResourceId, textureSet: number,
     resources: { get(id: ResourceId): unknown }
   ): GPUBindingResource {
     if (binding.role === "texture-samplers") return this.samplers[binding.element]!;
     if (binding.role === "physical-sky-irradiance-sampler") return this.samplers[1]!;
     const id = binding.role === "frame-view" ? view :
       binding.role === "radiance-output" ? output :
-      binding.role === "motion-output" ? requireId(input.motionOutput, binding.role) :
-        this.resolveResourceId(binding, input, textureSet);
+      binding.role === "motion-output" ? motion :
+        this.resolveResourceId(binding, input, textureSet, motion);
     const resource = resources.get(id);
     if (binding.kind === "sampled-depth" || binding.kind === "sampled-array" ||
         binding.kind === "sampled-2d" || binding.kind === "write-only-rgba16float" || binding.kind === "write-only-rg16float") return resolveTextureView(resource);
@@ -207,7 +211,7 @@ export class SurfaceMaterialPass {
   }
 
   private resolveResourceId(binding: Readonly<SurfacePhysicalBinding>,
-    input: SurfaceMaterialInputs, textureSet: number): ResourceId {
+    input: SurfaceMaterialInputs, textureSet: number, motion: ResourceId): ResourceId {
     switch (binding.role) {
       case "shading-work": return input.queue;
       case "shading-work-classes": return input.classes;
@@ -229,7 +233,7 @@ export class SurfaceMaterialPass {
       case "physical-environment-transmittance": return requireId(input.physicalEnvironmentTransmittance, binding.role);
       case "physical-sky-irradiance": return requireId(input.physicalSkyIrradiance, binding.role);
       case "physical-sky-irradiance-sampler": throw new Error("Surface sampler is not a graph resource");
-      case "motion-output": return requireId(input.motionOutput, binding.role);
+      case "motion-output": return motion;
       default: throw new Error(`Surface role ${binding.role} is not a readable graph resource`);
     }
   }

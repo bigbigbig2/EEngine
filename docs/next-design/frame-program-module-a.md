@@ -148,3 +148,39 @@ Granite 的 `RenderGraph::bake/build_aliases` 与 Filament 的 `FrameGraph::comp
 主要风险是：Pass 注册时捕获旧 GPU 对象、history A/B 读写别名、环境 LUT 提前回收、current Surface active-class layout 与 key 不一致、Graph culling 被副作用标记绕过、空场景/错误路径提交次数改变。执行文档针对每项给出源码切入点与小范围检查，不用逐批浏览器矩阵或伪 GPU workload 来“证明”模块完成。
 
 模块 A 完成须满足：唯一 Renderer 调用 Frame Program 的结构计划来 lower 当前真实链；Graph 中 Visibility→Surface→FSR3→Present 与可选环境边实际存在；Program key 不再含 history ping-pong、LUT generation 或相机运动；同尺寸/同 profile 跨帧绑定的是当帧真实资源；empty/feature-off 无无效工作；正常/abort/recovery 保持一个 submit owner。完成后集中 typecheck、build、必要 targeted tests，并更新 currentSlice，进入 Surface v2。正式浏览器、画质与性能证据留在最终集成。
+
+## 9. A0 生产资源边清单（2026-09-27 源码核对）
+
+下表的 `ResourceId` 是 lowering 中的逻辑句柄或 Graph 导入名；数值 ID 随编译图分配，不能作为跨帧身份。尺寸均为当前内部分辨率 `I` 或输出分辨率 `O`。结构 key 记录形状和启用的 owner；右列所列当前对象均从本帧 binding 解析。依据为 `RendererCore.render/renderEmptyScene`、`FrameProgramLowering`、`PackedVisibilityPass`、`ShadingWorkPass`、`SurfaceMaterialPass`、`Fsr3UpscalerRuntime` 和 `AtmosphereLutResources` 的当前生产调用。
+
+| 产品/逻辑 ResourceId | 生产者 → 消费者 | 物理 owner；尺寸/格式 | key、绑定与失效/退役 |
+| --- | --- | --- | --- |
+| `meshlet-work`、`visibility-counters`、`camera` | Visibility prepare 的 GPU 工作队列 → Visibility raster；camera/counters 也供 late recheck | `PackedVisibilityPass` 的 prepared work set、`GpuRenderWorldRuntime.counterSink`、`GPUViewContext` buffers；有界结构 buffer | Graph 形状只取 VG 与 late recheck 的实际启用；work 数量、队列容量与 scene 对象由当前 job 绑定；旧 prepared set 经 frame command 的 GPU 完成回调退役 |
+| `depth`、`Packed VisibilityKey` | Visibility raster → HZB、ShadingWork、Surface、Sky/Aerial、FSR3 | `RenderTargets.depth`：`I/depth32float`；Visibility transient：`I/r32uint`、背景 sentinel | `I` 与深度格式是结构；depth view 随帧/resize 换；VisibilityKey 每图执行 transient；camera cut 不改变图 |
+| `previous-hzb`、`current-hzb` | 上一已提交帧 HZB → Visibility；本帧 depth → HZB → light cluster/可选 late recheck | 每 View `HierarchicalZBuffer` 双纹理：`max(1,I/2)/rg16float` mip 链 | HZB 使用与 late recheck 启用状态进 key，read/write 物理索引不进 key；camera cut、resize、帧中断与 feature revision 使 history 无效；graph binding 每帧取 owner 当前/上一对象 |
+| `ShadingWork queue/classes/indirect` | VisibilityKey、MeshletWork、材质记录 → ShadingWork 分类/压紧 → Surface 每类 indirect dispatch、Present 统计 | `ShadingWorkPass` 的当前图 transient buffers，容量由 `I` 与设备 limit 算出 | `I` 与 active execution-class 集合影响结构；GPU counter 不进入 key 或 CPU 同帧决策；full-rate 是模块 A 暂时固定 profile |
+| `Surface/radiance`、`Surface/motion` | Surface clear 和每类 shader → Sky/Aerial 或 FSR3；motion → FSR3 Prepare Inputs | `SurfaceMaterialPass` 当前图 transient：`I/rgba16float` 工作线性 pre-exposed，`I/rg16float` 当前减上一帧 UV，背景 motion 清零 | `I`、class 集合、实际纹理 bank mask 进 key；材质/实例内容经当前 publication 绑定；无活跃 class 时 clear 仍提供合法色和零 motion |
+| `material-records`、`scene-instances`、`geometry-*`、`texture-routes`、`texture-set-*-bank-*`、`virtual-geometry-*` | 已发布 Scene/Product/Asset → Visibility、ShadingWork 与 Surface | `GpuRenderWorldRuntime`、`GpuAssetBindings`、当前 job；buffers 与 texture bank views | VG bank 数、被纹理 class 实际采样的 bank mask 进 key；同 layout 的 scene/material/texture generation 只换绑定；publication 由 render world 事务管理，不能混合两个 generation |
+| `physical-environment-sun`、`physical-environment-*-transmittance/scattering/higher-order/irradiance` | 帧内 environment record/参数上传 → Surface direct、PhysicalSky、Aerial | `PhysicalEnvironmentRuntime.parameters`：64 B；`AtmosphereLutResources`：transmittance 256×64、scattering/higher-order 256×128×32、irradiance 64×16，均 `rgba16float`；multipleScattering 64×64 只供 LUT 内部构建 | 环境 owner 开关进 key；固定 Earth LUT profile 的 generation、Sun revision 不进 key；Graph import 每帧取 pending/active view；旧 LUT 在提交完成 promise 后退役，abort 丢弃 pending |
+| `light-records`、cluster lookup/data/params | lit class 的 direct-light upload → HZB light cluster → Surface | `GPUViewContext.environment.lights` 与 `LightClusterPass`；GPU buffers，cluster 容量随 `I` | lit class 是否存在决定 light cluster 结构；灯内容每帧上传；unlit profile 不产生 cluster/readback |
+| FSR3 `previous/current color` | 上帧历史 → Accumulate；本帧 Accumulate → 后续帧历史 | `Fsr3UpscalerRuntime` 双纹理：`O/rgba16float` | output 尺寸进 key；A/B index、generation、reset 不进 key；提交后交换，abort 不交换，重分配旧纹理等上次提交完成 |
+| FSR3 `previous/current luma`、`previous/current luma history` | Prepare Inputs/金字塔 → Shading Change、Instability → 后续帧 | FSR3 双纹理：分别 `I/r16float`、`I/rgba16float` | `I` 进 key；每帧 read/write 角色绑定；resize/reset 重建并等待 GPU 完成退役 |
+| FSR3 `previous/current accumulation`、`previous/current frame info` | Reactivity 与 Luma Pyramid 读写 → Accumulate/下一帧 | FSR3 双纹理：`I/r8unorm`、`1×1/rgba32float` | `I` 进 key；两个角色不能别名；frame info 初始化由 owner 完成，abort 不推进 index |
+| FSR3 `constants`、`RCAS constants`、`default mask` | 当前 View/jitter/radiometry 与 owner 默认值 → FSR3 所有相关阶段 | FSR3 owner buffers 与 `1×1/r8unorm` 零 mask | 常量内容每帧写当前 frame command；mask/常量的物理角色由 graph slot 解析；不可因 cache hit 跳过 Prepare Inputs、金字塔、Reactivity、Instability、Accumulate 或 RCAS |
+| FSR3 RCAS 输出、`swapchain` | Accumulate/RCAS → Present → canvas | 当前图 `O/rgba16float` transient；canvas `O/outputFormat` 当前 view | `O`、output format 进 key；当前 swapchain view 不进 key；empty profile 只写 clear/present，不创建上述 scene/FSR3 资源 |
+
+Graph 外仍有同一 frame encoder 上的 `encodeFrameMaintenance`、pending Scene/Product patch、direct-light record upload、View/camera update、FSR3 constants upload 与 Environment LUT record。它们的成本没有被 Graph dump 计入；这些路径不得另做 frame submit。诊断 readback 是显式异步行为，不控制本帧可见工作。R21 的 Granite/Filament 对照仍只是架构参考，不是 donor port。
+
+### 结构 key 字段与对应 Graph 差异
+
+| 字段 | 改变的实际结构 |
+| --- | --- |
+| device epoch/capability profile | 所有 device-local pipeline、limit 及 cache 所属世代 |
+| `kind`、intent、view family | scene 全链或 empty clear/present；目前 intent/view 仅支持 present/main |
+| `I`、`O`、output format | texture descriptor、FSR3 domain、dispatch/Present 目标 |
+| virtual geometry 与 bank 数 | VG imports、Surface binding 数及 visibility Product 路径 |
+| HZB 和 late recheck 开关 | HZB build/import、late GPU filter/raster 节点 |
+| active class 集合及被采样的 texture bank mask | 每类 Surface pass/pipeline、对应 bank imports/binding layout；未采样的 bank mask 被规范化为零 |
+| physical environment 开关 | Sun/LUT imports、PhysicalSky/Aerial 与 Surface 环境绑定 |
+
+MeshletWork 本帧容量、compaction/primitive-index 实际选项当前由 Visibility job 的 prepared GPU owner 决定，不改变 `FrameProgramLowering` 的 pass/资源描述，因此不进这版 Graph key；若以后某选项真改变注册形状，必须先补结构字段或固定注册形状再启用。camera/view/jitter、scene/material generation、HZB A/B、FSR3 A/B、LUT generation、swapchain view 均不进 key。`FrameGraphKey.ts` 的旧并行 key 已移除。

@@ -26,17 +26,19 @@ test("GPU data ownership does not depend on render passes or camera state", () =
   }
 });
 
-test("Phase 1 has one Renderer graph and no old effect composition", () => {
+test("one production Renderer delegates topology to Frame Program and owns submission", () => {
   const entry = read("render", "Renderer.ts");
   const core = read("render", "pipeline", "RendererCore.ts");
+  const lowering = read("render", "program", "FrameProgramLowering.ts");
   assert.match(entry, /RendererCore\.js/u);
   assert.doesNotMatch(entry, /extends|MainRenderPipeline/u);
-  assert.match(core, /new FrameGraph\(/u);
+  assert.match(core, /lowerFrameProgram\(program, graphBindings/u);
   assert.match(core, /encodeCompiledGraph\(/u);
   assert.match(core, /_frameCoordinator\.submitFrame\(/u);
   assert.match(core, /executionMode: "none"/u);
-  assert.match(core, /addCurrentHzbLateRecheckToGraph/u);
-  assert.match(core, /_present\.addToGraph\(/u);
+  assert.match(lowering, /addCurrentHzbLateRecheckToGraph/u);
+  assert.match(lowering, /owners\.present\.addToGraph\(/u);
+  assert.doesNotMatch(core, /compileVisibilityGraph|compileEmptyGraph|new FrameGraph\(/u);
   assert.doesNotMatch(core, /SparseShadingPublicationCoordinator|OptionalFrameFeatures|\.traverse\(/u);
   for (const relative of [
     ["render", "pipeline", "MainRenderPipeline.ts"],

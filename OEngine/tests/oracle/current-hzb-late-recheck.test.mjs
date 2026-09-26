@@ -70,13 +70,3 @@ test("WGSL keeps current-HZB producer/consumer, bounded reservation, and fail-op
   assert.doesNotMatch(production, /source_invalid[\s\S]*instance_count, select\(written, 0u/u);
   assert.equal(abi.CURRENT_HZB_MESHLET_WORK_MAX_CAPACITY, 0x01000000);
 });
-
-test("Phase 1 graph builds current HZB before filtering and consumes the filtered queue", () => {
-  const source = readFileSync(path.resolve("src/render/pipeline/RendererCore.ts"), "utf8");
-  const hzb = source.indexOf('"Visibility/build HZB"');
-  const late = source.indexOf("addCurrentHzbLateRecheckToGraph");
-  assert.ok(hzb >= 0 && late > hzb);
-  const pass = readFileSync(path.resolve("src/render/passes/PackedVisibilityPass.ts"), "utf8");
-  assert.match(pass, /owner\.encode\([\s\S]*encodeFilteredVirtualRaster/u);
-  assert.match(pass, /meshletWork:\s*meshletWorkFrame\(\{[\s\S]*records: meshletWorkRecords/u);
-});

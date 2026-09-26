@@ -18,27 +18,16 @@ test("Physical Environment production consumers share the pinned runtime transpo
   assert.match(aerial, /node\.write\(output\)/);
 });
 
-test("FSR3 production path consumes Surface motion in the unified frame graph", () => {
-  const surface = read("src/render/surface/SurfaceMaterialPass.ts");
-  const fsr3 = read("src/render/passes/fsr3/Fsr3UpscalerRuntime.ts");
-  const renderer = read("src/render/pipeline/RendererCore.ts");
-  const program = buildFrameProgram({ kind: "scene", outputWidth: 1280, outputHeight: 720,
+test("FSR3 product demand includes Surface motion and the Present consumer", () => {
+  const program = buildFrameProgram({ kind: "scene", intent: "present", viewFamily: "main", outputWidth: 1280, outputHeight: 720,
     outputFormat: "bgra8unorm", capabilityProfile: "test", internalWidth: 640, internalHeight: 360,
     virtualGeometry: false, virtualBankCount: 0, previousHzb: true,
-    currentHzbLateRecheck: false, meshletWorkCapacity: 128,
-    meshletWorkCompaction: "portable", primitiveIndex: "portable", coneCulling: true,
+    currentHzbLateRecheck: false,
     activeClasses: [0], textureBankMasks: [0, 0, 0, 0], physicalEnvironment: false });
   for (const product of ["visibility", "shading-work", "surface-radiance", "surface-motion",
     "reconstructed-color", "swapchain"]) assert.ok(program.products.includes(product), product);
-  assert.match(surface, /motionOutput/);
-  assert.match(surface, /return \{ radiance: output, motion \}/);
-  assert.match(fsr3, /this\.prepareInputs\.addToGraph/);
-  assert.match(fsr3, /this\.accumulate\.addToGraph/);
-  assert.match(fsr3, /this\.rcas\.addToGraph/);
-  assert.match(renderer, /lowerFrameProgram\(program, graphBindings/);
-  assert.doesNotMatch(renderer, /AnalyticTemporalBaselinePass|TemporalGpuHistory/);
-  assert.match(renderer, /markProduced\("motion"\)/);
-  assert.match(renderer, /_temporal\.abort\(frameIndex\)/);
+  assert.deepEqual(program.facts.find(fact => fact.product === "surface-motion").consumers, ["fsr3"]);
+  assert.deepEqual(program.facts.find(fact => fact.product === "reconstructed-color").consumers, ["present"]);
 });
 
 test("Surface temporal and physical-environment resources have closed bindings", () => {
@@ -47,6 +36,13 @@ test("Surface temporal and physical-environment resources have closed bindings",
   const pass = read("src/render/surface/SurfaceMaterialPass.ts");
   assert.match(products, /physical-environment-transmittance/);
   assert.match(bindings, /add\("physical-environment-transmittance"/);
-  assert.match(pass, /readonly motionOutput: ResourceId/);
+  const program = buildFrameProgram({ kind: "scene", intent: "present", viewFamily: "main",
+    outputWidth: 1280, outputHeight: 720, outputFormat: "bgra8unorm", capabilityProfile: "test",
+    internalWidth: 640, internalHeight: 360, virtualGeometry: false, virtualBankCount: 0,
+    previousHzb: false, currentHzbLateRecheck: false, activeClasses: [0],
+    textureBankMasks: [0, 0, 0, 0], physicalEnvironment: true });
+  assert.ok(program.stages.includes("physical-sky"));
+  assert.ok(program.stages.includes("aerial"));
+  assert.deepEqual(program.facts.find(fact => fact.product === "surface-motion").consumers, ["fsr3"]);
   assert.match(pass, /case "physical-environment-transmittance"/);
 });

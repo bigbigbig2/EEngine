@@ -39,6 +39,7 @@ ${ATMOSPHERE_RUNTIME_WGSL}
 export class AerialPerspectivePass {
   private readonly pipeline: GPUComputePipeline;
   private readonly layout: GPUBindGroupLayout;
+  private readonly sampler: GPUSampler;
   constructor(private readonly device: GPUDevice) {
     const module = device.createShaderModule({ label: "Environment/Aerial Perspective", code: WGSL });
     this.layout = device.createBindGroupLayout({ entries: [
@@ -53,6 +54,7 @@ export class AerialPerspectivePass {
       { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } }
     ] });
     this.pipeline = device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }), compute: { module, entryPoint: "main" } });
+    this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
   }
   addToGraph(graph: FrameGraph, input: {
     scene: ResourceId; depth: ResourceId; camera: ResourceId; environment: ResourceId;
@@ -69,7 +71,7 @@ export class AerialPerspectivePass {
         { binding: 5, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
         { binding: 6, resource: { buffer: resources.get(input.environment) as GPUBuffer } },
         { binding: 7, resource: resolveTextureView(resources.get(output)) },
-        { binding: 8, resource: this.device.createSampler({ minFilter: "linear", magFilter: "linear" }) }
+        { binding: 8, resource: this.sampler }
       ] });
       const pass = command.beginComputePass({ label: "Environment/Aerial Perspective" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, bind);
