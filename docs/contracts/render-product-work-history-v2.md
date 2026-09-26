@@ -15,7 +15,7 @@ invariants:
   - visible samples receive valid shading results under full, coarse, spatial reconstruction, or valid temporal reuse
   - temporal histories reject incompatible identity, exposure, space, resolution, or representation before reuse
 validation:
-  - node tools/vibe.mjs verify --changed
+  - node tools/vibe.mjs verify --module
 ---
 # Next Renderer：Product、Work、History 跨模块目标合同
 

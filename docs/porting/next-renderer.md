@@ -1,6 +1,6 @@
 # EEngine Next：开源迁移来源与采用边界
 
-调查日期：2026-09-25。当前采用边界对应 [ADR-0020](../adr/0020-clean-cut-renderer.md) 和 [单路径重建路线](../next-renderer.md)。这是影响当前选型的来源账本，不是已移植清单；表中的模块是目标 owner，不表示迁移顺序。
+调查日期：2026-09-25。当前采用边界对应 [ADR-0020](../adr/0020-clean-cut-renderer.md) 和 [单路径重建路线](../next-execution/eengine-next-architecture-layer-plan-2026.md)。这是影响当前选型的来源账本，不是已移植清单；表中的模块是目标 owner，不表示迁移顺序。
 
 本轮通过 GitHub 固定 revision 的目录、许可证原文和下列标明的实现文件进行核查；未构建这些上游工程，未跑其 benchmark，也未证明移植后的 WebGPU 性能。**固定 commit 是复现调查的版本，不是自动引入依赖或升级现有来源的指令。** 本地已有 port 继续以 [geometry](./geometry.md)、[visibility](./visibility.md)、[shading](./shading.md)、[platform](./platform.md) 的既有 revision 为准。
 

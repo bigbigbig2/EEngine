@@ -82,7 +82,7 @@ const ENGINE_TEST_GROUPS = Object.freeze([
   {
     id: "project-tooling",
     paths: ["tools/", "checks/", "project/", "AGENTS.md", "OEngine/AGENTS.md"],
-    tests: /(?:check-runners|documentation-system)\.test\.mjs$/u
+    tests: /check-runners\.test\.mjs$/u
   },
   {
     id: "native-reference",

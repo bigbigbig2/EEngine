@@ -4,10 +4,7 @@
   "type": "module",
   "scripts": {
     "vibe": "node tools/vibe.mjs context .",
-    "vibe:registry": "node tools/vibe.mjs registry",
-    "vibe:evidence": "node tools/vibe.mjs evidence",
-    "vibe:doctor": "node tools/vibe.mjs doctor",
-    "vibe:verify": "node tools/vibe.mjs verify --changed",
+    "vibe:module-check": "node tools/vibe.mjs verify --module",
     "vibe:final": "node tools/vibe.mjs verify --full"
   },
   "dependencies": {

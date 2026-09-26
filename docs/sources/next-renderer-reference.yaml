@@ -25,5 +25,5 @@ differences:
   - Adaptive compute shading has no verified complete donor in this survey.
 validation:
   - docs/porting/next-renderer.md
-  - docs/next-renderer.md
+  - docs/next-design/eengine-next-overall-architecture-final-2026.md
   - project/workstreams/active/eengine-next-clean-rebuild.yaml

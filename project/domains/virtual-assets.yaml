@@ -19,9 +19,7 @@ paths:
   - docs/specs/web-geometry-*.md
   - docs/contracts/generated-registry.md
 currentDocs:
-  - docs/next-renderer.md
   - docs/domains/virtual-assets.md
-  - docs/contracts/generated-registry.md
 contracts:
   - geometry-product-v1
   - virtual-geometry-runtime-v1

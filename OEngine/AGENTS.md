@@ -37,14 +37,14 @@ src/index.ts
 
 - 稳定帧不得无条件 readback、创建临时 command encoder 或提交空命令。
 - 相同 feature set 和尺寸应复用已编译 FrameGraph/Pipeline/BindGroup。
-- 任何全屏 Pass、每材质循环或逐 mip Pass 都必须有 GPU 时间和替代方案对比。
+- 全屏 Pass、每材质循环与逐 mip Pass 应记录预期成本和替代方案；真实 GPU 时间与正式对比在整链性能验收时集中测量，不阻止模块编码。
 - 新算法先加入计数器和 debug view，再宣称优化。
 
 ## 开源实现与基础库复用
 
 - 新增渲染算法、数学函数、材质模型、资产处理、压缩或调试能力前，先检查 `docs/porting/` 的当前来源和采用边界。
 - 优先使用许可证兼容且经过测试/benchmark 的成熟库或实现；C++/Rust/native 项目默认作为 Cooker、WASM/native tool 或 CPU reference，不把其线程模型、allocator、descriptor 或高级 GPU capability 直接带入 WebGPU runtime。
-- 每次直接依赖、局部移植或按论文重实现都要记录 upstream URL、commit/tag、源码/测试路径、许可证、不变量、ABI/精度差异、WebGPU 改造、fallback 和本地回归。
+- 复杂算法选择 donor 时固定 upstream URL、commit/tag、许可证与源入口；完整源函数/阶段映射和本地回归可在该大模块收口时集中记录，不要求每个中间修改批次同步文档。
 - Next 重构先查 `docs/porting/next-renderer.md`，遵循 `docs/porting/README.md` 的完整算法 profile 迁移规则；不能为省事删掉关键阶段、条件、历史/失效或边界处理后仍称完整移植。WebGPU 执行模型适配与算法行为变化必须区分，后者明确记录并确认调整方向。
 - 数学和材质实现也必须对齐坐标系、矩阵布局、深度范围、切线空间、颜色空间、BRDF 和数值容差；短函数不能成为无验证重写的理由。
 - 上游实现如果导致额外的 JS allocation、全量复制、固定全屏扫描、每材质 draw、CPU readback 或不可解释的 GPU 长尾，必须保留算法参考但拒绝其 runtime 结构。

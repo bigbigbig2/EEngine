@@ -771,7 +771,9 @@ B: Visibility → Surface Fields → Lighting → Radiance
 
 ## 9. 从当前工程迁移：不重写 Geometry，先把后半段边界改对
 
-这次架构重定不应该表现为创建一个全新的 EEngine-v3。正确方式是保持当前 Geometry/Visibility 作为稳定生产输入，在它后面逐步替换 Frame/Surface/Temporal，并始终 A/B benchmark。
+> 执行口径（2026-09-27）：下文提到的 A/B benchmark 仅指**同一新架构内的物理 topology/算法比较**，不要求维护旧/新两条可运行生产 Renderer。旧路径在新消费者接通时直接切断；模块完成后才做轻量代码检查，系统画质和正式性能比较留到整体集成。具体顺序见[架构层执行计划](../next-execution/eengine-next-architecture-layer-plan-2026.md)。
+
+这次架构重定不应该表现为创建一个全新的 EEngine-v3。正确方式是保持当前 Geometry/Visibility 作为稳定生产输入，在它后面逐步替换 Frame/Surface/Temporal；同一新架构内的物理方案在真实消费者连通后比较，正式性能 benchmark 留待最终集成。
 
 第一阶段只建立最顶层 ABI：`Frame Program`、`Visibility Fact`、`Temporal Facts`、`Surface Field Demand`。RendererCore 可以暂时继续调用当前 Pass，但 topology 不再由固定手写顺序定义，而是由一个很薄的 Frame Program Builder 产生。这个阶段不扩新效果，目标是把职责边界切开。
 
@@ -823,11 +825,11 @@ B: Visibility → Surface Fields → Lighting → Radiance
 按照当前文档规则，整体架构只需要：
 
 ```text
-docs/design/renderer.md
-docs/plans/renderer.md
+docs/next-design/eengine-next-overall-architecture-final-2026.md
+docs/next-execution/eengine-next-architecture-layer-plan-2026.md
 ```
 
-开始 VSM 时再增加 `design/vsm.md + plans/vsm.md`；开始 Surface v2 时如果把它视为独立模块，则增加对应两份文档。模块内部不再继续拆很多 Markdown，而是在一份设计文档中逐层深入。
+开始 Surface v2 和 VSM 时分别增加对应的 `next-design/` 与 `next-execution/` 模块文档。模块内部不再继续拆很多 Markdown，而是在一份设计文档中逐层深入。
 
 ### 主要参考资料
 
@@ -850,3 +852,5 @@ docs/plans/renderer.md
 - RTXGI DDGI — https://github.com/NVIDIAGameWorks/RTXGI-DDGI
 - RTXGI v2 / Radiance Cache research code — https://github.com/NVIDIA-RTX/RTXGI
 - Granite — https://github.com/Themaister/Granite
+- The Forge — https://github.com/ConfettiFX/The-Forge （Visibility Buffer/资源组织参考；原生 API 的 draw 与绑定模式需重映射到 WebGPU）
+- Filament — https://github.com/google/filament （材质与物理光照数学参考；不直接套用其 Renderer topology）

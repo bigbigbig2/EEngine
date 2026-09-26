@@ -2,31 +2,25 @@
 id: project-routing
 kind: contract
 status: frozen
-owners: 
+owners:
   - platform
-version: 3
-consumers: 
+version: 4
+consumers:
   - tools/vibe.mjs
   - AGENTS.md
-invariants: 
-  - every existing changed file has a domain
-  - primary owner is explicit
-validation: 
-  - node tools/vibe.mjs verify --changed (module close)
-  - OEngine/tests/guard/check-runners.test.mjs
+invariants:
+  - every routed code path has one primary owner
+  - daily navigation is independent of acceptance metadata
+validation:
+  - node tools/vibe.mjs context <path>
+  - node --check tools/vibe.mjs
 ---
 # Project Routing
 
-`project/domains/*.yaml` is the path router. Each domain has one `primaryOwner`; overlapping paths may remain related, but equal-strength matches must be resolved by making one pattern more specific. `project/claims/*.yaml` states durable, cross-owner claims and names the watch paths, required checks, and allowed declarations. `checks/checks.yaml` describes executable or built-in checks.
+`project/domains/*.yaml` owns path-to-domain routing. The highest specificity match is the primary owner; ties are reported as ambiguous. The `currentDocs` list points to current source facts under `docs/domains/`. The active Next design and execution plan are separate navigation entries, not current implementation facts.
 
-The source is read with the YAML parser; duplicate keys and parse warnings are errors. `node tools/vibe.mjs context <path>` prints a compact route with owner, documents, contracts, checks, and workstream guidance. `--claims`, `--cases`, and `--all` explicitly expand it. Domain Markdown frontmatter contains only `id`, `kind`, and `owner`; relationship lists are generated from machine manifests. `node tools/vibe.mjs verify --changed` is an optional module-close check and reports missing routes or unresolved primary-owner ties when explicitly run.
+The daily `node tools/vibe.mjs context <path>` command parses only domain and active workstream YAML. It does not load checks, claims, cases, the generated registry, evidence, or the final acceptance runner. A missing or stale acceptance artifact therefore cannot stop coding.
 
-## Checks
+`node tools/vibe.mjs verify --module` is an explicit large-module close check: engine typecheck, build and optional named targeted tests. It does not infer tests from every changed path and does not create evidence. `node tools/vibe.mjs verify --full` loads the acceptance model for final integration. `context --claims`, `--cases` and `--all`, plus `registry`, `evidence`, `case`, `status` and `doctor`, also explicitly enter that separate model.
 
-`checks/checks.yaml` and `checks/guards/*.yaml` declare *what* each check asserts, including the `config` parameters that used to be hard-coded. `tools/check-runners.mjs` owns *how* it runs and is bound through the check's `runner` field. A check whose `runner` is not registered is a model error, and an unknown runner can never report `passed`.
-
-The verification level is derived from the product surface a change can touch. Only `OEngine/src/**` and `validation/**` are considered: `OEngine/tests/**`, `OEngine/tools/**`, `tools/**`, `checks/**`, `project/**`, and `docs/**` are tooling, so a test-file edit is L1 even when its filename names a lifecycle concept.
-
-`verify --changed` is an optional module-close check: it selects conservative affected test groups and expands to the full engine suite when a path has no safe mapping. `verify --full` is the final integration loop. `verify --changed --plan` is read-only and explains every selection. The terminal output is concise by default; `--json` exposes the complete payload. `--base <revision>` combines committed changes since that base with the current worktree.
-
-Exit `0` means the executed checks passed; exit `1` means a check failed, a changed path is unowned, or a route is ambiguous. Deferred browser cases and evidence are reported for final acceptance and do not change the development exit code.
+`checks/` and `project/claims/` describe formal checks and declarations for acceptance. They do not grant or withhold permission to implement the current module. Unknown runners, case policies and evidence freshness are checked only when the final acceptance model is invoked.

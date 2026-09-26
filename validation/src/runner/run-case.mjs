@@ -29,11 +29,11 @@ const dirty = git("status", "--porcelain").length > 0;
 const registrySha256 = sha256(registryBytes);
 if (acceptanceRequested && dirty) throw new Error("Accepted browser evidence requires a clean worktree; run without --accept for diagnostics");
 const verificationPath = resolve(repositoryRoot, "validation/evidence/verification.json");
-let verification = acceptanceRequested ? await reusableAcceptancePreflight() : null;
-if (verification === null) {
-  const preflightArgs = [resolve(repositoryRoot, "tools/vibe.mjs"), "verify"];
-  if (acceptanceRequested) preflightArgs.push("--full");
-  else preflightArgs.push("--changed", "--allow-not-run");
+// A diagnostic browser run is an observation, not a claim promotion. It must
+// not trigger repository-wide checks just to let a developer inspect a frame.
+let verification = acceptanceRequested ? await reusableAcceptancePreflight() : { ok: true, checkReceipts: [] };
+if (acceptanceRequested && verification === null) {
+  const preflightArgs = [resolve(repositoryRoot, "tools/vibe.mjs"), "verify", "--full"];
   const preflight = spawnSync(process.execPath, preflightArgs, {
     cwd: repositoryRoot,
     encoding: "utf8",

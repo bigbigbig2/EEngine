@@ -1,56 +1,30 @@
-# OEngine Documentation
+# EEngine Next 文档入口
 
-The repository uses a contract-driven project OS. Machine manifests route work and derive validation; human pages explain the stable owner boundaries; evidence records what the current revision actually proved.
+当前是破坏式重建。文档负责说明目标架构、实施顺序与已实现事实；不负责逐批批准编码。
 
-## Start Here
+## 从这里开始
 
-For the accepted EEngine Next clean-cut target, start with [单路径重建路线](./next-renderer.md). The current human-readable drafts are [整体架构设计](./next-design/renderer-architecture.md) and [详细执行文档](./next-execution/renderer-plan.md). They expand [ADR-0020](./adr/0020-clean-cut-renderer.md), [pinned migration sources](./porting/next-renderer.md), and the [current workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml). Target design is distinct from current runtime facts and completion evidence.
+1. [整体架构设计](next-design/eengine-next-overall-architecture-final-2026.md)：目标系统、长期边界、性能和质量原则。保留完整设计深度。
+2. [架构层执行计划](next-execution/eengine-next-architecture-layer-plan-2026.md)：第一层切断、Frame Program、Surface v2、Fuse/按需物化字段与 XeGTAO、Temporal、VSM 等实施顺序和模块完成点。
+3. [当前 workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml)：唯一活跃模块与紧随其后的模块。
+4. `node tools/vibe.mjs context <path>`：查询路径 owner、对应 current docs 和上述 Next 入口。该命令只导航，不检查 claim/evidence/browser 状态。
 
-1. Run `node tools/vibe.mjs context <path>` before changing code. The compact route includes the primary owner, decisions, source IDs, relevant workstream slice/modules, contracts, and suggested checks. Add `--claims`, `--cases`, or `--all` only when more detail is needed.
-2. Read the matching page under [domains](./domains/), then the linked contract under [contracts](./contracts/).
-3. During the destructive rebuild, use `node tools/vibe.mjs context <path>` for navigation. At a large module's completion, run typecheck, build, and necessary targeted tests; `verify --changed` is optional. Reserve `verify --full` and browser acceptance for final Next Renderer integration.
-4. Use `node tools/vibe.mjs status [domain]` to inspect claim state and `node tools/vibe.mjs evidence` to refresh evidence. Empty or partial raw input cannot remove compact records without `--force-empty` or `--force-prune`; use `evidence --check` for a read-only comparison.
+## 文档分层
 
-## Source Of Truth
+| 位置 | 作用 | 更新时点 |
+| --- | --- | --- |
+| `next-design/` | 整体目标和进入开发的模块设计 | 决策变化时 |
+| `next-execution/` | 顺序、直接切断、文件/owner、依赖和完成点 | 模块计划或顺序变化时 |
+| `domains/` | 当前源码事实，不自动代表最终设计 | 大模块完成后集中同步 |
+| `contracts/`、`specs/` | 已稳定的跨 owner 协议、ABI、格式 | 对应边界稳定后 |
+| `porting/`、`sources/` | 上游来源、许可、源与本地阶段映射 | 选择 donor 或完成移植时 |
+| `adr/` | 长期历史决策及被取代的理由 | 真正改变决策时 |
+| `reviews/`、`performance/` | 日期化观察与诊断，供追溯 | 需要记录时 |
 
-| Concern | Authoritative source |
-| --- | --- |
-| Path and owner routing | `project/domains/*.yaml` |
-| Durable completion claims | `project/claims/*.yaml` |
-| Executable/static checks | `checks/checks.yaml` |
-| Active workstream | `project/workstreams/active/*.yaml` |
-| Human domain facts | `docs/domains/*.md` |
-| Cross-owner contracts | `docs/contracts/*.md` |
-| Long-term decisions | `docs/adr/` |
-| Exact ABI and formats | `docs/specs/` |
-| External sources and licenses | `docs/sources/index.yaml`, `docs/porting/` |
-| Browser cases | `validation/cases/<id>/case.yaml` |
-| Browser harness | `validation/harness/` |
-| Current evidence | `validation/evidence/index.json`, generated `docs/status.generated.md`, and ignored `.local/validation/` raw artifacts |
+旧阶段概要已从活动文档树删除，可在 Git 历史查阅。ADR 和 review 只提供历史与源码线索。若与整体 final 设计及当前执行计划冲突，以后两者为当前目标；若与运行代码冲突，代码描述“现状”，文档描述“目标”，不能把任一方伪称为已完成。
 
-Unpromoted research cannot establish a product fact, ABI, claim status, or completion. Git history stores retired implementation narratives.
+## 开发与验收
 
-Domain Markdown frontmatter contains identity only. Contract, claim, check, and case relationships come from the matching machine manifests and are shown by `context`; do not copy those lists into human pages. Ordinary fixes and internal refactors add no document by default. Add or update a contract/spec for a stable cross-owner protocol or ABI, and add an ADR only for a long-lived choice with meaningful alternatives.
+开发者在 currentSlice 内持续实现。typecheck、build、targeted test 可用于调试；在大型模块完整连入生产路径后集中检查一次。不要为每批改动运行 `verify --module`、浏览器矩阵、formal evidence、claim promotion 或性能基准。系统验收留到主要架构和 planned providers 完成之后，详见 [验证时机](VALIDATION.md)。
 
-## Current Workstreams
-
-Workstream YAML is the authoritative current TODO, including paused work. During the Next rebuild, the active workstream stays compact: current module, goal, next modules, architecture rules, and deferred validation. Detailed design and execution reasoning live in the human documents; implementation history stays in Git. Missing browser runs, evidence, claims, or future phases do not block ongoing module coding.
-
-- [Nyx producer convergence](../project/workstreams/active/nyx-convergence.yaml)
-- [EEngine Next renderer](../project/workstreams/active/eengine-next-clean-rebuild.yaml) — Phase 3 production integration is recorded done; VSM is the next module. The [architecture draft](./next-design/renderer-architecture.md) and [execution draft](./next-execution/renderer-plan.md) describe the proposed refinement; the [implementation route](./next-renderer.md) retains the existing phase overview.
-- [Web authored-large Virtual Geometry](../project/workstreams/active/web-100m-virtual-geometry.yaml) — paused K4 legacy Sparse Shading publication optimization; accepted K0–K3 evidence remains historical, and `large.glb` will be rebaselined on the new Surface/Shading Runtime
-
-## Reviews
-
-Reviews are dated, non-authoritative audits. They record observations and recommendations but do not establish product facts or completion:
-
-- [2026-09-21 · Documentation and validation system review](./reviews/2026-09-21-documentation-validation-system-review.md)
-- [2026-09-23 · Documentation system refactor design](./reviews/2026-09-23-documentation-system-refactor-design.md)
-- [ADR-0018 historical research draft](./reviews/ADR-0018_Web_100M_Virtual_Geometry_Architecture.md)
-- [EEngine Next clean-cut design discussion](./reviews/EEngine_Next_Renderer_Final_Architecture.md) — user-supplied design input for [ADR-0020](./adr/0020-clean-cut-renderer.md); earlier [review](./reviews/2026-09-25-eengine-next-final-architecture-analysis.md) and [discussion archive](./reviews/2026-09-25-eengine-next-final-architecture-source.md) remain historical
-
-Phase records remain available in Git and under `docs/reviews/` for audit, but are no longer part of the current documentation entry path.
-
-## Performance Diagnostics
-
-Interactive investigations and their limitations are indexed under [performance](./performance/). These reports guide follow-up work; formal performance claims require the validation evidence described above.
+独立的 `project/claims/`、`checks/` 与 `validation/` 是最终验收基础设施；它们不参与日常 `context` 和是否允许继续编码的判断。删除旧 production 路径不要求维护运行中的旧链作桥梁。变更历史由 Git 保存。

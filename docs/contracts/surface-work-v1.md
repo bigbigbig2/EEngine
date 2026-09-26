@@ -17,7 +17,7 @@ invariants:
   - program identity excludes publication generations and bindings resolve the current graph publication
   - radiance is the only materialized Surface product in this profile and no temporal reuse is supported
 validation:
-  - node tools/vibe.mjs verify --changed
+  - node tools/vibe.mjs verify --module
   - node tools/vibe.mjs verify --full
 ---
 # Surface / Work V1：Phase 2 实现边界

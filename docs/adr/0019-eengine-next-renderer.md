@@ -12,7 +12,7 @@ Status: superseded by ADR-0020
 
 EEngine Next 定位为 **Demand-Driven Virtualized Visibility Renderer**：Virtualized Scene + Render Product Compiler + GPU Work Runtime + Visibility-driven Compute Shading + Temporal Fabric。只面向一个 Next 目标，允许重构主干。
 
-以六个交付模块组织：渲染规划与执行；GPU 场景/工作/驻留；Surface 与自适应着色；光传输；物理环境与参与介质；时域重建与质量预算。具体边界和实施依赖见 [模块路线](../next-renderer.md)，不在 ADR 维护任务状态。
+本 ADR 当时以六个交付模块组织：渲染规划与执行；GPU 场景/工作/驻留；Surface 与自适应着色；光传输；物理环境与参与介质；时域重建与质量预算。该顺序已由[当前架构层执行计划](../next-execution/eengine-next-architecture-layer-plan-2026.md)取代；本 ADR 不维护当前任务状态。
 
 Opaque visibility 以 VisibilityKey + Depth 为事实。Logical Product 与物理纹理解耦，用有界、可解释的计划选择融合、重算、物化与复用。着色频率按信号与有效性决定，不以粗糙度标量统一降低完整材质精度。透明/折射等有专门表示需求的路径仍通过同一产品规划与主管线接入。
 
@@ -34,6 +34,6 @@ GPU Work Runtime 值得成为特色，但特色来自产品规划、工作削减
 
 ## Verification
 
-文档准备使用现有 `vibe verify --changed`。实施按完整算法切片运行受影响检查，复用独立 validation 场景做关键算法对照和 GPU 闭环检查；不为每个函数增加测试流程。集成和正式性能声明沿用仓库现有规则。
+本 ADR 当时准备使用 `vibe verify --changed`；该命令现已退役，当前模块检查与最终验收时机见 [VALIDATION](../VALIDATION.md)。实施按完整算法切片运行受影响检查、复用独立 validation 场景的安排仅作历史记录。
 
 原 workstream 已随本 ADR 一同退出 active，历史留在 Git；当前任务见 [clean-rebuild workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。本 ADR 不提升任何 runtime/performance claim。

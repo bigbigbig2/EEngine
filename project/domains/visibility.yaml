@@ -27,9 +27,7 @@ paths:
   - docs/contracts/claims-and-evidence.md
   - docs/specs/**
 currentDocs:
-  - docs/next-renderer.md
   - docs/domains/visibility.md
-  - docs/specs/
 contracts:
   - render-product-work-history-v2
   - claims-and-evidence

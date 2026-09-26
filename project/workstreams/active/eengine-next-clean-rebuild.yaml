@@ -5,23 +5,31 @@ domain: frame-runtime
 state: active
 owner: frame-runtime
 decision: ADR-0020
-goal: Keep one GPU-first production renderer path while completing planned providers in large continuous modules.
+goal: Establish the final architecture's Frame Program, Surface and Temporal boundaries on the single production path, then integrate planned providers in large continuous modules.
 
 currentSlice:
-  id: fsr3-source-and-port
-  title: Phase 3 Physical Environment and FSR3 production closure
-  status: done
-  goal: Finish the documented Phase 3 Takram Physical Environment, shared temporal lifetime, and faithful FSR3 Upscaler production integration before advancing to VSM.
+  id: frame-program
+  title: Frame Program and semantic product architecture
+  status: active
+  goal: Move topology and semantic demand out of RendererCore into a single Frame Program while retaining real Visibility to Surface to Presentation consumption.
 
 nextModules:
+  - id: surface-v2
+    title: Surface, material and lighting v2
+  - id: surface-fields-xegtao
+    title: Fuse and demand-materialized Surface fields with XeGTAO as the first real consumer
+  - id: temporal-presentation
+    title: Temporal facts, radiometry and presentation migration
   - id: vsm
-    title: VSM production provider
-  - id: xe-gtao
-    title: XeGTAO production provider
+    title: GPU-produced residency and VSM production integration
   - id: sssr
-    title: SSSR production provider
-  - id: ddgi
-    title: Screen/Atlas DDGI and Sky GI production providers
+    title: FidelityFX SSSR production provider
+  - id: hybrid-gi
+    title: Screen, world-space and sky GI production providers
+  - id: virtual-resource
+    title: Virtual resource control-plane convergence and VT
+  - id: transparency-media
+    title: Transparency, local media and presentation integration
 
 architectureRules:
   - Keep one production Renderer path and one frame submit owner.
@@ -44,6 +52,5 @@ deferredValidation:
     - formal evidence and claim promotion
 
 links:
-  decision: docs/adr/0020-clean-cut-renderer.md
-  implementationRoute: docs/next-renderer.md
-  sourceLedger: docs/porting/next-renderer.md
+  design: docs/next-design/eengine-next-overall-architecture-final-2026.md
+  execution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md

@@ -15,10 +15,7 @@ paths:
   - docs/domains/shading.md
   - docs/porting/shading.md
 currentDocs:
-  - docs/next-renderer.md
-  - docs/porting/next-renderer.md
   - docs/domains/shading.md
-  - docs/porting/shading.md
 contracts:
   - surface-work-v1
   - render-product-work-history-v2

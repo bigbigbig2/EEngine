@@ -39,9 +39,7 @@ paths:
   - docs/domains/frame-runtime.md
   - docs/VALIDATION.md
 currentDocs:
-  - docs/next-renderer.md
   - docs/domains/frame-runtime.md
-  - docs/VALIDATION.md
 contracts:
   - render-product-work-history-v2
   - browser-harness

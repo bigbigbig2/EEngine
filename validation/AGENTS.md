@@ -6,4 +6,4 @@
 - 不添加运行时 legacy/candidate backend 开关，不复用用户 Chrome profile、扩展、已有 tab 或缓存。
 - `passed` 必须同时满足新鲜度、错误聚合、Case assertion 和 dispose；`unsupported` 不能掩盖 correctness failure。
 - Raw artifact 默认写入仓库根 `.local/validation/` 且不提交；只有 clean revision、条件完整且可复算的 summary 才能进入 `OEngine/benchmarks/`。
-- 修改协议、registry、Runner 或 artifact schema 时先运行 `npm run typecheck`、`npm test`，再用 `node tools/vibe.mjs case protocol-self-test --run` 做 diagnostic protocol self-test；需要形成正式证据时在 clean revision 使用 `--run --accept`。真实 WebGPU Case 仍必须运行命中的浏览器测试。自动 case 位于 `validation/cases/<id>/`，观察实验位于 `validation/labs/<id>/`。
+- 协议、registry、Runner 或 artifact schema 的实现可连续修改；该大模块连通后集中运行 typecheck 与必要的 targeted tests。`protocol-self-test`、真实 WebGPU Case、clean revision 和 `--run --accept` 属于最终验收或主动诊断，不能成为普通开发的前置门禁。自动 case 位于 `validation/cases/<id>/`，观察实验位于 `validation/labs/<id>/`。

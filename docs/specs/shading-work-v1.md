@@ -31,4 +31,4 @@ GPU producer 两次读取 VisibilityKey，GPU finalize 写类区间和 indirect 
 
 ## Validation
 
-`OEngine/tests/contract/shading-work-capacity.test.mjs` 和 `shading-frequency-plan.test.mjs` 检查协商边界；`node tools/vibe.mjs verify --changed` 验证受影响代码；独立 validation 宿主的 `phase1-visibility` diagnostic case 检查数值材质输出、GPU 频率计划和真实队列计数、空间覆盖、错误显色与 device-loss 重建。该 case 只提供诊断，不晋级 Runtime Validated、Performance 或完整画质声明。
+`OEngine/tests/contract/shading-work-capacity.test.mjs` 和 `shading-frequency-plan.test.mjs` 检查协商边界；`node tools/vibe.mjs verify --module` 验证受影响代码；独立 validation 宿主的 `phase1-visibility` diagnostic case 检查数值材质输出、GPU 频率计划和真实队列计数、空间覆盖、错误显色与 device-loss 重建。该 case 只提供诊断，不晋级 Runtime Validated、Performance 或完整画质声明。
