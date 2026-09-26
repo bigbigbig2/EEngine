@@ -49,13 +49,13 @@ src/index.ts
 - 数学和材质实现也必须对齐坐标系、矩阵布局、深度范围、切线空间、颜色空间、BRDF 和数值容差；短函数不能成为无验证重写的理由。
 - 上游实现如果导致额外的 JS allocation、全量复制、固定全屏扫描、每材质 draw、CPU readback 或不可解释的 GPU 长尾，必须保留算法参考但拒绝其 runtime 结构。
 - ADR-0020 明确列入 Clean-Cut 的旧 owner 可在替代算法尚未完成时删除；同批撤销或重写失效的 claim/check，并把真实删除的路径加入 retired-path guard。删除旧实现不代表新算法完成。
-- 新的上游算法移植只有完成许可证与源函数映射、真实 GPU producer/consumer、生命周期/overflow、正确性和必要性能验证后，才能宣称该移植完成或升级相关 claim。
+- 新的上游算法移植须完成许可证与源函数映射、真实 GPU producer/consumer 和生命周期；模块收口运行 typecheck、build 与必要的 targeted tests。正式质量、性能证据和 claim 晋级留到 Next Renderer 最终验收，不能提前宣称这些等级。
 
 ## 验证
 
-- 普通 DEV 在 dependency/lockfile 未变化时不运行 `npm ci`；TypeScript/WGSL 改动运行 `npm run typecheck` 和命中的 targeted tests。
+- 普通 DEV 在 dependency/lockfile 未变化时不运行 `npm ci`；TypeScript/WGSL 改动可按调试需要运行 typecheck 和 targeted tests，大模块完成时集中检查。
 - dependency/lockfile 变化、clean reproduction、CI 或正式 PERF 前运行 `npm ci`。
 - `examples/` 不承担 Browser Case 或 formal runner；`npm test` 不能替代真实 GPU 证据。渲染改动必须由 ADR-0014 的独立 `validation/` 宿主产生合格证据，才可升级为 Runtime Validated、Performance Evaluated/Improved、Pipeline Feature Complete 或 ADR Complete。
 - MILESTONE 与正式 PERF 必须使用 ADR-0014 的真实浏览器宿主，并遵循 `docs/VALIDATION.md` 的 fixed-condition policy。
 
-现有 `tests/unit|contract|oracle|guard/` 已覆盖关键公共 seam；新增高风险 ABI、数学、资产解析和 GPU producer/consumer 路径时必须同步补对应分类或命中的 Browser Case。
+现有 `tests/unit|contract|oracle|guard/` 覆盖关键公共 seam；新增高风险 ABI、数学、资产解析和 GPU producer/consumer 路径时，在大模块收口阶段补必要的 targeted coverage。Browser Case 留到 Next Renderer 最终验收。

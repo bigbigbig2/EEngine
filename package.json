@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "vibe": "node tools/vibe.mjs",
+    "vibe": "node tools/vibe.mjs context .",
     "vibe:registry": "node tools/vibe.mjs registry",
     "vibe:evidence": "node tools/vibe.mjs evidence",
     "vibe:doctor": "node tools/vibe.mjs doctor",
-    "vibe:verify": "node tools/vibe.mjs verify --changed"
+    "vibe:verify": "node tools/vibe.mjs verify --changed",
+    "vibe:final": "node tools/vibe.mjs verify --full"
   },
   "dependencies": {
     "yaml": "^2.8.1"

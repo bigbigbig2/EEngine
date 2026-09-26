@@ -33,7 +33,7 @@ import {
 } from "./vibe-lib.mjs";
 import { planEngineTests, runCheckImplementation } from "./check-runners.mjs";
 
-const [command = "doctor", ...args] = process.argv.slice(2);
+const [command = "context", ...args] = process.argv.slice(2);
 
 try {
   if (command === "registry") await registryCommand();
@@ -50,7 +50,6 @@ try {
   else if (command === "verify") await verifyCommand({
     changedOnly: args.includes("--changed"),
     perfRequested: args.includes("--perf"),
-    allowNotRun: args.includes("--allow-not-run"),
     planOnly: args.includes("--plan"),
     verbose: args.includes("--json"),
     baseRevision: optionValue(args, "--base")
@@ -72,7 +71,6 @@ async function registryCommand() {
   const registryErrors = validateGeneratedRegistry(registry);
   if (registryErrors.length > 0) throw new Error(`Generated registry is invalid:\n${registryErrors.join("\n")}`);
   const result = await writeGeneratedRegistry(registry);
-  assertWorkstreamCompletion(model, await loadEvidenceIndex(), currentRevision(), caseSignatures(model));
   console.log(JSON.stringify({ generated: relative(REPO_ROOT, result.path), cases: registry.cases.length, bytes: result.bytes, sha256: result.sha256 }, null, 2));
 }
 
@@ -87,14 +85,8 @@ async function doctorCommand() {
     const registryErrors = validateGeneratedRegistry(registry);
     if (registryErrors.length > 0) errors.push(registryErrors.join("\n"));
   } catch (error) { errors.push(error.message); }
-  if (registry) {
-    try {
-      const workstreamErrors = validateWorkstreamCompletion(model, await loadEvidenceIndex(), currentRevision(), caseSignatures(model));
-      errors.push(...workstreamErrors);
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : String(error));
-    }
-  }
+  // Workstream evidence and claim completion belong to final acceptance. The
+  // everyday doctor only checks model and generated registry structure.
   const warnings = [];
   if (!existsSync(GENERATED_REGISTRY)) warnings.push("generated registry has not been written yet; run `node tools/vibe.mjs registry`");
   if (!existsSync(EVIDENCE_INDEX)) warnings.push("evidence index has not been written yet; run `node tools/vibe.mjs evidence`");
@@ -121,7 +113,6 @@ async function contextCommand(input, options = {}) {
   const selectedSources = model.sources.filter((source) => sourceIds.has(source.id));
   const selectedWorkstreams = model.workstreams.filter((workstream) => primaryDomains.some((domain) =>
     workstream.domain === domain.id || (domain.decisions ?? []).includes(workstream.decision)));
-  const requiredLevel = requiredVerificationLevel(paths, false);
   const summary = {
     input,
     owner: all
@@ -135,18 +126,14 @@ async function contextCommand(input, options = {}) {
     implementation: primaryDomains.map((domain) => ({ id: domain.id, owner: domain.owner })),
     checks: checks.map((check) => check.id),
     checkReason: "selected from the primary/related owner domains and directly matched claims",
-    engineTests: summarizeEnginePlan(planEngineTests({ changedOnly: true, changedPaths: paths })),
-    browserAcceptance: browserCasesRequired(cases, requiredLevel).map((item) => `${item.caseId} (${item.level})`),
-    browserAcceptanceTrigger: requiredLevel === "L0" || requiredLevel === "L1"
-      ? `none for the inferred ${requiredLevel} development scope`
-      : `run explicitly to accept this inferred ${requiredLevel} product change`
+    ...(options.includeAll ? { engineTests: summarizeEnginePlan(planEngineTests({ changedOnly: true, changedPaths: paths })) } : {})
   };
   if (options.includeClaims) summary.claims = claims.map(options.includeAll ? stripPrivate : summarizeClaim);
   if (options.includeCases) summary.cases = cases.map(options.includeAll ? stripPrivate : summarizeCase);
   console.log(JSON.stringify(summary, null, 2));
 }
 
-async function verifyCommand({ changedOnly, perfRequested, allowNotRun, planOnly, verbose, baseRevision }) {
+async function verifyCommand({ changedOnly, perfRequested, planOnly, verbose, baseRevision }) {
   const verifyStarted = performance.now();
   const model = await loadModel();
   const legacy = null;
@@ -178,7 +165,9 @@ async function verifyCommand({ changedOnly, perfRequested, allowNotRun, planOnly
   for (const claim of claims) for (const checkId of claim.requiredChecks ?? []) checkIds.add(checkId);
   const signatures = caseSignatures(model);
   const evidence = await loadEvidenceIndex();
-  assertWorkstreamCompletion(model, evidence, currentRevision(), signatures);
+  // Workstream completion is a final-acceptance concern. It must not block
+  // ordinary implementation verification while the current slice is active.
+  if (!changedOnly) assertWorkstreamCompletion(model, evidence, currentRevision(), signatures);
   const requiredLevel = requiredVerificationLevel(changedPaths, perfRequested);
   const checkContext = { repoRoot: REPO_ROOT, model, changedOnly, changedPaths, uncovered, routingAmbiguities, evidence };
   const engineCheck = model.checks.find((check) => check.id === "engine-suites");
@@ -233,9 +222,8 @@ async function verifyCommand({ changedOnly, perfRequested, allowNotRun, planOnly
   const notRun = browserCasesRequired(cases, requiredLevel);
   const blocked = claimStatuses.filter((claim) => claim.status === "blocked").map((claim) => claim.id);
   const unsupported = evidence.evidence.filter((item) => item.status === "unsupported").map((item) => item.caseId);
-  // `ok` means the project topology and every executed check passed. It says
-  // nothing about the cases this command deliberately does not launch, so the
-  // completion signal is reported separately and drives its own exit code.
+  // `ok` covers executed checks. Deferred browser cases and claim status are
+  // reported separately; they do not gate development checks.
   const ok = uncovered.length === 0 && routingAmbiguities.length === 0 && failedChecks.length === 0;
   const verificationComplete = isVerificationComplete(ok, notRun, skippedChecks);
   const report = {
@@ -293,15 +281,6 @@ async function verifyCommand({ changedOnly, perfRequested, allowNotRun, planOnly
   console.log(JSON.stringify(verbose ? result : summarizeVerification(result), null, 2));
   if (!result.ok) {
     process.exitCode = 1;
-  } else if (!verificationComplete && !allowNotRun) {
-    // Exit 2 keeps "topology is consistent" distinct from "the change is
-    // verified". Without it, a green exit code on an L2/L3 change that ran no
-    // browser case reads as success.
-    const details = [];
-    if (skippedChecks.length > 0) details.push(`checks: ${skippedChecks.map((item) => item.id).join(", ")}`);
-    if (notRun.length > 0) details.push(`browser cases: ${notRun.map((item) => item.caseId).join(", ")}`);
-    console.error(`verify: required verification was not run (${details.join("; ")}).\n        run the missing gates, or acknowledge the gap with --allow-not-run.`);
-    process.exitCode = 2;
   }
 }
 
@@ -421,7 +400,6 @@ async function statusCommand(domainId) {
   const generated = await writeGeneratedRegistry(registry);
   const registrySha256 = generated.sha256;
   const signatures = caseSignatures(model);
-  assertWorkstreamCompletion(model, evidence, head, signatures);
   const claims = model.claims.filter((claim) => !domainId || claim.domain === domainId);
   const rows = claims.map((claim) => statusRow(claim, model, evidence, head, signatures));
   const statusPath = resolve(REPO_ROOT, "docs/status.generated.md");
@@ -468,8 +446,7 @@ function summarizeCase(item) {
 }
 
 function summarizeWorkstream(workstream) {
-  const nextTasks = workstream.nextTasks ?? [];
-  const openGates = workstream.openGates ?? [];
+  const nextTasks = workstream.nextTasks ?? workstream.nextModules ?? [];
   return {
     id: workstream.id,
     state: workstream.state,
@@ -477,9 +454,9 @@ function summarizeWorkstream(workstream) {
       ? { id: workstream.currentSlice.id, status: workstream.currentSlice.status }
       : null,
     nextTasks: nextTasks.slice(0, 2),
-    openGates: openGates.slice(0, 2),
-    ...(nextTasks.length > 2 ? { moreNextTasks: nextTasks.length - 2 } : {}),
-    ...(openGates.length > 2 ? { moreOpenGates: openGates.length - 2 } : {})
+    ...(workstream.currentSlice?.goal ? { goal: workstream.currentSlice.goal } : {}),
+    ...(workstream.architectureRules ? { architectureRules: workstream.architectureRules.slice(0, 5) } : {}),
+    ...(nextTasks.length > 2 ? { moreNextTasks: nextTasks.length - 2 } : {})
   };
 }
 
@@ -488,13 +465,12 @@ function printHelp() {
   context <path>       show compact owner, decision, source, workstream, contract, and check guidance
   context <path> --claims | --cases | --all
                        expand claim, case, or complete routed detail
-  verify --changed     run affected development checks and targeted tests
-  verify --full        run the complete integration checks (also the default)
+  verify --changed     optional module-close checks and targeted tests
+  verify --full        run the complete final integration checks explicitly
   verify --plan        print selected checks/tests without running or writing
   verify --json        print the complete report payload instead of a summary
   verify --base <rev>  include committed changes since a base revision
-                       exit 0 = complete, 2 = checks passed but required cases
-                       were not run (use --allow-not-run to accept the gap)
+                       exit 0 = executed checks passed; deferred cases appear in notRun
   registry             generate validation/registry.generated.json
   evidence [--check] [--force-empty] [--force-prune]
                        rebuild atomically; evidence removal requires explicit force

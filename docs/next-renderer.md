@@ -91,7 +91,7 @@ Phase 1 的旧效果删除清单明确包含 `AOService`、`ScreenSpaceDiffuseSe
 - 新 Surface 的程序/绑定闭包、GPU producer/consumer、容量/溢出和每个可见样本的有效结果具有精确合同及受影响验证。逻辑值声明不等于对应产品已生产；法线、运动等逐项区分 schema 与实际消费者。
 - 本阶段采用有限频率 profile：静态 opaque unlit factor 与已认证 1×1 unlit base texture 可作 coarse 候选；未证明安全的纹理、受光、法线及其他材质由同一新链 full-rate 求值。保留覆盖/身份边界与运动检查，禁止 history reuse。本地 profile 不冒称完整 CPS/VRS 移植或通用自适应着色。
 - 补齐当前 Surface 有限计划的需求、资源角色、配置/发布失效与 lowering 边界；不要求此阶段实现尚无消费者的通用规划器。完整跨消费者表示选择随 Phase 3/4 落地。
-- 运行受影响编译、静态、合同与关键数学检查，修复已知结果正确性问题；阶段集成使用既定 `verify --full`。正式浏览器验收与双机净收益独立记录，不作为删除旧 owner 的前置条件。
+- 大模块完成时集中运行 typecheck、build 和必要的 targeted tests，修复已知正确性问题；`verify --full` 留到整个 Next Renderer 最终集成。正式浏览器验收与双机净收益不作为继续编码的前置条件。
 
 广泛 lit/normal 降频和跨光照不连续的频带研究移到 Phase 4 的真实 Light Transport 消费者集成；Temporal reuse 移到 Phase 3 身份/拒绝合同之后。分类、队列、着色、重建及整帧净收益在固定条件下与同链 full-rate 比较，决定默认策略；未证明收益不得宣称性能提升，也不强制所有便宜工作先 compact。这是阶段范围的明确调整，不表示这些目标已完成。
 
@@ -118,7 +118,7 @@ Phase 1 的旧效果删除清单明确包含 `AOService`、`ScreenSpaceDiffuseSe
 
 完整算法 profile 的源函数/entry、分支、依赖、历史、fallback、差异和本地对照记录在[来源账本](./porting/next-renderer.md)。GPUPrefixSums、The Forge、Filament、XeGTAO、FidelityFX SSSR/FSR3、Timberdoodle VSM、Atlas DDGI、Takram、Adria 均为固定候选；候选存在不等于 port 完成。不得删必要阶段还沿用原名。
 
-重构中每个连贯批次运行 `node tools/vibe.mjs verify --changed`；优先修编译/静态、受影响合同和关键算法错误。完整旧 Renderer 测试无需作为每刀前提；新链完成后按功能逐一做浏览器场景与参考对照，阶段集成才 `verify --full`。正式 Runtime Validated、Performance、Pipeline 完成声明只由当前 revision 的正式 evidence 推出。
+高速重构期间按 currentSlice 连续实现；typecheck、build 和 targeted test 可用于调试，不作为每批门禁。FSR3、VSM 等大模块完成时集中运行一次 typecheck、build 和必要的 targeted tests，更新 workstream 后继续下一模块。主要架构与 planned providers 全部完成后，集中做 browser matrix、生命周期、不同场景与材质、feature 交互、质量和 P50/P95 性能比较，再处理正式 evidence 与 claims。正式 Runtime Validated、Performance、Pipeline 完成声明只由当前 revision 的正式 evidence 推出。
 
 GTX 1650 Ti 4 GiB/16 GiB RAM 是较低配置设计基线，RTX 2060 的实际 adapter/limits 待该机读取；1080p/60 FPS、动态内部分辨率和可配置预算是目标，尚非实测保证。记录 shading/ray/page/probe 工作量、分类/重建成本、物化带宽和质量；不为少几个全屏 Pass 强制所有任务进队列。WebGPU feature/limit 先协商；`shader-f16`、subgroups、`primitive-index` 等按实际 adapter/WGSL 能力选择 specialization，不能仅凭 GPU 型号假定存在。mesh shader、DX12 Work Graph、硬件 RT、自由 bindless、BDA、64 位原子、multi-draw-count 不作主链前提；详见 [WebGPU 能力合同](./WEBGPU.md)。
 

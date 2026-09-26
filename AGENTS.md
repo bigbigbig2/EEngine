@@ -5,12 +5,19 @@ OEngine 是面向桌面 WebGPU、中大型高几何密度场景的 GPU-first 渲
 ## 工作流
 
 1. 修改前运行 `node tools/vibe.mjs context <path>`，按精简输出阅读 owner、contract、入口和建议检查；只有需要展开时才加 `--claims`、`--cases` 或 `--all`。
-2. 一个连贯修改批次完成后运行一次 `node tools/vibe.mjs verify --changed`；它构建最新测试产物，只运行受影响测试组。只有相关代码继续变化、修复失败或出现新疑点时才重跑；阶段集成使用 `node tools/vibe.mjs verify --full`。
-   - 退出 `0`：检查通过且无跳过；退出 `1`：检查失败、路径无主或路由歧义；退出 `2`：检查通过但所需等级的浏览器 case 未运行（`--allow-not-run` 显式接受缺口）。
-   - `engine-suites` 会先增量构建测试产物，再按变更计划运行 `OEngine/tests/unit|contract|oracle|guard`；无法安全定位影响范围时自动扩大到全套。不要绕过它直接 `node --test`，`.test-dist` 过期会静默测试旧产物。
-   - `node tools/vibe.mjs verify --changed --plan` 只显示选择原因，不运行检查或写生成物；`--json` 显示完整机器报告。浏览器 `case --run` 默认只产生 diagnostic evidence；只有 clean revision 上显式 `--accept` 才执行或复用 full preflight 并允许晋级。
-3. 机器事实只编辑 `project/`、`checks/`、case-local `case.yaml`、docs frontmatter/source ledger 和 workstream；`validation/registry.generated.json`、`validation/evidence/` 与 `docs/status.generated.md` 是生成物。检查的执行体在 `tools/check-runners.mjs`：声明式 YAML 只描述断言，新增检查必须绑定已注册的 `runner`，未注册的 runner 一律失败而不是默认通过。
-4. 普通修复和内部重构默认不新增文档。domain Markdown frontmatter 只写 `id`、`kind`、`owner`；关系由机器 manifest 生成。活跃 workstream 只保留当前 slice、下一批任务、open gates 和退出条件，阶段过程由 Git、正式 evidence 或少量长期审计 review 保存。
+2. 在 currentSlice 内连续编码。typecheck、build、targeted test 可按调试需要主动运行；大模块完成时集中运行一次 typecheck、build 和该模块必要的 targeted tests，并更新 currentSlice。`verify --changed` 仅是主动使用的模块检查，`verify --full` 留到最终集成。
+3. 机器事实只编辑 `project/`、`checks/`、case-local `case.yaml`、docs frontmatter/source ledger 和 workstream；`validation/registry.generated.json`、`validation/evidence/` 与 `docs/status.generated.md` 是生成物。检查的执行体在 `tools/check-runners.mjs`：声明式 YAML 只描述断言，新增检查必须绑定已注册的 `runner`。
+4. 文档用于导航和架构约束。快速变化的实现可在大模块完成后同步；活跃 workstream 只维护 currentSlice、goal、nextModules、architectureRules 和 deferredValidation。
+
+## 实现阶段与收口阶段
+
+当前处于高速破坏式重建时，Coding Agent 在 currentSlice 内连续实现，不要求每个修改批次运行 `verify --changed`、浏览器、evidence、claim promotion、clean revision、benchmark、workstream exit check 或文档同步。日常只用 `node tools/vibe.mjs context <path>` 导航，必要时主动运行 typecheck、build 或 targeted test。
+
+只有大型功能模块完成时才集中检查一次：typecheck、build、该模块 targeted tests，并更新 currentSlice。整个 Next Renderer 的主要架构和 planned providers 完成后，再集中做 browser matrix、lifecycle、质量和性能验证。
+
+开发阶段真正可阻塞实现的只有：恢复 retired legacy owner、建立双 production path、引入 current-frame GPU 到 CPU 到 GPU work control、增加独立 submit、对 pinned 算法写近似实现冒充完整 port，以及真实编译失败。文档/evidence/claim/future phase 缺口不得阻止继续编码。
+
+`node tools/vibe.mjs verify --changed` 是可选的模块检查，不是日常默认门禁；browser 未运行、evidence 缺失或 claim 未 accepted 不会使普通开发失败。`verify --full` 只在最终集成或发布前执行。正式 evidence 和 claim 仍须真实验证，不能从开发检查结果推断。
 
 ## 提交约定
 

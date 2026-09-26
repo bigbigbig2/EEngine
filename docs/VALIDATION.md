@@ -1,5 +1,13 @@
 # OEngine 验证合同
 
+## Implementation Mode
+
+During the destructive Next rebuild, validation is deferred by design. Coding Agents may work continuously inside the active slice without running `verify --changed`, browser cases, evidence generation, claim promotion, clean revision checks, benchmarks, or workstream exit checks after every edit. Use `node tools/vibe.mjs context <path>` for navigation and run typecheck, builds, or targeted tests only when useful for debugging.
+
+When a large module is coherent, run its typecheck/build and focused tests once, update the active workstream, and continue to the next module. After the planned renderer providers are complete, run the browser matrix, lifecycle checks, visual comparisons, performance measurements, formal evidence, and claims as one final acceptance pass.
+
+Only architecture and compilation red lines can block implementation: no retired legacy owner, no dual production renderer path, no current-frame GPU-to-CPU-to-GPU work control, no independent submit, no approximate substitute for a pinned complex algorithm, and no real compile failure. Missing documentation, evidence, accepted claims, future phase work, or unrun browser cases are deferred work, not permission gates.
+
 验证只证明当前 revision 的声明。文档、类名、Pass 数量、旧 benchmark 或研究资料不能替代运行证据。机器路由来自 `project/claims/`、`checks/` 和每个 case 的 `case.yaml`；结果由 `validation/evidence/index.json` 和 `node tools/vibe.mjs status` 推导。
 
 ## 证明等级
@@ -14,17 +22,16 @@
 
 旧术语只作为交付语境映射：DEV = L0 + L1（必要时 L2），MILESTONE = L0 + L1 + L2/L3，PERF = L0-L4。`kind` 描述验证性质，`level` 描述证明强度，两者不能互换。
 
-普通修改默认执行最低命中的 L0/L1。`verify --changed` 根据改动选择保守的测试组，先增量构建最新 `.test-dist`；共享构建配置、未映射路径或无法安全缩小范围时自动扩大到全套。`verify --changed --plan` 只显示选择结果和原因，不运行检查或写生成物；默认执行输出是摘要，完整 payload 使用 `--json`，同时完整报告始终写入 ignored verification report。阶段集成与 browser acceptance 使用 `verify --full`。GPU、render graph、资源生命周期、feature-off 或 capability 变更会列出命中的 L2/L3 case；命令只报告 `notRun`，不会隐式启动浏览器。正式 L4 必须显式运行。
+开发阶段没有默认验证命令。主动运行 `verify --changed` 时，它按改动选择检查并增量构建最新 `.test-dist`；`--plan` 只显示计划，`--json` 输出完整报告。未运行的 browser case 只列在 `notRun`，不导致普通开发检查失败。`verify --full`、browser acceptance 和正式 L4 留到 Next Renderer 最终集成。
 
 验证等级只从**产品面**推导：仅 `OEngine/src/**` 与 `validation/**` 参与 L2/L3 判定。测试、工具、检查、路由与文档路径属于工具面，即使文件名里写着 `framegraph`、`cutover` 这类概念，也只计 L1。
 
-`verify` 把「拓扑一致」与「改动已被验证」分开报告，用退出码区分：
+`verify` 把执行结果与延期验收信息分开报告：
 
-- `0`：检查全部通过，且没有本应运行却被跳过的 case；
-- `1`：存在失败的检查、无主路径或路由歧义；
-- `2`：检查全部通过，但改动所需等级的浏览器 case 未运行。`notRun` 的 case id 会打印到 stderr，且 `verificationComplete` 为 `false`；显式接受该缺口时传 `--allow-not-run`，它把退出码降为 `0` 但不会修改报告内容。
+- `0`：本次实际执行的检查通过；
+- `1`：存在失败的检查、无主路径或路由歧义。
 
-进入 required check set 的检查若返回 `not-run`，与未运行 browser case 一样令 `verificationComplete` 为 `false` 和退出码为 `2`。不适用于当前改动面的检查应从 required set 中省略，而不是以 `not-run` 假装完成。每次执行的 check 产生绑定 revision、tree、dirty、runner、registry hash 和结果的 receipt；receipt 只能记录真实 runner 结果。
+未运行的 browser case、`not-run` 检查、缺失 evidence 和未 accepted claim 会保留在报告中，供最终验收使用，不改变高速重构阶段的开发退出码。每次执行的 check 仍产生绑定 revision、tree、dirty、runner、registry hash 和结果的 receipt；receipt 只能记录真实 runner 结果。
 
 `engine-suites` 是引擎 L1 的实际执行体：它先增量构建测试产物，再运行改动命中的 `OEngine/tests/unit|contract|oracle|guard`；full 模式运行全套。这一步不能省略 —— `.test-dist` 过期会让 `node --test` 静默测试旧产物。Native Nyx/Slang reference 只由相关参考源、WASM/native 工具或 ABI 变更触发。套件内部禁止再回调整套门禁，重入时该检查报 `not-run` 并说明原因。`validation-suites` 独立运行 validation typecheck 与 Node tests。
 
@@ -46,7 +53,7 @@ Claim 的 `evidencePolicy` 显式区分 `allOf`、`anyOf`、`diagnosticCases` �
 
 `node tools/vibe.mjs evidence` 使用临时文件原子替换 compact index。若 `.local/validation/` 为空或缺少已有 case，命令默认拒绝删除 compact 记录；只有明确删除全部或部分 evidence 时才使用 `--force-empty` 或 `--force-prune`。`evidence --check` 只比较规范化输出，不写 index，也不要求 destructive override。
 
-## 正确性门禁
+## 最终验收的正确性范围
 
 - 新二进制或 GPU ABI：边界、非法输入、endianness/stride/offset、hash/checksum 和 CPU/GPU oracle 或 golden。
 - 新 GPU 队列：元素 ABI、容量、overflow、counter、producer → consumer、零工作和 feature-off。

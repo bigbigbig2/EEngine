@@ -8,7 +8,7 @@ For the accepted EEngine Next clean-cut target, start with [单路径重建路�
 
 1. Run `node tools/vibe.mjs context <path>` before changing code. The compact route includes the primary owner, decisions, source IDs, relevant workstream slice/tasks/gates, contracts, and checks. Add `--claims`, `--cases`, or `--all` only when more detail is needed.
 2. Read the matching page under [domains](./domains/), then the linked contract under [contracts](./contracts/).
-3. Run `node tools/vibe.mjs verify --changed` after editing.
+3. During the destructive rebuild, use `node tools/vibe.mjs context <path>` for navigation. Run `verify --changed` only when closing a large module; reserve `verify --full` and browser acceptance for final Next Renderer integration.
 4. Use `node tools/vibe.mjs status [domain]` to inspect claim state and `node tools/vibe.mjs evidence` to refresh evidence. Empty or partial raw input cannot remove compact records without `--force-empty` or `--force-prune`; use `evidence --check` for a read-only comparison.
 
 ## Source Of Truth

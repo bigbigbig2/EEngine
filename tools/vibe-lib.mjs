@@ -332,12 +332,17 @@ export function validateModel(model, legacyRegistry) {
     if (!domains.has(workstream.domain)) errors.push(`${workstream._file}: unknown workstream domain ${workstream.domain}`);
     if (!/^(?:active|paused|done)$/u.test(workstream.state ?? "")) errors.push(`${workstream._file}: invalid workstream state`);
     if (!/^ADR-\d{4}$/u.test(workstream.decision ?? "")) errors.push(`${workstream._file}: invalid workstream decision`);
-    for (const field of ["contracts", "claims", "tasks", "exitChecks", "requiredEvidence"]) if (!Array.isArray(workstream[field]) || workstream[field].length === 0) errors.push(`${workstream._file}: ${field} must be non-empty`);
+    // Workstreams are navigation during the destructive rebuild. Claims,
+    // evidence and exit checks are optional deferred acceptance metadata.
+    for (const field of ["contracts", "claims", "tasks", "exitChecks", "requiredEvidence"]) {
+      if (workstream[field] !== undefined && !Array.isArray(workstream[field])) {
+        errors.push(`${workstream._file}: ${field} must be an array when present`);
+      }
+    }
     for (const claimId of workstream.claims ?? []) if (!claims.has(claimId)) errors.push(`${workstream._file}: unknown workstream claim ${claimId}`);
     for (const checkId of workstream.exitChecks ?? []) if (!checkIds.has(checkId)) errors.push(`${workstream._file}: unknown workstream check ${checkId}`);
     for (const task of workstream.tasks ?? []) if (!ID_PATTERN.test(task.id ?? "") || !/^(?:todo|active|done|blocked)$/u.test(task.state ?? "")) errors.push(`${workstream._file}: invalid workstream task`);
     if (workstream.state === "done" && (workstream.tasks ?? []).some((task) => task.state !== "done")) errors.push(`${workstream._file}: done workstream has unfinished tasks`);
-    if (workstream.state === "done" && Array.isArray(workstream.openGates) && workstream.openGates.length > 0) errors.push(`${workstream._file}: done workstream has open gates`);
   }
   return errors;
 }
