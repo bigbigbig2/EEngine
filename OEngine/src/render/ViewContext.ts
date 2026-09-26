@@ -16,7 +16,7 @@ import {
   mat4FromTranslationScale,
   mat4Multiply
 } from "../core/math/Mat4.js";
-import type { GPUCameraState } from "./GPUCameraState.js";
+import { GPUCameraState } from "./GPUCameraState.js";
 import { HierarchicalZBuffer } from "./HierarchicalZBuffer.js";
 
 export const GPU_VIEW_TYPE = StructType.from(
@@ -53,15 +53,13 @@ export class GPUViewContext {
   private readonly uniformData = new ArrayBuffer(GPU_VIEW_TYPE.size);
   private readonly projectionMatrix = new Float32Array(16);
   private readonly viewportMatrix = new Float32Array(16);
-  private readonly previousViewProjection = new Float32Array(16);
   private readonly upscaleRatio = new Float32Array([1, 1]);
   private readonly jitter = new Float32Array(2);
 
   constructor(
     graphics: GraphicsContext,
     environment: GPUSceneEnvironmentContext,
-    camera: GPUCameraState,
-    command: ShadeGPUCommandContext
+    camera: GPUCameraState
   ) {
     const device = graphics.device;
     if (device === null) {
@@ -72,7 +70,9 @@ export class GPUViewContext {
     this.environment = environment;
     this.camera = camera;
     this.hierarchical_z_buffer = new HierarchicalZBuffer(graphics);
-    this.gpu_previous_camera_state = camera.clone(command);
+    // The first frame seeds this buffer after the current camera upload. A
+    // constructor-time copy would read the not-yet-uploaded current buffer.
+    this.gpu_previous_camera_state = new GPUCameraState(device, camera.camera.clone());
     this.uniform_buffer = device.createBuffer({
       label: "GPUViewContext/uj/Yu",
       size: GPU_VIEW_TYPE.size,
@@ -163,21 +163,31 @@ export class GPUViewContext {
 
   update(command: ShadeGPUCommandContext): void {
     this.camera.update(command);
+    if (this.frame_index === 0) {
+      // First frame (also a retry after abort): motion starts from the current
+      // camera. Both copies are encoded in the owning frame, before Surface.
+      command.gpu_encoder.copyBufferToBuffer(this.camera.buffer, 0,
+        this.gpu_previous_camera_state.buffer, 0, this.gpu_previous_camera_state.buffer.size);
+      this.gpu_previous_camera_state.copyCpu(this.camera);
+    }
     this.update_uniforms(command);
     this.graphics.profiler.addCounter("runtime.viewPrepareCount", 1);
   }
 
   finish_frame(command: ShadeGPUCommandContext, hzbFrameIndex = this.frame_index): void {
-    this.previousViewProjection.set(this.camera.camera.view_projection_matrix);
-    this.gpu_previous_camera_state.copy(this.camera, command.gpu_encoder);
+    // The GPU copy belongs to this frame encoder. Its CPU mirror and the view
+    // counter become visible only if that encoder is actually submitted.
+    command.gpu_encoder.copyBufferToBuffer(this.camera.buffer, 0,
+      this.gpu_previous_camera_state.buffer, 0, this.gpu_previous_camera_state.buffer.size);
     // History becomes visible only after the owning command context has been submitted.
     command.onFinished.addOne(() => {
+      this.gpu_previous_camera_state.copyCpu(this.camera);
       this.hierarchical_z_buffer.commitHistory(hzbFrameIndex);
+      this.frame_index++;
     });
     command.onAborted.addOne(() => {
       this.hierarchical_z_buffer.invalidate("explicit");
     });
-    this.frame_index++;
   }
 
   destroy(): void {

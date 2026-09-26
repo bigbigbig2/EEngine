@@ -74,9 +74,24 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   if ((bindings.job.virtualGeometry ?? null) !== bindings.runtime.virtualGeometry) {
     throw new Error("Frame Program virtual Product publication changed");
   }
+  if (!bindings.job.scene.instances ||
+      !bindings.job.assets.sparseShading.assetMetadataHeap ||
+      !bindings.job.assets.sparseShading.vertexPayloadHeap ||
+      !bindings.runtime.materialResources.materialRecords ||
+      !bindings.runtime.materialResources.textureRouteRecords ||
+      !bindings.runtime.counterSink ||
+      !bindings.view.gpu_camera_state.buffer ||
+      !bindings.view.gpu_previous_camera_state.buffer) {
+    throw new Error("Frame Program Scene/View publication is incomplete");
+  }
   if ((bindings.runtime.virtualGeometry !== null) !== request.virtualGeometry ||
       (bindings.runtime.virtualGeometry?.banks.length ?? 0) !== request.virtualBankCount) {
     throw new Error("Frame Program virtual geometry layout changed");
+  }
+  if (bindings.runtime.virtualGeometry !== null &&
+      (!bindings.runtime.virtualGeometry.metadata ||
+        bindings.runtime.virtualGeometry.banks.some(bank => !bank))) {
+    throw new Error("Frame Program virtual geometry bank publication is incomplete");
   }
   if ((bindings.job.prepared.currentHzbLateRecheck !== null) !== request.currentHzbLateRecheck ||
       bindings.job.prepared.workSet.meshletWorkCandidate === null) {
@@ -89,11 +104,21 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
     throw new Error("Frame Program material class shape changed");
   }
   for (let setId = 0; setId < 4; setId++) {
-    const mask = bindings.runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0;
+    const bindingSet = bindings.runtime.materialResources.bindingSets.find(set => set.id === setId);
+    const mask = bindingSet?.textureBankMask ?? 0;
     const required = request.activeClasses.some(id => (id >> 4) === setId &&
       shadingProgramUsesTextures(id & 15));
-    if (required && mask !== request.textureBankMasks[setId]) {
-      throw new Error("Frame Program texture bank layout changed");
+    if (required) {
+      if (!bindingSet || mask !== request.textureBankMasks[setId]) {
+        throw new Error("Frame Program texture bank layout changed");
+      }
+      for (let bank = 0; bank < 9; bank++) {
+        if ((mask & (1 << bank)) !== 0 &&
+            (!bindingSet.textureBanks[bank] ||
+              bindingSet.bankDescriptors[bank]?.bindingSlot !== bank)) {
+          throw new Error(`Frame Program texture bank ${setId}:${bank} publication is incomplete`);
+        }
+      }
     }
   }
   if ((bindings.environment !== null) !== request.physicalEnvironment) {

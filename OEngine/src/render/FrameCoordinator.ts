@@ -55,8 +55,19 @@ export class FrameCoordinator {
 
   submitFrame(frame: FrameEncoding): FrameExecutionEvidence {
     this.assertActive(frame);
-    frame.command.finish();
-    this.active = null;
+    try {
+      frame.command.finish();
+    } catch (cause) {
+      if (!frame.command.closed) {
+        try { frame.command.abort(cause); }
+        catch (abortError) { console.error("Frame abort failed after submit error", abortError); }
+      }
+      throw cause;
+    } finally {
+      // ShadeGPUCommandContext may have already closed itself while finish
+      // threw. The coordinator must never retain that dead active frame.
+      this.active = null;
+    }
     return {
       frameIndex: frame.frameIndex,
       submitLabel: frame.command.label,

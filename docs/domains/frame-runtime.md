@@ -73,6 +73,13 @@ Graph-external work still belongs to the current frame: Graphics maintenance,
 scene patches, direct-light upload, View update, FSR3 constants upload and
 environment LUT recording occur before graph encoding on the existing frame
 command context. No new frame submit or current-frame GPU readback is introduced.
+On a new View's first frame, the current camera upload seeds the previous GPU
+camera buffer and CPU mirror in the same encoder before Surface motion reads
+them; an aborted first frame repeats that seed. Thereafter the previous-camera
+CPU mirror and per-view frame counter advance only from the submitted command
+callback; abort keeps the prior displayed camera state. A failed command
+submission also releases the coordinator's active frame before the next render
+attempt.
 Module A's typecheck, build and focused contract checks cover structural closure,
 per-frame binding roles and FSR3 history retirement. Browser lifecycle, image
 quality and GPU P50/P95 remain deferred until the complete Next Renderer.

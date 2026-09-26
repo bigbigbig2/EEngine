@@ -14,8 +14,7 @@ import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContex
 type ViewContextFactory = (
   graphics: GraphicsContext,
   environment: GPUSceneEnvironmentContext,
-  camera: ReturnType<GPUCameraStateManager["obtain"]>,
-  command: ShadeGPUCommandContext
+  camera: ReturnType<GPUCameraStateManager["obtain"]>
 ) => GPUViewContext;
 
 export { GPUViewContext, GPU_VIEW_TYPE } from "./ViewContext.js";
@@ -62,9 +61,8 @@ export class ViewManager {
     private readonly createContext: ViewContextFactory = (
       owner,
       environment,
-      camera,
-      command
-    ) => new GPUViewContext(owner, environment, camera, command)
+      camera
+    ) => new GPUViewContext(owner, environment, camera)
   ) {
     this._graphics = graphics;
     this._cameraStates = cameraStates;
@@ -76,8 +74,7 @@ export class ViewManager {
 
   obtain(
     key: GPUViewKey,
-    environment: GPUSceneEnvironmentContext,
-    command: ShadeGPUCommandContext
+    environment: GPUSceneEnvironmentContext
   ): ViewHandle {
     const { camera, scene } = key;
     let byScene = this._contexts.get(camera);
@@ -90,8 +87,7 @@ export class ViewManager {
       context = this.createContext(
         this._graphics,
         environment,
-        this._cameraStates.obtain(camera),
-        command
+        this._cameraStates.obtain(camera)
       );
       context.label = key.label;
       byScene.set(scene, context);

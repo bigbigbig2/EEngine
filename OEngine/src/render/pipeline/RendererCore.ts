@@ -1182,28 +1182,28 @@ export class Renderer {
     let temporalActive = false;
     let activeHzb: HierarchicalZBuffer | null = null;
     let environmentGeneration: number | null | undefined;
-    const preExposure: PreExposureContract = this._radiometry.beginFrame(
-      this._environmentRuntime === null ? 0 :
-        scene.physical_environment.revision + 1
-    );
-    if (this._activeCamera !== camera) {
-      this._activeCamera = camera;
-      this._cameraRevision++;
-    }
-    const frameJitter = this._temporal.begin({
-      frameIndex, output: [this._output_resolution.x, this._output_resolution.y],
-      internal: [this._render_resolution.x, this._render_resolution.y],
-      cameraRevision: this._cameraRevision, sceneRevision: runtime.shadingPublication.revision,
-      representationRevision: Math.round(this.resolutionScale * 1_000_000) ^
-        (this._render_resolution.x << 1) ^ (this._render_resolution.y << 17),
-      lightRevision: `environment:${scene.physical_environment.revision}`, view: "main", renderScale: this.resolutionScale,
-      featureRevision: Number(this.packed_visibility_hzb_enabled), formatRevision: 1,
-      deviceRevision: this.deviceEpoch,
-      preExposure,
-      temporalEnabled: true, nssEnabled: false
-    });
-    temporalActive = true;
     try {
+      const preExposure: PreExposureContract = this._radiometry.beginFrame(
+        this._environmentRuntime === null ? 0 :
+          scene.physical_environment.revision + 1
+      );
+      if (this._activeCamera !== camera) {
+        this._activeCamera = camera;
+        this._cameraRevision++;
+      }
+      const frameJitter = this._temporal.begin({
+        frameIndex, output: [this._output_resolution.x, this._output_resolution.y],
+        internal: [this._render_resolution.x, this._render_resolution.y],
+        cameraRevision: this._cameraRevision, sceneRevision: runtime.shadingPublication.revision,
+        representationRevision: Math.round(this.resolutionScale * 1_000_000) ^
+          (this._render_resolution.x << 1) ^ (this._render_resolution.y << 17),
+        lightRevision: `environment:${scene.physical_environment.revision}`, view: "main", renderScale: this.resolutionScale,
+        featureRevision: Number(this.packed_visibility_hzb_enabled), formatRevision: 1,
+        deviceRevision: this.deviceEpoch,
+        preExposure,
+        temporalEnabled: true, nssEnabled: false
+      });
+      temporalActive = true;
       this._graphics.encodeFrameMaintenance(command);
       this._renderTargets.setFrameIndex(frameIndex);
       environmentGeneration = this._environmentRuntime?.record(command.gpu_encoder,
@@ -1218,7 +1218,7 @@ export class Renderer {
       if (activeClasses.some(classId => (classId & 15) >= 4)) {
         environment.lights.updateDirectRecords(command);
       }
-      const view = this._views.obtain(GPUViewKey.from(camera, scene), environment, command);
+      const view = this._views.obtain(GPUViewKey.from(camera, scene), environment);
       const width = this._render_resolution.x;
       const height = this._render_resolution.y;
       view.setJitter(frameJitter[0], frameJitter[1]);
@@ -1243,7 +1243,6 @@ export class Renderer {
           this._fsr3.invalidate();
         }
       }
-      this._previousViewMatrices.set(view, currentViewMatrix);
       this._fsr3.prepareFrame(command, {
         renderWidth: width, renderHeight: height,
         outputWidth: this._output_resolution.x, outputHeight: this._output_resolution.y,
@@ -1332,6 +1331,7 @@ export class Renderer {
       this._temporal.markProduced("depth");
       this._temporal.markProduced("motion");
       view.finish_frame(command, frameIndex);
+      command.onFinished.addOne(() => this._previousViewMatrices.set(view, currentViewMatrix));
       this._frameCoordinator.submitFrame(frame);
       this._temporal.commit(frameIndex);
       this._fsr3.commit(command.gpuDone);

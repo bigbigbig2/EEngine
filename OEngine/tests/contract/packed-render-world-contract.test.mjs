@@ -132,6 +132,29 @@ test("FrameCoordinator owns one close path for each render tick", () => {
   assert.equal(commands[1].closed, true);
 });
 
+test("FrameCoordinator releases an active frame when submission fails", () => {
+  const failure = new Error("submit rejected");
+  const abortCauses = [];
+  const coordinator = new FrameCoordinator({}, (_graphics, label) => ({
+    label, closed: false, finish() { throw failure; },
+    abort(cause) { this.closed = true; abortCauses.push(cause); }
+  }));
+  const failed = coordinator.beginFrame(0, "main");
+  assert.throws(() => coordinator.submitFrame(failed), error => error === failure);
+  assert.deepEqual(abortCauses, [failure]);
+  const next = coordinator.beginFrame(1, "main");
+  coordinator.abortFrame(next, new Error("cleanup"));
+  assert.equal(abortCauses.length, 2);
+
+  const closedCoordinator = new FrameCoordinator({}, (_graphics, label) => ({
+    label, closed: false, finish() { this.closed = true; throw failure; },
+    abort() { assert.fail("closed command must not be aborted twice"); }
+  }));
+  assert.throws(() => closedCoordinator.submitFrame(closedCoordinator.beginFrame(0, "main")),
+    error => error === failure);
+  closedCoordinator.beginFrame(1, "main");
+});
+
 test("Ordinary Scene adapter creates deterministic Packed dictionaries without GPU ownership", () => {
   const scene = new Scene();
   const geometry = new BoxGeometry(2, 2, 2);

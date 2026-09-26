@@ -6,7 +6,6 @@ import type { Camera } from "../camera/Camera.js";
 import type { PerspectiveCamera } from "../camera/PerspectiveCamera.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { writeWgslToBuffer } from "../core/WgslBufferIO.js";
-import { submitGpuCommands } from "../gpu/GpuQueueEvidence.js";
 import { PACKED_CAMERA_TYPE } from "../shaders/packed_camera.js";
 
 let nextGpuCameraStateId = 0;
@@ -109,37 +108,11 @@ export class GPUCameraState {
     );
   }
 
-  clone(command?: ShadeGPUCommandContext): GPUCameraState {
-    const clone = new GPUCameraState(this.device, this.cameraValue.clone());
-    clone.viewportOffset.set(this.viewportOffset);
-    clone.viewProjection.set(this.viewProjection);
-    clone.copy(this, command?.gpu_encoder);
-    return clone;
-  }
-
-  copy(source: GPUCameraState, encoder?: GPUCommandEncoder): void {
+  /** Commit the CPU mirror of an already encoded camera copy after submission. */
+  copyCpu(source: GPUCameraState): void {
     this.cameraValue.copy(source.camera);
     this.viewportOffset.set(source.viewportOffset);
     this.viewProjection.set(source.viewProjection);
-    if (encoder) {
-      encoder.copyBufferToBuffer(
-        source.buffer,
-        0,
-        this.buffer,
-        0,
-        this.buffer.size,
-      );
-      return;
-    }
-    const copyEncoder = this.device.createCommandEncoder();
-    copyEncoder.copyBufferToBuffer(
-      source.buffer,
-      0,
-      this.buffer,
-      0,
-      this.buffer.size,
-    );
-    submitGpuCommands(this.device, "GPUCameraState/copy", [copyEncoder.finish()]);
   }
 
   destroy(): void {

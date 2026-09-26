@@ -149,11 +149,11 @@ A0 源码资源边与来源核查
 | 步骤 | 已落地的生产行为与核对位置 |
 | --- | --- |
 | A0 | [设计附录 §9](../next-design/frame-program-module-a.md#9-a0-生产资源边清单2026-09-27-源码核对)逐项记录 Graph 逻辑 ID、物理 owner、尺寸/格式、key、绑定、失效与图外维护；来源账本 R21 仍为架构参考。 |
-| A1 | `FrameProgram.ts` 的 `FrameProductFact` 限于已有真实产品，`present`/`main` 单视图请求形成最小根；闭包逐项验证必需 producer 和循环。单一产品规范表保证每个产品只有一个权威 producer；实际 texture descriptor 在 lowering 校对。 |
+| A1 | `FrameProgram.ts` 的 `FrameProductFact` 限于已有真实产品，`present`/`main` 单视图请求形成最小根；lit Surface 通过 `light-cluster → HZB`、Present 溢出错误色通过 `shading-work → swapchain` 的真实需求边进入闭包。闭包逐项验证必需 producer、依赖循环以及每条输入边的 domain/value（含曝光约定），未声明的转换直接报错。单一产品规范表保证每个产品只有一个权威 producer；实际 texture descriptor 在 lowering 校对。 |
 | A2 | `FrameProgramCache(8)` 和 `CompiledFrameGraphCache(8)` 共用版本化结构 key；同形状请求复用对象，未采样 bank mask 归零，动态 scene/history/LUT/swapchain 身份留在绑定。旧并行 `FrameGraphKey.ts` 已删除。 |
 | A3 | `RendererCore.render` 只准备当前帧并调用 `lowerFrameProgram`；`FrameProgramLowering` 按 Visibility/HZB→ShadingWork→Surface→Sky/Aerial→FSR3→Present 注册真实 owner。空场景从同一 Program 入口选择 clear/present。当前 HZB late recheck 的过滤队列被后续 ShadingWork 消费。 |
 | A4 | FSR3 五类 history 与 constants/mask 均经执行期 Graph slot；Sky/Aerial 的 Sun/LUT import、HZB 当前/上一角色、Scene/Product bank 与 View 使用当帧 binding。编码前检查 epoch、View/Scene 分组、深度/HZB/FSR3 尺寸格式、history 非别名、环境 LUT 完整性。FSR3 旧 history 与 LUT 旧 generation 依提交完成退役。 |
-| A5 | `FrameCoordinator` 保持唯一 render-tick submit；Graph 编码异常走 abort，FSR3/Temporal/Environment 不推进，HZB 显式失效；resize 重新选择 key 并重建 history，camera cut 仅失效 history，新 Renderer recovery 拥有空 cache。空场景不记录 Visibility/Surface/FSR3。产品上传和诊断 readback 是非本帧可见决策路径。 |
+| A5 | `FrameCoordinator` 保持唯一 render-tick submit；Graph 编码异常走 abort，FSR3/Temporal/Environment 不推进，HZB 显式失效；新 View 首帧在当前相机上传后、Surface motion 消费前，以同一编码器初始化上一帧 GPU/CPU 相机状态，首帧中断则重试初始化。此后 View 的上一帧 CPU 相机镜像、每 View 帧计数与 Renderer 的上一已显示相机矩阵只在提交后推进，submit 抛错也释放 active frame。resize 重新选择 key 并重建 history，camera cut 仅失效 history，新 Renderer recovery 拥有空 cache。空场景不记录 Visibility/Surface/FSR3。产品上传和诊断 readback 是非本帧可见决策路径。 |
 | A6 | `RendererCore` 旧手写构图和并行 key 已切除；Surface motion 由真正 clear Pass 生产，空分配 Pass 删除；旧构图文本断言更新为 Program/Graph 边检查。已集中运行 typecheck、build 和相关合同测试；详细命令/结果以本次提交记录为准。 |
 
 **当前边界**：Module A 使用固定 full-rate Surface。旧 `spatial_shading_frequency_enabled` 仍被独立 browser diagnostic 引用，但对生产图无效；Surface v2 应恢复固定拓扑内的 GPU 频率计划并迁移该诊断。此遗留开关不作为模块 A 性能达标声明。模块级测试检查 CPU 语义、Graph 编译与绑定事务，未执行最终浏览器矩阵或 GPU P50/P95。

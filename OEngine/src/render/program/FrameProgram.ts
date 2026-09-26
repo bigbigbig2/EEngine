@@ -4,7 +4,7 @@ import { shadingProgramUsesTextures } from "../../gpu/GpuShadingProgramAbi.js";
 export type FrameProduct =
   | "swapchain" | "reconstructed-color" | "aerial-radiance" | "sky-radiance"
   | "surface-radiance" | "surface-motion" | "shading-work"
-  | "visibility" | "depth" | "meshlet-work" | "hzb";
+  | "visibility" | "depth" | "meshlet-work" | "hzb" | "light-cluster";
 
 export type FrameProgramStage =
   | "clear-present" | "visibility" | "hzb" | "shading-work" | "light-cluster"
@@ -83,6 +83,8 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
     value: "current-minus-previous UV", coverage: "visible surface", invalid: "zero background", version: "frame" },
   "shading-work": { producer: "shading-work", domain: "gpu-work", format: "structured-buffer",
     value: "bounded GPU work records", coverage: "visible surface", invalid: "queue count zero", version: "frame" },
+  "light-cluster": { producer: "light-cluster", domain: "gpu-work", format: "structured-buffer",
+    value: "clustered direct-light lookup", coverage: "lit surface", invalid: "zero lights", version: "frame" },
   visibility: { producer: "visibility", domain: "internal-full", format: "r32uint",
     value: "packed VisibilityKey", coverage: "visible geometry", invalid: "background sentinel", version: "frame" },
   depth: { producer: "visibility", domain: "internal-full", format: "depth32float",
@@ -92,6 +94,50 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
   hzb: { producer: "hzb", domain: "internal-half", format: "rg16float",
     value: "hierarchical depth range", coverage: "full internal pyramid", invalid: "history invalid", version: "history-role" }
 });
+
+/** Finite semantic input contracts. A new edge must name its domain and value
+ * (including exposure convention) before lowering may register GPU work. */
+const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<FrameProduct,
+  Readonly<Pick<FrameProductFact, "domain" | "value">>>>>>> = {
+  swapchain: {
+    "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" },
+    "shading-work": { domain: "gpu-work", value: "bounded GPU work records" }
+  },
+  "reconstructed-color": {
+    "aerial-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
+    "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
+    depth: { domain: "internal-full", value: "reverse depth" },
+    "surface-motion": { domain: "internal-full", value: "current-minus-previous UV" }
+  },
+  "aerial-radiance": {
+    "sky-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
+    depth: { domain: "internal-full", value: "reverse depth" }
+  },
+  "sky-radiance": {
+    "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
+    depth: { domain: "internal-full", value: "reverse depth" }
+  },
+  "surface-radiance": {
+    "shading-work": { domain: "gpu-work", value: "bounded GPU work records" },
+    "light-cluster": { domain: "gpu-work", value: "clustered direct-light lookup" },
+    depth: { domain: "internal-full", value: "reverse depth" }
+  },
+  "surface-motion": {
+    "shading-work": { domain: "gpu-work", value: "bounded GPU work records" },
+    depth: { domain: "internal-full", value: "reverse depth" }
+  },
+  "shading-work": {
+    visibility: { domain: "internal-full", value: "packed VisibilityKey" },
+    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" }
+  },
+  "light-cluster": { hzb: { domain: "internal-half", value: "hierarchical depth range" } },
+  visibility: {
+    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
+    depth: { domain: "internal-full", value: "reverse depth" }
+  },
+  hzb: { depth: { domain: "internal-full", value: "reverse depth" } },
+  depth: {}, "meshlet-work": {}
+};
 
 function positiveInteger(value: number, name: string): void {
   if (!Number.isSafeInteger(value) || value < 1) throw new RangeError(`${name} must be a positive integer`);
@@ -148,15 +194,18 @@ function structuralKey(request: FrameProgramRequest): string {
 function dependencies(product: FrameProduct, request: FrameProgramRequest): readonly FrameProduct[] {
   if (request.kind === "empty") return [];
   switch (product) {
-    case "swapchain": return ["reconstructed-color"];
+    // Present also reads the ShadingWork overflow header for a visible error color.
+    case "swapchain": return ["reconstructed-color", "shading-work"];
     case "reconstructed-color": return [
       request.physicalEnvironment ? "aerial-radiance" : "surface-radiance", "depth", "surface-motion"
     ];
     case "aerial-radiance": return ["sky-radiance", "depth"];
     case "sky-radiance": return ["surface-radiance", "depth"];
-    case "surface-radiance":
+    case "surface-radiance": return ["shading-work", "depth",
+      ...(request.activeClasses.some(id => (id & 15) >= 4) ? ["light-cluster" as const] : [])];
     case "surface-motion": return ["shading-work", "depth"];
     case "shading-work": return ["visibility", "meshlet-work"];
+    case "light-cluster": return ["hzb"];
     case "visibility": return ["meshlet-work", "depth"];
     case "hzb": return ["depth"];
     case "depth":
@@ -183,7 +232,17 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     if (visiting.has(product)) throw new Error(`Frame Program product dependency cycle at ${product}`);
     if (!PRODUCT_SPEC[product]) throw new Error(`Frame Program has no producer for ${product}`);
     visiting.add(product);
-    for (const dependency of dependencies(product, request)) requireProduct(dependency);
+    for (const dependency of dependencies(product, request)) {
+      const expected = INPUT_CONTRACTS[product][dependency];
+      const actual = PRODUCT_SPEC[dependency];
+      if (!expected || !actual) {
+        throw new Error(`Frame Program ${product} has undeclared input or producer ${dependency}`);
+      }
+      if (actual.domain !== expected.domain || actual.value !== expected.value) {
+        throw new Error(`Frame Program ${dependency} → ${product} needs an explicit domain/value conversion`);
+      }
+      requireProduct(dependency);
+    }
     visiting.delete(product);
     visited.add(product);
     ordered.push(product);
@@ -205,7 +264,6 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     if (product === "swapchain") consumers.push("canvas");
     if (product === "hzb") {
       if (request.previousHzb || request.currentHzbLateRecheck) consumers.push("visibility");
-      if (directLighting) consumers.push("light-cluster");
     }
     const extent: readonly [number, number] | null = spec.domain === "gpu-work" ? null :
       spec.domain === "output-full" ? [request.outputWidth, request.outputHeight] :

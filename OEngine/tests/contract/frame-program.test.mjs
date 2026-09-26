@@ -19,15 +19,23 @@ test("Frame Program closes the current scene product demand with a structural ke
   const first = buildFrameProgram(scene);
   const reordered = buildFrameProgram({ ...scene, activeClasses: [0, 4] });
   assert.equal(first.key, reordered.key);
-  for (const product of ["visibility", "depth", "hzb", "meshlet-work", "shading-work",
+  for (const product of ["visibility", "depth", "hzb", "meshlet-work", "shading-work", "light-cluster",
     "surface-radiance", "surface-motion", "sky-radiance", "aerial-radiance",
     "reconstructed-color", "swapchain"]) assert.ok(first.products.includes(product), product);
   assert.equal(first.directLighting, true);
+  assert.deepEqual(first.facts.find(fact => fact.product === "light-cluster").consumers,
+    ["surface"]);
+  assert.deepEqual(first.facts.find(fact => fact.product === "hzb").consumers,
+    ["light-cluster", "visibility"]);
   assert.notEqual(first.key, buildFrameProgram({ ...scene, internalWidth: 800 }).key);
   const noEnvironment = buildFrameProgram({ ...scene, physicalEnvironment: false });
   assert.ok(!noEnvironment.products.includes("sky-radiance"));
   assert.ok(!noEnvironment.products.includes("aerial-radiance"));
+  const unlit = buildFrameProgram({ ...scene, activeClasses: [0] });
+  assert.ok(!unlit.products.includes("light-cluster"));
   assert.deepEqual(first.facts.find(fact => fact.product === "surface-motion").consumers, ["fsr3"]);
+  assert.deepEqual(first.facts.find(fact => fact.product === "shading-work").consumers,
+    ["surface", "present"]);
   assert.deepEqual(first.facts.find(fact => fact.product === "visibility").extent, [640, 360]);
   assert.equal(first.facts.find(fact => fact.product === "surface-motion").format, "rg16float");
 });
@@ -47,7 +55,7 @@ test("Program cache reuses a stable shape, ignores unused texture banks, and evi
   assert.notEqual(cache.getOrCreate(scene), first);
 });
 
-test("production lowering preserves Visibility to ShadingWork to Surface to FSR3 to Present edges", () => {
+test("Frame Program lowering wires owner resource contracts through Present", () => {
   globalThis.GPUTextureUsage ??= { RENDER_ATTACHMENT: 1, STORAGE_BINDING: 2, TEXTURE_BINDING: 4 };
   const request = { ...scene, virtualGeometry: false, virtualBankCount: 0,
     previousHzb: false, activeClasses: [0], textureBankMasks: [0, 0, 0, 0],
@@ -77,7 +85,8 @@ test("production lowering preserves Visibility to ShadingWork to Surface to FSR3
   const bindings = { kind: "scene", deviceEpoch: 7, job, runtime, camera, hzb,
     depth: { width: 640, height: 360, format: "depth32float" },
     view: { camera: { camera }, hierarchical_z_buffer: hzb, width: 640, height: 360,
-      gpu_camera_state: { buffer: resource }, frame_index: 1 },
+      gpu_camera_state: { buffer: resource }, gpu_previous_camera_state: { buffer: resource },
+      frame_index: 1 },
     swapchain: resource, preExposure: { multiplier: 1 }, fsr3, environment: null };
   const owners = {
     visibility: { addToGraph(graph, _job, input) {
@@ -124,6 +133,22 @@ test("production lowering preserves Visibility to ShadingWork to Surface to FSR3
     depth: { ...bindings.depth, width: 800 } }), /depth descriptor/);
   assert.throws(() => assertFrameProgramBindings(plan, { ...bindings,
     view: { ...bindings.view, camera: { camera: {} } } }), /View publication/);
+  const texturedRuntime = { ...runtime,
+    activeShadingSummary: { binRefCounts: Array(64).fill(0) },
+    materialResources: { ...runtime.materialResources, bindingSets: [{ id: 0,
+      textureBankMask: 1, textureBanks: [resource], bankDescriptors: [{ bindingSlot: 0 }] }] } };
+  texturedRuntime.activeShadingSummary.binRefCounts[2] = 1;
+  const texturedPlan = buildFrameProgram({ ...request, activeClasses: [2],
+    textureBankMasks: [1, 0, 0, 0] });
+  const texturedBindings = { ...bindings, runtime: texturedRuntime,
+    job: { ...job, runtime: texturedRuntime } };
+  assertFrameProgramBindings(texturedPlan, texturedBindings);
+  const missingBankRuntime = { ...texturedRuntime, materialResources: {
+    ...texturedRuntime.materialResources,
+    bindingSets: [{ id: 0, textureBankMask: 1, textureBanks: [], bankDescriptors: [] }] } };
+  assert.throws(() => assertFrameProgramBindings(texturedPlan, { ...texturedBindings,
+    runtime: missingBankRuntime, job: { ...texturedBindings.job, runtime: missingBankRuntime }
+  }), /texture bank 0:0 publication/);
   const currentHzb = { width: 320, height: 180, format: "rg16float" };
   const previousHzb = { width: 320, height: 180, format: "rg16float" };
   const validHzb = { width: 320, height: 180,
