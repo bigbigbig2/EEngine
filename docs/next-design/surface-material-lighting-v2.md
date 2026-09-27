@@ -150,7 +150,7 @@ Clearcoat 对直接光和间接镜面都增加第二 lobe，同时衰减基础�
 
 B 的初始正确性底线是所有可见 opaque/Masked PBR **full-rate**，尤其 normal map、alpha mask、材质/primitive 边界、运动/disocclusion、镜面高频、局部光与 future VSM/SSSR 依赖。现有前置 2×2/4×4 频率计划只在已证明相同结果的静态 unlit factor 与 publication-certified 1×1 unlit texture 上考虑恢复；不能因为 `adaptive` 名称就扩大到纹理 PBR。若使用 Intel CPS 的 2×2 算法，须搬其四样本 Surface、深度/法线风险判定、full/coarse 消费和全样本 splat；否则继续明确命名为 EEngine pre-material frequency，绝不声称 Intel port。空间频率若省下的 shading 小于分类/重建成本，应允许 full-rate 优先。
 
-Module C 才比较 fused 与 demand-materialized physical layouts，并以 XeGTAO 真 consumer 决定 normal/roughness sidecar。B 只保留语义字段、产生时刻和重算成本接口，不为了将来可能的 AO/SSSR 预造全屏 GBuffer。Module D 才统一 motion/reactive/history/radiometry 生命周期。VSM、SSSR、GI、VT、Transparency/Hair 消费 B 的稳定合同，各有自己的完整算法、work queue 和组合边界。
+Module C 接通 XeGTAO 并建立按真实 consumer 决定的 Surface Field Demand；固定 XeGTAO 可从 depth 生成所需 view-space normal，因此它本身不要求 material normal/roughness sidecar。B 只保留语义字段、产生时刻和重算成本接口，不为了将来可能的 AO/SSSR 预造全屏 GBuffer。SSSR/GI 有真实跨 pass 复用后再比较 fused 与 demand-materialized physical layouts，详见[Module C 设计](./surface-fields-xegtao.md)。Module D 才统一 motion/reactive/history/radiometry 生命周期。VSM、SSSR、GI、VT、Transparency/Hair 消费 B 的稳定合同，各有自己的完整算法、work queue 和组合边界。
 
 ## 8. 性能模型、选择标准与未决风险
 

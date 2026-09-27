@@ -354,8 +354,8 @@ Hair 不是简单“一个 Surface family”；它可能是 Strand representatio
 因此逻辑上不再定义“Surface Cache on/off”，而定义 `Surface Field Demand`：
 
 ```text
-GTAO
-  needs Normal
+GTAO / XeGTAO
+  needs Depth + view-space Normal（可由 XeGTAO 从 Depth 自产）
 
 SSSR
   needs Normal + Roughness + ReflectionSource
@@ -758,14 +758,14 @@ reconstruction/temporal cost
 register pressure / occupancy
 ```
 
-Fuse/Materialize 也不能靠理念判断。第一阶段要用真实 topology A/B 对比：
+Fuse/Materialize 也不能靠理念判断。下面是需要由真实消费者和成本选择的两种物理形态，而非要求任何效果先实现两条空链：
 
 ```text
 A: Visibility → Fused Surface + Direct Lighting → Radiance
 B: Visibility → Surface Fields → Lighting → Radiance
 ```
 
-然后增加 GTAO/SSSR 这样的真实 consumer，找出“重复材质求值”与“Surface write/read bandwidth”之间的分界。最终 Frame Program 的策略可以先由固定 rule 驱动，积累 telemetry 后再升级成 profile-driven decision；不要第一版就造复杂自动 cost model。
+XeGTAO 本身可从 depth 生成法线，先闭合 `Depth → XeGTAO → fused Surface 间接光`，不以它为由写无人消费的材质法线 sidecar。SSSR/GI 真正跨 pass 要求 normal/roughness 等字段时，再比较重复材质求值与 Surface write/read 带宽，并允许同帧有限 fused/materialized 混合。最终 Frame Program 策略可先由固定 rule 驱动，积累 telemetry 后再升级成 profile-driven decision；不要第一版造复杂自动 cost model。详见[Module C 设计](./surface-fields-xegtao.md)。
 
 3A 画质同样必须被系统性约束。所有低频/temporal 技术都必须在 identity/disocclusion/change facts 下工作，不允许为了省性能简单 blur 或跨边界复用。所有 indirect/reflection source 必须有能量归属，避免 double counting。所有 quality downgrade 必须是可解释的 domain budget，而不是在 shader 内散落 magic threshold。
 
@@ -781,7 +781,7 @@ B: Visibility → Surface Fields → Lighting → Radiance
 
 第二阶段实现 Surface v2，只支持当前 Standard PBR。先证明几个关键点：简单区域可以走 Dense Fast Lane；昂贵/分化区域可以 GPU compact 到有限 Binned Lane；material execution class 不再绑定 material ID/texture binding set；pipeline/bind-group warmup 前移；Frame hot path 不再按 active material class 动态创建大量对象。
 
-第三阶段实现 `Fuse + Demand-Materialized Surface Fields`。先做两种 topology A/B，再接一个简单真实 consumer（优先 GTAO），验证按字段 materialize 是否能减少重复 reconstruction/texture fetch，同时控制 bandwidth。这个阶段还不需要 SSSR/GI 全部上线。
+第三阶段实现 `Fuse + Demand-Materialized Surface Fields` 的真实需求边界，并以 XeGTAO 完整 `depth → AO → indirect Lighting` 作为首个跨 owner consumer。XeGTAO 不强制材质法线 sidecar；分离式 Surface Fields→Lighting 的物理拓扑留到 SSSR/GI 有真实复用后比较。字段是否物化取决于重复 reconstruction/texture fetch 与 sidecar 带宽，而非先为 A/B 对比造空路径。这个阶段还不需要 SSSR/GI 全部上线；细节见[Module C 设计](./surface-fields-xegtao.md)。
 
 第四阶段补齐 Temporal/Radiometry/Presentation：authoritative motion、local change、reactive/transparency、pre-exposure、auto exposure、tone mapping、color grade、SDR/HDR profile。FSR3 作为一个 backend 重新接入新的 facts，而不是继续拥有自己独立的数据定义。
 
@@ -820,7 +820,7 @@ B: Visibility → Surface Fields → Lighting → Radiance
 
 ## 参考体系与下一层设计边界
 
-本设计不是复制单一引擎，而是组合不同系统里与 WebGPU/EEngine 匹配的思想：Nanite / nanite-webgpu / Bevy Virtual Geometry 用来研究 GPU hierarchy、meshlet work、hybrid raster 与 virtualized geometry；Microsoft Visibility Buffer 与早期 Decoupled Sampling/Lazy Shading 用来研究 Visibility 和 Shading sample 解耦；UE5 Substrate 用来研究 material closure 与复杂度驱动 execution；UE5 Virtual Shadow Maps 用来研究 receiver-driven demand、page cache 与 invalidation；AMD FidelityFX SSSR/XeGTAO 适合作为 screen-space reflection/AO 的算法 donor；RTXGI/DDGI、RTXGI v2 的 radiance cache 思路以及 Activision GI 适合研究 world-space radiance representation；Granite 适合学习 RenderGraph 的 lifetime、transient、history、alias 思想；WebGPU/WGSL 规范与 Chrome WebGPU 更新则决定哪些能力是 baseline、哪些只能做 specialization。
+本设计不是复制单一引擎，而是组合不同系统里与 WebGPU/EEngine 匹配的思想：Nanite / nanite-webgpu / Bevy Virtual Geometry 用来研究 GPU hierarchy、meshlet work、hybrid raster 与 virtualized geometry；Microsoft Visibility Buffer 与早期 Decoupled Sampling/Lazy Shading 用来研究 Visibility 和 Shading sample 解耦；UE5 Substrate 用来研究 material closure 与复杂度驱动 execution；UE5 Virtual Shadow Maps 用来研究 receiver-driven demand、page cache 与 invalidation；AMD FidelityFX SSSR 与 Intel XeGTAO 分别适合作为 screen-space reflection/AO 的算法 donor；RTXGI/DDGI、RTXGI v2 的 radiance cache 思路以及 Activision GI 适合研究 world-space radiance representation；Granite 适合学习 RenderGraph 的 lifetime、transient、history、alias 思想；WebGPU/WGSL 规范与 Chrome WebGPU 更新则决定哪些能力是 baseline、哪些只能做 specialization。
 
 当前设计深度到此只冻结**整体 Renderer 架构**。下一层最应该单独深入的是 `Surface / Material / Lighting v2`，因为它决定 Work Lanes、Closure Compile、Field Demand、Fuse/Materialize、Texture Sampling Class 和 Lighting energy contract 如何真正落地。VSM 内部 page table、caster work、atlas raster、cache invalidation；SSSR 的 ray format、denoise；GI 的 probe/brick/cache；VT page layout；Surface physical packing；最终 tone mapper等，都不应在本文件提前拍板。
 

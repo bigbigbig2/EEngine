@@ -126,13 +126,24 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 ### R05 · XeGTAO：首选 AO 来源
 
 - **Upstream / Revision**：[GameTechDev/XeGTAO](https://github.com/GameTechDev/XeGTAO/tree/a5b1686c7ea37788eeb3576b5be47f7c03db532c)，`a5b1686c7ea37788eeb3576b5be47f7c03db532c`；项目已 archived，不能假设上游继续维护。
-- **Source**：[XeGTAO.hlsli](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/XeGTAO.hlsli)、`Source/Rendering/Shaders/XeGTAO.h`。已读实现中的 `XeGTAO_PrefilterDepths16x16`、`XeGTAO_MainPass`、`XeGTAO_Denoise` 与相关 bent-normal 编解码。
-- **License**：MIT，LICENSE 已读。
-- **Local owner / Adoption**：shading；not adopted，优先迁移。
-- **Retained invariants**：深度预处理、可见性积分、边缘权重和降噪成链；正确的深度空间和尺度。若选 bent normal 输出 profile，连带编码/解码与消费语义一起迁移。
-- **WebGPU differences**：HLSL → WGSL；reverse-Z、mip 格式、绑定及工作组适配。不能把 occlusion HZB 直接冒充算法要求的 filtered depth，也不凭“都是 AO”拼接 CACAO 参数/阶段。
-- **Fallback / lifecycle**：关闭 AO 不保留 depth prefilter/denoise 的孤儿消费者；无 AO 产品时提供中性可见性，不改变 GI 能量两次。
-- **Local validation**：平面/墙角/薄几何与运动的 reference 输出或 oracle，检查 halo/深度边缘和尺度。不是只证明 shader 编译。
+- **Source / host entry**：[XeGTAO.hlsli](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/XeGTAO.hlsli)、[`XeGTAO.h`](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/XeGTAO.h)、[`vaGTAO.hlsl`](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Shaders/vaGTAO.hlsl)、[`vaGTAO.cpp`](https://github.com/GameTechDev/XeGTAO/blob/a5b1686c7ea37788eeb3576b5be47f7c03db532c/Source/Rendering/Effects/vaGTAO.cpp) 和该 revision 的 README。已核对三个核心 compute 阶段、可选 depth-normal 生成、格式与 host 顺序；尚未运行上游工程。
+- **License**：固定仓库根 `LICENSE` 为 MIT，已读；移植时保留 copyright/license 文本与所复制片段的 notice。
+- **论文/详细说明**：[Jimenez 等 GTAO 论文](https://www.activision.com/cdn/research/Practical_Real_Time_Strategies_for_Accurate_Indirect_Occlusion_NEW%20VERSION_COLOR.pdf)核对间接遮蔽积分；上游 README 解释 tuned heuristic、thin occluder、weighted depth MIP、Hilbert/R2、空间降噪和 bent normal；[SAO depth-mip 论文](https://research.nvidia.com/sites/default/files/pubs/2012-06_Scalable-Ambient-Obscurance/McGuire12SAO.pdf)只作深度层次背景。具体移植数值以此固定 XeGTAO 源码为准。
+- **Local owner / Adoption**：shading 的拟新增 `render/ao/XeGtaoPass.ts`、`shaders/xegtao_*.ts`，Frame Program 只作需求/边编排；**not adopted**。设计与[Module C 执行](../next-execution/surface-fields-xegtao.md)已写，WGSL/CPU oracle 和生产 GPU 消费尚未完成。
+
+| 固定源函数/阶段 | 拟本地产物/阶段 | 输入→输出、关键不变量及条件 |
+| --- | --- | --- |
+| `XeGTAO.h::GTAOUpdateConstants`、`XeGTAO_ScreenSpaceToViewSpaceDepth` | reverse-Z Xe 常量和投影 oracle | reverse-Z raw depth + projection + internal size + world radius → view-depth/NDCToView 常量；finite/infinite far、单位、背景/Y 方向核对 |
+| `XeGTAO_ComputeViewspaceNormal`、`vaGTAO.hlsl::CSGenerateNormals` | AO 私有 view-space normal | raw depth 四邻/edge → 几何尺度 normal；外部 screen normal 是源可选输入，depth-normal 默认可独立 pass；不要求 Surface materialized normal |
+| `XeGTAO_PrefilterDepths16x16`、`XeGTAO_DepthMIPFilter` | 五级 weighted view-depth mip | raw depth → mip0–4；最远深度参考、半径/falloff 权重、16×16/8×8 workgroup；不能用 EEngine min/max HZB 冒充 |
+| `SpatioTemporalNoise`、`XeGTAO_MainPass` | horizon MainPass → raw AO/edges | view depth + normal + Hilbert/R2 + source tuned constants → 双侧 horizon 积分、mip LOD、near-field/thin occluder、2-bit/edge；High 3×双向 3 steps，Medium 2×双向 2 steps；没有可靠时间累计时 NoiseIndex=0 |
+| `XE_GTAO_COMPUTE_BENT_NORMALS`、`XeGTAO_EncodeVisibilityBentNormal` | directional quality profile | 同一积分的 bent direction + scalar visibility → packed directional term；不开启时只宣称 scalar profile，不能把 BSDF normal 当源 bent 输出 |
+| `XeGTAO_Denoise`、`XeGTAO_Output`、`vaGTAO.cpp::Compute` | edge-aware denoise → `indirect-visibility` | raw AO/edges → 5×5 edge-aware/ping-pong/final 1.5 scale → 同帧 Surface 间接消费；至少一个 last pass；direct/emissive 不受 AO |
+
+- **Retained defaults and branches**：固定源 `XeGTAO.h` tuned 默认值 radius multiplier `1.457`、falloff `0.615`、distribution power `2`、thin occluder compensation `0`、final value power `2.2`、MIP offset `3.30`、working term scale `1.5`。`XE_GTAO_FP32_DEPTHS`/FP16 偏置、独立法线/`GENERATE_NORMALS_INPLACE`、scalar/bent、denoise pass count 与 temporal noise 条件要按选中 profile 明示。上游 README 的 4K/1080p 毫秒数及 bent 增量只是原生 GPU 测量，不是 WebGPU/EEngine 预算。
+- **WebGPU differences**：HLSL→WGSL，reverse-Z 常量、point-clamp gather/LOD、纹理格式和有限 binding 按设备核对；原生单 dispatch 五 storage mip 若不能合法绑定，按可用 storage texture 数分批用相同 filter 产后续 mip，并核对中间量化。最宽 Surface 已有 16 sampled/15 storage，最终 AO 可打包进第 16 个 read-only storage buffer；这是 EEngine 物理编码，不改 Xe 积分。既不预设 float32-filterable、subgroup、bindless，也不引入当前帧 CPU 回读或第二 submit。
+- **能量/降级/lifecycle**：XeGTAO 本身输出 near-field indirect visibility，glTF 材质 AO 与之合成是明确标为本地的 policy；VSM direct、未来 GI/SSSR 已遮蔽 radiance 不重复计能。关闭 AO/无 lit consumer/空场景时 Graph 裁剪工作链并使用中性 visibility。Resize/device loss 重建同帧 scratch 与 device-local LUT/pipeline；未能合法保留完整选中 profile 时明确具名缺口/方案，不把近似算法登记为 XeGTAO adopted。
+- **来源状态提升条件**：固定源函数/阶段逐项核对、WGSL/CPU oracle（投影、法线、mip、horizon、denoise/packing）与新主链真实 GPU producer→Surface 间接 consumer 证据全部齐备，才对**实际完成的 profile**改变 `not adopted`；typecheck/build 或旧 GTAO 记录本身不能晋级。正式 browser matrix、画质和 P50/P95 留整链阶段。
 
 ### R06 · FidelityFX SSSR + Reflections Denoiser：首选反射链
 
@@ -316,7 +327,7 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 | Unreal Nanite / GPU-Driven Materials / VSM | 技术资料与受 Epic 条款约束的引擎来源，不是普通宽松许可 donor | 借鉴管线思想；不宣称找到可直接移植的开放 Nanite 实现 |
 | Frostbite、Decima/Nubis | 有有价值的论文/演讲，未在本轮找到可直接采用的完整公开生产源码 | 用于空间、光传输和缓存设计比较；不虚构开源仓库，不阻塞云后置 |
 | ReSTIR DI/GI、NRC、DLSS SR/RR、FSR4 类神经后端 | 其研究/SDK 输入和执行依赖不等于当前 WebGPU 能力 | 留信号/后端接口；当前不把硬件 RT、专有推理或零复制 WebNN 当成立条件 |
-| CACAO | 成熟 AO 替代路线，但最终目标已选择 XeGTAO | 不引入第二套 AO 生产后端；需要改选时再做固定版本完整来源核查 |
+| [FidelityFX CACAO](https://github.com/GPUOpen-Effects/FidelityFX-CACAO/tree/0ddca95e6714727a252ead345591ca8f2598f261)，`0ddca95e6714727a252ead345591ca8f2598f261` | 根 `license.txt` MIT 已读；`ffx-cacao/src/ffx_cacao.hlsl` 与 `ffx_cacao_impl.cpp` 已核对 depth/normal、adaptive importance、deinterleaved blur 和 apply/upsample 阶段 | 是完整 AO 替代候选，不引入第二套生产后端，不把 CACAO 阶段拼入 XeGTAO 后宣称完整移植；改选时须重做完整 source→local mapping |
 
 许可记录用于工程选源，不等于法律意见；关键是准确保留上游文本、版权/NOTICE 和派生来源，不把根仓库标签当作所有文件的授权证明。无需等待所有备选许可调查结束才开始已核实的宽松许可迁移。
 

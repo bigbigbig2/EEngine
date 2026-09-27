@@ -141,6 +141,6 @@ B1–B6 可以在同一工作分支连续编码；新组件可先离线准备，
 
 **只有完成上述生产链后**集中跑一次 engine typecheck、build 和与改动相关的 targeted tests。可选的重点是：Material/glTF canonical 参数与旧近似切断、The Forge 透视/梯度、Filament Standard/coat 数值 oracle、texture profile/generation、GPU queue 边界/overflow、Frame Program topology/late binding/单 submit。复用已有真正检查 producer→consumer 的测试；缺口只补少量关键 oracle 或 contract，不造实现镜像、空 Pass、无意义全流程门禁。发现真实编译或明显功能问题就修。没有运行的检查如实记“未运行”，不阻断下一大模块的编码。
 
-最后对照本执行文档逐项复核：Standard 与 Coated 都从真实 glTF/Material 输入到同一生产 HDR；Dense 与 Binned 都有实际 GPU consumer；physical set 与 authored family 不再同一 ID；queue overflow 可完整覆盖；环境镜面有 producer/consumer；direct/indirect/emissive 归属正确；旧全员分类与 per-active-class pipeline 退出；FrameCoordinator 仍唯一 submit。更新 active workstream 的 currentSlice/nextModules 和必要的 current facts，来源账本只对已完成的实际 profile 晋级，未核对完的维持 `not adopted`。随后进入 Module C（Fuse + demand-materialized Surface fields / XeGTAO）。
+最后对照本执行文档逐项复核：Standard 与 Coated 都从真实 glTF/Material 输入到同一生产 HDR；Dense 与 Binned 都有实际 GPU consumer；physical set 与 authored family 不再同一 ID；queue overflow 可完整覆盖；环境镜面有 producer/consumer；direct/indirect/emissive 归属正确；旧全员分类与 per-active-class pipeline 退出；FrameCoordinator 仍唯一 submit。更新 active workstream 的 currentSlice/nextModules 和必要的 current facts，来源账本只对已完成的实际 profile 晋级，未核对完的维持 `not adopted`。随后进入[Module C 执行](./surface-fields-xegtao.md)（Fuse + demand-materialized Surface fields / XeGTAO）。
 
 **整条 Next Renderer 后期才做**：browser matrix、resize/camera cut/device loss 的系统组合、材质/场景/功能交互、视觉质量对照、GPU benchmark 与 P50/P95、formal evidence、claims。Module B 完成不以它们为许可条件。

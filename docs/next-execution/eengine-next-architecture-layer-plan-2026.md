@@ -147,17 +147,16 @@ Surface 执行分成三个正交选择：**Work Scheduling**（dense 或 GPU bin
 
 ## 5. 模块 C：Fuse + Demand-Materialized Surface Fields / XeGTAO
 
-这个模块对应 final 设计迁移的第三阶段，不能被 Surface v2 的基本 PBR 闭合悄悄吞掉。先让 Frame Program 收集下游的 semantic field demand，再把需求映射到少量 finite physical layouts：同一帧允许简单区域融合 Surface+Direct Lighting，昂贵区域按 work lane 求值；只物化 AO/反射/时序等真实消费者需要复用的字段。一个 kernel 可同时融合一部分光照并写出少量要求的字段；不存在全场只有 fused 或只有 materialized 的总开关。
+详细的目标、来源映射、WebGPU 物理方案和 C0–C8 顺序分别见[Module C 设计](../next-design/surface-fields-xegtao.md)与[Module C 执行](./surface-fields-xegtao.md)。这个模块不能被 Surface v2 基本 PBR 闭合吞掉。先让 Frame Program 从真实 consumer 收集语义需求，再降低到少量合法物理布局；同一 Surface kernel 将来可融合光照并物化少量真正复用的字段，不把全场 fused/materialized 当永久总开关。
 
-1. 在仅有标准 PBR 与 Direct Lighting 时建立同一新主链的两种合法 topology：`Visibility → Fused Surface+Lighting → Radiance` 与 `Visibility → Surface Fields → Lighting → Radiance`。这只是物理执行比较，不保留旧 Renderer，也不提前做正式 GPU benchmark。
-2. 对每个语义字段明确实际消费者、格式精度下限、分辨率、无效像素、曝光域、产生时刻和重新求值代价。没有消费者的 field 不分配纹理、不排 Pass；有多个消费者时只在重算成本与带宽比较成立时物化。
-3. 在当前唯一 Graph 内让 fused 与 materialized 区域同帧共存。GPU work builder 仍负责本帧实际数量；Frame Program 只决定可用 lane、字段需求和固定 topology。字段 late binding 不得把 texture generation 放进 graph key。
-4. 用真实消费者闭合第一轮需求，优先接入本模块 XeGTAO 的 depth/normal/AO 输入；不增加只读取字段又原样写回的伪 consumer。AO 的完整 prefilter/evaluate/denoise 和 Lighting 消费连通后，才判断按需物化是否避免重复 reconstruction/texture fetch。
-5. 字段规划和 XeGTAO 连续实施，整个大模块完成后集中运行一次 typecheck、build 和必要 targeted tests。正式画质、GPU 时间、P50/P95 与跨 feature 组合留在整链验收。最终比较 classification、queue、indirect、材质求值、sidecar 带宽与重建成本，决定默认物理布局。
+1. XeGTAO 的法线输入是 view-space normal，固定源允许从 raw depth 独立生成；**不需要**先生产 full-screen material/shading normal sidecar。当前首个真实产品是 `indirect-visibility`：Visibility depth → XeGTAO normal/weighted depth prefilter/horizon/edge-aware denoise → Surface 间接光。
+2. 对字段记录实际消费者、空间/精度/分辨率/无效值、曝光域、产生时刻与重新求值代价。当前 normal/roughness 留在 Surface 寄存器，XeGTAO 私有 normal/depth mip 属瞬态 scratch；无材质字段消费者就不分配 sidecar、不建完整 delayed Lighting 链。SSSR/GI 真正需要时再比较重建与写读带宽，并选有限布局。
+3. 在唯一 Graph 中先让 AO 与 fused Surface Lighting 连通；GPU 决定本帧 work 数，Frame Program 决定固定 stage/layout，generation 和 frameIndex 不进入 topology key。最宽 Surface 已用满 16 sampled textures、15/16 storage buffers；AO 纹理不能直接加第 17 个 sampled slot，需按详细设计选合法输出编码。XeGTAO 五级 storage mip 与本设备 limit 也需按完整算法做调度适配。
+4. 大模块原理连通后集中一次 typecheck、build 和必要 targeted tests，更新 currentSlice 随即进入 D。最终画质、GPU 时间、P50/P95、browser 与跨 feature 组合仍留整链验收，不为中间无消费者拓扑制造伪测试。
 
 ### 5.1 XeGTAO 的完整生产闭环
 
-以 pinned XeGTAO 的 depth prefilter、main evaluate、denoise 完整阶段为 donor。先对齐 WebGPU 的深度方向、尺度、法线、噪声、半径和边界行为；将需要的 Surface fields 反馈到上一模块的 demand，而不是要求一个全场固定 GBuffer。输出在 direct/indirect lighting 中有明确 AO 能量位置，不能作为无差别乘子。仅当 prefilter→evaluate→denoise→Lighting 的真实生产链贯通时才算模块完成；针对算法数学和输入合同做一次集中代码检查。没有原理闭合前不造常量 AO Pass 来满足测试。
+以 pinned XeGTAO 的 depth-normal、weighted depth prefilter、main evaluate、edge-aware denoise 完整选中 profile 为 donor。先对齐 WebGPU 的 reverse-Z、尺度、噪声、半径、法线和边界；既不要求全场固定 GBuffer，也不把旧 HZB 冒充 Xe depth mip。AO 仅在未遮蔽的间接光分支被消费，不能无差别乘最终 HDR。详细 source→local 阶段见[来源账本 R05](../porting/next-renderer.md)。没有原理闭合前不造常量 AO Pass 满足测试。
 
 ## 6. 模块 D：Temporal / Radiometry / Presentation
 
