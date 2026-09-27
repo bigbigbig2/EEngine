@@ -24,7 +24,9 @@ export interface XeGtaoPreparationInputs {
 export interface XeGtaoPreparedFields {
   /** XeGTAO private packed view-space normal, not a material normal sidecar. */
   readonly normal: ResourceId;
-  /** Five separate r32float views of source-equivalent weighted view depth. */
+  /** Five separate r32float views of source-equivalent weighted view depth.
+   * Their physical extents include the final 16x16 tile's clamped gutter; consumers
+   * must use the viewport-derived logical extent for sample coordinates. */
   readonly viewDepth: readonly [ResourceId, ResourceId, ResourceId, ResourceId, ResourceId];
 }
 
@@ -91,6 +93,12 @@ export class XeGtaoPreparationPass {
         input.height > Number(this.device.limits.maxTextureDimension2D)) {
       throw new RangeError("XeGTAO preparation viewport is outside device limits");
     }
+    const paddedWidth = Math.ceil(input.width / 16) * 16;
+    const paddedHeight = Math.ceil(input.height / 16) * 16;
+    if (paddedWidth > Number(this.device.limits.maxTextureDimension2D) ||
+        paddedHeight > Number(this.device.limits.maxTextureDimension2D)) {
+      throw new RangeError("XeGTAO preparation 16x16 tile extent exceeds device limits");
+    }
     const uniform = graph.import_resource("XeGTAO/preparation constants",
       { kind: "imported", label: "XeGTAO preparation constants" }, this.constants);
     const upload = graph.add("XeGTAO/update preparation constants", input.frame,
@@ -131,13 +139,16 @@ export class XeGtaoPreparationPass {
             }))] });
         this.dispatch(context.encoder as ShadeGPUCommandContext,
           "XeGTAO/prefilter weighted view depth", this.prefilterPipeline, group,
-          Math.ceil(input.width / 16), Math.ceil(input.height / 16));
+          paddedWidth / 16, paddedHeight / 16);
       });
     first.read(input.depth);
     first.read(currentUniform);
     const mips: ResourceId[] = [];
-    const size = (mip: number) => ({ width: Math.max(1, Math.ceil(input.width / (2 ** mip))),
-      height: Math.max(1, Math.ceil(input.height / (2 ** mip))) });
+    // Preserve the donor's scratch values outside the logical viewport at the
+    // last tile. Cropping intermediate mips before a later dispatch changes
+    // weighted reduction at odd-size right/bottom edges.
+    const size = (mip: number) => ({ width: paddedWidth / (2 ** mip),
+      height: paddedHeight / (2 ** mip) });
     const descriptor = (mip: number) => ({ kind: "transient_texture" as const,
       ...size(mip), format: "r32float", usage: GPUTextureUsage.STORAGE_BINDING |
         GPUTextureUsage.TEXTURE_BINDING });

@@ -2,7 +2,7 @@
 
 > 状态：2026-09-27 已推进 C0–C3 的来源核对、语义需求及法线/加权深度准备代码；AO 生产主链尚未激活，C4–C8 待实施。设计依据见[Module C 设计](../next-design/surface-fields-xegtao.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，固定来源与逐阶段对照见[Next 来源账本 R05](../porting/next-renderer.md)。本文是连续编码路线，不是每一小步的许可/验证门禁。
 
-当前实施记录：C0 已核对固定源、host 调度及 MIT 许可证；C1 已登记 `indirect-visibility` 的需求、选中 profile 与 Surface 字段语义，生产请求仍为 `off`，在 C4–C6 接通前 Lowering 明确拒绝提前请求 `scalar-high`，不会假装已有 AO 输出；C2/C3 的 reverse-Z 常量、独立 view normal 与五级 weighted depth Pass 已写入 AO owner，等待 MainPass 成为真实下游。已运行 engine typecheck 作为编译调试；尚未运行 build、WGSL GPU 执行、targeted test、browser 或 benchmark。
+当前实施记录：C0 已核对固定源、host 调度及 MIT 许可证；C1 已登记 `indirect-visibility` 的需求、选中 profile 与 Surface 字段语义，生产请求仍为 `off`，在 C4–C6 接通前 Lowering 明确拒绝提前请求 `scalar-high`，不会假装已有 AO 输出；C2/C3 的 reverse-Z 常量、独立 view normal 与五级 weighted depth Pass 已写入 AO owner，等待 MainPass 成为真实下游。四个 WGSL 入口已通过 Naga 语法/类型校验；局部 CPU oracle 覆盖 finite/infinite reverse-Z、jitter、法线朝向/边缘/编码，以及奇数尺寸两种 storage 限额的逐层结果。engine typecheck 已通过。当前机器的 headless Chrome/Edge 未获取到 WebGPU adapter，故尚未执行真实 GPU shader/纹理数值核对；build、browser 和 benchmark 未运行。C2/C3 仍是准备阶段，不能称为 AO 已在生产链采用。
 
 ## 0. 完成的准确含义与节奏
 
@@ -80,7 +80,7 @@ C1–C7 可在同一工作分支连续推进。算法 WGSL/CPU oracle 可在实�
 
 1. 建立只属于 XeGTAO 的 `r32float` 优先 depth pyramid；Mip0 由 raw reverse-Z 变换得到正 view depth。保留 source 的组内 2×2 取值、最远深度参考、`0.75 × EffectRadius × RadiusMultiplier` 与 falloff 加权过滤，而不是 min/max/平均 HZB 替代。
 2. 用 AO owner 自己的 capability preflight 核对五个 storage mip 目标是否允许。同 stage 可合法绑定五个时可保留一 dispatch；仅容四个时将 mip0–3 和 mip4 分成两 dispatch；若只容两个则按同一公式继续分批，每次从前级已完成 mip 取 2×2。核对跨 dispatch 格式量化是否改变边缘结果。不可复用 HZB 的 `rg16float` 资源或过滤代码；所有 dispatch 由相同 FrameCoordinator 命令流编码，无第二次 submit。
-3. 所有 mip view 的 baseMipLevel/mipLevelCount、usage、format、逐层尺寸和 workgroup 越界写检查明确；当尺寸不是 16 倍数、mip 变成 1×1 或屏幕边缘落空时采用上游 clamp/有效像素约定。多 mip 同一纹理读写必须避免同 subresource 同 pass 冲突，并让 FrameGraph 资源边显式表达阶段顺序。
+3. 所有 mip view 的 baseMipLevel/mipLevelCount、usage、format、逐层尺寸和 workgroup 越界写检查明确；当尺寸不是 16 倍数、mip 变成 1×1 或屏幕边缘落空时采用上游 clamp/有效像素约定。当前分批方案把物理工作 mip 扩至完整 16×16 tile，填充区从 raw depth 点 clamp；消费者须按原 viewport 的逻辑尺寸取样。这样后续 dispatch 能读到 donor 组内的边缘 scratch 值，不能提前裁掉填充区。多 mip 同一纹理读写必须避免同 subresource 同 pass 冲突，并让 FrameGraph 资源边显式表达阶段顺序。
 4. `r16float` 可后续作为具名压缩档，但先对照源 FP16/FP32 深度偏置、65504 上限、远景精度与薄物体质量。不能只改格式而继续套 FP32 偏置。
 
 **局部核对**：每层尺寸与四邻权重；平面应保持平滑、深度断层不被远侧错误拉近；上游等价 16×16 tile 的 mip4 与分 dispatch 结果比较。只需一两个小输入 oracle，不造普遍 HZB 测试框架。

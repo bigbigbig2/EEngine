@@ -107,7 +107,7 @@ AO owner 的内部 normal、depth mip、raw、edges 和 ping-pong 是 Graph tran
 
 ### 6.2 XeGTAO 自身资源
 
-上游 `PrefilterDepths16x16` 单 dispatch 写五个 storage mip view。EEngine 当前 Surface preflight 只保证两张 storage texture 的别处布局预算，**不能推断 AO stage 可绑定五张**。AO owner 单独协商自己的 `maxStorageTexturesPerShaderStage`：若至少四张，可先写 mip 0–3、第二 dispatch 从 mip3 用同一 `XeGTAO_DepthMIPFilter` 写 mip4；若只容两张，则继续按有界批次拆分，每级从已完成的前级过滤。若设备允许五个目标，再比较一个 dispatch 的等价特化。每种拆分都需 oracle 核对中间格式量化与边缘值；所有 dispatch 仍在 `FrameCoordinator` 的同一命令流和 submit 中。
+上游 `PrefilterDepths16x16` 单 dispatch 写五个 storage mip view。EEngine 当前 Surface preflight 只保证两张 storage texture 的别处布局预算，**不能推断 AO stage 可绑定五张**。AO owner 单独协商自己的 `maxStorageTexturesPerShaderStage`：若至少四张，可先写 mip 0–3、第二 dispatch 从 mip3 用同一 `XeGTAO_DepthMIPFilter` 写 mip4；若只容两张，则继续按有界批次拆分，每级从已完成的前级过滤。分批工作纹理保留完整 16×16 tile 的 clamp 填充区，否则奇数尺寸的末尾 tile 会丢失上游组内 scratch 值；MainPass 仍以原 viewport 的逻辑尺寸取样。若设备允许五个目标，再比较一个 dispatch 的等价特化。每种拆分都需 oracle 核对中间格式量化与边缘值；所有 dispatch 仍在 `FrameCoordinator` 的同一命令流和 submit 中。
 
 质量档优先以 `r32float` 存 view depth：上游指出“就地法线 + FP16 working depth”会明显降质。`r16float` 只能作为量测后具名压缩档，并保留深度偏置、视距范围和失效条件。可选 normal 可用 packed `r32uint`；raw AO、edges、final 的 `r8uint`/`r8unorm` 等小格式须按目标 WebGPU 设备的 texture format/usage 能力实际 preflight；无法合法写入时改用 `r32uint` 或 packed buffer，但不删 donor 算法阶段。`r32float` depth 的点采样/四邻 gather 可用合法 WGSL texel load/显式 LOD 适配，保留上游 point-clamp 地址、LOD 与边界语义，不依赖未经协商的 float32 filtering。
 

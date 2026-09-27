@@ -28,9 +28,9 @@ fn xe_depth_mip_filter(depths: vec4f) -> f32 {
   let max_depth = max(max(depths.x, depths.y), max(depths.z, depths.w));
   let radius = 0.75 * xe.effect.x * xe.effect.z;
   let range = max(xe.effect.y * radius, 1.0e-10);
-  let from = radius * (1.0 - xe.effect.y);
+  let falloff_start = radius * (1.0 - xe.effect.y);
   let weights = clamp((vec4f(max_depth) - depths) * (-1.0 / range) +
-    vec4f(from / range + 1.0), vec4f(0.0), vec4f(1.0));
+    vec4f(falloff_start / range + 1.0), vec4f(0.0), vec4f(1.0));
   return dot(weights, depths) / max(dot(weights, vec4f(1.0)), 1.0e-10);
 }
 `;
