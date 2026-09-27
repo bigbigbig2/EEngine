@@ -249,6 +249,8 @@ Reflection 可以先 Screen Query，失败后 World Query，再从 Radiance Fiel
 
 ## 3. Surface / Material / Lighting：整体架构最关键的重新设计
 
+本节冻结整体方向；选定的 Standard/Coated 来源、材质/纹理/光照合同、Dense/异常队列与 WebGPU 物理方案见[Module B 独立设计](./surface-material-lighting-v2.md)，逐步单链切换见[Module B 执行文档](../next-execution/surface-material-lighting-v2.md)。两份模块文档在本节框架内展开，不把当前过渡源码当作最终限制。
+
 Visibility 之后是 EEngine 下一阶段最值得重做的地方。当前“全屏 classify → scatter → 最多 64 material/texture-set class → 每 class compute dispatch”的实现解决了第一版 WebGPU material binding 问题，但长期会把逻辑材质、纹理 residency 与 GPU execution class 绑死。新的 Surface 架构必须从根上把这几个维度拆开。
 
 ### Surface execution 不是 Dense / Binned / Adaptive 三选一

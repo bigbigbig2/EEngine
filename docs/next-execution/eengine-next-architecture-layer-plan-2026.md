@@ -126,6 +126,8 @@
 
 ## 4. 模块 B：Surface / Material / Lighting v2
 
+本模块的逐来源、数据流与性能取舍见[独立设计](../next-design/surface-material-lighting-v2.md)；B0–B8 的单链迁移、旧职责切断和模块收口见[独立执行文档](./surface-material-lighting-v2.md)。以下保留架构层顺序摘要，具体实施以两份模块文档和当前源码为准。
+
 ### 4.1 先设计的核心，不写三选一总开关
 
 Surface 执行分成三个正交选择：**Work Scheduling**（dense 或 GPU binned）、**Sampling Policy**（full/coarse/temporal reuse 的合法范围）、**Execution Class**（closure、计算代价、所需资源）。同帧简单连续区域走 Dense Fast Lane，昂贵且发散的片元才支付 classify/compact/indirect 成本。材质 authoring ID 与 texture set 不能直接成为 shader class；程序身份只由稳定 shader/layout/capability/kernel specialization 决定。

@@ -1,6 +1,6 @@
 # EEngine Next：开源迁移来源与采用边界
 
-调查日期：2026-09-25。当前采用边界对应 [ADR-0020](../adr/0020-clean-cut-renderer.md) 和 [单路径重建路线](../next-execution/eengine-next-architecture-layer-plan-2026.md)。这是影响当前选型的来源账本，不是已移植清单；表中的模块是目标 owner，不表示迁移顺序。
+初始调查日期：2026-09-25；Module A/B 追加核对：2026-09-27。当前采用边界对应 [ADR-0020](../adr/0020-clean-cut-renderer.md) 和 [单路径重建路线](../next-execution/eengine-next-architecture-layer-plan-2026.md)。这是影响当前选型的来源账本，不是已移植清单；表中的模块是目标 owner，不表示迁移顺序。
 
 本轮通过 GitHub 固定 revision 的目录、许可证原文和下列标明的实现文件进行核查；未构建这些上游工程，未跑其 benchmark，也未证明移植后的 WebGPU 性能。**固定 commit 是复现调查的版本，不是自动引入依赖或升级现有来源的指令。** 本地已有 port 继续以 [geometry](./geometry.md)、[visibility](./visibility.md)、[shading](./shading.md)、[platform](./platform.md) 的既有 revision 为准。
 
@@ -16,7 +16,7 @@
 | Renderer Core / visibility | GPUPrefixSums | 完整 Reduce-Then-Scan WGSL 算法 | 队列协议、容量、间接执行和生命周期 |
 | Scene & Virtual Resources / virtual-assets | 现有 Nyx、meshoptimizer ledger | 继续现有忠实迁移 | 不因 Next 重写正确的 geometry 基础 |
 | Visibility & Surface / shading | The Forge VisibilityBuffer2 | 插值、解析梯度及依赖数学 | EEngine identity、资源布局、显式纹理梯度 |
-| Visibility & Surface / shading、materials-textures | 现有 Filament；MaterialX 可选 | 沿用 PBR；graph/lowering 参考 | 有界 binding/kernel family、去重合法性、frequency planning |
+| Surface / Material / Lighting v2 / shading、materials-textures | Filament R03 Standard/Coated/IBL；Khronos Sample Renderer R22 glTF 扩展语义；The Forge R02 属性重建；Wicked R23 为 tile 调度参考；MaterialX R04 可选 authoring 参考 | 固定 Standard/clearcoat 的参数、直接/间接光、环境预过滤；透视插值/梯度与 glTF specular/IOR/coat 语义 | 有界 binding/kernel family、Dense/exception queue 和溢出覆盖、物理天空生产与生命周期；R23 不冒称整套 port |
 | Light Transport / shading | XeGTAO | 深度预处理、求值、边缘感知降噪 | 产品空间适配、输出/Temporal 接口 |
 | Light Transport / shading、visibility | FidelityFX SDK v1.1.4 SSSR + Denoiser | 分类、工作列表、追踪、验证、完整信号重建 | WebGPU wave/绑定适配和镜面能量组合 |
 | Light Transport / shading、virtual-assets、visibility | Timberdoodle（需原型） | 页面需求、分配、失效、缓存、采样 | 无 mesh shader 的硬件 indirect 页执行 |
@@ -61,13 +61,25 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 ### R03 · Filament：沿用 PBR，参考图与照明组织
 
 - **Upstream / Revision**：[google/filament](https://github.com/google/filament/tree/41f996de8fcc2d6b60b73159aa1bc44a05a40700)，调查 pin `41f996de8fcc2d6b60b73159aa1bc44a05a40700`。现有 PBR 使用 [shading ledger](./shading.md) 的既有 pin，**不自动升级**。
-- **Source**：[FrameGraph.cpp](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/filament/src/fg/FrameGraph.cpp)、`shaders/src/surface_light_indirect.fs`（已读）；`libs/filamat/src/shaders/ShaderGenerator.cpp`、`filament/src/Froxelizer.cpp` 为进一步入口。本轮仓库递归目录响应被截断，具体已读文件通过固定 URL 单独获取，不声称遍历完整仓库。
+- **Source**：[FrameGraph.cpp](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/filament/src/fg/FrameGraph.cpp)；Module B 固定入口为 [`surface_brdf.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_brdf.fs)、[`surface_shading_lit.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_shading_lit.fs)、[`surface_shading_model_standard.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_shading_model_standard.fs)、[`surface_light_directional.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_light_directional.fs)、[`surface_light_punctual.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_light_punctual.fs)、[`surface_light_indirect.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_light_indirect.fs)、[`CubemapIBL.cpp`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/libs/ibl/src/CubemapIBL.cpp)；`libs/filamat/src/shaders/ShaderGenerator.cpp` 和 `filament/src/Froxelizer.cpp` 仅作材质变体/cluster 组织对照。上述具体文件已通过固定 URL 读取，未遍历或运行完整上游工程。
 - **License**：根 LICENSE Apache-2.0，已读。
 - **Local owner / Adoption**：frame-runtime/shading；新 pin not adopted，既有 port 状态不变。
 - **Retained invariants**：图的资源依赖/生命周期和现有 BRDF/能量语义；不要把改组织结构变成重写材质数学。
 - **WebGPU differences**：复用本地 FrameGraph 和 compiler；Filament 并不直接提供本设计的 semantic product compiler。Froxelizer 是光源分簇，不是完整 Froxel fog integrator。
 - **Fallback / lifecycle**：稳定程序缓存与 revision-local 绑定分离；device loss/resize 按本地 owner 管理。
 - **Local validation**：图裁剪/feature-off 与现有材质参考检查；只迁移实际选择的数学/功能，不追求 API 同构。
+
+**Module B 选中的算法 profile**：Standard metallic-roughness + specular/IOR + clearcoat 的参数、直接光、环境间接光，以及预过滤环境 radiance/DFG；不包含 Filament 的整套 Renderer、SSR、SSAO、refraction、cloth、subsurface 或其 native 资源管理。选中 profile 是实现计划，**not adopted**，不自动继承旧 `docs/porting/shading.md` 的数学 authority/验证状态。输入为 canonical 材质/纹理采样、Surface 几何、cluster light、PhysicalSun、环境辐亮度；输出为分项 direct diffuse/specular、indirect diffuse/specular 与 clearcoat 第二 lobe。`Filament.md` 的 [PBR 技术说明](https://google.github.io/filament/Filament.md.html)用于核对物理含义，不替代下表源码。
+
+| 固定源函数/阶段 | 本地拟实现阶段/真实产物 | 必须保留的条件与 WebGPU 差异 |
+| --- | --- | --- |
+| `surface_brdf.fs` 的 `D_GGX`、`V_SmithGGXCorrelated`、`F_Schlick`、clearcoat D/V | Standard/Coated WGSL closure 函数 | 粗糙度域、NoV/NoL/NoH、F0/F90 与退化守卫；WGSL 数值改写需 CPU/WGSL oracle，不复制 GLSL 宏组合 |
+| `surface_shading_lit.fs::getCommonPixelParams/getClearCoatPixelParams` | Material canonical params → GPU PixelParams | dielectric/metal/specular/IOR、coat roughness/normal 与基础层 F0 改写；glTF 属性通道同时对照 R22 |
+| `surface_shading_model_standard.fs::clearCoatLobe/surfaceShading`、`surface_light_directional.fs::getDirectionalLight/evaluateDirectionalLight`、`surface_light_punctual.fs::getLight/evaluatePunctualLights` | Standard/Coated direct-light consumer | local/directional incident、距离/角衰减、base/coat lobe、coat attenuation；本地 GPU cluster 和未来 VSM visibility 不来自 Filament 物理布局。B 的 shadow/SSAO-disabled profile 以 direct visibility=1，Filament directional shadow/micro-shadow 分支不宣称已 port |
+| `surface_light_indirect.fs::prefilteredDFG/diffuseIrradiance/evaluateClearCoatIBL` | Env diffuse 与唯一 Env specular fallback consumer | roughness→LOD、DFG/Fresnel/energy、coat 直接与 IBL 均存在；AO-disabled 输入 visibility=1，源文件的 SSR/AO/refraction 分支不冒称本模块已移植，未来 provider 按独立模块接入 |
+| `CubemapIBL.cpp::roughnessFilter/DFG` | PhysicalSky/Environment radiance → prefilter mips/DFG | GGX 重要性采样/pdf、mip/filter/归一化；源为 CPU cubemap 实现，本地 GPU compute、sky generation/双缓冲/单提交是适配，动态天空性能尚未验证 |
+
+**Fallback / lifecycle**：环境预过滤缺失时明确标注环境镜面未就绪，不以常数高光冒充完整 IBL；上一个完整 sky generation 可在新预过滤完成前继续使用，不能混用半成品。材质/贴图/sky generation 与 GPU 资源按当前提交完成边界退役。**升级条件**：源分支逐项核对、Standard/Coated 的 WGSL/CPU 数值 oracle、glTF 参数一致性、环境 prefilter producer→生产 Surface GPU consumer 全部成立后，才按实际覆盖范围晋级；typecheck/build/targeted tests 在 Module B 连通后集中运行。
 
 ### R21 · Granite / Filament FrameGraph：模块 A 的架构对照，非算法移植
 
@@ -77,6 +89,24 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 - **源职责 → 本地对应**：Granite/Filament 的 pass 注册和资源读写声明 → 已存在的 `FrameGraph.add` / `import_resource`；依赖遍历、裁剪与执行排序 → 已存在的 `FrameGraph.compile`；物理资源生命周期和导入 → `FrameGraphResourceManager` 与 `FrameGraphBindingLayout`。这些只是架构对照，**没有复制上游函数或把它们登记为本地 port**。两者均不提供模块 A 所需的语义产品需求闭包、Topology Identity/Physical Resource Identity 切分和 WebGPU 单提交生命周期；具名本地方案为 **EEngine Semantic Frame Program**，负责这层薄编排并 lower 到现有 FrameGraph。
 - **保留与拒绝**：保留显式资源边、无消费者节点裁剪、可复用图编译、imported/persistent/transient 分离；拒绝直接搬 Granite 的 Vulkan barrier、跨队列同步、物理 render pass 和 native descriptor 结构，也不把 Filament FrameGraph 称作 semantic product compiler。GPU 动态工作数仍由本地 Visibility/ShadingWork 产生、GPU 消费，不能通过本帧读回变更拓扑。
 - **Adoption / 验证**：`reference only, not adopted`；模块 A 是本地架构集成，不存在可晋级的“Granite/Filament 完整算法移植”。本地检查点为 topology key 稳定性、late binding 正确性、producer→consumer 边、单 submit、feature-off 裁剪，以及模块收口 typecheck/build/必要 targeted tests。浏览器、性能和 formal evidence 留到整体 Next 验收。
+
+### R22 · Khronos glTF Sample Renderer：Module B 材质扩展语义
+
+- **检索范围与日期**：2026-09-27 核查 Khronos glTF Sample Renderer 的材质参数 shader、PBR 主函数与根许可证；比较当前 `gltfMaterials.ts` 的 specular→metallic-roughness 近似及 IOR/transmission 处理。这里只选材质语义与选定 closure 分支，不迁入其 fragment-per-material 宏变体 Renderer。
+- **Upstream / Revision / License**：[KhronosGroup/glTF-Sample-Renderer](https://github.com/KhronosGroup/glTF-Sample-Renderer/tree/cc27919cacbb235d2f58a0c0203387efce9375f8f7)，`cc27919cacbb235d2f58a0c0203387efce9375f8f7`；根 [`LICENSE.md`](https://github.com/KhronosGroup/glTF-Sample-Renderer/blob/cc27919cacbb235d2f58a0c0203387efce9375f8f7/LICENSE.md) 为 Apache-2.0，已读。`THIRDPARTY.md` 与所选 shader 的进一步派生 notice 在复制具体表达性代码前逐项复核。
+- **具体入口**：[`source/Renderer/shaders/material_info.glsl`](https://github.com/KhronosGroup/glTF-Sample-Renderer/blob/cc27919cacbb235d2f58a0c0203387efce9375f8f7/source/Renderer/shaders/material_info.glsl) 的 `getBaseColor/getSpecularInfo/getClearCoatInfo/getIorInfo` 及各纹理 role；[`source/Renderer/shaders/pbr.frag`](https://github.com/KhronosGroup/glTF-Sample-Renderer/blob/cc27919cacbb235d2f58a0c0203387efce9375f8f7/source/Renderer/shaders/pbr.frag) 的 `MATERIAL_IOR/SPECULAR/CLEARCOAT`、直接光/IBL 分支；`source/gltf/material.js` 为参数装配关联入口。已读固定 shader，未运行上游工程。
+- **Source → local**：glTF factor/texture/UV/sampler/通道/default → `gltfMaterials.ts` 规范化 canonical facts；dielectric F0/specular weight/IOR 与 clearcoat factor/roughness/normal → Material v2 参数 record/Coated closure；`pbr.frag` 的基础层与 coat 光照组合 → 本地 Filament profile 的语义交叉核对。输入为 authored glTF 材质和纹理，输出为无信息损失的 canonical material；WebGPU 的 TextureHandle、bounded bank、GPU queue 和 compute shader 是 EEngine lowering。
+- **关键分支/缺口**：保留默认值、色彩空间、各 texture channel 与 coat/base 能量关系；不得继续将 KHR specular 只压成 MR 后宣称扩展完整支持。`transmission/diffuseTransmission/volume`、anisotropy、iridescence、sheen 等源文件中存在，但不属于 B 完整 opaque closure profile，必须明确未支持或路由后续具名 composition/closure 模块；不能把透明模式开关当成完整 transmission port。
+- **Owner / Adoption / fallback / validation**：materials-textures/shading，**not adopted**。不支持的 authored 特性在发布前显式拒绝或按产品明确的独立 provider 路由；不静默丢字段。B 收口时用 selected extension 参数/default/纹理通道 oracle、WGSL/CPU Standard/Coated 比较及生产 GPU 消费确认，再只晋级选中范围；正式跨浏览器画质比较留最终集成。
+
+### R23 · Wicked Engine：Module B GPU tile 分流参考与本地队列缺口
+
+- **检索范围与日期**：2026-09-27 核查当前固定源码的 analyze→resolve/bin→shade shader 及许可。它展示完整 native visibility tile 着色的关键 shader 阶段，但其 bindless HLSL/host 执行链、WebGPU 队列容量/溢出并未在本次逐项证明可直接移植；本条定位为**架构/阶段参考**，不登记整套算法 port。
+- **Upstream / Revision / License**：[turanszkij/WickedEngine](https://github.com/turanszkij/WickedEngine/tree/0c97cfcdc2a146e12e31ef9464a7aece71706264)，`0c97cfcdc2a146e12e31ef9464a7aece71706264`；根 [`LICENSE.txt`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/LICENSE.txt) 为 MIT，已读。与既有 R16 的 SSGI/VT pin 分立，不自动升级 R16。
+- **具体入口**：[`visibility_analyzeCS.hlsl`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/shaders/visibility_analyzeCS.hlsl)、[`visibility_resolveCS.hlsl`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/shaders/visibility_resolveCS.hlsl)、[`visibility_shadeCS.hlsl`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/shaders/visibility_shadeCS.hlsl)；`lightCullingCS.hlsl` 仅对照 local light workload，本地 `LightClusterPass` 已是生产 owner。
+- **Source → local**：analyze 的 uniform primitive/divergent tile 与计数 → 本地 Dense 命中/异常 tile 统计候选；resolve 的 bin mask/原子 append/indirect 与深度层次 → 本地有限 profile×family queue 和 GPU indirect 的调度参考；shade 的 tile 读取、material/Surface、tiled light → Binned Surface consumer 的数据流参考。输入为 visibility/primitive identity，输出为 tile list、indirect counts、radiance；本地以现有 VisibilityKey/Material publication/FrameGraph 降低，不复制其 native resource index。
+- **关键分支/不变量/缺口**：保留 uniform 与 divergent 的判别、跨 wave/group 的计数和 bin 与真实 shader type 对应；源使用 `WaveActiveAllTrue/WaveActiveBitOr/QuadReadAcross*`、`TEXTURE_SLOT_NONUNIFORM` 和 bindless texture table。WebGPU 的 subgroup 能力和尺寸需协商，通用 bindless 不是生产前提。**没有找到该固定源直接提供 EEngine 所需“hot resident profile Dense 求值同时产 exception、bounded queue 溢出时取消半队列并全屏条件 fallback”的完整 donor**。具名本地方案为 *EEngine Dense/Exception Surface Work v2*，必须如实标本地调度，不冒充 Wicked 完整 port。
+- **Owner / Adoption / fallback / validation**：shading/frame-runtime，**reference only, not adopted**。容量溢出以 GPU 抑制该 lane binned indirect、启用同 lane 全屏条件 fallback；不借当前帧 CPU readback。B 收口核对 lane 写域、容量/indirect 边界、WGSL/CPU 分类 oracle 和生产 GPU consumer；比较 dense/exception 与现有全员队列局部成本，正式 P50/P95 留最终集成。
 
 ### R04 · MaterialX：可选的离线图与 WGSL lowering 参考
 
