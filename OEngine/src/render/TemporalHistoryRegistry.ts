@@ -261,6 +261,10 @@ export class TemporalHistoryRegistry {
 
   private invalidateForReason(reason: TemporalHistoryInvalidationReason): void {
     for (const state of this.histories.values()) {
+      // A reconstruction history at output resolution survives changes to the
+      // internal sampling domain when its backend keeps the physical slot.
+      if ((reason === "internal-resize" || reason === "render-scale") &&
+          state.descriptor.resolutionDomain === "output-full") continue;
       if (
         reason === "exposure-discontinuity" &&
         state.descriptor.preExposure === "none"
@@ -300,16 +304,15 @@ function invalidationReason(
   if (previous.outputWidth !== next.outputWidth || previous.outputHeight !== next.outputHeight) {
     return "output-resize";
   }
+  if (previous.format !== next.format) return "format-change";
+  // Whole-frame topology changes take priority when several fields change
+  // together; an internal resize alone may retain output color, but a feature
+  // switch on that same frame cannot silently inherit its old semantics.
+  if (previous.feature !== next.feature) return "feature-toggle";
   if (previous.internalWidth !== next.internalWidth || previous.internalHeight !== next.internalHeight) {
     return "internal-resize";
   }
   if (previous.renderScale !== next.renderScale) return "render-scale";
-  if (previous.format !== next.format) return "format-change";
-  // A topology change can alter an otherwise still-active downstream color
-  // history (for example SSR on -> off while TAA stays enabled).  Treat the
-  // whole frame product generation as changed; active-name diffs alone are
-  // insufficient to detect that dependency.
-  if (previous.feature !== next.feature) return "feature-toggle";
   if (previous.light !== next.light) return "lighting-change";
   if (previous.representation !== next.representation) return "representation-change";
   if (previous.preExposureGeneration !== next.preExposureGeneration) {

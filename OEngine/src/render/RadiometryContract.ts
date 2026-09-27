@@ -15,7 +15,8 @@ export class RadiometryRuntime {
   beginFrame(environmentGeneration: number | null): PreExposureContract {
     if (this.environmentGeneration !== environmentGeneration) {
       this.environmentGeneration = environmentGeneration;
-      this.generationValue++;
+      // Lighting changes are local temporal evidence, not a change to the
+      // meaning of this multiplier. Keep the history rescale epoch stable.
     }
     return Object.freeze({
       multiplier: this.multiplierValue,
@@ -30,7 +31,6 @@ export class RadiometryRuntime {
     }
     if (multiplier !== this.multiplierValue) {
       this.multiplierValue = multiplier;
-      this.generationValue++;
     }
   }
 

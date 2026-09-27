@@ -1,6 +1,6 @@
 # Module D 执行：Temporal Facts、Radiometry 与 Presentation
 
-> 状态：2026-09-27 待实施。按[设计文档](../next-design/temporal-radiometry-presentation.md)和[架构层计划](./eengine-next-architecture-layer-plan-2026.md) §6，D0→D6 连续推进。固定来源及逐阶段映射见[Next 来源账本 R12/R24/R25](../porting/next-renderer.md)。本文是人读执行路线，不是逐步许可或逐批测试门禁。
+> 状态：2026-09-27，D0–D3 已编码并完成定向检查；D4–D6 尚未实施。按[设计文档](../next-design/temporal-radiometry-presentation.md)和[架构层计划](./eengine-next-architecture-layer-plan-2026.md) §6，继续从 D4 开始。固定来源及逐阶段映射见[Next 来源账本 R12/R24/R25](../porting/next-renderer.md)。本文是人读执行路线，不是逐步许可或逐批测试门禁。
 
 ## 0. 模块完成的准确含义
 
@@ -36,10 +36,10 @@ GPU Scene previous state + Visibility depth/identity + Surface material facts
 
 | 阶段 | 先有的条件 | 可观察产物 | 下一阶段依赖 |
 | --- | --- | --- | --- |
-| D0 来源与 ABI | C 主链已连通 | pinned profile、source→local 映射、事实/颜色/尺寸约定 | D1–D5 不再猜输入方向 |
-| D1 Temporal Facts | 当前 Geometry/Surface producer | motion-valid、stable identity、局部变化、opaque reactive 的真实 GPU producer | FSR3 adapter 与 history invalidation |
-| D2 History lifecycle | D1 事实与原有 FSR3 物理纹理 | 原子 begin/commit/abort、按域 resize/recovery | D3/D4 GPU history 正确轮换 |
-| D3 FSR3 接线 | D1、D2 | pinned 全阶段消费 motion/depth/mask/previous extent；输出 HDR | D4/D5 使用可信重建产品 |
+| D0 来源与 ABI | C 主链已连通 | pinned profile、source→local 映射、事实/颜色/尺寸约定 | 已完成；透明/HDR donor 分支仍按缺口记录 |
+| D1 Temporal Facts | 当前 Geometry/Surface producer | motion-valid、RGBA32Uint identity、局部变化、opaque reactive 的真实 GPU producer | 已完成；透明 composition 仍 absent |
+| D2 History lifecycle | D1 事实与原有 FSR3 物理纹理 | 原子 begin/commit/abort、按域 resize/recovery | 已完成；GPU 运行与 device-loss 实测留 D6/总验收 |
+| D3 FSR3 接线 | D1、D2 | pinned 全阶段消费 motion/depth/mask/previous extent；输出 HDR | 已完成；定向 WGSL/契约检查通过 |
 | D4 Radiometry | D0–D3 | 统一 Rec.2020、GPU `P/E`、sky/aerial、测光 | D5 display 输入 |
 | D5 Presentation | D4 | Bloom、静态 grade、GT7、SDR/HDR profile、UI 次序 | D6 收口 |
 | D6 模块收口 | D1–D5 原理与生产链连通 | 一次集中检查与准确 currentSlice | VSM |
@@ -71,6 +71,8 @@ GPU Scene previous state + Visibility depth/identity + Surface material facts
 
 **D1 结束可观察点**：Graph 的事实产品可追溯到真实 GPU writer；运动无效边界不再与合法静止混淆；局部变更不依赖全局 shading revision 整屏判失效。后续各 consumer 仍可采用不同衰减规则。
 
+**本次实现记录**：`TemporalFactsPass` 在单一 Frame Program 中生成 full internal motion、RGBA8 mask 与双缓冲 RGBA32Uint identity。identity 四个 lane 为 instance-set slot、geometry/meshlet/primitive/LOD 签名、材质/分类/材质与纹理 publication generation 签名、GPU publication `dynamic_revision`；签名是局部变化检测器，不是跨场景全局对象 ID。mask A 的具名位覆盖 instance-set、geometry/LOD、material/residency、transform revision、invalid、emissive 与 alpha-mask。无 previous mapping、越界/非有限投影、背景表面均标 invalid；天空使用相机旋转投影。GPU Scene ABI v9 将 instance-set generation 直接随记录发布，避免 slot 回收后复用旧历史。
+
 ## 5. D2：公共 history 事务与物理资源一致
 
 1. 盘点 `TemporalFabric.ts` 默认 color/depth/motion descriptor 与 `Fsr3UpscalerRuntime.ts` 的 color/luma/lumaHistory/accumulation/frameInfo 五组真实纹理。将公共层定位为**事务/epoch/读写句柄协调**，物理资源仍由 backend owner 持有；删掉只被 `markProduced` 但无真实 copy/writer 的“逻辑 history 已生产”声明，或把它们接成实际 writer。每个 committed handle 必须能指向刚被本帧 Graph 写入的物理资源。
@@ -80,6 +82,8 @@ GPU Scene previous state + Visibility depth/identity + Surface material facts
 
 **D2 结束可观察点**：一次 begin 对应一次 commit 或 abort；每个 valid history 有物理生产边；曝光平滑变化与局部 patch 不再整屏 reset；resize/device loss 的各域状态解释明确。Camera cut 需区别显式切断与连续大幅运动，保守检测可保留但须具名。
 
+**本次实现记录**：TemporalFabric 只保留真实 color 与 identity histories；FSR3 继续拥有其五组物理纹理。output color 在合法 internal envelope 内可保留，identity 与 FSR3 internal scratch 按域重建；空场景入口会切断旧 temporal state。commit/abort 与 `command.gpuDone` 绑定，旧物理纹理延迟退休。
+
 ## 6. D3：FSR3 从共享 facts 消费，不删源阶段
 
 1. 在 `Fsr3UpscalerRuntime.ts::prepareFrame/addToGraph` 与 `Fsr3PrepareInputsPass.ts` 接 D1 motion/validity。只在 adapter 做 `current−previous` 到 FSR3 所需方向、motion scale 和 jitter cancellation；用源码和 local shader 数值对照确认符号、unit、reverse-Z linearization、前后帧 internal/output extent。无效 motion 由对应 reactive/disocclusion/reset 分支处理，不能被当正常静止。
@@ -88,6 +92,8 @@ GPU Scene previous state + Visibility depth/identity + Surface material facts
 4. 完整保留 Prepare Inputs→Luma/Shading SPD→Shading Change→Prepare Reactivity→Luma Instability→Accumulate/Reproject/Upsample→RCAS。若 WebGPU binding/dispatch 改写，只改物理调度，不删除输入或重要算法分支。Graph 仍属于 Frame Program 一个 submit。
 
 **D3 结束可观察点**：FSR3 production input 不再只有 motion.xy/zero mask；合法/非法 motion、局部变化与真实上帧尺寸可被 tracing 到具体 stage；输出仍是工作空间 HDR，尚未直接当显示颜色。
+
+**本次定向检查**：`npm run typecheck`、`npm run build:test` 通过；Temporal Facts 与 FSR3 Prepare Inputs WGSL 经 Naga 解析通过；FSR3 frame lifetime、TemporalFabric、material ABI 定向契约测试通过。未运行 browser、真实 GPU、画质矩阵、性能 benchmark 与正式 evidence；这些属于 D6/整机验收。`RadiometryRuntime` 仍是 CPU multiplier=1，D4 GPU P/E 尚未开始。
 
 ## 7. D4：工作色域、全链预曝光与 GPU 自动曝光
 

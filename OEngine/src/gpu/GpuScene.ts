@@ -343,6 +343,7 @@ export class GpuScene {
         : this.slots.length;
       reusedSlot = reuseReleasedRange || slot < this.slots.length;
       const generation = reusedSlot ? nextGeneration(this.slots[slot]!.generation) : 1;
+      stampInstanceSetGeneration(records, generation);
       if (reusedSlot) {
         if (!reuseReleasedRange) this.freeSlots.pop();
       } else {
@@ -447,6 +448,7 @@ export class GpuScene {
       const requiredCount = checkedAdd(cursorBefore, source.count, "Instance high-water count");
       this.assertCapacity(requiredCount);
       const appended = this.packSource(source);
+      stampInstanceSetGeneration(appended, entry.generation);
       if (requiredCount * GPU_INSTANCE_RECORD_STRIDE > this.buffer.size) {
         replacement = this.grow(requiredCount, command);
       }
@@ -1426,6 +1428,14 @@ function copyRecords(source: Uint8Array, indices: Uint32Array): Uint8Array<Array
     result.set(source.subarray(begin, begin + GPU_INSTANCE_RECORD_STRIDE), cursor * GPU_INSTANCE_RECORD_STRIDE);
   }
   return result;
+}
+
+function stampInstanceSetGeneration(records: Uint8Array, generation: number): void {
+  const view = new DataView(records.buffer, records.byteOffset, records.byteLength);
+  for (let offset = GPU_INSTANCE_RECORD_OFFSETS.instance_set_generation;
+      offset < records.byteLength; offset += GPU_INSTANCE_RECORD_STRIDE) {
+    view.setUint32(offset, generation, true);
+  }
 }
 
 function restoreRecords(

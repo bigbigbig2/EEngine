@@ -1,7 +1,7 @@
 import { mat4 } from "gl-matrix";
 import { GPU_SHADING_BIN_COUNT } from "./GpuShadingBinAbi.js";
 
-export const GPU_INSTANCE_ABI_VERSION = 8;
+export const GPU_INSTANCE_ABI_VERSION = 9;
 export const GPU_INSTANCE_STATIC_RECORD_STRIDE = 64;
 export const GPU_INSTANCE_DYNAMIC_RECORD_STRIDE = 112;
 export const GPU_INSTANCE_RECORD_STRIDE =
@@ -55,7 +55,8 @@ export const GPU_INSTANCE_RECORD_OFFSETS = Object.freeze({
   dynamic_revision: 160,
   motion_flags: 164,
   /** Explicit ProductTableSlot for virtual-geometry instance identity. */
-  product_table_slot: 168
+  product_table_slot: 168,
+  instance_set_generation: 172
 } as const);
 
 export const GPU_INSTANCE_RECORD_SCHEMA = Object.freeze({
@@ -71,6 +72,8 @@ export interface GpuInstanceRecordCpu {
   readonly geometryGeneration: number;
   /** ProductTableSlot for a virtual-geometry asset reference; zero for ordinary geometry. */
   readonly productTableSlot?: number;
+  /** Generation of the GpuScene set owning this physical instance slot. */
+  readonly instanceSetGeneration?: number;
   readonly materialHandle: number;
   readonly flags: number;
   readonly debugId: number;
@@ -107,7 +110,7 @@ struct OEngineInstanceRecord {
   dynamic_revision: u32,
   motion_flags: u32,
   product_table_slot: u32,
-  _dynamic_pad: u32,
+  instance_set_generation: u32,
 }
 
 fn oengine_instance_current_object_to_world(instance: OEngineInstanceRecord) -> mat4x4f {
@@ -229,6 +232,8 @@ export function writeGpuInstanceRecord(
     requireNonZeroU32(record.geometryGeneration, "geometryGeneration"), "geometryGeneration");
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.product_table_slot,
     record.productTableSlot ?? 0, "productTableSlot");
+  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.instance_set_generation,
+    record.instanceSetGeneration ?? 0, "instanceSetGeneration");
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.material_handle, record.materialHandle, "materialHandle");
   const previousFromCurrent = scratch.previousFromCurrent;
   const motionValid = computePreviousFromCurrent(

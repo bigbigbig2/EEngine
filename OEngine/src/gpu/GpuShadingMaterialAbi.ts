@@ -10,8 +10,8 @@ import {
 } from "./GpuShadingProgramAbi.js";
 import { GPU_CLOSURE_MATERIAL_STRIDE, GPU_CLOSURE_MATERIAL_WGSL } from "./GpuClosureMaterialAbi.js";
 
-export const GPU_SHADING_MATERIAL_ABI_VERSION = 5;
-export const GPU_SHADING_MATERIAL_HEADER_STRIDE = 32;
+export const GPU_SHADING_MATERIAL_ABI_VERSION = 6;
+export const GPU_SHADING_MATERIAL_HEADER_STRIDE = 48;
 export const GPU_SHADING_MATERIAL_RECORD_STRIDE =
   GPU_SHADING_MATERIAL_HEADER_STRIDE + GPU_MATERIAL_VISIBILITY_RECORD_STRIDE + GPU_CLOSURE_MATERIAL_STRIDE;
 export const GPU_SHADING_TEXTURE_ROUTE_STRIDE = 16;
@@ -30,7 +30,8 @@ export const GPU_SHADING_MATERIAL_HEADER_OFFSETS = Object.freeze({
   publicationRevision: 16,
   flags: 20,
   family: 24,
-  featureMask: 28
+  featureMask: 28,
+  temporalSignature: 32
 } as const);
 
 export interface GpuShadingMaterialRecordHeader {
@@ -75,13 +76,20 @@ export function packGpuShadingMaterialRecord(
     }
     bytes.set(closure, GPU_SHADING_MATERIAL_HEADER_STRIDE + GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
   }
+  // Content identity is per material, not the global publication generation.
+  // One upload-time hash avoids hashing hundreds of material bytes per pixel.
+  let signature = 2166136261;
+  for (let index = GPU_SHADING_MATERIAL_HEADER_STRIDE; index < bytes.byteLength; index++) {
+    signature = Math.imul(signature ^ bytes[index]!, 16777619) >>> 0;
+  }
+  view.setUint32(GPU_SHADING_MATERIAL_HEADER_OFFSETS.temporalSignature, signature, true);
   return bytes;
 }
 
 export function unpackGpuShadingMaterialHeader(
   bytes: Uint8Array,
   byteOffset = 0
-): Readonly<GpuShadingMaterialRecordHeader> {
+): Readonly<GpuShadingMaterialRecordHeader & { readonly temporalSignature: number }> {
   if (!Number.isSafeInteger(byteOffset) || byteOffset < 0 ||
       byteOffset + GPU_SHADING_MATERIAL_RECORD_STRIDE > bytes.byteLength) {
     throw new RangeError("Shading material record range is invalid");
@@ -95,7 +103,8 @@ export function unpackGpuShadingMaterialHeader(
     publicationRevision: view.getUint32(16, true),
     flags: view.getUint32(20, true),
     family: view.getUint32(24, true),
-    featureMask: view.getUint32(28, true)
+    featureMask: view.getUint32(28, true),
+    temporalSignature: view.getUint32(GPU_SHADING_MATERIAL_HEADER_OFFSETS.temporalSignature, true)
   };
   validateHeader(header);
   return Object.freeze(header);
@@ -144,6 +153,10 @@ struct OEngineShadingMaterialRecord {
   flags: u32,
   family: u32,
   feature_mask: u32,
+  temporal_signature: u32,
+  _temporal_pad0: u32,
+  _temporal_pad1: u32,
+  _temporal_pad2: u32,
   payload: OEngineMaterialVisibilityRecord,
   closure: OEngineClosureMaterialRecord,
 };

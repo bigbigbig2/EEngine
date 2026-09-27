@@ -5,6 +5,7 @@ import { resolveTextureView } from "../RenderTargetViews.js";
 import type { VisibilityFeature, PackedVisibilityOutputs } from "../features/VisibilityFeature.js";
 import type { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
 import type { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
+import type { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
 import type { LightClusterPass } from "../passes/LightClusterPass.js";
 import type { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import type { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
@@ -17,6 +18,7 @@ import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
   surface: SurfaceMaterialPass;
+  temporalFacts: TemporalFactsPass;
   present: SurfacePresentPass;
   sky: PhysicalSkyPass | null;
   aerial: AerialPerspectivePass | null;
@@ -239,7 +241,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   });
   assertTextureProduct(plan, graph, "surface-radiance", surface.radiance);
   assertTextureProduct(plan, graph, "surface-motion", surface.motion);
-  lowerPresentation(plan, initial, owners, graph, bind, cameraBuffer, result, surface, physicalEnvironmentSun);
+  lowerPresentation(plan, initial, owners, graph, bind, cameraBuffer, result, surface,
+    instances, materialRecords, physicalEnvironmentSun);
   return graph.compile();
 }
 
@@ -325,6 +328,7 @@ function lowerPresentation(
   plan: FrameProgram, initial: SceneFrameBindings, owners: FrameProgramOwners,
   graph: FrameGraph, bind: SceneBind, cameraBuffer: ResourceId,
   result: PackedVisibilityOutputs, surface: ReturnType<SurfaceMaterialPass["addToGraph"]>,
+  instances: ResourceId, materialRecords: ResourceId,
   physicalEnvironmentSun: ResourceId | undefined
 ): void {
   if (plan.request.kind !== "scene") throw new Error("Presentation requires a scene Frame Program");
@@ -355,8 +359,24 @@ function lowerPresentation(
         transmittance: atmosphereEnvironment, scattering: skyRadiance,
         higherOrder: higherOrderScattering, width: result.frame.domain.width, height: result.frame.domain.height });
   if (plan.request.physicalEnvironment) assertTextureProduct(plan, graph, "aerial-radiance", aerialRadiance);
+  const previousCamera = graph.import_resource(
+    "previous-camera", { kind: "imported", label: "previous camera" },
+    bind("previous-camera", bindings => bindings.view.gpu_previous_camera_state.buffer)
+  );
+  const facts = owners.temporalFacts.addToGraph(graph, {
+    width: result.frame.domain.width, height: result.frame.domain.height,
+    visibility: result.frame.visibilityKey, depth: result.frame.depth,
+    surfaceMotion: surface.motion, meshletWork: result.frame.meshletWork.records,
+    instances, materials: materialRecords, currentCamera: cameraBuffer,
+    previousCamera
+  }, (name, resolve) => bind(`temporal-facts/${name}`,
+    bindings => resolve(bindings.temporalFacts)));
+  assertTextureProduct(plan, graph, "temporal-motion", facts.motion);
+  assertTextureProduct(plan, graph, "temporal-mask", facts.mask);
+  assertTextureProduct(plan, graph, "temporal-identity", facts.identity);
   const reconstructedRadiance = initial.fsr3.addToGraph(graph, {
-    color: aerialRadiance, depth: result.frame.depth, motion: surface.motion,
+    color: aerialRadiance, depth: result.frame.depth, motion: facts.motion,
+    reactiveMask: facts.mask, validityMask: facts.mask,
     width: result.frame.domain.width, height: result.frame.domain.height,
     outputWidth: plan.request.outputWidth, outputHeight: plan.request.outputHeight
   }, (name, resolve) => bind(`fsr3/${name}`, bindings => resolve(bindings.fsr3)));

@@ -41,7 +41,7 @@ test("shared environment BRDF oracle preserves split-sum multiple scattering and
 
 test("material and texture-route publication ABI validates generations and exact strides", () => {
   assert.equal(GPU_MATERIAL_VISIBILITY_ABI_VERSION, 8);
-  assert.equal(GPU_SHADING_MATERIAL_ABI_VERSION, 4);
+  assert.equal(GPU_SHADING_MATERIAL_ABI_VERSION, 6);
   const header = {
     programId: GPU_SHADING_PROGRAM.PbrGeneric,
     textureBindingSetId: 2,
@@ -52,9 +52,15 @@ test("material and texture-route publication ABI validates generations and exact
   };
   const bytes = packGpuShadingMaterialRecord(header, materialPayload());
   assert.equal(bytes.byteLength, GPU_SHADING_MATERIAL_RECORD_STRIDE);
-  assert.equal(bytes.byteLength, 304);
-  assert.equal(new DataView(bytes.buffer).getUint32(32, true), 0);
-  assert.deepEqual(unpackGpuShadingMaterialHeader(bytes), header);
+  assert.equal(bytes.byteLength, 592);
+  const temporalSignature = new DataView(bytes.buffer).getUint32(32, true);
+  assert.notEqual(temporalSignature, 0);
+  assert.deepEqual(unpackGpuShadingMaterialHeader(bytes), {
+    ...header, family: 0, featureMask: 0, temporalSignature
+  });
+  const changed = packGpuShadingMaterialRecord(header,
+    { ...materialPayload(), emissiveFactor: [1, 0, 0, 1] });
+  assert.notEqual(new DataView(changed.buffer).getUint32(32, true), temporalSignature);
   assert.throws(
     () => packGpuShadingMaterialRecord(header, { ...materialPayload(), reserved0: 1 }),
     /reserved0 must be zero/u

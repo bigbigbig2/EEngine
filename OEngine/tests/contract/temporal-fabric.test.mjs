@@ -12,7 +12,7 @@ test("TemporalFabric owns one begin/commit transaction for all shared histories"
   const fabric = new TemporalFabric();
   const jitter = fabric.begin(frame(0));
   assert.equal(jitter.length, 2);
-  for (const name of ["color", "depth", "motion"]) fabric.markProduced(name);
+  for (const name of ["color", "identity"]) fabric.markProduced(name);
   assert.equal(fabric.commit(0), true);
   assert.throws(() => fabric.commit(0), /mismatch/);
   fabric.begin(frame(1));
@@ -23,9 +23,20 @@ test("TemporalFabric owns one begin/commit transaction for all shared histories"
 test("camera and resolution changes invalidate histories at the shared boundary", () => {
   const fabric = new TemporalFabric();
   fabric.begin(frame(0));
-  fabric.markProduced("depth"); fabric.markProduced("motion"); fabric.markProduced("color"); fabric.commit(0);
+  fabric.markProduced("identity"); fabric.markProduced("color"); fabric.commit(0);
   fabric.begin(frame(1, { cameraRevision: 2, internal: [960, 540] }));
   const state = fabric.histories.state("color");
   assert.equal(state.readValid, false);
+  assert.equal(fabric.histories.state("identity").readValid, false);
+  fabric.abort(1);
+});
+
+test("internal resize retains output color but invalidates internal identity", () => {
+  const fabric = new TemporalFabric();
+  fabric.begin(frame(0));
+  fabric.markProduced("identity"); fabric.markProduced("color"); fabric.commit(0);
+  fabric.begin(frame(1, { internal: [960, 540], renderScale: 0.5 }));
+  assert.equal(fabric.histories.state("color").readValid, true);
+  assert.equal(fabric.histories.state("identity").readValid, false);
   fabric.abort(1);
 });

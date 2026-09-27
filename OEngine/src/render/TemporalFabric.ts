@@ -30,10 +30,8 @@ export class TemporalFabric {
 
   constructor(descriptors: readonly TemporalHistoryDescriptor[] = [
     { name: "color", semantic: "fsr3-upscaled-radiance", resolutionDomain: "output-full", format: "rgba16float",
-      bufferCount: 2, preExposure: "working-linear-rescale", lightingDependent: true },
-    { name: "depth", semantic: "surface-depth", resolutionDomain: "internal-full", format: "r32float",
-      bufferCount: 2, preExposure: "none", lightingDependent: false },
-    { name: "motion", semantic: "surface-motion", resolutionDomain: "internal-full", format: "rg16float",
+      bufferCount: 2, preExposure: "working-linear-rescale", lightingDependent: false },
+    { name: "identity", semantic: "temporal-surface-identity", resolutionDomain: "internal-full", format: "rgba32uint",
       bufferCount: 2, preExposure: "none", lightingDependent: false }
   ]) { this.histories = new TemporalHistoryRegistry(descriptors); }
 
@@ -50,7 +48,9 @@ export class TemporalFabric {
       representation: frame.representationRevision, device: frame.deviceRevision,
       preExposureGeneration: frame.preExposure.generation, view: frame.view
     };
-    const activeNames = frame.temporalEnabled ? ["color", "depth", "motion"] : [];
+    // Only physically persistent writers are registered. Surface depth/motion
+    // are same-frame transient facts, not phantom ping-pong histories.
+    const activeNames = frame.temporalEnabled ? ["color", "identity"] : [];
     this.histories.beginFrame(frame.frameIndex, revision, activeNames, frame.preExposure);
     this.activeFrame = frame.frameIndex;
     return resolveFrameJitter(frame.temporalEnabled, frame.nssEnabled,

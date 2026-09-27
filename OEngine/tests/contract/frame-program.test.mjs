@@ -33,7 +33,7 @@ test("Frame Program closes the current scene product demand with a structural ke
   assert.ok(!noEnvironment.products.includes("aerial-radiance"));
   const unlit = buildFrameProgram({ ...scene, hasLit: false });
   assert.ok(!unlit.products.includes("light-cluster"));
-  assert.deepEqual(first.facts.find(fact => fact.product === "surface-motion").consumers, ["fsr3"]);
+  assert.deepEqual(first.facts.find(fact => fact.product === "surface-motion").consumers, ["temporal-facts"]);
   assert.ok(!first.products.includes("shading-work"));
   assert.deepEqual(first.facts.find(fact => fact.product === "visibility").extent, [640, 360]);
   assert.equal(first.facts.find(fact => fact.product === "surface-motion").format, "rg16float");
@@ -94,18 +94,36 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       const history = graph.import_resource("test/FSR3 history", { kind: "imported" },
         bind("history", runtime => runtime.history));
       const pass = graph.add("test/FSR3", {}, () => {});
-      pass.read(input.color); pass.read(input.depth); pass.read(input.motion); pass.read(history);
+      pass.read(input.color); pass.read(input.depth); pass.read(input.motion);
+      pass.read(input.reactiveMask); pass.read(input.validityMask); pass.read(history);
       return pass.create("test/reconstructed", { kind: "transient_texture", width: 1280,
         height: 720, format: "rgba16float", domain: "output-full", usage: 7 });
     }, history: resource
   };
   const camera = {};
+  const temporalFacts = {
+    assertPreparedFrame() {},
+    addToGraph(graph, input) {
+      const pass = graph.add("test/Temporal Facts", {}, () => {});
+      for (const value of [input.visibility, input.depth, input.surfaceMotion,
+        input.meshletWork, input.instances, input.materials,
+        input.currentCamera, input.previousCamera]) pass.read(value);
+      return {
+        motion: pass.create("test/temporal-motion", { kind: "transient_texture", width: 640,
+          height: 360, format: "rg16float", domain: "internal-full", usage: 7 }),
+        mask: pass.create("test/temporal-mask", { kind: "transient_texture", width: 640,
+          height: 360, format: "rgba8unorm", domain: "internal-full", usage: 7 }),
+        identity: pass.create("test/temporal-identity", { kind: "transient_texture", width: 640,
+          height: 360, format: "rgba32uint", domain: "internal-full", usage: 7 })
+      };
+    }
+  };
   const bindings = { kind: "scene", deviceEpoch: 7, job, runtime, camera, hzb,
     depth: { width: 640, height: 360, format: "depth32float" },
     view: { camera: { camera }, hierarchical_z_buffer: hzb, width: 640, height: 360,
       gpu_camera_state: { buffer: resource }, gpu_previous_camera_state: { buffer: resource },
       frame_index: 1 },
-    swapchain: resource, preExposure: { multiplier: 1 }, fsr3, environment: null };
+    swapchain: resource, preExposure: { multiplier: 1 }, fsr3, temporalFacts, environment: null };
   const owners = {
     visibility: { addToGraph(graph, _job, input) {
       const pass = graph.add("test/Visibility", {}, () => {});
@@ -137,7 +155,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     present: { addToGraph(graph, color, swapchain) {
       const pass = graph.add("test/Present", {}, () => {});
       pass.read(color); pass.write(swapchain); pass.make_side_effect();
-    } }, sky: null, aerial: null, lightCluster() { throw new Error("feature-off light cluster"); }
+    } }, temporalFacts, sky: null, aerial: null, lightCluster() { throw new Error("feature-off light cluster"); }
   };
   assertFrameProgramBindings(plan, bindings);
   assert.throws(() => assertFrameProgramBindings(plan, { ...bindings, deviceEpoch: 8 }), /device epoch/);
@@ -173,10 +191,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const compiled = lowerFrameProgram(plan, bindings, owners);
   const dump = compiled.dump();
   assert.deepEqual(dump.executablePassOrder.map(id => dump.passes[id].name),
-    ["test/Visibility", "test/Surface", "test/FSR3", "test/Present"]);
+    ["test/Visibility", "test/Surface", "test/Temporal Facts", "test/FSR3", "test/Present"]);
   const pass = name => dump.passes.find(entry => entry.name === name);
   for (const [producer, consumer] of [["test/Visibility", "test/Surface"],
-    ["test/Surface", "test/FSR3"],
+    ["test/Surface", "test/Temporal Facts"], ["test/Temporal Facts", "test/FSR3"],
     ["test/FSR3", "test/Present"]]) {
     assert.ok(pass(consumer).dependencies.includes(pass(producer).id), `${producer} -> ${consumer}`);
   }
@@ -206,7 +224,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const withEnvironment = lowerFrameProgram(environmentPlan, environmentBindings, environmentOwners).dump();
   assert.deepEqual(withEnvironment.executablePassOrder.map(id => withEnvironment.passes[id].name),
     ["test/Visibility", "test/Surface", "test/Sky", "test/Aerial",
-      "test/FSR3", "test/Present"]);
+      "test/Temporal Facts", "test/FSR3", "test/Present"]);
   assert.equal(withEnvironment.resources.find(entry =>
     entry.name === "physical-environment-transmittance").binding,
   "physical-environment-transmittance");

@@ -26,6 +26,7 @@ import { assertFrameProgramBindings, type SceneFrameBindings, type EmptyFrameBin
 import { lowerFrameProgram, type FrameProgramOwners } from "../program/FrameProgramLowering.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
 import { TemporalFabric } from "../TemporalFabric.js";
+import { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
 import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
@@ -38,7 +39,7 @@ import type { GeometryProductRevisionSourceV1 } from "../../assets/geometry-prod
 import type { AssetHandle, AssetResidencyEvidence } from "../../gpu/GpuAssetStore.js";
 import type { GpuSceneEvidence, InstancePatchBatch, InstancePatchResult, InstanceSetHandle, InstanceSource } from "../../gpu/GpuScene.js";
 import { createSceneResidencyManifest } from "../../gpu/GpuSceneResidencyManifest.js";
-import type { GpuRenderWorldEvidence, GpuRenderWorldHandle, PackedScenePatchBatch, PackedSceneSource, VirtualGeometrySceneSource } from "../../gpu/GpuRenderWorld.js";
+import type { GpuRenderWorldEvidence, GpuRenderWorldHandle, GpuRenderWorldRuntime, PackedScenePatchBatch, PackedSceneSource, VirtualGeometrySceneSource } from "../../gpu/GpuRenderWorld.js";
 import { VirtualGeometryResidency, VIRTUAL_GEOMETRY_PRODUCT_REQUIRED_STORAGE_BUFFERS_PER_SHADER_STAGE } from "../../gpu/VirtualGeometryResidency.js";
 import type { VirtualGeometryResidencyOptionsV1 } from "../../gpu/VirtualGeometryResidency.js";
 import { GeometryPageStreamingRuntimeV1 } from "../../gpu/GeometryPageStreamingRuntime.js";
@@ -269,7 +270,10 @@ export class Renderer {
   private _present!: SurfacePresentPass;
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
+  private _temporalFacts!: TemporalFactsPass;
   private _fsr3!: Fsr3UpscalerRuntime;
+  private _historyRuntime: GpuRenderWorldRuntime | null = null;
+  private _sceneHistoryEpoch = 0;
   private readonly _radiometry = new RadiometryRuntime();
   private readonly _renderTargets = new RenderTargets();
   private readonly _profiler = new FrameProfiler();
@@ -1107,6 +1111,7 @@ export class Renderer {
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format);
+    this._temporalFacts = new TemporalFactsPass(device);
     this._fsr3 = new Fsr3UpscalerRuntime(device);
     // The pinned Takram LUT profile is device-local and recorded into the
     // first frame submission; consumers can bind its immutable views by
@@ -1148,6 +1153,7 @@ export class Renderer {
     return {
       visibility: this._visibilityFeature,
       surface: this._surfaceMaterial,
+      temporalFacts: this._temporalFacts,
       xeGtaoPreparation: this._xeGtaoPreparation,
       xeGtaoMain: this._xeGtaoMain,
       xeGtaoDenoise: this._xeGtaoDenoise,
@@ -1164,6 +1170,10 @@ export class Renderer {
     if (!runtime) {
       if (scene.instance_count !== 0) throw new Error("Scene has no GPU Render World publication");
       return this.renderEmptyScene();
+    }
+    if (this._historyRuntime !== runtime) {
+      this._historyRuntime = runtime;
+      this._sceneHistoryEpoch++;
     }
     const frameIndex = this._frame_count;
     const streaming = this._virtualProductScenes.get(scene)?.streamingRuntime;
@@ -1190,6 +1200,10 @@ export class Renderer {
     let activeHzb: HierarchicalZBuffer | null = null;
     let environmentGeneration: number | null | undefined;
     try {
+      if (this._fsr3.canRetainHistory(this._render_resolution.x, this._render_resolution.y,
+          this._output_resolution.x, this._output_resolution.y) === false) {
+        this._temporal.histories.invalidateNames(["color"], "internal-resize");
+      }
       const preExposure: PreExposureContract = this._radiometry.beginFrame(
         this._environmentRuntime === null ? 0 :
           scene.physical_environment.revision + 1
@@ -1201,9 +1215,10 @@ export class Renderer {
       const frameJitter = this._temporal.begin({
         frameIndex, output: [this._output_resolution.x, this._output_resolution.y],
         internal: [this._render_resolution.x, this._render_resolution.y],
-        cameraRevision: this._cameraRevision, sceneRevision: runtime.shadingPublication.revision,
-        representationRevision: Math.round(this.resolutionScale * 1_000_000) ^
-          (this._render_resolution.x << 1) ^ (this._render_resolution.y << 17),
+        cameraRevision: this._cameraRevision, sceneRevision: this._sceneHistoryEpoch,
+        // Local Product/LOD/material changes are published as GPU facts; render
+        // scale has its own domain and does not describe scene replacement.
+        representationRevision: 0,
         lightRevision: `environment:${scene.physical_environment.revision}`, view: "main", renderScale: this.resolutionScale,
         featureRevision: Number(this.packed_visibility_hzb_enabled), formatRevision: 1,
         deviceRevision: this.deviceEpoch,
@@ -1254,6 +1269,9 @@ export class Renderer {
           this._fsr3.invalidate();
         }
       }
+      const identityHistory = this._temporal.histories.state("identity");
+      this._temporalFacts.prepareFrame(width, height, identityHistory.readIndex,
+        identityHistory.writeIndex, identityHistory.readValid);
       this._fsr3.prepareFrame(command, {
         renderWidth: width, renderHeight: height,
         outputWidth: this._output_resolution.x, outputHeight: this._output_resolution.y,
@@ -1261,7 +1279,8 @@ export class Renderer {
         cameraFovY: camera.fov, cameraInfiniteFar: camera.isInfiniteFar,
         frameTimeMs: Math.max(0, timeDeltaSeconds * 1000),
         preExposure: preExposure.multiplier,
-        reset: !this._temporal.histories.state("color").readValid
+        reset: !this._temporal.histories.state("color").readValid,
+        historyReadIndex: this._temporal.histories.state("color").readIndex
       });
       hzb.beginFrame(frameIndex, {
         renderScale: Math.round(this.resolutionScale * 1_000_000),
@@ -1303,7 +1322,8 @@ export class Renderer {
         deviceEpoch: this.deviceEpoch,
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
-        fsr3: this._fsr3, environment: this._environmentRuntime
+        fsr3: this._fsr3, temporalFacts: this._temporalFacts,
+        environment: this._environmentRuntime
       };
       const program = this._programCache.getOrCreate({
         kind: "scene", intent: "present", viewFamily: "main", outputWidth: this._output_resolution.x,
@@ -1337,13 +1357,13 @@ export class Renderer {
       });
       command.encodeCompiledGraph(compiled, graphBindings);
       this._temporal.markProduced("color");
-      this._temporal.markProduced("depth");
-      this._temporal.markProduced("motion");
+      this._temporal.markProduced("identity");
       view.finish_frame(command, frameIndex);
       command.onFinished.addOne(() => this._previousViewMatrices.set(view, currentViewMatrix));
       this._frameCoordinator.submitFrame(frame);
-      this._temporal.commit(frameIndex);
       this._fsr3.commit(command.gpuDone);
+      this._temporalFacts.commit(command.gpuDone);
+      this._temporal.commit(frameIndex);
       temporalActive = false;
       if (environmentGeneration !== undefined && environmentGeneration !== null) this._environmentRuntime?.commit(environmentGeneration, command.gpuDone);
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
@@ -1363,6 +1383,7 @@ export class Renderer {
       }
       activeHzb?.invalidate("explicit");
       this._fsr3.invalidate();
+      this._temporalFacts.abort();
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         try { this._environmentRuntime?.abort(environmentGeneration); }
         catch (abortError) { console.error("Environment abort failed after render error", abortError); }
@@ -1376,6 +1397,13 @@ export class Renderer {
   }
 
   private renderEmptyScene(): boolean {
+    // The empty Frame Program does not write FSR3 or identity histories.
+    // Returning to a scene must not consume a slot from before this gap.
+    if (this._historyRuntime !== null) {
+      this._historyRuntime = null;
+      this._temporal.invalidate();
+      this._fsr3.invalidate();
+    }
     const frameIndex = this._frame_count;
     this._profiler.beginFrame(frameIndex);
     const frame = this._frameCoordinator.beginFrame(frameIndex, "Renderer/visibility-frame");
@@ -1437,6 +1465,7 @@ export class Renderer {
     this._physicalSky?.destroy();
     this._aerialPerspective?.destroy();
     this._fsr3?.destroy();
+    this._temporalFacts?.destroy();
     this._views?.destroy();
     this._environments?.destroy();
     this._environmentRuntime?.destroy();

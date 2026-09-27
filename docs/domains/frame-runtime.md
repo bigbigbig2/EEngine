@@ -11,6 +11,15 @@ owner: frame-runtime
 
 ## Frame transaction and temporal lifetime
 
+Module D temporal facts are produced by `render/temporal/TemporalFactsPass.ts` in
+the same Frame Program as Surface and FSR3. Its persistent identity textures are
+RGBA32Uint (instance slot, geometry/LOD signature, material signature and
+publication transform revision); motion and masks are transient internal-domain
+products. `TemporalFabric` owns only logical begin/commit/abort and read/write
+roles while FSR3 and Temporal Facts own their physical textures. Output color can
+survive an in-envelope internal resize; identity and FSR3 internal scratch are
+reset when their domain changes. GPU completion fences delay retirement.
+
 Renderer applies jitter to the live View, updates scene/geometry/material and direct-light publications, prepares FSR3 constants and records environment LUT work on the current frame command context. The Surface frequency plan is written by GPU compute and is zero for ineligible or moving blocks; camera motion does not select another topology. Dense completes both HDR and motion at internal resolution before Sky/Aerial and FSR3 consume them. FSR3 owns output-resolution color and accumulation histories plus internal luma; Present consumes its output-full image.
 
 Temporal Fabric begins, commits or aborts with the submitted frame. Camera cuts, resize, scene/representation/environment revisions and device recovery invalidate their relevant histories. A new View seeds previous-camera data in the same encoder before Surface motion reads it. An aborted first frame repeats the seed; a successful submit advances previous-camera state. Environment generations are published as complete LUT sets and retired only after prior GPU work finishes, so consumers do not mix partial sky generations.

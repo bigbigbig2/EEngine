@@ -19,6 +19,10 @@ paths:
   - OEngine/src/render/RendererConfig.ts
   - OEngine/src/render/STATIC_GRAPHICS_ENGINE_ASSETS.ts
   - OEngine/src/render/TemporalHistoryRegistry.ts
+  - OEngine/src/render/TemporalFabric.ts
+  - OEngine/src/render/RadiometryContract.ts
+  - OEngine/src/render/temporal/**
+  - OEngine/src/render/passes/fsr3/**
   - OEngine/src/render/TemporalJitterController.ts
   - OEngine/src/render/TemporalResolveContract.ts
   - OEngine/src/render/VelocityMatrices.ts

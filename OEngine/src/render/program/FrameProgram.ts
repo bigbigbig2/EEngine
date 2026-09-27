@@ -3,12 +3,13 @@
 export type FrameProduct =
   | "swapchain" | "reconstructed-color" | "aerial-radiance" | "sky-radiance"
   | "surface-radiance" | "surface-motion"
+  | "temporal-motion" | "temporal-mask" | "temporal-identity"
   | "visibility" | "depth" | "meshlet-work" | "hzb" | "light-cluster"
   | "indirect-visibility";
 
 export type FrameProgramStage =
   | "clear-present" | "visibility" | "hzb" | "light-cluster"
-  | "xe-gtao" | "surface" | "physical-sky" | "aerial" | "fsr3" | "present";
+  | "xe-gtao" | "surface" | "physical-sky" | "aerial" | "temporal-facts" | "fsr3" | "present";
 
 /** Finite physical AO profiles; only off is requested by production until C4–C6. */
 export type FrameAoProfile = "off" | "scalar-high";
@@ -85,6 +86,15 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
     value: "working-linear pre-exposed", coverage: "full internal", invalid: "clear color", version: "frame" },
   "surface-motion": { producer: "surface", domain: "internal-full", format: "rg16float",
     value: "current-minus-previous UV", coverage: "visible surface", invalid: "zero background", version: "frame" },
+  "temporal-motion": { producer: "temporal-facts", domain: "internal-full", format: "rg16float",
+    value: "valid current-minus-previous UV including sky rotation", coverage: "full internal",
+    invalid: "zero with validity zero", version: "frame" },
+  "temporal-mask": { producer: "temporal-facts", domain: "internal-full", format: "rgba8unorm",
+    value: "opaque reactive, motion validity, identity mismatch, local change bits",
+    coverage: "full internal", invalid: "reactive one, validity zero", version: "frame" },
+  "temporal-identity": { producer: "temporal-facts", domain: "internal-full", format: "rgba32uint",
+    value: "instance slot, geometry/LOD, material, transform revision", coverage: "full internal",
+    invalid: "zero identity", version: "history-role" },
   "light-cluster": { producer: "light-cluster", domain: "gpu-work", format: "structured-buffer",
     value: "clustered direct-light lookup", coverage: "lit surface", invalid: "zero lights", version: "frame" },
   "indirect-visibility": { producer: "xe-gtao", domain: "internal-full", format: "structured-buffer",
@@ -111,7 +121,26 @@ const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<Fra
     "aerial-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     "surface-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
     depth: { domain: "internal-full", value: "reverse depth" },
-    "surface-motion": { domain: "internal-full", value: "current-minus-previous UV" }
+    "temporal-motion": { domain: "internal-full",
+      value: "valid current-minus-previous UV including sky rotation" },
+    "temporal-mask": { domain: "internal-full",
+      value: "opaque reactive, motion validity, identity mismatch, local change bits" }
+  },
+  "temporal-motion": {
+    "surface-motion": { domain: "internal-full", value: "current-minus-previous UV" },
+    visibility: { domain: "internal-full", value: "packed VisibilityKey" },
+    depth: { domain: "internal-full", value: "reverse depth" }
+  },
+  "temporal-mask": {
+    "temporal-motion": { domain: "internal-full",
+      value: "valid current-minus-previous UV including sky rotation" },
+    "temporal-identity": { domain: "internal-full",
+      value: "instance slot, geometry/LOD, material, transform revision" }
+  },
+  "temporal-identity": {
+    visibility: { domain: "internal-full", value: "packed VisibilityKey" },
+    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "aerial-radiance": {
     "sky-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
@@ -199,8 +228,12 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
   switch (product) {
     case "swapchain": return ["reconstructed-color"];
     case "reconstructed-color": return [
-      request.physicalEnvironment ? "aerial-radiance" : "surface-radiance", "depth", "surface-motion"
+      request.physicalEnvironment ? "aerial-radiance" : "surface-radiance", "depth",
+      "temporal-motion", "temporal-mask"
     ];
+    case "temporal-motion": return ["surface-motion", "visibility", "depth"];
+    case "temporal-mask": return ["temporal-motion", "temporal-identity"];
+    case "temporal-identity": return ["visibility", "meshlet-work", "depth"];
     case "aerial-radiance": return ["sky-radiance", "depth"];
     case "sky-radiance": return ["surface-radiance", "depth"];
     case "surface-radiance": return ["visibility", "meshlet-work", "depth",
@@ -257,7 +290,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     ...(directLighting ? ["light-cluster" as const] : []),
     ...(request.aoProfile === "scalar-high" ? ["xe-gtao" as const] : []), "surface",
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
-    "fsr3", "present"
+    "temporal-facts", "fsr3", "present"
   ];
   const facts = ordered.map((product): FrameProductFact => {
     const spec = PRODUCT_SPEC[product];
@@ -280,6 +313,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
   return Object.freeze({ request, key, products: Object.freeze(ordered), facts: Object.freeze(facts),
     stages: Object.freeze(stages), bindingRoles: Object.freeze([
       "job", "camera", "view", "depth", "swapchain", "fsr3-history", "fsr3-constants",
+      "temporal-facts-history",
       ...(buildHzb ? ["hzb"] : []), ...(request.physicalEnvironment ? ["environment"] : [])
     ]), directLighting, buildHzb });
 }

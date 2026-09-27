@@ -88,6 +88,7 @@ test("FSR3 graph roles follow the prepared frame and retired histories wait for 
   const resolvers = new Map();
   const output = fsr3.addToGraph(graph, {
     color: imported("color"), depth: imported("depth"), motion: imported("motion"),
+    reactiveMask: imported("reactive"), validityMask: imported("validity"),
     width: 640, height: 360, outputWidth: 1280, outputHeight: 720
   }, (name, resolve) => {
     resolvers.set(name, resolve);

@@ -32,6 +32,8 @@ export interface Fsr3FrameInput {
   readonly frameTimeMs: number;
   readonly preExposure: number;
   readonly reset: boolean;
+  /** TemporalFabric's committed physical color role; supplied by production. */
+  readonly historyReadIndex?: 0 | 1;
 }
 
 /** Resolve physical resources from the active frame, never from graph creation. */
@@ -55,6 +57,8 @@ export class Fsr3UpscalerRuntime {
   private histories: Fsr3HistoryTextures | null = null;
   private lastSubmittedGpuDone: Promise<void> | null = null;
   private size: readonly [number, number, number, number] = [0, 0, 0, 0];
+  /** Physical internal history extent; active render extent may shrink inside it. */
+  private internalCapacity: readonly [number, number] = [0, 0];
   private index: 0 | 1 = 0;
   private generationValue = 0;
   private frameIndex = -1;
@@ -85,6 +89,13 @@ export class Fsr3UpscalerRuntime {
   get readIndex(): 0 | 1 { return this.index; }
   get writeIndex(): 0 | 1 { return (1 - this.index) as 0 | 1; }
 
+  canRetainHistory(renderWidth: number, renderHeight: number,
+    outputWidth: number, outputHeight: number): boolean {
+    return this.histories !== null && renderWidth <= this.internalCapacity[0] &&
+      renderHeight <= this.internalCapacity[1] &&
+      outputWidth === this.size[2] && outputHeight === this.size[3];
+  }
+
   /** CPU-known shape check before a cached graph binds this frame's histories. */
   assertPreparedFrame(renderWidth: number, renderHeight: number,
     outputWidth: number, outputHeight: number): void {
@@ -96,8 +107,8 @@ export class Fsr3UpscalerRuntime {
     for (const [name, pair] of Object.entries(this.histories) as
       [keyof Fsr3HistoryTextures, [GPUTexture, GPUTexture]][]) {
       if (pair[0] === pair[1]) throw new Error(`FSR3 ${name} read/write history aliases`);
-      const width = name === "color" ? outputWidth : name === "frameInfo" ? 1 : renderWidth;
-      const height = name === "color" ? outputHeight : name === "frameInfo" ? 1 : renderHeight;
+      const width = name === "color" ? outputWidth : name === "frameInfo" ? 1 : this.internalCapacity[0];
+      const height = name === "color" ? outputHeight : name === "frameInfo" ? 1 : this.internalCapacity[1];
       const format: GPUTextureFormat = name === "color" || name === "lumaHistory" ? "rgba16float" :
         name === "luma" ? "r16float" : name === "accumulation" ? "r8unorm" : "rgba32float";
       if (pair.some(texture => texture.width !== width || texture.height !== height || texture.format !== format)) {
@@ -109,8 +120,20 @@ export class Fsr3UpscalerRuntime {
   prepareFrame(command: ShadeGPUCommandContext, frame: Fsr3FrameInput): void {
     if (this.pending) throw new Error("FSR3 frame already prepared");
     const size = [frame.renderWidth, frame.renderHeight, frame.outputWidth, frame.outputHeight] as const;
-    const changed = size.some((value, index) => value !== this.size[index]);
-    if (changed || frame.reset || this.histories === null) this.allocate(size);
+    const previousSize = this.size;
+    const capacityExceeded = frame.renderWidth > this.internalCapacity[0] ||
+      frame.renderHeight > this.internalCapacity[1];
+    const outputChanged = frame.outputWidth !== previousSize[2] ||
+      frame.outputHeight !== previousSize[3];
+    if (capacityExceeded || outputChanged || frame.reset || this.histories === null) this.allocate(size);
+    else this.size = size;
+    if (frame.historyReadIndex !== undefined) {
+      if (!capacityExceeded && !outputChanged && !frame.reset &&
+          this.frameIndex >= 0 && this.index !== frame.historyReadIndex) {
+        throw new Error("FSR3 color history role differs from TemporalFabric");
+      }
+      this.index = frame.historyReadIndex;
+    }
     if (!Number.isFinite(frame.cameraNear) || frame.cameraNear <= 0 ||
         !Number.isFinite(frame.cameraFovY) || frame.cameraFovY <= 0) {
       throw new RangeError("FSR3 requires finite perspective camera near and vertical FOV");
@@ -131,10 +154,12 @@ export class Fsr3UpscalerRuntime {
     const phaseCount = Math.max(1, Math.trunc(8 * (outputWidth / width) ** 2));
     const nextFrameIndex = this.frameIndex + 1;
     const constants = packFsr3UpscalerConstants({
-      renderSize: [width, height], previousFrameRenderSize: [width, height],
+      renderSize: [width, height], previousFrameRenderSize: this.frameIndex < 0
+        ? [width, height] : [previousSize[0], previousSize[1]],
       upscaleSize: [outputWidth, outputHeight],
-      previousFrameUpscaleSize: [outputWidth, outputHeight],
-      maxRenderSize: [width, height], maxUpscaleSize: [outputWidth, outputHeight],
+      previousFrameUpscaleSize: this.frameIndex < 0
+        ? [outputWidth, outputHeight] : [previousSize[2], previousSize[3]],
+      maxRenderSize: this.internalCapacity, maxUpscaleSize: [outputWidth, outputHeight],
       deviceToViewDepth: depthFactors,
       jitterOffset: jitter, previousFrameJitterOffset: previousJitter,
       // Surface motion is current-minus-previous in UV; the SDK expects the
@@ -161,6 +186,7 @@ export class Fsr3UpscalerRuntime {
 
   addToGraph(graph: FrameGraph, input: {
     color: ResourceId; depth: ResourceId; motion: ResourceId;
+    reactiveMask: ResourceId; validityMask: ResourceId;
     width: number; height: number; outputWidth: number; outputHeight: number;
   }, bind: Fsr3GraphResourceBinder): ResourceId {
     if (!this.histories || !this.pending) throw new Error("FSR3 frame must be prepared before graph build");
@@ -183,7 +209,8 @@ export class Fsr3UpscalerRuntime {
     const previousFrameInfo = imported("FSR3/previous frame info", runtime => runtime.graphHistory("frameInfo", "read"));
     const currentFrameInfo = imported("FSR3/current frame info", runtime => runtime.graphHistory("frameInfo", "write"));
     const prepared = this.prepareInputs.addToGraph(graph, {
-      color: input.color, depth: input.depth, motion: input.motion, constants,
+      color: input.color, depth: input.depth, motion: input.motion,
+      validityMask: input.validityMask, constants,
       currentLuma, width: input.width, height: input.height
     });
     const luma = this.lumaPyramid.addToGraph(graph, {
@@ -202,7 +229,7 @@ export class Fsr3UpscalerRuntime {
     const reactivity = this.prepareReactivity.addToGraph(graph, {
       reconstructedDepth: prepared.reconstructedDepth,
       dilatedMotion: prepared.dilatedMotion, dilatedDepth: prepared.dilatedDepth,
-      reactiveMask: defaultMask, transparencyMask: defaultMask,
+      reactiveMask: input.reactiveMask, transparencyMask: defaultMask,
       previousAccumulation, currentAccumulation,
       shadingChange, currentLuma: prepared.currentLuma,
       exposure: luma.frameInfo, constants,
@@ -279,6 +306,7 @@ export class Fsr3UpscalerRuntime {
         { bytesPerRow: 16 }, [1, 1]);
     }
     this.size = size;
+    this.internalCapacity = [width, height];
     this.index = 0;
     this.frameIndex = -1;
     this.previousJitter = [0, 0];

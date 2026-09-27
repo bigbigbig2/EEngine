@@ -22,6 +22,7 @@ ${FSR3_UPSCALER_CONSTANTS_WGSL}
 @group(0) @binding(6) var farthest_depth: texture_storage_2d<r16float, write>;
 @group(0) @binding(7) var current_luma: texture_storage_2d<r16float, write>;
 @group(0) @binding(8) var<storage, read_write> reconstructed_depth: array<atomic<u32>>;
+@group(0) @binding(9) var input_validity: texture_2d<f32>;
 
 fn on_screen(p: vec2i) -> bool {
   return all(p >= vec2i(0)) && all(p < constants.render_size);
@@ -94,9 +95,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let pixel = vec2i(id.xy);
   if (!on_screen(pixel)) { return; }
   let extents = find_depth_extents(pixel);
-  let motion = textureLoad(input_motion, extents.nearest_coord, 0).xy *
+  let motion_valid = textureLoad(input_validity, extents.nearest_coord, 0).y > 0.5;
+  var motion = textureLoad(input_motion, extents.nearest_coord, 0).xy *
     constants.motion_vector_scale - constants.motion_vector_jitter_cancellation;
-  reconstruct_previous_depth(pixel, extents.nearest, motion);
+  if (!motion_valid) { motion = vec2f(0.0); }
+  if (motion_valid) { reconstruct_previous_depth(pixel, extents.nearest, motion); }
   textureStore(dilated_motion, pixel, vec4f(motion, 0.0, 0.0));
   textureStore(dilated_depth, pixel, vec4f(extents.nearest, 0.0, 0.0, 0.0));
   textureStore(farthest_depth, pixel,
@@ -131,7 +134,8 @@ export class Fsr3PrepareInputsPass {
       { binding: 5, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32float" } },
       { binding: 6, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r16float" } },
       { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r16float" } },
-      { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 9, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } }
     ] });
     this.pipeline = device.createComputePipeline({
       label: "FSR3 Prepare Inputs",
@@ -141,7 +145,8 @@ export class Fsr3PrepareInputsPass {
   }
 
   addToGraph(graph: FrameGraph, input: {
-    color: ResourceId; depth: ResourceId; motion: ResourceId; constants: ResourceId;
+    color: ResourceId; depth: ResourceId; motion: ResourceId;
+    validityMask: ResourceId; constants: ResourceId;
     currentLuma?: ResourceId;
     width: number; height: number;
   }): Fsr3PreparedInputs {
@@ -164,7 +169,8 @@ export class Fsr3PrepareInputsPass {
         { binding: 5, resource: resolveTextureView(resources.get(output.dilatedDepth)) },
         { binding: 6, resource: resolveTextureView(resources.get(output.farthestDepth)) },
         { binding: 7, resource: resolveTextureView(resources.get(output.currentLuma)) },
-        { binding: 8, resource: { buffer: reconstructed } }
+        { binding: 8, resource: { buffer: reconstructed } },
+        { binding: 9, resource: resolveTextureView(resources.get(data.validityMask)) }
       ] });
       const pass = command.beginComputePass({ label: "FSR3 Prepare Inputs" });
       pass.setPipeline(this.pipeline);
@@ -191,6 +197,7 @@ export class Fsr3PrepareInputsPass {
     builder.read(input.color);
     builder.read(input.depth);
     builder.read(input.motion);
+    builder.read(input.validityMask);
     builder.read(input.constants);
     return output;
   }
