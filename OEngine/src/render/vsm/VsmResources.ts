@@ -79,8 +79,12 @@ export class VsmResources {
     this.buffers.set(key, this.device.createBuffer({
       label: `VSM/${this.capabilities.profile}/${key}`,
       size,
-      usage
+      usage,
+      mappedAtCreation: true
     }));
+    const buffer = this.buffers.get(key)!;
+    new Uint8Array(buffer.getMappedRange()).fill(0);
+    buffer.unmap();
   }
 
   destroy(): void {
