@@ -1,7 +1,7 @@
 
 /** The finite set of products with real Module A producers and consumers. */
 export type FrameProduct =
-  | "swapchain" | "reconstructed-color" | "aerial-radiance" | "sky-radiance"
+  | "swapchain" | "display-color" | "reconstructed-color" | "bloom-hdr" | "adapted-exposure" | "aerial-radiance" | "sky-radiance"
   | "surface-radiance" | "surface-motion"
   | "temporal-motion" | "temporal-mask" | "temporal-identity"
   | "visibility" | "depth" | "meshlet-work" | "hzb" | "light-cluster"
@@ -9,7 +9,7 @@ export type FrameProduct =
 
 export type FrameProgramStage =
   | "clear-present" | "visibility" | "hzb" | "light-cluster"
-  | "xe-gtao" | "surface" | "physical-sky" | "aerial" | "temporal-facts" | "fsr3" | "present";
+  | "xe-gtao" | "surface" | "physical-sky" | "aerial" | "temporal-facts" | "fsr3" | "radiometry" | "bloom" | "present";
 
 /** Finite physical AO profiles; only off is requested by production until C4–C6. */
 export type FrameAoProfile = "off" | "scalar-high";
@@ -76,6 +76,12 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
 }>>> = Object.freeze({
   swapchain: { producer: "present", domain: "output-full", format: "bgra8unorm",
     value: "display color", coverage: "full output", invalid: "clear color", version: "frame" },
+  "display-color": { producer: "present", domain: "output-full", format: "bgra8unorm",
+    value: "tone-mapped display color", coverage: "full output", invalid: "clear color", version: "frame" },
+  "adapted-exposure": { producer: "radiometry", domain: "gpu-work", format: "structured-buffer",
+    value: "GPU adapted exposure E_t", coverage: "one scalar", invalid: "bootstrap 1", version: "history-role" },
+  "bloom-hdr": { producer: "bloom", domain: "output-full", format: "rgba16float",
+    value: "scene HDR plus Filament-profile bloom", coverage: "full output", invalid: "scene HDR", version: "frame" },
   "reconstructed-color": { producer: "fsr3", domain: "output-full", format: "rgba16float",
     value: "working-linear pre-exposed", coverage: "full output", invalid: "history reset", version: "history-role" },
   "aerial-radiance": { producer: "aerial", domain: "internal-full", format: "rgba16float",
@@ -115,7 +121,7 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
 const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<FrameProduct,
   Readonly<Pick<FrameProductFact, "domain" | "value">>>>>>> = {
   swapchain: {
-    "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" }
+    "display-color": { domain: "output-full", value: "tone-mapped display color" }
   },
   "reconstructed-color": {
     "aerial-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
@@ -126,6 +132,12 @@ const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<Fra
     "temporal-mask": { domain: "internal-full",
       value: "opaque reactive, motion validity, identity mismatch, local change bits" }
   },
+  "display-color": {
+    "bloom-hdr": { domain: "output-full", value: "scene HDR plus Filament-profile bloom" },
+    "adapted-exposure": { domain: "gpu-work", value: "GPU adapted exposure E_t" }
+  },
+  "bloom-hdr": { "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" } },
+  "adapted-exposure": { "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" } },
   "temporal-motion": {
     "surface-motion": { domain: "internal-full", value: "current-minus-previous UV" },
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
@@ -226,7 +238,10 @@ function structuralKey(request: FrameProgramRequest): string {
 function dependencies(product: FrameProduct, request: FrameProgramRequest): readonly FrameProduct[] {
   if (request.kind === "empty") return [];
   switch (product) {
-    case "swapchain": return ["reconstructed-color"];
+    case "swapchain": return ["display-color"];
+    case "display-color": return ["bloom-hdr", "adapted-exposure"];
+    case "bloom-hdr": return ["reconstructed-color"];
+    case "adapted-exposure": return ["reconstructed-color"];
     case "reconstructed-color": return [
       request.physicalEnvironment ? "aerial-radiance" : "surface-radiance", "depth",
       "temporal-motion", "temporal-mask"
@@ -290,7 +305,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
     ...(directLighting ? ["light-cluster" as const] : []),
     ...(request.aoProfile === "scalar-high" ? ["xe-gtao" as const] : []), "surface",
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
-    "temporal-facts", "fsr3", "present"
+    "temporal-facts", "fsr3", "radiometry", "bloom", "present"
   ];
   const facts = ordered.map((product): FrameProductFact => {
     const spec = PRODUCT_SPEC[product];

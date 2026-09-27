@@ -123,7 +123,8 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     view: { camera: { camera }, hierarchical_z_buffer: hzb, width: 640, height: 360,
       gpu_camera_state: { buffer: resource }, gpu_previous_camera_state: { buffer: resource },
       frame_index: 1 },
-    swapchain: resource, preExposure: { multiplier: 1 }, fsr3, temporalFacts, environment: null };
+    swapchain: resource, preExposure: { multiplier: 1 }, fsr3, temporalFacts,
+    radiometry: { readBuffer: () => resource, writeBuffer: () => resource }, environment: null };
   const owners = {
     visibility: { addToGraph(graph, _job, input) {
       const pass = graph.add("test/Visibility", {}, () => {});
@@ -152,9 +153,24 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       return { radiance: create("test/radiance", "rgba16float"),
         motion: create("test/motion", "rg16float") };
     } },
-    present: { addToGraph(graph, color, swapchain) {
+    radiometry: { importPreExposure(_graph, bind) {
+      return bind("pre-exposure", runtime => runtime.readBuffer());
+    }, addToGraph(graph, input, bind) {
+      const adapted = bind("adapted-exposure", runtime => runtime.writeBuffer());
+      const pass = graph.add("test/Radiometry", {}, () => {});
+      pass.read(input.scene); pass.read(input.preExposure); pass.write(adapted);
+      return { preExposure: input.preExposure, adaptedExposure: adapted };
+    } },
+    bloom: { addToGraph(graph, input) {
+      const pass = graph.add("test/Bloom", {}, () => {});
+      pass.read(input.scene); pass.read(input.preExposure);
+      return pass.create("test/bloom", { kind: "transient_texture", width: 1280,
+        height: 720, format: "rgba16float", domain: "output-full", usage: 7 });
+    } },
+    present: { addToGraph(graph, color, swapchain, exposure) {
       const pass = graph.add("test/Present", {}, () => {});
-      pass.read(color); pass.write(swapchain); pass.make_side_effect();
+      pass.read(color); pass.read(exposure); pass.write(swapchain); pass.make_side_effect();
+      return swapchain;
     } }, temporalFacts, sky: null, aerial: null, lightCluster() { throw new Error("feature-off light cluster"); }
   };
   assertFrameProgramBindings(plan, bindings);
@@ -191,11 +207,13 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const compiled = lowerFrameProgram(plan, bindings, owners);
   const dump = compiled.dump();
   assert.deepEqual(dump.executablePassOrder.map(id => dump.passes[id].name),
-    ["test/Visibility", "test/Surface", "test/Temporal Facts", "test/FSR3", "test/Present"]);
+    ["test/Visibility", "test/Surface", "test/Temporal Facts", "test/FSR3",
+      "test/Radiometry", "test/Bloom", "test/Present"]);
   const pass = name => dump.passes.find(entry => entry.name === name);
   for (const [producer, consumer] of [["test/Visibility", "test/Surface"],
     ["test/Surface", "test/Temporal Facts"], ["test/Temporal Facts", "test/FSR3"],
-    ["test/FSR3", "test/Present"]]) {
+    ["test/FSR3", "test/Radiometry"],
+    ["test/Bloom", "test/Present"]]) {
     assert.ok(pass(consumer).dependencies.includes(pass(producer).id), `${producer} -> ${consumer}`);
   }
   assert.ok(!dump.resources.some(entry => entry.name.includes("HZB") || entry.name.includes("environment")));
@@ -209,12 +227,14 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       const pass = graph.add("test/Sky", {}, () => {});
       pass.read(input.hdr); pass.read(input.depth); pass.read(input.transmittance);
       pass.read(input.scattering); pass.read(input.higherOrder); pass.read(input.environment);
+      pass.read(input.preExposure);
       return pass.write(input.hdr);
     } },
     aerial: { addToGraph(graph, input) {
       const pass = graph.add("test/Aerial", {}, () => {});
       pass.read(input.scene); pass.read(input.depth); pass.read(input.transmittance);
       pass.read(input.scattering); pass.read(input.higherOrder); pass.read(input.environment);
+      pass.read(input.preExposure);
       return pass.create("test/aerial", { kind: "transient_texture", width: 640,
         height: 360, format: "rgba16float", domain: "internal-full", usage: 7 });
     } }
@@ -224,7 +244,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const withEnvironment = lowerFrameProgram(environmentPlan, environmentBindings, environmentOwners).dump();
   assert.deepEqual(withEnvironment.executablePassOrder.map(id => withEnvironment.passes[id].name),
     ["test/Visibility", "test/Surface", "test/Sky", "test/Aerial",
-      "test/Temporal Facts", "test/FSR3", "test/Present"]);
+      "test/Temporal Facts", "test/FSR3", "test/Radiometry", "test/Bloom", "test/Present"]);
   assert.equal(withEnvironment.resources.find(entry =>
     entry.name === "physical-environment-transmittance").binding,
   "physical-environment-transmittance");

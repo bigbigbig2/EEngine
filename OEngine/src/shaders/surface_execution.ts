@@ -106,7 +106,7 @@ fn surface_store(pixel:vec2u,color:vec4f,motion:vec4f) {
   for(var y=0u;y<rate;y++) {
     for(var x=0u;x<rate;x++) {
       let output_pixel=pixel+vec2u(x,y);
-      textureStore(output_hdr,vec2i(output_pixel),color);
+      textureStore(output_hdr,vec2i(output_pixel),vec4f(color.rgb*radiometry_pre_exposure[0],color.a));
       textureStore(output_motion,vec2i(output_pixel),motion);
     }
   }

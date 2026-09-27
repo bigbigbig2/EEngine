@@ -1,6 +1,8 @@
 # Module D 设计：Temporal Facts、Radiometry 与 Presentation
 
-> 状态：2026-09-27，D0–D3 已实施，D4–D6 仍为后续目标。对应[执行文档](../next-execution/temporal-radiometry-presentation.md)、[整体架构](./eengine-next-overall-architecture-final-2026.md) §6、[来源账本 R12/R24/R25](../porting/next-renderer.md)。下文的“当前事实”来自本轮源码核对；未取得真实 GPU 运行、画质或性能结果前，不视为模块最终验收。
+> 实施状态：D0-D6 已完成生产路径接入。模块级静态检查已完成；browser、真实 GPU 画质/性能与正式 evidence 仍按总体验收后置。
+
+> 状态：2026-09-27，D0-D6 已实施并完成模块级集中检查。对应[执行文档](../next-execution/temporal-radiometry-presentation.md)、[整体架构](./eengine-next-overall-architecture-final-2026.md) §6、[来源账本 R12/R24/R25](../porting/next-renderer.md)。下文的“当前事实”来自本轮源码核对；未取得真实 GPU 运行、画质或性能结果前，不视为整个 Next Renderer 最终验收。
 
 ## 1. 目标、范围与完成的含义
 

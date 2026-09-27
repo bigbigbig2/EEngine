@@ -10,8 +10,9 @@ goal: Establish the final architecture's Frame Program, Surface and Temporal bou
 currentSlice:
   id: temporal-presentation
   title: Temporal facts, radiometry and presentation migration
-  status: active
+  status: complete
   goal: Define shared motion, identity, history and exposure facts; connect FSR3, lifecycle and presentation on the single production frame path without discarding its pinned stages.
+  completed: D0-D6 production path connected; module-level checks completed. Browser, visual, benchmark and formal acceptance remain deferred.
 
 nextModules:
   - id: vsm

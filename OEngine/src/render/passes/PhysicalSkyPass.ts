@@ -17,6 +17,7 @@ ${ATMOSPHERE_RUNTIME_WGSL}
 @group(0) @binding(4) var higher_order: texture_3d<f32>;
 @group(0) @binding(5) var<uniform> environment: PhysicalEnvironmentParameters;
 @group(0) @binding(6) var lut_sampler: sampler;
+@group(0) @binding(7) var<storage,read> pre_exposure: array<f32>;
 struct SkyVertex { @builtin(position) position: vec4f, @location(0) uv: vec2f };
 @vertex fn vs_main(@builtin(vertex_index) index: u32) -> SkyVertex {
   let p = array<vec2f,3>(vec2f(-1.0,-1.0), vec2f(3.0,-1.0), vec2f(-1.0,3.0))[index];
@@ -30,7 +31,8 @@ struct SkyVertex { @builtin(position) position: vec4f, @location(0) uv: vec2f };
   let camera_position = atmosphere_world_to_planet(camera.transform[3].xyz, environment.world_to_unit);
   let direction = normalize(world.xyz / max(world.w, 1e-5) - camera.transform[3].xyz);
   return vec4f(atmosphere_sky(camera_position, direction, normalize(-environment.sun_direction_world),
-    transmittance, scattering, higher_order, lut_sampler) * environment.sky_luminance_scale, 1.0);
+    transmittance, scattering, higher_order, lut_sampler) * environment.sky_luminance_scale *
+    max(pre_exposure[0], 1e-6), 1.0);
 }
 `;
 
@@ -43,7 +45,8 @@ const PIPELINE: CachedRenderPipelineDescriptor = {
     { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "3d" } },
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "3d" } },
     { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-    { binding: 6, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }
+    { binding: 6, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+    { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
   ] }] },
   vertex: { module: { code: SKY_WGSL }, entryPoint: "vs_main" },
   fragment: { module: { code: SKY_WGSL }, entryPoint: "fs_main", targets: [{ format: ENVIRONMENT_BACKGROUND_FORMAT }] },
@@ -57,6 +60,7 @@ export class PhysicalSkyPass {
   addToGraph(graph: FrameGraph, input: {
     hdr: ResourceId; depth: ResourceId; camera: ResourceId; transmittance: ResourceId;
     scattering: ResourceId; higherOrder: ResourceId; environment: ResourceId;
+    preExposure: ResourceId;
   }): ResourceId {
     this.pipeline ??= this.graphics.render_pipelines.obtain(PIPELINE);
     const pass = graph.add("Environment/Physical Sky radiance", input, (data, resources, context) => {
@@ -73,13 +77,15 @@ export class PhysicalSkyPass {
         resolveTextureView(resources.get(data.scattering)),
         resolveTextureView(resources.get(data.higherOrder)),
         { buffer: resources.get(data.environment) as GPUBuffer },
-        this.graphics.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR)
+        this.graphics.samplers.obtain(LINEAR_CLAMP_SAMPLER_DESCRIPTOR),
+        { buffer: resources.get(data.preExposure) as GPUBuffer }
       ]]);
       render.draw(3); render.end();
     });
     const output = pass.write(input.hdr);
     pass.read(input.depth); pass.read(input.camera); pass.read(input.transmittance);
     pass.read(input.scattering); pass.read(input.higherOrder); pass.read(input.environment);
+    pass.read(input.preExposure);
     return output;
   }
   destroy(): void { this.pipeline = null; }
