@@ -5,7 +5,7 @@ owner: shading
 ---
 # Surface Kernel Binding V1
 
-Status: frozen for the finite Phase 2 structural profile; formal image quality and performance acceptance remain open.
+Status: retired historical Phase 2 layout. Module B replaced the 64-class queue and class ranges with Dense/exception work and a sampled frequency-plan texture. Current layout is `SurfaceKernelBindingPlan.ts`; current ownership is in [Shading](../domains/shading.md). The contract below records the old layout and is not a production binding guide.
 
 Owners: Visibility & Surface / shading
 

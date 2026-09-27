@@ -3,10 +3,11 @@ import test from "node:test";
 
 import { shadingFrequencyPlanCapacity, SHADING_FREQUENCY_COARSE4_BIT } from
   "../../.test-dist/render/surface/ShadingFrequencyPlanAbi.js";
+import { SHADING_FREQUENCY_PLAN_WGSL } from
+  "../../.test-dist/shaders/shading_frequency.js";
 
 const limits = {
-  maxBufferSize: 256 * 1024,
-  maxStorageBufferBindingSize: 128 * 1024,
+  maxTextureDimension2D: 256,
   maxComputeWorkgroupsPerDimension: 65535
 };
 
@@ -17,11 +18,19 @@ test("frequency plan admits odd extents without losing edge tiles", () => {
   assert.equal(SHADING_FREQUENCY_COARSE4_BIT, 16);
 });
 
-test("frequency plan rejects unsupported storage and dispatch limits before GPU allocation", () => {
+test("frequency plan rejects unsupported texture extent and dispatch limits before GPU allocation", () => {
   assert.throws(() => shadingFrequencyPlanCapacity(1920, 1080, limits),
     /exceeds negotiated WebGPU limits/u);
   assert.throws(() => shadingFrequencyPlanCapacity(639, 359, {
     ...limits, maxComputeWorkgroupsPerDimension: 10
   }), /exceeds negotiated WebGPU limits/u);
   assert.throws(() => shadingFrequencyPlanCapacity(0, 359, limits), /positive integers/u);
+});
+
+test("planner publishes a full-rate zero for motion and checks publication identity", () => {
+  assert.match(SHADING_FREQUENCY_PLAN_WGSL, /frequency_camera_static\(\)/u);
+  assert.match(SHADING_FREQUENCY_PLAN_WGSL, /material\.publication_revision != frequency_view\.publication_revision/u);
+  assert.match(SHADING_FREQUENCY_PLAN_WGSL, /material\.family != 0u/u);
+  assert.match(SHADING_FREQUENCY_PLAN_WGSL, /textureStore\(frequency_plan/u);
+  assert.doesNotMatch(SHADING_FREQUENCY_PLAN_WGSL, /frequency_plan\[id\.y/u);
 });

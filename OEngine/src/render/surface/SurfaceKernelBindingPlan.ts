@@ -50,7 +50,7 @@ export function compileSurfaceProgramLayout(
 
 /**
  * Four groups reflect work/output, scene geometry, material textures and direct
- * light. Locations are newly assigned for ShadingWork; no Sparse owner layout
+ * light. Locations belong to the one Dense/exception Surface owner; no legacy layout
  * is imported. Only a demanded resource receives a physical slot.
  */
 export function planSurfaceKernelBindings(
@@ -67,16 +67,16 @@ export function planSurfaceKernelBindings(
     if (roles.has(role)) bindings.push(Object.freeze({ role, group, binding, kind, element }));
   };
 
-  add("shading-work", 0, 0, closure.source === "surface-execution-v2" ? "storage" : "read-only-storage");
+  add("shading-work", 0, 0, "storage");
   add("meshlet-work", 0, 1, "read-only-storage");
   add("material-records", 0, 2, "read-only-storage");
   add("frame-view", 0, 3, "uniform");
   add("radiance-output", 0, 4, "write-only-rgba16float");
   add("motion-output", 0, 7, "write-only-rg16float");
   add("visibility-depth", 0, 5, "sampled-depth");
-  add("shading-work-classes", 0, 6, "read-only-storage");
   add("visibility-key", 0, 6, "sampled-uint");
   add("exception-lane", 0, 8, "uniform");
+  add("frequency-plan", 0, 9, "sampled-uint");
 
   add("instance-records", 1, 0, "read-only-storage");
   add("geometry-metadata", 1, 1, "read-only-storage");

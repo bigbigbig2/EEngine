@@ -12,13 +12,13 @@ const scene = {
   capabilityProfile: "device-1", internalWidth: 640, internalHeight: 360,
   virtualGeometry: true, virtualBankCount: 2, previousHzb: true,
   currentHzbLateRecheck: false,
-  activeClasses: [4, 0], textureBankMasks: [1, 0, 0, 0], physicalEnvironment: true
+  activeSets: [0], hasLit: true, physicalEnvironment: true
 };
 
 test("Frame Program closes the current scene product demand with a structural key", () => {
   const first = buildFrameProgram(scene);
-  const reordered = buildFrameProgram({ ...scene, activeClasses: [0, 4] });
-  assert.equal(first.key, reordered.key);
+  const sameShape = buildFrameProgram({ ...scene, activeSets: [0] });
+  assert.equal(first.key, sameShape.key);
   for (const product of ["visibility", "depth", "hzb", "meshlet-work", "light-cluster",
     "surface-radiance", "surface-motion", "sky-radiance", "aerial-radiance",
     "reconstructed-color", "swapchain"]) assert.ok(first.products.includes(product), product);
@@ -31,7 +31,7 @@ test("Frame Program closes the current scene product demand with a structural ke
   const noEnvironment = buildFrameProgram({ ...scene, physicalEnvironment: false });
   assert.ok(!noEnvironment.products.includes("sky-radiance"));
   assert.ok(!noEnvironment.products.includes("aerial-radiance"));
-  const unlit = buildFrameProgram({ ...scene, activeClasses: [0] });
+  const unlit = buildFrameProgram({ ...scene, hasLit: false });
   assert.ok(!unlit.products.includes("light-cluster"));
   assert.deepEqual(first.facts.find(fact => fact.product === "surface-motion").consumers, ["fsr3"]);
   assert.ok(!first.products.includes("shading-work"));
@@ -39,11 +39,10 @@ test("Frame Program closes the current scene product demand with a structural ke
   assert.equal(first.facts.find(fact => fact.product === "surface-motion").format, "rg16float");
 });
 
-test("Program cache reuses a stable shape, ignores unused texture banks, and evicts by LRU", () => {
+test("Program cache reuses the finite set shape and evicts by LRU", () => {
   const cache = new FrameProgramCache(2);
   const first = cache.getOrCreate(scene);
-  assert.equal(cache.getOrCreate({ ...scene, activeClasses: [0, 4],
-    textureBankMasks: [1, 31, 9, 7] }), first);
+  assert.equal(cache.getOrCreate({ ...scene, activeSets: [0] }), first);
   const second = cache.getOrCreate({ ...scene, outputWidth: 1920 });
   assert.notEqual(second, first);
   cache.getOrCreate(scene); // first becomes most recently used
@@ -57,14 +56,15 @@ test("Program cache reuses a stable shape, ignores unused texture banks, and evi
 test("Frame Program lowering wires owner resource contracts through Present", () => {
   globalThis.GPUTextureUsage ??= { RENDER_ATTACHMENT: 1, STORAGE_BINDING: 2, TEXTURE_BINDING: 4 };
   const request = { ...scene, virtualGeometry: false, virtualBankCount: 0,
-    previousHzb: false, activeClasses: [0], textureBankMasks: [0, 0, 0, 0],
+    previousHzb: false, activeSets: [0], hasLit: false,
     physicalEnvironment: false, capabilityProfile: "7" };
   const plan = buildFrameProgram(request);
   const resource = {};
   const runtime = { virtualGeometry: null, activeShadingSummary: { binRefCounts: Array(64).fill(0) },
     materialResources: { materialRecords: resource, textureRouteRecords: resource,
-      bindingSets: [{ id: 0, textureBankMask: 1,
-        textureBanks: Array(9).fill(resource), bankDescriptors: [] }] },
+      bindingSets: [{ id: 0,
+        textureBanks: Array(9).fill(resource),
+        bankDescriptors: Array.from({ length: 9 }, (_, bindingSlot) => ({ bindingSlot })) }] },
     counterSink: resource };
   runtime.activeShadingSummary.binRefCounts[0] = 1;
   const job = { runtime, width: 640, height: 360, assets: { sparseShading: {
@@ -129,18 +129,15 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   assert.throws(() => assertFrameProgramBindings(plan, { ...bindings,
     view: { ...bindings.view, camera: { camera: {} } } }), /View publication/);
   const texturedRuntime = { ...runtime,
-    activeShadingSummary: { binRefCounts: Array(64).fill(0) },
-    materialResources: { ...runtime.materialResources, bindingSets: [{ id: 0,
-      textureBankMask: 1, textureBanks: [resource], bankDescriptors: [{ bindingSlot: 0 }] }] } };
+    activeShadingSummary: { binRefCounts: Array(64).fill(0) } };
   texturedRuntime.activeShadingSummary.binRefCounts[2] = 1;
-  const texturedPlan = buildFrameProgram({ ...request, activeClasses: [2],
-    textureBankMasks: [1, 0, 0, 0] });
+  const texturedPlan = buildFrameProgram(request);
   const texturedBindings = { ...bindings, runtime: texturedRuntime,
     job: { ...job, runtime: texturedRuntime } };
   assertFrameProgramBindings(texturedPlan, texturedBindings);
   const missingBankRuntime = { ...texturedRuntime, materialResources: {
     ...texturedRuntime.materialResources,
-    bindingSets: [{ id: 0, textureBankMask: 1, textureBanks: [], bankDescriptors: [] }] } };
+    bindingSets: [{ id: 0, textureBanks: [], bankDescriptors: [] }] } };
   assert.throws(() => assertFrameProgramBindings(texturedPlan, { ...texturedBindings,
     runtime: missingBankRuntime, job: { ...texturedBindings.job, runtime: missingBankRuntime }
   }), /texture bank 0:0 publication/);

@@ -8,14 +8,12 @@ decision: ADR-0020
 goal: Establish the final architecture's Frame Program, Surface and Temporal boundaries on the single production path, then integrate planned providers in large continuous modules.
 
 currentSlice:
-  id: surface-v2
-  title: Surface, material and lighting v2
+  id: surface-fields-xegtao
+  title: Fuse and demand-materialized Surface fields with XeGTAO
   status: active
-  goal: Rebuild Surface kernel, material and lighting ownership on the Frame Program production path, restoring GPU-driven dense and adaptive work without camera-driven topology changes.
+  goal: Fuse Surface reconstruction where consumers demand it, materialize only the fields needed by the first real XeGTAO provider, and keep one production frame path.
 
 nextModules:
-  - id: surface-fields-xegtao
-    title: Fuse and demand-materialized Surface fields with XeGTAO as the first real consumer
   - id: temporal-presentation
     title: Temporal facts, radiometry and presentation migration
   - id: vsm
@@ -52,5 +50,5 @@ deferredValidation:
 links:
   design: docs/next-design/eengine-next-overall-architecture-final-2026.md
   execution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
-  currentDesign: docs/next-design/surface-material-lighting-v2.md
-  currentExecution: docs/next-execution/surface-material-lighting-v2.md
+  currentDesign: docs/next-design/eengine-next-overall-architecture-final-2026.md
+  currentExecution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md

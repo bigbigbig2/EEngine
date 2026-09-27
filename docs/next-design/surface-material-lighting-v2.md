@@ -1,5 +1,7 @@
 # Module B 设计：Surface / Material / Lighting v2
 
+> 实施说明（2026-09-27）：B0–B8 已接入唯一生产路径；下文“当前源码”表格是设计时的基线，不再表示现状。当前生产数据流见 [Shading](../domains/shading.md)。正式 GPU 画质/性能与上游 adoption 尚未验收。
+
 > 状态：2026-09-27 设计目标，尚未实施。对应[执行文档](../next-execution/surface-material-lighting-v2.md)、[整体架构](./eengine-next-overall-architecture-final-2026.md) §3、[架构层计划](../next-execution/eengine-next-architecture-layer-plan-2026.md) §4、[来源账本](../porting/next-renderer.md)。以下“当前”来自本次源码核对；目标行为不能当作已实现或已通过画质/性能验证。
 
 ## 1. 问题、目标和边界

@@ -42,8 +42,8 @@ export type FrameProgramRequest = FrameProgramBase & (
       virtualBankCount: number;
       previousHzb: boolean;
       currentHzbLateRecheck: boolean;
-      activeClasses: readonly number[];
-      textureBankMasks: readonly number[];
+      activeSets: readonly number[];
+      hasLit: boolean;
       physicalEnvironment: boolean;
     }>
 );
@@ -151,18 +151,13 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
       (!request.virtualGeometry && request.virtualBankCount !== 0)) {
     throw new RangeError("virtualBankCount does not match virtualGeometry");
   }
-  const activeClasses = [...new Set(request.activeClasses)].sort((a, b) => a - b);
-  if (activeClasses.some(id => !Number.isInteger(id) || id < 0 || id >= 64)) {
-    throw new RangeError("activeClasses contains an invalid execution class");
-  }
-  const textureBankMasks = [...request.textureBankMasks];
-  if (textureBankMasks.length !== 4 || textureBankMasks.some(mask => !Number.isSafeInteger(mask) || mask < 0)) {
-    throw new RangeError("textureBankMasks must contain four non-negative masks");
+  const activeSets = [...new Set(request.activeSets)].sort((a, b) => a - b);
+  if (activeSets.some(id => !Number.isInteger(id) || id < 0 || id >= 4)) {
+    throw new RangeError("activeSets contains an invalid resident set");
   }
   return Object.freeze({
     ...request,
-    activeClasses: Object.freeze(activeClasses),
-    textureBankMasks: Object.freeze(textureBankMasks)
+    activeSets: Object.freeze(activeSets)
   });
 }
 
@@ -175,8 +170,7 @@ function structuralKey(request: FrameProgramRequest): string {
     ...base, request.internalWidth, request.internalHeight,
     request.virtualGeometry, request.virtualBankCount,
     request.previousHzb, request.currentHzbLateRecheck,
-    [...new Set(request.activeClasses.map(id => id >> 4))].sort(),
-    request.activeClasses.some(id => (id & 15) >= 4), request.physicalEnvironment
+    request.activeSets, request.hasLit, request.physicalEnvironment
   ]);
 }
 
@@ -190,7 +184,7 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
     case "aerial-radiance": return ["sky-radiance", "depth"];
     case "sky-radiance": return ["surface-radiance", "depth"];
     case "surface-radiance": return ["visibility", "meshlet-work", "depth",
-      ...(request.activeClasses.some(id => (id & 15) >= 4) ? ["light-cluster" as const] : [])];
+      ...(request.hasLit ? ["light-cluster" as const] : [])];
     case "surface-motion": return ["visibility", "meshlet-work", "depth"];
     case "light-cluster": return ["hzb"];
     case "visibility": return ["meshlet-work", "depth"];
@@ -209,7 +203,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       facts: Object.freeze([fact]), stages: Object.freeze(["clear-present"] as FrameProgramStage[]),
       bindingRoles: Object.freeze(["swapchain"]), directLighting: false, buildHzb: false });
   }
-  const directLighting = request.activeClasses.some(id => (id & 15) >= 4);
+  const directLighting = request.hasLit;
   const buildHzb = request.previousHzb || request.currentHzbLateRecheck || directLighting;
   const visiting = new Set<FrameProduct>();
   const visited = new Set<FrameProduct>();

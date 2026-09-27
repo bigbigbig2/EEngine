@@ -88,7 +88,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     "scene-instances", { kind: "imported", label: "published instance records" },
     bind("scene-instances", bindings => bindings.job.scene.instances)
   );
-  const activeClasses = plan.request.activeClasses;
+  const activeSets = plan.request.activeSets;
   const needsDirectLight = plan.stages.includes("light-cluster");
   const geometryMetadata = graph.import_resource(
     "geometry-metadata", { kind: "imported", label: "geometry metadata" },
@@ -103,7 +103,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     bind("texture-routes", bindings => bindings.runtime.materialResources.textureRouteRecords)
   );
   const textureBanks: number[][] = Array.from({ length: 4 }, () => []);
-  for (const setId of new Set(activeClasses.map(classId => classId >> 4))) {
+  for (const setId of activeSets) {
     const bindingSet = initial.runtime.materialResources.bindingSets.find(set => set.id === setId);
     if (!bindingSet) throw new Error(`Surface texture binding set ${setId} is not resident`);
     for (let bank = 0; bank < bindingSet.textureBanks.length; bank++) {
@@ -169,7 +169,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       outputHeight: plan.request.outputHeight,
       preExposure: bindings.preExposure
     })),
-    activeClasses,
+    activeSets,
+    hasLit: plan.request.hasLit,
     virtualGeometry: plan.request.virtualGeometry,
     visibilityKey: result.frame.visibilityKey,
     meshletWork: result.frame.meshletWork.records,

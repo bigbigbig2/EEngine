@@ -6,7 +6,8 @@ import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
 import { GPU_SURFACE_KERNEL_DEMAND } from "../gpu/GpuSurfaceProgramSpecialization.js";
 import { SURFACE_EXCEPTION_LANES, SURFACE_EXECUTION_WGSL, SURFACE_WORK_THREADS } from "../render/surface/SurfaceExecutionAbi.js";
 import type { SurfacePhysicalBindingPlan } from "../render/surface/SurfaceKernelBindingPlan.js";
-import { bindingDeclaration } from "./surface_material_program.js";
+import { bindingDeclaration } from "./surface_binding_declarations.js";
+import { SHADING_FREQUENCY_ANCHOR_WGSL } from "./shading_frequency.js";
 import { geometryWgsl, lightingWgsl, materialEvaluationWgsl, textureWgsl } from "./surface_material_kernel.js";
 import { ATMOSPHERE_RUNTIME_WGSL } from "./atmosphere/runtime.js";
 
@@ -98,9 +99,19 @@ fn sparse_texture_route_valid(material_slot:u32,slot:u32,texture_ref:u32)->bool 
       surface_identity_error();
     }`;
   const shadeHit = /* wgsl */ `
+${mode === "dense" ? SHADING_FREQUENCY_ANCHOR_WGSL : ""}
+fn surface_store(pixel:vec2u,color:vec4f,motion:vec4f) {
+  let rate=${mode === "dense" ? "oengine_shading_rate(pixel)" : "1u"};
+  for(var y=0u;y<rate;y++) {
+    for(var x=0u;x<rate;x++) {
+      let target=pixel+vec2u(x,y);
+      textureStore(output_hdr,vec2i(target),color);
+      textureStore(output_motion,vec2i(target),motion);
+    }
+  }
+}
 fn surface_error(pixel:vec2u) {
-  textureStore(output_hdr,vec2i(pixel),vec4f(1.0,0.0,1.0,1.0));
-  textureStore(output_motion,vec2i(pixel),vec4f(0.0));
+  surface_store(pixel,vec4f(1.0,0.0,1.0,1.0),vec4f(0.0));
 }
 fn surface_hit(pixel:vec2u,key:u32,work_item:OEngineMeshletRasterWork,
   material_slot:u32,material:OEngineShadingMaterialRecord) {
@@ -119,8 +130,8 @@ fn surface_hit(pixel:vec2u,key:u32,work_item:OEngineMeshletRasterWork,
   if surface_identity_failed { surface_error(pixel); return; }
   var radiance=surface.base_color;
   ${hasLit ? "if material.family!=0u { radiance=sparse_direct(surface,pixel); }" : ""}
-  textureStore(output_hdr,vec2i(pixel),vec4f(radiance*shading_view.pre_exposure,surface.alpha));
-  textureStore(output_motion,vec2i(pixel),vec4f(surface.velocity,0.0,0.0));
+  surface_store(pixel,vec4f(radiance*shading_view.pre_exposure,surface.alpha),
+    vec4f(surface.velocity,0.0,0.0));
 }
 fn surface_material(pixel:vec2u,key:u32,report_error:bool)->u32 {
   let work_slot=oengine_visibility_key_meshlet_work_slot(key);
@@ -164,7 +175,7 @@ fn shade(@builtin(global_invocation_id) id:vec3u,
   let pixel=id.xy;
   if id.x<shading_view.width && id.y<shading_view.height {
     key=textureLoad(visibility_texture,vec2i(pixel),0).x;
-    if oengine_visibility_key_is_valid(key) {
+    if oengine_visibility_key_is_valid(key) && all(oengine_shading_anchor(pixel)==pixel) {
       let classified=surface_material(pixel,key,true);
       if classified==0xffffffffu {
         let work_slot=oengine_visibility_key_meshlet_work_slot(key);

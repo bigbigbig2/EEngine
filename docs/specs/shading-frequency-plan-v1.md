@@ -5,7 +5,7 @@ owner: shading
 ---
 # Shading Frequency Plan V1
 
-Status: historical Phase 2 design; Module A production is full-rate only. Surface v2 will define the replacement frequency contract. The diagnostic flag remains temporarily for old validation source compatibility and does not select a production graph variant.
+Status: retired historical Phase 2 contract. Module B replaced its buffer/queue/Present reconstruction with a GPU-written `r32uint` tile texture consumed by Dense Surface before FSR3. The current facts are in [Shading](../domains/shading.md) and `shaders/shading_frequency.ts`; the contract below must not be used to infer production behavior.
 
 Owners: Visibility & Surface / shading
 

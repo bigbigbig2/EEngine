@@ -311,7 +311,6 @@ export class Renderer {
   packed_meshlet_work_compaction: "auto" | "portable" | "subgroup" = "auto";
   packed_primitive_index: "auto" | "portable" = "auto";
   /** Deprecated diagnostic knob; Module A forces full-rate Surface until Surface v2. */
-  spatial_shading_frequency_enabled = true;
   onFrameFinished = new ChangeSignal<number>();
 
   constructor(config: RendererConfig = {}) {
@@ -1006,8 +1005,6 @@ export class Renderer {
   memoryEvidence(): GraphicsMemoryEvidence { return this._graphics.memoryEvidence(); }
   mainFrameGraphEvidence() { return this._lastFrameGraph; }
 
-  /** On-demand GPU diagnosis only; the frame path never reads ShadingWork back. */
-
   async initialize(options: RendererInitializeOptions = {}): Promise<void> {
     if (this._destroyed) throw new Error("Destroyed Renderer cannot initialize");
     const gpu = navigator.gpu;
@@ -1209,9 +1206,12 @@ export class Renderer {
           command.writeBuffer(buffer, 0, data, 0, data.byteLength));
       }
       const environment = this._environments.obtain(scene);
-      const activeClasses = Array.from({ length: 64 }, (_, classId) => classId)
-        .filter(classId => (runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
-      if (activeClasses.some(classId => (classId & 15) >= 4)) {
+      const activeSets = Array.from({ length: 4 }, (_, setId) => setId)
+        .filter(setId => runtime.activeShadingSummary.binRefCounts
+          .slice(setId * 16, setId * 16 + 16).some(count => count > 0));
+      const hasLit = runtime.activeShadingSummary.binRefCounts
+        .some((count, classId) => count > 0 && (classId & 15) >= 4);
+      if (hasLit) {
         environment.lights.updateDirectRecords(command);
       }
       const view = this._views.obtain(GPUViewKey.from(camera, scene), environment);
@@ -1290,9 +1290,6 @@ export class Renderer {
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
         fsr3: this._fsr3, environment: this._environmentRuntime
       };
-      const textureBankMasks = Array.from({ length: 4 }, (_, setId) =>
-        runtime.materialResources.bindingSets.find(set => set.id === setId)?.textureBankMask ?? 0
-      );
       const program = this._programCache.getOrCreate({
         kind: "scene", intent: "present", viewFamily: "main", outputWidth: this._output_resolution.x,
         outputHeight: this._output_resolution.y, outputFormat: this._format,
@@ -1301,7 +1298,7 @@ export class Renderer {
         virtualBankCount: runtime.virtualGeometry?.banks.length ?? 0,
         previousHzb: this.packed_visibility_hzb_enabled,
         currentHzbLateRecheck: job.prepared.currentHzbLateRecheck !== null,
-        activeClasses, textureBankMasks,
+        activeSets, hasLit,
         physicalEnvironment: this._environmentRuntime !== null
       });
       assertFrameProgramBindings(program, graphBindings);
@@ -1454,7 +1451,6 @@ export class Renderer {
     this.shutdown();
     const replacement = new Renderer(checkpoint.config);
     replacement.deviceEpoch = this.deviceEpoch + 1;
-    replacement.spatial_shading_frequency_enabled = this.spatial_shading_frequency_enabled;
     this._recoveryPromise = (async () => {
       try {
         await replacement.initialize({ context: checkpoint.context, config: checkpoint.config });

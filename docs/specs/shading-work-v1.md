@@ -5,7 +5,7 @@ owner: shading
 ---
 # ShadingWork V1：可见样本队列
 
-Status: draft
+Status: retired historical 64-class queue contract. Module B removed this production owner; current bounded exception work is in `OEngine/src/render/surface/SurfaceExecutionAbi.ts` and [Shading](../domains/shading.md). The following text is not a current execution contract.
 
 Owners: Visibility & Surface / shading
 

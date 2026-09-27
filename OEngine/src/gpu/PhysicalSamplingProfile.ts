@@ -30,10 +30,10 @@ export function preflightResidentSurfaceLimits(limits: Pick<GPUSupportedLimits,
   "maxSampledTexturesPerShaderStage" | "maxSamplersPerShaderStage" |
   "maxStorageBuffersPerShaderStage" | "maxStorageTexturesPerShaderStage" |
   "maxBindGroups" | "maxTextureDimension3D">): void {
-  // Nine possible bank views + visibility depth + sky irradiance/transmittance
-  // + environment radiance/DFG/diffuse. Actual kernels may bind fewer banks.
+  // Nine bank views, visibility/depth, four environment inputs and the
+  // r32uint frequency plan. Actual kernels may bind fewer banks.
   const required = [
-    ["sampled textures", Number(limits.maxSampledTexturesPerShaderStage), 15],
+    ["sampled textures", Number(limits.maxSampledTexturesPerShaderStage), 16],
     ["samplers", Number(limits.maxSamplersPerShaderStage), 8],
     ["storage buffers", Number(limits.maxStorageBuffersPerShaderStage), 16],
     ["storage textures", Number(limits.maxStorageTexturesPerShaderStage), 2],

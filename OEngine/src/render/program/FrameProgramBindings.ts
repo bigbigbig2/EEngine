@@ -1,7 +1,6 @@
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
 import type { GPUTextureContext } from "../../gpu/GPUTextureContext.js";
 import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
-import { shadingProgramUsesTextures } from "../../gpu/GpuShadingProgramAbi.js";
 import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
 import type { GPUViewContext } from "../ViewContext.js";
 import type { PackedVisibilityJob } from "../features/VisibilityFeature.js";
@@ -97,27 +96,22 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
       bindings.job.prepared.workSet.meshletWorkCandidate === null) {
     throw new Error("Frame Program visibility shape changed");
   }
-  const classes = Array.from({ length: 64 }, (_, classId) => classId)
-    .filter(classId => (bindings.runtime.activeShadingSummary.binRefCounts[classId] ?? 0) > 0);
-  if (classes.length !== request.activeClasses.length ||
-      classes.some((id, index) => id !== request.activeClasses[index])) {
-    throw new Error("Frame Program material class shape changed");
+  const counts = bindings.runtime.activeShadingSummary.binRefCounts;
+  const activeSets = Array.from({ length: 4 }, (_, setId) => setId)
+    .filter(setId => counts.slice(setId * 16, setId * 16 + 16).some(count => count > 0));
+  const hasLit = counts.some((count, classId) => count > 0 && (classId & 15) >= 4);
+  if (activeSets.length !== request.activeSets.length ||
+      activeSets.some((id, index) => id !== request.activeSets[index]) ||
+      hasLit !== request.hasLit) {
+    throw new Error("Frame Program material set or lighting shape changed");
   }
-  for (let setId = 0; setId < 4; setId++) {
+  for (const setId of activeSets) {
     const bindingSet = bindings.runtime.materialResources.bindingSets.find(set => set.id === setId);
-    const mask = bindingSet?.textureBankMask ?? 0;
-    const required = request.activeClasses.some(id => (id >> 4) === setId &&
-      shadingProgramUsesTextures(id & 15));
-    if (required) {
-      if (!bindingSet || mask !== request.textureBankMasks[setId]) {
-        throw new Error("Frame Program texture bank layout changed");
-      }
-      for (let bank = 0; bank < 9; bank++) {
-        if ((mask & (1 << bank)) !== 0 &&
-            (!bindingSet.textureBanks[bank] ||
-              bindingSet.bankDescriptors[bank]?.bindingSlot !== bank)) {
-          throw new Error(`Frame Program texture bank ${setId}:${bank} publication is incomplete`);
-        }
+    if (!bindingSet) throw new Error(`Frame Program texture set ${setId} is not resident`);
+    for (let bank = 0; bank < 9; bank++) {
+      if (!bindingSet.textureBanks[bank] ||
+          bindingSet.bankDescriptors[bank]?.bindingSlot !== bank) {
+        throw new Error(`Frame Program texture bank ${setId}:${bank} publication is incomplete`);
       }
     }
   }

@@ -1,5 +1,7 @@
 # Module B 执行：Surface / Material / Lighting v2
 
+> 实施记录（2026-09-27）：B0–B8 已接入单生产路径；集中 typecheck、build 和选定 targeted tests 通过。下文的旧类队列文件名是迁移前定位记录，当前实现入口见 [Shading](../domains/shading.md)。浏览器矩阵、画质/性能、正式 evidence 与 claims 留待 Next Renderer 最终验收。
+
 > 状态：2026-09-27 待实施的执行顺序。设计依据为[Module B 设计](../next-design/surface-material-lighting-v2.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，候选移植见[Next 来源账本](../porting/next-renderer.md)。本文是连续编码的工程路线，不是逐批许可清单；步骤可在同一大模块内连续推进。只有 Module B 主链原理连通后才集中 typecheck/build/必要 targeted tests，正式 browser/evidence/claims/性能矩阵留在整条 Next Renderer 完成后。
 
 ## 0. 本模块完成的准确含义
