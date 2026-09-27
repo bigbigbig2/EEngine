@@ -85,6 +85,8 @@ export interface SurfaceProgramClosure {
   readonly formatProfile: string;
   /** Physical binding variant; defaults to off for callers without an AO producer. */
   readonly aoProfile?: "off" | "scalar-high";
+  /** Directional shadow consumer selected by the Frame Program. */
+  readonly shadowProfile?: "off" | "vsm";
 }
 
 export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): string {
@@ -109,6 +111,10 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
       closure.aoProfile !== "scalar-high") {
     throw new RangeError("Surface AO profile is invalid");
   }
+  if (closure.shadowProfile !== undefined && closure.shadowProfile !== "off" &&
+      closure.shadowProfile !== "vsm") {
+    throw new RangeError("Surface shadow profile is invalid");
+  }
   if (closure.aoProfile === "scalar-high" && closure.lighting !== "direct") {
     throw new RangeError("Surface scalar AO requires a lit consumer");
   }
@@ -122,6 +128,7 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
     1, kernel.programId, kernel.outputDependencyMask, kernel.textureBankMask,
     closure.virtualGeometry, closure.lighting, closure.layoutSignature,
     closure.capabilityFingerprint, closure.formatProfile, closure.aoProfile ?? "off",
+    closure.shadowProfile ?? "off",
     closure.source
   ]);
 }
@@ -139,7 +146,8 @@ export type SurfaceResourceRole =
   | "physical-environment-sun" | "physical-environment-transmittance"
   | "physical-sky-irradiance" | "physical-sky-irradiance-sampler"
   | "physical-sky-specular" | "physical-sky-dfg" | "physical-sky-specular-sampler"
-  | "indirect-visibility";
+  | "indirect-visibility"
+  | "vsm-page-table" | "vsm-atlas-depth" | "vsm-sampling-constants";
 
 export interface SurfaceMaterialRequirements {
   readonly roles: readonly SurfaceResourceRole[];
@@ -188,6 +196,9 @@ export function surfaceMaterialRequirements(
       "physical-environment-transmittance", "physical-sky-specular", "physical-sky-dfg",
       "physical-sky-specular-sampler",
       "motion-output");
+    if (closure.shadowProfile === "vsm") {
+      roles.push("vsm-page-table", "vsm-atlas-depth", "vsm-sampling-constants");
+    }
   }
   return Object.freeze({
     roles: Object.freeze(roles),

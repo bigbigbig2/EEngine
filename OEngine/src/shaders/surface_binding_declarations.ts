@@ -38,5 +38,8 @@ export function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): s
     case "physical-sky-specular": return `${prefix} var environment_specular: texture_2d<f32>;`;
     case "physical-sky-dfg": return `${prefix} var split_sum: texture_2d<f32>;`;
     case "physical-sky-specular-sampler": return `${prefix} var environment_sampler: sampler;`;
+    case "vsm-page-table": return `${prefix} var<storage, read> vsm_page_table: array<VsmPageEntry>;`;
+    case "vsm-atlas-depth": return `${prefix} var vsm_atlas_depth: texture_depth_2d;`;
+    case "vsm-sampling-constants": return `${prefix} var<uniform> vsm_constants: VsmSamplingConstants;`;
   }
 }

@@ -130,7 +130,7 @@ export class GeometryPageStreamingRuntimeV1 {
     return this.#readback.encode(encoder, demandBuffer, frameIndex);
   }
 
-  /** Encodes one CSM/Product shadow demand queue into a separate delayed ring. */
+  /** Encodes one directional/Product shadow demand queue into a separate delayed ring. */
   encodeShadowDemandReadback(
     encoder: GPUCommandEncoder,
     demandBuffer: GPUBuffer,

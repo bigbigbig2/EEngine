@@ -1,7 +1,7 @@
 # Module E 执行：VSM / Shadow Visibility
 
 > 本文是模块 E 的连续实施顺序。设计语义见 [VSM design](../next-design/vsm.md)。
-> 当前仅生成设计与执行计划；未修改生产代码，也未宣称 VSM 已接入。
+> E0-E7 已修改生产主链并完成集中 typecheck/build/targeted contract test；E8/E9 尚未完成。来源 adoption 与浏览器/GPU 证据仍按最终验收规则后置。
 
 ## 来源入口
 
@@ -260,7 +260,7 @@ caster record overflow：near/高优先级页优先，未覆盖页保持 dirty�
 - 新建 `OEngine/src/shaders/vsm_sampling.ts`
 - `OEngine/src/render/pipeline/FrameProducts.ts`
 - `OEngine/src/gpu/ShadowContract.ts`
-- `OEngine/src/shaders/packed_csm_shadow.ts`
+- 历史 `packed_csm_shadow.ts`（已从 production source 删除）
 - `OEngine/src/render/**` 中仍引用 packed CSM 的调用点
 
 ### 采样合同
@@ -275,6 +275,14 @@ virtual UV/mip → page table → fallback mip → atlas border → fixed PCF ta
 2. 删除 `RendererCore` 中 CSM 资源/调用分支。
 3. 旧 CSM 代码若保留，只能在 `temp/` 或离线 reference 目录，不能被 production import。
 4. 不建立一帧同时跑 CSM/VSM 的比较桥梁。
+
+### E7 实际收口
+
+- `vsm_sampling.ts` 已按 clipmap level、page-table generation、dirty/缺页回退、atlas border 和固定 PCF taps 实现采样。
+- `SurfaceMaterialPass` 的唯一 direct-light consumer 通过 `ShadowVisibilityFrame` 读取 VSM page table、depth atlas 和 sampling constants；Standard/Coated direct lobe 共用一次 visibility。
+- FrameGraph 使用同一 page-table/atlas resource ID 建立 allocation → raster → Surface sampling 依赖；没有 CPU readback、逐页 render pass 或额外 submit。
+- 历史 packed CSM shader 已删除，未建立 CSM/VSM 对照桥梁。
+- 已通过 `npm run typecheck`、`npm run build`、`npm run build:test` 和 `node --test tests/contract/frame-program.test.mjs`；真实浏览器 WGSL 编译、画质与性能检查延期到 E9/最终验收。
 
 ## 9. E8：失效、Temporal facts、恢复与诊断
 
@@ -337,8 +345,8 @@ E1-E8 的 producer→consumer 已在同一 Frame Program、同一 command contex
 - [ ] 无额外 frame submit。
 - [ ] receiver demand、allocation、caster work、atlas raster、sampling 均有真实 GPU consumer。
 - [ ] page/meta 双向一致、generation 正确、overflow/fallback 可观测。
-- [ ] CSM owner 不再被 production import。
-- [ ] Standard/Coated direct lobe 只按 VSM visibility 乘一次。
+- [x] CSM owner 不再被 production import。
+- [x] Standard/Coated direct lobe 只按 VSM visibility 乘一次。
 - [ ] 缺页不会产生错误全黑，且与 demand 规则一致。
 - [ ] resize、camera cut、sun change、scene patch、device loss 有明确生命周期。
 - [ ] typecheck/build/必要 targeted tests 的实际状态如实记录。

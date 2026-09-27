@@ -1,6 +1,6 @@
 # Module E：Virtual Shadow Maps 与 Shadow Visibility
 
-> 状态：设计稿，尚未采用。本文冻结模块边界和目标数据流，不代表 VSM 已接入生产主链。
+> 状态：E0-E7 已接入候选生产主链；E8 生命周期与 E9 模块收口仍待完成。来源 adoption 仍保持 `not adopted`，因为正式 oracle/GPU evidence 后置。
 > 执行顺序见 [vsm execution](../next-execution/vsm.md)。整体边界见 [Next overall architecture](./eengine-next-overall-architecture-final-2026.md) §3、§7。
 
 ## 来源速览
@@ -50,10 +50,10 @@ Visibility hit/depth + receiver footprint
 | 事实 | 证据 | 影响 |
 | --- | --- | --- |
 | direct lighting 已有 shadow sampling 分支 | `OEngine/src/shaders/lighting_direct.ts`：`shadowmap_sample_5`、CSM cascade、point/spot atlas sampling | 新 consumer 必须替换 shadow visibility 语义，不能只新增一张纹理 |
-| 旧 producer 是 packed CSM depth-only | `OEngine/src/shaders/packed_csm_shadow.ts`：regular scene 与 Product meshlet 两套 vertex/fragment、alpha mask 和 counter shader | 这些 shader 属于待删除的 CSM owner，不是 VSM fallback |
+| 旧 producer 是 packed CSM depth-only | 历史提交中的 `packed_csm_shadow.ts`：regular scene 与 Product meshlet 两套 vertex/fragment、alpha mask 和 counter shader | 文件已从 production source 删除；历史 CSM 不是 VSM fallback |
 | 旧合同冻结 3 cascade 和 PCF 参数 | `OEngine/src/gpu/ShadowContract.ts` | VSM 不应继续以 `cascadeCount=3` 伪装 page hierarchy |
 | `ShadowVisibilityFrame` 已存在旧 atlas 形状 | `OEngine/src/render/pipeline/FrameProducts.ts::shadowVisibilityFrame` | 需要迁移为 virtual page table、atlas generation、缺页语义；旧字段不能继续主导新算法 |
-| GPU Scene/meshlet/Product work 已可提供 caster 数据 | `OEngine/src/gpu/GpuScene.ts`、`packed_csm_shadow.ts` | VSM caster 后端应复用这些 owner 的 geometry records，不新建 CPU caster 列表 |
+| GPU Scene/meshlet/Product work 已可提供 caster 数据 | `OEngine/src/gpu/GpuScene.ts`、`VsmCasterRecordPass.ts` | VSM caster 后端复用这些 owner 的 geometry records，不新建 CPU caster 列表 |
 | Frame Program 已有 owner 注入和 late binding | `OEngine/src/render/program/FrameProgramLowering.ts`、`FrameProgramBindings.ts` | VSM 要作为 owner 注册固定拓扑，动态页数只进入 late-bound resources |
 | Temporal Facts/FSR3 已共用单一 submit | `OEngine/src/render/temporal/TemporalFactsPass.ts`、`RendererCore.ts` | VSM 只共享 temporal facts；不建立自己的 history transaction 或 submit |
 | 当前 `docs/domains/shading.md` 将 VSM 列为后续 provider | 该文档的 Surface/Lighting 说明 | 设计完成后才能更新为真实 current fact；文档本身不是编码门禁 |
@@ -347,13 +347,13 @@ receiver demand + allocation + caster cull + atlas raster + shadow taps
 
 ## 13. 采用状态与后续证据
 
-当前状态为 `not adopted / design ready`。要提升为 `traceable local port`，必须完成：
+当前实现状态为 `E0-E7 integrated / deferred acceptance`；来源状态仍为 `not adopted`。要提升为 `traceable local port`，必须完成：
 
 1. source ledger 的逐项映射、revision/license 和缺口记录；
 2. CPU page-table/allocation oracle；
 3. WGSL demand/allocation/sampling 数值检查；
 4. 固定 raster batch 的真实 GPU producer→consumer 检查；
-5. direct-light consumer 与 Surface Standard/Coated 的同帧连接；
+5. direct-light consumer 与 Surface Standard/Coated 的同帧连接（E7 已接入，待真实 GPU 核对）；
 6. 模块完成后的 typecheck、build、必要 targeted tests。
 
 browser matrix、resize/camera cut/device loss 组合、不同场景材质、画质对照、GPU P50/P95、formal evidence 和 claims 仍属于整个 Next Renderer 完成后的最终验收。

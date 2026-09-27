@@ -16,6 +16,10 @@ import { SURFACE_EXCEPTION_LANES, SURFACE_WORK_INDIRECT_BYTES,
 import { shadingFrequencyPlanCapacity } from "./ShadingFrequencyPlanAbi.js";
 import { SHADING_FREQUENCY_PLAN_WGSL } from "../../shaders/shading_frequency.js";
 import type { PreExposureContract } from "../RadiometryContract.js";
+import type { VsmResources } from "../vsm/VsmResources.js";
+import type { VsmDirectionalFrameConstants } from "../vsm/VsmReceiverDemandPass.js";
+import type { ShadowVisibilityFrame } from "../pipeline/FrameProducts.js";
+import { SHADOW_DEPTH_BIAS, SHADOW_DEPTH_SLOPE_SCALE, SHADOW_NORMAL_OFFSET_SCALE } from "../../gpu/ShadowContract.js";
 
 export interface SurfaceMaterialFrame {
   readonly runtime: GpuRenderWorldRuntime;
@@ -56,7 +60,18 @@ export interface SurfaceMaterialInputs {
   readonly physicalSkyIrradiance?: ResourceId;
   readonly physicalSkySpecular?: ResourceId;
   readonly physicalSkyDfg?: ResourceId;
+  /** Read-only VSM publication consumed by the direct-light shader. */
+  readonly shadowVisibility?: {
+    readonly resources: VsmResources;
+    readonly frame: ShadowVisibilityFrame;
+    readonly vsmFrame: VsmDirectionalFrameConstants;
+  };
 }
+type SurfaceVsmBindings = Readonly<{
+  pageTable: ResourceId;
+  atlasDepth: ResourceId;
+  constants: ResourceId;
+}>;
 type Program = Readonly<{
   pipeline: GPUComputePipeline;
   layouts: readonly GPUBindGroupLayout[];
@@ -171,17 +186,42 @@ export class SurfaceMaterialPass {
       kind: "transient_texture", width: tiles.tilesX, height: tiles.tilesY,
       format: "r32uint", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
     });
+    let vsmBindings: SurfaceVsmBindings | undefined;
+    if (input.shadowVisibility !== undefined) {
+      if (!input.hasLit) throw new Error("VSM shadow visibility requires a lit Surface consumer");
+      const owner = input.shadowVisibility.resources;
+      if (owner.profile === "shadow-disabled" || owner.pageTable === null ||
+          owner.atlasDepth === null || owner.pageConstants === null) {
+        throw new Error("Surface VSM publication is missing its read-only resources");
+      }
+      const update = graph.add("Surface/update VSM sampling constants",
+        input.shadowVisibility.vsmFrame, (_frame, _resources, context) => {
+          const data = packVsmSamplingConstants(input.shadowVisibility!.resources,
+            input.shadowVisibility!.vsmFrame);
+          (context.encoder as ShadeGPUCommandContext).writeBuffer(
+            owner.pageConstants!, 0, data, 0, data.byteLength);
+        });
+      vsmBindings = Object.freeze({
+        pageTable: required(input.shadowVisibility.frame.virtualPageTable ?? undefined, "vsm-page-table"),
+        atlasDepth: required(input.shadowVisibility.frame.physicalAtlasDepth ?? undefined, "vsm-atlas-depth"),
+        constants: update.write(required(input.shadowVisibility.frame.lightProjection ?? undefined,
+          "vsm-sampling-constants"))
+      });
+    }
     const hasLit = input.hasLit;
     const scalarAo = input.indirectVisibility !== undefined;
     if (scalarAo && !hasLit) throw new Error("Surface AO has no lit consumer");
     const activeSets = new Set(input.activeSets);
     const dense = activeSets.size === 0 ? null :
-      this.program(hasLit, input.virtualGeometry, scalarAo, "dense", 0);
+      this.program(hasLit, input.virtualGeometry, scalarAo, "dense", 0,
+        vsmBindings !== undefined);
     const lanes = Array.from({ length: SURFACE_EXCEPTION_LANES }, (_, lane) => {
       const setId = lane === 0 ? 0 : 1 + Math.floor((lane - 1) / 2);
       return activeSets.has(setId) ? { lane, setId,
-        binned: this.program(hasLit, input.virtualGeometry, scalarAo, "binned", lane),
-        fallback: this.program(hasLit, input.virtualGeometry, scalarAo, "fallback", lane) } : null;
+        binned: this.program(hasLit, input.virtualGeometry, scalarAo, "binned", lane,
+          vsmBindings !== undefined),
+        fallback: this.program(hasLit, input.virtualGeometry, scalarAo, "fallback", lane,
+          vsmBindings !== undefined) } : null;
     }).filter((value): value is NonNullable<typeof value> => value !== null);
     const surface = graph.add("Surface/Dense and bounded exceptions", {},
       (_data, resources, context) => {
@@ -227,8 +267,9 @@ export class SurfaceMaterialPass {
               this.device.createBindGroup({ layout, entries: program.bindings
               .filter(binding => binding.group === groupIndex)
               .map(binding => ({ binding: binding.binding,
-                resource: this.resolveBinding(binding, input, currentView, frequencyPlan,
-                  radiance, motion, work, setId, laneParameters, laneId, resources) })) }));
+              resource: this.resolveBinding(binding, input, currentView, frequencyPlan,
+                  radiance, motion, work, setId, laneParameters, laneId, resources,
+                  vsmBindings) })) }));
             groupsByLane.set(bindingKey, groups);
           }
           pass.setPipeline(program.pipeline);
@@ -258,6 +299,12 @@ export class SurfaceMaterialPass {
           binding.role === "texture-samplers") continue;
       if (binding.role === "frame-view") surface.read(currentView);
       else if (binding.role === "pre-exposure") surface.read(input.preExposureBuffer);
+      else if (binding.role === "vsm-page-table" || binding.role === "vsm-atlas-depth" ||
+          binding.role === "vsm-sampling-constants") {
+        if (vsmBindings === undefined) throw new Error(`Surface binding missing ${binding.role}`);
+        surface.read(binding.role === "vsm-page-table" ? vsmBindings.pageTable :
+          binding.role === "vsm-atlas-depth" ? vsmBindings.atlasDepth : vsmBindings.constants);
+      }
       else if (binding.role === "texture-banks") {
         for (const setId of activeSets) {
           const id = input.textureBanks[setId]?.[binding.element];
@@ -287,9 +334,9 @@ export class SurfaceMaterialPass {
   }
 
   private program(hasLit: boolean, virtualGeometry: boolean, scalarAo: boolean,
-    mode: SurfaceExecutionMode, lane: number): Program {
+    mode: SurfaceExecutionMode, lane: number, vsmShadowEnabled: boolean): Program {
     const coated = hasLit && mode !== "dense" && (lane === 0 || (lane & 1) === 0);
-    const key = `${hasLit}:${virtualGeometry}:${scalarAo}:${mode}:${coated}`;
+    const key = `${hasLit}:${virtualGeometry}:${scalarAo}:${mode}:${coated}:${vsmShadowEnabled}`;
     const cached = this.programs.get(key);
     if (cached) return cached;
     const compiled = compileSurfaceProgramLayout({
@@ -297,12 +344,13 @@ export class SurfaceMaterialPass {
         outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask: 0x1ff },
       virtualGeometry, lighting: hasLit ? "direct" : "unlit",
       aoProfile: scalarAo ? "scalar-high" : "off",
+      shadowProfile: vsmShadowEnabled ? "vsm" : "off",
       source: "surface-execution-v2", capabilityFingerprint: "webgpu-core",
       formatProfile: "rgba16float"
     }, this.device.limits);
     const source = surfaceExecutionWgsl(compiled.plan, mode,
-      coated ? 0 : 1, hasLit, virtualGeometry);
-    const layoutKey = `${hasLit}:${virtualGeometry}:${scalarAo}`;
+      coated ? 0 : 1, hasLit, virtualGeometry, vsmShadowEnabled);
+    const layoutKey = `${hasLit}:${virtualGeometry}:${scalarAo}:${vsmShadowEnabled}`;
     let layouts = this.layouts.get(layoutKey);
     if (layouts === undefined) {
       layouts = createSurfaceBindGroupLayouts(this.device, compiled.plan);
@@ -321,7 +369,8 @@ export class SurfaceMaterialPass {
     view: ResourceId, frequencyPlan: ResourceId, hdr: ResourceId,
     motion: ResourceId, work: ResourceId,
     setId: number, laneParameters: GPUBuffer, laneId: number,
-    resources: { get(id: ResourceId): unknown }): GPUBindingResource {
+    resources: { get(id: ResourceId): unknown },
+    vsmBindings?: SurfaceVsmBindings): GPUBindingResource {
     if (binding.role === "texture-samplers") return this.samplers[binding.element]!;
     if (binding.role === "exception-lane") return {
       buffer: laneParameters, offset: laneId * 256, size: 16 };
@@ -333,7 +382,7 @@ export class SurfaceMaterialPass {
       binding.role === "radiance-output" ? hdr :
       binding.role === "motion-output" ? motion :
       binding.role === "shading-work" ? work :
-      this.resolveResourceId(binding, input, setId);
+      this.resolveResourceId(binding, input, setId, vsmBindings);
     const resource = resources.get(id);
     if (binding.kind === "sampled-depth" || binding.kind === "sampled-uint" ||
         binding.kind === "sampled-array" || binding.kind === "sampled-2d" ||
@@ -343,7 +392,7 @@ export class SurfaceMaterialPass {
   }
 
   private resolveResourceId(binding: Readonly<SurfacePhysicalBinding>,
-    input: SurfaceMaterialInputs, setId: number): ResourceId {
+    input: SurfaceMaterialInputs, setId: number, vsmBindings?: SurfaceVsmBindings): ResourceId {
     switch (binding.role) {
       case "indirect-visibility": return required(input.indirectVisibility, binding.role);
       case "visibility-key": return input.visibilityKey;
@@ -368,6 +417,9 @@ export class SurfaceMaterialPass {
       case "physical-sky-irradiance": return required(input.physicalSkyIrradiance, binding.role);
       case "physical-sky-specular": return required(input.physicalSkySpecular, binding.role);
       case "physical-sky-dfg": return required(input.physicalSkyDfg, binding.role);
+      case "vsm-page-table": return required(vsmBindings?.pageTable, binding.role);
+      case "vsm-atlas-depth": return required(vsmBindings?.atlasDepth, binding.role);
+      case "vsm-sampling-constants": return required(vsmBindings?.constants, binding.role);
       default: throw new Error(`Surface role ${binding.role} has no readable resource`);
     }
   }
@@ -381,4 +433,38 @@ export class SurfaceMaterialPass {
 function required(value: ResourceId | undefined, role: string): ResourceId {
   if (value === undefined) throw new Error(`Surface binding missing ${role}`);
   return value;
+}
+
+function packVsmSamplingConstants(
+  resources: VsmResources,
+  frame: VsmDirectionalFrameConstants
+): ArrayBuffer {
+  const capabilities = resources.capabilities;
+  const data = new ArrayBuffer(256);
+  const floats = new Float32Array(data);
+  const uints = new Uint32Array(data);
+  if (frame.lightView.length !== 16 || frame.clipOriginExtent.length < capabilities.clipLevels) {
+    throw new RangeError("Surface VSM sampling constants have an invalid clipmap shape");
+  }
+  floats.set(frame.lightView, 0);
+  for (let level = 0; level < 6; level++) {
+    floats.set(frame.clipOriginExtent[level] ?? [0, 0, 1, 1], 16 + level * 4);
+  }
+  uints.set([
+    capabilities.virtualPagesPerAxis,
+    capabilities.pageSize,
+    capabilities.border,
+    capabilities.atlasPagesPerAxis,
+    capabilities.clipLevels,
+    frame.generation >>> 0,
+    capabilities.pcfTapCount,
+    capabilities.atlasDimension
+  ], 40);
+  floats.set([
+    SHADOW_NORMAL_OFFSET_SCALE * 0.001,
+    SHADOW_DEPTH_BIAS * 0.0001,
+    SHADOW_DEPTH_SLOPE_SCALE * 0.0001,
+    0
+  ], 48);
+  return data;
 }

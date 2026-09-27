@@ -19,6 +19,7 @@ import { GPU_VIEW_TYPE } from "../render/ViewManager.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { GBUFFER_ENCODE_WGSL } from "./gbuffer_encode.js";
 import { SHADOW_NORMAL_OFFSET_SCALE } from "../gpu/ShadowContract.js";
+import { VSM_SAMPLING_WGSL } from "./vsm_sampling.js";
 
 export const LIGHTING_DIRECT_FORMAT = "rgba16float" as const;
 
@@ -741,7 +742,8 @@ const SPARSE_DIRECT_SHADOW_FUNCTIONS = Object.freeze([
  * behavior for specialized opaque programs and transparent forward shading.
  */
 export function createProductionSparseDirectLightingWgsl(
-  shadowSamplingEnabled: boolean
+  shadowSamplingEnabled: boolean,
+  directionalShadowMode: "legacy" | "vsm" = "legacy"
 ): string {
   const typeStart = requireWgslMarker(LIGHTING_DIRECT_CORE_WGSL, "const PI: f32");
   const typeEnd = requireWgslMarker(LIGHTING_DIRECT_CORE_WGSL, "@group(0) @binding(0)");
@@ -757,11 +759,12 @@ export function createProductionSparseDirectLightingWgsl(
     .replaceAll("vec2u(view.width, view.height)", "vec2u(shading_view.width, shading_view.height)")
     .replaceAll("active_light_list.written", "cluster_data.active_written")
     .replaceAll("active_light_list.data", "cluster_data.data");
-  if (!shadowSamplingEnabled) {
+  const useVsm = shadowSamplingEnabled && directionalShadowMode === "vsm";
+  if (!shadowSamplingEnabled || useVsm) {
     for (const name of SPARSE_DIRECT_SHADOW_FUNCTIONS) {
       body = omitWgslFunction(body, name);
     }
-    body += /* wgsl */ `
+    body += /* wgsl */ `${useVsm ? VSM_SAMPLING_WGSL : ""}
 fn shadowmap_get_point_light_visibility(
   _database: ptr<storage, array<u32>>,
   _index: u32,
@@ -777,12 +780,19 @@ fn shadowmap_get_spot_light_visibility(
 ) -> f32 { return 1.0; }
 
 fn shadowmap_get_directional_light_visibility(
-  _database: ptr<storage, array<u32>>,
-  _index: u32,
-  _position_ws: vec3f,
+  database: ptr<storage, array<u32>>,
+  index: u32,
+  position_ws: vec3f,
   _view_direction_ws: vec3f,
-  _normal_ws: vec3f
-) -> f32 { return 1.0; }
+  normal_ws: vec3f
+) -> f32 {
+  ${useVsm ? `
+  let source = ${DIRECTIONAL_LIGHT_DESCRIPTOR.marshalling_method_read}(database, index);
+  if ((source.flags & 1u) == 0u) { return 1.0; }
+  let incident = get_directional_light_info(source);
+  if (dot(incident.direction, normal_ws) < 0.0) { return 0.0; }
+  return vsm_sample_directional(position_ws, normal_ws, incident);` : "return 1.0;"}
+}
 `;
   }
   const octahedralEncode = shadowSamplingEnabled ? /* wgsl */ `

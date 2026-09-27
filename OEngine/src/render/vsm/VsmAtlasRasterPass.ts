@@ -126,7 +126,7 @@ export class VsmAtlasRasterPass {
     this.productModule = device.createShaderModule({ label: "VSM/Product Atlas raster WGSL", code: VSM_ATLAS_PRODUCT_RASTER_WGSL });
   }
 
-  addToGraph(graph: FrameGraph, input: VsmAtlasRasterInputs): void {
+  addToGraph(graph: FrameGraph, input: VsmAtlasRasterInputs): { atlasDepth: ResourceId } {
     if (!input.resources.atlasDepth || !input.resources.atlasDepthView) throw new Error("VSM atlas depth is unavailable");
     if (!input.resources.metaTable || !input.resources.pageLocks) throw new Error("VSM raster residency buffers are unavailable");
     const constants = graph.import_resource("VSM/atlas constants", { kind: "imported", label: "VSM atlas constants" }, this.constants);
@@ -178,6 +178,7 @@ export class VsmAtlasRasterPass {
       pass.setPipeline(this.commitPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(input.resources.capabilities.casterRecordCapacity / 64)); pass.end();
     });
     commit.read(caster); commit.read(atlas); commit.read(raster ? pageTable : pageTable); commit.write(pageTable); commit.write(metaTable); commit.write(pageLocks); commit.read(commitConstants); commit.make_side_effect(); commit.dependsOn(raster);
+    return { atlasDepth: atlas };
   }
 
   private getBuffer(id: ResourceId, fallback: GPUBuffer | null): GPUBuffer {

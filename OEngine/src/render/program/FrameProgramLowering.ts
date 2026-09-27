@@ -19,6 +19,8 @@ import type { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import type { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import type { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
 import type { VsmAllocationFrame } from "../vsm/VsmResidency.js";
+import { shadowVisibilityFrame, type ShadowVisibilityFrame } from "../pipeline/FrameProducts.js";
+import { SHADOW_DEPTH_BIAS, SHADOW_DEPTH_SLOPE_SCALE, SHADOW_NORMAL_OFFSET_SCALE } from "../../gpu/ShadowContract.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
 import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 
@@ -104,6 +106,9 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   let vsmOwnerBinding: NonNullable<SceneFrameBindings["vsm"]> | null = null;
   let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
   let vsmAllocation: VsmAllocationFrame | null = null;
+  let vsmAtlasDepth: ResourceId | null = null;
+  let vsmSamplingConstants: ResourceId | null = null;
+  let shadowContract: ShadowVisibilityFrame | null = null;
   if (plan.products.includes("shadow-demand")) {
     if (initial.vsm === null || initial.vsmFrame === null) {
       throw new Error("Frame Program VSM demand requires persistent resources and clipmap constants");
@@ -210,7 +215,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       generation: vsmFrameBinding.generation,
       workCapacity: result.frame.meshletWork.capacity
     });
-    owners.vsmAtlasRaster.addToGraph(graph, {
+    const atlas = owners.vsmAtlasRaster.addToGraph(graph, {
       caster,
       resources: vsmOwnerBinding,
       frame: vsmFrameBinding,
@@ -228,6 +233,32 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       textureBanks,
       productHeap: virtualMetadata,
       productBanks: virtualBanks
+    });
+    vsmAtlasDepth = atlas.atlasDepth;
+    if (vsmOwnerBinding.pageConstants === null) {
+      throw new Error("Frame Program VSM sampling constants are unavailable");
+    }
+    vsmSamplingConstants = graph.import_resource("VSM/sampling constants",
+      { kind: "imported", label: "VSM sampling constants" }, vsmOwnerBinding.pageConstants);
+    shadowContract = shadowVisibilityFrame({
+      profile: vsmOwnerBinding.profile,
+      virtualPageTable: vsmAllocation.pageTable,
+      physicalAtlasDepth: vsmAtlasDepth,
+      pageMeta: vsmAllocation.metaTable,
+      lightProjection: vsmSamplingConstants,
+      overflowMask: null,
+      generation: vsmFrameBinding.generation,
+      fallbackPolicy: "coarse-resident",
+      enabled: true,
+      clipLevels: vsmOwnerBinding.capabilities.clipLevels,
+      pageSize: vsmOwnerBinding.capabilities.pageSize,
+      border: vsmOwnerBinding.capabilities.border,
+      pcfTapCount: vsmOwnerBinding.capabilities.pcfTapCount,
+      normalOffsetScale: SHADOW_NORMAL_OFFSET_SCALE,
+      depthBias: SHADOW_DEPTH_BIAS,
+      slopeScale: SHADOW_DEPTH_SLOPE_SCALE,
+      atlasWidth: vsmOwnerBinding.capabilities.atlasDimension,
+      atlasHeight: vsmOwnerBinding.capabilities.atlasDimension
     });
   }
   const lightRecords = needsDirectLight ? graph.import_resource(
@@ -327,7 +358,15 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     physicalSkyDfg: !plan.request.physicalEnvironment ? undefined : graph.import_resource(
       "physical-environment-sky-dfg", { kind: "imported", label: "Physical sky DFG" },
       bind("physical-environment-sky-dfg", bindings => bindings.environment!.ibl.views.dfg)
-    )
+    ),
+    shadowVisibility: shadowContract !== null && vsmOwnerBinding !== null &&
+      vsmFrameBinding !== null
+      ? {
+          resources: vsmOwnerBinding,
+          frame: shadowContract,
+          vsmFrame: vsmFrameBinding
+        }
+      : undefined
   });
   assertTextureProduct(plan, graph, "surface-radiance", surface.radiance);
   assertTextureProduct(plan, graph, "surface-motion", surface.motion);

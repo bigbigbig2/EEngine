@@ -49,7 +49,8 @@ export type SurfaceExecutionMode = "dense" | "binned" | "fallback";
 
 /** One hot Dense kernel and fixed profile/family exception kernels. */
 export function surfaceExecutionWgsl(plan: SurfacePhysicalBindingPlan,
-  mode: SurfaceExecutionMode, lane: number, hasLit: boolean, virtualGeometry: boolean): string {
+  mode: SurfaceExecutionMode, lane: number, hasLit: boolean, virtualGeometry: boolean,
+  vsmShadowEnabled = false): string {
   if (mode !== "dense" && (!Number.isInteger(lane) || lane < 0 || lane >= SURFACE_EXCEPTION_LANES)) {
     throw new RangeError("Surface exception lane is invalid");
   }
@@ -258,6 +259,8 @@ fn shade(@builtin(global_invocation_id) id:vec3u) {
     "fn sparse_identity_error(){surface_identity_failed=true;}",
     "fn surface_identity_error(){surface_identity_failed=true;}",
     route,geometryWgsl(virtualGeometry),textureWgsl(kernel),
-    hasLit ? lightingWgsl(false,true,scalarAo) : "",hasLit ? ATMOSPHERE_RUNTIME_WGSL : "",
+    hasLit ? lightingWgsl(vsmShadowEnabled,true,scalarAo,
+      vsmShadowEnabled ? "vsm" : "legacy") : "",
+    hasLit ? ATMOSPHERE_RUNTIME_WGSL : "",
     unlit,lit,shadeHit,entry].filter(Boolean).join("\n");
 }

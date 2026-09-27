@@ -385,8 +385,8 @@ export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisib
       throw new RangeError(`ShadowVisibilityFrame ${name} must be finite and non-negative`);
     }
   }
-  if (!Number.isInteger(input.atlasWidth) || input.atlasWidth < 0 ||
-      !Number.isInteger(input.atlasHeight) || input.atlasHeight < 0) {
+  if (!Number.isInteger(input.atlasWidth) || input.atlasWidth <= 0 ||
+      !Number.isInteger(input.atlasHeight) || input.atlasHeight <= 0) {
     throw new RangeError("ShadowVisibilityFrame atlas dimensions must be positive integers");
   }
   return Object.freeze({ ...input });

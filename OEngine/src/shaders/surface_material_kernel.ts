@@ -395,7 +395,8 @@ fn sparse_sampler_${slot}(material: OEngineShadingMaterialRecord) -> u32 { retur
 export function lightingWgsl(
   shadowSamplingEnabled: boolean,
   environmentIblEnabled: boolean,
-  scalarAoEnabled = false
+  scalarAoEnabled = false,
+  directionalShadowMode: "legacy" | "vsm" = "legacy"
 ): string {
   return /* wgsl */ `
 struct PhysicalEnvironmentSun {
@@ -405,7 +406,7 @@ struct PhysicalEnvironmentSun {
   generation: f32,
   sky_luminance_scale: f32,
 }
-${createProductionSparseDirectLightingWgsl(shadowSamplingEnabled)}
+${createProductionSparseDirectLightingWgsl(shadowSamplingEnabled, directionalShadowMode)}
 ${environmentIblEnabled ? `${OCTAHEDRAL_SAMPLE_WGSL}
 // Filament R03 DFV_Multiscatter: x = integrated Schlick Fc, y = total
 // visibility. F90 can differ from one for KHR_materials_specular.

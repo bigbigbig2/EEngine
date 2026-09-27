@@ -109,6 +109,9 @@ export function planSurfaceKernelBindings(
   add("physical-sky-specular", 3, 8, "sampled-2d");
   add("physical-sky-dfg", 3, 9, "sampled-2d");
   add("physical-sky-specular-sampler", 3, 10, "filtering-sampler");
+  add("vsm-page-table", 3, 11, "read-only-storage");
+  add("vsm-atlas-depth", 3, 12, "sampled-depth");
+  add("vsm-sampling-constants", 3, 13, "uniform");
 
   const resolvedRoles = new Set(bindings.map(binding => binding.role));
   for (const role of roles) {

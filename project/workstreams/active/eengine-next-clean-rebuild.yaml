@@ -8,11 +8,11 @@ decision: ADR-0020
 goal: Establish the final architecture's Frame Program, Surface and Temporal boundaries on the single production path, then integrate planned providers in large continuous modules.
 
 currentSlice:
-  id: vsm
-  title: VSM semantic product, capability profile and persistent resources
+  id: vsm-e8
+  title: VSM invalidation, generation and device-epoch recovery
   status: active
-  goal: Complete the directional VSM GPU residency and production integration on the single production path, then add direct sampling without CPU page control.
-  completed: E0-E6 semantic/resource foundation, page-table ABI, GPU receiver demand, bounded allocation, not-visited eviction, page/meta updates, overflow telemetry, GPU caster records, fixed indirect Atlas raster and post-raster dirty commit are implemented. E6 consumes bounded frame MeshletWork coverage; overflow and uncovered pages remain dirty. E7 direct sampling and CSM cutover remain.
+  goal: Connect VSM generation and invalidation to camera, sun, caster publication and device-epoch recovery without CPU page control.
+  completed: E0-E7 semantic/resource foundation, page-table ABI, GPU receiver demand, bounded allocation, not-visited eviction, page/meta updates, overflow telemetry, GPU caster records, fixed indirect Atlas raster, post-raster dirty commit, VSM sampling through ShadowVisibilityFrame and Surface direct lighting, and CSM production cutover are implemented. E6 remains bounded by frame MeshletWork coverage; overflow and uncovered pages remain dirty. E8 lifecycle and E9 closeout remain.
 
 nextModules:
   - id: vsm
