@@ -2,6 +2,7 @@ import type {
   FrameGraphResourceDomain,
   ResourceId
 } from "../../framegraph/ResourceHandle.js";
+import type { VsmProfile } from "../vsm/VsmCapabilities.js";
 
 export type ResolutionDomain = FrameGraphResourceDomain;
 
@@ -213,17 +214,20 @@ export interface LightClusterFrame {
   readonly depthSlices: number;
 }
 
-/**
- * Shadow producer output consumed by opaque lighting.
- *
- * The product intentionally contains visibility resources and sampling
- * parameters only; it cannot carry an HDR/color target. This keeps CSM,
- * spot/point atlas and future contact-shadow producers on the same seam.
- */
+/** VSM producer output consumed by the single opaque direct-light consumer. */
 export interface ShadowVisibilityFrame {
-  readonly atlas: ResourceId;
-  readonly contactVisibility: ResourceId | null;
-  readonly cascadeCount: number;
+  readonly profile: VsmProfile;
+  readonly virtualPageTable: ResourceId | null;
+  readonly physicalAtlasDepth: ResourceId | null;
+  readonly pageMeta: ResourceId | null;
+  readonly lightProjection: ResourceId | null;
+  readonly overflowMask: ResourceId | null;
+  readonly generation: number;
+  readonly fallbackPolicy: "coarse-resident" | "neutral-visibility" | "shadow-disabled";
+  readonly enabled: boolean;
+  readonly clipLevels: number;
+  readonly pageSize: number;
+  readonly border: number;
   readonly pcfTapCount: number;
   readonly normalOffsetScale: number;
   readonly depthBias: number;
@@ -344,10 +348,30 @@ export function lightClusterFrame(input: LightClusterFrame): LightClusterFrame {
 
 /** Freeze and validate the Stage 2B shadow producer/consumer ABI. */
 export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisibilityFrame {
-  requireResourceId(input.atlas, "ShadowVisibilityFrame.atlas");
-  requireResourceId(input.contactVisibility, "ShadowVisibilityFrame.contactVisibility");
-  if (!Number.isInteger(input.cascadeCount) || input.cascadeCount < 0 || input.cascadeCount > 3) {
-    throw new RangeError("ShadowVisibilityFrame cascadeCount must be an integer in [0, 3]");
+  for (const [name, value] of [
+    ["virtualPageTable", input.virtualPageTable], ["physicalAtlasDepth", input.physicalAtlasDepth],
+    ["pageMeta", input.pageMeta], ["lightProjection", input.lightProjection],
+    ["overflowMask", input.overflowMask]
+  ] as const) requireResourceId(value, `ShadowVisibilityFrame.${name}`);
+  if (!Number.isSafeInteger(input.generation) || input.generation < 0) {
+    throw new RangeError("ShadowVisibilityFrame generation must be a non-negative integer");
+  }
+  if (!Number.isInteger(input.clipLevels) || input.clipLevels < 0 || input.clipLevels > 16 ||
+      !Number.isInteger(input.pageSize) || input.pageSize < 0 ||
+      !Number.isInteger(input.border) || input.border < 0) {
+    throw new RangeError("ShadowVisibilityFrame page layout is invalid");
+  }
+  if (input.enabled !== (input.profile !== "shadow-disabled") ||
+      (!input.enabled && (input.virtualPageTable !== null || input.physicalAtlasDepth !== null ||
+        input.pageMeta !== null || input.lightProjection !== null))) {
+    throw new Error("ShadowVisibilityFrame disabled profile must expose neutral resources");
+  }
+  if (input.enabled && (input.virtualPageTable === null || input.physicalAtlasDepth === null ||
+      input.pageMeta === null || input.lightProjection === null)) {
+    throw new Error("ShadowVisibilityFrame enabled profile is missing a VSM resource");
+  }
+  if (!input.enabled && input.fallbackPolicy !== "shadow-disabled") {
+    throw new Error("ShadowVisibilityFrame disabled profile requires shadow-disabled fallback");
   }
   if (!Number.isInteger(input.pcfTapCount) || input.pcfTapCount <= 0) {
     throw new RangeError("ShadowVisibilityFrame pcfTapCount must be a positive integer");
@@ -361,8 +385,8 @@ export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisib
       throw new RangeError(`ShadowVisibilityFrame ${name} must be finite and non-negative`);
     }
   }
-  if (!Number.isInteger(input.atlasWidth) || input.atlasWidth <= 0 ||
-      !Number.isInteger(input.atlasHeight) || input.atlasHeight <= 0) {
+  if (!Number.isInteger(input.atlasWidth) || input.atlasWidth < 0 ||
+      !Number.isInteger(input.atlasHeight) || input.atlasHeight < 0) {
     throw new RangeError("ShadowVisibilityFrame atlas dimensions must be positive integers");
   }
   return Object.freeze({ ...input });

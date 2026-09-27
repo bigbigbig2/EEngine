@@ -66,6 +66,8 @@ import type { GraphicsMemoryEvidence, GraphicsOwnerCreationEvidence } from "../.
 import { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
 import { RadiometryRuntime, type PreExposureContract } from "../RadiometryContract.js";
+import { negotiateVsmCapabilities } from "../vsm/VsmCapabilities.js";
+import { VsmResources } from "../vsm/VsmResources.js";
 
 export interface RendererInitializeOptions {
   context?: GPUCanvasContext;
@@ -311,6 +313,7 @@ export class Renderer {
   private _recoveryAttempts = 0;
   private _recoveryCheckpoint: ReturnType<Renderer["checkpointRecovery"]> | null = null;
   private _streamingGpuFrameTimeMs = 0;
+  private _vsm: VsmResources | null = null;
   private _lastFrameGraph: Readonly<{ cacheKey: string; dump: CompiledFrameGraphDump;
     resources: FrameResourceSummary; program: Pick<FrameProgram, "products" | "facts" | "stages" | "bindingRoles"> }> | null = null;
   private readonly _graphCache = new CompiledFrameGraphCache(8);
@@ -340,6 +343,7 @@ export class Renderer {
     return this._capabilities;
   }
   get adapter_info(): BenchmarkAdapterIdentity | null { return this._adapterInfo; }
+  get vsmCapabilities() { return this._vsm?.capabilities ?? null; }
   get views(): ViewManager { return this._views; }
   get output_resolution(): Vec2 { return this._output_resolution.clone(); }
   get texture_depth_current() { return this._renderTargets.depthCurrent; }
@@ -1092,6 +1096,9 @@ export class Renderer {
       }),
       record: captureWebGpuCapabilityRecord(gpu, device, adapter)
     });
+    // E2 freezes the device-epoch profile and owns persistent resources. The
+    // frame program remains shadow-disabled until the GPU producer lands in E4.
+    this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
     device.lost.then(info => {
       if (!this._destroyed) {
         this._deviceLost = true;
@@ -1333,7 +1340,7 @@ export class Renderer {
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
          fsr3: this._fsr3, temporalFacts: this._temporalFacts, radiometry: this._gpuRadiometry,
-        environment: this._environmentRuntime
+        environment: this._environmentRuntime, vsm: this._vsm
       };
       const program = this._programCache.getOrCreate({
         kind: "scene", intent: "present", viewFamily: "main", outputWidth: this._output_resolution.x,
@@ -1345,6 +1352,7 @@ export class Renderer {
         currentHzbLateRecheck: job.prepared.currentHzbLateRecheck !== null,
         activeSets, hasLit,
         aoProfile: hasLit && activeSets.length > 0 ? "scalar-high" : "off",
+        shadowProfile: hasLit ? "shadow-disabled" : "off",
         physicalEnvironment: this._environmentRuntime !== null
       });
       assertFrameProgramBindings(program, graphBindings);
@@ -1480,7 +1488,9 @@ export class Renderer {
       this._present?.destroy();
       this._temporalFacts?.destroy();
       this._gpuRadiometry?.destroy();
-      this._bloom?.destroy();
+    this._bloom?.destroy();
+    this._vsm?.destroy();
+    this._vsm = null;
     this._views?.destroy();
     this._environments?.destroy();
     this._environmentRuntime?.destroy();

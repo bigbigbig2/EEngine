@@ -8,11 +8,11 @@ decision: ADR-0020
 goal: Establish the final architecture's Frame Program, Surface and Temporal boundaries on the single production path, then integrate planned providers in large continuous modules.
 
 currentSlice:
-  id: temporal-presentation
-  title: Temporal facts, radiometry and presentation migration
-  status: complete
-  goal: Define shared motion, identity, history and exposure facts; connect FSR3, lifecycle and presentation on the single production frame path without discarding its pinned stages.
-  completed: D0-D6 production path connected; module-level checks completed. Browser, visual, benchmark and formal acceptance remain deferred.
+  id: vsm
+  title: VSM semantic product, capability profile and persistent resources
+  status: active
+  goal: Freeze the directional VSM source/profile contract, expose the shadow semantic product, and negotiate device-local persistent resources on the single production path before GPU demand and raster producers are added.
+  completed: E0-E2 semantic and resource foundation implemented; VSM producer and direct sampling remain for later execution stages.
 
 nextModules:
   - id: vsm

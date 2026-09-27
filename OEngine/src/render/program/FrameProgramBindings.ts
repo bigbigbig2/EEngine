@@ -10,6 +10,7 @@ import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import type { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import type { PreExposureContract } from "../RadiometryContract.js";
 import type { FrameProgram } from "./FrameProgram.js";
+import type { VsmResources } from "../vsm/VsmResources.js";
 
 /** Only physical, frame-local objects belong here; none enter the topology key. */
 export type SceneFrameBindings = Readonly<{
@@ -27,6 +28,8 @@ export type SceneFrameBindings = Readonly<{
   temporalFacts: TemporalFactsPass;
   radiometry: GpuRadiometryPass;
   environment: PhysicalEnvironmentRuntime | null;
+  /** Persistent VSM owner; null is valid for the explicit shadow-disabled profile. */
+  vsm: VsmResources | null;
 }>;
 
 export type EmptyFrameBindings = Readonly<{
@@ -121,6 +124,14 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   }
   if ((bindings.environment !== null) !== request.physicalEnvironment) {
     throw new Error("Frame Program environment profile changed");
+  }
+  const shadowProfile = request.shadowProfile ?? "off";
+  if (shadowProfile !== "off" && shadowProfile !== "shadow-disabled" && bindings.vsm === null) {
+    throw new Error("Frame Program VSM profile requires a persistent VSM owner");
+  }
+  if (bindings.vsm !== null && shadowProfile !== "off" &&
+      shadowProfile !== "shadow-disabled" && bindings.vsm.profile !== shadowProfile) {
+    throw new Error("Frame Program VSM capability profile changed");
   }
   if (bindings.environment !== null) {
     if (bindings.environment.parameters.size < 64) {
