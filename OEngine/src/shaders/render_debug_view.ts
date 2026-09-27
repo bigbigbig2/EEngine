@@ -33,20 +33,6 @@ ${SSR_FULLSCREEN_VERTEX_WGSL}
 }
 `;
 
-export const AMBIENT_OCCLUSION_DEBUG_WGSL = /* wgsl */ `
-${SSR_FULLSCREEN_VERTEX_WGSL}
-@group(0) @binding(0) var source: texture_2d<f32>;
-@group(0) @binding(1) var<uniform> settings: vec4u;
-@fragment fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
-  let dimensions = textureDimensions(source);
-  let output_size = max(settings.xy, vec2u(1u));
-  let uv = position.xy / vec2f(output_size);
-  let coordinate = min(vec2i(uv * vec2f(dimensions)), vec2i(dimensions) - vec2i(1));
-  let visibility = clamp(textureLoad(source, coordinate, 0).r, 0.0, 1.0);
-  return vec4f(vec3f(visibility), 1.0);
-}
-`;
-
 export const SSR_HIT_MISS_DEBUG_WGSL = /* wgsl */ `
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 @group(0) @binding(0) var source: texture_2d<u32>;

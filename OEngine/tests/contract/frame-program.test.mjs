@@ -39,6 +39,23 @@ test("Frame Program closes the current scene product demand with a structural ke
   assert.equal(first.facts.find(fact => fact.product === "surface-motion").format, "rg16float");
 });
 
+test("lit scalar AO closes a same-frame producer while off and unlit omit it", () => {
+  const high = buildFrameProgram({ ...scene, aoProfile: "scalar-high" });
+  const off = buildFrameProgram({ ...scene, aoProfile: "off" });
+  assert.ok(high.stages.includes("xe-gtao"));
+  assert.ok(high.products.includes("indirect-visibility"));
+  assert.deepEqual(high.facts.find(fact => fact.product === "indirect-visibility").consumers,
+    ["surface"]);
+  assert.ok(high.stages.indexOf("xe-gtao") < high.stages.indexOf("surface"));
+  assert.ok(!off.stages.includes("xe-gtao"));
+  assert.ok(!off.products.includes("indirect-visibility"));
+  assert.notEqual(high.key, off.key);
+  assert.throws(() => buildFrameProgram({ ...scene, hasLit: false,
+    aoProfile: "scalar-high" }), /lit Surface consumer/u);
+  const unlit = buildFrameProgram({ ...scene, hasLit: false, aoProfile: "off" });
+  assert.ok(!unlit.stages.includes("xe-gtao"));
+});
+
 test("Program cache reuses the finite set shape and evicts by LRU", () => {
   const cache = new FrameProgramCache(2);
   const first = cache.getOrCreate(scene);

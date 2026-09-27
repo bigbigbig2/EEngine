@@ -89,7 +89,6 @@ export interface DirectLightingFrame {
 
 
 
-export type ScreenSpaceDiffuseMode = "off" | "gtao" | "ssgi";
 export type LongRangeDiffuseProvider = "brick4" | "probe-volume" | "ibl" | "black";
 
 export const LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE = Object.freeze([
@@ -115,7 +114,7 @@ export interface ShadingSurfaceLiteFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
-/** Conditional receiver data. It must not exist solely for disabled SSGI. */
+/** Historical receiver data for inactive GI planning; not a Next production product. */
 export interface DiffuseSurfaceLiteFrame {
   readonly diffuseReflectance: ResourceId;
   readonly materialAo: ResourceId;
@@ -141,56 +140,7 @@ export interface LongRangeDiffuseFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
-interface ScreenSpaceDiffuseFrameBase {
-  readonly bentNormal: ResourceId;
-  readonly normalSpace: "world";
-  readonly preExposure: PreExposureContract;
-  readonly domain: TextureDomain<"internal-full">;
-}
-
-export interface ScreenSpaceDiffuseOffFrame extends ScreenSpaceDiffuseFrameBase {
-  readonly mode: "off";
-  /** Null means the logical constant 1 and therefore no texture allocation. */
-  readonly screenAmbientVisibility: null;
-  readonly incidentDiffuseGi: null;
-  readonly confidence: null;
-  readonly historyGeneration: null;
-}
-
-export interface ScreenSpaceDiffuseGtaoFrame extends ScreenSpaceDiffuseFrameBase {
-  readonly mode: "gtao";
-  readonly screenAmbientVisibility: ResourceId;
-  readonly incidentDiffuseGi: null;
-  readonly confidence: ResourceId | null;
-  readonly historyGeneration: number | null;
-}
-
-export interface ScreenSpaceDiffuseSsgiFrame extends ScreenSpaceDiffuseFrameBase {
-  readonly mode: "ssgi";
-  readonly screenAmbientVisibility: ResourceId;
-  readonly incidentDiffuseGi: ResourceId;
-  readonly confidence: ResourceId;
-  readonly historyGeneration: number;
-}
-
-export type ScreenSpaceDiffuseFrame =
-  | ScreenSpaceDiffuseOffFrame
-  | ScreenSpaceDiffuseGtaoFrame
-  | ScreenSpaceDiffuseSsgiFrame;
-
-/** Full-resolution SSGI source before screen-space diffuse composition. */
-export interface PreExposedOpaqueRadianceSourceFrame {
-  readonly radiance: ResourceId;
-  readonly stage: "pre-screen-space-diffuse";
-  readonly excludesCurrentFrameSsgi: true;
-  readonly excludesScreenAmbientVisibility: true;
-  readonly excludesSsrCorrection: true;
-  readonly excludesTransparencyAndPost: true;
-  readonly preExposure: PreExposureContract;
-  readonly domain: TextureDomain<"internal-full">;
-}
-
-/** Complete opaque HDR after GTAO/SSGI composition and before SSR correction. */
+/** Offline baseline for the retired color-pyramid owner; no runtime producer. */
 export interface PreExposedOpaqueHdrBaselineFrame {
   readonly hdr: ResourceId;
   readonly baselineSpecular: ResourceId | null;
@@ -200,7 +150,7 @@ export interface PreExposedOpaqueHdrBaselineFrame {
   readonly domain: TextureDomain<"internal-full">;
 }
 
-/** Mipmapped post-screen-space-diffuse color used by reflection/refraction. */
+/** Offline color-pyramid contract; the Next SSSR owner will define its own demand. */
 export interface OpaqueColorPyramidFrame {
   readonly texture: ResourceId;
   readonly mipLevelCount: number;
@@ -288,12 +238,6 @@ export interface ReflectionFrame {
   readonly confidence: ResourceId;
   readonly variance: ResourceId;
   readonly domain: TextureDomain<"internal-full" | "internal-half">;
-}
-
-export interface AmbientOcclusionFrame {
-  readonly visibility: ResourceId;
-  readonly bentNormal: ResourceId;
-  readonly domain: TextureDomain<"internal-full">;
 }
 
 export interface TemporalSurfaceFrame {
@@ -424,24 +368,6 @@ export function shadowVisibilityFrame(input: ShadowVisibilityFrame): ShadowVisib
   return Object.freeze({ ...input });
 }
 
-/** Freeze the independent GTAO visibility/bent-normal product. */
-export function ambientOcclusionFrame(input: AmbientOcclusionFrame): AmbientOcclusionFrame {
-  requireResourceId(input.visibility, "AmbientOcclusionFrame.visibility");
-  requireResourceId(input.bentNormal, "AmbientOcclusionFrame.bentNormal");
-  if (input.domain.domain !== "internal-full") {
-    throw new Error("AmbientOcclusionFrame must be resolved at internal-full resolution");
-  }
-  return Object.freeze({
-    ...input,
-    domain: textureDomain(
-      "internal-full",
-      input.domain.width,
-      input.domain.height,
-      input.domain.scale
-    )
-  });
-}
-
 export function preExposureContract(
   input: PreExposureContract
 ): PreExposureContract {
@@ -536,100 +462,6 @@ export function longRangeDiffuseFrame(
     precedence: LONG_RANGE_DIFFUSE_PROVIDER_PRECEDENCE,
     preExposure: preExposureContract(input.preExposure),
     domain: requireInternalFullDomain(input.domain, "LongRangeDiffuseFrame")
-  });
-}
-
-export function screenSpaceDiffuseFrame(
-  input: ScreenSpaceDiffuseFrame
-): ScreenSpaceDiffuseFrame {
-  requireRequiredResourceId(input.bentNormal, "ScreenSpaceDiffuseFrame.bentNormal");
-  if (input.normalSpace !== "world") {
-    throw new Error("ScreenSpaceDiffuseFrame normal space must be world");
-  }
-  switch (input.mode) {
-    case "off":
-      if (
-        input.screenAmbientVisibility !== null ||
-        input.incidentDiffuseGi !== null ||
-        input.confidence !== null ||
-        input.historyGeneration !== null
-      ) {
-        throw new Error(
-          "ScreenSpaceDiffuseFrame off mode cannot retain textures or history"
-        );
-      }
-      break;
-    case "gtao":
-      requireRequiredResourceId(
-        input.screenAmbientVisibility,
-        "ScreenSpaceDiffuseFrame.screenAmbientVisibility"
-      );
-      if (input.incidentDiffuseGi !== null) {
-        throw new Error("GTAO cannot publish incident diffuse GI");
-      }
-      requireResourceId(input.confidence, "ScreenSpaceDiffuseFrame.confidence");
-      if (input.historyGeneration !== null) {
-        requireNonNegativeInteger(
-          input.historyGeneration,
-          "ScreenSpaceDiffuseFrame historyGeneration"
-        );
-      }
-      break;
-    case "ssgi":
-      requireRequiredResourceId(
-        input.screenAmbientVisibility,
-        "ScreenSpaceDiffuseFrame.screenAmbientVisibility"
-      );
-      requireRequiredResourceId(
-        input.incidentDiffuseGi,
-        "ScreenSpaceDiffuseFrame.incidentDiffuseGi"
-      );
-      requireRequiredResourceId(
-        input.confidence,
-        "ScreenSpaceDiffuseFrame.confidence"
-      );
-      requireNonNegativeInteger(
-        input.historyGeneration,
-        "ScreenSpaceDiffuseFrame historyGeneration"
-      );
-      break;
-    default:
-      throw new Error(
-        `Unknown ScreenSpaceDiffuseFrame mode '${String((input as { mode?: unknown }).mode)}'`
-      );
-  }
-  return Object.freeze({
-    ...input,
-    preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(input.domain, "ScreenSpaceDiffuseFrame")
-  });
-}
-
-export function preExposedOpaqueRadianceSourceFrame(
-  input: PreExposedOpaqueRadianceSourceFrame
-): PreExposedOpaqueRadianceSourceFrame {
-  requireRequiredResourceId(
-    input.radiance,
-    "PreExposedOpaqueRadianceSourceFrame.radiance"
-  );
-  if (
-    input.stage !== "pre-screen-space-diffuse" ||
-    input.excludesCurrentFrameSsgi !== true ||
-    input.excludesScreenAmbientVisibility !== true ||
-    input.excludesSsrCorrection !== true ||
-    input.excludesTransparencyAndPost !== true
-  ) {
-    throw new Error(
-      "PreExposedOpaqueRadianceSourceFrame source-stage exclusions are invalid"
-    );
-  }
-  return Object.freeze({
-    ...input,
-    preExposure: preExposureContract(input.preExposure),
-    domain: requireInternalFullDomain(
-      input.domain,
-      "PreExposedOpaqueRadianceSourceFrame"
-    )
   });
 }
 

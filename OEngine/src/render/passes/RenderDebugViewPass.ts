@@ -15,7 +15,6 @@ import {
 import { GPU_VISIBILITY_DEBUG_SETTINGS_SIZE } from "../../gpu/GpuVisibilityDebugResolve.js";
 import type { PackedVisibilityDebugSource } from "./PackedVisibilityPass.js";
 import {
-  AMBIENT_OCCLUSION_DEBUG_WGSL,
   DEPTH_DEBUG_WGSL,
   MESHLET_ID_DEBUG_WGSL,
   PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL,
@@ -47,9 +46,6 @@ export type RenderDebugViewResources = {
   indirectDiffuse: ResourceId | null;
   indirectSpecular: ResourceId | null;
   linearHdr: ResourceId | null;
-  ambientOcclusionRaw: ResourceId | null;
-  ambientOcclusionDenoised: ResourceId | null;
-  ambientOcclusionTemporal: ResourceId | null;
   screenSpaceReflectionHitMiss: ResourceId | null;
   screenSpaceReflectionResolve: ResourceId | null;
   screenSpaceReflectionTemporal: ResourceId | null;
@@ -134,18 +130,6 @@ export class RenderDebugViewPass {
       [
         RenderDebugViewValue.Reactive,
         createPipeline("Render debug/Reactive", SURFACE_FLAGS_DEBUG_WGSL, [uintTextureEntry(0), depthTextureEntry(1), uniformEntry(2), uniformEntry(3, 16)], surfaceProfile)
-      ],
-      [
-        RenderDebugViewValue.AmbientOcclusionRaw,
-        createPipeline("Render debug/AO raw", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)], surfaceProfile)
-      ],
-      [
-        RenderDebugViewValue.AmbientOcclusionDenoised,
-        createPipeline("Render debug/AO denoised", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)], surfaceProfile)
-      ],
-      [
-        RenderDebugViewValue.AmbientOcclusionTemporal,
-        createPipeline("Render debug/AO temporal", AMBIENT_OCCLUSION_DEBUG_WGSL, [floatTextureEntry(0), uniformEntry(1)], surfaceProfile)
       ],
       [
         RenderDebugViewValue.ScreenSpaceReflectionHitMiss,
@@ -371,12 +355,6 @@ function inputResourceIds(
       return [requireOptionalTexture(view, resources.indirectSpecular)];
     case RenderDebugViewValue.LinearHdr:
       return [requireOptionalTexture(view, resources.linearHdr)];
-    case RenderDebugViewValue.AmbientOcclusionRaw:
-      return [requireOptionalTexture(view, resources.ambientOcclusionRaw)];
-    case RenderDebugViewValue.AmbientOcclusionDenoised:
-      return [requireOptionalTexture(view, resources.ambientOcclusionDenoised)];
-    case RenderDebugViewValue.AmbientOcclusionTemporal:
-      return [requireOptionalTexture(view, resources.ambientOcclusionTemporal)];
     case RenderDebugViewValue.ScreenSpaceReflectionHitMiss:
       return [requireOptionalTexture(view, resources.screenSpaceReflectionHitMiss)];
     case RenderDebugViewValue.ScreenSpaceReflectionResolve:

@@ -58,7 +58,10 @@ fn xe_noise(pixel: vec2u) -> vec2f {
 }
 fn xe_logical_size(mip: u32) -> vec2u {
   let divisor = 1u << mip;
-  return max(vec2u(1u), (vec2u(xe.viewport.xy) + vec2u(divisor - 1u)) / divisor);
+  // D3D's source mip chain uses floor(extent / 2^mip), clamped to one.
+  // The padded WebGPU scratch contains extra tile values for reductions,
+  // but point sampling must address only the donor's real mip footprint.
+  return max(vec2u(1u), vec2u(xe.viewport.xy) / divisor);
 }
 fn xe_depth_at(coord: vec2i, mip: u32) -> f32 {
   let hi = vec2i(xe_logical_size(mip)) - vec2i(1);

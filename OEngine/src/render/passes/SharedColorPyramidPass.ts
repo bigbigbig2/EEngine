@@ -1,5 +1,6 @@
 /**
- * The unique FrameGraph producer for ADR-0009 shared HDR color pyramids.
+ * Offline reference for ADR-0009 shared HDR color pyramids. The Next
+ * production Renderer does not import or schedule this owner.
  *
  * This owner never guesses that differently staged colors are interchangeable:
  * opaque and final products use separate graph resources and typed contracts.

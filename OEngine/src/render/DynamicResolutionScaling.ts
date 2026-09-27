@@ -43,8 +43,8 @@ export interface DynamicResolutionScalingEvidence {
 }
 
 /**
- * Only completed timestamp samples enter this controller. RenderSettings owns
- * its policy, so fixed benchmark mode cannot accidentally react to timing.
+ * Only completed timestamp samples enter this controller. Fixed benchmark mode
+ * does not react to timing.
  */
 export class DynamicResolutionScaling {
   get_scale: () => number = null!;

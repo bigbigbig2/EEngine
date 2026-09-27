@@ -35,7 +35,7 @@ export interface XeGtaoPreparedFields {
   readonly normal: ResourceId;
   /** Five separate r32float views of source-equivalent weighted view depth.
    * Their physical extents include the final 16x16 tile's clamped gutter; consumers
-   * must use the viewport-derived logical extent for sample coordinates. */
+   * must use the viewport-derived, floor-halved donor mip extent for point samples. */
   readonly viewDepth: readonly [ResourceId, ResourceId, ResourceId, ResourceId, ResourceId];
 }
 

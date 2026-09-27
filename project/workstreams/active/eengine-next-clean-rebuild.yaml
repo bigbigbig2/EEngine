@@ -8,14 +8,12 @@ decision: ADR-0020
 goal: Establish the final architecture's Frame Program, Surface and Temporal boundaries on the single production path, then integrate planned providers in large continuous modules.
 
 currentSlice:
-  id: surface-fields-xegtao
-  title: Fuse and demand-materialized Surface fields with XeGTAO
+  id: temporal-presentation
+  title: Temporal facts, radiometry and presentation migration
   status: active
-  goal: Port pinned XeGTAO from Visibility depth through normal preparation, weighted depth mips, horizon evaluation and denoise into fused Surface indirect lighting; materialize only real cross-owner demand and keep one production frame path.
+  goal: Define shared motion, identity, history and exposure facts; connect FSR3, lifecycle and presentation on the single production frame path without discarding its pinned stages.
 
 nextModules:
-  - id: temporal-presentation
-    title: Temporal facts, radiometry and presentation migration
   - id: vsm
     title: GPU-produced residency and VSM production integration
   - id: sssr
@@ -50,5 +48,5 @@ deferredValidation:
 links:
   design: docs/next-design/eengine-next-overall-architecture-final-2026.md
   execution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
-  currentDesign: docs/next-design/surface-fields-xegtao.md
-  currentExecution: docs/next-execution/surface-fields-xegtao.md
+  currentDesign: docs/next-design/eengine-next-overall-architecture-final-2026.md
+  currentExecution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md

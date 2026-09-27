@@ -61,7 +61,7 @@ test("production Surface has bounded Dense, Binned and whole-lane overflow paths
 });
 
 test("logical Surface values distinguish normals, motion, radiance and material identity", () => {
-  assert.equal(Object.keys(SURFACE_PRODUCT).length, 5);
+  assert.equal(Object.keys(SURFACE_PRODUCT).length, 7);
   assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.GeometricNormal].space, "world");
   assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.ShadingNormal].space, "world");
   assert.notEqual(SURFACE_PRODUCT.GeometricNormal, SURFACE_PRODUCT.ShadingNormal);
@@ -69,9 +69,13 @@ test("logical Surface values distinguish normals, motion, radiance and material 
     "current-uv-minus-previous-uv");
   assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.Radiance].exposure, "pre-exposed");
   assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.MaterialIdentity].precision, "integer-exact");
+  assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.IndirectVisibility].coverage, "full-internal");
+  assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.IndirectVisibility].missing, "neutral-one");
   for (const contract of Object.values(SURFACE_PRODUCT_CONTRACTS)) {
-    assert.equal(contract.coverage, "opaque-visibility-hit");
-    assert.equal(contract.missing, "no-hit-or-explicit-error");
+    if (contract.kind !== SURFACE_PRODUCT.IndirectVisibility) {
+      assert.equal(contract.coverage, "opaque-visibility-hit");
+      assert.equal(contract.missing, "no-hit-or-explicit-error");
+    }
     assert.equal(contract.resolution, "internal-full");
     assert.equal(Object.hasOwn(contract, "textureFormat"), false);
   }

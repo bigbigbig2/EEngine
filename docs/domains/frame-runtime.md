@@ -5,9 +5,9 @@ owner: frame-runtime
 ---
 # Frame Runtime
 
-`RendererCore` is the sole composition root and `FrameCoordinator` is the sole submit owner. The production scene frame is GPU Scene publication → hierarchy/MeshletWork → VisibilityKey/depth → optional HZB and light cluster → Surface frequency plan/Dense/exception lanes → Physical Sky/Aerial → FSR3 Upscaler → Present. Empty frames use the same Frame Program entry and submit owner.
+`RendererCore` is the sole composition root and `FrameCoordinator` is the sole submit owner. The production scene frame is GPU Scene publication → hierarchy/MeshletWork → VisibilityKey/depth → optional HZB/light cluster and lit-consumer XeGTAO → Surface frequency plan/Dense/exception lanes → Physical Sky/Aerial → FSR3 Upscaler → Present. Empty frames use the same Frame Program entry and submit owner.
 
-`FrameProgram.ts` closes the finite product demand and caches a structural key. Scene keys contain internal/output extents, output format, device epoch, virtual geometry bank shape, HZB/late-recheck selection, active resident **sets**, direct-light demand and physical-environment selection. The 64 material classes, bank masks, scene generations, camera motion, FSR3 ping-pong role and environment LUT generation are not graph keys. `FrameProgramBindings.ts` checks the current publication, descriptor and epoch shape before encoding; `FrameProgramLowering.ts` registers the actual resource edges in the existing FrameGraph. Same-shape publications late-bind physical resources.
+`FrameProgram.ts` closes the finite product demand and caches a structural key. Scene keys contain internal/output extents, output format, device epoch, virtual geometry bank shape, HZB/late-recheck selection, active resident **sets**, direct-light demand, AO physical profile and physical-environment selection. The 64 material classes, bank masks, scene generations, camera motion, AO noise index, FSR3 ping-pong role and environment LUT generation are not graph keys. `FrameProgramBindings.ts` checks the current publication, descriptor and epoch shape before encoding; `FrameProgramLowering.ts` registers the actual resource edges in the existing FrameGraph. Same-shape publications late-bind physical resources. The High scalar AO profile closes only with a lit Surface consumer; off/unlit/empty programs have no XeGTAO stage.
 
 ## Frame transaction and temporal lifetime
 
@@ -19,6 +19,6 @@ The FrameGraph owns transient resource lifetime and compiled graph reuse. Render
 
 ## Current limits and references
 
-Module B connects Standard/Coated Surface, bounded GPU exception overflow, filtered sky specular and FSR3 on the one production path. XeGTAO, VSM, SSSR, GI and other planned providers are subsequent modules. Module completion uses typecheck/build/focused tests; browser lifecycle, visual quality, GPU P50/P95, formal evidence and claims remain final Next Renderer acceptance.
+Modules B/C connect Standard/Coated Surface, bounded GPU exception overflow, filtered sky specular, XeGTAO High scalar and FSR3 on the one production path. XeGTAO's scratch and final visibility are frame-local; its LUT and pipelines are device-local. VSM, SSSR, GI and other planned providers are subsequent modules. Module completion uses typecheck/build/focused tests; browser lifecycle, visual quality, GPU P50/P95, formal evidence and claims remain final Next Renderer acceptance.
 
 The target architecture is [Next design](../next-design/eengine-next-overall-architecture-final-2026.md); the current sequence is [execution plan](../next-execution/eengine-next-architecture-layer-plan-2026.md). Primary entrypoints are `render/pipeline/RendererCore.ts`, `render/program/FrameProgram.ts`, `FrameProgramBindings.ts`, `FrameProgramLowering.ts`, `framegraph/FrameGraph.ts` and `render/surface/SurfaceMaterialPass.ts`.
