@@ -1,18 +1,33 @@
 /**
  * XeGTAO a5b1686c7ea37788eeb3576b5be47f7c03db532c, MIT.
- * C2/C3 constants for GenerateNormals and PrefilterDepths16x16.
- * This is the one CPU/WGSL layout source; MainPass extends it in C4.
+ * Shared constants for GenerateNormals, PrefilterDepths16x16 and scalar MainPass.
+ * This is the one CPU/WGSL layout source.
  */
-export const XE_GTAO_PREP_BYTES = 64;
+export const XE_GTAO_PREP_BYTES = 80;
 export const XE_GTAO_DEFAULT_RADIUS_MULTIPLIER = 1.457;
 export const XE_GTAO_DEFAULT_FALLOFF_RANGE = 0.615;
+export const XE_GTAO_DEFAULT_SAMPLE_DISTRIBUTION_POWER = 2;
+export const XE_GTAO_DEFAULT_THIN_OCCLUDER_COMPENSATION = 0;
+export const XE_GTAO_DEFAULT_FINAL_VALUE_POWER = 2.2;
+export const XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET = 3.30;
+export const XE_GTAO_OCCLUSION_TERM_SCALE = 1.5;
+
+export interface XeGtaoTuning {
+  readonly radiusMultiplier?: number;
+  readonly falloffRange?: number;
+  readonly sampleDistributionPower?: number;
+  readonly thinOccluderCompensation?: number;
+  readonly finalValuePower?: number;
+  readonly depthMipSamplingOffset?: number;
+}
 
 export const XE_GTAO_PREP_UNIFORM_WGSL = /* wgsl */ `
 struct XeGtaoPrep {
   viewport: vec4f,       // width, height, 1/width, 1/height
   depth_unpack: vec4f,   // projection[10], projection[14], tanHalfFovX/Y
   ndc_to_view: vec4f,    // mul.xy, add.xy (includes jitter)
-  effect: vec4f,         // world-unit radius, falloff, radius multiplier, unused
+  effect: vec4f,         // world-unit radius, falloff, radius multiplier, noise index
+  main: vec4f,           // sample distribution, thin compensation, final power, mip offset
 };
 @group(0) @binding(0) var<uniform> xe: XeGtaoPrep;
 
@@ -42,6 +57,9 @@ export interface XeGtaoPreparationValues {
   readonly projection: ArrayLike<number>;
   readonly radiusMeters: number;
   readonly metersPerWorldUnit: number;
+  readonly tuning?: XeGtaoTuning;
+  /** 0 until a temporal owner guarantees matching accumulation/history. */
+  readonly noiseIndex?: number;
 }
 
 /** Matches XeGTAO.h::GTAOUpdateConstants, adjusted for EEngine reverse-Z. */
@@ -63,12 +81,30 @@ export function packXeGtaoPreparation(input: XeGtaoPreparationValues): ArrayBuff
     throw new RangeError("XeGTAO requires the current perspective reverse-Z projection");
   }
   const radius = input.radiusMeters / input.metersPerWorldUnit;
+  const tuning = input.tuning;
+  const radiusMultiplier = tuning?.radiusMultiplier ?? XE_GTAO_DEFAULT_RADIUS_MULTIPLIER;
+  const falloffRange = tuning?.falloffRange ?? XE_GTAO_DEFAULT_FALLOFF_RANGE;
+  const distribution = tuning?.sampleDistributionPower ?? XE_GTAO_DEFAULT_SAMPLE_DISTRIBUTION_POWER;
+  const thinCompensation = tuning?.thinOccluderCompensation ?? XE_GTAO_DEFAULT_THIN_OCCLUDER_COMPENSATION;
+  const finalPower = tuning?.finalValuePower ?? XE_GTAO_DEFAULT_FINAL_VALUE_POWER;
+  const mipOffset = tuning?.depthMipSamplingOffset ?? XE_GTAO_DEFAULT_DEPTH_MIP_SAMPLING_OFFSET;
+  const noiseIndex = input.noiseIndex ?? 0;
+  if (!Number.isFinite(radius) ||
+      !Number.isFinite(radiusMultiplier) || radiusMultiplier < 0.3 || radiusMultiplier > 3 ||
+      !Number.isFinite(falloffRange) || falloffRange <= 0 || falloffRange > 1 ||
+      !Number.isFinite(distribution) || distribution < 1 || distribution > 3 ||
+      !Number.isFinite(thinCompensation) || thinCompensation < 0 || thinCompensation > 0.7 ||
+      !Number.isFinite(finalPower) || finalPower < 0.5 || finalPower > 5 ||
+      !Number.isFinite(mipOffset) || mipOffset < 2 || mipOffset > 6 ||
+      !Number.isInteger(noiseIndex) || noiseIndex < 0 || noiseIndex >= 64) {
+    throw new RangeError("XeGTAO tuning or noise index is outside the source profile");
+  }
   const packed = new Float32Array(XE_GTAO_PREP_BYTES / 4);
   packed.set([width, height, 1 / width, 1 / height], 0);
   packed.set([p22, p32, 1 / p00, 1 / p11], 4);
   packed.set([2 / p00, -2 / p11, (p08 - 1) / p00, (p09 + 1) / p11], 8);
-  packed.set([radius, XE_GTAO_DEFAULT_FALLOFF_RANGE,
-    XE_GTAO_DEFAULT_RADIUS_MULTIPLIER, 0], 12);
+  packed.set([radius, falloffRange, radiusMultiplier, noiseIndex], 12);
+  packed.set([distribution, thinCompensation, finalPower, mipOffset], 16);
   return packed.buffer;
 }
 

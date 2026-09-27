@@ -1,8 +1,8 @@
 # Module C 执行：按需 Surface Fields 与 XeGTAO
 
-> 状态：2026-09-27 已推进 C0–C3 的来源核对、语义需求及法线/加权深度准备代码；AO 生产主链尚未激活，C4–C8 待实施。设计依据见[Module C 设计](../next-design/surface-fields-xegtao.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，固定来源与逐阶段对照见[Next 来源账本 R05](../porting/next-renderer.md)。本文是连续编码路线，不是每一小步的许可/验证门禁。
+> 状态：2026-09-27 已推进 C0–C4 的来源核对、语义需求、法线/加权深度准备及 scalar MainPass；AO 生产主链尚未激活，C5–C8 待实施。设计依据见[Module C 设计](../next-design/surface-fields-xegtao.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，固定来源与逐阶段对照见[Next 来源账本 R05](../porting/next-renderer.md)。本文是连续编码路线，不是每一小步的许可/验证门禁。
 
-当前实施记录：C0 已核对固定源、host 调度及 MIT 许可证；C1 已登记 `indirect-visibility` 的需求、选中 profile 与 Surface 字段语义，生产请求仍为 `off`，在 C4–C6 接通前 Lowering 明确拒绝提前请求 `scalar-high`，不会假装已有 AO 输出；C2/C3 的 reverse-Z 常量、独立 view normal 与五级 weighted depth Pass 已写入 AO owner，等待 MainPass 成为真实下游。四个 WGSL 入口已通过 Naga 语法/类型校验；局部 CPU oracle 覆盖 finite/infinite reverse-Z、jitter、法线朝向/边缘/编码，以及奇数尺寸两种 storage 限额的逐层结果。engine typecheck 已通过。当前机器的 headless Chrome/Edge 未获取到 WebGPU adapter，故尚未执行真实 GPU shader/纹理数值核对；build、browser 和 benchmark 未运行。C2/C3 仍是准备阶段，不能称为 AO 已在生产链采用。
+当前实施记录：C0 已核对固定源、host 调度及 MIT 许可证；C1 已登记 `indirect-visibility` 的需求、选中 profile 与 Surface 字段语义，生产请求仍为 `off`，在 C5/C6 接通前 Lowering 明确拒绝提前请求 `scalar-high`，不会假装已有 AO 输出；C2/C3 的 reverse-Z 常量、独立 view normal 与五级 weighted depth Pass 已写入 AO owner。C4 已新增设备期 64×64 Hilbert LUT、High 3×双向3步和 Medium 2×双向2步 scalar MainPass、raw AO 与 packed edges 的 Graph 资源边；选中档仍是 High，directional/bent 尚未实现。WGSL 已通过 Naga 语法/类型校验；局部 CPU oracle 覆盖投影、法线、奇数尺寸 mip、Hilbert/R2、平面/墙角/薄遮挡与屏幕边缘的 source 数学。engine typecheck 已通过。当前机器的 headless Chrome/Edge 未获取到 WebGPU adapter，故尚未执行真实 GPU shader/纹理数值核对；build、browser 和 benchmark 未运行。C4 输出尚无 C5 denoise/Surface 消费，不能称为 AO 已在生产链采用。
 
 ## 0. 完成的准确含义与节奏
 

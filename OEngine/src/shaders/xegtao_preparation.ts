@@ -5,7 +5,7 @@
  */
 import { XE_GTAO_PREP_UNIFORM_WGSL } from "../render/ao/XeGtaoPreparationAbi.js";
 
-const NORMAL_MATH = /* wgsl */ `
+export const XE_GTAO_EDGES_WGSL = /* wgsl */ `
 fn xe_edges(center: f32, left: f32, right: f32, top: f32, bottom: f32) -> vec4f {
   let delta = vec4f(left, right, top, bottom) - vec4f(center);
   let lr = (delta.y - delta.x) * 0.5;
@@ -14,6 +14,10 @@ fn xe_edges(center: f32, left: f32, right: f32, top: f32, bottom: f32) -> vec4f 
   return clamp(vec4f(1.25) - min(abs(delta), abs(adjusted)) /
     vec4f(max(center * 0.011, 1.0e-10)), vec4f(0.0), vec4f(1.0));
 }
+`;
+
+const NORMAL_MATH = /* wgsl */ `
+${XE_GTAO_EDGES_WGSL}
 fn xe_normal(center: vec3f, left: vec3f, right: vec3f,
   top: vec3f, bottom: vec3f, edges: vec4f) -> vec3f {
   let accepted = clamp(vec4f(edges.x * edges.z, edges.z * edges.y,

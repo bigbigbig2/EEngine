@@ -3,7 +3,8 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import type { GPUCameraState } from "../GPUCameraState.js";
-import { XE_GTAO_PREP_BYTES, packXeGtaoPreparation } from "./XeGtaoPreparationAbi.js";
+import { XE_GTAO_PREP_BYTES, packXeGtaoPreparation,
+  type XeGtaoTuning } from "./XeGtaoPreparationAbi.js";
 import { XE_GTAO_NORMAL_WGSL, XE_GTAO_PREFILTER_2_WGSL,
   XE_GTAO_PREFILTER_4_WGSL, XE_GTAO_PREFILTER_REDUCE_WGSL
 } from "../../shaders/xegtao_preparation.js";
@@ -12,6 +13,8 @@ export interface XeGtaoPreparationFrame {
   readonly camera: GPUCameraState;
   readonly radiusMeters: number;
   readonly metersPerWorldUnit: number;
+  readonly tuning?: XeGtaoTuning;
+  readonly noiseIndex?: number;
 }
 
 export interface XeGtaoPreparationInputs {
@@ -22,6 +25,12 @@ export interface XeGtaoPreparationInputs {
 }
 
 export interface XeGtaoPreparedFields {
+  readonly width: number;
+  readonly height: number;
+  /** Exact raw reverse-Z depth used to prepare these same-frame fields. */
+  readonly depth: ResourceId;
+  /** Graph version of the shared constants; every preparation/Main read depends on this upload. */
+  readonly constants: ResourceId;
   /** XeGTAO private packed view-space normal, not a material normal sidecar. */
   readonly normal: ResourceId;
   /** Five separate r32float views of source-equivalent weighted view depth.
@@ -107,7 +116,8 @@ export class XeGtaoPreparationPass {
         const values = packXeGtaoPreparation({ width: input.width, height: input.height,
           projection: frame.camera.projection_matrix,
           radiusMeters: frame.radiusMeters,
-          metersPerWorldUnit: frame.metersPerWorldUnit });
+          metersPerWorldUnit: frame.metersPerWorldUnit,
+          tuning: frame.tuning, noiseIndex: frame.noiseIndex });
         command.writeBuffer(this.constants, 0, values, 0, XE_GTAO_PREP_BYTES);
       });
     const currentUniform = upload.write(uniform);
@@ -174,7 +184,9 @@ export class XeGtaoPreparationPass {
       const output = stage.create(`XeGTAO/weighted depth mip ${mip}`, descriptor(mip));
       mips.push(output);
     }
-    return { normal, viewDepth: mips as unknown as XeGtaoPreparedFields["viewDepth"] };
+    return { width: input.width, height: input.height, depth: input.depth,
+      constants: currentUniform, normal,
+      viewDepth: mips as unknown as XeGtaoPreparedFields["viewDepth"] };
   }
 
   private dispatch(command: ShadeGPUCommandContext, label: string,
