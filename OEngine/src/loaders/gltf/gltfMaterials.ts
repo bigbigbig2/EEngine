@@ -2,7 +2,6 @@
  * gltfMaterials：解析 glTF 数据并转换为引擎运行时对象。
  */
 
-import { Color } from "../../core/Color.js";
 import { ShadeDrawSide, ShadeTransparencyMode } from "../../material/enums.js";
 import { StandardShadeMaterial } from "../../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../../texture/ShadeTexture.js";
@@ -11,64 +10,9 @@ import type { GltfMaterial, GltfTextureInfo } from "./GltfLoader.js";
 
 export const MIPMAP_ALBEDO_EMISSIVE = TextureFilterType.MagicKernelSharp;
 
-export const DIELECTRIC_F0 = Object.freeze(new Color(0.04, 0.04, 0.04, 1));
-
-const EPS_U = 1e-6;
-
 function saturate(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
-
-function mix(e: number, t: number, n: number): number {
-  return (t - e) * n + e;
-}
-
-export function colorLumaSqrt(e: { r: number; g: number; b: number }): number {
-  const t = e.r;
-  const n = e.g;
-  const r = e.b;
-  return Math.sqrt(t * t * 0.299 + n * n * 0.587 + r * r * 0.114);
-}
-
-export function specularGlossinessToMetallicRoughness(
-  diffuse: Color,
-  specular: Color,
-  glossiness: number
-): { base_color: Color; metallic: number; roughness: number } {
-  const r = 1 - Math.max(specular.r, specular.g, specular.b);
-  let s: number;
-  {
-    const t = colorLumaSqrt(specular);
-    const e = colorLumaSqrt(diffuse);
-    const n = r;
-    if (t < DIELECTRIC_F0.r) {
-      s = 0;
-    } else {
-      const r0 = DIELECTRIC_F0.r;
-      const sLin = (e * n) / (1 - DIELECTRIC_F0.r) + t - 2 * DIELECTRIC_F0.r;
-      const a = Math.max(sLin * sLin - 4 * r0 * (DIELECTRIC_F0.r - t), 0);
-      s = saturate((-sLin + Math.sqrt(a)) / (2 * r0));
-    }
-  }
-  const a = r / (1 - DIELECTRIC_F0.r) / Math.max(1 - s, EPS_U);
-  const i = s * s;
-  const o = DIELECTRIC_F0.r * (1 - s);
-  const invS = 1 / Math.max(s, EPS_U);
-  const base = new Color(
-    saturate(mix(diffuse.r * a, (specular.r - o) * invS, i)),
-    saturate(mix(diffuse.g * a, (specular.g - o) * invS, i)),
-    saturate(mix(diffuse.b * a, (specular.b - o) * invS, i)),
-    diffuse.a
-  );
-  return {
-    base_color: base,
-    metallic: s,
-    roughness: 1 - glossiness
-  };
-}
-
-export const l_ = specularGlossinessToMetallicRoughness;
-export const d_ = colorLumaSqrt;
 
 export function rewriteTransparencyMode(e: StandardShadeMaterial): boolean {
   const albedoHasAlpha = (() => {
@@ -104,6 +48,14 @@ export function parseGltfMaterial(
   e: GltfMaterial,
   textures: ShadeTexture[]
 ): StandardShadeMaterial {
+  for (const extension of Object.keys(e.extensions ?? {})) {
+    if (extension.startsWith("KHR_materials_") && ![
+      "KHR_materials_unlit", "KHR_materials_emissive_strength", "KHR_materials_ior",
+      "KHR_materials_specular", "KHR_materials_clearcoat", "KHR_materials_transmission"
+    ].includes(extension)) {
+      throw new Error(`glTF material '${e.name ?? "<unnamed>"}' uses unsupported ${extension}`);
+    }
+  }
   const n = new StandardShadeMaterial();
   if (e.doubleSided === true) n.draw_side = ShadeDrawSide.Double;
   if (typeof e.name === "string") n.name = e.name;
@@ -214,30 +166,6 @@ export function parseGltfMaterial(
 
   const c = e.extensions;
   if (c !== undefined) {
-    const sg = c.KHR_materials_pbrSpecularGlossiness as
-      | {
-          diffuseFactor?: number[];
-          specularFactor?: number[];
-          glossinessFactor?: number;
-        }
-      | undefined;
-    if (sg !== undefined) {
-      const eCol = new Color();
-      const rCol = new Color();
-      let gloss = 0;
-      if (sg.diffuseFactor !== undefined) eCol.fromArray(sg.diffuseFactor);
-      if (sg.specularFactor !== undefined) {
-        rCol.setRGB(
-          sg.specularFactor[0] ?? 0,
-          sg.specularFactor[1] ?? 0,
-          sg.specularFactor[2] ?? 0
-        );
-      }
-      if (sg.glossinessFactor !== undefined) gloss = sg.glossinessFactor;
-      const conv = specularGlossinessToMetallicRoughness(eCol, rCol, gloss);
-      n.diffuse_color.copy(conv.base_color);
-    }
-
     const ior = c.KHR_materials_ior;
     if (ior !== undefined && typeof ior.ior === "number") n.ior_factor = ior.ior;
 
@@ -247,28 +175,52 @@ export function parseGltfMaterial(
         n.transmission_factor = saturate(tr.transmissionFactor);
       }
       if (n.transmission_factor > 0) {
-        n.transparency_mode = ShadeTransparencyMode.Transparent;
+        throw new Error(`glTF material '${e.name ?? "<unnamed>"}' requires a transmission provider`);
       }
     }
 
-    const spec = c.KHR_materials_specular as
-      | {
-          specularFactor?: number;
-          specularColorFactor?: number[];
-        }
-      | undefined;
+    const spec = c.KHR_materials_specular;
     if (spec !== undefined) {
-      const t = spec.specularFactor ?? 1;
+      n.specular_factor = saturate(spec.specularFactor ?? 1);
       const rgb = spec.specularColorFactor ?? [1, 1, 1];
-      const rCol = new Color(rgb[0] ?? 1, rgb[1] ?? 1, rgb[2] ?? 1, 1);
-      rCol.multiplyScalar(t);
-      const conv = specularGlossinessToMetallicRoughness(
-        n.diffuse_color,
-        rCol,
-        1 - n.roughness_factor
+      n.specular_color_factor.setRGB(
+        saturate(rgb[0] ?? 1), saturate(rgb[1] ?? 1), saturate(rgb[2] ?? 1)
       );
-      if (e.pbrMetallicRoughness?.baseColorFactor === undefined) {
-        n.diffuse_color.copy(conv.base_color);
+      for (const [role, info] of [
+        ["specular", spec.specularTexture],
+        ["specular_color", spec.specularColorTexture]
+      ] as const) {
+        assignUvMapping(n, role, normalizeUvMapping(info, e.name, role));
+        if (info !== undefined) {
+          const tex = textures[info.index];
+          if (tex === undefined) throw new RangeError(`Material '${e.name}' ${role} texture is missing`);
+          if (role === "specular_color") {
+            (tex.image as { color_space?: number }).color_space = 1;
+            tex.mipmapGenerationFilter = MIPMAP_ALBEDO_EMISSIVE;
+          }
+          n[`texture_${role}`] = tex;
+        }
+      }
+    }
+
+    const coat = c.KHR_materials_clearcoat;
+    if (coat !== undefined) {
+      n.clearcoat_factor = saturate(coat.clearcoatFactor ?? 0);
+      n.clearcoat_roughness_factor = saturate(coat.clearcoatRoughnessFactor ?? 0);
+      n.clearcoat_normal_scale = Number.isFinite(coat.clearcoatNormalTexture?.scale)
+        ? coat.clearcoatNormalTexture!.scale! : 1;
+      for (const [role, info] of [
+        ["clearcoat", coat.clearcoatTexture],
+        ["clearcoat_roughness", coat.clearcoatRoughnessTexture],
+        ["clearcoat_normal", coat.clearcoatNormalTexture]
+      ] as const) {
+        assignUvMapping(n, role, normalizeUvMapping(info, e.name, role));
+        if (info !== undefined) {
+          const tex = textures[info.index];
+          if (tex === undefined) throw new RangeError(`Material '${e.name}' ${role} texture is missing`);
+          if (role === "clearcoat_normal") tex.mipmapGenerationFilter = TextureFilterType.LinearNormal;
+          n[`texture_${role}`] = tex;
+        }
       }
     }
   }
@@ -325,7 +277,8 @@ function sameUvMapping(a: UvMapping, b: UvMapping): boolean {
 
 function assignUvMapping(
   material: StandardShadeMaterial,
-  role: "base_color" | "normal" | "orm" | "occlusion" | "emissive",
+  role: "base_color" | "normal" | "orm" | "occlusion" | "emissive" |
+    "specular" | "specular_color" | "clearcoat" | "clearcoat_roughness" | "clearcoat_normal",
   mapping: UvMapping
 ): void {
   material[`${role}_uv_set`] = mapping.texCoord;

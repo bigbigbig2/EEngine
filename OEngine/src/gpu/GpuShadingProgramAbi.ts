@@ -39,10 +39,11 @@ export const GPU_SHADING_DEPENDENCY = Object.freeze({
   NormalTexture: 1 << 6,
   EmissiveTexture: 1 << 7,
   Lit: 1 << 8,
-  OcclusionTexture: 1 << 9
+  OcclusionTexture: 1 << 9,
+  ExtensionTexture: 1 << 10
 } as const);
 
-export const GPU_SHADING_DEPENDENCY_COUNT = 10;
+export const GPU_SHADING_DEPENDENCY_COUNT = 11;
 export const GPU_SHADING_DEPENDENCY_VALID_MASK = (1 << GPU_SHADING_DEPENDENCY_COUNT) - 1;
 
 export type GpuShadingModel = "unlit" | "standard-pbr";
@@ -54,6 +55,7 @@ export interface GpuShadingMaterialProfile {
   readonly hasNormalTexture: boolean;
   readonly hasEmissiveTexture: boolean;
   readonly hasOcclusionTexture: boolean;
+  readonly hasExtensionTexture?: boolean;
   /** Bit 0/1/2 denote TEXCOORD_0/1/2 required by active texture roles. */
   readonly requiredUvSetsMask: number;
   readonly textureBindingSetId: number;
@@ -143,7 +145,8 @@ export function deriveGpuShadingIdentity(
   }
 
   const usesAnyTexture = material.hasBaseTexture || material.hasOrmTexture ||
-    material.hasNormalTexture || material.hasEmissiveTexture || material.hasOcclusionTexture;
+    material.hasNormalTexture || material.hasEmissiveTexture || material.hasOcclusionTexture ||
+    material.hasExtensionTexture === true;
   const requiredUvSetsMask = validateRequiredUvSetsMask(material.requiredUvSetsMask, usesAnyTexture);
   validateRequiredUvSets(requiredUvSetsMask, geometry);
   if (material.shadingModel === "standard-pbr" && !geometry.hasNormal) {
@@ -176,6 +179,7 @@ export function deriveGpuShadingIdentity(
   if (material.hasNormalTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.NormalTexture;
   if (material.hasEmissiveTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.EmissiveTexture;
   if (material.hasOcclusionTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.OcclusionTexture;
+  if (material.hasExtensionTexture) dependencyMask |= GPU_SHADING_DEPENDENCY.ExtensionTexture;
 
   const programId = shadingProgramIdForDependencyMask(dependencyMask);
   const textureBindingSetId = shadingProgramUsesTextures(programId)
@@ -191,7 +195,8 @@ export function deriveGpuShadingIdentity(
 
 export function shadingProgramIdForDependencyMask(dependencyMask: number): number {
   validateDependencyMask(dependencyMask);
-  if ((dependencyMask & GPU_SHADING_DEPENDENCY.OcclusionTexture) !== 0) {
+  if ((dependencyMask & (GPU_SHADING_DEPENDENCY.OcclusionTexture |
+      GPU_SHADING_DEPENDENCY.ExtensionTexture)) !== 0) {
     return GPU_SHADING_PROGRAM.PbrGeneric;
   }
   const index = dependencyLutIndex(dependencyMask);
@@ -253,6 +258,7 @@ const OENGINE_SHADING_DEPENDENCY_NORMAL_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.
 const OENGINE_SHADING_DEPENDENCY_EMISSIVE_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.EmissiveTexture}u;
 const OENGINE_SHADING_DEPENDENCY_LIT: u32 = ${GPU_SHADING_DEPENDENCY.Lit}u;
 const OENGINE_SHADING_DEPENDENCY_OCCLUSION_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.OcclusionTexture}u;
+const OENGINE_SHADING_DEPENDENCY_EXTENSION_TEXTURE: u32 = ${GPU_SHADING_DEPENDENCY.ExtensionTexture}u;
 ${GPU_SHADING_PROGRAM_NAMES.map((name, programId) =>
   `const OENGINE_SHADING_PROGRAM_${toWgslConstant(name)}: u32 = ${programId}u;`
 ).join("\n")}
@@ -261,7 +267,8 @@ const OENGINE_SHADING_PROGRAM_LUT: array<u32, ${LUT_ENTRY_COUNT}> = array<u32, $
 );
 
 fn oengine_shading_program_for_dependencies(dependency_mask: u32) -> u32 {
-  if ((dependency_mask & OENGINE_SHADING_DEPENDENCY_OCCLUSION_TEXTURE) != 0u) {
+  if ((dependency_mask & (OENGINE_SHADING_DEPENDENCY_OCCLUSION_TEXTURE |
+      OENGINE_SHADING_DEPENDENCY_EXTENSION_TEXTURE)) != 0u) {
     return OENGINE_SHADING_PROGRAM_PBR_GENERIC;
   }
   let index =
@@ -346,7 +353,8 @@ function validateDependencyMask(dependencyMask: number): void {
     GPU_SHADING_DEPENDENCY.OrmTexture |
     GPU_SHADING_DEPENDENCY.NormalTexture |
     GPU_SHADING_DEPENDENCY.EmissiveTexture |
-    GPU_SHADING_DEPENDENCY.OcclusionTexture
+    GPU_SHADING_DEPENDENCY.OcclusionTexture |
+    GPU_SHADING_DEPENDENCY.ExtensionTexture
   )) !== 0;
   const normalTexture = (dependencyMask & GPU_SHADING_DEPENDENCY.NormalTexture) !== 0;
   const occlusionTexture = (dependencyMask & GPU_SHADING_DEPENDENCY.OcclusionTexture) !== 0;

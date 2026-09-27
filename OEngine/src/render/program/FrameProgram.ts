@@ -1,13 +1,12 @@
-import { shadingProgramUsesTextures } from "../../gpu/GpuShadingProgramAbi.js";
 
 /** The finite set of products with real Module A producers and consumers. */
 export type FrameProduct =
   | "swapchain" | "reconstructed-color" | "aerial-radiance" | "sky-radiance"
-  | "surface-radiance" | "surface-motion" | "shading-work"
+  | "surface-radiance" | "surface-motion"
   | "visibility" | "depth" | "meshlet-work" | "hzb" | "light-cluster";
 
 export type FrameProgramStage =
-  | "clear-present" | "visibility" | "hzb" | "shading-work" | "light-cluster"
+  | "clear-present" | "visibility" | "hzb" | "light-cluster"
   | "surface" | "physical-sky" | "aerial" | "fsr3" | "present";
 
 export type FrameProductFact = Readonly<{
@@ -81,8 +80,6 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
     value: "working-linear pre-exposed", coverage: "full internal", invalid: "clear color", version: "frame" },
   "surface-motion": { producer: "surface", domain: "internal-full", format: "rg16float",
     value: "current-minus-previous UV", coverage: "visible surface", invalid: "zero background", version: "frame" },
-  "shading-work": { producer: "shading-work", domain: "gpu-work", format: "structured-buffer",
-    value: "bounded GPU work records", coverage: "visible surface", invalid: "queue count zero", version: "frame" },
   "light-cluster": { producer: "light-cluster", domain: "gpu-work", format: "structured-buffer",
     value: "clustered direct-light lookup", coverage: "lit surface", invalid: "zero lights", version: "frame" },
   visibility: { producer: "visibility", domain: "internal-full", format: "r32uint",
@@ -100,8 +97,7 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
 const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<FrameProduct,
   Readonly<Pick<FrameProductFact, "domain" | "value">>>>>>> = {
   swapchain: {
-    "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" },
-    "shading-work": { domain: "gpu-work", value: "bounded GPU work records" }
+    "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" }
   },
   "reconstructed-color": {
     "aerial-radiance": { domain: "internal-full", value: "working-linear pre-exposed" },
@@ -118,17 +114,15 @@ const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<Fra
     depth: { domain: "internal-full", value: "reverse depth" }
   },
   "surface-radiance": {
-    "shading-work": { domain: "gpu-work", value: "bounded GPU work records" },
+    visibility: { domain: "internal-full", value: "packed VisibilityKey" },
+    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
     "light-cluster": { domain: "gpu-work", value: "clustered direct-light lookup" },
     depth: { domain: "internal-full", value: "reverse depth" }
   },
   "surface-motion": {
-    "shading-work": { domain: "gpu-work", value: "bounded GPU work records" },
-    depth: { domain: "internal-full", value: "reverse depth" }
-  },
-  "shading-work": {
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
-    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" }
+    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
+    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "light-cluster": { hzb: { domain: "internal-half", value: "hierarchical depth range" } },
   visibility: {
@@ -165,12 +159,6 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   if (textureBankMasks.length !== 4 || textureBankMasks.some(mask => !Number.isSafeInteger(mask) || mask < 0)) {
     throw new RangeError("textureBankMasks must contain four non-negative masks");
   }
-  // Only textured classes materialize bank imports or alter Surface layouts.
-  const texturedSets = new Set(activeClasses.filter(id => shadingProgramUsesTextures(id & 15))
-    .map(id => id >> 4));
-  for (let setId = 0; setId < textureBankMasks.length; setId++) {
-    if (!texturedSets.has(setId)) textureBankMasks[setId] = 0;
-  }
   return Object.freeze({
     ...request,
     activeClasses: Object.freeze(activeClasses),
@@ -187,24 +175,23 @@ function structuralKey(request: FrameProgramRequest): string {
     ...base, request.internalWidth, request.internalHeight,
     request.virtualGeometry, request.virtualBankCount,
     request.previousHzb, request.currentHzbLateRecheck,
-    request.activeClasses, request.textureBankMasks, request.physicalEnvironment
+    [...new Set(request.activeClasses.map(id => id >> 4))].sort(),
+    request.activeClasses.some(id => (id & 15) >= 4), request.physicalEnvironment
   ]);
 }
 
 function dependencies(product: FrameProduct, request: FrameProgramRequest): readonly FrameProduct[] {
   if (request.kind === "empty") return [];
   switch (product) {
-    // Present also reads the ShadingWork overflow header for a visible error color.
-    case "swapchain": return ["reconstructed-color", "shading-work"];
+    case "swapchain": return ["reconstructed-color"];
     case "reconstructed-color": return [
       request.physicalEnvironment ? "aerial-radiance" : "surface-radiance", "depth", "surface-motion"
     ];
     case "aerial-radiance": return ["sky-radiance", "depth"];
     case "sky-radiance": return ["surface-radiance", "depth"];
-    case "surface-radiance": return ["shading-work", "depth",
+    case "surface-radiance": return ["visibility", "meshlet-work", "depth",
       ...(request.activeClasses.some(id => (id & 15) >= 4) ? ["light-cluster" as const] : [])];
-    case "surface-motion": return ["shading-work", "depth"];
-    case "shading-work": return ["visibility", "meshlet-work"];
+    case "surface-motion": return ["visibility", "meshlet-work", "depth"];
     case "light-cluster": return ["hzb"];
     case "visibility": return ["meshlet-work", "depth"];
     case "hzb": return ["depth"];
@@ -250,7 +237,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
   requireProduct("swapchain");
   if (buildHzb) requireProduct("hzb");
   const stages: FrameProgramStage[] = [
-    "visibility", ...(buildHzb ? ["hzb" as const] : []), "shading-work",
+    "visibility", ...(buildHzb ? ["hzb" as const] : []),
     ...(directLighting ? ["light-cluster" as const] : []), "surface",
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
     "fsr3", "present"

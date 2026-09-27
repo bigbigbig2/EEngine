@@ -8,13 +8,14 @@ import {
   decodeGpuShadingBinId,
   GPU_SHADING_PROGRAM_COUNT
 } from "./GpuShadingProgramAbi.js";
+import { GPU_CLOSURE_MATERIAL_STRIDE, GPU_CLOSURE_MATERIAL_WGSL } from "./GpuClosureMaterialAbi.js";
 
-export const GPU_SHADING_MATERIAL_ABI_VERSION = 4;
+export const GPU_SHADING_MATERIAL_ABI_VERSION = 5;
 export const GPU_SHADING_MATERIAL_HEADER_STRIDE = 32;
 export const GPU_SHADING_MATERIAL_RECORD_STRIDE =
-  GPU_SHADING_MATERIAL_HEADER_STRIDE + GPU_MATERIAL_VISIBILITY_RECORD_STRIDE;
+  GPU_SHADING_MATERIAL_HEADER_STRIDE + GPU_MATERIAL_VISIBILITY_RECORD_STRIDE + GPU_CLOSURE_MATERIAL_STRIDE;
 export const GPU_SHADING_TEXTURE_ROUTE_STRIDE = 16;
-export const GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL = 5;
+export const GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL = 10;
 /** Publication-time facts, separate from Material Visibility payload flags. */
 export const GPU_SHADING_MATERIAL_FLAGS = Object.freeze({
   /** Unlit base source is one texel; TextureResidency fills its physical layer and mips uniformly. */
@@ -27,7 +28,9 @@ export const GPU_SHADING_MATERIAL_HEADER_OFFSETS = Object.freeze({
   materialGeneration: 8,
   textureGeneration: 12,
   publicationRevision: 16,
-  flags: 20
+  flags: 20,
+  family: 24,
+  featureMask: 28
 } as const);
 
 export interface GpuShadingMaterialRecordHeader {
@@ -37,6 +40,8 @@ export interface GpuShadingMaterialRecordHeader {
   readonly textureGeneration: number;
   readonly publicationRevision: number;
   readonly flags: number;
+  readonly family?: number;
+  readonly featureMask?: number;
 }
 
 export interface GpuShadingTextureRouteRecord {
@@ -48,7 +53,8 @@ export interface GpuShadingTextureRouteRecord {
 
 export function packGpuShadingMaterialRecord(
   header: GpuShadingMaterialRecordHeader,
-  payload: GpuMaterialVisibilityPackedSource
+  payload: GpuMaterialVisibilityPackedSource,
+  closure?: Uint8Array
 ): Uint8Array<ArrayBuffer> {
   validateHeader(header);
   const bytes = new Uint8Array(GPU_SHADING_MATERIAL_RECORD_STRIDE);
@@ -59,8 +65,16 @@ export function packGpuShadingMaterialRecord(
   view.setUint32(12, header.textureGeneration, true);
   view.setUint32(16, header.publicationRevision, true);
   view.setUint32(20, header.flags, true);
+  view.setUint32(24, header.family ?? 0, true);
+  view.setUint32(28, header.featureMask ?? 0, true);
   const packedPayload = new Uint8Array(packGpuMaterialVisibilityRecord(payload));
   bytes.set(packedPayload, GPU_SHADING_MATERIAL_HEADER_STRIDE);
+  if (closure !== undefined) {
+    if (closure.byteLength !== GPU_CLOSURE_MATERIAL_STRIDE) {
+      throw new RangeError("Shading closure material record has an invalid stride");
+    }
+    bytes.set(closure, GPU_SHADING_MATERIAL_HEADER_STRIDE + GPU_MATERIAL_VISIBILITY_RECORD_STRIDE);
+  }
   return bytes;
 }
 
@@ -79,7 +93,9 @@ export function unpackGpuShadingMaterialHeader(
     materialGeneration: view.getUint32(8, true),
     textureGeneration: view.getUint32(12, true),
     publicationRevision: view.getUint32(16, true),
-    flags: view.getUint32(20, true)
+    flags: view.getUint32(20, true),
+    family: view.getUint32(24, true),
+    featureMask: view.getUint32(28, true)
   };
   validateHeader(header);
   return Object.freeze(header);
@@ -118,6 +134,7 @@ export function unpackGpuShadingTextureRoute(
 
 export const GPU_SHADING_MATERIAL_WGSL = /* wgsl */ `
 ${GPU_MATERIAL_VISIBILITY_RECORD_WGSL}
+${GPU_CLOSURE_MATERIAL_WGSL}
 struct OEngineShadingMaterialRecord {
   program_id: u32,
   texture_binding_set_id: u32,
@@ -125,9 +142,10 @@ struct OEngineShadingMaterialRecord {
   texture_generation: u32,
   publication_revision: u32,
   flags: u32,
-  _header_pad0: u32,
-  _header_pad1: u32,
+  family: u32,
+  feature_mask: u32,
   payload: OEngineMaterialVisibilityRecord,
+  closure: OEngineClosureMaterialRecord,
 };
 
 struct OEngineShadingTextureRoute {
@@ -151,6 +169,8 @@ function validateHeader(header: GpuShadingMaterialRecordHeader): void {
   assertNonZeroU32(header.textureGeneration, "texture generation");
   assertNonZeroU32(header.publicationRevision, "publication revision");
   assertU32(header.flags, "material flags");
+  assertU32(header.family ?? 0, "material family");
+  assertU32(header.featureMask ?? 0, "material feature mask");
 }
 
 function validateRoute(route: GpuShadingTextureRouteRecord): void {

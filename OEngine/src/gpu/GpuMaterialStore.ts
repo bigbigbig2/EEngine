@@ -1,5 +1,6 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
+import { compileCanonicalMaterial } from "../material/CanonicalMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import {
   GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
@@ -15,6 +16,7 @@ import {
   packGpuShadingTextureRoute
 } from "./GpuShadingMaterialAbi.js";
 import { GPU_SHADING_PROGRAM } from "./GpuShadingProgramAbi.js";
+import { packGpuClosureMaterial } from "./GpuClosureMaterialAbi.js";
 
 declare const GPU_MATERIAL_STAGE_HANDLE_BRAND: unique symbol;
 
@@ -157,6 +159,7 @@ export class GpuMaterialStore {
     try {
       for (let index = 0; index < associations.length; index++) {
         const association = associations[index]!;
+        const canonical = compileCanonicalMaterial(association.material);
         const slot = slots[index]!;
         const textureRefs = textureRefsByMaterial.get(association.material)!;
         const textureRef = (texture: ShadeTexture | undefined): number =>
@@ -181,8 +184,12 @@ export class GpuMaterialStore {
           materialGeneration: generation,
           textureGeneration: generation,
           publicationRevision: generation,
-          flags: uniformBaseTexture ? GPU_SHADING_MATERIAL_FLAGS.UniformBaseTexture : 0
-        }, source.packed);
+          flags: uniformBaseTexture ? GPU_SHADING_MATERIAL_FLAGS.UniformBaseTexture : 0,
+          family: canonical.family,
+          featureMask: canonical.featureMask
+        }, source.packed, packGpuClosureMaterial(
+          association.material, canonical, textureRefs, textureMipRanges
+        ));
         command.writeBuffer(
           this.materialRecords,
           slot * GPU_SHADING_MATERIAL_RECORD_STRIDE,
@@ -195,7 +202,12 @@ export class GpuMaterialStore {
           source.packed.normalTextureRef,
           source.packed.ormTextureRef,
           source.packed.emissiveTextureRef,
-          source.packed.occlusionTextureRef
+          source.packed.occlusionTextureRef,
+          textureRef(association.material.texture_specular),
+          textureRef(association.material.texture_specular_color),
+          canonical.coatFactor > 0 ? textureRef(association.material.texture_clearcoat) : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+          canonical.coatFactor > 0 ? textureRef(association.material.texture_clearcoat_roughness) : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
+          canonical.coatFactor > 0 ? textureRef(association.material.texture_clearcoat_normal) : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
         ];
         for (let routeIndex = 0; routeIndex < routeRefs.length; routeIndex++) {
           const route = packGpuShadingTextureRoute({
@@ -343,6 +355,7 @@ export class GpuMaterialStore {
         0,
         association.textureBindingSetId
       );
+      const canonical = compileCanonicalMaterial(association.material);
       // Header validation is deliberately part of preflight, before slots are reserved.
       packGpuShadingMaterialRecord({
         programId: association.programId,
@@ -350,7 +363,9 @@ export class GpuMaterialStore {
         materialGeneration: 1,
         textureGeneration: 1,
         publicationRevision: 1,
-        flags: 0
+        flags: 0,
+        family: canonical.family,
+        featureMask: canonical.featureMask
       }, source.packed);
     }
   }

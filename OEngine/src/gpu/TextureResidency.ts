@@ -237,6 +237,8 @@ interface ResidentTexture {
   readonly source: ShadeTexture;
   readonly cooked: boolean;
   readonly physicalFormat: GPUTextureFormat;
+  /** Decode used when an uncooked image was copied into the linear bank. */
+  readonly rawColorDecode: "srgb-rgb" | "linear-rgb" | null;
   readonly preparationPath: "direct-package" | "worker-transcode" | "uncompressed-fallback";
   readonly routing: number;
   readonly residentBytes: number;
@@ -606,7 +608,7 @@ export class TextureResidency {
   ): ReadonlyMap<ShadeTexture, readonly [number, number]> {
     const ranges = new Map<ShadeTexture, readonly [number, number]>();
     for (const material of new Set(materials)) {
-      for (const texture of material.textures) {
+      for (const texture of materialTextureEntries(material).map(entry => entry.texture)) {
         const entry = this.textures.get(texture);
         if (entry !== undefined && entry.refCount > 0) {
           ranges.set(texture, Object.freeze([entry.availableMip, entry.mipLevelCount - 1]) as readonly [number, number]);
@@ -891,6 +893,7 @@ export class TextureResidency {
 
   private preflight(materials: readonly StandardShadeMaterial[]): TexturePreflight {
     const freshUncooked = new Set<ShadeTexture>();
+    const rawDecode = new Map<ShadeTexture, "srgb-rgb" | "linear-rgb">();
     const freshPackages = new Map<ShadeTexture, Readonly<{
       asset: TextureAssetPackageV2;
       variant: SelectedTextureVariantV2;
@@ -900,6 +903,19 @@ export class TextureResidency {
       for (const { texture, role } of materialTextureEntries(material)) {
         const asset = texture.runtime_asset_package_v2;
         if (asset !== undefined) validatePackageSemantic(asset, role, material.name);
+        else if (role !== "specular-weight") {
+          const decode = role === "base-color" || role === "emissive" ||
+            role === "specular-color" ? "srgb-rgb" : "linear-rgb";
+          const prior = rawDecode.get(texture);
+          if (prior !== undefined && prior !== decode) {
+            throw new Error(`Material '${material.name}' reuses one raw texture with incompatible color decode`);
+          }
+          const resident = this.textures.get(texture);
+          if (resident !== undefined && resident.rawColorDecode !== decode) {
+            throw new Error(`Material '${material.name}' reuses a resident raw texture with incompatible color decode`);
+          }
+          rawDecode.set(texture, decode);
+        }
         if (this.textures.has(texture)) continue;
         if (asset !== undefined) {
           const variant = selectTextureAssetVariantV2(
@@ -1353,7 +1369,9 @@ export class TextureResidency {
     packageAssignments: ReadonlyMap<ShadeTexture, TexturePackageAssignment>,
     uncookedBankAssignments: ReadonlyMap<ShadeTexture, number>
   ): TextureTransition {
-    const desired = [...new Set(material.textures)];
+    // Publish only reachable texture leaves. A constant-zero clearcoat is a
+    // Standard closure and must not allocate or route its dormant coat maps.
+    const desired = [...new Set(materialTextureEntries(material).map(entry => entry.texture))];
     const previous = resident.textures;
     const previousSet = new Set(previous.map(({ source }) => source));
     const desiredSet = new Set(desired);
@@ -1435,6 +1453,9 @@ export class TextureResidency {
         source: texture,
         cooked: packageAssignment !== undefined,
         physicalFormat,
+        rawColorDecode: packageAssignment === undefined
+          ? texture.image?.color_space === 1 ? "srgb-rgb" : "linear-rgb"
+          : null,
         preparationPath: packageAssignment === undefined
           ? "uncompressed-fallback"
           : packageAssignment.variant.profile === "worker-transcoded"
@@ -1907,7 +1928,8 @@ function packageRouting(
     : GPU_TEXTURE_REF_ROUTING.AlphaFromAlpha;
 }
 
-type MaterialTextureRole = "base-color" | "normal" | "orm" | "emissive" | "occlusion";
+type MaterialTextureRole = "base-color" | "normal" | "orm" | "emissive" | "occlusion" |
+  "specular-weight" | "specular-color" | "coat-factor" | "coat-roughness" | "coat-normal";
 
 function materialTextureEntries(
   material: StandardShadeMaterial
@@ -1928,6 +1950,23 @@ function materialTextureEntries(
   if (!material.is_unlit && material.texture_occlusion !== undefined) {
     entries.push({ texture: material.texture_occlusion, role: "occlusion" });
   }
+  if (!material.is_unlit && material.texture_specular !== undefined) {
+    entries.push({ texture: material.texture_specular, role: "specular-weight" });
+  }
+  if (!material.is_unlit && material.texture_specular_color !== undefined) {
+    entries.push({ texture: material.texture_specular_color, role: "specular-color" });
+  }
+  if (!material.is_unlit && material.clearcoat_factor > 0) {
+    if (material.texture_clearcoat !== undefined) {
+      entries.push({ texture: material.texture_clearcoat, role: "coat-factor" });
+    }
+    if (material.texture_clearcoat_roughness !== undefined) {
+      entries.push({ texture: material.texture_clearcoat_roughness, role: "coat-roughness" });
+    }
+    if (material.texture_clearcoat_normal !== undefined) {
+      entries.push({ texture: material.texture_clearcoat_normal, role: "coat-normal" });
+    }
+  }
   return entries;
 }
 
@@ -1938,13 +1977,17 @@ function validatePackageSemantic(
 ): void {
   const valid = role === "base-color"
     ? asset.semantic === "base-color-srgb" || asset.semantic === "alpha-mask"
-    : role === "normal"
+    : role === "normal" || role === "coat-normal"
       ? asset.semantic === "normal-linear"
-      : role === "orm"
+      : role === "orm" || role === "coat-roughness"
         ? asset.semantic === "orm-linear"
         : role === "emissive"
           ? asset.semantic === "emissive-srgb"
-          : asset.semantic === "occlusion-linear" || asset.semantic === "orm-linear";
+          : role === "specular-color"
+            ? asset.semantic === "base-color-srgb" || asset.semantic === "emissive-srgb"
+            : role === "specular-weight"
+              ? asset.semantic === "base-color-srgb"
+              : asset.semantic === "occlusion-linear" || asset.semantic === "orm-linear";
   if (!valid) {
     throw new Error(
       `Material '${materialName}' binds Texture Package semantic '${asset.semantic}' as ${role}`

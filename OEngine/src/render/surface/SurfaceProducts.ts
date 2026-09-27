@@ -104,7 +104,8 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
 
 /** Semantic resource closure for the selected kernel, before physical bind-group lowering. */
 export type SurfaceResourceRole =
-  | "shading-work" | "shading-work-classes" | "meshlet-work" | "material-records"
+  | "shading-work" | "shading-work-classes" | "visibility-key" | "exception-lane" |
+    "meshlet-work" | "material-records"
   | "frame-view" | "radiance-output" | "motion-output"
   | "instance-records" | "geometry-metadata" | "vertex-payload" | "visibility-depth"
   | "virtual-product-metadata" | "virtual-product-banks"
@@ -112,7 +113,8 @@ export type SurfaceResourceRole =
   | "direct-light-records" | "direct-light-cluster-lookup"
   | "direct-light-cluster-data" | "direct-light-cluster-params"
   | "physical-environment-sun" | "physical-environment-transmittance"
-  | "physical-sky-irradiance" | "physical-sky-irradiance-sampler";
+  | "physical-sky-irradiance" | "physical-sky-irradiance-sampler"
+  | "physical-sky-specular" | "physical-sky-dfg" | "physical-sky-specular-sampler";
 
 export interface SurfaceMaterialRequirements {
   readonly roles: readonly SurfaceResourceRole[];
@@ -133,9 +135,11 @@ export function surfaceMaterialRequirements(
     throw new RangeError("Lit Surface program requires direct-light evaluation");
   }
   const roles: SurfaceResourceRole[] = [
-    "shading-work", "shading-work-classes", "meshlet-work", "material-records",
+    "shading-work", closure.source === "surface-execution-v2" ? "visibility-key" :
+      "shading-work-classes", "meshlet-work", "material-records",
     "frame-view", "radiance-output", "motion-output"
   ];
+  if (closure.source === "surface-execution-v2") roles.push("exception-lane");
   if (s.reconstructTriangle) {
     roles.push("instance-records", "geometry-metadata", "vertex-payload", "visibility-depth");
     if (closure.virtualGeometry) roles.push("virtual-product-metadata", "virtual-product-banks");
@@ -156,7 +160,8 @@ export function surfaceMaterialRequirements(
     roles.push("direct-light-records", "direct-light-cluster-lookup",
       "direct-light-cluster-data", "direct-light-cluster-params",
       "physical-environment-sun", "physical-sky-irradiance", "physical-sky-irradiance-sampler",
-      "physical-environment-transmittance",
+      "physical-environment-transmittance", "physical-sky-specular", "physical-sky-dfg",
+      "physical-sky-specular-sampler",
       "motion-output");
   }
   return Object.freeze({

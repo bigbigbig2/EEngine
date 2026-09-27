@@ -50,8 +50,12 @@ struct StandardMaterial {
   occlusion: f32,
   specularF0: vec3f,
   specularF90: f32,
+  energyCompensation: vec3f,
   emissive: vec3f,
   opacity: f32,
+  coatFactor: f32,
+  coatRoughness: f32,
+  coatNormal: vec3f,
 }
 
 struct SurfaceGeometry {
@@ -181,7 +185,11 @@ fn read_gBuffer_material(i_coord: vec2u) -> StandardMaterial {
   material.roughness = max(roughness, 0.02);
   material.specularF0 = metalness_to_specular_color(metalness, albedo);
   material.specularF90 = 1.0;
+  material.energyCompensation = vec3f(1.0);
   material.emissive = emissive;
+  material.coatFactor = 0.0;
+  material.coatRoughness = 1.0;
+  material.coatNormal = vec3f(0.0, 0.0, 1.0);
   return material;
 }
 
@@ -273,9 +281,8 @@ fn re_direct_physical(
   let no_v = saturate(dot(n, v));
   let vo_h = saturate(dot(v, h));
   let no_h = saturate(dot(n, h));
-  let alpha = max(material.roughness * material.roughness, 0.02);
+  let alpha = max(material.roughness * material.roughness, 0.002);
   let radiance = no_l * incident.color;
-  let fresnel = F_Schlick(material.specularF0, material.specularF90, vo_h);
   let specular = BRDF_GGX(
     no_l,
     no_v,
@@ -284,18 +291,31 @@ fn re_direct_physical(
     material.specularF0,
     material.specularF90,
     alpha
-  );
-  // Filament's direct-light baseline: Lambert diffuse multiplied by the
-  // complementary Fresnel energy, plus GGX microfacet specular.
-  let diffuse = material.diffuse * max(vec3f(0.0), vec3f(1.0) - fresnel);
-  let contribution = radiance * (specular + diffuse * RECIPROCAL_PI);
+  ) * material.energyCompensation;
+  // Filament Standard profile uses Lambert for the direct diffuse lobe.
+  let diffuse = material.diffuse;
+  var base_attenuation = 1.0;
+  var coat_radiance = vec3f(0.0);
+  if material.coatFactor > 0.0 {
+    // Filament clearCoatLobe: GGX D, Kelemen V and fixed 1.5-IOR F0.
+    let coat_no_h = saturate(dot(material.coatNormal, h));
+    let coat_no_l = saturate(dot(material.coatNormal, l));
+    let coat_alpha = max(material.coatRoughness * material.coatRoughness, 0.002);
+    let coat_fresnel = (0.04 + 0.96 * pow(1.0 - vo_h, 5.0)) * material.coatFactor;
+    let coat_brdf = D_GGX(coat_alpha * coat_alpha, coat_no_h * coat_no_h) *
+      (0.25 / max(vo_h * vo_h, 0.0000039)) * coat_fresnel;
+    base_attenuation = 1.0 - coat_fresnel;
+    coat_radiance = incident.color * coat_no_l * coat_brdf;
+  }
+  let contribution = radiance * (specular + diffuse * RECIPROCAL_PI) *
+    base_attenuation + coat_radiance;
   if !all(vec3<bool>(
     finite_f32(contribution.x), finite_f32(contribution.y), finite_f32(contribution.z)
   )) {
     return;
   }
-  (*reflected).specular += radiance * specular;
-  (*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI;
+  (*reflected).specular += radiance * specular * base_attenuation + coat_radiance;
+  (*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI * base_attenuation;
 }
 
 fn m4_projection_size(value: mat4x4f) -> vec2f {

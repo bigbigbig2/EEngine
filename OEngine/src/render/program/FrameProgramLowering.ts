@@ -1,10 +1,8 @@
 import { FrameGraph, FrameGraphBindingLayout, type CompiledFrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import { shadingProgramUsesTextures } from "../../gpu/GpuShadingProgramAbi.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import type { VisibilityFeature, PackedVisibilityOutputs } from "../features/VisibilityFeature.js";
-import type { ShadingWorkPass } from "../surface/ShadingWorkPass.js";
 import type { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
 import type { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import type { LightClusterPass } from "../passes/LightClusterPass.js";
@@ -15,7 +13,6 @@ import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 
 export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
-  shadingWork: ShadingWorkPass;
   surface: SurfaceMaterialPass;
   present: SurfacePresentPass;
   sky: PhysicalSkyPass | null;
@@ -71,7 +68,7 @@ function compileEmptyGraph(initial: EmptyFrameBindings): CompiledFrameGraph {
 
 function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owners: FrameProgramOwners): CompiledFrameGraph {
   if (plan.request.kind !== "scene") throw new Error("Scene graph requires a scene Frame Program");
-  for (const stage of ["visibility", "shading-work", "surface", "fsr3", "present"] as const) {
+  for (const stage of ["visibility", "surface", "fsr3", "present"] as const) {
     if (!plan.stages.includes(stage)) throw new Error(`Scene Frame Program is missing ${stage}`);
   }
   if (plan.request.physicalEnvironment && (owners.sky === null || owners.aerial === null)) {
@@ -92,16 +89,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     bind("scene-instances", bindings => bindings.job.scene.instances)
   );
   const activeClasses = plan.request.activeClasses;
-  const shadingWork = owners.shadingWork.addToGraph(graph, {
-    visibilityKey: result.frame.visibilityKey,
-    meshletWork: result.frame.meshletWork.records,
-    materialRecords,
-    depth: result.frame.depth,
-    instances,
-    adaptive: false,
-    width: result.frame.domain.width,
-    height: result.frame.domain.height
-  });
   const needsDirectLight = plan.stages.includes("light-cluster");
   const geometryMetadata = graph.import_resource(
     "geometry-metadata", { kind: "imported", label: "geometry metadata" },
@@ -115,21 +102,17 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     "texture-routes", { kind: "imported", label: "published texture routes" },
     bind("texture-routes", bindings => bindings.runtime.materialResources.textureRouteRecords)
   );
-  const textureBankMasks = plan.request.textureBankMasks;
   const textureBanks: number[][] = Array.from({ length: 4 }, () => []);
-  for (const setId of new Set(activeClasses
-    .filter(classId => shadingProgramUsesTextures(classId & 15))
-    .map(classId => classId >> 4))) {
+  for (const setId of new Set(activeClasses.map(classId => classId >> 4))) {
     const bindingSet = initial.runtime.materialResources.bindingSets.find(set => set.id === setId);
     if (!bindingSet) throw new Error(`Surface texture binding set ${setId} is not resident`);
     for (let bank = 0; bank < bindingSet.textureBanks.length; bank++) {
-      if ((bindingSet.textureBankMask & (1 << bank)) === 0) continue;
       textureBanks[setId]![bank] = graph.import_resource(
         `texture-set-${setId}-bank-${bank}`,
         { kind: "imported", label: `texture set ${setId} bank ${bank}` },
         bind(`texture-set-${setId}-bank-${bank}`, bindings => {
           const active = bindings.runtime.materialResources.bindingSets.find(set => set.id === setId);
-          if (!active || (active.textureBankMask & (1 << bank)) === 0) {
+          if (!active) {
             throw new Error(`Surface texture bank ${setId}:${bank} is not resident`);
           }
           return active.textureBanks[bank]!;
@@ -187,11 +170,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       preExposure: bindings.preExposure
     })),
     activeClasses,
-    textureBankMasks,
     virtualGeometry: plan.request.virtualGeometry,
-    queue: shadingWork.queue,
-    classes: shadingWork.classes,
-    indirect: shadingWork.indirect,
+    visibilityKey: result.frame.visibilityKey,
     meshletWork: result.frame.meshletWork.records,
     materialRecords,
     depth: result.frame.depth,
@@ -214,11 +194,19 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     physicalSkyIrradiance: !plan.request.physicalEnvironment ? undefined : graph.import_resource(
       "physical-environment-sky-irradiance", { kind: "imported", label: "Physical Environment sky irradiance" },
       bind("physical-environment-sky-irradiance", bindings => bindings.environment!.luts.views.irradiance)
+    ),
+    physicalSkySpecular: !plan.request.physicalEnvironment ? undefined : graph.import_resource(
+      "physical-environment-sky-specular", { kind: "imported", label: "Physical sky filtered specular" },
+      bind("physical-environment-sky-specular", bindings => bindings.environment!.ibl.views.specular)
+    ),
+    physicalSkyDfg: !plan.request.physicalEnvironment ? undefined : graph.import_resource(
+      "physical-environment-sky-dfg", { kind: "imported", label: "Physical sky DFG" },
+      bind("physical-environment-sky-dfg", bindings => bindings.environment!.ibl.views.dfg)
     )
   });
   assertTextureProduct(plan, graph, "surface-radiance", surface.radiance);
   assertTextureProduct(plan, graph, "surface-motion", surface.motion);
-  lowerPresentation(plan, initial, owners, graph, bind, cameraBuffer, result, surface, shadingWork.queue, physicalEnvironmentSun);
+  lowerPresentation(plan, initial, owners, graph, bind, cameraBuffer, result, surface, physicalEnvironmentSun);
   return graph.compile();
 }
 
@@ -304,7 +292,7 @@ function lowerPresentation(
   plan: FrameProgram, initial: SceneFrameBindings, owners: FrameProgramOwners,
   graph: FrameGraph, bind: SceneBind, cameraBuffer: ResourceId,
   result: PackedVisibilityOutputs, surface: ReturnType<SurfaceMaterialPass["addToGraph"]>,
-  shadingQueue: ResourceId, physicalEnvironmentSun: ResourceId | undefined
+  physicalEnvironmentSun: ResourceId | undefined
 ): void {
   if (plan.request.kind !== "scene") throw new Error("Presentation requires a scene Frame Program");
   const atmosphereEnvironment = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
@@ -345,7 +333,7 @@ function lowerPresentation(
     bind("swapchain", bindings => bindings.swapchain)
   );
   owners.present.addToGraph(
-    graph, reconstructedRadiance, shadingQueue, swapchain,
+    graph, reconstructedRadiance, swapchain,
     plan.request.outputWidth, plan.request.outputHeight
   );
 }

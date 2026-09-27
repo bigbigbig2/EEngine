@@ -38,6 +38,13 @@ struct OEngineSparseSurface {
   emissive: vec3f, material_ao: f32,
   position_ws: vec3f, velocity: vec2f,
   view_depth: f32, flags: u32,
+  specular_weight: f32, specular_color: vec3f, ior: f32,
+  coat_factor: f32, coat_roughness: f32, coat_normal: vec3f,
+}
+fn sparse_invalid_surface() -> OEngineSparseSurface {
+  return OEngineSparseSurface(vec3f(0.0),0.0,vec3f(0.0),1.0,vec3f(0.0),0.0,
+    vec3f(0.0),1.0,vec3f(0.0),vec2f(0.0),0.0,0u,
+    1.0,vec3f(1.0),1.5,0.0,0.0,vec3f(0.0,0.0,1.0));
 }`;
   const route = usesTextures ? /* wgsl */ `
 fn sparse_texture_route_valid(material_slot: u32, slot: u32, texture_ref: u32) -> bool {
@@ -86,7 +93,7 @@ fn sparse_texture_route_valid(material_slot: u32, slot: u32, texture_ref: u32) -
     route,
     specialization.reconstructTriangle ? geometryWgsl(closure.virtualGeometry) : "",
     usesTextures ? textureWgsl(kernel) : "",
-    specialization.lit ? lightingWgsl(false, false) : "",
+    specialization.lit ? lightingWgsl(false, true) : "",
     specialization.lit ? ATMOSPHERE_RUNTIME_WGSL : "",
     fastUnlit ? "" : materialEvaluationWgsl(kernel),
     /* wgsl */ `
@@ -128,11 +135,13 @@ fn shade(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index) l
   ].filter(Boolean).join("\n");
 }
 
-function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): string {
+export function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): string {
   const prefix = `@group(${binding.group}) @binding(${binding.binding})`;
   switch (binding.role) {
     case "shading-work": return `${prefix} var<storage, read> work: ShadingWorkQueueRead;`;
     case "shading-work-classes": return `${prefix} var<storage, read> classes: ShadingWorkClassesRead;`;
+    case "visibility-key": return `${prefix} var visibility_texture: texture_2d<u32>;`;
+    case "exception-lane": return `${prefix} var<uniform> exception_lane: u32;`;
     case "meshlet-work": return `${prefix} var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;`;
     case "material-records": return `${prefix} var<storage, read> material_records: array<OEngineShadingMaterialRecord>;`;
     case "frame-view": return `${prefix} var<uniform> shading_view: OEngineSparseShadingView;`;
@@ -159,5 +168,8 @@ function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): string {
     case "physical-environment-transmittance": return `${prefix} var physical_environment_transmittance: texture_2d<f32>;`;
     case "physical-sky-irradiance": return `${prefix} var physical_sky_irradiance: texture_2d<f32>;`;
     case "physical-sky-irradiance-sampler": return `${prefix} var physical_sky_sampler: sampler;`;
+    case "physical-sky-specular": return `${prefix} var environment_specular: texture_2d<f32>;`;
+    case "physical-sky-dfg": return `${prefix} var split_sum: texture_2d<f32>;`;
+    case "physical-sky-specular-sampler": return `${prefix} var environment_sampler: sampler;`;
   }
 }

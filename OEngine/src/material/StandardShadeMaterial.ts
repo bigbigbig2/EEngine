@@ -52,6 +52,38 @@ export class StandardShadeMaterial extends ShadeMaterial {
   metallic_factor = 0;
   transmission_factor = 0;
   ior_factor = 1.5;
+  /** glTF KHR_materials_specular, kept independent of metallic/roughness. */
+  specular_factor = 1;
+  specular_color_factor = new Color(1, 1, 1);
+  texture_specular: ShadeTexture | undefined = undefined;
+  texture_specular_color: ShadeTexture | undefined = undefined;
+  specular_uv_set = 0;
+  specular_uv_offset: [number, number] = [0, 0];
+  specular_uv_scale: [number, number] = [1, 1];
+  specular_uv_rotation = 0;
+  specular_color_uv_set = 0;
+  specular_color_uv_offset: [number, number] = [0, 0];
+  specular_color_uv_scale: [number, number] = [1, 1];
+  specular_color_uv_rotation = 0;
+  /** glTF KHR_materials_clearcoat; a nonzero factor selects Coated. */
+  clearcoat_factor = 0;
+  clearcoat_roughness_factor = 0;
+  clearcoat_normal_scale = 1;
+  texture_clearcoat: ShadeTexture | undefined = undefined;
+  texture_clearcoat_roughness: ShadeTexture | undefined = undefined;
+  texture_clearcoat_normal: ShadeTexture | undefined = undefined;
+  clearcoat_uv_set = 0;
+  clearcoat_uv_offset: [number, number] = [0, 0];
+  clearcoat_uv_scale: [number, number] = [1, 1];
+  clearcoat_uv_rotation = 0;
+  clearcoat_roughness_uv_set = 0;
+  clearcoat_roughness_uv_offset: [number, number] = [0, 0];
+  clearcoat_roughness_uv_scale: [number, number] = [1, 1];
+  clearcoat_roughness_uv_rotation = 0;
+  clearcoat_normal_uv_set = 0;
+  clearcoat_normal_uv_offset: [number, number] = [0, 0];
+  clearcoat_normal_uv_scale: [number, number] = [1, 1];
+  clearcoat_normal_uv_rotation = 0;
   emissive_factor = new Color(0, 0, 0);
   ambient_factors = new LinearModifier(1, 1);
 
@@ -64,7 +96,12 @@ export class StandardShadeMaterial extends ShadeMaterial {
           this.texture_normal,
           this.texture_orm,
           this.texture_emissive,
-          this.texture_occlusion
+          this.texture_occlusion,
+          this.texture_specular,
+          this.texture_specular_color,
+          this.texture_clearcoat,
+          this.texture_clearcoat_roughness,
+          this.texture_clearcoat_normal
         ];
     return textures.filter((e): e is ShadeTexture => e !== undefined);
   }
@@ -73,6 +110,11 @@ export class StandardShadeMaterial extends ShadeMaterial {
     return hashMix(
       super.hash(),
       this.diffuse_color.hash(),
+      hashFloat(this.roughness_factor),
+      hashFloat(this.metallic_factor),
+      hashFloat(this.transmission_factor),
+      this.emissive_factor.hash(),
+      this.ambient_factors.hash(),
       hashOptional(this.texture_albedo),
       hashOptional(this.texture_normal),
       hashFloat(this.normal_scale),
@@ -110,7 +152,18 @@ export class StandardShadeMaterial extends ShadeMaterial {
       hashFloat(this.emissive_uv_offset[1]),
       hashFloat(this.emissive_uv_scale[0]),
       hashFloat(this.emissive_uv_scale[1]),
-      hashFloat(this.emissive_uv_rotation)
+      hashFloat(this.emissive_uv_rotation),
+      hashFloat(this.ior_factor), hashFloat(this.specular_factor),
+      this.specular_color_factor.hash(), hashOptional(this.texture_specular),
+      hashOptional(this.texture_specular_color), hashFloat(this.clearcoat_factor),
+      hashFloat(this.clearcoat_roughness_factor), hashFloat(this.clearcoat_normal_scale),
+      hashOptional(this.texture_clearcoat), hashOptional(this.texture_clearcoat_roughness),
+      hashOptional(this.texture_clearcoat_normal),
+      ...EXTRA_UV_ROLES.flatMap((role) => [
+        this[`${role}_uv_set`], hashFloat(this[`${role}_uv_offset`][0]),
+        hashFloat(this[`${role}_uv_offset`][1]), hashFloat(this[`${role}_uv_scale`][0]),
+        hashFloat(this[`${role}_uv_scale`][1]), hashFloat(this[`${role}_uv_rotation`])
+      ])
     );
   }
 
@@ -123,6 +176,17 @@ export class StandardShadeMaterial extends ShadeMaterial {
       this.metallic_factor === other.metallic_factor &&
       this.transmission_factor === other.transmission_factor &&
       this.ior_factor === other.ior_factor &&
+      this.specular_factor === other.specular_factor &&
+      this.specular_color_factor.equals(other.specular_color_factor) &&
+      this.clearcoat_factor === other.clearcoat_factor &&
+      this.clearcoat_roughness_factor === other.clearcoat_roughness_factor &&
+      this.clearcoat_normal_scale === other.clearcoat_normal_scale &&
+      EXTRA_UV_ROLES.every((role) => uvMappingEquals(this, other, role)) &&
+      refOrDeepEquals(this.texture_specular, other.texture_specular) &&
+      refOrDeepEquals(this.texture_specular_color, other.texture_specular_color) &&
+      refOrDeepEquals(this.texture_clearcoat, other.texture_clearcoat) &&
+      refOrDeepEquals(this.texture_clearcoat_roughness, other.texture_clearcoat_roughness) &&
+      refOrDeepEquals(this.texture_clearcoat_normal, other.texture_clearcoat_normal) &&
       this.alpha_cutoff === other.alpha_cutoff &&
       this.base_color_uv_set === other.base_color_uv_set &&
       this.base_color_uv_offset[0] === other.base_color_uv_offset[0] &&
@@ -148,10 +212,14 @@ export class StandardShadeMaterial extends ShadeMaterial {
   }
 }
 
+const EXTRA_UV_ROLES = [
+  "specular", "specular_color", "clearcoat", "clearcoat_roughness", "clearcoat_normal"
+] as const;
+
 function uvMappingEquals(
   left: StandardShadeMaterial,
   right: StandardShadeMaterial,
-  role: "normal" | "orm" | "occlusion" | "emissive"
+  role: "normal" | "orm" | "occlusion" | "emissive" | typeof EXTRA_UV_ROLES[number]
 ): boolean {
   return left[`${role}_uv_set`] === right[`${role}_uv_set`] &&
     left[`${role}_uv_offset`][0] === right[`${role}_uv_offset`][0] &&

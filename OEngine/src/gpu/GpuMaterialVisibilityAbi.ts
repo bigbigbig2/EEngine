@@ -430,7 +430,7 @@ function alphaMode(mode: number): number {
   return GPU_MATERIAL_VISIBILITY_ALPHA_MODE.Opaque;
 }
 
-function encodeSamplerClass(
+export function encodeSamplerClass(
   texture: ShadeTexture | null,
   residentMipRange?: readonly [number, number]
 ): {
@@ -481,7 +481,7 @@ function addressMode(value: number): number | null {
   return null;
 }
 
-function isUsableTexture(texture: ShadeTexture): boolean {
+export function isUsableTexture(texture: ShadeTexture): boolean {
   if (texture.runtime_asset_package_v2 !== undefined) return true;
   const image = texture.image;
   return image !== undefined && image.width > 0 && image.height > 0 && image.depth <= 1;

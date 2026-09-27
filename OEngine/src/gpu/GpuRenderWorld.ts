@@ -49,6 +49,7 @@ import type {
 } from "./GpuScene.js";
 import type { ResourceHandle as AccountingResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import type { GeometryProductGpuBindingsV1 } from "./VirtualGeometryResidency.js";
+import { residentSamplingProfile } from "./PhysicalSamplingProfile.js";
 
 declare const GPU_RENDER_WORLD_HANDLE_BRAND: unique symbol;
 
@@ -1363,17 +1364,31 @@ function shadingMaterialProfile(
   material: StandardShadeMaterial,
   textureBindingSetId: number
 ): GpuShadingMaterialProfile {
+  // The physical set is a binding choice, never a closure/program identity.
+  residentSamplingProfile(textureBindingSetId);
   const hasBaseTexture = material.texture_albedo !== undefined;
   const hasOrmTexture = !material.is_unlit && material.texture_orm !== undefined;
   const hasNormalTexture = !material.is_unlit && material.texture_normal !== undefined;
   const hasEmissiveTexture = !material.is_unlit && material.texture_emissive !== undefined;
   const hasOcclusionTexture = !material.is_unlit && material.texture_occlusion !== undefined;
+  const extensionTextures = !material.is_unlit ? [
+    [material.texture_specular, material.specular_uv_set],
+    [material.texture_specular_color, material.specular_color_uv_set],
+    [material.clearcoat_factor > 0 ? material.texture_clearcoat : undefined, material.clearcoat_uv_set],
+    [material.clearcoat_factor > 0 ? material.texture_clearcoat_roughness : undefined,
+      material.clearcoat_roughness_uv_set],
+    [material.clearcoat_factor > 0 ? material.texture_clearcoat_normal : undefined,
+      material.clearcoat_normal_uv_set]
+  ] as const : [];
   let requiredUvSetsMask = 0;
   if (hasBaseTexture) requiredUvSetsMask |= uvSetMask(material.base_color_uv_set, material.name);
   if (hasOrmTexture) requiredUvSetsMask |= uvSetMask(material.orm_uv_set, material.name);
   if (hasNormalTexture) requiredUvSetsMask |= uvSetMask(material.normal_uv_set, material.name);
   if (hasEmissiveTexture) requiredUvSetsMask |= uvSetMask(material.emissive_uv_set, material.name);
   if (hasOcclusionTexture) requiredUvSetsMask |= uvSetMask(material.occlusion_uv_set, material.name);
+  for (const [texture, uvSet] of extensionTextures) {
+    if (texture !== undefined) requiredUvSetsMask |= uvSetMask(uvSet, material.name);
+  }
   return {
     shadingModel: material.is_unlit ? "unlit" : "standard-pbr",
     hasBaseTexture,
@@ -1381,6 +1396,7 @@ function shadingMaterialProfile(
     hasNormalTexture,
     hasEmissiveTexture,
     hasOcclusionTexture,
+    hasExtensionTexture: extensionTextures.some(([texture]) => texture !== undefined),
     requiredUvSetsMask,
     textureBindingSetId
   };

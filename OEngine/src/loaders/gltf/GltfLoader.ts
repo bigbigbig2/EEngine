@@ -188,8 +188,15 @@ export interface GltfMaterial {
     KHR_materials_specular?: {
       specularFactor?: number;
       specularColorFactor?: number[];
-      specularTexture?: { index: number };
-      specularColorTexture?: { index: number };
+      specularTexture?: GltfTextureInfo;
+      specularColorTexture?: GltfTextureInfo;
+    };
+    KHR_materials_clearcoat?: {
+      clearcoatFactor?: number;
+      clearcoatTexture?: GltfTextureInfo;
+      clearcoatRoughnessFactor?: number;
+      clearcoatRoughnessTexture?: GltfTextureInfo;
+      clearcoatNormalTexture?: GltfTextureInfo & { scale?: number };
     };
     [key: string]: unknown;
   };
@@ -431,10 +438,10 @@ const SUPPORTED_REQUIRED_EXTENSIONS = new Set([
   "EXT_texture_webp",
   "KHR_lights_punctual",
   "KHR_materials_emissive_strength",
+  "KHR_materials_unlit",
   "KHR_materials_ior",
-  "KHR_materials_pbrSpecularGlossiness",
+  "KHR_materials_clearcoat",
   "KHR_materials_specular",
-  "KHR_materials_transmission",
   "KHR_texture_transform"
 ]);
 

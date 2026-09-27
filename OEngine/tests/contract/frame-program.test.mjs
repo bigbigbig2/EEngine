@@ -19,7 +19,7 @@ test("Frame Program closes the current scene product demand with a structural ke
   const first = buildFrameProgram(scene);
   const reordered = buildFrameProgram({ ...scene, activeClasses: [0, 4] });
   assert.equal(first.key, reordered.key);
-  for (const product of ["visibility", "depth", "hzb", "meshlet-work", "shading-work", "light-cluster",
+  for (const product of ["visibility", "depth", "hzb", "meshlet-work", "light-cluster",
     "surface-radiance", "surface-motion", "sky-radiance", "aerial-radiance",
     "reconstructed-color", "swapchain"]) assert.ok(first.products.includes(product), product);
   assert.equal(first.directLighting, true);
@@ -34,8 +34,7 @@ test("Frame Program closes the current scene product demand with a structural ke
   const unlit = buildFrameProgram({ ...scene, activeClasses: [0] });
   assert.ok(!unlit.products.includes("light-cluster"));
   assert.deepEqual(first.facts.find(fact => fact.product === "surface-motion").consumers, ["fsr3"]);
-  assert.deepEqual(first.facts.find(fact => fact.product === "shading-work").consumers,
-    ["surface", "present"]);
+  assert.ok(!first.products.includes("shading-work"));
   assert.deepEqual(first.facts.find(fact => fact.product === "visibility").extent, [640, 360]);
   assert.equal(first.facts.find(fact => fact.product === "surface-motion").format, "rg16float");
 });
@@ -63,7 +62,9 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const plan = buildFrameProgram(request);
   const resource = {};
   const runtime = { virtualGeometry: null, activeShadingSummary: { binRefCounts: Array(64).fill(0) },
-    materialResources: { materialRecords: resource, textureRouteRecords: resource, bindingSets: [] },
+    materialResources: { materialRecords: resource, textureRouteRecords: resource,
+      bindingSets: [{ id: 0, textureBankMask: 1,
+        textureBanks: Array(9).fill(resource), bankDescriptors: [] }] },
     counterSink: resource };
   runtime.activeShadingSummary.binRefCounts[0] = 1;
   const job = { runtime, width: 640, height: 360, assets: { sparseShading: {
@@ -108,21 +109,15 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       return { counters: input.counters, frame: { ...input.sourceFrame, visibilityKey, depth,
         meshletWork: { records }, domain: input.sourceFrame.domain } };
     } },
-    shadingWork: { addToGraph(graph, input) {
-      const pass = graph.add("test/ShadingWork", {}, () => {});
-      pass.read(input.visibilityKey); pass.read(input.meshletWork); pass.read(input.depth);
-      const create = name => pass.create(name, { kind: "transient_buffer", size: 64, usage: 1 });
-      return { queue: create("test/work"), classes: create("test/classes"), indirect: create("test/indirect") };
-    } },
     surface: { addToGraph(graph, input) {
       const pass = graph.add("test/Surface", {}, () => {});
-      pass.read(input.queue); pass.read(input.classes); pass.read(input.indirect);
+      pass.read(input.visibilityKey); pass.read(input.meshletWork); pass.read(input.depth);
       const create = (name, format) => pass.create(name, { kind: "transient_texture",
         width: 640, height: 360, format, domain: "internal-full", usage: 7 });
       return { radiance: create("test/radiance", "rgba16float"),
         motion: create("test/motion", "rg16float") };
     } },
-    present: { addToGraph(graph, color, _queue, swapchain) {
+    present: { addToGraph(graph, color, swapchain) {
       const pass = graph.add("test/Present", {}, () => {});
       pass.read(color); pass.write(swapchain); pass.make_side_effect();
     } }, sky: null, aerial: null, lightCluster() { throw new Error("feature-off light cluster"); }
@@ -164,17 +159,18 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const compiled = lowerFrameProgram(plan, bindings, owners);
   const dump = compiled.dump();
   assert.deepEqual(dump.executablePassOrder.map(id => dump.passes[id].name),
-    ["test/Visibility", "test/ShadingWork", "test/Surface", "test/FSR3", "test/Present"]);
+    ["test/Visibility", "test/Surface", "test/FSR3", "test/Present"]);
   const pass = name => dump.passes.find(entry => entry.name === name);
-  for (const [producer, consumer] of [["test/Visibility", "test/ShadingWork"],
-    ["test/ShadingWork", "test/Surface"], ["test/Surface", "test/FSR3"],
+  for (const [producer, consumer] of [["test/Visibility", "test/Surface"],
+    ["test/Surface", "test/FSR3"],
     ["test/FSR3", "test/Present"]]) {
     assert.ok(pass(consumer).dependencies.includes(pass(producer).id), `${producer} -> ${consumer}`);
   }
   assert.ok(!dump.resources.some(entry => entry.name.includes("HZB") || entry.name.includes("environment")));
   assert.equal(dump.resources.find(entry => entry.name === "test/FSR3 history").binding, "fsr3/history");
   const lut = { transmittance: {}, scattering: {}, higherOrderScattering: {}, irradiance: {} };
-  const environment = { parameters: { size: 64 }, luts: { views: lut } };
+  const environment = { parameters: { size: 64 }, luts: { views: lut },
+    ibl: { views: { specular: {}, dfg: {} } } };
   const environmentPlan = buildFrameProgram({ ...request, physicalEnvironment: true });
   const environmentOwners = { ...owners,
     sky: { addToGraph(graph, input) {
@@ -195,7 +191,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   assertFrameProgramBindings(environmentPlan, environmentBindings);
   const withEnvironment = lowerFrameProgram(environmentPlan, environmentBindings, environmentOwners).dump();
   assert.deepEqual(withEnvironment.executablePassOrder.map(id => withEnvironment.passes[id].name),
-    ["test/Visibility", "test/ShadingWork", "test/Surface", "test/Sky", "test/Aerial",
+    ["test/Visibility", "test/Surface", "test/Sky", "test/Aerial",
       "test/FSR3", "test/Present"]);
   assert.equal(withEnvironment.resources.find(entry =>
     entry.name === "physical-environment-transmittance").binding,
@@ -209,8 +205,8 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const lateNames = lateDump.executablePassOrder.map(id => lateDump.passes[id].name);
   assert.ok(lateNames.indexOf("Visibility/build HZB") > lateNames.indexOf("test/Visibility"));
   assert.ok(lateNames.indexOf("test/Late HZB recheck") > lateNames.indexOf("Visibility/build HZB"));
-  assert.ok(lateNames.indexOf("test/ShadingWork") > lateNames.indexOf("test/Late HZB recheck"));
-  assert.ok(lateDump.passes.find(entry => entry.name === "test/ShadingWork").dependencies.includes(
+  assert.ok(lateNames.indexOf("test/Surface") > lateNames.indexOf("test/Late HZB recheck"));
+  assert.ok(lateDump.passes.find(entry => entry.name === "test/Surface").dependencies.includes(
     lateDump.passes.find(entry => entry.name === "test/Late HZB recheck").id));
   const empty = lowerFrameProgram(buildFrameProgram({ kind: "empty", intent: "present",
     viewFamily: "main", outputWidth: 1280, outputHeight: 720,

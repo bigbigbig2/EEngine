@@ -2,6 +2,7 @@ import { ChangeSignal } from "../../core/Signal.js";
 import { Vec2 } from "../../core/math/Vec2.js";
 import { GraphicsContext } from "../../gpu/GraphicsContext.js";
 import { captureWebGpuCapabilityRecord } from "../../gpu/WebGpuCapabilityRecord.js";
+import { preflightResidentSurfaceLimits } from "../../gpu/PhysicalSamplingProfile.js";
 import { GPUSceneEnvironmentManager } from "../../gpu/GPUSceneEnvironmentManager.js";
 import type { CompiledFrameGraphDump } from "../../framegraph/FrameGraph.js";
 import { summarizeFrameGraphResources, type FrameResourceSummary } from "../../framegraph/FrameResourceSummary.js";
@@ -12,7 +13,6 @@ import { RenderTargets } from "../RenderTargets.js";
 import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
-import { ShadingWorkPass } from "../surface/ShadingWorkPass.js";
 import { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
@@ -256,7 +256,6 @@ export class Renderer {
   private _cameraStates!: GPUCameraStateManager;
   private _views!: ViewManager;
   private _visibilityFeature!: VisibilityFeature;
-  private _shadingWork!: ShadingWorkPass;
   private _surfaceMaterial!: SurfaceMaterialPass;
   private _lightCluster: LightClusterPass | null = null;
   private _physicalSky: PhysicalSkyPass | null = null;
@@ -1008,7 +1007,6 @@ export class Renderer {
   mainFrameGraphEvidence() { return this._lastFrameGraph; }
 
   /** On-demand GPU diagnosis only; the frame path never reads ShadingWork back. */
-  diagnosticShadingFrequency() { return this._shadingWork.readDiagnosticFrequency(); }
 
   async initialize(options: RendererInitializeOptions = {}): Promise<void> {
     if (this._destroyed) throw new Error("Destroyed Renderer cannot initialize");
@@ -1055,6 +1053,7 @@ export class Renderer {
     if (Number(adapter.limits.maxStorageBuffersPerShaderStage) < minStorageBuffers) {
       throw new Error(`Visibility requires ${minStorageBuffers} storage buffers per shader stage`);
     }
+    preflightResidentSurfaceLimits(adapter.limits);
     const device = options.device ?? await adapter.requestDevice({
       requiredFeatures: [...requiredFeatures], requiredLimits: limits
     });
@@ -1064,6 +1063,7 @@ export class Renderer {
     if (Number(device.limits.maxStorageBuffersPerShaderStage) < minStorageBuffers) {
       throw new Error("Caller device lacks the visibility storage-buffer limit");
     }
+    preflightResidentSurfaceLimits(device.limits);
     this._ownsDevice = options.device === undefined;
     this.device = device;
     this.context = context;
@@ -1096,19 +1096,15 @@ export class Renderer {
     this._views = new ViewManager(this._graphics, this._cameraStates);
     this._visibilityFeature = new VisibilityFeature(this._graphics);
     this._format = gpu.getPreferredCanvasFormat();
-    this._shadingWork = new ShadingWorkPass(device);
     this._surfaceMaterial = new SurfaceMaterialPass(device);
     this._present = new SurfacePresentPass(device, this._format);
     this._fsr3 = new Fsr3UpscalerRuntime(device);
     // The pinned Takram LUT profile is device-local and recorded into the
     // first frame submission; consumers can bind its immutable views by
     // generation without owning the LUT lifetime.
-    if (Number(device.limits.maxTextureDimension3D) >= 256 &&
-        Number(device.limits.maxStorageTexturesPerShaderStage) >= 2) {
-      this._environmentRuntime = new PhysicalEnvironmentRuntime(device);
-      this._physicalSky = new PhysicalSkyPass(this._graphics);
-      this._aerialPerspective = new AerialPerspectivePass(device);
-    }
+    this._environmentRuntime = new PhysicalEnvironmentRuntime(device);
+    this._physicalSky = new PhysicalSkyPass(this._graphics);
+    this._aerialPerspective = new AerialPerspectivePass(device);
     const canvas = context.canvas as HTMLCanvasElement;
     this._width = Math.max(1, canvas.clientWidth || canvas.width);
     this._height = Math.max(1, canvas.clientHeight || canvas.height);
@@ -1142,7 +1138,6 @@ export class Renderer {
   private frameProgramOwners(): FrameProgramOwners {
     return {
       visibility: this._visibilityFeature,
-      shadingWork: this._shadingWork,
       surface: this._surfaceMaterial,
       present: this._present,
       sky: this._physicalSky,
@@ -1207,7 +1202,8 @@ export class Renderer {
       this._graphics.encodeFrameMaintenance(command);
       this._renderTargets.setFrameIndex(frameIndex);
       environmentGeneration = this._environmentRuntime?.record(command.gpu_encoder,
-        scene.physical_environment.snapshot());
+        scene.physical_environment.snapshot(),
+        [camera.transform.matrix[12]!, camera.transform.matrix[13]!, camera.transform.matrix[14]!]);
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         this._environmentRuntime!.writeParameters((buffer, data) =>
           command.writeBuffer(buffer, 0, data, 0, data.byteLength));
@@ -1336,7 +1332,7 @@ export class Renderer {
       this._temporal.commit(frameIndex);
       this._fsr3.commit(command.gpuDone);
       temporalActive = false;
-      if (environmentGeneration !== undefined && environmentGeneration !== null) this._environmentRuntime?.commit(environmentGeneration);
+      if (environmentGeneration !== undefined && environmentGeneration !== null) this._environmentRuntime?.commit(environmentGeneration, command.gpuDone);
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         this._environmentRuntime?.luts.retireCompleted(command.gpuDone);
       }

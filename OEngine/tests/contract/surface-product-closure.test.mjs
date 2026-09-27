@@ -9,42 +9,49 @@ import {
   surfaceMaterialRequirements, closeSurfaceBindings
 } from "../../.test-dist/render/surface/SurfaceProducts.js";
 import { GPU_SURFACE_KERNEL_DEMAND } from "../../.test-dist/gpu/GpuSurfaceProgramSpecialization.js";
-import { shadingProgramUsesTextures } from "../../.test-dist/gpu/GpuShadingProgramAbi.js";
-import { createSurfaceMaterialProgramWgsl } from "../../.test-dist/shaders/surface_material_program.js";
+import { surfaceExecutionWgsl, SURFACE_WORK_CONTROL_WGSL } from
+  "../../.test-dist/shaders/surface_execution.js";
+import { SURFACE_EXCEPTION_LANES, surfaceExceptionLane, surfaceLaneCapacity } from
+  "../../.test-dist/render/surface/SurfaceExecutionAbi.js";
 import { planSurfaceKernelBindings, compileSurfaceProgramLayout,
   createSurfaceBindGroupLayouts } from
   "../../.test-dist/render/surface/SurfaceKernelBindingPlan.js";
 
 const desktopLimits = Object.freeze({
   maxBindGroups: 4, maxBindingsPerBindGroup: 16,
-  maxStorageBuffersPerShaderStage: 16, maxStorageTexturesPerShaderStage: 1,
-  maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 6,
-  maxUniformBuffersPerShaderStage: 2
+  maxStorageBuffersPerShaderStage: 16, maxStorageTexturesPerShaderStage: 2,
+  maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 8,
+  maxUniformBuffersPerShaderStage: 4
 });
 
-test("all production Surface classes emit exactly their planned bindings without the retired resolve", () => {
-  for (const virtualGeometry of [false, true]) {
-    for (let classId = 0; classId < 64; classId++) {
-      const programId = classId & 15;
-      const compiled = compileSurfaceProgramLayout({
-        kernel: { programId, outputDependencyMask: 0,
-          textureBankMask: shadingProgramUsesTextures(programId) ? 0x1ff : 0 },
-        virtualGeometry, lighting: programId >= 4 ? "direct" : "unlit",
-        source: "surface-material-kernel-v1", capabilityFingerprint: "webgpu-core",
-        formatProfile: "rgba16float"
-      }, desktopLimits);
-      const source = createSurfaceMaterialProgramWgsl(compiled.closure, compiled.plan, classId);
-      const actual = [...source.matchAll(/@group\((\d+)\)\s*@binding\((\d+)\)/gu)]
-        .map(match => `${match[1]}:${match[2]}`).sort();
-      const expected = compiled.plan.bindings.map(binding =>
-        `${binding.group}:${binding.binding}`).sort();
-      assert.deepEqual(actual, expected, `class ${classId}, VG ${virtualGeometry}`);
-      assert.equal(new Set(actual).size, actual.length);
-      assert.match(source, /fn shade\(/u);
-      assert.doesNotMatch(source, /fn shading_resolve\(/u);
-      assert.throws(() => createSurfaceMaterialProgramWgsl(
-        compiled.closure, compiled.plan, classId ^ 1), /does not match/u);
-    }
+test("production Surface has bounded Dense, Binned and whole-lane overflow paths", () => {
+  assert.equal(SURFACE_EXCEPTION_LANES, 7);
+  assert.equal(surfaceExceptionLane(0, true), 0);
+  assert.equal(surfaceExceptionLane(1, false), 1);
+  assert.equal(surfaceExceptionLane(3, true), 6);
+  assert.throws(() => surfaceExceptionLane(0, false), /Dense/);
+  const queue = surfaceLaneCapacity(64, 64, {
+    maxBufferSize: 65536, maxStorageBufferBindingSize: 65536,
+    maxComputeWorkgroupsPerDimension: 65535
+  });
+  assert.equal(queue.capacity, Math.ceil(64 * 64 / 7));
+  assert.match(SURFACE_WORK_CONTROL_WGSL, /attempted>work\.header\.capacity/);
+  assert.match(SURFACE_WORK_CONTROL_WGSL, /vec4u\(0u,0u,1u,0u\),overflow/);
+  const plan = compileSurfaceProgramLayout({
+    kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion,
+      textureBankMask: 0x1ff },
+    virtualGeometry: false, lighting: "direct", source: "surface-execution-v2",
+    capabilityFingerprint: "webgpu-core", formatProfile: "rgba16float"
+  }, desktopLimits).plan;
+  for (const [mode, lane] of [["dense", 0], ["binned", 1], ["binned", 0],
+    ["fallback", 1], ["fallback", 0]]) {
+    const source = surfaceExecutionWgsl(plan, mode, lane, true, false);
+    const actual = [...source.matchAll(/@group\((\d+)\)\s*@binding\((\d+)\)/gu)]
+      .map(match => `${match[1]}:${match[2]}`).sort();
+    assert.deepEqual(actual, plan.bindings.map(binding =>
+      `${binding.group}:${binding.binding}`).sort());
+    assert.match(source, /fn shade\(/u);
+    assert.doesNotMatch(source, /ShadingWorkClassesRead/u);
   }
 });
 
@@ -76,7 +83,7 @@ test("material resource closure follows triangle, texture and direct-light deman
   assert.equal(unlit.directLighting, false);
   assert.deepEqual(unlit.roles, [
     "shading-work", "shading-work-classes", "meshlet-work", "material-records",
-    "frame-view", "radiance-output"
+    "frame-view", "radiance-output", "motion-output"
   ]);
   const texturedPbr = { ...base, virtualGeometry: true,
     kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask: 3 }
@@ -107,11 +114,12 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   };
   const narrow = planSurfaceKernelBindings(base, desktopLimits);
   assert.deepEqual(narrow.totals, {
-    storageBuffers: 4, storageTextures: 1, sampledTextures: 0,
+    storageBuffers: 4, storageTextures: 2, sampledTextures: 0,
     samplers: 0, uniformBuffers: 1
   });
   assert.deepEqual(narrow.bindings.map(binding => binding.role), [
     "shading-work", "meshlet-work", "material-records", "frame-view", "radiance-output",
+    "motion-output",
     "shading-work-classes"
   ]);
   const full = { ...base, virtualGeometry: true, lighting: "direct",
@@ -119,8 +127,8 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
       textureBankMask: 0x1ff } };
   const plan = planSurfaceKernelBindings(full, desktopLimits);
   assert.deepEqual(plan.totals, {
-    storageBuffers: 16, storageTextures: 1, sampledTextures: 10,
-    samplers: 6, uniformBuffers: 2
+    storageBuffers: 16, storageTextures: 2, sampledTextures: 14,
+    samplers: 8, uniformBuffers: 3
   });
   assert.equal(new Set(plan.bindings.map(binding =>
     `${binding.group}:${binding.binding}`)).size, plan.bindings.length);
@@ -160,7 +168,7 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   emitted.length = 0;
   createSurfaceBindGroupLayouts(fakeDevice, narrow);
   assert.equal(emitted.length, 1);
-  assert.equal(emitted[0].entries.length, 6);
+  assert.equal(emitted[0].entries.length, 7);
 });
 
 test("publication bindings close only the selected program's resource demand", () => {

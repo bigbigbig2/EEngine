@@ -94,7 +94,8 @@ fn sample_prefiltered_environment(
   roughness: f32
 ) -> vec3f {
   let max_mip = textureNumLevels(source) - 1u;
-  let lod = clamp(roughness, 0.0, 1.0) * f32(max_mip);
+  let perceptual = clamp(roughness, 0.0, 1.0);
+  let lod = perceptual * (2.0 - perceptual) * f32(max_mip);
   let lower = u32(floor(lod));
   let blend = fract(lod);
   let lower_sample = sample_octahedral_bilinear(

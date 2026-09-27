@@ -467,7 +467,7 @@ fn packed_transparent_forward(
     let direct_material = StandardMaterial(
       albedo * (1.0 - metallic), roughness,
       material_ao,
-      f0, 1.0, emissive, opacity
+      f0, 1.0, emissive, opacity, 0.0, 1.0, normal
     );
     let direct_geometry = SurfaceGeometry(normal, normal, input.world_position, view_direction);
     let direct = shade_standard_material_direct(

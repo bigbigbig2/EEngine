@@ -3,7 +3,7 @@ import { surfaceMaterialRequirements } from "./SurfaceProducts.js";
 
 /** Physical lowering of one Surface program's logical demand, independent of a scene revision. */
 export type SurfaceBindingKind =
-  | "read-only-storage" | "uniform" | "sampled-depth"
+  | "read-only-storage" | "storage" | "uniform" | "sampled-depth" | "sampled-uint"
   | "sampled-array" | "sampled-2d" | "filtering-sampler" | "write-only-rgba16float" | "write-only-rg16float";
 
 export interface SurfacePhysicalBinding {
@@ -67,7 +67,7 @@ export function planSurfaceKernelBindings(
     if (roles.has(role)) bindings.push(Object.freeze({ role, group, binding, kind, element }));
   };
 
-  add("shading-work", 0, 0, "read-only-storage");
+  add("shading-work", 0, 0, closure.source === "surface-execution-v2" ? "storage" : "read-only-storage");
   add("meshlet-work", 0, 1, "read-only-storage");
   add("material-records", 0, 2, "read-only-storage");
   add("frame-view", 0, 3, "uniform");
@@ -75,6 +75,8 @@ export function planSurfaceKernelBindings(
   add("motion-output", 0, 7, "write-only-rg16float");
   add("visibility-depth", 0, 5, "sampled-depth");
   add("shading-work-classes", 0, 6, "read-only-storage");
+  add("visibility-key", 0, 6, "sampled-uint");
+  add("exception-lane", 0, 8, "uniform");
 
   add("instance-records", 1, 0, "read-only-storage");
   add("geometry-metadata", 1, 1, "read-only-storage");
@@ -102,6 +104,9 @@ export function planSurfaceKernelBindings(
   add("physical-sky-irradiance", 3, 5, "sampled-2d");
   add("physical-sky-irradiance-sampler", 3, 6, "filtering-sampler");
   add("physical-environment-transmittance", 3, 7, "sampled-2d");
+  add("physical-sky-specular", 3, 8, "sampled-2d");
+  add("physical-sky-dfg", 3, 9, "sampled-2d");
+  add("physical-sky-specular-sampler", 3, 10, "filtering-sampler");
 
   const resolvedRoles = new Set(bindings.map(binding => binding.role));
   for (const role of roles) {
@@ -114,10 +119,13 @@ export function planSurfaceKernelBindings(
     occupied.add(slot);
   }
   const totals = Object.freeze({
-    storageBuffers: bindings.filter(binding => binding.kind === "read-only-storage").length,
-    storageTextures: bindings.filter(binding => binding.kind === "write-only-rgba16float").length,
+    storageBuffers: bindings.filter(binding => binding.kind === "read-only-storage" ||
+      binding.kind === "storage").length,
+    storageTextures: bindings.filter(binding => binding.kind === "write-only-rgba16float" ||
+      binding.kind === "write-only-rg16float").length,
     sampledTextures: bindings.filter(binding =>
-      binding.kind === "sampled-depth" || binding.kind === "sampled-array" || binding.kind === "sampled-2d").length,
+      binding.kind === "sampled-depth" || binding.kind === "sampled-uint" ||
+      binding.kind === "sampled-array" || binding.kind === "sampled-2d").length,
     samplers: bindings.filter(binding => binding.kind === "filtering-sampler").length,
     uniformBuffers: bindings.filter(binding => binding.kind === "uniform").length
   });
@@ -169,11 +177,17 @@ export function createSurfaceBindGroupLayouts(
           case "read-only-storage":
             entry.buffer = { type: "read-only-storage" };
             break;
+          case "storage":
+            entry.buffer = { type: "storage" };
+            break;
           case "uniform":
             entry.buffer = { type: "uniform" };
             break;
           case "sampled-depth":
             entry.texture = { sampleType: "depth" };
+            break;
+          case "sampled-uint":
+            entry.texture = { sampleType: "uint" };
             break;
           case "sampled-array":
             entry.texture = { sampleType: "float", viewDimension: "2d-array" };
