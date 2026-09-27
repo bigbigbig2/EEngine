@@ -14,6 +14,7 @@ import type { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
 import type { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
 import type { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import type { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
+import type { VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
 import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 
@@ -30,6 +31,7 @@ export type FrameProgramOwners = Readonly<{
   xeGtaoPreparation: XeGtaoPreparationPass;
   xeGtaoMain: XeGtaoMainPass;
   xeGtaoDenoise: XeGtaoDenoisePass;
+  vsmReceiverDemand: VsmReceiverDemandPass;
 }>;
 
 type SceneBind = <T extends object>(name: string, resolve: (bindings: SceneFrameBindings) => T) => T;
@@ -92,6 +94,30 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   const graph = new FrameGraph("Renderer/visibility-frame");
   const { result, cameraBuffer, builtHzb } = lowerVisibility(plan, graph, bind, owners);
   assertTextureProduct(plan, graph, "visibility", result.frame.visibilityKey);
+  if (plan.products.includes("shadow-demand")) {
+    if (initial.vsm === null || initial.vsmFrame === null) {
+      throw new Error("Frame Program VSM demand requires persistent resources and clipmap constants");
+    }
+    const vsmOwner = bind("vsm-owner", bindings => {
+      if (bindings.vsm === null) throw new Error("Frame Program VSM owner publication is missing");
+      return bindings.vsm;
+    });
+    const vsmFrame = bind("vsm-frame", bindings => {
+      if (bindings.vsmFrame === null) throw new Error("Frame Program VSM clipmap publication is missing");
+      return bindings.vsmFrame;
+    });
+    owners.vsmReceiverDemand.addToGraph(graph, {
+      width: result.frame.domain.width,
+      height: result.frame.domain.height,
+      camera: cameraBuffer,
+      depth: result.frame.depth,
+      visibilityKey: result.frame.visibilityKey,
+      resources: vsmOwner,
+      generation: vsmFrame.generation,
+      lightView: vsmFrame.lightView,
+      clipOriginExtent: vsmFrame.clipOriginExtent
+    });
+  }
   const materialRecords = graph.import_resource(
     "material-records", { kind: "imported", label: "published material records" },
     bind("material-records", bindings => bindings.runtime.materialResources.materialRecords)

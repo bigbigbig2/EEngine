@@ -68,6 +68,7 @@ import { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
 import { RadiometryRuntime, type PreExposureContract } from "../RadiometryContract.js";
 import { negotiateVsmCapabilities } from "../vsm/VsmCapabilities.js";
 import { VsmResources } from "../vsm/VsmResources.js";
+import { buildVsmDirectionalFrameConstants, VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 
 export interface RendererInitializeOptions {
   context?: GPUCanvasContext;
@@ -314,6 +315,7 @@ export class Renderer {
   private _recoveryCheckpoint: ReturnType<Renderer["checkpointRecovery"]> | null = null;
   private _streamingGpuFrameTimeMs = 0;
   private _vsm: VsmResources | null = null;
+  private _vsmReceiverDemand!: VsmReceiverDemandPass;
   private _lastFrameGraph: Readonly<{ cacheKey: string; dump: CompiledFrameGraphDump;
     resources: FrameResourceSummary; program: Pick<FrameProgram, "products" | "facts" | "stages" | "bindingRoles"> }> | null = null;
   private readonly _graphCache = new CompiledFrameGraphCache(8);
@@ -1099,6 +1101,7 @@ export class Renderer {
     // E2 freezes the device-epoch profile and owns persistent resources. The
     // frame program remains shadow-disabled until the GPU producer lands in E4.
     this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
+    this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
     device.lost.then(info => {
       if (!this._destroyed) {
         this._deviceLost = true;
@@ -1175,7 +1178,8 @@ export class Renderer {
       present: this._present,
       sky: this._physicalSky,
       aerial: this._aerialPerspective,
-      lightCluster: () => (this._lightCluster ??= new LightClusterPass(this._graphics))
+      lightCluster: () => (this._lightCluster ??= new LightClusterPass(this._graphics)),
+      vsmReceiverDemand: this._vsmReceiverDemand
     };
   }
 
@@ -1340,7 +1344,14 @@ export class Renderer {
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
          fsr3: this._fsr3, temporalFacts: this._temporalFacts, radiometry: this._gpuRadiometry,
-        environment: this._environmentRuntime, vsm: this._vsm
+        environment: this._environmentRuntime,
+        vsm: this._vsm,
+        vsmFrame: hasLit && this._vsm !== null && this._vsm.profile !== "shadow-disabled"
+          ? buildVsmDirectionalFrameConstants(
+              scene.physical_environment.snapshot().sunDirectionWorld,
+              [camera.transform.matrix[12]!, camera.transform.matrix[13]!, camera.transform.matrix[14]!],
+              camera.far, this._vsm, frameIndex
+            ) : null
       };
       const program = this._programCache.getOrCreate({
         kind: "scene", intent: "present", viewFamily: "main", outputWidth: this._output_resolution.x,
@@ -1352,7 +1363,8 @@ export class Renderer {
         currentHzbLateRecheck: job.prepared.currentHzbLateRecheck !== null,
         activeSets, hasLit,
         aoProfile: hasLit && activeSets.length > 0 ? "scalar-high" : "off",
-        shadowProfile: hasLit ? "shadow-disabled" : "off",
+        shadowProfile: hasLit && this._vsm !== null && this._vsm.profile !== "shadow-disabled"
+          ? this._vsm.profile : hasLit ? "shadow-disabled" : "off",
         physicalEnvironment: this._environmentRuntime !== null
       });
       assertFrameProgramBindings(program, graphBindings);
@@ -1491,6 +1503,7 @@ export class Renderer {
     this._bloom?.destroy();
     this._vsm?.destroy();
     this._vsm = null;
+    this._vsmReceiverDemand?.destroy();
     this._views?.destroy();
     this._environments?.destroy();
     this._environmentRuntime?.destroy();

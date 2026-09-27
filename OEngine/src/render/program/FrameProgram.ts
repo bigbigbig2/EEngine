@@ -5,7 +5,7 @@ export type FrameProduct =
   | "surface-radiance" | "surface-motion"
   | "temporal-motion" | "temporal-mask" | "temporal-identity"
   | "visibility" | "depth" | "meshlet-work" | "hzb" | "light-cluster"
-  | "indirect-visibility" | "shadow-visibility";
+  | "indirect-visibility" | "shadow-demand" | "shadow-visibility";
 
 export type FrameProgramStage =
   | "clear-present" | "visibility" | "hzb" | "light-cluster"
@@ -111,6 +111,9 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
   "shadow-visibility": { producer: "vsm", domain: "gpu-work", format: "structured-buffer",
     value: "directional VSM visibility with page fallback", coverage: "lit opaque surface",
     invalid: "neutral visibility one", version: "frame" },
+  "shadow-demand": { producer: "vsm", domain: "gpu-work", format: "structured-buffer",
+    value: "bounded directional VSM receiver demand", coverage: "visible opaque receivers",
+    invalid: "zero demand header", version: "frame" },
   visibility: { producer: "visibility", domain: "internal-full", format: "r32uint",
     value: "packed VisibilityKey", coverage: "visible geometry", invalid: "background sentinel", version: "frame" },
   depth: { producer: "visibility", domain: "internal-full", format: "depth32float",
@@ -183,6 +186,7 @@ const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<Fra
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     depth: { domain: "internal-full", value: "reverse depth" }
   },
+  "shadow-demand": {},
   "surface-motion": {
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
@@ -273,10 +277,9 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
     case "sky-radiance": return ["surface-radiance", "depth"];
     case "surface-radiance": return ["visibility", "meshlet-work", "depth",
       ...(request.hasLit ? ["light-cluster" as const] : []),
-      ...(request.shadowProfile !== undefined && request.shadowProfile !== "off" &&
-        request.shadowProfile !== "shadow-disabled" ? ["shadow-visibility" as const] : []),
       ...(request.aoProfile === "scalar-high" ? ["indirect-visibility" as const] : [])];
     case "indirect-visibility": return ["visibility", "depth"];
+    case "shadow-demand": return [];
     case "shadow-visibility": return ["visibility", "depth"];
     case "surface-motion": return ["visibility", "meshlet-work", "depth"];
     case "light-cluster": return ["hzb"];
@@ -323,6 +326,8 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
   };
   requireProduct("swapchain");
   if (buildHzb) requireProduct("hzb");
+  if (request.shadowProfile !== undefined && request.shadowProfile !== "off" &&
+      request.shadowProfile !== "shadow-disabled") requireProduct("shadow-demand");
   const stages: FrameProgramStage[] = [
     "visibility", ...(buildHzb ? ["hzb" as const] : []),
     ...(directLighting ? ["light-cluster" as const] : []),

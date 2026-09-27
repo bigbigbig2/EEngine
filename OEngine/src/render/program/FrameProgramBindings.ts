@@ -11,6 +11,7 @@ import type { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironm
 import type { PreExposureContract } from "../RadiometryContract.js";
 import type { FrameProgram } from "./FrameProgram.js";
 import type { VsmResources } from "../vsm/VsmResources.js";
+import type { VsmDirectionalFrameConstants } from "../vsm/VsmReceiverDemandPass.js";
 
 /** Only physical, frame-local objects belong here; none enter the topology key. */
 export type SceneFrameBindings = Readonly<{
@@ -30,6 +31,8 @@ export type SceneFrameBindings = Readonly<{
   environment: PhysicalEnvironmentRuntime | null;
   /** Persistent VSM owner; null is valid for the explicit shadow-disabled profile. */
   vsm: VsmResources | null;
+  /** Frame-local directional light/clipmap constants published by the environment owner. */
+  vsmFrame: VsmDirectionalFrameConstants | null;
 }>;
 
 export type EmptyFrameBindings = Readonly<{
@@ -132,6 +135,9 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   if (bindings.vsm !== null && shadowProfile !== "off" &&
       shadowProfile !== "shadow-disabled" && bindings.vsm.profile !== shadowProfile) {
     throw new Error("Frame Program VSM capability profile changed");
+  }
+  if (shadowProfile !== "off" && shadowProfile !== "shadow-disabled" && bindings.vsmFrame === null) {
+    throw new Error("Frame Program VSM profile requires directional clipmap constants");
   }
   if (bindings.environment !== null) {
     if (bindings.environment.parameters.size < 64) {
