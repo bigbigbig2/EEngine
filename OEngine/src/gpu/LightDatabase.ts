@@ -157,11 +157,11 @@ export const SHADOW_DIRECTIONAL_DESCRIPTOR =
 
 const lightPageAccessChunk = CodeChunk.from(`
 fn directional_lights_iteration_mask(database: ptr<storage, array<u32>, read>) -> u32 {
-    let page_address = database[${DIRECTIONAL_LIGHT_DESCRIPTOR.page_lookup_address}u];
+    let page_address = (*database)[${DIRECTIONAL_LIGHT_DESCRIPTOR.page_lookup_address}u];
     if (page_address == ~0u) {
         return 0u;
     }
-    return database[page_address + 1u];
+    return (*database)[page_address + 1u];
 }
 
 const POINT_LIGHTS_PAGE_LIMIT: u32 = ${POINT_LIGHT_DESCRIPTOR.page_limit}u;
@@ -169,11 +169,11 @@ const POINT_LIGHTS_OCCUPANCY_BITMAP_WORDS: u32 = ${POINT_LIGHT_DESCRIPTOR.occupa
 const POINT_LIGHTS_ELEMENTS_PER_PAGE: u32 = ${POINT_LIGHT_DESCRIPTOR.elements_per_page}u;
 
 fn point_lights_page_address(database: ptr<storage, array<u32>, read>, page_index: u32) -> u32 {
-    return database[page_index + ${POINT_LIGHT_DESCRIPTOR.page_lookup_address}u];
+    return (*database)[page_index + ${POINT_LIGHT_DESCRIPTOR.page_lookup_address}u];
 }
 
 fn point_lights_page_bitmap_word(database: ptr<storage, array<u32>, read>, page_address: u32, bitmap_word: u32) -> u32 {
-    return database[page_address + 1u + bitmap_word];
+    return (*database)[page_address + 1u + bitmap_word];
 }
 
 fn point_lights_slot_to_index(page_index: u32, slot: u32) -> u32 {
@@ -185,11 +185,11 @@ const SPOT_LIGHTS_OCCUPANCY_BITMAP_WORDS: u32 = ${SPOT_LIGHT_DESCRIPTOR.occupanc
 const SPOT_LIGHTS_ELEMENTS_PER_PAGE: u32 = ${SPOT_LIGHT_DESCRIPTOR.elements_per_page}u;
 
 fn spot_lights_page_address(database: ptr<storage, array<u32>, read>, page_index: u32) -> u32 {
-    return database[page_index + ${SPOT_LIGHT_DESCRIPTOR.page_lookup_address}u];
+    return (*database)[page_index + ${SPOT_LIGHT_DESCRIPTOR.page_lookup_address}u];
 }
 
 fn spot_lights_page_bitmap_word(database: ptr<storage, array<u32>, read>, page_address: u32, bitmap_word: u32) -> u32 {
-    return database[page_address + 1u + bitmap_word];
+    return (*database)[page_address + 1u + bitmap_word];
 }
 
 fn spot_lights_slot_to_index(page_index: u32, slot: u32) -> u32 {

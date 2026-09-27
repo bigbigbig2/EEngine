@@ -140,7 +140,7 @@ export function gpuTextureBankSampleWgsl(bankMask = GPU_TEXTURE_BANK_ALL_MASK): 
   }
   return /* wgsl */ `
 fn oengine_sample_texture_clamped(
-  texture: texture_2d_array<f32>, sampler: sampler, texture_ref: u32,
+  texture: texture_2d_array<f32>, texture_sampler: sampler, texture_ref: u32,
   sampler_class: u32, uv: vec2f, layer: i32, uv_dx: vec2f, uv_dy: vec2f
 ) -> vec4f {
   let dimensions = textureDimensions(texture, 0);
@@ -148,12 +148,12 @@ fn oengine_sample_texture_clamped(
   let lod = max(log2(max(footprint, 1.0)), 0.0);
   let code = (sampler_class & OENGINE_MATERIAL_SAMPLER_MIP_MASK) >> OENGINE_MATERIAL_SAMPLER_MIP_SHIFT;
   if code == OENGINE_MATERIAL_SAMPLER_FULL_MIP_CODE {
-    return textureSampleGrad(texture, sampler, uv, layer, uv_dx, uv_dy);
+    return textureSampleGrad(texture, texture_sampler, uv, layer, uv_dx, uv_dy);
   }
   let max_mip = u32(floor(log2(f32(max(dimensions.x, dimensions.y)))));
   let min_mip = select(code, 0u,
     code == OENGINE_MATERIAL_SAMPLER_FULL_MIP_CODE || code > max_mip);
-  return textureSampleLevel(texture, sampler, uv, layer, max(lod, f32(min_mip)));
+  return textureSampleLevel(texture, texture_sampler, uv, layer, max(lod, f32(min_mip)));
 }
 
 fn oengine_sample_texture_bank(

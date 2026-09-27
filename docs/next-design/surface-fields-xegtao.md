@@ -1,6 +1,6 @@
 # Module C 设计：按需 Surface Fields 与 XeGTAO
 
-> 状态：2026-09-27 设计完成，C0–C4 的来源核对、准备代码与 scalar MainPass 已推进；完整 AO 生产主链尚未实施。对应[执行文档](../next-execution/surface-fields-xegtao.md)、[整体架构](./eengine-next-overall-architecture-final-2026.md) §3、[架构层计划](../next-execution/eengine-next-architecture-layer-plan-2026.md) §5 和[来源账本 R05](../porting/next-renderer.md)。以下“当前事实”表记录 C0 前的源码基线；目标和成本假设不是已实现、已测量或已通过画质验收的事实。
+> 状态：2026-09-27 设计完成，C0–C6 已编码；High scalar AO 已连接生产 Graph 与 Surface 间接消费，真实 GPU 数值、画质与性能尚未核对，C7–C8 待实施。对应[执行文档](../next-execution/surface-fields-xegtao.md)、[整体架构](./eengine-next-overall-architecture-final-2026.md) §3、[架构层计划](../next-execution/eengine-next-architecture-layer-plan-2026.md) §5 和[来源账本 R05](../porting/next-renderer.md)。以下“当前事实”表记录 C0 前的源码基线；目标和成本假设不是已实现、已测量或已通过画质验收的事实。
 
 ## 1. 要解决的问题
 
@@ -32,7 +32,7 @@ Module B 已将 Standard/Coated 材质、Dense/有界异常工作和直接/环�
 
 替代完整 donor [AMD FidelityFX CACAO `0ddca95e6714727a252ead345591ca8f2598f261`](https://github.com/GPUOpen-Effects/FidelityFX-CACAO/tree/0ddca95e6714727a252ead345591ca8f2598f261)，MIT；其 `ffx-cacao/src/ffx_cacao.hlsl` 和 `ffx_cacao_impl.cpp` 包含 depth/normal 准备、四路 deinterleave、adaptive importance、blur、apply/上采样，是有效的替代 AO 家族。它增加资源/阶段/调度复杂度，与本模块希望首先闭合的单一 AO 主链不匹配；不拼接 CACAO 的 adaptive 阶段到 XeGTAO 后仍宣称完整 XeGTAO。当前旧 [Three.js GTAO](https://github.com/mrdoob/three.js/blob/148ef33ecb6d2502ff796d4554abd1549c95d519/examples/jsm/tsl/display/GTAONode.js) 仅作数值/历史对照。Filament 固定来源的 `surface_ambient_occlusion.fs` 用于间接光 AO 组合，不是 XeGTAO 遮蔽求值的 donor。
 
-XeGTAO README 的 full-resolution High 为 3 slices × 每 slice 双向 3 steps，即 18 depth taps；Medium 为 2×双向 2，即 8 taps。其空间降噪是 5×5 edge-aware；它**没有自带完整时间重投影降噪**。README 的 RTX 3070/2060/iGPU 毫秒数只代表上游原生测试，不能填入 EEngine 的 WebGPU 性能预算。Bent normal 增加约 25% 成本也只是上游自述，需本地量测。
+XeGTAO README 的 full-resolution High 为 3 slices × 每 slice 双向 3 steps，即 18 depth taps；Medium 为 2×双向 2，即 8 taps。其空间降噪按源码每遍取中心、四邻、四对角；双遍才形成 5×5 有效邻域。它**没有自带完整时间重投影降噪**。README 的 RTX 3070/2060/iGPU 毫秒数只代表上游原生测试，不能填入 EEngine 的 WebGPU 性能预算。Bent normal 增加约 25% 成本也只是上游自述，需本地量测。
 
 ### 3.1 源函数/阶段 → 本地产物/阶段
 
@@ -45,7 +45,7 @@ XeGTAO README 的 full-resolution High 为 3 slices × 每 slice 双向 3 steps�
 | `XeGTAO_PrefilterDepths16x16`、`XeGTAO_DepthMIPFilter` | raw depth → 五级 view-space weighted depth pyramid | 16×16 区域、工作组共享内存、由最远样本深度和 effect radius/falloff 计算加权值；不是 min/max HZB。WebGPU 若不能同 stage 绑定五个 storage mip，按实际 storage-texture limit 分批生产后续 mip，过滤公式不变 |
 | `vaGTAO.hlsl::SpatioTemporalNoise`、`XeGTAO_MainPass` | depth pyramid + normal → raw AO + packed edges | Hilbert/R2 的 64×64 空间序列、条件性 `NoiseIndex`、slice/horizon 双向采样、LOD、半径/薄遮挡、near-field falloff、edge 输出、power 与可见性下限；High/Medium 是各自完整 profile，不把 18 taps 悄悄缩到 4 taps |
 | `XeGTAO_MainPass` 的 `XE_GTAO_COMPUTE_BENT_NORMALS` 与 `XeGTAO_EncodeVisibilityBentNormal` | directional profile：raw AO + bent normal | 保留同一 horizon 积分产生的方向、编码/解码与 denoiser 联动；不开启时明确为 scalar profile，不能把 shading normal 假称 bent normal |
-| `XeGTAO_Denoise`、`vaGTAO.cpp::Compute` 的 `DenoisePasses` | raw AO/edges → 最终 `indirect-visibility` | 5×5 edge-aware 权重、ping-pong、最终 `XE_GTAO_OCCLUSION_TERM_SCALE=1.5` 恢复、passCount 至少一次；WebGPU 输出可改为 bit-packed buffer，数值/邻域和边界不删减 |
+| `XeGTAO_Denoise`、`vaGTAO.cpp::Compute` 的 `DenoisePasses` | raw AO/edges → 最终 `indirect-visibility` | 每遍中心、四邻、四对角的 3×3 edge-aware 权重（双遍有效邻域可达 5×5）、ping-pong、最终 `XE_GTAO_OCCLUSION_TERM_SCALE=1.5` 恢复、passCount 至少一次；WebGPU 输出可改为 bit-packed buffer，数值/邻域和边界不删减 |
 | `vaGTAO.cpp::Compute` 的调用顺序 | Frame Program AO owner | GenerateNormals（仅 depth-normal profile）→ Prefilter → Main → Denoise → Surface；Graph 资源读写边和一个 frame submit。原生 DX descriptor/barrier 类不移植 |
 
 默认 tuned 常量不能因 WebGPU 改写丢失：radius multiplier 1.457、falloff 0.615、sample distribution power 2、thin occluder compensation 0、final power 2.2、depth MIP sampling offset 3.30，以及预降噪可见性 scale 1.5。开发时可暴露具名参数，但默认 profile 与源码对照，并说明改变常量造成的画质/带宽权衡。原 README 部分文字保留旧数值，固定源码 `XeGTAO.h` 是本设计默认值依据。
@@ -124,7 +124,7 @@ AO owner 的内部 normal、depth mip、raw、edges 和 ping-pong 是 Graph tran
 | AO 私有 `r32uint` normal 或 directional final | 8.3 MB | 33.2 MB | bent normal/profile 或独立法线的额外成本，不能视为零 |
 | 一个全屏 4 B/pixel Surface normal/roughness sidecar | 8.3 MB | 33.2 MB | 除容量还要计 producer 写、每个 consumer 读和可能的第二次 reconstruction |
 
-上游单 dispatch prefilter 写五个 mip；WebGPU AO owner 若只允许四个 storage 输出，预滤至少两个 dispatch，若只允许两个则可能三次。加独立 normal、MainPass 和单遍 denoise，当前选中链静态约为 4–6 次 compute dispatch；多遍 denoise再增加 ping-pong。这里仅用于规划 command 与资源开销，不是已测 GPU 时长，也不允许为了压低 pass 数删掉 weighted filter 或 5×5 denoise。若以后 SSSR/GI 需要 normal/roughness，比较同一场景的 `重复重建+重复材质采样` 与 `字段 producer 增量+sidecar 写+所有 consumer 读+占用率/绑定变化`；比较对象是整帧 GPU 成本和画质，而不是单个 Pass 名称。
+上游单 dispatch prefilter 写五个 mip；WebGPU AO owner 若只允许四个 storage 输出，预滤至少两个 dispatch，若只允许两个则可能三次。加独立 normal、MainPass 和单遍 denoise，当前选中链静态约为 4–6 次 compute dispatch；多遍 denoise再增加 ping-pong。这里仅用于规划 command 与资源开销，不是已测 GPU 时长，也不允许为了压低 pass 数删掉 weighted filter 或 denoise 的中心/四邻/四对角权重。若以后 SSSR/GI 需要 normal/roughness，比较同一场景的 `重复重建+重复材质采样` 与 `字段 producer 增量+sidecar 写+所有 consumer 读+占用率/绑定变化`；比较对象是整帧 GPU 成本和画质，而不是单个 Pass 名称。
 
 ## 7. 投影、边界、时间与质量档
 

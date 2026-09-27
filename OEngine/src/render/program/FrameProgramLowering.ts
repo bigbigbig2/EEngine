@@ -8,6 +8,9 @@ import type { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import type { LightClusterPass } from "../passes/LightClusterPass.js";
 import type { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import type { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
+import type { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
+import type { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
+import type { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
 import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 
@@ -18,6 +21,9 @@ export type FrameProgramOwners = Readonly<{
   sky: PhysicalSkyPass | null;
   aerial: AerialPerspectivePass | null;
   lightCluster: () => LightClusterPass;
+  xeGtaoPreparation: XeGtaoPreparationPass;
+  xeGtaoMain: XeGtaoMainPass;
+  xeGtaoDenoise: XeGtaoDenoisePass;
 }>;
 
 type SceneBind = <T extends object>(name: string, resolve: (bindings: SceneFrameBindings) => T) => T;
@@ -68,12 +74,6 @@ function compileEmptyGraph(initial: EmptyFrameBindings): CompiledFrameGraph {
 
 function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owners: FrameProgramOwners): CompiledFrameGraph {
   if (plan.request.kind !== "scene") throw new Error("Scene graph requires a scene Frame Program");
-  // C0–C3 define the AO demand and implement its depth/normal preparation.
-  // Do not run a graph that advertises final visibility before C4–C6 connect
-  // the horizon, denoise and Surface consumer stages.
-  if (plan.request.aoProfile === "scalar-high") {
-    throw new Error("XeGTAO scalar-high is not yet lowerable: MainPass, denoise and Surface consumption are pending");
-  }
   for (const stage of ["visibility", "surface", "fsr3", "present"] as const) {
     if (!plan.stages.includes(stage)) throw new Error(`Scene Frame Program is missing ${stage}`);
   }
@@ -163,6 +163,31 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       })),
       { camera: cameraBuffer, lightDatabase: lightRecords, hzb: builtHzb! }
     );
+  const scalarAo = plan.request.aoProfile === "scalar-high" ? (() => {
+    if (!plan.stages.includes("xe-gtao") || !plan.products.includes("indirect-visibility")) {
+      throw new Error("Frame Program omitted the requested XeGTAO producer");
+    }
+    const prepared = owners.xeGtaoPreparation.addToGraph(graph, {
+      width: result.frame.domain.width, height: result.frame.domain.height,
+      depth: result.frame.depth,
+      frame: bind("xe-gtao-frame", bindings => ({
+        camera: bindings.view.gpu_camera_state,
+        // The production scene scale is one metre per world unit. A scene-scale
+        // contract can replace this pair without changing the donor math.
+        radiusMeters: 1, metersPerWorldUnit: 1, noiseIndex: 0
+      }))
+    });
+    const main = owners.xeGtaoMain.addToGraph(graph, { prepared });
+    const visibility = owners.xeGtaoDenoise.addToGraph(graph, { prepared, main });
+    const descriptor = graph.getDescriptor(visibility.packed);
+    if (descriptor?.kind !== "transient_buffer" ||
+        descriptor.size !== visibility.words * 4 ||
+        visibility.width !== result.frame.domain.width ||
+        visibility.height !== result.frame.domain.height) {
+      throw new Error("XeGTAO final visibility has an invalid packed buffer shape");
+    }
+    return visibility.packed;
+  })() : undefined;
   const surface = owners.surface.addToGraph(graph, {
     width: result.frame.domain.width,
     height: result.frame.domain.height,
@@ -177,6 +202,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     })),
     activeSets,
     hasLit: plan.request.hasLit,
+    indirectVisibility: scalarAo,
     virtualGeometry: plan.request.virtualGeometry,
     visibilityKey: result.frame.visibilityKey,
     meshletWork: result.frame.meshletWork.records,

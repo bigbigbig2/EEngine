@@ -32,6 +32,8 @@ export interface SurfaceMaterialInputs {
   readonly frame: SurfaceMaterialFrame;
   readonly activeSets: readonly number[];
   readonly hasLit: boolean;
+  /** Same-frame XeGTAO scalar product. Omitted when no lit consumer exists. */
+  readonly indirectVisibility?: ResourceId;
   readonly virtualGeometry: boolean;
   readonly visibilityKey: ResourceId;
   readonly meshletWork: ResourceId;
@@ -169,14 +171,16 @@ export class SurfaceMaterialPass {
       format: "r32uint", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
     });
     const hasLit = input.hasLit;
+    const scalarAo = input.indirectVisibility !== undefined;
+    if (scalarAo && !hasLit) throw new Error("Surface AO has no lit consumer");
     const activeSets = new Set(input.activeSets);
     const dense = activeSets.size === 0 ? null :
-      this.program(hasLit, input.virtualGeometry, "dense", 0);
+      this.program(hasLit, input.virtualGeometry, scalarAo, "dense", 0);
     const lanes = Array.from({ length: SURFACE_EXCEPTION_LANES }, (_, lane) => {
       const setId = lane === 0 ? 0 : 1 + Math.floor((lane - 1) / 2);
       return activeSets.has(setId) ? { lane, setId,
-        binned: this.program(hasLit, input.virtualGeometry, "binned", lane),
-        fallback: this.program(hasLit, input.virtualGeometry, "fallback", lane) } : null;
+        binned: this.program(hasLit, input.virtualGeometry, scalarAo, "binned", lane),
+        fallback: this.program(hasLit, input.virtualGeometry, scalarAo, "fallback", lane) } : null;
     }).filter((value): value is NonNullable<typeof value> => value !== null);
     const surface = graph.add("Surface/Dense and bounded exceptions", {},
       (_data, resources, context) => {
@@ -280,22 +284,23 @@ export class SurfaceMaterialPass {
     return { radiance, motion, work };
   }
 
-  private program(hasLit: boolean, virtualGeometry: boolean,
+  private program(hasLit: boolean, virtualGeometry: boolean, scalarAo: boolean,
     mode: SurfaceExecutionMode, lane: number): Program {
     const coated = hasLit && mode !== "dense" && (lane === 0 || (lane & 1) === 0);
-    const key = `${hasLit}:${virtualGeometry}:${mode}:${coated}`;
+    const key = `${hasLit}:${virtualGeometry}:${scalarAo}:${mode}:${coated}`;
     const cached = this.programs.get(key);
     if (cached) return cached;
     const compiled = compileSurfaceProgramLayout({
       kernel: { programId: hasLit ? 15 : 3,
         outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask: 0x1ff },
       virtualGeometry, lighting: hasLit ? "direct" : "unlit",
+      aoProfile: scalarAo ? "scalar-high" : "off",
       source: "surface-execution-v2", capabilityFingerprint: "webgpu-core",
       formatProfile: "rgba16float"
     }, this.device.limits);
     const source = surfaceExecutionWgsl(compiled.plan, mode,
       coated ? 0 : 1, hasLit, virtualGeometry);
-    const layoutKey = `${hasLit}:${virtualGeometry}`;
+    const layoutKey = `${hasLit}:${virtualGeometry}:${scalarAo}`;
     let layouts = this.layouts.get(layoutKey);
     if (layouts === undefined) {
       layouts = createSurfaceBindGroupLayouts(this.device, compiled.plan);
@@ -337,6 +342,7 @@ export class SurfaceMaterialPass {
   private resolveResourceId(binding: Readonly<SurfacePhysicalBinding>,
     input: SurfaceMaterialInputs, setId: number): ResourceId {
     switch (binding.role) {
+      case "indirect-visibility": return required(input.indirectVisibility, binding.role);
       case "visibility-key": return input.visibilityKey;
       case "meshlet-work": return input.meshletWork;
       case "material-records": return input.materialRecords;

@@ -28,6 +28,9 @@ export class XeGtaoMainPass {
 
   constructor(private readonly device: GPUDevice,
     readonly quality: XeGtaoScalarQuality = "high") {
+    if (!device.features.has("texture-formats-tier1")) {
+      throw new Error("XeGTAO r8unorm storage outputs require texture-formats-tier1");
+    }
     if (Number(device.limits.maxStorageTexturesPerShaderStage) < 2 ||
         Number(device.limits.maxSampledTexturesPerShaderStage) < 8) {
       throw new RangeError("XeGTAO MainPass requires two storage and eight sampled textures");

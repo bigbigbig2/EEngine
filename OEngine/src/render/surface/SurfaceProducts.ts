@@ -83,6 +83,8 @@ export interface SurfaceProgramClosure {
   readonly layoutSignature: string;
   readonly capabilityFingerprint: string;
   readonly formatProfile: string;
+  /** Physical binding variant; defaults to off for callers without an AO producer. */
+  readonly aoProfile?: "off" | "scalar-high";
 }
 
 export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): string {
@@ -103,6 +105,13 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
   if (closure.lighting !== "unlit" && closure.lighting !== "direct") {
     throw new RangeError("Surface lighting specialization is invalid");
   }
+  if (closure.aoProfile !== undefined && closure.aoProfile !== "off" &&
+      closure.aoProfile !== "scalar-high") {
+    throw new RangeError("Surface AO profile is invalid");
+  }
+  if (closure.aoProfile === "scalar-high" && closure.lighting !== "direct") {
+    throw new RangeError("Surface scalar AO requires a lit consumer");
+  }
   for (const [name, value] of [
     ["source", closure.source], ["layoutSignature", closure.layoutSignature],
     ["capabilityFingerprint", closure.capabilityFingerprint], ["formatProfile", closure.formatProfile]
@@ -112,7 +121,8 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
   return JSON.stringify([
     1, kernel.programId, kernel.outputDependencyMask, kernel.textureBankMask,
     closure.virtualGeometry, closure.lighting, closure.layoutSignature,
-    closure.capabilityFingerprint, closure.formatProfile, closure.source
+    closure.capabilityFingerprint, closure.formatProfile, closure.aoProfile ?? "off",
+    closure.source
   ]);
 }
 
@@ -128,7 +138,8 @@ export type SurfaceResourceRole =
   | "direct-light-cluster-data" | "direct-light-cluster-params"
   | "physical-environment-sun" | "physical-environment-transmittance"
   | "physical-sky-irradiance" | "physical-sky-irradiance-sampler"
-  | "physical-sky-specular" | "physical-sky-dfg" | "physical-sky-specular-sampler";
+  | "physical-sky-specular" | "physical-sky-dfg" | "physical-sky-specular-sampler"
+  | "indirect-visibility";
 
 export interface SurfaceMaterialRequirements {
   readonly roles: readonly SurfaceResourceRole[];
@@ -170,6 +181,7 @@ export function surfaceMaterialRequirements(
     throw new RangeError("Texture banks have no Surface consumer");
   }
   if (s.lit && closure.lighting === "direct") {
+    if (closure.aoProfile === "scalar-high") roles.push("indirect-visibility");
     roles.push("direct-light-records", "direct-light-cluster-lookup",
       "direct-light-cluster-data", "direct-light-cluster-params",
       "physical-environment-sun", "physical-sky-irradiance", "physical-sky-irradiance-sampler",

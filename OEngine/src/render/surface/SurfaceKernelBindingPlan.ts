@@ -77,6 +77,7 @@ export function planSurfaceKernelBindings(
   add("visibility-key", 0, 6, "sampled-uint");
   add("exception-lane", 0, 8, "uniform");
   add("frequency-plan", 0, 9, "sampled-uint");
+  add("indirect-visibility", 0, 10, "read-only-storage");
 
   add("instance-records", 1, 0, "read-only-storage");
   add("geometry-metadata", 1, 1, "read-only-storage");

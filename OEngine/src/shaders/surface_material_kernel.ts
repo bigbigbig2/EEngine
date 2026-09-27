@@ -394,7 +394,8 @@ fn sparse_sampler_${slot}(material: OEngineShadingMaterialRecord) -> u32 { retur
 
 export function lightingWgsl(
   shadowSamplingEnabled: boolean,
-  environmentIblEnabled: boolean
+  environmentIblEnabled: boolean,
+  scalarAoEnabled = false
 ): string {
   return /* wgsl */ `
 struct PhysicalEnvironmentSun {
@@ -421,6 +422,12 @@ fn filament_clearcoat_to_surface_f0(f0:vec3f)->vec3f {
   return ratio*ratio;
 }
 ${SPECULAR_AMBIENT_OCCLUSION_WGSL}` : ""}
+${scalarAoEnabled ? `
+fn xe_scalar_visibility(pixel: vec2u) -> f32 {
+  let index = pixel.y * shading_view.width + pixel.x;
+  let packed = xe_visibility_words[index >> 2u];
+  return f32((packed >> ((index & 3u) * 8u)) & 255u) / 255.0;
+}` : ""}
 fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
   if (oengine_surface_has_flag(surface.flags, OENGINE_SURFACE_FLAG_UNLIT)) {
     return surface.emissive;
@@ -428,6 +435,9 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
   var material: StandardMaterial;
   material.diffuse = surface.base_color * (1.0 - surface.metallic);
   material.occlusion = surface.material_ao;
+  let indirect_visibility = ${scalarAoEnabled
+    ? "min(surface.material_ao, xe_scalar_visibility(pixel))"
+    : "surface.material_ao"};
   material.roughness = max(surface.roughness, 0.045);
   let eta = max(surface.ior, 1.0);
   let dielectric_f0 = pow((eta - 1.0) / (eta + 1.0), 2.0);
@@ -486,7 +496,7 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
     vec2f(environment_mu_s * 0.5 + 0.5, environment_altitude), 0.0).rgb *
     (vec3f(114974.91644, 71305.954816, 65310.548555) * 0.000013207021769386792) *
     physical_environment_sun.sky_luminance_scale;
-  var physical_sky = sky_irradiance * material.diffuse * material.occlusion * ${1 / Math.PI};
+  var physical_sky = sky_irradiance * material.diffuse * indirect_visibility * ${1 / Math.PI};
   ${environmentIblEnabled ? `
   let specular_direction = normalize(mix(
     reflect(-geometry.view_direction, surface.shading_normal),
@@ -507,7 +517,7 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
   let specular_ao = oengine_specular_ao_cones(
     specular_direction,
     surface.shading_normal,
-    material.occlusion,
+    indirect_visibility,
     material.roughness
   );
   var environment_specular_contribution = radiance * directional_albedo *
@@ -525,7 +535,7 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
     let coat_radiance = sample_prefiltered_environment(
       environment_specular, coat_direction, surface.coat_roughness);
     let coat_ao = oengine_specular_ao_cones(coat_direction, surface.coat_normal,
-      material.occlusion, surface.coat_roughness);
+      indirect_visibility, surface.coat_roughness);
     environment_specular_contribution += coat_radiance * coat_ao * coat_fresnel;
   }
   return direct + physical_sun + environment_specular_contribution +

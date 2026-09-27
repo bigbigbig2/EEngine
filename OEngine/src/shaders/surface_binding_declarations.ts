@@ -6,6 +6,7 @@ export function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): s
     case "shading-work": return `${prefix} var<storage, read_write> work:SurfaceWorkQueue;`;
     case "visibility-key": return `${prefix} var visibility_texture: texture_2d<u32>;`;
     case "frequency-plan": return `${prefix} var frequency_plan: texture_2d<u32>;`;
+    case "indirect-visibility": return `${prefix} var<storage, read> xe_visibility_words: array<u32>;`;
     case "exception-lane": return `${prefix} var<uniform> exception_lane: u32;`;
     case "meshlet-work": return `${prefix} var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;`;
     case "material-records": return `${prefix} var<storage, read> material_records: array<OEngineShadingMaterialRecord>;`;

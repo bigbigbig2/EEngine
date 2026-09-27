@@ -55,7 +55,7 @@ test("production Surface has bounded Dense, Binned and whole-lane overflow paths
     if (mode === "dense") {
       assert.match(source, /oengine_shading_anchor\(pixel\)==pixel/u);
       assert.match(source, /surface_store\(pixel,vec4f\(radiance/u);
-      assert.match(source, /textureStore\(output_motion,vec2i\(target\),motion\)/u);
+      assert.match(source, /textureStore\(output_motion,vec2i\(output_pixel\),motion\)/u);
     }
   }
 });

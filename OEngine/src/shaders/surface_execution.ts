@@ -59,6 +59,7 @@ export function surfaceExecutionWgsl(plan: SurfacePhysicalBindingPlan,
   const unlit = coatedOnly ? "" : materialEvaluationWgsl({ ...kernel, programId: 3 }, true)
     .replace("fn sparse_evaluate_geometry(", "fn sparse_evaluate_unlit_geometry(");
   const lit = hasLit ? materialEvaluationWgsl(kernel, false, coatedOnly) : "";
+  const scalarAo = plan.bindings.some(binding => binding.role === "indirect-visibility");
   const names = plan.bindings.map(binding => {
     const prefix = `@group(${binding.group}) @binding(${binding.binding})`;
     if (binding.role === "shading-work") return `${prefix} var<storage, read_write> work:SurfaceWorkQueue;`;
@@ -104,9 +105,9 @@ fn surface_store(pixel:vec2u,color:vec4f,motion:vec4f) {
   let rate=${mode === "dense" ? "oengine_shading_rate(pixel)" : "1u"};
   for(var y=0u;y<rate;y++) {
     for(var x=0u;x<rate;x++) {
-      let target=pixel+vec2u(x,y);
-      textureStore(output_hdr,vec2i(target),color);
-      textureStore(output_motion,vec2i(target),motion);
+      let output_pixel=pixel+vec2u(x,y);
+      textureStore(output_hdr,vec2i(output_pixel),color);
+      textureStore(output_motion,vec2i(output_pixel),motion);
     }
   }
 }
@@ -249,13 +250,14 @@ fn shade(@builtin(global_invocation_id) id:vec3u) {
   if lane!=exception_lane { return; }
   surface_hit(pixel,key,work_item,material_slot,material);
 }`;
-  return [SURFACE_EXECUTION_WGSL,GPU_VISIBILITY_KEY_WGSL,GPU_MESHLET_RASTER_WORK_WGSL,
+  return ["requires unrestricted_pointer_parameters;",
+    SURFACE_EXECUTION_WGSL,GPU_VISIBILITY_KEY_WGSL,GPU_MESHLET_RASTER_WORK_WGSL,
     GPU_SHADING_MATERIAL_WGSL,GPU_SPARSE_SHADING_VIEW_WGSL,GPU_SHADING_SURFACE_LITE_WGSL,
     surfaceType,
     names,"var<private> surface_identity_failed:bool=false;",
     "fn sparse_identity_error(){surface_identity_failed=true;}",
     "fn surface_identity_error(){surface_identity_failed=true;}",
     route,geometryWgsl(virtualGeometry),textureWgsl(kernel),
-    hasLit ? lightingWgsl(false,true) : "",hasLit ? ATMOSPHERE_RUNTIME_WGSL : "",
+    hasLit ? lightingWgsl(false,true,scalarAo) : "",hasLit ? ATMOSPHERE_RUNTIME_WGSL : "",
     unlit,lit,shadeHit,entry].filter(Boolean).join("\n");
 }

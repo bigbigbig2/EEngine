@@ -366,7 +366,7 @@ export class GPUTypedTableDescriptor {
     out.indent();
     this.appendBaseOffset(out);
     out.add("return ");
-    appendReadValue(out, 0, "database", type);
+    appendReadValue(out, 0, "(*database)", type);
     out.extend(";");
     out.dedent();
     out.add("}");
@@ -384,7 +384,7 @@ export class GPUTypedTableDescriptor {
     );
     out.indent();
     this.appendBaseOffset(out);
-    appendWriteValue(out, 0, "database", type);
+    appendWriteValue(out, 0, "(*database)", type);
     out.dedent();
     out.add("}");
     return CodeChunk.from(
@@ -409,7 +409,7 @@ export class GPUTypedTableDescriptor {
     appendWriteValue(
       out,
       field.offset / GPU_DATABASE_WORD_BYTES,
-      "database",
+      "(*database)",
       fieldType
     );
     out.dedent();
@@ -448,7 +448,7 @@ var<workgroup> ${prefix}_wg_occupancy_bitmap: array<u32, ${bitmapWordsPerGroup}>
     let page_group = group_index % ${groupsPerPage}u;
 
     if local_id == 0u {
-        ${prefix}_wg_page_address = database[page_index + ${this.page_lookup_address}u];
+        ${prefix}_wg_page_address = (*database)[page_index + ${this.page_lookup_address}u];
         ${prefix}_wg_page_index = page_index;
         ${prefix}_wg_page_group = page_group;
     }
@@ -461,7 +461,7 @@ var<workgroup> ${prefix}_wg_occupancy_bitmap: array<u32, ${bitmapWordsPerGroup}>
     if local_id < ${bitmapWordsPerGroup}u {
         let global_word = page_group * ${bitmapWordsPerGroup}u + local_id;
         if global_word < ${bitmapWords}u {
-            ${prefix}_wg_occupancy_bitmap[local_id] = database[page_address + 1u + global_word];
+            ${prefix}_wg_occupancy_bitmap[local_id] = (*database)[page_address + 1u + global_word];
         } else {
             ${prefix}_wg_occupancy_bitmap[local_id] = 0u;
         }
@@ -473,7 +473,7 @@ var<workgroup> ${prefix}_wg_occupancy_bitmap: array<u32, ${bitmapWordsPerGroup}>
       : `
     let page_index = group_index / ${groupsPerPage}u;
     let page_group = group_index % ${groupsPerPage}u;
-    let page_address = database[page_index + ${this.page_lookup_address}u];
+    let page_address = (*database)[page_index + ${this.page_lookup_address}u];
 
     if page_address == ~0u {
         return false;
@@ -488,7 +488,7 @@ var<workgroup> ${prefix}_wg_occupancy_bitmap: array<u32, ${bitmapWordsPerGroup}>
     if local_id < ${bitmapWordsPerGroup}u {
         let global_word = page_group * ${bitmapWordsPerGroup}u + local_id;
         if global_word < ${bitmapWords}u {
-            ${prefix}_wg_occupancy_bitmap[local_id] = database[page_address + 1u + global_word];
+            ${prefix}_wg_occupancy_bitmap[local_id] = (*database)[page_address + 1u + global_word];
         } else {
             ${prefix}_wg_occupancy_bitmap[local_id] = 0u;
         }
@@ -538,7 +538,7 @@ fn ${prefix}_slot_to_index(slot_in_page: u32) -> u32 {
 
     const readExpr = new LineBuilder();
     readExpr.add("");
-    appendReadValue(readExpr, 0, "database", type);
+    appendReadValue(readExpr, 0, "(*database)", type);
     const read = CodeChunk.from(
       `
 fn ${prefix}_read(
@@ -584,7 +584,7 @@ fn ${prefix}_read(
     out.add(`let page_index = index / ${this.elements_per_page}u;`);
     out.add(`let page_offset = index % ${this.elements_per_page}u;`);
     out.add(`let page_lookup_index = page_index + ${this.page_lookup_address}u;`);
-    out.add("let page_address = database[page_lookup_index];");
+    out.add("let page_address = (*database)[page_lookup_index];");
   }
 
   private appendBaseOffset(out: LineBuilder): void {

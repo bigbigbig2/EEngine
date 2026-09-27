@@ -1,8 +1,8 @@
 # Module C 执行：按需 Surface Fields 与 XeGTAO
 
-> 状态：2026-09-27 已推进 C0–C4 的来源核对、语义需求、法线/加权深度准备及 scalar MainPass；AO 生产主链尚未激活，C5–C8 待实施。设计依据见[Module C 设计](../next-design/surface-fields-xegtao.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，固定来源与逐阶段对照见[Next 来源账本 R05](../porting/next-renderer.md)。本文是连续编码路线，不是每一小步的许可/验证门禁。
+> 状态：2026-09-27 已编码 C0–C6：High scalar XeGTAO 的准备、Main、Denoise、GPU pack 与 Surface 间接消费已接入单一 FrameGraph 生产路径；C7–C8 待实施，真实 GPU 数值与画质尚未核对。设计依据见[Module C 设计](../next-design/surface-fields-xegtao.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，固定来源与逐阶段对照见[Next 来源账本 R05](../porting/next-renderer.md)。本文是连续编码路线，不是每一小步的许可/验证门禁。
 
-当前实施记录：C0 已核对固定源、host 调度及 MIT 许可证；C1 已登记 `indirect-visibility` 的需求、选中 profile 与 Surface 字段语义，生产请求仍为 `off`，在 C5/C6 接通前 Lowering 明确拒绝提前请求 `scalar-high`，不会假装已有 AO 输出；C2/C3 的 reverse-Z 常量、独立 view normal 与五级 weighted depth Pass 已写入 AO owner。C4 已新增设备期 64×64 Hilbert LUT、High 3×双向3步和 Medium 2×双向2步 scalar MainPass、raw AO 与 packed edges 的 Graph 资源边；选中档仍是 High，directional/bent 尚未实现。WGSL 已通过 Naga 语法/类型校验；局部 CPU oracle 覆盖投影、法线、奇数尺寸 mip、Hilbert/R2、平面/墙角/薄遮挡与屏幕边缘的 source 数学。engine typecheck 已通过。当前机器的 headless Chrome/Edge 未获取到 WebGPU adapter，故尚未执行真实 GPU shader/纹理数值核对；build、browser 和 benchmark 未运行。C4 输出尚无 C5 denoise/Surface 消费，不能称为 AO 已在生产链采用。
+当前实施记录：C0 已核对固定源、host 调度及 MIT 许可证；C1 登记 `indirect-visibility` 需求与 Surface 字段语义；C2/C3 实现 reverse-Z 常量、独立 view normal 与五级 weighted depth；C4 实现 64×64 Hilbert LUT、High/Medium scalar MainPass、raw AO 与 packed edges。C5 实现 XeGTAO 对称 edge、leak、四邻/四对角权重、`DenoiseBlurBeta`、非末遍 beta/5、末遍 1.5 恢复与 `max(1,DenoisePasses)`；各遍独立 Graph 纹理，最后由单 writer GPU pass 将连续四像素打包到一个 `u32`，剩余字节填 255，并按 storage binding 与 dispatch 限额预检。C6 在有 lit consumer 时请求 High scalar，按 `Visibility depth → preparation → Main → Denoise → pack → Surface` 连通 Graph；Surface 最宽 16 sampled/16 storage，Dense、Binned、overflow 共用同帧 buffer；`min(materialAO, Xe scalar)` 只用于 sky/IBL 间接项，direct、Sun、emissive 保持原算式。AO off 无 AO 绑定或孤儿 producer。Directional/bent 尚未实现。TypeScript typecheck、AO denoise/pack WGSL 离线解析和 donor gather ↔ point-neighborhood/跨行 pack 的局部 CPU oracle 已通过；Surface 整体 WGSL 需要 `unrestricted_pointer_parameters` 语言扩展并在 Renderer 初始化时预检，现用 Naga WASI 尚不支持该扩展，AO off 变体也同样无法由它验证。当前机器的 headless Chrome/Edge 未取得 WebGPU adapter，真实 GPU 输出/消费、browser、benchmark 尚未运行；R05 继续 `not adopted`。C7/C8 与模块集中检查仍待实施。
 
 ## 0. 完成的准确含义与节奏
 
@@ -101,9 +101,9 @@ C1–C7 可在同一工作分支连续推进。算法 WGSL/CPU oracle 可在实�
 
 **上游对照**：`XeGTAO_Denoise`、`XeGTAO_Output`、`vaGTAO.cpp::Compute` 的 `max(1,DenoisePasses)`、非末遍 ping-pong、末遍 finalApply。
 
-1. 保留 source 的 5×5 edge-aware 权重、edge packing/unpacking、中心/邻域平滑、DenoiseBlurBeta 和 finalApply 的 1.5 scale 恢复；`DenoisePasses=0` 时仍跑一次最终 apply，这不是“可省掉 denoise 阶段”。多个 pass 各有清楚 ping-pong 与 Graph 顺序，不允许同一纹理未定义读写。
+1. 保留 source 每遍中心、四邻、四对角的 3×3 edge-aware 权重（双遍的有效邻域可扩至 5×5）、edge packing/unpacking、DenoiseBlurBeta 和 finalApply 的 1.5 scale 恢复；`DenoisePasses=0` 时仍跑一次最终 apply，这不是“可省掉 denoise 阶段”。多个 pass 各有清楚 ping-pong 与 Graph 顺序，不允许同一纹理未定义读写。
 2. 标量 raw、edge、final 优先考虑 8-bit 小格式，格式/usage 由设备能力和 WGSL layout 实证决定。最终面向 Surface 的物理产物首选 packed storage buffer：连续四像素的 8-bit scalar visibility 为一个 `u32`；输出线程/工作组必须对每个字有唯一 writer，边界的剩余 1–3 像素填中性值。Directional 为每像素 `u32`，保持 source bent-normal/visibility 编码的精度和方向约定。
-3. 如果 source 两像素 denoise 组织改为四像素打包使 register/吞吐退化，可使用完整 denoise → 小格式纹理 → GPU pack 的两阶段物理后端。两者都保留 source 邻域数学，选项需以局部总 GPU 成本和 buffer/texture cache 行为决定；不可因“多一次 pass”就不量测，也不能为省 pass 删 5×5 过滤。
+3. 如果 source 两像素 denoise 组织改为四像素打包使 register/吞吐退化，可使用完整 denoise → 小格式纹理 → GPU pack 的两阶段物理后端。两者都保留 source 邻域数学，选项需以局部总 GPU 成本和 buffer/texture cache 行为决定；不可因“多一次 pass”就不量测，也不能为省 pass 删中心/四邻/四对角过滤。
 4. 最终 buffer 长度、行 pitch、奇数宽度、4K `maxStorageBufferBindingSize`、out-of-bounds load 和 `visibility=1` 的 bit encoding 需预先确定；Surface 的每个合法像素都只读本帧对应 index。若 AO 关闭不保留孤儿 raw/edges/depth pyramid。
 
 **局部核对**：常量 1、孤立遮挡、水平/竖直边、奇数宽、四像素字跨行、末遍 scale、directional 解码后单位长度/可见性，packed buffer 与未打包 reference 逐像素一致。

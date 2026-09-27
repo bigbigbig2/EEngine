@@ -14,6 +14,9 @@ import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
+import { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
+import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
+import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
@@ -257,6 +260,9 @@ export class Renderer {
   private _views!: ViewManager;
   private _visibilityFeature!: VisibilityFeature;
   private _surfaceMaterial!: SurfaceMaterialPass;
+  private _xeGtaoPreparation!: XeGtaoPreparationPass;
+  private _xeGtaoMain!: XeGtaoMainPass;
+  private _xeGtaoDenoise!: XeGtaoDenoisePass;
   private _lightCluster: LightClusterPass | null = null;
   private _physicalSky: PhysicalSkyPass | null = null;
   private _aerialPerspective: AerialPerspectivePass | null = null;
@@ -1025,6 +1031,9 @@ export class Renderer {
     }
     const adapter = options.adapter ?? await gpu.requestAdapter({ powerPreference: "high-performance", featureLevel: "core" });
     if (!adapter) throw new Error("No WebGPU adapter");
+    if (!gpu.wgslLanguageFeatures.has("unrestricted_pointer_parameters")) {
+      throw new Error("Next Surface requires WGSL unrestricted_pointer_parameters");
+    }
     const requiredFeatures = new Set<GPUFeatureName>([
       "core-features-and-limits", "indirect-first-instance", "texture-formats-tier1",
       ...(config.requiredFeatures ?? [])
@@ -1094,6 +1103,9 @@ export class Renderer {
     this._visibilityFeature = new VisibilityFeature(this._graphics);
     this._format = gpu.getPreferredCanvasFormat();
     this._surfaceMaterial = new SurfaceMaterialPass(device);
+    this._xeGtaoPreparation = new XeGtaoPreparationPass(device);
+    this._xeGtaoMain = new XeGtaoMainPass(device, "high");
+    this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format);
     this._fsr3 = new Fsr3UpscalerRuntime(device);
     // The pinned Takram LUT profile is device-local and recorded into the
@@ -1136,6 +1148,9 @@ export class Renderer {
     return {
       visibility: this._visibilityFeature,
       surface: this._surfaceMaterial,
+      xeGtaoPreparation: this._xeGtaoPreparation,
+      xeGtaoMain: this._xeGtaoMain,
+      xeGtaoDenoise: this._xeGtaoDenoise,
       present: this._present,
       sky: this._physicalSky,
       aerial: this._aerialPerspective,
@@ -1299,6 +1314,7 @@ export class Renderer {
         previousHzb: this.packed_visibility_hzb_enabled,
         currentHzbLateRecheck: job.prepared.currentHzbLateRecheck !== null,
         activeSets, hasLit,
+        aoProfile: hasLit && activeSets.length > 0 ? "scalar-high" : "off",
         physicalEnvironment: this._environmentRuntime !== null
       });
       assertFrameProgramBindings(program, graphBindings);
@@ -1416,6 +1432,8 @@ export class Renderer {
     this._deviceLost = true;
     this._visibilityFeature?.destroy();
     this._surfaceMaterial?.destroy();
+    this._xeGtaoMain?.destroy();
+    this._xeGtaoPreparation?.destroy();
     this._physicalSky?.destroy();
     this._aerialPerspective?.destroy();
     this._fsr3?.destroy();

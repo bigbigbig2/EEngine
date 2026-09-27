@@ -4,7 +4,8 @@
  * Source: XeGTAO.hlsli::XeGTAO_MainPass and vaGTAO.hlsl::SpatioTemporalNoise.
  * 8x8 compute, five point-loaded FP32 depth levels, no atomics or barriers.
  */
-import { XE_GTAO_PREP_UNIFORM_WGSL } from "../render/ao/XeGtaoPreparationAbi.js";
+import { XE_GTAO_OCCLUSION_TERM_SCALE, XE_GTAO_PREP_UNIFORM_WGSL
+} from "../render/ao/XeGtaoPreparationAbi.js";
 import { XE_GTAO_EDGES_WGSL } from "./xegtao_preparation.js";
 
 export type XeGtaoScalarQuality = "medium" | "high";
@@ -75,7 +76,7 @@ fn xe_depth_sample(uv: vec2f, mip: u32) -> f32 {
   return xe_depth_at(at, mip);
 }
 fn xe_raw_output(visibility: f32) -> f32 {
-  return floor(clamp(visibility / 1.5, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
+  return floor(clamp(visibility / ${XE_GTAO_OCCLUSION_TERM_SCALE}, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
 }
 
 @compute @workgroup_size(8, 8)
