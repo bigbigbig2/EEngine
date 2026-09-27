@@ -16,6 +16,7 @@ export class GPUCameraState {
   private readonly packed = new ArrayBuffer(PACKED_CAMERA_TYPE.size);
   private readonly viewportOffset = new Float32Array(2);
   private readonly viewProjection = new Float32Array(16);
+  private readonly currentProjection = new Float32Array(16);
 
   constructor(
     private readonly device: GPUDevice,
@@ -48,6 +49,11 @@ export class GPUCameraState {
     return this.viewProjection;
   }
 
+  /** The projection actually uploaded for this frame, including view jitter. */
+  get projection_matrix(): Float32Array {
+    return this.currentProjection;
+  }
+
   setViewportOffset(x: number, y: number): void {
     this.viewportOffset[0] = x;
     this.viewportOffset[1] = y;
@@ -59,6 +65,7 @@ export class GPUCameraState {
     const projection = Float64Array.from(camera.projection_matrix);
     projection[8] = projection[8]! + this.viewportOffset[0]!;
     projection[9] = projection[9]! - this.viewportOffset[1]!;
+    this.currentProjection.set(projection);
     const viewProjection = multiplyMat4(projection, camera.view_matrix);
     this.viewProjection.set(viewProjection);
     const transformInverse = invertMat4(camera.transform.matrix);
@@ -113,6 +120,7 @@ export class GPUCameraState {
     this.cameraValue.copy(source.camera);
     this.viewportOffset.set(source.viewportOffset);
     this.viewProjection.set(source.viewProjection);
+    this.currentProjection.set(source.currentProjection);
   }
 
   destroy(): void {

@@ -68,6 +68,12 @@ function compileEmptyGraph(initial: EmptyFrameBindings): CompiledFrameGraph {
 
 function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owners: FrameProgramOwners): CompiledFrameGraph {
   if (plan.request.kind !== "scene") throw new Error("Scene graph requires a scene Frame Program");
+  // C0–C3 define the AO demand and implement its depth/normal preparation.
+  // Do not run a graph that advertises final visibility before C4–C6 connect
+  // the horizon, denoise and Surface consumer stages.
+  if (plan.request.aoProfile === "scalar-high") {
+    throw new Error("XeGTAO scalar-high is not yet lowerable: MainPass, denoise and Surface consumption are pending");
+  }
   for (const stage of ["visibility", "surface", "fsr3", "present"] as const) {
     if (!plan.stages.includes(stage)) throw new Error(`Scene Frame Program is missing ${stage}`);
   }

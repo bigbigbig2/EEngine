@@ -3,11 +3,15 @@
 export type FrameProduct =
   | "swapchain" | "reconstructed-color" | "aerial-radiance" | "sky-radiance"
   | "surface-radiance" | "surface-motion"
-  | "visibility" | "depth" | "meshlet-work" | "hzb" | "light-cluster";
+  | "visibility" | "depth" | "meshlet-work" | "hzb" | "light-cluster"
+  | "indirect-visibility";
 
 export type FrameProgramStage =
   | "clear-present" | "visibility" | "hzb" | "light-cluster"
-  | "surface" | "physical-sky" | "aerial" | "fsr3" | "present";
+  | "xe-gtao" | "surface" | "physical-sky" | "aerial" | "fsr3" | "present";
+
+/** Finite physical AO profiles; only off is requested by production until C4–C6. */
+export type FrameAoProfile = "off" | "scalar-high";
 
 export type FrameProductFact = Readonly<{
   product: FrameProduct;
@@ -44,6 +48,7 @@ export type FrameProgramRequest = FrameProgramBase & (
       currentHzbLateRecheck: boolean;
       activeSets: readonly number[];
       hasLit: boolean;
+      aoProfile?: FrameAoProfile;
       physicalEnvironment: boolean;
     }>
 );
@@ -82,6 +87,9 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
     value: "current-minus-previous UV", coverage: "visible surface", invalid: "zero background", version: "frame" },
   "light-cluster": { producer: "light-cluster", domain: "gpu-work", format: "structured-buffer",
     value: "clustered direct-light lookup", coverage: "lit surface", invalid: "zero lights", version: "frame" },
+  "indirect-visibility": { producer: "xe-gtao", domain: "internal-full", format: "structured-buffer",
+    value: "unexposed indirect visibility [0,1]", coverage: "visible opaque surface",
+    invalid: "visibility one", version: "frame" },
   visibility: { producer: "visibility", domain: "internal-full", format: "r32uint",
     value: "packed VisibilityKey", coverage: "visible geometry", invalid: "background sentinel", version: "frame" },
   depth: { producer: "visibility", domain: "internal-full", format: "depth32float",
@@ -117,6 +125,11 @@ const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<Fra
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
     "light-cluster": { domain: "gpu-work", value: "clustered direct-light lookup" },
+    "indirect-visibility": { domain: "internal-full", value: "unexposed indirect visibility [0,1]" },
+    depth: { domain: "internal-full", value: "reverse depth" }
+  },
+  "indirect-visibility": {
+    visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     depth: { domain: "internal-full", value: "reverse depth" }
   },
   "surface-motion": {
@@ -155,6 +168,13 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   if (activeSets.some(id => !Number.isInteger(id) || id < 0 || id >= 4)) {
     throw new RangeError("activeSets contains an invalid resident set");
   }
+  if (request.aoProfile !== undefined && request.aoProfile !== "off" &&
+      request.aoProfile !== "scalar-high") {
+    throw new RangeError("Frame Program AO profile is invalid");
+  }
+  if (request.aoProfile === "scalar-high" && (!request.hasLit || activeSets.length === 0)) {
+    throw new RangeError("XeGTAO requires a lit Surface consumer");
+  }
   return Object.freeze({
     ...request,
     activeSets: Object.freeze(activeSets)
@@ -170,7 +190,7 @@ function structuralKey(request: FrameProgramRequest): string {
     ...base, request.internalWidth, request.internalHeight,
     request.virtualGeometry, request.virtualBankCount,
     request.previousHzb, request.currentHzbLateRecheck,
-    request.activeSets, request.hasLit, request.physicalEnvironment
+    request.activeSets, request.hasLit, request.aoProfile ?? "off", request.physicalEnvironment
   ]);
 }
 
@@ -184,7 +204,9 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
     case "aerial-radiance": return ["sky-radiance", "depth"];
     case "sky-radiance": return ["surface-radiance", "depth"];
     case "surface-radiance": return ["visibility", "meshlet-work", "depth",
-      ...(request.hasLit ? ["light-cluster" as const] : [])];
+      ...(request.hasLit ? ["light-cluster" as const] : []),
+      ...(request.aoProfile === "scalar-high" ? ["indirect-visibility" as const] : [])];
+    case "indirect-visibility": return ["visibility", "depth"];
     case "surface-motion": return ["visibility", "meshlet-work", "depth"];
     case "light-cluster": return ["hzb"];
     case "visibility": return ["meshlet-work", "depth"];
@@ -232,7 +254,8 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
   if (buildHzb) requireProduct("hzb");
   const stages: FrameProgramStage[] = [
     "visibility", ...(buildHzb ? ["hzb" as const] : []),
-    ...(directLighting ? ["light-cluster" as const] : []), "surface",
+    ...(directLighting ? ["light-cluster" as const] : []),
+    ...(request.aoProfile === "scalar-high" ? ["xe-gtao" as const] : []), "surface",
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
     "fsr3", "present"
   ];

@@ -1,6 +1,6 @@
 # Module C 设计：按需 Surface Fields 与 XeGTAO
 
-> 状态：2026-09-27 已完成设计，尚未实施。对应[执行文档](../next-execution/surface-fields-xegtao.md)、[整体架构](./eengine-next-overall-architecture-final-2026.md) §3、[架构层计划](../next-execution/eengine-next-architecture-layer-plan-2026.md) §5 和[来源账本 R05](../porting/next-renderer.md)。以下“当前事实”来自源码；目标和成本假设不是已实现、已测量或已通过画质验收的事实。
+> 状态：2026-09-27 设计完成，C0–C3 的来源核对和准备代码已推进；完整 AO 生产主链尚未实施。对应[执行文档](../next-execution/surface-fields-xegtao.md)、[整体架构](./eengine-next-overall-architecture-final-2026.md) §3、[架构层计划](../next-execution/eengine-next-architecture-layer-plan-2026.md) §5 和[来源账本 R05](../porting/next-renderer.md)。以下“当前事实”表记录 C0 前的源码基线；目标和成本假设不是已实现、已测量或已通过画质验收的事实。
 
 ## 1. 要解决的问题
 

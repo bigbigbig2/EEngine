@@ -1,6 +1,8 @@
 # Module C 执行：按需 Surface Fields 与 XeGTAO
 
-> 状态：2026-09-27 执行设计，尚未开始代码迁移。设计依据见[Module C 设计](../next-design/surface-fields-xegtao.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，固定来源与逐阶段对照见[Next 来源账本 R05](../porting/next-renderer.md)。本文是连续编码路线，不是每一小步的许可/验证门禁。
+> 状态：2026-09-27 已推进 C0–C3 的来源核对、语义需求及法线/加权深度准备代码；AO 生产主链尚未激活，C4–C8 待实施。设计依据见[Module C 设计](../next-design/surface-fields-xegtao.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，固定来源与逐阶段对照见[Next 来源账本 R05](../porting/next-renderer.md)。本文是连续编码路线，不是每一小步的许可/验证门禁。
+
+当前实施记录：C0 已核对固定源、host 调度及 MIT 许可证；C1 已登记 `indirect-visibility` 的需求、选中 profile 与 Surface 字段语义，生产请求仍为 `off`，在 C4–C6 接通前 Lowering 明确拒绝提前请求 `scalar-high`，不会假装已有 AO 输出；C2/C3 的 reverse-Z 常量、独立 view normal 与五级 weighted depth Pass 已写入 AO owner，等待 MainPass 成为真实下游。已运行 engine typecheck 作为编译调试；尚未运行 build、WGSL GPU 执行、targeted test、browser 或 benchmark。
 
 ## 0. 完成的准确含义与节奏
 

@@ -30,6 +30,7 @@ paths:
   - OEngine/src/framegraph/**
   - OEngine/src/render/Renderer.ts
   - OEngine/src/render/pipeline/**
+  - OEngine/src/render/program/**
   - OEngine/src/render/runtime/**
   - OEngine/src/gpu/GpuRenderWorld.ts
   - validation/harness/**
