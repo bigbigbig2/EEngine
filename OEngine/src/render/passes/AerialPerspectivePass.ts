@@ -16,6 +16,7 @@ ${ATMOSPHERE_RUNTIME_WGSL}
 @group(0) @binding(6) var<uniform> environment: PhysicalEnvironmentParameters;
 @group(0) @binding(7) var output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(8) var lut_sampler: sampler;
+@group(0) @binding(9) var<storage,read> pre_exposure: array<f32>;
 @compute @workgroup_size(8,8,1) fn main(@builtin(global_invocation_id) id: vec3u) {
   let size = textureDimensions(scene); if (any(id.xy >= size)) { return; }
   let pixel = vec2i(id.xy); let uv = (vec2f(id.xy) + 0.5) / vec2f(size);
@@ -32,7 +33,7 @@ ${ATMOSPHERE_RUNTIME_WGSL}
   let point = atmosphere_world_to_planet(world.xyz / max(world.w, 1e-5), environment.world_to_unit);
   let transport = atmosphere_to_point(camera_position, point, sun, transmittance, scattering, higher_order, lut_sampler);
   textureStore(output, pixel, vec4f(scene_color.rgb * transport.transmittance +
-    transport.inscattering * environment.sky_luminance_scale, scene_color.a));
+    (transport.inscattering * environment.sky_luminance_scale) * max(pre_exposure[0], 1e-6), scene_color.a));
 }
 `;
 
@@ -51,7 +52,8 @@ export class AerialPerspectivePass {
       { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
       { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
       { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
-      { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } }
+      { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
+      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
     ] });
     this.pipeline = device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }), compute: { module, entryPoint: "main" } });
     this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
@@ -59,6 +61,7 @@ export class AerialPerspectivePass {
   addToGraph(graph: FrameGraph, input: {
     scene: ResourceId; depth: ResourceId; camera: ResourceId; environment: ResourceId;
     transmittance: ResourceId; scattering: ResourceId; higherOrder: ResourceId; width: number; height: number;
+    preExposure: ResourceId;
   }): ResourceId {
     const node = graph.add("Environment/Aerial Perspective", input, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
@@ -71,7 +74,8 @@ export class AerialPerspectivePass {
         { binding: 5, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
         { binding: 6, resource: { buffer: resources.get(input.environment) as GPUBuffer } },
         { binding: 7, resource: resolveTextureView(resources.get(output)) },
-        { binding: 8, resource: this.sampler }
+        { binding: 8, resource: this.sampler },
+        { binding: 9, resource: { buffer: resources.get(input.preExposure) as GPUBuffer } }
       ] });
       const pass = command.beginComputePass({ label: "Environment/Aerial Perspective" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, bind);
@@ -83,6 +87,7 @@ export class AerialPerspectivePass {
     });
     node.read(input.scene); node.read(input.depth); node.read(input.camera); node.read(input.environment);
     node.read(input.transmittance); node.read(input.scattering); node.read(input.higherOrder);
+    node.read(input.preExposure);
     return node.write(output);
   }
   destroy(): void {}

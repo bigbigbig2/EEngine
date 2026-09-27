@@ -130,7 +130,7 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
 export type SurfaceResourceRole =
   | "shading-work" | "visibility-key" | "frequency-plan" | "exception-lane" |
     "meshlet-work" | "material-records"
-  | "frame-view" | "radiance-output" | "motion-output"
+  | "frame-view" | "pre-exposure" | "radiance-output" | "motion-output"
   | "instance-records" | "geometry-metadata" | "vertex-payload" | "visibility-depth"
   | "virtual-product-metadata" | "virtual-product-banks"
   | "texture-routes" | "texture-banks" | "texture-samplers"
@@ -161,7 +161,7 @@ export function surfaceMaterialRequirements(
   }
   const roles: SurfaceResourceRole[] = [
     "shading-work", "visibility-key", "frequency-plan", "meshlet-work",
-    "material-records", "frame-view", "radiance-output", "motion-output"
+    "material-records", "frame-view", "pre-exposure", "radiance-output", "motion-output"
   ];
   roles.push("exception-lane");
   if (s.reconstructTriangle) {

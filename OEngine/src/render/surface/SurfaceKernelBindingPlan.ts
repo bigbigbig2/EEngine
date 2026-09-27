@@ -71,6 +71,7 @@ export function planSurfaceKernelBindings(
   add("meshlet-work", 0, 1, "read-only-storage");
   add("material-records", 0, 2, "read-only-storage");
   add("frame-view", 0, 3, "uniform");
+  add("pre-exposure", 0, 11, "read-only-storage");
   add("radiance-output", 0, 4, "write-only-rgba16float");
   add("motion-output", 0, 7, "write-only-rg16float");
   add("visibility-depth", 0, 5, "sampled-depth");

@@ -27,6 +27,8 @@ import { lowerFrameProgram, type FrameProgramOwners } from "../program/FrameProg
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
 import { TemporalFabric } from "../TemporalFabric.js";
 import { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
+import { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
+import { BloomPass } from "../passes/BloomPass.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
 import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
@@ -271,6 +273,8 @@ export class Renderer {
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
   private _temporalFacts!: TemporalFactsPass;
+  private _gpuRadiometry!: GpuRadiometryPass;
+  private _bloom!: BloomPass;
   private _fsr3!: Fsr3UpscalerRuntime;
   private _historyRuntime: GpuRenderWorldRuntime | null = null;
   private _sceneHistoryEpoch = 0;
@@ -1112,6 +1116,8 @@ export class Renderer {
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format);
     this._temporalFacts = new TemporalFactsPass(device);
+    this._gpuRadiometry = new GpuRadiometryPass(device);
+    this._bloom = new BloomPass(device);
     this._fsr3 = new Fsr3UpscalerRuntime(device);
     // The pinned Takram LUT profile is device-local and recorded into the
     // first frame submission; consumers can bind its immutable views by
@@ -1154,6 +1160,8 @@ export class Renderer {
       visibility: this._visibilityFeature,
       surface: this._surfaceMaterial,
       temporalFacts: this._temporalFacts,
+      radiometry: this._gpuRadiometry,
+      bloom: this._bloom,
       xeGtaoPreparation: this._xeGtaoPreparation,
       xeGtaoMain: this._xeGtaoMain,
       xeGtaoDenoise: this._xeGtaoDenoise,
@@ -1270,6 +1278,8 @@ export class Renderer {
         }
       }
       const identityHistory = this._temporal.histories.state("identity");
+      const colorHistory = this._temporal.histories.state("color");
+      this._gpuRadiometry.prepareFrame(colorHistory.readIndex, colorHistory.writeIndex, colorHistory.readValid);
       this._temporalFacts.prepareFrame(width, height, identityHistory.readIndex,
         identityHistory.writeIndex, identityHistory.readValid);
       this._fsr3.prepareFrame(command, {
@@ -1322,7 +1332,7 @@ export class Renderer {
         deviceEpoch: this.deviceEpoch,
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
-        fsr3: this._fsr3, temporalFacts: this._temporalFacts,
+         fsr3: this._fsr3, temporalFacts: this._temporalFacts, radiometry: this._gpuRadiometry,
         environment: this._environmentRuntime
       };
       const program = this._programCache.getOrCreate({
@@ -1363,6 +1373,7 @@ export class Renderer {
       this._frameCoordinator.submitFrame(frame);
       this._fsr3.commit(command.gpuDone);
       this._temporalFacts.commit(command.gpuDone);
+      this._gpuRadiometry.commit(command.gpuDone);
       this._temporal.commit(frameIndex);
       temporalActive = false;
       if (environmentGeneration !== undefined && environmentGeneration !== null) this._environmentRuntime?.commit(environmentGeneration, command.gpuDone);
@@ -1384,6 +1395,7 @@ export class Renderer {
       activeHzb?.invalidate("explicit");
       this._fsr3.invalidate();
       this._temporalFacts.abort();
+      this._gpuRadiometry.abort();
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         try { this._environmentRuntime?.abort(environmentGeneration); }
         catch (abortError) { console.error("Environment abort failed after render error", abortError); }
@@ -1465,7 +1477,10 @@ export class Renderer {
     this._physicalSky?.destroy();
     this._aerialPerspective?.destroy();
     this._fsr3?.destroy();
-    this._temporalFacts?.destroy();
+      this._present?.destroy();
+      this._temporalFacts?.destroy();
+      this._gpuRadiometry?.destroy();
+      this._bloom?.destroy();
     this._views?.destroy();
     this._environments?.destroy();
     this._environmentRuntime?.destroy();

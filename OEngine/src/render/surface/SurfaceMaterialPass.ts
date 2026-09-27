@@ -30,6 +30,7 @@ export interface SurfaceMaterialInputs {
   readonly width: number;
   readonly height: number;
   readonly frame: SurfaceMaterialFrame;
+  readonly preExposureBuffer: ResourceId;
   readonly activeSets: readonly number[];
   readonly hasLit: boolean;
   /** Same-frame XeGTAO scalar product. Omitted when no lit consumer exists. */
@@ -256,6 +257,7 @@ export class SurfaceMaterialPass {
           binding.role.endsWith("sampler") ||
           binding.role === "texture-samplers") continue;
       if (binding.role === "frame-view") surface.read(currentView);
+      else if (binding.role === "pre-exposure") surface.read(input.preExposureBuffer);
       else if (binding.role === "texture-banks") {
         for (const setId of activeSets) {
           const id = input.textureBanks[setId]?.[binding.element];
@@ -326,6 +328,7 @@ export class SurfaceMaterialPass {
     if (binding.role === "physical-sky-irradiance-sampler" ||
         binding.role === "physical-sky-specular-sampler") return this.samplers[1]!;
     const id = binding.role === "frame-view" ? view :
+      binding.role === "pre-exposure" ? input.preExposureBuffer :
       binding.role === "frequency-plan" ? frequencyPlan :
       binding.role === "radiance-output" ? hdr :
       binding.role === "motion-output" ? motion :

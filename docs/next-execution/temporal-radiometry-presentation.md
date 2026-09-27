@@ -1,6 +1,8 @@
 # Module D 执行：Temporal Facts、Radiometry 与 Presentation
 
-> 状态：2026-09-27，D0–D3 已编码并完成定向检查；D4–D6 尚未实施。按[设计文档](../next-design/temporal-radiometry-presentation.md)和[架构层计划](./eengine-next-architecture-layer-plan-2026.md) §6，继续从 D4 开始。固定来源及逐阶段映射见[Next 来源账本 R12/R24/R25](../porting/next-renderer.md)。本文是人读执行路线，不是逐步许可或逐批测试门禁。
+> 收口状态：D0-D6 已完成生产链实现与一次模块级集中检查。已通过 `npm run typecheck`、`npm run build:test`、Frame Program 定向契约测试和 Radiometry/Bloom/Present WGSL Naga 解析。未运行 browser matrix、真实 GPU 画质比较、P50/P95 benchmark、正式 evidence 或 claims；这些继续留在 Next Renderer 总体验收。
+
+> 状态：2026-09-27，D0-D6 已编码并完成一次集中检查。按[设计文档](../next-design/temporal-radiometry-presentation.md)和[架构层计划](./eengine-next-architecture-layer-plan-2026.md) §6，模块后续进入 VSM；browser、画质、性能和正式 evidence 继续后置。固定来源及逐阶段映射见[Next 来源账本 R12/R24/R25](../porting/next-renderer.md)。本文是人读执行路线，不是逐步许可或逐批测试门禁。
 
 ## 0. 模块完成的准确含义
 
