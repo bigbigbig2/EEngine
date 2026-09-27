@@ -11,8 +11,8 @@ currentSlice:
   id: vsm
   title: VSM semantic product, capability profile and persistent resources
   status: active
-  goal: Freeze the directional VSM source/profile contract, expose the shadow semantic product, and negotiate device-local persistent resources on the single production path before GPU demand and raster producers are added.
-  completed: E0-E4 semantic/resource foundation, page-table ABI and GPU receiver-demand producer implemented; allocation, caster raster and direct sampling remain for later execution stages.
+  goal: Complete the directional VSM GPU residency and production integration on the single production path, then add caster raster and direct sampling without CPU page control.
+  completed: E0-E5 semantic/resource foundation, page-table ABI, GPU receiver demand, bounded allocation, not-visited eviction, page/meta updates and overflow telemetry are implemented; caster raster and direct sampling remain for later execution stages.
 
 nextModules:
   - id: vsm

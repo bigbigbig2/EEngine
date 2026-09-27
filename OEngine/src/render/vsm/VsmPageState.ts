@@ -36,6 +36,7 @@ export interface VsmPageWork {
   readonly priority: number;
   readonly generation: number;
   readonly flags: number;
+  readonly fallbackMip: number;
 }
 
 export interface VsmDemandHeader {

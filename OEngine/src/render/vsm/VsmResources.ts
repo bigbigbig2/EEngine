@@ -10,7 +10,9 @@ export type VsmBufferKey =
   | "generation"
   | "overflowCounters"
   | "rasterIndirect"
-  | "pageConstants";
+  | "pageConstants"
+  | "pageLocks"
+  | "slotLocks";
 
 /** Persistent device-local VSM storage. FrameGraph owns only per-frame scratch. */
 export class VsmResources {
@@ -49,6 +51,9 @@ export class VsmResources {
     this.createBuffer("overflowCounters", 256, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer("rasterIndirect", 5 * 4 * 64, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST);
     this.createBuffer("pageConstants", 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    const virtualEntryCount = capabilities.clipLevels * capabilities.virtualPagesPerAxis ** 2;
+    this.createBuffer("pageLocks", Math.max(256, virtualEntryCount * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    this.createBuffer("slotLocks", Math.max(256, capabilities.residentSlots * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
   }
 
   static create(device: GPUDevice, capabilities: VsmCapabilities): VsmResources {
@@ -65,6 +70,8 @@ export class VsmResources {
   get overflowCounters(): GPUBuffer | null { return this.getBuffer("overflowCounters"); }
   get rasterIndirect(): GPUBuffer | null { return this.getBuffer("rasterIndirect"); }
   get pageConstants(): GPUBuffer | null { return this.getBuffer("pageConstants"); }
+  get pageLocks(): GPUBuffer | null { return this.getBuffer("pageLocks"); }
+  get slotLocks(): GPUBuffer | null { return this.getBuffer("slotLocks"); }
 
   getBuffer(key: VsmBufferKey): GPUBuffer | null {
     return this.buffers.get(key) ?? null;

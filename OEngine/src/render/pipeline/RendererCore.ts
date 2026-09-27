@@ -69,6 +69,7 @@ import { RadiometryRuntime, type PreExposureContract } from "../RadiometryContra
 import { negotiateVsmCapabilities } from "../vsm/VsmCapabilities.js";
 import { VsmResources } from "../vsm/VsmResources.js";
 import { buildVsmDirectionalFrameConstants, VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
+import { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 
 export interface RendererInitializeOptions {
   context?: GPUCanvasContext;
@@ -316,6 +317,7 @@ export class Renderer {
   private _streamingGpuFrameTimeMs = 0;
   private _vsm: VsmResources | null = null;
   private _vsmReceiverDemand!: VsmReceiverDemandPass;
+  private _vsmAllocatePages!: VsmAllocatePagesPass;
   private _lastFrameGraph: Readonly<{ cacheKey: string; dump: CompiledFrameGraphDump;
     resources: FrameResourceSummary; program: Pick<FrameProgram, "products" | "facts" | "stages" | "bindingRoles"> }> | null = null;
   private readonly _graphCache = new CompiledFrameGraphCache(8);
@@ -1098,10 +1100,11 @@ export class Renderer {
       }),
       record: captureWebGpuCapabilityRecord(gpu, device, adapter)
     });
-    // E2 freezes the device-epoch profile and owns persistent resources. The
-    // frame program remains shadow-disabled until the GPU producer lands in E4.
+    // E2 freezes the device-epoch profile and owns persistent resources. E4/E5
+    // publish demand and residency work through the same Frame Program submit.
     this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
     this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
+    this._vsmAllocatePages = new VsmAllocatePagesPass(device);
     device.lost.then(info => {
       if (!this._destroyed) {
         this._deviceLost = true;
@@ -1179,7 +1182,8 @@ export class Renderer {
       sky: this._physicalSky,
       aerial: this._aerialPerspective,
       lightCluster: () => (this._lightCluster ??= new LightClusterPass(this._graphics)),
-      vsmReceiverDemand: this._vsmReceiverDemand
+      vsmReceiverDemand: this._vsmReceiverDemand,
+      vsmAllocatePages: this._vsmAllocatePages
     };
   }
 
@@ -1504,6 +1508,7 @@ export class Renderer {
     this._vsm?.destroy();
     this._vsm = null;
     this._vsmReceiverDemand?.destroy();
+    this._vsmAllocatePages?.destroy();
     this._views?.destroy();
     this._environments?.destroy();
     this._environmentRuntime?.destroy();

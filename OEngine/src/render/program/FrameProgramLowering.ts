@@ -15,6 +15,7 @@ import type { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
 import type { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import type { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import type { VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
+import type { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
 import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 
@@ -32,6 +33,7 @@ export type FrameProgramOwners = Readonly<{
   xeGtaoMain: XeGtaoMainPass;
   xeGtaoDenoise: XeGtaoDenoisePass;
   vsmReceiverDemand: VsmReceiverDemandPass;
+  vsmAllocatePages: VsmAllocatePagesPass;
 }>;
 
 type SceneBind = <T extends object>(name: string, resolve: (bindings: SceneFrameBindings) => T) => T;
@@ -106,7 +108,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       if (bindings.vsmFrame === null) throw new Error("Frame Program VSM clipmap publication is missing");
       return bindings.vsmFrame;
     });
-    owners.vsmReceiverDemand.addToGraph(graph, {
+    const demand = owners.vsmReceiverDemand.addToGraph(graph, {
       width: result.frame.domain.width,
       height: result.frame.domain.height,
       camera: cameraBuffer,
@@ -117,6 +119,13 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       lightView: vsmFrame.lightView,
       clipOriginExtent: vsmFrame.clipOriginExtent
     });
+    if (plan.products.includes("shadow-allocation")) {
+      owners.vsmAllocatePages.addToGraph(graph, {
+        demand: demand.demand,
+        resources: vsmOwner,
+        generation: demand.generation
+      });
+    }
   }
   const materialRecords = graph.import_resource(
     "material-records", { kind: "imported", label: "published material records" },

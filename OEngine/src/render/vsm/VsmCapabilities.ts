@@ -105,12 +105,17 @@ function profileFits(
 ): boolean {
   const limits = limitsOf(device);
   if (limits.maxTextureDimension2D < atlasDimension ||
-      limits.maxStorageBuffersPerShaderStage < 4 ||
+      // E5 binds demand, page/meta tables, allocation work, two lock arrays
+      // and GPU telemetry in one compute stage.
+      limits.maxStorageBuffersPerShaderStage < 7 ||
       limits.maxComputeWorkgroupsPerDimension < 1) return false;
   const candidate = makeCapabilities(device, "vsm-directional-bounded", "preflight", clipLevels,
     atlasDimension, demandCapacity, casterRecordCapacity);
+  const pageLocksBytes = Math.max(256, clipLevels * VIRTUAL_PAGES_PER_AXIS * VIRTUAL_PAGES_PER_AXIS * 4);
+  const slotLocksBytes = Math.max(256, candidate.residentSlots * 4);
   return [candidate.pageTableBytes, candidate.metaTableBytes, candidate.demandBytes,
-    candidate.allocationBytes, candidate.casterRecordBytes].every(bytes => fitsBuffer(bytes, limits));
+    candidate.allocationBytes, candidate.casterRecordBytes, pageLocksBytes, slotLocksBytes]
+    .every(bytes => fitsBuffer(bytes, limits));
 }
 
 /** Negotiate once after device creation and before any VSM resource allocation. */

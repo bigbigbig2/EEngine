@@ -1,6 +1,6 @@
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 
-/** Receiver-driven directional VSM demand. Allocation/dedup remains a later GPU stage. */
+/** Receiver-driven directional VSM demand. GPU allocation consumes this bounded buffer next. */
 export const VSM_RECEIVER_DEMAND_WGSL = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
 
