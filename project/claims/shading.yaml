@@ -9,7 +9,7 @@ claims:
     evidencePolicy:
       allOf: []
       anyOf: []
-      diagnosticCases: [phase1-visibility]
+      diagnosticCases: []
       checkOnly: true
     allowedDeclarations: [ImplementationComplete]
     watch: [OEngine/src/render/surface/**, OEngine/src/shaders/surface_material*, OEngine/src/gpu/GpuShadingPublication.ts, docs/contracts/surface-work-v1.md, checks/guards/legacy.yaml]

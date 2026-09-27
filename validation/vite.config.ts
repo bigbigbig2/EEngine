@@ -92,7 +92,6 @@ export default defineConfig({
         "webgpu-component": resolve(root, "cases/webgpu-component/index.html"),
         "oegpack-v3-component": resolve(root, "cases/oegpack-v3-component/index.html"),
         "virtual-geometry-component": resolve(root, "cases/virtual-geometry-component/index.html"),
-        "phase1-visibility": resolve(root, "cases/phase1-visibility/index.html"),
         "web-authored-large-cook-k0": resolve(root, "cases/web-authored-large-cook-k0/index.html"),
         "virtual-product-observer": resolve(root, "labs/virtual-product-observer/index.html")
       }

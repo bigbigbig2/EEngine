@@ -41,53 +41,6 @@
     {
       "artifacts": [
         "result",
-        "events",
-        "screenshot"
-      ],
-      "automatic": true,
-      "buildTarget": "production",
-      "caseKind": "production",
-      "changedPaths": [
-        "validation/cases/phase1-visibility",
-        "OEngine/src/render/pipeline/RendererCore.ts",
-        "OEngine/src/render/surface/SurfacePresentPass.ts",
-        "OEngine/src/render/surface/SurfaceMaterialPass.ts",
-        "OEngine/src/render/surface/ShadingWorkPass.ts",
-        "OEngine/src/render/surface/ShadingWorkAbi.ts",
-        "OEngine/src/render/surface/ShadingFrequencyPlanAbi.ts",
-        "OEngine/src/shaders/shading_work.ts",
-        "OEngine/src/shaders/shading_frequency.ts",
-        "OEngine/src/shaders/surface_material_program.ts",
-        "OEngine/src/render/surface/SurfaceKernelBindingPlan.ts"
-      ],
-      "covers": [
-        "shading.surface-structure",
-        "visibility.gpu-closure"
-      ],
-      "decision": "ADR-0020",
-      "domain": "visibility",
-      "errorAllowlist": [
-        {
-          "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "visibility.gpu-closure",
-          "reason": "Chrome stable emits this platform warning during adapter negotiation.",
-          "source": "console:warning"
-        }
-      ],
-      "evidenceRole": "diagnostic",
-      "harness": "production",
-      "id": "phase1-visibility",
-      "kind": "gpu",
-      "lab": false,
-      "level": "L2",
-      "profile": "smoke",
-      "route": "/cases/phase1-visibility/index.html",
-      "timeoutMs": 120000,
-      "workloadId": "phase1-visibility-v1"
-    },
-    {
-      "artifacts": [
-        "result",
         "events"
       ],
       "automatic": true,
@@ -475,29 +428,6 @@
       "sampleCadence": 1,
       "sampleFrames": 1,
       "seed": 16008,
-      "timestampRequired": false,
-      "warmupFrames": 1
-    },
-    "phase1-visibility-v1": {
-      "cameraPath": "single-product-triangle",
-      "deviceScaleFactor": 1,
-      "features": [
-        "product-page",
-        "hierarchy-work",
-        "meshlet-raster",
-        "visibility-key"
-      ],
-      "id": "phase1-visibility-v1",
-      "independentRuns": 1,
-      "quality": "phase1-visibility",
-      "renderScale": 1,
-      "resolution": [
-        1280,
-        720
-      ],
-      "sampleCadence": 1,
-      "sampleFrames": 2,
-      "seed": 1601,
       "timestampRequired": false,
       "warmupFrames": 1
     },

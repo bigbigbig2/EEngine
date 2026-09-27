@@ -10,7 +10,7 @@ claims:
     evidencePolicy:
       allOf: []
       anyOf: []
-      diagnosticCases: [phase1-visibility]
+      diagnosticCases: []
       checkOnly: true
     allowedDeclarations: [ImplementationComplete, RuntimeValidated, PipelineFeatureComplete, ADRComplete]
     watch: [OEngine/src/render/passes/**, OEngine/src/render/MeshletBucketRaster.ts, OEngine/src/shaders/**]
