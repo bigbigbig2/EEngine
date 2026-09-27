@@ -48,5 +48,5 @@ deferredValidation:
 links:
   design: docs/next-design/eengine-next-overall-architecture-final-2026.md
   execution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
-  currentDesign: docs/next-design/eengine-next-overall-architecture-final-2026.md
-  currentExecution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
+  currentDesign: docs/next-design/temporal-radiometry-presentation.md
+  currentExecution: docs/next-execution/temporal-radiometry-presentation.md

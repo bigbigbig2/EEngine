@@ -160,6 +160,8 @@ Surface 执行分成三个正交选择：**Work Scheduling**（dense 或 GPU bin
 
 ## 6. 模块 D：Temporal / Radiometry / Presentation
 
+本模块的事实 ABI、history 事务、GPU 曝光、色彩和显示决策见[Module D 独立设计](../next-design/temporal-radiometry-presentation.md)；D0–D6 的源码入口、单链切断和一次模块收口见[Module D 执行](./temporal-radiometry-presentation.md)。以下保留架构层摘要。
+
 1. 定义跨模块的 motion、stable identity、local change、reactive/transparency、disocclusion、jitter、pre-exposure 事实。明确当前/上一帧矩阵、空间与方向，避免由 FSR3 backend 自行定义运动语义。Surface 的 motion 必须来自真实几何/相机变化；不能因粗频着色把移动边界变成代表点的常量 motion。
 2. 将 `TemporalFabric` 的 begin/commit/abort、resize/replacement/device loss 事务提升到共享生命周期。每个 consumer（FSR3、SSSR、GI、VSM cache）各自计算 history confidence；共享输入事实而不造全局单一置信度。
 3. 让现有 FSR3 Upscaler 完整阶段消费上述 facts，记录缺失 reactive/transparency 或局部变化事实时的显式行为。旧 FSR3 production integration 是可复用 backend，不代表新 Temporal 合同已经成立；不要为了接线删上游算法阶段。

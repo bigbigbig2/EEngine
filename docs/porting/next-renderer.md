@@ -24,7 +24,7 @@
 | Light Transport / Screen GI | **UnitySSGIURP 优先算法候选**；Wicked Engine compute 链作执行对照 | 对照完整追踪、fallback、时域、降噪、上采样；实施前固定一个完整 profile | 改写 fullscreen/URP 依赖、GPU ray work、与 World Field/Sky 的能量边界及求值预算 |
 | Environment & Media / shading | Takram atmosphere WebGPU | LUT、太阳/天光、shadow-aware aerial transport | 去 Three/TSL 宿主、单位与环境权威 owner |
 | Environment & Media / shading | Adria VolumetricFog（候选） | 注入、历史、积分与合成 | bounded binding、介质输入和大气区间合成 |
-| Temporal & Presentation / frame-runtime、shading | FidelityFX SDK v1.1.4 FSR3 Upscaler | 所选版本的完整非神经超分链 | WebGPU 后端、统一 history/exposure 接口 |
+| Temporal & Presentation / frame-runtime、shading | FidelityFX SDK v1.1.4 FSR3 Upscaler R12；Wicked Engine histogram R24；Filament Bloom/ColorGrading/GT7 R25 | 固定 FSR3 全阶段、两段 histogram/适应、选定 Bloom/grade/tone 阶段 | WebGPU 后端、共享事实/事务、Rec.2020 与 GPU P/E、SDR/HDR canvas 适配；新增来源均未采用 |
 | Visibility & Surface / 频率分类 | Intel DeferredCoarsePixelShading（R20）为完整 2×2 coarse/fallback 候选；FidelityFX VRS 仅供另一种分类数学对照 | `RequiresPerPixelShading`、coarse/full 消费与全样本写回须按数据依赖对照 | 当前 VisibilityKey 前置决策、三层频带和 4×4 策略不是上游实现，不得冠以其完成移植 |
 | VT / materials-textures | **Wicked Engine 地形 VT + LibVT 通用 VT 双来源候选** | 前者取 GPU 请求/分配/驻留，后者对照页表/过滤/离线切页完整性；先保留 Texture Residency | 两者均不能整套直搬；通用资产布局、WebGPU 有界绑定、异步反馈/上传闭环需原型 |
 | Adaptive Compute Shading / shading | R20 有可核实的 2×2 coarse/fallback 完整源码，但没有吻合本地前置 VisibilityKey 决策和三层频率合同的整套 donor | 若选 R20 必须保留其所有决策、执行、写回条件，并明确扩展部分 | 产品身份、材质/光照风险、4×4、WebGPU 有界队列和重建验证 |
@@ -237,6 +237,35 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 - **WebGPU differences**：HLSL/GLSL callbacks 和 wave 操作改成 WGSL；资源/格式 limits 协商；Temporal Fabric 提供公共状态而不强行替换算法内部历史语义。这里选的是 **Upscaler，不包含 Frame Generation**。
 - **Fallback / lifecycle**：当前生产路径只运行 FSR3；旧 analytic baseline 不再作为并行运行时后端。相机切换/明显 cut、分辨率与曝光变化使用 Temporal Fabric 有效性和 FSR3 自有 history 重置。FSR 不是 sparse/coarse shading 自动正确的保证，Visibility & Surface 必须提供合法输入与置信度。
 - **Local validation**：静态细节、运动细边、遮挡揭露、透明/高亮、曝光和动态分辨率；用固定源输入/输出作对照，连同完整重建成本评估。
+
+### R24 · Wicked Engine：Module D GPU histogram 自动曝光
+
+- **检索与选择（2026-09-27）**：核对 Wicked 的完整 GPU histogram 主链、Godot `servers/rendering/renderer_rd/effects/luminance.cpp` / `shaders/effects/luminance_reduce.glsl`、Falcor `Source/RenderPasses/ToneMapper/*`，并用 [Alex Tardif histogram 文章](https://www.alextardif.com/HistogramLuminance.html)核对分箱、黑像素和时间适应。Godot/Falcor 的平均亮度或最高 mip log 平均易受极端构图影响，不选作 D 的完整 donor；文章是解释资料，不替代代码。以上仅是已核范围，不声称穷尽来源。
+- **Upstream / Revision / License**：[turanszkij/WickedEngine](https://github.com/turanszkij/WickedEngine/tree/0c97cfcdc2a146e12e31ef9464a7aece71706264)，`0c97cfcdc2a146e12e31ef9464a7aece71706264`，根 `LICENSE.txt` 为 MIT（已读）。与 R23 共享同一 pin，但采用状态独立。已读以下固定源码入口；未构建/运行上游工程。
+- **具体入口**：[`WickedEngine/shaders/luminancePass1CS.hlsl`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/shaders/luminancePass1CS.hlsl) `main`；[`luminancePass2CS.hlsl`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/shaders/luminancePass2CS.hlsl) `main`；[`WickedEngine/wiRenderer.cpp`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/wiRenderer.cpp) `CreateLuminanceResources`、`ComputeLuminance`，以及常量/offset 定义的 `ShaderInterop_Postprocess.h`。本地拟落点：`RadiometryContract.ts` 的 GPU 状态、Module D 新 histogram pass/WGSL、`FrameProgramLowering.ts` 的生产边与 display consumer；**这些文件当前尚无该移植**。
+
+| 固定源阶段/决策 | Module D 本地拟产物 | 保留条件与明确差异 |
+| --- | --- | --- |
+| `CreateLuminanceResources/ComputeLuminance` | device 期 histogram/adapted-exposure 双槽资源、Frame Program meter stage | 半分辨率采样、Pass1→Pass2→下帧资源生命周期；GPU work 同一 frame submit，无 CPU 曝光读回 |
+| `luminancePass1CS::main` | scene-linear HDR/`P_t` → 分组 histogram → 全局 bins | 低亮 bin 0、log2 区间截取、bin index `[1,N-1]`、组共享计数与全局 atomic 累计；WebGPU workgroup size/storage 限额可改分批，不省略分箱 |
+| `luminancePass2CS::main` | bins + 上帧 adapted luminance → `E_t` | weighted bin-index reduction、排除 bin 0 的像素数、反 log、指数 delta-time 适应、key/adapted luminance、末尾清全部 bins；空图/NaN 正值守卫为本地 WebGPU 合同 |
+| source Rec.709 `dot(color, 0.2127/0.7152/0.0722)` | linear Rec.2020 的 scene luminance meter | 源系数**不能**直接用于目标 Rec.2020 RGB；改为目标工作空间亮度系数或显式转换回源基底，是具名色彩空间适配。不能一面改系数一面称字节级原样移植 |
+
+- **边界、fallback、adoption**：Wicked 返回 exposure 是 `eyeAdaptationKey/max(adaptedLuminance,epsilon)`；EEngine 将其作为 GPU `E_t`，并以已提交 `P_t` 预曝光，不照搬 Wicked 的 host 渲染架构。中心加权/percentile/高亮保护若实施属于本地质量扩展，须和原 histogram 基线分别对照。当前 `not adopted`；只有固定源分支核对、CPU/WGSL histogram 与适应 oracle、生产 GPU meter→display 消费证据齐备才按实际范围提升状态。Module D 收口时运行必要 targeted tests；最终曝光画质/性能矩阵后置。
+
+### R25 · Filament：Module D Bloom、ColorGrading 与 GT7 显示映射
+
+- **Upstream / Revision / License**：沿用 R03 [google/filament](https://github.com/google/filament/tree/41f996de8fcc2d6b60b73159aa1bc44a05a40700) 固定 `41f996de8fcc2d6b60b73159aa1bc44a05a40700`，根 `LICENSE` Apache-2.0（已读）；本条的算法采用状态不继承 R03 PBR。已读所列具体源文件，未构建或运行上游工程。Godot fixed `6210a2fd88ed3f512b3093d0be74e2541f463b84`（MIT）tonemap shader 声明简化 AgX 近似，不作为完整 AgX 来源；Falcor fixed `759aad033ff610fb0d82c74f7e0a508d0096d5f2`（BSD）tone pass 仅作对照。
+- **具体入口**：[`filament/src/PostProcessManager.cpp::bloom`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/filament/src/PostProcessManager.cpp) 与 [`filament/src/materials/bloom/`](https://github.com/google/filament/tree/41f996de8fcc2d6b60b73159aa1bc44a05a40700/filament/src/materials/bloom) 的 `bloomDownsample.mat`、`bloomDownsample2x.mat`、`bloomDownsample9.mat`、`bloomUpsample.mat`；[`filament/src/details/ColorGrading.cpp`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/filament/src/details/ColorGrading.cpp) `hdrColorAt`/LUT 生成；[`filament/src/materials/colorGrading/colorGrading.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/filament/src/materials/colorGrading/colorGrading.fs) LUT sampling；[`filament/src/ToneMapper.cpp::GT7ToneMapper`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/filament/src/ToneMapper.cpp)。源注释引用 SIGGRAPH 2025 *Driving Toward Reality: Physically Based Tone Mapping and Perceptual Fidelity in Gran Turismo 7*；论文全文本轮未独立取得，不记为已读论文。
+
+| 固定源阶段/分支 | Module D 本地拟产物 | 保留的条件、输入输出及差异 |
+| --- | --- | --- |
+| `PostProcessManager::bloom` + 2×/9×/常规 downsample、upsample materials | output HDR → Bloom mip 链 → HDR 合成 | 选 High core、threshold on、flare/dirt off；保留奇偶尺寸 9/13 tap、kernel 权重、边界采样、层级合成；WebGPU physical pass 和纹理 usage 可改，关闭的可选效果不宣称已 port |
+| `ColorGrading.cpp::hdrColorAt` 的 LogC、white balance、ASC CDL、contrast、vibrance、saturation、GT7 tone、gamut/OETF 与 LUT 生成 | 静态参数 → 完整 SDR grade+tone+display LUT；最终 pass 采样 | **源顺序不可交换**；动态曝光在 LUT 采样前应用，不每帧重建 LUT。未选中的调整参数和自定义 LUT 不冒称已 port |
+| `ToneMapper.cpp::GT7ToneMapper` | Rec.2020 工作 HDR → GT7 tone 数学 → SDR LUT / HDR 宽范围目标 | `Rec2020_to_ICtCp`、toe/shoulder、chroma scale、blend、SDR correction 与亮度上限；HDR 目标 peak/paper-white 初始化属于目标 profile，逐值核对源参数 |
+| `colorGrading.fs` LUT sampling 与 `ColorGrading.cpp::hdrColorAt` | SDR LUT consumer、HDR 宽范围输出适配 | 源 `hdrColorAt` 在 OETF 前 `saturate(v)` 到 `[0,1]`；它**不能原样用于 extended HDR**。HDR grade/Canvas 适配是具名 EEngine 本地方案，不声称 Filament 当前 SDR LUT 原样提供 HDR |
+
+- **WebGPU / lifecycle / adoption**：静态 LUT 参数改变时重建；Bloom 是暂存 mip 链；SDR baseline 写 preferred canvas 格式；HDR 要探测实际 `rgba16float`、`toneMapping: extended` 与 colorSpace 配置，fallback 仍是同一 Renderer 的 SDR profile。Module D 的 `SurfacePresentPass.ts`/Frame Program 是目标本地落点，现仍直接写 HDR。R25 当前 `not adopted`；须逐分支核对、CPU/WGSL 数值 oracle、真实生产 GPU Bloom→tone/grade→display 消费后才按**选中范围**升级。HDR 画质/显示性能声明留最终系统验收。
 
 ### R13 · FSR2：备选，不与 FSR3 内部阶段拼装
 
