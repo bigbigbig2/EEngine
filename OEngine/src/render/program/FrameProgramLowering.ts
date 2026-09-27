@@ -16,6 +16,9 @@ import type { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import type { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import type { VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 import type { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
+import type { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
+import type { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
+import type { VsmAllocationFrame } from "../vsm/VsmResidency.js";
 import type { EmptyFrameBindings, FrameProgramBindings, SceneFrameBindings } from "./FrameProgramBindings.js";
 import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 
@@ -34,6 +37,8 @@ export type FrameProgramOwners = Readonly<{
   xeGtaoDenoise: XeGtaoDenoisePass;
   vsmReceiverDemand: VsmReceiverDemandPass;
   vsmAllocatePages: VsmAllocatePagesPass;
+  vsmCasterRecords: VsmCasterRecordPass;
+  vsmAtlasRaster: VsmAtlasRasterPass;
 }>;
 
 type SceneBind = <T extends object>(name: string, resolve: (bindings: SceneFrameBindings) => T) => T;
@@ -96,6 +101,9 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   const graph = new FrameGraph("Renderer/visibility-frame");
   const { result, cameraBuffer, builtHzb } = lowerVisibility(plan, graph, bind, owners);
   assertTextureProduct(plan, graph, "visibility", result.frame.visibilityKey);
+  let vsmOwnerBinding: NonNullable<SceneFrameBindings["vsm"]> | null = null;
+  let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
+  let vsmAllocation: VsmAllocationFrame | null = null;
   if (plan.products.includes("shadow-demand")) {
     if (initial.vsm === null || initial.vsmFrame === null) {
       throw new Error("Frame Program VSM demand requires persistent resources and clipmap constants");
@@ -108,6 +116,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       if (bindings.vsmFrame === null) throw new Error("Frame Program VSM clipmap publication is missing");
       return bindings.vsmFrame;
     });
+    vsmOwnerBinding = vsmOwner;
+    vsmFrameBinding = vsmFrame;
     const demand = owners.vsmReceiverDemand.addToGraph(graph, {
       width: result.frame.domain.width,
       height: result.frame.domain.height,
@@ -120,7 +130,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       clipOriginExtent: vsmFrame.clipOriginExtent
     });
     if (plan.products.includes("shadow-allocation")) {
-      owners.vsmAllocatePages.addToGraph(graph, {
+      vsmAllocation = owners.vsmAllocatePages.addToGraph(graph, {
         demand: demand.demand,
         resources: vsmOwner,
         generation: demand.generation
@@ -185,6 +195,41 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
           return resource;
         })
       )) : undefined;
+  if (vsmAllocation !== null && vsmOwnerBinding !== null && vsmFrameBinding !== null) {
+    const geometryRecords = graph.import_resource("vsm-geometry-records", { kind: "imported", label: "VSM geometry records" }, bind("vsm-geometry-records", bindings => bindings.job.assets.geometryRecords));
+    const meshletRecords = graph.import_resource("vsm-meshlet-records", { kind: "imported", label: "VSM meshlet records" }, bind("vsm-meshlet-records", bindings => bindings.job.assets.meshletRecords));
+    const meshletVertexIndices = graph.import_resource("vsm-meshlet-vertex-indices", { kind: "imported", label: "VSM meshlet vertex indices" }, bind("vsm-meshlet-vertex-indices", bindings => bindings.job.assets.meshletVertexIndices));
+    const meshletTriangleIndices = graph.import_resource("vsm-meshlet-triangle-indices", { kind: "imported", label: "VSM meshlet triangle indices" }, bind("vsm-meshlet-triangle-indices", bindings => bindings.job.assets.meshletTriangleIndices));
+    const vertexStreamData = graph.import_resource("vsm-vertex-stream-data", { kind: "imported", label: "VSM vertex stream data" }, bind("vsm-vertex-stream-data", bindings => bindings.job.assets.vertexStreamData));
+    const caster = owners.vsmCasterRecords.addToGraph(graph, {
+      allocation: vsmAllocation,
+      meshletWork: result.frame.meshletWork.records,
+      instances,
+      resources: vsmOwnerBinding,
+      frame: vsmFrameBinding,
+      generation: vsmFrameBinding.generation,
+      workCapacity: result.frame.meshletWork.capacity
+    });
+    owners.vsmAtlasRaster.addToGraph(graph, {
+      caster,
+      resources: vsmOwnerBinding,
+      frame: vsmFrameBinding,
+      generation: vsmFrameBinding.generation,
+      pageTable: vsmAllocation.pageTable,
+      metaTable: vsmAllocation.metaTable,
+      pageLocks: vsmAllocation.pageLocks,
+      instances,
+      meshlets: meshletRecords,
+      meshletVertices: meshletVertexIndices,
+      meshletTriangles: meshletTriangleIndices,
+      vertexData: vertexStreamData,
+      geometries: geometryRecords,
+      materials: materialRecords,
+      textureBanks,
+      productHeap: virtualMetadata,
+      productBanks: virtualBanks
+    });
+  }
   const lightRecords = needsDirectLight ? graph.import_resource(
     "light-records", { kind: "imported", label: "scene light records" },
     bind("light-records", bindings => bindings.view.environment.lights.buffer_data)

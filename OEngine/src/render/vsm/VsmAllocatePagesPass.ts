@@ -133,6 +133,9 @@ export class VsmAllocatePagesPass {
     return {
       allocation,
       demand,
+      pageTable,
+      metaTable,
+      pageLocks,
       generation: input.generation,
       capacity: input.resources.capabilities.residentSlots
     };

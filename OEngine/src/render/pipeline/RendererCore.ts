@@ -70,6 +70,8 @@ import { negotiateVsmCapabilities } from "../vsm/VsmCapabilities.js";
 import { VsmResources } from "../vsm/VsmResources.js";
 import { buildVsmDirectionalFrameConstants, VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 import { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
+import { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
+import { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
 
 export interface RendererInitializeOptions {
   context?: GPUCanvasContext;
@@ -318,6 +320,8 @@ export class Renderer {
   private _vsm: VsmResources | null = null;
   private _vsmReceiverDemand!: VsmReceiverDemandPass;
   private _vsmAllocatePages!: VsmAllocatePagesPass;
+  private _vsmCasterRecords!: VsmCasterRecordPass;
+  private _vsmAtlasRaster!: VsmAtlasRasterPass;
   private _lastFrameGraph: Readonly<{ cacheKey: string; dump: CompiledFrameGraphDump;
     resources: FrameResourceSummary; program: Pick<FrameProgram, "products" | "facts" | "stages" | "bindingRoles"> }> | null = null;
   private readonly _graphCache = new CompiledFrameGraphCache(8);
@@ -1105,6 +1109,8 @@ export class Renderer {
     this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
     this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
     this._vsmAllocatePages = new VsmAllocatePagesPass(device);
+    this._vsmCasterRecords = new VsmCasterRecordPass(device);
+    this._vsmAtlasRaster = new VsmAtlasRasterPass(device);
     device.lost.then(info => {
       if (!this._destroyed) {
         this._deviceLost = true;
@@ -1183,7 +1189,9 @@ export class Renderer {
       aerial: this._aerialPerspective,
       lightCluster: () => (this._lightCluster ??= new LightClusterPass(this._graphics)),
       vsmReceiverDemand: this._vsmReceiverDemand,
-      vsmAllocatePages: this._vsmAllocatePages
+      vsmAllocatePages: this._vsmAllocatePages,
+      vsmCasterRecords: this._vsmCasterRecords,
+      vsmAtlasRaster: this._vsmAtlasRaster
     };
   }
 
@@ -1509,6 +1517,8 @@ export class Renderer {
     this._vsm = null;
     this._vsmReceiverDemand?.destroy();
     this._vsmAllocatePages?.destroy();
+    this._vsmCasterRecords?.destroy();
+    this._vsmAtlasRaster?.destroy();
     this._views?.destroy();
     this._environments?.destroy();
     this._environmentRuntime?.destroy();

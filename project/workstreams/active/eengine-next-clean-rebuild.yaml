@@ -11,8 +11,8 @@ currentSlice:
   id: vsm
   title: VSM semantic product, capability profile and persistent resources
   status: active
-  goal: Complete the directional VSM GPU residency and production integration on the single production path, then add caster raster and direct sampling without CPU page control.
-  completed: E0-E5 semantic/resource foundation, page-table ABI, GPU receiver demand, bounded allocation, not-visited eviction, page/meta updates and overflow telemetry are implemented; caster raster and direct sampling remain for later execution stages.
+  goal: Complete the directional VSM GPU residency and production integration on the single production path, then add direct sampling without CPU page control.
+  completed: E0-E6 semantic/resource foundation, page-table ABI, GPU receiver demand, bounded allocation, not-visited eviction, page/meta updates, overflow telemetry, GPU caster records, fixed indirect Atlas raster and post-raster dirty commit are implemented. E6 consumes bounded frame MeshletWork coverage; overflow and uncovered pages remain dirty. E7 direct sampling and CSM cutover remain.
 
 nextModules:
   - id: vsm
