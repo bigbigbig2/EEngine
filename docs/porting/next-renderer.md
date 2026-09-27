@@ -403,3 +403,15 @@ R12 的固定源码、60 个文件 digest、十阶段映射、资源/常量 ABI 
 - E6 local mapping is now explicit: VSM allocation `VsmPageWork` -> `VsmCasterRecordPass` GPU expansion -> `VsmAtlasRasterPass` fixed indirect depth batches -> GPU dirty-page commit. Ordinary meshlet decode follows the published Geometry/Meshlet ABI; Product records follow `VIRTUAL_GEOMETRY_PRODUCT_WGSL`; alpha-mask discard consumes the published material visibility payload and cutoff. The bounded source is the frame MeshletWork queue, so off-camera geometry not present in that queue remains deferred until the later caster coverage expansion; overflow preserves dirty pages and never performs CPU readback.
 - E7 local mapping is now explicit: VSM clipmap constants -> `vsm_sampling.ts` virtual UV/mip lookup -> generation/dirty validation -> atlas border texel loads with bounded PCF -> one directional visibility factor in Surface Standard/Coated direct lighting. Missing, stale or dirty pages fail open to neutral visibility; point/spot VSM remains out of this profile. `ShadowVisibilityFrame` carries the page-table/atlas/constants resource IDs so FrameGraph preserves allocation/raster -> Surface ordering. The historical packed CSM shader has been deleted from production source; no CSM/VSM comparison bridge remains.
 - Detailed mapping is in [`docs/next-design/vsm.md`](../next-design/vsm.md) and [`docs/next-execution/vsm.md`](../next-execution/vsm.md). R07 remains `not adopted` until source mapping, WGSL/CPU oracles, and real GPU producer-to-consumer evidence all exist.
+### R07 E8 local lifecycle integration
+
+E8 adds no new complex upstream algorithm or runtime dependency. The local mapping is:
+
+| Lifecycle fact | Local producer | GPU consumer / invariant |
+| --- | --- | --- |
+| device epoch | `RendererCore.recoverAfterDeviceLoss` and `VsmGeneration` | replacement `VsmResources`, passes and bindings are created for the new epoch |
+| camera cut / scene / sun / caster publication | `VsmGeneration.begin` | non-zero generation and bounded full invalidation in `VsmInvalidationPass`; stale pages fail generation validation |
+| page quantum / resize | `VsmGeneration.begin` and `buildVsmDirectionalFrameConstants` | new clipmap demand and footprint without CPU page iteration or forced atlas destruction |
+| diagnostics | `VsmResources.diagnostics` | GPU buffer locations only; no `mapAsync` result controls current-frame work |
+
+This is marked local integration. The E7 Timberdoodle mapping and its `not adopted` status remain unchanged until E9 or renderer-wide acceptance supplies the deferred CPU/WGSL/GPU evidence.

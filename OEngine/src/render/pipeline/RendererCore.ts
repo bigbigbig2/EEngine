@@ -67,11 +67,13 @@ import { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRu
 import { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
 import { RadiometryRuntime, type PreExposureContract } from "../RadiometryContract.js";
 import { negotiateVsmCapabilities } from "../vsm/VsmCapabilities.js";
-import { VsmResources } from "../vsm/VsmResources.js";
+import { VsmResources, type VsmDiagnostics } from "../vsm/VsmResources.js";
 import { buildVsmDirectionalFrameConstants, VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 import { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
+import { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
+import { VsmGeneration } from "../vsm/VsmGeneration.js";
 
 export interface RendererInitializeOptions {
   context?: GPUCanvasContext;
@@ -322,6 +324,9 @@ export class Renderer {
   private _vsmAllocatePages!: VsmAllocatePagesPass;
   private _vsmCasterRecords!: VsmCasterRecordPass;
   private _vsmAtlasRaster!: VsmAtlasRasterPass;
+  private _vsmInvalidation!: VsmInvalidationPass;
+  private readonly _vsmGeneration = new VsmGeneration();
+  private _vsmCasterPublicationRevision = 0;
   private _lastFrameGraph: Readonly<{ cacheKey: string; dump: CompiledFrameGraphDump;
     resources: FrameResourceSummary; program: Pick<FrameProgram, "products" | "facts" | "stages" | "bindingRoles"> }> | null = null;
   private readonly _graphCache = new CompiledFrameGraphCache(8);
@@ -352,6 +357,8 @@ export class Renderer {
   }
   get adapter_info(): BenchmarkAdapterIdentity | null { return this._adapterInfo; }
   get vsmCapabilities() { return this._vsm?.capabilities ?? null; }
+  /** GPU-resident VSM diagnostic locations; never a CPU work-control input. */
+  vsmDiagnostics(): VsmDiagnostics | null { return this._vsm?.diagnostics() ?? null; }
   get views(): ViewManager { return this._views; }
   get output_resolution(): Vec2 { return this._output_resolution.clone(); }
   get texture_depth_current() { return this._renderTargets.depthCurrent; }
@@ -1111,6 +1118,7 @@ export class Renderer {
     this._vsmAllocatePages = new VsmAllocatePagesPass(device);
     this._vsmCasterRecords = new VsmCasterRecordPass(device);
     this._vsmAtlasRaster = new VsmAtlasRasterPass(device);
+    this._vsmInvalidation = new VsmInvalidationPass();
     device.lost.then(info => {
       if (!this._destroyed) {
         this._deviceLost = true;
@@ -1191,7 +1199,8 @@ export class Renderer {
       vsmReceiverDemand: this._vsmReceiverDemand,
       vsmAllocatePages: this._vsmAllocatePages,
       vsmCasterRecords: this._vsmCasterRecords,
-      vsmAtlasRaster: this._vsmAtlasRaster
+      vsmAtlasRaster: this._vsmAtlasRaster,
+      vsmInvalidation: this._vsmInvalidation
     };
   }
 
@@ -1230,6 +1239,8 @@ export class Renderer {
     let temporalActive = false;
     let activeHzb: HierarchicalZBuffer | null = null;
     let environmentGeneration: number | null | undefined;
+    let cameraCut = false;
+    let cameraChanged = false;
     try {
       if (this._fsr3.canRetainHistory(this._render_resolution.x, this._render_resolution.y,
           this._output_resolution.x, this._output_resolution.y) === false) {
@@ -1240,6 +1251,7 @@ export class Renderer {
           scene.physical_environment.revision + 1
       );
       if (this._activeCamera !== camera) {
+        cameraChanged = true;
         this._activeCamera = camera;
         this._cameraRevision++;
       }
@@ -1281,7 +1293,15 @@ export class Renderer {
       view.setJitter(frameJitter[0], frameJitter[1]);
       view.setViewportSize(width, height);
       view.setUpscaleRatio(this._output_resolution.x / width, this._output_resolution.y / height);
-      this._graphics.render_world.encodePendingPatch(scene, command);
+      const patchResult = this._graphics.render_world.encodePendingPatch(scene, command);
+      if (patchResult !== null && patchResult.dirtyInstanceCount > 0) {
+        const previousCasterRevision = this._vsmCasterPublicationRevision;
+        this._vsmCasterPublicationRevision = previousCasterRevision >= 0xfffffffe
+          ? 1 : previousCasterRevision + 1;
+        command.onAborted.addOne(() => {
+          this._vsmCasterPublicationRevision = previousCasterRevision;
+        });
+      }
       view.update(command);
       const hzb = view.hierarchical_z_buffer;
       activeHzb = hzb;
@@ -1295,6 +1315,7 @@ export class Renderer {
         }
         // Camera motion invalidates temporal data, but never changes graph topology.
         if (matrixDelta > 0.25) {
+          cameraCut = true;
           hzb.invalidate("camera-cut");
           this._temporal.histories.invalidate("camera-cut");
           this._fsr3.invalidate();
@@ -1302,6 +1323,28 @@ export class Renderer {
       }
       const identityHistory = this._temporal.histories.state("identity");
       const colorHistory = this._temporal.histories.state("color");
+      const cameraPosition: [number, number, number] = [
+        camera.transform.matrix[12]!, camera.transform.matrix[13]!, camera.transform.matrix[14]!
+      ];
+      const sunDirection = scene.physical_environment.snapshot().sunDirectionWorld;
+      const vsmEnabled = hasLit && this._vsm !== null && this._vsm.profile !== "shadow-disabled";
+      const vsmPreview = vsmEnabled
+        ? buildVsmDirectionalFrameConstants(
+            sunDirection, cameraPosition, camera.far, this._vsm!, this._vsmGeneration.currentGeneration)
+        : null;
+      const vsmGeneration = this._vsmGeneration.begin({
+        deviceEpoch: this.deviceEpoch,
+        scene,
+        sceneRevision: runtime.shadingPublication.revision,
+        casterRevision: this._vsmCasterPublicationRevision,
+        sunRevision: scene.physical_environment.revision,
+        sunDirection,
+        cameraCut: cameraCut || cameraChanged,
+        clipOriginExtent: vsmPreview?.clipOriginExtent ?? [],
+        width,
+        height
+      });
+      if (vsmGeneration.temporalInvalidate) this._temporalFacts.invalidate();
       this._gpuRadiometry.prepareFrame(colorHistory.readIndex, colorHistory.writeIndex, colorHistory.readValid);
       this._temporalFacts.prepareFrame(width, height, identityHistory.readIndex,
         identityHistory.writeIndex, identityHistory.readValid);
@@ -1358,12 +1401,11 @@ export class Renderer {
          fsr3: this._fsr3, temporalFacts: this._temporalFacts, radiometry: this._gpuRadiometry,
         environment: this._environmentRuntime,
         vsm: this._vsm,
-        vsmFrame: hasLit && this._vsm !== null && this._vsm.profile !== "shadow-disabled"
+        vsmFrame: vsmEnabled
           ? buildVsmDirectionalFrameConstants(
-              scene.physical_environment.snapshot().sunDirectionWorld,
-              [camera.transform.matrix[12]!, camera.transform.matrix[13]!, camera.transform.matrix[14]!],
-              camera.far, this._vsm, frameIndex
-            ) : null
+              sunDirection, cameraPosition, camera.far, this._vsm!, vsmGeneration.generation
+            ) : null,
+        vsmGeneration
       };
       const program = this._programCache.getOrCreate({
         kind: "scene", intent: "present", viewFamily: "main", outputWidth: this._output_resolution.x,

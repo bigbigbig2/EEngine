@@ -18,6 +18,7 @@ import type { VsmReceiverDemandPass } from "../vsm/VsmReceiverDemandPass.js";
 import type { VsmAllocatePagesPass } from "../vsm/VsmAllocatePagesPass.js";
 import type { VsmCasterRecordPass } from "../vsm/VsmCasterRecordPass.js";
 import type { VsmAtlasRasterPass } from "../vsm/VsmAtlasRasterPass.js";
+import type { VsmInvalidationPass } from "../vsm/VsmInvalidationPass.js";
 import type { VsmAllocationFrame } from "../vsm/VsmResidency.js";
 import { shadowVisibilityFrame, type ShadowVisibilityFrame } from "../pipeline/FrameProducts.js";
 import { SHADOW_DEPTH_BIAS, SHADOW_DEPTH_SLOPE_SCALE, SHADOW_NORMAL_OFFSET_SCALE } from "../../gpu/ShadowContract.js";
@@ -41,6 +42,7 @@ export type FrameProgramOwners = Readonly<{
   vsmAllocatePages: VsmAllocatePagesPass;
   vsmCasterRecords: VsmCasterRecordPass;
   vsmAtlasRaster: VsmAtlasRasterPass;
+  vsmInvalidation: VsmInvalidationPass;
 }>;
 
 type SceneBind = <T extends object>(name: string, resolve: (bindings: SceneFrameBindings) => T) => T;
@@ -123,6 +125,10 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     });
     vsmOwnerBinding = vsmOwner;
     vsmFrameBinding = vsmFrame;
+    owners.vsmInvalidation.addToGraph(graph, {
+      resources: vsmOwner,
+      state: bind("vsm-generation-state", bindings => bindings.vsmGeneration)
+    });
     const demand = owners.vsmReceiverDemand.addToGraph(graph, {
       width: result.frame.domain.width,
       height: result.frame.domain.height,

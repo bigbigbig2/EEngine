@@ -354,3 +354,12 @@ E1-E8 的 producer→consumer 已在同一 Frame Program、同一 command contex
 ## 11. 后续模块交接
 
 E 完成后直接进入 SSSR 或整体计划的下一项。SSSR 可以复用 depth、Temporal Facts、有限 page/budget telemetry 和 world-space query 语义，但不能把 VSM page table 当作反射缓存，也不能重新引入第二个 frame submit。GI、VT 和 Transparency 仍按各自模块设计，先明确 streamed residency 与 GPU-produced residency 的区别。
+### E8 implemented state (2026-09-28)
+
+- `VsmGeneration` owns a monotonic non-zero generation per device epoch. It observes scene identity/publication, caster publication, sun revision/direction, camera cut, clipmap page quantum, and resize facts.
+- `VsmInvalidationPass` publishes generation facts, bounded invalidation flags, and frame-local telemetry clears through the current FrameGraph command context. It never maps demand or page buffers.
+- `TemporalFactsPass.invalidate()` drops the next identity history when VSM lifecycle facts require temporal reset.
+- `RendererCore` rebuilds VSM resources and passes on a replacement device epoch; VSM frame constants use the lifecycle generation rather than `frameIndex`.
+- `Renderer.vsmDiagnostics()` exposes GPU buffer locations for page demand, allocation failure, dirty pages, caster records, atlas pixel capacity, sampling fallback, and overflow mask. These locations are diagnostic only and cannot control current-frame work.
+- Page-quantum shifts currently take the bounded full-generation fallback because the existing page-table ABI has no toroidal remap metadata; this prevents stale world-origin content from being sampled. Sub-page motion still keeps the generation and resident slots stable.
+- E8 implementation is complete. E9 remains the deferred module closeout for typecheck/build, CPU/WGSL focused checks, device-epoch checks, and browser/lifecycle coverage.

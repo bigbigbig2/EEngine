@@ -357,3 +357,6 @@ receiver demand + allocation + caster cull + atlas raster + shadow taps
 6. 模块完成后的 typecheck、build、必要 targeted tests。
 
 browser matrix、resize/camera cut/device loss 组合、不同场景材质、画质对照、GPU P50/P95、formal evidence 和 claims 仍属于整个 Next Renderer 完成后的最终验收。
+### E8 implementation note
+
+The lifecycle owner is local integration rather than a new upstream algorithm. `VsmGeneration` keeps device-epoch and publication facts on the CPU, while `VsmInvalidationPass` publishes only bounded generation/telemetry control in the existing FrameGraph. The implementation preserves page demand and allocation on the GPU; it does not add a readback or a second submit. The current ABI uses the bounded full-generation fallback for page-quantum shifts because toroidal remap metadata is not yet part of the page table. Full acceptance remains deferred to E9 and the renderer-wide final validation phase.

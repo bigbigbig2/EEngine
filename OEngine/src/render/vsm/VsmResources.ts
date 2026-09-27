@@ -14,6 +14,18 @@ export type VsmBufferKey =
   | "pageLocks"
   | "slotLocks";
 
+/** GPU-resident diagnostic locations. Consumers must not map them to steer work. */
+export interface VsmDiagnostics {
+  readonly generation: GPUBuffer;
+  readonly pageDemand: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
+  readonly allocationFailure: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
+  readonly dirtyPages: Readonly<{ buffer: GPUBuffer; byteOffset: number; byteLength: number }>;
+  readonly casterRecords: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
+  readonly atlasPixels: number;
+  readonly samplingFallback: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
+  readonly overflowMask: Readonly<{ buffer: GPUBuffer; byteOffset: number }>;
+}
+
 /** Persistent device-local VSM storage. FrameGraph owns only per-frame scratch. */
 export class VsmResources {
   readonly profile: VsmCapabilities["profile"];
@@ -72,6 +84,32 @@ export class VsmResources {
   get pageConstants(): GPUBuffer | null { return this.getBuffer("pageConstants"); }
   get pageLocks(): GPUBuffer | null { return this.getBuffer("pageLocks"); }
   get slotLocks(): GPUBuffer | null { return this.getBuffer("slotLocks"); }
+
+  diagnostics(): VsmDiagnostics | null {
+    if (this.profile === "shadow-disabled") return null;
+    const generation = this.generation;
+    const pageDemand = this.demand;
+    const allocationFailure = this.overflowCounters;
+    const dirtyPages = this.dirtyMask;
+    const casterRecords = this.casterRecords;
+    const samplingFallback = this.overflowCounters;
+    const overflowMask = this.overflowCounters;
+    if (!generation || !pageDemand || !allocationFailure || !dirtyPages || !casterRecords ||
+        !this.atlasDepth || !samplingFallback || !overflowMask) return null;
+    return Object.freeze({
+      generation,
+      pageDemand: Object.freeze({ buffer: pageDemand, byteOffset: 0 }),
+      // E5 allocation telemetry occupies words 0..3; E6 caster/raster
+      // telemetry occupies words 4..7. Sampling fallback and overflow mask
+      // are reserved in the same GPU telemetry block for the consumer.
+      allocationFailure: Object.freeze({ buffer: allocationFailure, byteOffset: 0 }),
+      dirtyPages: Object.freeze({ buffer: dirtyPages, byteOffset: 0, byteLength: dirtyPages.size }),
+      casterRecords: Object.freeze({ buffer: casterRecords, byteOffset: 0 }),
+      atlasPixels: this.atlasDepth.width * this.atlasDepth.height,
+      samplingFallback: Object.freeze({ buffer: samplingFallback, byteOffset: 24 }),
+      overflowMask: Object.freeze({ buffer: overflowMask, byteOffset: 28 })
+    });
+  }
 
   getBuffer(key: VsmBufferKey): GPUBuffer | null {
     return this.buffers.get(key) ?? null;

@@ -34,6 +34,7 @@ export class TemporalFactsPass {
   private readValid = false;
   private prepared = false;
   private lastGpuDone: Promise<void> | null = null;
+  private invalidateNext = false;
 
   constructor(private readonly device: GPUDevice) {
     if (device.limits.maxStorageTexturesPerShaderStage < 3) {
@@ -83,8 +84,15 @@ export class TemporalFactsPass {
     }
     this.readIndex = readIndex;
     this.writeIndex = writeIndex;
-    this.readValid = readValid;
+    this.readValid = readValid && !this.invalidateNext;
+    this.invalidateNext = false;
     this.prepared = true;
+  }
+
+  /** Forces the next fact production to treat the previous identity as absent. */
+  invalidate(): void {
+    if (this.prepared) throw new Error("Temporal Facts cannot invalidate an active frame");
+    this.invalidateNext = true;
   }
 
   assertPreparedFrame(width: number, height: number): void {

@@ -12,6 +12,7 @@ import type { PreExposureContract } from "../RadiometryContract.js";
 import type { FrameProgram } from "./FrameProgram.js";
 import type { VsmResources } from "../vsm/VsmResources.js";
 import type { VsmDirectionalFrameConstants } from "../vsm/VsmReceiverDemandPass.js";
+import type { VsmGenerationState } from "../vsm/VsmGeneration.js";
 
 /** Only physical, frame-local objects belong here; none enter the topology key. */
 export type SceneFrameBindings = Readonly<{
@@ -33,6 +34,8 @@ export type SceneFrameBindings = Readonly<{
   vsm: VsmResources | null;
   /** Frame-local directional light/clipmap constants published by the environment owner. */
   vsmFrame: VsmDirectionalFrameConstants | null;
+  /** CPU lifecycle facts consumed by the graph-local VSM invalidation pass. */
+  vsmGeneration: VsmGenerationState;
 }>;
 
 export type EmptyFrameBindings = Readonly<{
@@ -138,6 +141,10 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
   }
   if (shadowProfile !== "off" && shadowProfile !== "shadow-disabled" && bindings.vsmFrame === null) {
     throw new Error("Frame Program VSM profile requires directional clipmap constants");
+  }
+  if (bindings.vsmGeneration.deviceEpoch !== bindings.deviceEpoch ||
+      bindings.vsmFrame !== null && bindings.vsmFrame.generation !== bindings.vsmGeneration.generation) {
+    throw new Error("Frame Program VSM generation facts are stale");
   }
   if (bindings.environment !== null) {
     if (bindings.environment.parameters.size < 64) {
