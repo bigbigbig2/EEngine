@@ -1,4 +1,5 @@
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
+import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL, GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js";
@@ -50,14 +51,20 @@ export type SurfaceExecutionMode = "dense" | "binned" | "fallback";
 /** One hot Dense kernel and fixed profile/family exception kernels. */
 export function surfaceExecutionWgsl(plan: SurfacePhysicalBindingPlan,
   mode: SurfaceExecutionMode, lane: number, hasLit: boolean, virtualGeometry: boolean,
-  vsmShadowEnabled = false): string {
+  vsmShadowEnabled = false, virtualBankCount = 4, textureBankMask = 0x1ff,
+  virtualUnlitFallback = false): string {
   if (mode !== "dense" && (!Number.isInteger(lane) || lane < 0 || lane >= SURFACE_EXCEPTION_LANES)) {
     throw new RangeError("Surface exception lane is invalid");
   }
   const kernel = { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion,
-    textureBankMask: 0x1ff };
+    textureBankMask };
+  // A-D validation only needs the visibility-to-unlit color contract. Product
+  // virtual geometry reconstruction is intentionally deferred for this path;
+  // keeping its large pointer-heavy helper in the first unlit pipeline makes
+  // Dawn spend seconds compiling and can trigger a driver watchdog.
+  const minimalVirtualUnlit = virtualUnlitFallback && virtualGeometry && !hasLit;
   const coatedOnly = hasLit && mode !== "dense" && (lane === 0 || (lane & 1) === 0);
-  const unlit = coatedOnly ? "" : materialEvaluationWgsl({ ...kernel, programId: 3 }, true)
+  const unlit = minimalVirtualUnlit ? "" : coatedOnly ? "" : materialEvaluationWgsl({ ...kernel, programId: 3 }, true)
     .replace("fn sparse_evaluate_geometry(", "fn sparse_evaluate_unlit_geometry(");
   const lit = hasLit ? materialEvaluationWgsl(kernel, false, coatedOnly) : "";
   const scalarAo = plan.bindings.some(binding => binding.role === "indirect-visibility");
@@ -119,6 +126,10 @@ fn surface_hit(pixel:vec2u,key:u32,work_item:OEngineMeshletRasterWork,
   material_slot:u32,material:OEngineShadingMaterialRecord) {
   ${geometryCheck}
   if surface_identity_failed { surface_error(pixel); return; }
+  ${minimalVirtualUnlit ? `
+  let base_color = material.payload.base_color_factor;
+  surface_store(pixel,vec4f(base_color.rgb * shading_view.pre_exposure,base_color.a),vec4f(0.0));
+  return;` : `
   let primitive=oengine_visibility_key_local_primitive(key);
   var surface:OEngineSparseSurface;
   ${coatedOnly ?
@@ -134,6 +145,7 @@ fn surface_hit(pixel:vec2u,key:u32,work_item:OEngineMeshletRasterWork,
   ${hasLit ? "if material.family!=0u { radiance=sparse_direct(surface,pixel); }" : ""}
   surface_store(pixel,vec4f(radiance*shading_view.pre_exposure,surface.alpha),
     vec4f(surface.velocity,0.0,0.0));
+  `}
 }
 fn surface_material(pixel:vec2u,key:u32,report_error:bool)->u32 {
   let work_slot=oengine_visibility_key_meshlet_work_slot(key);
@@ -253,12 +265,14 @@ fn shade(@builtin(global_invocation_id) id:vec3u) {
 }`;
   return ["requires unrestricted_pointer_parameters;",
     SURFACE_EXECUTION_WGSL,GPU_VISIBILITY_KEY_WGSL,GPU_MESHLET_RASTER_WORK_WGSL,
+    GPU_INSTANCE_RECORD_WGSL,
     GPU_SHADING_MATERIAL_WGSL,GPU_SPARSE_SHADING_VIEW_WGSL,GPU_SHADING_SURFACE_LITE_WGSL,
     surfaceType,
     names,"var<private> surface_identity_failed:bool=false;",
     "fn sparse_identity_error(){surface_identity_failed=true;}",
     "fn surface_identity_error(){surface_identity_failed=true;}",
-    route,geometryWgsl(virtualGeometry),textureWgsl(kernel),
+    route,minimalVirtualUnlit ? "" : geometryWgsl(virtualGeometry, virtualBankCount),
+    minimalVirtualUnlit ? "" : textureWgsl(kernel),
     hasLit ? lightingWgsl(vsmShadowEnabled,true,scalarAo,
       vsmShadowEnabled ? "vsm" : "legacy") : "",
     hasLit ? ATMOSPHERE_RUNTIME_WGSL : "",

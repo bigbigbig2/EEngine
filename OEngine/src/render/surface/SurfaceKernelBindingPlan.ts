@@ -84,7 +84,7 @@ export function planSurfaceKernelBindings(
   add("geometry-metadata", 1, 1, "read-only-storage");
   add("vertex-payload", 1, 2, "read-only-storage");
   add("virtual-product-metadata", 1, 3, "read-only-storage");
-  for (let bank = 0; bank < 4; bank++) {
+  for (let bank = 0; bank < (closure.virtualBankCount ?? 4); bank++) {
     add("virtual-product-banks", 1, 4 + bank, "read-only-storage", bank);
   }
 

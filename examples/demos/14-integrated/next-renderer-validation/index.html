@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <link rel="icon" href="data:," />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EEngine Next | Rendering Validation</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <main class="workspace">
+      <section class="viewport" aria-label="三维场景">
+        <canvas id="viewport" aria-label="Dungeon 三维场景"></canvas>
+        <button id="start-scene" class="start-scene" type="button">启动场景</button>
+        <div class="viewport-top">
+          <div class="brand"><span class="mark">E</span><span>EEngine Next</span><strong>Rendering Validation</strong></div>
+        <div id="view-state" class="view-state" role="status">等待启动</div>
+        </div>
+        <div class="camera-controls" role="toolbar" aria-label="相机视角">
+          <button id="overview-view" type="button" title="全景视角">全景</button>
+          <button id="detail-view" type="button" title="近景视角">近景</button>
+        </div>
+      </section>
+      <aside class="inspector" aria-label="渲染诊断">
+        <header class="panel-header">
+          <span class="eyebrow">LIVE FRAME / MAIN VIEW</span>
+          <h1>场景诊断</h1>
+          <p id="source-name">dungeon_warkarma.glb</p>
+        </header>
+        <div class="panel-content">
+          <section class="panel-section">
+            <h2>太阳</h2>
+            <label class="slider-label" for="sun-azimuth"><span>方位角</span><output id="azimuth-value">30°</output></label>
+            <input id="sun-azimuth" type="range" min="-180" max="180" step="5" value="30" />
+            <label class="slider-label" for="sun-elevation"><span>高度角</span><output id="elevation-value">63°</output></label>
+            <input id="sun-elevation" type="range" min="10" max="85" step="5" value="63" />
+          </section>
+          <section class="panel-section">
+            <h2>当前帧</h2>
+            <div class="field-row"><span>场景实例</span><strong id="instance-count">--</strong></div>
+            <div class="field-row"><span>帧率</span><strong id="frame-rate">--</strong></div>
+            <div class="field-row"><span>生产路径</span><strong id="path-state">等待首帧</strong></div>
+            <div class="field-row"><span>WebGPU 错误</span><strong id="gpu-errors">0</strong></div>
+          </section>
+          <section class="panel-section graph-section">
+            <h2>Frame Program</h2>
+            <ol id="program-stages" class="stage-list"><li>等待首帧</li></ol>
+          </section>
+          <section class="panel-section graph-section">
+            <h2>GPU Pass</h2>
+            <ol id="graph-passes" class="pass-list"><li>等待首帧</li></ol>
+          </section>
+        </div>
+        <footer class="panel-footer"><button id="export-diagnostics" type="button">导出诊断 JSON</button></footer>
+      </aside>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

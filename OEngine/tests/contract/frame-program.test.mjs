@@ -80,6 +80,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const runtime = { virtualGeometry: null, activeShadingSummary: { binRefCounts: Array(64).fill(0) },
     materialResources: { materialRecords: resource, textureRouteRecords: resource,
       bindingSets: [{ id: 0,
+        textureBankMask: 0x1ff,
         textureBanks: Array(9).fill(resource),
         bankDescriptors: Array.from({ length: 9 }, (_, bindingSlot) => ({ bindingSlot })) }] },
     counterSink: resource };
@@ -124,6 +125,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       gpu_camera_state: { buffer: resource }, gpu_previous_camera_state: { buffer: resource },
       frame_index: 1 },
     swapchain: resource, preExposure: { multiplier: 1 }, fsr3, temporalFacts,
+    vsm: null, vsmFrame: null, vsmGeneration: { deviceEpoch: 7, generation: 1 },
     radiometry: { readBuffer: () => resource, writeBuffer: () => resource }, environment: null };
   const owners = {
     visibility: { addToGraph(graph, _job, input) {

@@ -198,6 +198,10 @@ export interface ProductSceneHandles {
 export interface WebCookedSceneOptions extends ProductSceneOptions {
   /** Skip authored image/material mapping for geometry inspection. */
   readonly geometryOnly?: boolean;
+  /** Publish all geometry with one lit material for diagnosis. */
+  readonly singleLitMaterial?: boolean;
+  /** Preserve authored material factors without reading textures for diagnosis. */
+  readonly skipAuthoredTextures?: boolean;
   /**
    * Framing resolved once against the complete Web Cook catalog, then applied
    * unchanged to every Product revision and shard.
@@ -327,6 +331,7 @@ export class Renderer {
   private _vsmInvalidation!: VsmInvalidationPass;
   private readonly _vsmGeneration = new VsmGeneration();
   private _vsmCasterPublicationRevision = 0;
+  private _shadowVisibilityEnabled = true;
   private _lastFrameGraph: Readonly<{ cacheKey: string; dump: CompiledFrameGraphDump;
     resources: FrameResourceSummary; program: Pick<FrameProgram, "products" | "facts" | "stages" | "bindingRoles"> }> | null = null;
   private readonly _graphCache = new CompiledFrameGraphCache(8);
@@ -336,6 +341,7 @@ export class Renderer {
   packed_geometry_work_budget: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET;
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
+  xe_gtao_enabled = true;
   packed_visibility_current_hzb_late_recheck_enabled = false;
   packed_meshlet_work_candidate_capacity: number | undefined;
   packed_meshlet_work_compaction: "auto" | "portable" | "subgroup" = "auto";
@@ -359,6 +365,12 @@ export class Renderer {
   get vsmCapabilities() { return this._vsm?.capabilities ?? null; }
   /** GPU-resident VSM diagnostic locations; never a CPU work-control input. */
   vsmDiagnostics(): VsmDiagnostics | null { return this._vsm?.diagnostics() ?? null; }
+  get shadowVisibilityEnabled(): boolean { return this._shadowVisibilityEnabled; }
+  set shadowVisibilityEnabled(enabled: boolean) {
+    if (this._shadowVisibilityEnabled === enabled) return;
+    this._shadowVisibilityEnabled = enabled;
+    if (enabled) this._vsmGeneration.invalidate();
+  }
   get views(): ViewManager { return this._views; }
   get output_resolution(): Vec2 { return this._output_resolution.clone(); }
   get texture_depth_current() { return this._renderTargets.depthCurrent; }
@@ -668,7 +680,7 @@ export class Renderer {
         framing = webCookCatalogSceneFraming(catalog, { fitHeight: options.fitHeight, fitBase: options.fitBase });
         if (framing.unknownBoundPrimitives > 0) throw new Error("Web Cook catalog fit cannot cover primitives with unknown bounds");
       }
-      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { scale: framing?.scale ?? options.scale, offset: framing?.offset ?? options.offset, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache, geometryOnly: options.geometryOnly, maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE) });
+      return createWebCookSceneSourceAsync(catalog, revision.descriptor, (imageIndex, signal) => asset.readImageSource(imageIndex, signal), options.signal, { scale: framing?.scale ?? options.scale, offset: framing?.offset ?? options.offset, sceneAssetIndices: revision.source.sceneAssetIndices, textureCache, geometryOnly: options.geometryOnly, singleLitMaterial: options.singleLitMaterial, skipAuthoredTextures: options.skipAuthoredTextures, maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE) });
     }, options);
   }
 
@@ -732,6 +744,8 @@ export class Renderer {
               sceneAssetIndices: source.sceneAssetIndices,
               textureCache,
               geometryOnly: options.geometryOnly,
+              singleLitMaterial: options.singleLitMaterial,
+              skipAuthoredTextures: options.skipAuthoredTextures,
               maxImageDimension: Math.min(Number(this.device.limits.maxTextureDimension2D), this._initializationConfig?.textureMaxResolution ?? TEXTURE_RESIDENCY_MAX_SIZE),
               onMappingTiming: options.onProductPublicationTiming ? timing => { mapping = timing; } : undefined
             }
@@ -1113,12 +1127,14 @@ export class Renderer {
     });
     // E2 freezes the device-epoch profile and owns persistent resources. E4/E5
     // publish demand and residency work through the same Frame Program submit.
-    this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
-    this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
-    this._vsmAllocatePages = new VsmAllocatePagesPass(device);
-    this._vsmCasterRecords = new VsmCasterRecordPass(device);
-    this._vsmAtlasRaster = new VsmAtlasRasterPass(device);
-    this._vsmInvalidation = new VsmInvalidationPass();
+    if (config.enableVsm !== false) {
+      this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
+      this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
+      this._vsmAllocatePages = new VsmAllocatePagesPass(device);
+      this._vsmCasterRecords = new VsmCasterRecordPass(device);
+      this._vsmAtlasRaster = new VsmAtlasRasterPass(device);
+      this._vsmInvalidation = new VsmInvalidationPass();
+    }
     device.lost.then(info => {
       if (!this._destroyed) {
         this._deviceLost = true;
@@ -1137,7 +1153,7 @@ export class Renderer {
     this._views = new ViewManager(this._graphics, this._cameraStates);
     this._visibilityFeature = new VisibilityFeature(this._graphics);
     this._format = gpu.getPreferredCanvasFormat();
-    this._surfaceMaterial = new SurfaceMaterialPass(device);
+    this._surfaceMaterial = new SurfaceMaterialPass(device, config.surfaceVirtualUnlitFallback === true);
     this._xeGtaoPreparation = new XeGtaoPreparationPass(device);
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
@@ -1149,9 +1165,11 @@ export class Renderer {
     // The pinned Takram LUT profile is device-local and recorded into the
     // first frame submission; consumers can bind its immutable views by
     // generation without owning the LUT lifetime.
-    this._environmentRuntime = new PhysicalEnvironmentRuntime(device);
-    this._physicalSky = new PhysicalSkyPass(this._graphics);
-    this._aerialPerspective = new AerialPerspectivePass(device);
+    if (config.enablePhysicalEnvironment !== false) {
+      this._environmentRuntime = new PhysicalEnvironmentRuntime(device);
+      this._physicalSky = new PhysicalSkyPass(this._graphics);
+      this._aerialPerspective = new AerialPerspectivePass(device);
+    }
     const canvas = context.canvas as HTMLCanvasElement;
     this._width = Math.max(1, canvas.clientWidth || canvas.width);
     this._height = Math.max(1, canvas.clientHeight || canvas.height);
@@ -1282,6 +1300,11 @@ export class Renderer {
       const activeSets = Array.from({ length: 4 }, (_, setId) => setId)
         .filter(setId => runtime.activeShadingSummary.binRefCounts
           .slice(setId * 16, setId * 16 + 16).some(count => count > 0));
+      const textureBankMask = activeSets.reduce((mask, setId) => {
+        const set = runtime.materialResources.bindingSets.find(candidate => candidate.id === setId);
+        if (!set) throw new Error(`Active texture set ${setId} is not resident`);
+        return mask | set.textureBankMask;
+      }, 0) || 1;
       const hasLit = runtime.activeShadingSummary.binRefCounts
         .some((count, classId) => count > 0 && (classId & 15) >= 4);
       if (hasLit) {
@@ -1327,7 +1350,8 @@ export class Renderer {
         camera.transform.matrix[12]!, camera.transform.matrix[13]!, camera.transform.matrix[14]!
       ];
       const sunDirection = scene.physical_environment.snapshot().sunDirectionWorld;
-      const vsmEnabled = hasLit && this._vsm !== null && this._vsm.profile !== "shadow-disabled";
+      const vsmEnabled = hasLit && this._shadowVisibilityEnabled &&
+        this._vsm !== null && this._vsm.profile !== "shadow-disabled";
       const vsmPreview = vsmEnabled
         ? buildVsmDirectionalFrameConstants(
             sunDirection, cameraPosition, camera.far, this._vsm!, this._vsmGeneration.currentGeneration)
@@ -1415,10 +1439,11 @@ export class Renderer {
         virtualBankCount: runtime.virtualGeometry?.banks.length ?? 0,
         previousHzb: this.packed_visibility_hzb_enabled,
         currentHzbLateRecheck: job.prepared.currentHzbLateRecheck !== null,
-        activeSets, hasLit,
-        aoProfile: hasLit && activeSets.length > 0 ? "scalar-high" : "off",
-        shadowProfile: hasLit && this._vsm !== null && this._vsm.profile !== "shadow-disabled"
-          ? this._vsm.profile : hasLit ? "shadow-disabled" : "off",
+        activeSets, textureBankMask, hasLit,
+        aoProfile: this.xe_gtao_enabled && hasLit && activeSets.length > 0
+          ? "scalar-high" : "off",
+        shadowProfile: vsmEnabled
+          ? this._vsm!.profile : hasLit ? "shadow-disabled" : "off",
         physicalEnvironment: this._environmentRuntime !== null
       });
       assertFrameProgramBindings(program, graphBindings);

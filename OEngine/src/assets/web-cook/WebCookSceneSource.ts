@@ -16,6 +16,10 @@ import { OEGPACK_V3_ASSET_STRIDE } from "../GeometryAbiV3.js";
 export type WebCookSceneSourceOptions = VirtualGeometrySceneSourceOptionsV1 & {
   /** Map geometry and instances without reading authored images or materials. */
   readonly geometryOnly?: boolean;
+  /** Use one lit material while preserving all geometry for diagnosis. */
+  readonly singleLitMaterial?: boolean;
+  /** Preserve authored material factors while omitting textures for diagnosis. */
+  readonly skipAuthoredTextures?: boolean;
   /** Catalog primitive indices represented by the Product asset table. */
   readonly sceneAssetIndices?: readonly number[];
   /**
@@ -124,10 +128,10 @@ export async function createWebCookSceneSourceAsync(
   const assetCount = descriptor.assetRecords.byteLength / OEGPACK_V3_ASSET_STRIDE;
   if (assetCount === 0) throw new Error("The Web Cook Product asset dictionary must not be empty");
   const catalogIndices = sceneAssetIndices(catalog, assetCount, options.sceneAssetIndices);
-  if (options.geometryOnly) {
+  if (options.geometryOnly || options.singleLitMaterial) {
     const material = new StandardShadeMaterial();
     material.diffuse_color.set(0.04, 0.38, 0.30, 1);
-    material.is_unlit = true;
+    material.is_unlit = !options.singleLitMaterial;
     material.draw_side = ShadeDrawSide.Double;
     const { profiles, instances } = buildProfilesAndInstances(catalog, catalogIndices, catalogIndices.map(() => 0));
     const result = buildVirtualGeometrySceneSourceV1(descriptor.assetRecords, profiles, instances, [material], options);
@@ -178,6 +182,7 @@ export async function createWebCookSceneSourceAsync(
     if (materialByIndex.has(key)) return key;
     const material = createMaterial(value);
     materialByIndex.set(key, material);
+    if (options.skipAuthoredTextures) return key;
     if (value.baseColorTexture && typeof value.baseColorTexture === "object") {
       const slot = value.baseColorTexture as Readonly<Record<string, unknown>>;
       material.texture_albedo = await textureFor(requireTextureIndex(slot, "baseColorTexture"), "srgb");

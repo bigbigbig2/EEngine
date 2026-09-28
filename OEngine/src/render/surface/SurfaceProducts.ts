@@ -78,6 +78,8 @@ export const SURFACE_PRODUCT_CONTRACTS: Readonly<Record<SurfaceProductKind, Surf
 export interface SurfaceProgramClosure {
   readonly kernel: Readonly<SurfaceKernelProfile>;
   readonly virtualGeometry: boolean;
+  /** Published physical bank shape; omitted by offline callers using the four-bank ABI. */
+  readonly virtualBankCount?: number;
   readonly lighting: "unlit" | "direct";
   readonly source: string;
   readonly layoutSignature: string;
@@ -107,6 +109,10 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
   if (closure.lighting !== "unlit" && closure.lighting !== "direct") {
     throw new RangeError("Surface lighting specialization is invalid");
   }
+  if (closure.virtualGeometry && (!Number.isInteger(closure.virtualBankCount ?? 4) ||
+      (closure.virtualBankCount ?? 4) < 1 || (closure.virtualBankCount ?? 4) > 4)) {
+    throw new RangeError("Surface virtual bank count must be in [1, 4]");
+  }
   if (closure.aoProfile !== undefined && closure.aoProfile !== "off" &&
       closure.aoProfile !== "scalar-high") {
     throw new RangeError("Surface AO profile is invalid");
@@ -126,7 +132,7 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
   }
   return JSON.stringify([
     1, kernel.programId, kernel.outputDependencyMask, kernel.textureBankMask,
-    closure.virtualGeometry, closure.lighting, closure.layoutSignature,
+    closure.virtualGeometry, closure.virtualBankCount ?? 4, closure.lighting, closure.layoutSignature,
     closure.capabilityFingerprint, closure.formatProfile, closure.aoProfile ?? "off",
     closure.shadowProfile ?? "off",
     closure.source

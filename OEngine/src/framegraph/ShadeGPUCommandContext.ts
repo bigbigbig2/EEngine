@@ -185,7 +185,7 @@ export class ShadeGPUCommandContext {
       encoder: this,
       device: this.device,
       graphics: this.#graphics,
-      resource_manager: new FrameGraphResourceManager(this.device),
+      resource_manager: new FrameGraphResourceManager(this.device, this.gpuDone),
       passCpuProfiler: profiler.shouldSampleCpuPasses()
         ? (label, callback) => profiler.measure(label, callback)
         : undefined
@@ -421,12 +421,9 @@ export class ShadeGPUCommandContext {
     value: T
   ): void {
     const size = type.aligned_size;
-    const staging = this.#graphics.buffer_allocator_staging.get(size);
-    writeWgslToBuffer(value, type, staging.getMappedRange(0, size), 0);
-    staging.unmap();
-    this.#stagingBuffers.push(staging);
-    this.#graphics.profiler.recordUpload("staging-copy", size);
-    this.copyBufferToBuffer(staging, 0, buffer, buffer_offset, size);
+    const bytes = new ArrayBuffer(size);
+    writeWgslToBuffer(value, type, bytes, 0);
+    this.writeBuffer(buffer, buffer_offset, bytes, 0, size);
   }
 
   writeBuffer(
@@ -437,11 +434,9 @@ export class ShadeGPUCommandContext {
     size: number
   ): void {
     const staging = this.#graphics.buffer_allocator_staging.get(size);
-    new Uint8Array(staging.getMappedRange(0, size)).set(
-      new Uint8Array(data, data_offset, size)
-    );
-    staging.unmap();
+    this.device.queue.writeBuffer(staging, 0, data, data_offset, size);
     this.#stagingBuffers.push(staging);
+    this.#graphics.profiler.recordUpload("staging-copy", size);
     this.copyBufferToBuffer(staging, 0, buffer, buffer_offset, size);
   }
 
@@ -482,7 +477,7 @@ export class ShadeGPUCommandContext {
     this.#submitted = true;
     this.#encoder = undefined;
     this.#timedEncoderFacade = undefined;
-    this.#releaseBuffers();
+    this.#releaseBuffers(this.device.queue.onSubmittedWorkDone());
 
     if (timer !== undefined) {
       const callbacks = [...this.#debugTimersCallbacks];
@@ -550,18 +545,18 @@ export class ShadeGPUCommandContext {
     this.onAborted.send2(this, cause);
   }
 
-  #releaseBuffers(): void {
+  #releaseBuffers(reuseAfter?: Promise<void>): void {
     const transientAllocator = this.#graphics.buffer_allocator_main;
     for (
       let index = this.#transientBuffers.length - 1;
       index >= 0;
       index--
     ) {
-      transientAllocator.release(this.#transientBuffers[index]!);
+      transientAllocator.release(this.#transientBuffers[index]!, reuseAfter);
     }
     const stagingAllocator = this.#graphics.buffer_allocator_staging;
     for (const buffer of this.#stagingBuffers) {
-      stagingAllocator.release(buffer);
+      stagingAllocator.release(buffer, reuseAfter);
     }
   }
 }

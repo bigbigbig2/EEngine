@@ -87,6 +87,9 @@ export class VsmGeneration {
 
   get currentGeneration(): number { return this.generation; }
 
+  /** Force the next active shadow frame to rebuild page contents. */
+  invalidate(): void { this.previous = null; }
+
   begin(input: VsmGenerationInput): VsmGenerationState {
     finiteRevision(input.deviceEpoch, "device epoch");
     finiteRevision(input.sceneRevision, "scene revision");

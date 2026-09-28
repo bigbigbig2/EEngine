@@ -3,42 +3,56 @@ import test from "node:test";
 
 import { GPUStagingBufferAllocator } from "../../.test-dist/gpu/GPUStagingBufferAllocator.js";
 
-test("staging allocator suppresses expected remap abort after teardown", async () => {
+test("staging allocator reuses unmapped copy buffers without remapping", () => {
   const previousUsage = globalThis.GPUBufferUsage;
-  const previousMapMode = globalThis.GPUMapMode;
-  globalThis.GPUBufferUsage = { COPY_SRC: 1, MAP_WRITE: 2 };
-  globalThis.GPUMapMode = { WRITE: 1 };
-  let rejectMapping;
+  globalThis.GPUBufferUsage = { COPY_SRC: 1, COPY_DST: 2 };
   let destroyed = false;
+  let descriptor;
   const buffer = {
     size: 64,
-    mapState: "mapped",
-    destroy() { destroyed = true; },
-    mapAsync() {
-      return new Promise((_resolve, reject) => { rejectMapping = reject; });
-    }
+    destroy() { destroyed = true; }
   };
-  const errors = [];
-  const previousError = console.error;
-  console.error = (error) => errors.push(error);
   try {
     const allocator = new GPUStagingBufferAllocator({
-      createBuffer() { return buffer; }
+      createBuffer(value) { descriptor = value; return buffer; }
     });
     const allocated = allocator.get(64);
     assert.equal(allocated, buffer);
-    buffer.mapState = "unmapped";
+    assert.equal(descriptor.usage, 3);
+    assert.equal(descriptor.mappedAtCreation, undefined);
+    allocator.release(buffer);
+    assert.equal(allocator.get(32), buffer);
     allocator.release(buffer);
     allocator.destroy();
-    rejectMapping(new DOMException("Buffer was destroyed before mapping was resolved", "AbortError"));
-    await Promise.resolve();
     assert.equal(destroyed, true);
-    assert.deepEqual(errors, []);
     assert.equal(allocator.gpu_memory_usage, 0);
     allocator.destroy();
   } finally {
-    console.error = previousError;
     globalThis.GPUBufferUsage = previousUsage;
-    globalThis.GPUMapMode = previousMapMode;
+  }
+});
+
+test("staging allocator waits for submitted work before reusing upload memory", async () => {
+  const previousUsage = globalThis.GPUBufferUsage;
+  globalThis.GPUBufferUsage = { COPY_SRC: 1, COPY_DST: 2 };
+  let complete;
+  const submitted = new Promise(resolve => { complete = resolve; });
+  try {
+    const allocator = new GPUStagingBufferAllocator({
+      createBuffer({ size }) {
+        return { size, destroy() {} };
+      }
+    });
+    const inFlight = allocator.get(64);
+    allocator.release(inFlight, submitted);
+    const next = allocator.get(64);
+    assert.notEqual(next, inFlight);
+    complete();
+    await submitted;
+    await Promise.resolve();
+    assert.equal(allocator.get(64), inFlight);
+    allocator.destroy();
+  } finally {
+    globalThis.GPUBufferUsage = previousUsage;
   }
 });

@@ -1,5 +1,11 @@
 /** Phase 1 Renderer configuration. Effects return through semantic products in later phases. */
 export interface RendererConfig {
+  /** Create the VSM resource and pass owners. Disabled for A-D validation runs. */
+  readonly enableVsm?: boolean;
+  /** Create physical sky and atmosphere resources. Disabled for geometry-only A-D runs. */
+  readonly enablePhysicalEnvironment?: boolean;
+  /** Use the bounded unlit Surface consumer for Product geometry in A-D validation runs. */
+  readonly surfaceVirtualUnlitFallback?: boolean;
   /** Internal visibility resolution relative to the output, in (0, 1]. */
   readonly renderScale?: number;
   readonly textureMaxResolution?: 256 | 512 | 1024 | 2048 | 4096;
@@ -15,7 +21,7 @@ export interface RendererConfig {
   }>;
 }
 
-export const DEFAULT_RENDERER_CONFIG: RendererConfig = Object.freeze({ renderScale: 1 });
+export const DEFAULT_RENDERER_CONFIG: RendererConfig = Object.freeze({ renderScale: 1, enableVsm: true });
 
 export function mergeRendererConfig(base: RendererConfig, override?: RendererConfig): RendererConfig {
   if (!override) return base;

@@ -36,6 +36,7 @@ export interface SurfaceMaterialInputs {
   readonly frame: SurfaceMaterialFrame;
   readonly preExposureBuffer: ResourceId;
   readonly activeSets: readonly number[];
+  readonly textureBankMask: number;
   readonly hasLit: boolean;
   /** Same-frame XeGTAO scalar product. Omitted when no lit consumer exists. */
   readonly indirectVisibility?: ResourceId;
@@ -90,7 +91,10 @@ export class SurfaceMaterialPass {
   private readonly frequencyLayout: GPUBindGroupLayout;
   private readonly frequencyPipeline: GPUComputePipeline;
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(
+    private readonly device: GPUDevice,
+    private readonly virtualUnlitFallback = false
+  ) {
     this.viewBuffer = device.createBuffer({
       label: "Surface/frame view", size: Math.ceil(GPU_SPARSE_SHADING_VIEW_BYTES / 256) * 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -212,16 +216,18 @@ export class SurfaceMaterialPass {
     const scalarAo = input.indirectVisibility !== undefined;
     if (scalarAo && !hasLit) throw new Error("Surface AO has no lit consumer");
     const activeSets = new Set(input.activeSets);
+    const virtualBankCount = input.virtualBanks?.length ?? 0;
     const dense = activeSets.size === 0 ? null :
-      this.program(hasLit, input.virtualGeometry, scalarAo, "dense", 0,
+      this.program(hasLit, input.virtualGeometry, virtualBankCount,
+        input.textureBankMask, scalarAo, "dense", 0,
         vsmBindings !== undefined);
     const lanes = Array.from({ length: SURFACE_EXCEPTION_LANES }, (_, lane) => {
       const setId = lane === 0 ? 0 : 1 + Math.floor((lane - 1) / 2);
       return activeSets.has(setId) ? { lane, setId,
-        binned: this.program(hasLit, input.virtualGeometry, scalarAo, "binned", lane,
-          vsmBindings !== undefined),
-        fallback: this.program(hasLit, input.virtualGeometry, scalarAo, "fallback", lane,
-          vsmBindings !== undefined) } : null;
+        binned: this.program(hasLit, input.virtualGeometry, virtualBankCount,
+          input.textureBankMask, scalarAo, "binned", lane, vsmBindings !== undefined),
+        fallback: this.program(hasLit, input.virtualGeometry, virtualBankCount,
+          input.textureBankMask, scalarAo, "fallback", lane, vsmBindings !== undefined) } : null;
     }).filter((value): value is NonNullable<typeof value> => value !== null);
     const surface = graph.add("Surface/Dense and bounded exceptions", {},
       (_data, resources, context) => {
@@ -333,24 +339,26 @@ export class SurfaceMaterialPass {
     return { radiance, motion, work };
   }
 
-  private program(hasLit: boolean, virtualGeometry: boolean, scalarAo: boolean,
+  private program(hasLit: boolean, virtualGeometry: boolean, virtualBankCount: number,
+    textureBankMask: number, scalarAo: boolean,
     mode: SurfaceExecutionMode, lane: number, vsmShadowEnabled: boolean): Program {
     const coated = hasLit && mode !== "dense" && (lane === 0 || (lane & 1) === 0);
-    const key = `${hasLit}:${virtualGeometry}:${scalarAo}:${mode}:${coated}:${vsmShadowEnabled}`;
+    const key = `${hasLit}:${virtualGeometry}:${virtualBankCount}:${textureBankMask}:${scalarAo}:${mode}:${coated}:${vsmShadowEnabled}`;
     const cached = this.programs.get(key);
     if (cached) return cached;
     const compiled = compileSurfaceProgramLayout({
       kernel: { programId: hasLit ? 15 : 3,
-        outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask: 0x1ff },
-      virtualGeometry, lighting: hasLit ? "direct" : "unlit",
+        outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask },
+      virtualGeometry, virtualBankCount, lighting: hasLit ? "direct" : "unlit",
       aoProfile: scalarAo ? "scalar-high" : "off",
       shadowProfile: vsmShadowEnabled ? "vsm" : "off",
       source: "surface-execution-v2", capabilityFingerprint: "webgpu-core",
       formatProfile: "rgba16float"
     }, this.device.limits);
     const source = surfaceExecutionWgsl(compiled.plan, mode,
-      coated ? 0 : 1, hasLit, virtualGeometry, vsmShadowEnabled);
-    const layoutKey = `${hasLit}:${virtualGeometry}:${scalarAo}:${vsmShadowEnabled}`;
+      coated ? 0 : 1, hasLit, virtualGeometry, vsmShadowEnabled,
+      virtualBankCount, textureBankMask, this.virtualUnlitFallback);
+    const layoutKey = `${hasLit}:${virtualGeometry}:${virtualBankCount}:${textureBankMask}:${scalarAo}:${vsmShadowEnabled}`;
     let layouts = this.layouts.get(layoutKey);
     if (layouts === undefined) {
       layouts = createSurfaceBindGroupLayouts(this.device, compiled.plan);
@@ -403,8 +411,7 @@ export class SurfaceMaterialPass {
       case "geometry-metadata": return input.geometryMetadata;
       case "vertex-payload": return input.vertexPayload;
       case "virtual-product-metadata": return required(input.virtualMetadata, binding.role);
-      case "virtual-product-banks": return required(input.virtualBanks?.[binding.element] ??
-        input.virtualBanks?.[0], binding.role);
+      case "virtual-product-banks": return required(input.virtualBanks?.[binding.element], binding.role);
       case "texture-routes": return input.textureRoutes;
       case "texture-banks": return required(input.textureBanks[setId]?.[binding.element],
         `${binding.role} ${setId}:${binding.element}`);

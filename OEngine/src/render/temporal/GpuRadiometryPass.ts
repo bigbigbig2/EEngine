@@ -106,12 +106,15 @@ export class GpuRadiometryPass {
       compute: { module, entryPoint: "histogram_main" }
     });
     this.reducePipeline = device.createComputePipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout1] }),
+      layout: device.createPipelineLayout({ bindGroupLayouts: [device.createBindGroupLayout({ entries: [] }), this.layout1] }),
       compute: { module, entryPoint: "reduce_main" }
     });
     this.buffers = [0, 1].map(index => {
-      const buffer = device.createBuffer({ label: `Radiometry/P-E/${index}`, size: 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+      // Exposure.value is followed by an aligned vec3 padding field in WGSL;
+      // the storage binding therefore has a 32-byte minimum span.
+      const buffer = device.createBuffer({ label: `Radiometry/P-E/${index}`, size: 32,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM |
+          GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
         mappedAtCreation: true });
       new Float32Array(buffer.getMappedRange())[0] = 1;
       buffer.unmap(); return buffer;
@@ -166,7 +169,7 @@ export class GpuRadiometryPass {
         { binding: 3, resource: { buffer: constants } }
       ] });
       const pass = command.beginComputePass({ label: "Radiometry/adapt exposure" });
-      pass.setPipeline(this.reducePipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end();
+      pass.setPipeline(this.reducePipeline); pass.setBindGroup(1, group); pass.dispatchWorkgroups(1); pass.end();
     });
     reduce.read(histogram); reduce.read(pre); reduce.write(next);
     return { preExposure: pre, adaptedExposure: next };

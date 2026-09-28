@@ -458,6 +458,7 @@ export type {
   ProductSceneOptions,
   ProductSceneSourceMapper,
   ProductSceneState,
+  WebCookProductPublicationTiming,
   WebCookedSceneOptions
 } from "./render/pipeline/RendererCore.js";
 export {

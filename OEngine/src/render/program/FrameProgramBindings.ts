@@ -118,15 +118,20 @@ export function assertFrameProgramBindings(plan: FrameProgram, bindings: FramePr
       hasLit !== request.hasLit) {
     throw new Error("Frame Program material set or lighting shape changed");
   }
+  let textureBankMask = 0;
   for (const setId of activeSets) {
     const bindingSet = bindings.runtime.materialResources.bindingSets.find(set => set.id === setId);
     if (!bindingSet) throw new Error(`Frame Program texture set ${setId} is not resident`);
+    textureBankMask |= bindingSet.textureBankMask;
     for (let bank = 0; bank < 9; bank++) {
       if (!bindingSet.textureBanks[bank] ||
           bindingSet.bankDescriptors[bank]?.bindingSlot !== bank) {
         throw new Error(`Frame Program texture bank ${setId}:${bank} publication is incomplete`);
       }
     }
+  }
+  if ((textureBankMask || 1) !== (request.textureBankMask ?? 0x1ff)) {
+    throw new Error("Frame Program texture bank layout changed");
   }
   if ((bindings.environment !== null) !== request.physicalEnvironment) {
     throw new Error("Frame Program environment profile changed");

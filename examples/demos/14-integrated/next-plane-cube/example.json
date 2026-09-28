@@ -1,0 +1,8 @@
+{
+  "id": "next-plane-cube",
+  "title": "Next Plane + Cube",
+  "category": "14-integrated",
+  "order": 16,
+  "description": "Minimal A-D scene with a plane and a cube on the current renderer path.",
+  "tags": ["integrated", "webgpu", "geometry", "a-d"]
+}

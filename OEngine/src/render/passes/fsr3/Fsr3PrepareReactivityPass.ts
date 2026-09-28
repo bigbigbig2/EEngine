@@ -218,7 +218,11 @@ export class Fsr3PrepareReactivityPass {
     const module = device.createShaderModule({ label: "FSR3 Prepare Reactivity", code: FSR3_PREPARE_REACTIVITY_WGSL });
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      ...[1, 2, 3, 4, 5, 6, 7].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+      // Dilated depth is R32Float. It is loaded without filtering and must use
+      // the unfilterable-float view class on adapters without float filtering.
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
+      ...[3, 4, 5, 6, 7].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
         texture: { sampleType: "float" as const } })),
       { binding: 8, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } },
       { binding: 9, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },

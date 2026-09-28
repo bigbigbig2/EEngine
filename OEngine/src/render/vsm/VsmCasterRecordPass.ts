@@ -56,7 +56,7 @@ export class VsmCasterRecordPass {
     });
     this.casterLayout = device.createBindGroupLayout({ label: "VSM/caster records layout", entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -65,8 +65,8 @@ export class VsmCasterRecordPass {
     ] });
     this.finalizeLayout = device.createBindGroupLayout({ label: "VSM/raster indirect finalize layout", entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
     ] });
     const module = device.createShaderModule({ label: "VSM/caster records WGSL", code: VSM_CASTER_RECORDS_WGSL });
     this.casterPipeline = device.createComputePipeline({ label: "VSM/caster records", layout: device.createPipelineLayout({ bindGroupLayouts: [this.casterLayout] }), compute: { module, entryPoint: "main" } });
@@ -121,8 +121,8 @@ export class VsmCasterRecordPass {
       const command = context.encoder as ShadeGPUCommandContext;
       const group = this.device.createBindGroup({ label: "VSM/finalize raster indirect bindings", layout: this.finalizeLayout, entries: [
         { binding: 0, resource: { buffer: resolved.get(currentConstants) as GPUBuffer } },
-        { binding: 1, resource: { buffer: resolved.get(caster) as GPUBuffer } },
-        { binding: 2, resource: { buffer: resolved.get(indirect) as GPUBuffer } }
+        { binding: 5, resource: { buffer: resolved.get(caster) as GPUBuffer } },
+        { binding: 7, resource: { buffer: resolved.get(indirect) as GPUBuffer } }
       ] });
       const pass = command.beginComputePass({ label: "VSM/finalize raster indirect" });
       pass.setPipeline(this.finalizePipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end();

@@ -1,9 +1,9 @@
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import {
   GPU_GEOMETRY_RECORD_WGSL,
-  GPU_GEOMETRY_VERTEX_DECODE_WGSL,
   GPU_MESHLET_RECORD_WGSL,
-  GPU_UV_FORMAT
+  GPU_UV_FORMAT,
+  GPU_POSITION_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_RASTER_FLAGS, GPU_MESHLET_DECODE_PROFILE } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
@@ -18,6 +18,8 @@ const VSM_PAGE_GENERATION_VALID = 8;
 const COMMON = /* wgsl */ `
 ${VSM_PAGE_TABLE_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
+${GPU_GEOMETRY_RECORD_WGSL}
+${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL}
@@ -55,20 +57,36 @@ struct VsmPageTableBuffer { entries: array<VsmPageEntry> };
 @group(0) @binding(16) var oengine_texture_bank_6: texture_2d_array<f32>;
 @group(0) @binding(17) var oengine_texture_bank_7: texture_2d_array<f32>;
 @group(0) @binding(18) var oengine_texture_bank_8: texture_2d_array<f32>;
+fn atlas_read_u16(byte_offset: u32) -> u32 {
+  let word = vertex_data[byte_offset >> 2u];
+  return (word >> ((byte_offset & 2u) * 8u)) & 0xffffu;
+}
+fn atlas_geometry_position(geometry: GpuGeometryRecord, vertex: u32) -> vec3f {
+  let offset = geometry.position_byte_offset + vertex * geometry.position_stride;
+  if (geometry.position_format == ${GPU_POSITION_FORMAT.Float32x3}u || geometry.position_format == ${GPU_POSITION_FORMAT.Float32x4}u) {
+    let word = offset >> 2u;
+    return vec3f(bitcast<f32>(vertex_data[word]), bitcast<f32>(vertex_data[word + 1u]), bitcast<f32>(vertex_data[word + 2u]));
+  }
+  if (geometry.position_format == ${GPU_POSITION_FORMAT.AabbUnorm16x3}u) {
+    let q = vec3f(f32(atlas_read_u16(offset)), f32(atlas_read_u16(offset + 2u)), f32(atlas_read_u16(offset + 4u))) / 65535.0;
+    return geometry.bounds_min.xyz + q * (geometry.bounds_max.xyz - geometry.bounds_min.xyz);
+  }
+  return vec3f(0.0);
+}
 override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
 override OENGINE_VSM_BATCH: u32 = 0u;
 
-fn read_u8(words: ptr<storage, array<u32>, read>, byte_offset: u32) -> u32 {
-  return ((*words)[byte_offset >> 2u] >> ((byte_offset & 3u) * 8u)) & 0xffu;
+fn read_u8(byte_offset: u32) -> u32 {
+  return (vertex_data[byte_offset >> 2u] >> ((byte_offset & 3u) * 8u)) & 0xffu;
 }
-fn read_uv(words: ptr<storage, array<u32>, read>, byte_offset: u32, stride: u32, format: u32, vertex: u32) -> vec3f {
+fn read_uv(byte_offset: u32, stride: u32, format: u32, vertex: u32) -> vec3f {
   let at = byte_offset + vertex * stride;
   if (format == ${GPU_UV_FORMAT.Float32x2}u) {
-    return vec3f(bitcast<f32>((*words)[at >> 2u]), bitcast<f32>((*words)[(at >> 2u) + 1u]), 1.0);
+    return vec3f(bitcast<f32>(vertex_data[at >> 2u]), bitcast<f32>(vertex_data[(at >> 2u) + 1u]), 1.0);
   }
-  if (format == ${GPU_UV_FORMAT.Unorm8x2}u) { return vec3f(f32(read_u8(words, at)), f32(read_u8(words, at + 1u)), 255.0); }
-  if (format == ${GPU_UV_FORMAT.Unorm16x2}u) { return vec3f(f32(read_u8(words, at) | (read_u8(words, at + 1u) << 8u)), f32(read_u8(words, at + 2u) | (read_u8(words, at + 3u) << 8u)), 65535.0); }
-  if (format == ${GPU_UV_FORMAT.Float16x2}u) { return vec3f(unpack2x16float((*words)[at >> 2u]), 1.0); }
+  if (format == ${GPU_UV_FORMAT.Unorm8x2}u) { return vec3f(f32(read_u8(at)), f32(read_u8(at + 1u)), 255.0); }
+  if (format == ${GPU_UV_FORMAT.Unorm16x2}u) { return vec3f(f32(read_u8(at) | (read_u8(at + 1u) << 8u)), f32(read_u8(at + 2u) | (read_u8(at + 3u) << 8u)), 65535.0); }
+  if (format == ${GPU_UV_FORMAT.Float16x2}u) { return vec3f(unpack2x16float(vertex_data[at >> 2u]), 1.0); }
   return vec3f(0.0);
 }
 fn atlas_position(light: vec3f, entry: VsmPageEntry, virtual_page: u32) -> vec4f {
@@ -150,17 +168,18 @@ struct VsmAtlasOutput {
   let meshlet = meshlets[record.meshlet_record_index];
   let triangle = vertex_index / 3u;
   if (triangle >= meshlet.triangle_count) { out.position = vec4f(2.0); out.valid = 0u; return out; }
-  let local_vertex = read_u8(&meshlet_triangles, meshlet.triangle_byte_offset + triangle * 3u + corner);
+  let local_vertex = (meshlet_triangles[ (meshlet.triangle_byte_offset + triangle * 3u + corner) >> 2u] >> (((meshlet.triangle_byte_offset + triangle * 3u + corner) & 3u) * 8u)) & 0xffu;
   let source_vertex = meshlet_vertices[meshlet.vertex_offset + local_vertex];
-  let local = oengine_geometry_position(&vertex_data, geometry, source_vertex);
-  let world = oengine_instance_current_object_to_world(instance) * vec4f(local, 1.0);
+  let local = atlas_geometry_position(geometry, source_vertex);
+  let object_to_world = oengine_instance_current_object_to_world(instance);
+  let world = object_to_world * vec4f(local, 1.0);
   let light = (constants.light_view * world).xyz;
-  let uv0 = read_uv(&vertex_data, geometry.uv0_byte_offset, geometry.uv0_stride, geometry.uv0_format, source_vertex);
-  let uv1 = read_uv(&vertex_data, geometry.uv1_byte_offset, geometry.uv1_stride, geometry.uv1_format, source_vertex);
-  let uv2 = read_uv(&vertex_data, geometry.uv2_byte_offset, geometry.uv2_stride, geometry.uv2_format, source_vertex);
+  let uv0 = read_uv(geometry.uv0_byte_offset, geometry.uv0_stride, geometry.uv0_format, source_vertex);
+  let uv1 = read_uv(geometry.uv1_byte_offset, geometry.uv1_stride, geometry.uv1_format, source_vertex);
+  let uv2 = read_uv(geometry.uv2_byte_offset, geometry.uv2_stride, geometry.uv2_format, source_vertex);
   out.position = atlas_position(light, entry, record.virtual_page); out.uv0 = select(vec2f(0.0), uv0.xy / uv0.z, uv0.z > 0.0); out.uv1 = select(vec2f(0.0), uv1.xy / uv1.z, uv1.z > 0.0); out.uv2 = select(vec2f(0.0), uv2.xy / uv2.z, uv2.z > 0.0);
   out.uv_valid_mask = select(0u, 1u, uv0.z > 0.0) | select(0u, 2u, uv1.z > 0.0) | select(0u, 4u, uv2.z > 0.0);
-  out.material_handle = record.material_handle; out.mirrored = select(0u, 1u, dot(world[0].xyz, cross(world[1].xyz, world[2].xyz)) < 0.0); out.raster_flags = record.raster_flags; out.valid = 1u; return out;
+  out.material_handle = record.material_handle; out.mirrored = select(0u, 1u, dot(object_to_world[0].xyz, cross(object_to_world[1].xyz, object_to_world[2].xyz)) < 0.0); out.raster_flags = record.raster_flags; out.valid = 1u; return out;
 }
 @fragment fn vsm_atlas_fragment(input: VsmAtlasOutput, @builtin(front_facing) front: bool) {
   if (input.valid == 0u || (input.raster_flags & ${GPU_MESHLET_RASTER_FLAGS.Transparent}u) != 0u) { discard; }
@@ -217,7 +236,7 @@ fn product_u16(bank: u32, at: u32) -> u32 { let a = product_word(bank, at >> 2u)
 fn product_group_header(bank: u32, location: OEngineGeometryPageLookupV1, group: OEngineVirtualGroupV1) -> OEngineVirtualGroupHeaderV1 { if (bank == 0u) { return oengine_virtual_group_header_v1(&product_bank_0, location, group); } if (bank == 1u) { return oengine_virtual_group_header_v1(&product_bank_1, location, group); } if (bank == 2u) { return oengine_virtual_group_header_v1(&product_bank_2, location, group); } return oengine_virtual_group_header_v1(&product_bank_3, location, group); }
 fn product_meshlet_header(bank: u32, location: OEngineGeometryPageLookupV1, group: OEngineVirtualGroupV1, header: OEngineVirtualGroupHeaderV1, local: u32) -> OEngineVirtualMeshletHeaderV1 { if (bank == 0u) { return oengine_virtual_meshlet_header_v1(&product_bank_0, location, group, header, local); } if (bank == 1u) { return oengine_virtual_meshlet_header_v1(&product_bank_1, location, group, header, local); } if (bank == 2u) { return oengine_virtual_meshlet_header_v1(&product_bank_2, location, group, header, local); } return oengine_virtual_meshlet_header_v1(&product_bank_3, location, group, header, local); }
 fn product_pos(bank: u32, base: u32, meshlet: OEngineVirtualMeshletHeaderV1, format0: u32, format1: u32, vertex: u32) -> vec3f { let at = base + meshlet.vertex_byte_offset + vertex * (format0 & 0xffffu) + (format1 & 0xffu); let q = vec3f(f32(product_u16(bank, at)), f32(product_u16(bank, at + 2u)), f32(product_u16(bank, at + 4u))) / 65535.0; return mix(meshlet.bounds_min, meshlet.bounds_max, q); }
-fn product_uv(bank: u32, base: u32, meshlet: OEngineVirtualMeshletHeaderV1, format0: u32, format1: u32, format2: u32, vertex: u32, set: u32) -> vec2f { if (set > 1u) { return vec2f(0.0); } let bit = select(8u, 16u, set == 1u); let offset = select((format1 >> 24u) & 0xffu, format2 & 0xffu, set == 1u); if ((format0 & (bit << 16u)) == 0u || offset == 0xffu) { return vec2f(0.0); } let at = base + meshlet.vertex_byte_offset + vertex * (format0 & 0xffffu) + offset; return unpack2x16float(product_u16(bank, at) | (product_u16(bank, at + 2u) << 16u)); }
+fn product_uv(bank: u32, base: u32, meshlet: OEngineVirtualMeshletHeaderV1, format0: u32, format1: u32, format2: u32, vertex: u32, uv_set: u32) -> vec2f { if (uv_set > 1u) { return vec2f(0.0); } let bit = select(8u, 16u, uv_set == 1u); let offset = select((format1 >> 24u) & 0xffu, format2 & 0xffu, uv_set == 1u); if ((format0 & (bit << 16u)) == 0u || offset == 0xffu) { return vec2f(0.0); } let at = base + meshlet.vertex_byte_offset + vertex * (format0 & 0xffffu) + offset; return unpack2x16float(product_u16(bank, at) | (product_u16(bank, at + 2u) << 16u)); }
 fn valid_page(record: VsmCasterRecord) -> VsmPageEntry { if (record.virtual_page >= arrayLength(&page_table.entries)) { return VsmPageEntry(0u,0u,0u,0u,0u,0u,0u,0u); } let entry = page_table.entries[record.virtual_page]; let axis = max(1u, constants.dimensions.w / (constants.dimensions.y + constants.dimensions.z * 2u)); if (entry.slot_x + entry.slot_y * axis != record.page_slot || entry.generation != constants.control.x || (entry.flags & (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) != (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) { return VsmPageEntry(0u,0u,0u,0u,0u,0u,0u,0u); } return entry; }
 fn atlas_position(light: vec3f, entry: VsmPageEntry, virtual_page: u32) -> vec4f { let pages = constants.dimensions.x; let span = pages * pages; let level = min(5u, virtual_page / max(1u, span)); let local = virtual_page - level * span; let axis = max(1u, pages >> min(entry.mip, 5u)); let page_x = local % pages; let page_y = local / pages; let extent = constants.clip_origin_extent[level].z; let uv = (light.xy - constants.clip_origin_extent[level].xy) / max(extent, 1e-5) * f32(axis) - vec2f(f32(page_x), f32(page_y)); let pitch = constants.dimensions.y + constants.dimensions.z * 2u; let texel = vec2f(f32(entry.slot_x * pitch + constants.dimensions.z), f32(entry.slot_y * pitch + constants.dimensions.z)) + uv * f32(constants.dimensions.y); return vec4f(texel.x / f32(constants.dimensions.w) * 2.0 - 1.0, 1.0 - texel.y / f32(constants.dimensions.w) * 2.0, clamp(0.5 - light.z / max(extent * 8.0, 1.0), 0.0, 1.0), 1.0); }
 fn transform_uv(record: OEngineMaterialVisibilityRecord, uv: vec2f) -> vec2f { let scaled = uv * record.uv_offset_scale.zw; return record.uv_offset_scale.xy + vec2f(record.uv_rotation.x * scaled.x - record.uv_rotation.y * scaled.y, record.uv_rotation.y * scaled.x + record.uv_rotation.x * scaled.y); }

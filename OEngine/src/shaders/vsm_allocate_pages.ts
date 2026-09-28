@@ -51,9 +51,9 @@ struct VsmTelemetryBuffer {
   lock_contention: atomic<u32>,
 };
 
-struct VsmPageTableBuffer { entries: array<VsmPageEntry>; };
-struct VsmMetaTableBuffer { entries: array<VsmMetaEntry>; };
-struct VsmLockBuffer { values: array<atomic<u32>>; };
+struct VsmPageTableBuffer { entries: array<VsmPageEntry>, };
+struct VsmMetaTableBuffer { entries: array<VsmMetaEntry>, };
+struct VsmLockBuffer { values: array<atomic<u32>>, };
 
 @group(0) @binding(0) var<uniform> constants: Constants;
 @group(0) @binding(1) var<storage, read_write> demand: VsmDemandBuffer;
@@ -66,7 +66,6 @@ struct VsmLockBuffer { values: array<atomic<u32>>; };
 
 const VSM_PAGE_DIRTY: u32 = 2u;
 const VSM_PAGE_IN_FLIGHT: u32 = 4u;
-const VSM_PAGE_GENERATION_VALID: u32 = 8u;
 const VSM_PAGE_ALLOCATED_AND_VALID: u32 = 9u;
 const VSM_INVALID: u32 = 0xffffffffu;
 
@@ -84,6 +83,7 @@ fn append_work(record: VsmPageWork) -> bool {
     }
     observed = result.old_value;
   }
+  return false;
 }
 
 fn release_page_lock(index: u32) {
@@ -191,12 +191,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     var oldest = 0xffffffffu;
     for (var slot = 0u; slot < constants.control.z; slot++) {
       if (atomicLoad(&slot_locks.values[slot]) != 0u) { continue; }
-      let meta = meta_table.entries[slot];
-      let protected = (meta.flags & (VSM_PAGE_DIRTY | VSM_PAGE_IN_FLIGHT)) != 0u;
-      if ((meta.flags & VSM_PAGE_ALLOCATED_AND_VALID) != VSM_PAGE_ALLOCATED_AND_VALID ||
-          protected || meta.last_visited == generation) { continue; }
-      if (meta.last_visited <= oldest) {
-        oldest = meta.last_visited;
+      let slot_meta = meta_table.entries[slot];
+      let slot_protected = (slot_meta.flags & (VSM_PAGE_DIRTY | VSM_PAGE_IN_FLIGHT)) != 0u;
+      if ((slot_meta.flags & VSM_PAGE_ALLOCATED_AND_VALID) != VSM_PAGE_ALLOCATED_AND_VALID ||
+          slot_protected || slot_meta.last_visited == generation) { continue; }
+      if (slot_meta.last_visited <= oldest) {
+        oldest = slot_meta.last_visited;
         candidate = slot;
       }
     }

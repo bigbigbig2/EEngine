@@ -67,7 +67,10 @@ export class BloomPass {
       {binding:1,visibility:GPUShaderStage.COMPUTE,storageTexture:{access:"write-only",format:"rgba16float"}},
       {binding:2,visibility:GPUShaderStage.COMPUTE,buffer:{type:"uniform"}},
       {binding:3,visibility:GPUShaderStage.COMPUTE,buffer:{type:"read-only-storage"}}]});
-    this.downLayout=this.extractLayout;
+    this.downLayout=device.createBindGroupLayout({entries:[
+      {binding:0,visibility:GPUShaderStage.COMPUTE,texture:{sampleType:"float"}},
+      {binding:1,visibility:GPUShaderStage.COMPUTE,storageTexture:{access:"write-only",format:"rgba16float"}},
+      {binding:2,visibility:GPUShaderStage.COMPUTE,buffer:{type:"uniform"}}]});
     this.upLayout=device.createBindGroupLayout({entries:[
       {binding:0,visibility:GPUShaderStage.COMPUTE,texture:{sampleType:"float"}},
       {binding:1,visibility:GPUShaderStage.COMPUTE,texture:{sampleType:"float"}},
@@ -80,8 +83,9 @@ export class BloomPass {
       {binding:3,visibility:GPUShaderStage.COMPUTE,buffer:{type:"uniform"}}]});
     this.extractPipeline=device.createComputePipeline({layout:device.createPipelineLayout({bindGroupLayouts:[this.extractLayout]}),compute:{module,entryPoint:"extract"}});
     this.downPipeline=device.createComputePipeline({layout:device.createPipelineLayout({bindGroupLayouts:[this.downLayout]}),compute:{module,entryPoint:"downsample"}});
-    this.upPipeline=device.createComputePipeline({layout:device.createPipelineLayout({bindGroupLayouts:[this.upLayout]}),compute:{module,entryPoint:"upsample"}});
-    this.compositePipeline=device.createComputePipeline({layout:device.createPipelineLayout({bindGroupLayouts:[this.compositeLayout]}),compute:{module,entryPoint:"composite_main"}});
+    const emptyLayout=device.createBindGroupLayout({entries:[]});
+    this.upPipeline=device.createComputePipeline({layout:device.createPipelineLayout({bindGroupLayouts:[emptyLayout,this.upLayout]}),compute:{module,entryPoint:"upsample"}});
+    this.compositePipeline=device.createComputePipeline({layout:device.createPipelineLayout({bindGroupLayouts:[emptyLayout,emptyLayout,this.compositeLayout]}),compute:{module,entryPoint:"composite_main"}});
   }
 
   addToGraph(graph:FrameGraph,input:{scene:ResourceId;preExposure:ResourceId;width:number;height:number}):ResourceId {
@@ -100,8 +104,8 @@ export class BloomPass {
         const g=this.device.createBindGroup({layout:this.downLayout,entries:[{binding:0,resource:resolveTextureView(res.get(source))},{binding:1,resource:resolveTextureView(res.get(output))},{binding:2,resource:{buffer:u}}]}); const p=c.beginComputePass({label:`Bloom/downsample ${level-1}`});p.setPipeline(this.downPipeline);p.setBindGroup(0,g);p.dispatchWorkgroups(Math.ceil(data.width/8),Math.ceil(data.height/8));p.end();
       }); output=make(node,`Bloom/mip${level-1}`,level);node.read(source);levels.push(output);
     }
-    for(let level=4;level>=0;level--){const low=levels[level+1]!,high=levels[level]!;let output=-1;const node=graph.add(`Bloom/upsample ${level}`,{width:extent(level)[0],height:extent(level)[1]},(data,res,ctx)=>{const c=ctx.encoder as ShadeGPUCommandContext;const u=c.allocateTransientBufferAndLoad(new Uint32Array([data.width,data.height]).buffer,GPUBufferUsage.UNIFORM);const g=this.device.createBindGroup({layout:this.upLayout,entries:[{binding:0,resource:resolveTextureView(res.get(low))},{binding:1,resource:resolveTextureView(res.get(high))},{binding:2,resource:resolveTextureView(res.get(output))},{binding:3,resource:{buffer:u}}]});const p=c.beginComputePass({label:`Bloom/upsample ${level}`});p.setPipeline(this.upPipeline);p.setBindGroup(0,g);p.dispatchWorkgroups(Math.ceil(data.width/8),Math.ceil(data.height/8));p.end();});output=make(node,`Bloom/up${level}`,level);node.read(low);node.read(high);levels[level]=output;}
-    let output=-1; const composite=graph.add("Bloom/composite HDR",{width:input.width,height:input.height},(data,res,ctx)=>{const c=ctx.encoder as ShadeGPUCommandContext;const u=c.allocateTransientBufferAndLoad(new Uint32Array([data.width,data.height]).buffer,GPUBufferUsage.UNIFORM);const g=this.device.createBindGroup({layout:this.compositeLayout,entries:[{binding:0,resource:resolveTextureView(res.get(input.scene))},{binding:1,resource:resolveTextureView(res.get(levels[0]!))},{binding:2,resource:resolveTextureView(res.get(output))},{binding:3,resource:{buffer:u}}]});const p=c.beginComputePass({label:"Bloom/composite HDR"});p.setPipeline(this.compositePipeline);p.setBindGroup(0,g);p.dispatchWorkgroups(Math.ceil(data.width/8),Math.ceil(data.height/8));p.end();});
+    for(let level=3;level>=0;level--){const low=levels[level+1]!,high=levels[level]!;let output=-1;const node=graph.add(`Bloom/upsample ${level}`,{width:extent(level)[0],height:extent(level)[1]},(data,res,ctx)=>{const c=ctx.encoder as ShadeGPUCommandContext;const u=c.allocateTransientBufferAndLoad(new Uint32Array([data.width,data.height]).buffer,GPUBufferUsage.UNIFORM);const g=this.device.createBindGroup({layout:this.upLayout,entries:[{binding:0,resource:resolveTextureView(res.get(low))},{binding:1,resource:resolveTextureView(res.get(high))},{binding:2,resource:resolveTextureView(res.get(output))},{binding:3,resource:{buffer:u}}]});const p=c.beginComputePass({label:`Bloom/upsample ${level}`});p.setPipeline(this.upPipeline);p.setBindGroup(1,g);p.dispatchWorkgroups(Math.ceil(data.width/8),Math.ceil(data.height/8));p.end();});output=make(node,`Bloom/up${level}`,level);node.read(low);node.read(high);levels[level]=output;}
+    let output=-1; const composite=graph.add("Bloom/composite HDR",{width:input.width,height:input.height},(data,res,ctx)=>{const c=ctx.encoder as ShadeGPUCommandContext;const u=c.allocateTransientBufferAndLoad(new Uint32Array([data.width,data.height]).buffer,GPUBufferUsage.UNIFORM);const g=this.device.createBindGroup({layout:this.compositeLayout,entries:[{binding:0,resource:resolveTextureView(res.get(input.scene))},{binding:1,resource:resolveTextureView(res.get(levels[0]!))},{binding:2,resource:resolveTextureView(res.get(output))},{binding:3,resource:{buffer:u}}]});const p=c.beginComputePass({label:"Bloom/composite HDR"});p.setPipeline(this.compositePipeline);p.setBindGroup(2,g);p.dispatchWorkgroups(Math.ceil(data.width/8),Math.ceil(data.height/8));p.end();});
     output=composite.create("Bloom/bloom HDR",{kind:"transient_texture",width:input.width,height:input.height,format:"rgba16float",domain:"output-full",usage:GPUTextureUsage.STORAGE_BINDING|GPUTextureUsage.TEXTURE_BINDING});
     composite.read(levels[0]!); composite.read(input.scene); return output;
   }

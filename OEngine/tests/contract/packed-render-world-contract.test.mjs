@@ -717,8 +717,8 @@ test("TextureResidency publishes a cooked mip tail before generation-safe promot
 test("Texture sampling ABI clamps array-texture LOD with an explicit layer", () => {
   const source = gpuTextureBankSampleWgsl(1);
   assert.match(source, /oengine_sample_texture_clamped\(oengine_texture_bank_0, sampler_clamp_linear, texture_ref, sampler_class, uv, layer, uv_dx, uv_dy\)/u);
-  assert.match(source, /textureSampleGrad\(texture, sampler, uv, layer, uv_dx, uv_dy\)/u);
-  assert.match(source, /textureSampleLevel\(texture, sampler, uv, layer, max\(lod, f32\(min_mip\)\)\)/u);
+  assert.match(source, /textureSampleGrad\(texture, texture_sampler, uv, layer, uv_dx, uv_dy\)/u);
+  assert.match(source, /textureSampleLevel\(texture, texture_sampler, uv, layer, max\(lod, f32\(min_mip\)\)\)/u);
 });
 
 test("Texture residency rolls back failed commands and reuses a released base layer", async () => {

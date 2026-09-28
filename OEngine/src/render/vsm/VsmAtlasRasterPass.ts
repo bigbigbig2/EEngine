@@ -13,7 +13,9 @@ struct Record { instance_record_index: u32, geometry_record_index: u32, meshlet_
 struct Caster { attempted: u32, written: u32, overflow: u32, generation: u32, records: array<Record> };
 struct Entry { slot_x: u32, slot_y: u32, mip: u32, flags: u32, generation: u32, fallback_mip: u32, reserved_0: u32, reserved_1: u32 };
 struct Meta { virtual_page: u32, mip: u32, last_visited: u32, flags: u32, generation: u32, owner: u32, reserved_0: u32, reserved_1: u32 };
-struct Table { entries: array<Entry> }; struct Metas { entries: array<Meta> }; struct Locks { values: array<atomic<u32>> };
+struct Table { entries: array<Entry>, }
+struct Metas { entries: array<Meta>, }
+struct Locks { values: array<atomic<u32>>, }
 @group(0) @binding(0) var<uniform> constants: Constants;
 @group(0) @binding(1) var<storage, read> caster: Caster;
 @group(0) @binding(2) var<storage, read_write> page_table: Table;
@@ -32,10 +34,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     entry.flags = entry.flags & ~2u;
     page_table.entries[record.virtual_page] = entry;
     if (record.page_slot < arrayLength(&meta_table.entries)) {
-      var meta = meta_table.entries[record.page_slot];
-      if (meta.virtual_page == record.virtual_page && meta.generation == constants.generation) {
-        meta.flags = meta.flags & ~2u;
-        meta_table.entries[record.page_slot] = meta;
+      var slot_meta = meta_table.entries[record.page_slot];
+      if (slot_meta.virtual_page == record.virtual_page && slot_meta.generation == constants.generation) {
+        slot_meta.flags = slot_meta.flags & ~2u;
+        meta_table.entries[record.page_slot] = slot_meta;
       }
     }
   }

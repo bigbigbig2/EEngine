@@ -1,0 +1,52 @@
+:root { font-family: Inter, "Segoe UI", system-ui, sans-serif; color: #e9efec; background: #101413; color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; margin: 0; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+button:focus-visible, input:focus-visible { outline: 2px solid #78dbc0; outline-offset: 2px; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 344px; width: 100%; height: 100%; min-height: 0; }
+.viewport { position: relative; min-width: 0; min-height: 0; background: #111817; }
+#viewport { display: block; width: 100%; height: 100%; touch-action: none; }
+.start-scene { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 12px 20px; border: 1px solid #78d0ae; border-radius: 4px; background: #21382f; color: #e9f5ed; font-size: 14px; font-weight: 600; }
+.start-scene:hover { background: #315742; }
+.start-scene:disabled { opacity: .5; cursor: default; }
+.viewport-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 16px 20px; pointer-events: none; background: linear-gradient(#0a1110bd, transparent); }
+.brand { display: flex; align-items: center; gap: 9px; min-width: 0; font-size: 13px; }
+.brand strong { padding-left: 9px; border-left: 1px solid #809189; font-weight: 500; color: #aebcb5; }
+.mark { display: grid; place-items: center; width: 25px; height: 25px; background: #68d0ae; color: #10241d; font-weight: 800; font-size: 17px; }
+.view-state { max-width: 42%; text-align: right; font-size: 12px; line-height: 1.35; color: #eff5f2; text-shadow: 0 1px 3px #07100d; overflow-wrap: anywhere; }
+.view-state[data-state="error"] { color: #ffb4a8; }
+.camera-controls { position: absolute; left: 20px; bottom: 20px; display: flex; gap: 4px; }
+.camera-controls button { border: 1px solid #879c91; border-radius: 4px; background: #192723eb; color: #edf6f1; padding: 8px 12px; font-size: 12px; }
+.camera-controls button:hover { background: #29453a; }
+.inspector { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid #39433f; background: #1a211e; }
+.panel-header { padding: 21px 20px 18px; border-bottom: 1px solid #37413b; }
+.eyebrow { color: #80cfb2; font-size: 10px; font-weight: 700; }
+h1 { margin: 7px 0 4px; font-size: 21px; line-height: 1.2; font-weight: 650; }
+.panel-header p { margin: 0; color: #9faea5; font-size: 12px; }
+.panel-content { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.panel-section { padding: 18px 20px; border-bottom: 1px solid #354039; }
+h2 { margin: 0 0 12px; color: #dce8e1; font-size: 12px; font-weight: 650; }
+.field-row, .slider-label { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; font-size: 12px; }
+.field-row { padding: 7px 0; border-bottom: 1px solid #303a34; }
+.field-row:last-child { border-bottom: 0; }
+.field-row span, .slider-label span { color: #9fb0a5; }
+.field-row strong, .slider-label output { text-align: right; font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.slider-label { margin: 10px 0 4px; }
+input[type="range"] { display: block; width: 100%; accent-color: #7cceaa; }
+.stage-list, .pass-list { margin: 0; padding: 0; list-style: none; }
+.stage-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.stage-list li { padding: 4px 6px; border: 1px solid #44584b; border-radius: 3px; color: #bad6c5; font-size: 10px; }
+.pass-list li { padding: 6px 0; border-bottom: 1px solid #303a34; color: #b7c6bd; font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.panel-footer { padding: 12px 20px; border-top: 1px solid #354039; }
+.panel-footer button { width: 100%; border: 1px solid #51665a; border-radius: 4px; background: #27392e; color: #e9f4ec; padding: 9px; font-size: 12px; }
+.panel-footer button:hover { background: #365344; }
+@media (max-width: 760px) {
+  .workspace { grid-template-columns: 1fr; grid-template-rows: minmax(300px, 54vh) minmax(260px, 1fr); height: 100dvh; }
+  .inspector { border-left: 0; border-top: 1px solid #39433f; }
+  .viewport-top { padding: 12px; }
+  .brand { gap: 6px; font-size: 11px; }
+  .brand strong { padding-left: 6px; }
+  .view-state { font-size: 11px; }
+  .camera-controls { left: 12px; bottom: 12px; }
+}

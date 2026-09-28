@@ -9,6 +9,7 @@ import type {
 
 export class GPUStagingBufferAllocator {
   private readonly cache: GPUBuffer[] = [];
+  private readonly pending = new Set<GPUBuffer>();
   private readonly buffers = new Set<GPUBuffer>();
   private readonly accountingHandles = new Map<GPUBuffer, AccountingResourceHandle>();
   private destroyed = false;
@@ -35,8 +36,7 @@ export class GPUStagingBufferAllocator {
     const buffer = this.device.createBuffer({
       label: "",
       size: resolvedSize,
-      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.MAP_WRITE,
-      mappedAtCreation: true
+      usage: GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
     });
     this.buffers.add(buffer);
     if (this.resourceAccounting !== undefined) {
@@ -50,28 +50,23 @@ export class GPUStagingBufferAllocator {
     return buffer;
   }
 
-  release(buffer: GPUBuffer): void {
-    // A command can finish after renderer teardown. Its asynchronous remap is
-    // no longer useful once the allocator has been destroyed.
+  release(buffer: GPUBuffer, reuseAfter?: Promise<unknown>): void {
     if (this.destroyed) return;
-    const state = buffer.mapState;
-    if (state === "mapped") {
-      this.insert(buffer);
+    if (reuseAfter !== undefined) {
+      if (this.pending.has(buffer)) return;
+      this.pending.add(buffer);
+      void reuseAfter.then(() => {
+        if (this.destroyed) return;
+        this.pending.delete(buffer);
+        this.insert(buffer);
+      }, () => {
+        if (this.destroyed) return;
+        this.pending.delete(buffer);
+        this.insert(buffer);
+      });
       return;
     }
-    if (state !== "unmapped") {
-      throw new Error(`Invalid map state: ${state}`);
-    }
-    buffer.mapAsync(GPUMapMode.WRITE).then(
-      () => {
-        if (!this.destroyed) this.insert(buffer);
-      },
-      (error) => {
-        // destroy() intentionally aborts pending mapAsync requests. That is a
-        // normal teardown path and must not surface as an uncaptured error.
-        if (!this.destroyed) console.error(error);
-      }
-    );
+    this.insert(buffer);
   }
 
   destroy(): void {
@@ -83,6 +78,7 @@ export class GPUStagingBufferAllocator {
       if (handle !== undefined) this.resourceAccounting!.destroyed(handle);
     }
     this.cache.length = 0;
+    this.pending.clear();
     this.buffers.clear();
     this.accountingHandles.clear();
   }

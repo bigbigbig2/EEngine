@@ -1,0 +1,8 @@
+{
+  "id": "next-renderer-validation",
+  "title": "EEngine Next Rendering Validation",
+  "category": "14-integrated",
+  "order": 15,
+  "description": "Real Dungeon asset through the current Frame Program for A-D rendering diagnostics.",
+  "tags": ["integrated", "web-cook", "virtual-geometry", "temporal"]
+}

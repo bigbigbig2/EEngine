@@ -45,11 +45,11 @@ struct VsmCasterBuffer {
   attempted: atomic<u32>, written: atomic<u32>, overflow: atomic<u32>, generation: atomic<u32>,
   records: array<VsmCasterRecord>,
 };
-struct VsmPageTableBuffer { entries: array<VsmPageEntry>; };
+struct VsmPageTableBuffer { entries: array<VsmPageEntry>, };
 struct VsmTelemetry { allocation_failed: atomic<u32>, evictions: atomic<u32>, reused: atomic<u32>, lock_contention: atomic<u32>, caster_overflow: atomic<u32>, raster_overflow: atomic<u32>, reserved_0: atomic<u32>, reserved_1: atomic<u32> };
 
 @group(0) @binding(0) var<uniform> constants: Constants;
-@group(0) @binding(1) var<storage, read> allocation: VsmAllocationBuffer;
+@group(0) @binding(1) var<storage, read_write> allocation: VsmAllocationBuffer;
 @group(0) @binding(2) var<storage, read> page_table: VsmPageTableBuffer;
 @group(0) @binding(3) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(4) var<storage, read> instances: array<OEngineInstanceRecord>;
@@ -102,7 +102,7 @@ fn page_overlaps_sphere(center: vec3f, radius: f32, work: VsmPageWork) -> bool {
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if (id.x == 0u) { atomicStore(&caster.generation, constants.control.x); }
-  let work_count = min(atomicLoad(&meshlet_work.header.written_count), constants.control.y);
+  let work_count = min(meshlet_work.header.written_count, constants.control.y);
   if (id.x >= work_count || id.x >= arrayLength(&meshlet_work.elements)) { return; }
   let work = meshlet_work.elements[id.x];
   if (work.instance_slot >= arrayLength(&instances)) { return; }
@@ -136,7 +136,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }
 
 struct OEngineDrawIndirectArgs { vertex_count: u32, instance_count: u32, first_vertex: u32, first_instance: u32 };
-@group(1) @binding(0) var<storage, read_write> raster_indirect: array<OEngineDrawIndirectArgs>;
+@group(0) @binding(7) var<storage, read_write> raster_indirect: array<OEngineDrawIndirectArgs>;
 
 @compute @workgroup_size(1)
 fn finalize_indirect() {

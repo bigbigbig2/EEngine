@@ -49,6 +49,8 @@ export type FrameProgramRequest = FrameProgramBase & (
       previousHzb: boolean;
       currentHzbLateRecheck: boolean;
       activeSets: readonly number[];
+      /** Union of the texture banks referenced by the active resident sets. */
+      textureBankMask?: number;
       hasLit: boolean;
       aoProfile?: FrameAoProfile;
       shadowProfile?: FrameVsmProfile;
@@ -229,6 +231,11 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   if (activeSets.some(id => !Number.isInteger(id) || id < 0 || id >= 4)) {
     throw new RangeError("activeSets contains an invalid resident set");
   }
+  if (!Number.isInteger(request.textureBankMask ?? 0x1ff) ||
+      (request.textureBankMask ?? 0x1ff) < 1 ||
+      ((request.textureBankMask ?? 0x1ff) & ~0x1ff) !== 0) {
+    throw new RangeError("Frame Program texture bank mask is invalid");
+  }
   if (request.aoProfile !== undefined && request.aoProfile !== "off" &&
       request.aoProfile !== "scalar-high") {
     throw new RangeError("Frame Program AO profile is invalid");
@@ -247,6 +254,7 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   return Object.freeze({
     ...request,
     activeSets: Object.freeze(activeSets),
+    textureBankMask: request.textureBankMask ?? 0x1ff,
     shadowProfile
   });
 }
@@ -260,7 +268,8 @@ function structuralKey(request: FrameProgramRequest): string {
     ...base, request.internalWidth, request.internalHeight,
     request.virtualGeometry, request.virtualBankCount,
     request.previousHzb, request.currentHzbLateRecheck,
-    request.activeSets, request.hasLit, request.aoProfile ?? "off", request.shadowProfile ?? "off",
+    request.activeSets, request.textureBankMask ?? 0x1ff,
+    request.hasLit, request.aoProfile ?? "off", request.shadowProfile ?? "off",
     request.physicalEnvironment
   ]);
 }

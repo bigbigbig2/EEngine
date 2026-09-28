@@ -24,20 +24,29 @@ export interface SurfaceKernelProfile {
  * Emits the geometry reconstruction helpers.
  *
  * The virtual-product half of this block reads `virtual_product_metadata` and
- * `virtual_product_bank_0..3`, which the pipeline contract only declares when
+ * the negotiated `virtual_product_bank_*` bindings, which the pipeline contract only declares when
  * the descriptor is specialized for virtual geometry. Emitting that half into
  * a `reconstructTriangle` program without those bindings produced WGSL with
  * unresolved values, so both halves are keyed off the same specialization.
  */
-export function geometryWgsl(virtualGeometry: boolean): string {
+export function geometryWgsl(virtualGeometry: boolean, virtualBankCount = 4): string {
+  if (virtualGeometry && (!Number.isInteger(virtualBankCount) ||
+      virtualBankCount < 1 || virtualBankCount > 4)) {
+    throw new RangeError("Surface virtual geometry needs 1 to 4 physical banks");
+  }
+  const bankCases = Array.from({ length: virtualBankCount }, (_, bank) => bank);
+  const bankWords = bankCases.map(bank =>
+    `if (bank == ${bank}u) { return virtual_product_bank_${bank}[word]; }`).join("\n  ");
+  const groupHeaders = bankCases.map(bank =>
+    `if (location.bank_index == ${bank}u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_${bank}, location, group); }`).join("\n  ");
+  const meshletHeaders = bankCases.map(bank =>
+    `if (location.bank_index == ${bank}u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_${bank}, location, group, header, local); }`).join("\n  ");
   const virtualProductWgsl = virtualGeometry ? /* wgsl */ `
 ${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
 
 fn sparse_virtual_bank_word(bank: u32, word: u32) -> u32 {
-  if (bank == 0u) { return virtual_product_bank_0[word]; }
-  if (bank == 1u) { return virtual_product_bank_1[word]; }
-  if (bank == 2u) { return virtual_product_bank_2[word]; }
-  return virtual_product_bank_3[word];
+  ${bankWords}
+  return 0u;
 }
 fn sparse_virtual_u8(bank: u32, byte_offset: u32) -> u32 {
   return (sparse_virtual_bank_word(bank, byte_offset >> 2u) >> ((byte_offset & 3u) * 8u)) & 0xffu;
@@ -54,15 +63,9 @@ fn sparse_virtual_triangle_vertex(work: OEngineMeshletRasterWork, primitive: u32
   if (!asset.valid || !group.valid || !location.valid) { return 0u; }
   let local = work.meshlet_slot & 127u;
   var header = oengine_virtual_invalid_group_header_v1();
-  if (location.bank_index == 0u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_0, location, group); }
-  else if (location.bank_index == 1u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_1, location, group); }
-  else if (location.bank_index == 2u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_2, location, group); }
-  else { header = oengine_virtual_group_header_v1(&virtual_product_bank_3, location, group); }
+  ${groupHeaders}
   var meshlet = oengine_virtual_invalid_meshlet_header_v1();
-  if (location.bank_index == 0u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_0, location, group, header, local); }
-  else if (location.bank_index == 1u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_1, location, group, header, local); }
-  else if (location.bank_index == 2u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_2, location, group, header, local); }
-  else { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_3, location, group, header, local); }
+  ${meshletHeaders}
   if (!meshlet.valid || primitive >= meshlet.triangle_count || corner >= 3u) { return 0u; }
   return sparse_virtual_u8(location.bank_index,
     location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset + primitive * 3u + corner);
@@ -79,15 +82,9 @@ fn sparse_virtual_vertex_ref(work: OEngineMeshletRasterWork, vertex: u32) -> Spa
   }
   let local = work.meshlet_slot & 127u;
   var header = oengine_virtual_invalid_group_header_v1();
-  if (location.bank_index == 0u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_0, location, group); }
-  else if (location.bank_index == 1u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_1, location, group); }
-  else if (location.bank_index == 2u) { header = oengine_virtual_group_header_v1(&virtual_product_bank_2, location, group); }
-  else { header = oengine_virtual_group_header_v1(&virtual_product_bank_3, location, group); }
+  ${groupHeaders}
   var meshlet = oengine_virtual_invalid_meshlet_header_v1();
-  if (location.bank_index == 0u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_0, location, group, header, local); }
-  else if (location.bank_index == 1u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_1, location, group, header, local); }
-  else if (location.bank_index == 2u) { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_2, location, group, header, local); }
-  else { meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_3, location, group, header, local); }
+  ${meshletHeaders}
   if (!meshlet.valid || vertex >= meshlet.vertex_count ||
       header.vertex_format_id >= asset.vertex_format_count) {
     sparse_identity_error(); return result;

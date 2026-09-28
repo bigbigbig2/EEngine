@@ -400,7 +400,10 @@ export class FrameGraphResourceManager {
   private readonly availableBuffers: GPUBuffer[] = [];
   private readonly availableTextures: GPUTextureContext[] = [];
 
-  constructor(device?: GPUDevice | null) {
+  constructor(
+    device?: GPUDevice | null,
+    private readonly reuseAfter?: Promise<void>
+  ) {
     this.device = device ?? null;
   }
 
@@ -573,11 +576,11 @@ export class FrameGraphResourceManager {
   finish(): void {
     if (this.graphics === null) return;
     for (const buffer of this.availableBuffers) {
-      this.graphics.buffer_allocator_main.release(buffer);
+      this.graphics.buffer_allocator_main.release(buffer, this.reuseAfter);
     }
     this.availableBuffers.length = 0;
     for (const texture of this.availableTextures) {
-      this.graphics.allocator_textures.release(texture);
+      this.graphics.allocator_textures.release(texture, this.reuseAfter);
     }
     this.availableTextures.length = 0;
   }
@@ -900,7 +903,6 @@ export class FrameGraph {
             entry.resource = rm.get(entry.resource_descriptor);
           }
         }
-
         const resources = new PassResources(this, pass);
         const executePass = (): void => {
           try {
