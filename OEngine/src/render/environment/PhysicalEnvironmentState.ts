@@ -9,6 +9,7 @@ export interface PhysicalEnvironmentSnapshot {
   readonly generation: number;
   readonly lutGeneration: number;
   readonly worldToUnit: number;
+  /** Unit vector from a world point toward the sun, not light travel direction. */
   readonly sunDirectionWorld: readonly [number, number, number];
   readonly sunIrradiance: readonly [number, number, number];
   readonly skyLuminanceScale: number;

@@ -14,6 +14,7 @@ import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
+import { surfaceExceptionLane } from "../surface/SurfaceExecutionAbi.js";
 import { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
 import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
@@ -315,6 +316,7 @@ export class Renderer {
   private _output_resolution = new Vec2(1, 1);
   private _render_resolution = new Vec2(1, 1);
   private _format: GPUTextureFormat = "bgra8unorm";
+  private _displayProfile: "sdr" | "hdr" = "sdr";
   private _deviceLost = false;
   private _destroyed = false;
   private _explicitlyDestroyed = false;
@@ -362,6 +364,7 @@ export class Renderer {
     return this._capabilities;
   }
   get adapter_info(): BenchmarkAdapterIdentity | null { return this._adapterInfo; }
+  get displayProfile(): "sdr" | "hdr" { return this._displayProfile; }
   get vsmCapabilities() { return this._vsm?.capabilities ?? null; }
   /** GPU-resident VSM diagnostic locations; never a CPU work-control input. */
   vsmDiagnostics(): VsmDiagnostics | null { return this._vsm?.diagnostics() ?? null; }
@@ -1153,11 +1156,27 @@ export class Renderer {
     this._views = new ViewManager(this._graphics, this._cameraStates);
     this._visibilityFeature = new VisibilityFeature(this._graphics);
     this._format = gpu.getPreferredCanvasFormat();
+    this._displayProfile = "sdr";
+    if (config.displayProfile === "hdr-auto" &&
+        globalThis.matchMedia?.("(dynamic-range: high)").matches) {
+      try {
+        this.context.configure({ device, format: "rgba16float", alphaMode: "opaque",
+          colorSpace: "display-p3", toneMapping: { mode: "extended" } });
+        const actual = this.context.getConfiguration();
+        if (actual?.format === "rgba16float" && actual.colorSpace === "display-p3" &&
+            actual.toneMapping?.mode === "extended") {
+          this._format = "rgba16float";
+          this._displayProfile = "hdr";
+        }
+      } catch {
+        // The SDR configure in resize is the fallback on unsupported devices.
+      }
+    }
     this._surfaceMaterial = new SurfaceMaterialPass(device, config.surfaceVirtualUnlitFallback === true);
     this._xeGtaoPreparation = new XeGtaoPreparationPass(device);
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
-    this._present = new SurfacePresentPass(device, this._format);
+    this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device);
     this._bloom = new BloomPass(device);
@@ -1197,7 +1216,10 @@ export class Renderer {
       canvas.style.width = `${this._width}px`;
       canvas.style.height = `${this._height}px`;
     }
-    this.context.configure({ device: this.device, format: this._format, alphaMode: "opaque" });
+    this.context.configure({ device: this.device, format: this._format, alphaMode: "opaque",
+      ...(this._displayProfile === "hdr"
+        ? { colorSpace: "display-p3" as const, toneMapping: { mode: "extended" as const } }
+        : {}) });
   }
 
   private frameProgramOwners(): FrameProgramOwners {
@@ -1300,6 +1322,12 @@ export class Renderer {
       const activeSets = Array.from({ length: 4 }, (_, setId) => setId)
         .filter(setId => runtime.activeShadingSummary.binRefCounts
           .slice(setId * 16, setId * 16 + 16).some(count => count > 0));
+      const activeExceptionLanes = activeSets.flatMap(setId => [
+        ...(setId !== 0 && runtime.activeShadingSummary.standardSetRefCounts[setId]! > 0
+          ? [surfaceExceptionLane(setId, false)] : []),
+        ...(runtime.activeShadingSummary.coatedSetRefCounts[setId]! > 0
+          ? [surfaceExceptionLane(setId, true)] : [])
+      ]);
       const textureBankMask = activeSets.reduce((mask, setId) => {
         const set = runtime.materialResources.bindingSets.find(candidate => candidate.id === setId);
         if (!set) throw new Error(`Active texture set ${setId} is not resident`);
@@ -1369,7 +1397,8 @@ export class Renderer {
         height
       });
       if (vsmGeneration.temporalInvalidate) this._temporalFacts.invalidate();
-      this._gpuRadiometry.prepareFrame(colorHistory.readIndex, colorHistory.writeIndex, colorHistory.readValid);
+      this._gpuRadiometry.prepareFrame(colorHistory.readIndex, colorHistory.writeIndex,
+        colorHistory.readValid, timeDeltaSeconds);
       this._temporalFacts.prepareFrame(width, height, identityHistory.readIndex,
         identityHistory.writeIndex, identityHistory.readValid);
       this._fsr3.prepareFrame(command, {
@@ -1378,7 +1407,6 @@ export class Renderer {
         jitter: frameJitter, cameraNear: camera.near, cameraFar: camera.far,
         cameraFovY: camera.fov, cameraInfiniteFar: camera.isInfiniteFar,
         frameTimeMs: Math.max(0, timeDeltaSeconds * 1000),
-        preExposure: preExposure.multiplier,
         reset: !this._temporal.histories.state("color").readValid,
         historyReadIndex: this._temporal.histories.state("color").readIndex
       });
@@ -1439,7 +1467,7 @@ export class Renderer {
         virtualBankCount: runtime.virtualGeometry?.banks.length ?? 0,
         previousHzb: this.packed_visibility_hzb_enabled,
         currentHzbLateRecheck: job.prepared.currentHzbLateRecheck !== null,
-        activeSets, textureBankMask, hasLit,
+        activeSets, activeExceptionLanes, textureBankMask, hasLit,
         aoProfile: this.xe_gtao_enabled && hasLit && activeSets.length > 0
           ? "scalar-high" : "off",
         shadowProfile: vsmEnabled

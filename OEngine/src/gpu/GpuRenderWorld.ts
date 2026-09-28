@@ -202,8 +202,11 @@ interface PackedSceneClassificationState {
   readonly geometryIndices: Uint32Array;
   readonly active: Uint8Array;
   readonly binIds: Uint8Array;
+  readonly coated: Uint8Array;
   readonly dependencyMasks: Uint16Array;
   readonly binRefCounts: Uint32Array;
+  readonly standardSetRefCounts: Uint32Array;
+  readonly coatedSetRefCounts: Uint32Array;
   readonly dependencyRefCounts: Uint32Array;
   readonly materialBindingSetIds: readonly number[];
   readonly geometryProfiles: readonly Readonly<GpuShadingGeometryProfile>[];
@@ -964,8 +967,11 @@ function createPackedSceneClassificationState(
     geometryIndices: source.geometryIndices.slice(),
     active: new Uint8Array(source.count).fill(1),
     binIds: new Uint8Array(source.count),
+    coated: new Uint8Array(source.count),
     dependencyMasks: new Uint16Array(source.count),
     binRefCounts: new Uint32Array(64),
+    standardSetRefCounts: new Uint32Array(4),
+    coatedSetRefCounts: new Uint32Array(4),
     dependencyRefCounts: new Uint32Array(GPU_SHADING_DEPENDENCY_COUNT),
     materialBindingSetIds: Object.freeze([...materialBindingSetIds]),
     geometryProfiles: Object.freeze(
@@ -1001,8 +1007,11 @@ function clonePackedSceneClassificationState(
     geometryIndices: source.geometryIndices.slice(),
     active: source.active.slice(),
     binIds: source.binIds.slice(),
+    coated: source.coated.slice(),
     dependencyMasks: source.dependencyMasks.slice(),
     binRefCounts: source.binRefCounts.slice(),
+    standardSetRefCounts: source.standardSetRefCounts.slice(),
+    coatedSetRefCounts: source.coatedSetRefCounts.slice(),
     dependencyRefCounts: source.dependencyRefCounts.slice(),
     materialBindingSetIds: source.materialBindingSetIds,
     geometryProfiles: source.geometryProfiles,
@@ -1231,6 +1240,7 @@ interface ClassificationPatchEntry {
   readonly materialIndex: number;
   readonly active: number;
   readonly binId: number;
+  readonly coated: number;
   readonly dependencyMask: number;
 }
 
@@ -1269,11 +1279,14 @@ function applyClassificationPatch(
       materialIndex: state.materialIndices[instanceIndex]!,
       active: state.active[instanceIndex]!,
       binId: state.binIds[instanceIndex]!,
+      coated: state.coated[instanceIndex]!,
       dependencyMask: state.dependencyMasks[instanceIndex]!
     });
   }
   const previousSummary = state.summary;
   const previousBinRefCounts = state.binRefCounts.slice();
+  const previousStandardSetRefCounts = state.standardSetRefCounts.slice();
+  const previousCoatedSetRefCounts = state.coatedSetRefCounts.slice();
   const previousDependencyRefCounts = state.dependencyRefCounts.slice();
   const previousTransparentInstanceCount = state.transparentInstanceCount;
   const previousOpaqueLitReceiverCount = state.opaqueLitReceiverCount;
@@ -1291,8 +1304,10 @@ function applyClassificationPatch(
       shadingMaterialProfile(materials[materialIndex]!, state.materialBindingSetIds[materialIndex]!),
       shadingGeometryProfileFromState(state, instanceIndex)
     );
+    const coated = materials[materialIndex]!.clearcoat_factor > 0 ? 1 : 0;
     if (materialIndex === state.materialIndices[instanceIndex] && active === state.active[instanceIndex] &&
         identity.binId === state.binIds[instanceIndex] &&
+        coated === state.coated[instanceIndex] &&
         identity.dependencyMask === state.dependencyMasks[instanceIndex]) {
       continue;
     }
@@ -1300,6 +1315,7 @@ function applyClassificationPatch(
     state.materialIndices[instanceIndex] = materialIndex;
     state.active[instanceIndex] = active;
     state.binIds[instanceIndex] = identity.binId;
+    state.coated[instanceIndex] = coated;
     state.dependencyMasks[instanceIndex] = identity.dependencyMask;
     addClassificationContribution(state, instanceIndex, materials);
     changed = true;
@@ -1331,9 +1347,12 @@ function applyClassificationPatch(
       state.materialIndices[instanceIndex] = previous.materialIndex;
       state.active[instanceIndex] = previous.active;
       state.binIds[instanceIndex] = previous.binId;
+      state.coated[instanceIndex] = previous.coated;
       state.dependencyMasks[instanceIndex] = previous.dependencyMask;
     }
     state.binRefCounts.set(previousBinRefCounts);
+    state.standardSetRefCounts.set(previousStandardSetRefCounts);
+    state.coatedSetRefCounts.set(previousCoatedSetRefCounts);
     state.dependencyRefCounts.set(previousDependencyRefCounts);
     state.transparentInstanceCount = previousTransparentInstanceCount;
     state.opaqueLitReceiverCount = previousOpaqueLitReceiverCount;
@@ -1357,6 +1376,7 @@ function resolveInstanceShadingIdentity(
     shadingGeometryProfileFromState(state, instanceIndex)
   );
   state.binIds[instanceIndex] = identity.binId;
+  state.coated[instanceIndex] = materials[materialIndex]!.clearcoat_factor > 0 ? 1 : 0;
   state.dependencyMasks[instanceIndex] = identity.dependencyMask;
 }
 
@@ -1456,6 +1476,10 @@ function addClassificationContribution(
   }
   const binId = state.binIds[instanceIndex]!;
   state.binRefCounts[binId] = incrementU32(state.binRefCounts[binId]!, `Bin ${binId} refcount`);
+  const setId = binId >> 4;
+  const familyCounts = state.coated[instanceIndex] !== 0
+    ? state.coatedSetRefCounts : state.standardSetRefCounts;
+  familyCounts[setId] = incrementU32(familyCounts[setId]!, `Surface set ${setId} family refcount`);
   if (lit) {
     state.opaqueLitReceiverCount = incrementU32(
       state.opaqueLitReceiverCount,
@@ -1493,6 +1517,10 @@ function removeClassificationContribution(
   }
   const binId = state.binIds[instanceIndex]!;
   state.binRefCounts[binId] = decrementU32(state.binRefCounts[binId]!, `Bin ${binId} refcount`);
+  const setId = binId >> 4;
+  const familyCounts = state.coated[instanceIndex] !== 0
+    ? state.coatedSetRefCounts : state.standardSetRefCounts;
+  familyCounts[setId] = decrementU32(familyCounts[setId]!, `Surface set ${setId} family refcount`);
   if (lit) {
     state.opaqueLitReceiverCount = decrementU32(
       state.opaqueLitReceiverCount,
@@ -1535,6 +1563,8 @@ function freezeActiveShadingSummary(
   }
   return Object.freeze({
     binRefCounts: state.binRefCounts.slice(),
+    standardSetRefCounts: state.standardSetRefCounts.slice(),
+    coatedSetRefCounts: state.coatedSetRefCounts.slice(),
     activeBinMaskLo,
     activeBinMaskHi,
     opaqueLitReceiverCount: state.opaqueLitReceiverCount,
@@ -1547,6 +1577,8 @@ function freezeActiveShadingSummary(
 
 const EMPTY_ACTIVE_SHADING_SUMMARY: Readonly<ActiveShadingSummary> = Object.freeze({
   binRefCounts: new Uint32Array(64),
+  standardSetRefCounts: new Uint32Array(4),
+  coatedSetRefCounts: new Uint32Array(4),
   activeBinMaskLo: 0,
   activeBinMaskHi: 0,
   opaqueLitReceiverCount: 0,

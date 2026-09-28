@@ -4,6 +4,7 @@ import {
   createDefaultWebGeometryCookerModule,
   Mesh,
   PerspectiveCamera,
+  PointLight,
   Renderer,
   Scene,
   StandardShadeMaterial
@@ -17,6 +18,9 @@ import { niFromGeometry } from "../../../../OEngine/src/geometry/niMeshlets.ts";
 const canvas = document.querySelector<HTMLCanvasElement>("#viewport")!;
 const status = document.querySelector<HTMLElement>("#status")!;
 const renderButton = document.querySelector<HTMLButtonElement>("#render")!;
+const lit = new URLSearchParams(location.search).has("lit");
+const realGeometry = new URLSearchParams(location.search).has("realGeometry");
+const ao = lit && new URLSearchParams(location.search).has("ao");
 let renderer: Renderer | undefined;
 let disposed = false;
 
@@ -49,12 +53,12 @@ async function start(): Promise<void> {
 
   renderer = new Renderer({
     enableVsm: false,
-    enablePhysicalEnvironment: false,
-    surfaceVirtualUnlitFallback: true,
+    enablePhysicalEnvironment: ao,
+    surfaceVirtualUnlitFallback: !realGeometry,
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 }
   });
   renderer.shadowVisibilityEnabled = false;
-  renderer.xe_gtao_enabled = false;
+  renderer.xe_gtao_enabled = ao;
   renderer.packed_visibility_hzb_enabled = false;
   renderer.packed_visibility_cone_enabled = false;
   renderer.packed_meshlet_work_compaction = "portable";
@@ -62,13 +66,21 @@ async function start(): Promise<void> {
   if (disposed) return;
 
   const scene = new Scene();
+  if (lit) {
+    const light = new PointLight();
+    light.position.set(1.5, 4, 2);
+    light.distance = 10;
+    light.intensity = 150;
+    light.casts_shadow = false;
+    scene.add(light);
+  }
   const planeMaterial = new StandardShadeMaterial();
-  planeMaterial.is_unlit = true;
+  planeMaterial.is_unlit = !lit;
   planeMaterial.diffuse_color.set(0.24, 0.43, 0.34, 1);
   scene.add(Mesh.from(makePlane(), planeMaterial));
 
   const cubeMaterial = new StandardShadeMaterial();
-  cubeMaterial.is_unlit = true;
+  cubeMaterial.is_unlit = !lit;
   cubeMaterial.diffuse_color.set(0.94, 0.44, 0.23, 1);
   const cube = Mesh.from(new BoxGeometry(1.5, 1.5, 1.5), cubeMaterial);
   cube.position.set(0, 0.75, 0);
@@ -98,7 +110,18 @@ async function start(): Promise<void> {
     if (!renderer || disposed) return;
     renderButton.disabled = true;
     setStatus("提交渲染帧");
-    const submitted = renderer.render(camera, scene, 1 / 60);
+    const startedAt = performance.now();
+    let submitted: boolean;
+    try {
+      submitted = renderer.render(camera, scene, 1 / 60);
+    } catch (error) {
+      renderButton.disabled = false;
+      setStatus(error instanceof Error ? error.message : String(error), "error");
+      console.error(error);
+      return;
+    }
+    const encodeMs = Math.round(performance.now() - startedAt);
+    console.info("Plane + Cube frame encoded", { encodeMs, submitted, lit, ao });
     if (!submitted) {
       setStatus("本帧未提交", "error");
       return;
@@ -106,12 +129,13 @@ async function start(): Promise<void> {
     setStatus("GPU 渲染中");
     let completed = false;
     const pendingTimer = window.setTimeout(() => {
-      if (!completed) setStatus("GPU 超过 5 秒未完成", "error");
+      if (!completed) setStatus("GPU 仍在处理；首次渲染可能需要编译管线");
     }, 5000);
     void renderer.graphics.device.queue.onSubmittedWorkDone().then(() => {
       completed = true;
       window.clearTimeout(pendingTimer);
-      setStatus("GPU 已完成");
+      const completeMs = Math.round(performance.now() - startedAt);
+      setStatus(`GPU 已完成 · 编码 ${encodeMs} ms / 总计 ${completeMs} ms`);
       if (!disposed) renderButton.disabled = false;
     }, error => {
       completed = true;

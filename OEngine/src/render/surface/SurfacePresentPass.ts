@@ -2,6 +2,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
+import { buildHdrDisplayLut, buildSdrDisplayLut, type SdrGradeOptions } from "./DisplayColorGrading.js";
 
 export const SURFACE_PRESENT_WGSL = /* wgsl */ `
 @group(0) @binding(0) var surface_radiance:texture_2d<f32>;
@@ -9,6 +10,7 @@ export const SURFACE_PRESENT_WGSL = /* wgsl */ `
 @group(0) @binding(2) var<storage,read> adapted_exposure:array<f32>;
 @group(0) @binding(3) var display_lut:texture_3d<f32>;
 @group(0) @binding(4) var display_lut_sampler:sampler;
+@group(0) @binding(5) var<storage,read> pre_exposure:array<f32>;
 @vertex fn vs(@builtin(vertex_index) index:u32)->@builtin(position) vec4f {
   return vec4f(f32((index<<1u)&2u)*2.0-1.0,
     f32(index&2u)*2.0-1.0,0.0,1.0);
@@ -16,69 +18,46 @@ export const SURFACE_PRESENT_WGSL = /* wgsl */ `
 @fragment fn fs(@builtin(position) position:vec4f)->@location(0) vec4f {
   let size=textureDimensions(surface_radiance);
   let pixel=min(vec2u(position.xy)*size/output_size,size-vec2u(1u));
-  let hdr=textureLoad(surface_radiance,vec2i(pixel),0).rgb*adapted_exposure[0];
-  let mapped=textureSampleLevel(display_lut,display_lut_sampler,
-    clamp(tonemap_gt7(hdr,1000.0,100.0),vec3f(0.0),vec3f(1.0)),0.0).rgb;
-  return vec4f(pow(clamp(mapped,vec3f(0.0),vec3f(1.0)),vec3f(1.0/2.2)),1.0);
+  let hdr=textureLoad(surface_radiance,vec2i(pixel),0).rgb*
+    (adapted_exposure[0]/max(pre_exposure[0],1e-6));
+  let encoded=clamp(vec3f(
+    linear_to_logc(hdr.r),linear_to_logc(hdr.g),linear_to_logc(hdr.b)),
+    vec3f(0.0),vec3f(1.0));
+  let lut_size=f32(textureDimensions(display_lut).x);
+  let uvw=(encoded*(lut_size-1.0)+vec3f(0.5))/lut_size;
+  return vec4f(textureSampleLevel(display_lut,display_lut_sampler,uvw,0.0).rgb,1.0);
 }
-fn gt7_channel(x:f32)->f32 {
-  let peak=10.0; let mid=0.538; let linear=0.444; let toe=1.280;
-  let dst=(linear-1.0)/(0.25-1.0);
-  let ka=peak*linear+peak*dst;
-  let kb=-peak*dst*exp(linear/dst);
-  let kc=-1.0/(dst*peak);
-  if(x<=0.0){return 0.0;}
-  let t=smoothstep(0.0,mid,x);
-  let toeValue=mid*pow(x/mid,toe);
-  return select(ka+kb*exp(x*kc),mix(toeValue,x,t),x<linear*peak);
+fn linear_to_logc(x:f32)->f32 {
+  return 0.244161*log2(5.555556*max(0.0,x)+0.047996)/log2(10.0)+0.386036;
 }
-fn gt7(rgb:vec3f)->vec3f {
-  let m=vec3f(gt7_channel(rgb.r),gt7_channel(rgb.g),gt7_channel(rgb.b));
-  return m/(1.0+max(max(m.r,m.g),m.b)/10.0);
+`;
+
+/** EEngine HDR specialization: static Filament grade and GT7 live in an extended
+ * rgba16float LUT. The canvas receives linear Display-P3 with 250-nit units. */
+export const SURFACE_PRESENT_HDR_WGSL = /* wgsl */ `
+@group(0) @binding(0) var surface_radiance:texture_2d<f32>;
+@group(0) @binding(1) var<uniform> output_size:vec2u;
+@group(0) @binding(2) var<storage,read> adapted_exposure:array<f32>;
+@group(0) @binding(3) var display_lut:texture_3d<f32>;
+@group(0) @binding(4) var display_lut_sampler:sampler;
+@group(0) @binding(5) var<storage,read> pre_exposure:array<f32>;
+fn linear_to_logc(x:f32)->f32 {
+  return 0.244161*log2(5.555556*max(0.0,x)+0.047996)/log2(10.0)+0.386036;
 }
-const REC709_TO_REC2020=mat3x3f(
-  vec3f(0.6274040,0.0690970,0.0163916),
-  vec3f(0.3292820,0.9195400,0.0880132),
-  vec3f(0.0433136,0.0113612,0.8955950));
-const REC2020_TO_REC709=mat3x3f(
-  vec3f(1.6604910,-0.1245505,-0.0181508),
-  vec3f(-0.5876411,1.1328999,-0.1005789),
-  vec3f(-0.0728499,-0.0083494,1.1187297));
-fn pq_encode(x:f32)->f32 {
-  let y=pow(max(x,0.0),0.1593017578125);
-  return exp2(78.84375*(log2(0.8359375+18.8515625*y)-log2(1.0+18.6875*y)));
+@vertex fn vs(@builtin(vertex_index) index:u32)->@builtin(position) vec4f {
+  return vec4f(f32((index<<1u)&2u)*2.0-1.0,
+    f32(index&2u)*2.0-1.0,0.0,1.0);
 }
-fn pq_decode(x:f32)->f32 {
-  let y=pow(clamp(x,0.0,1.0),1.0/78.84375);
-  return pow(max(y-0.8359375,0.0)/(18.8515625-18.6875*y),1.0/0.1593017578125);
-}
-fn ictcp_to_rgb(v:vec3f)->vec3f {
-  let l=pq_decode(v.x+0.00860904*v.y+0.11103*v.z);
-  let m=pq_decode(v.x-0.00860904*v.y-0.11103*v.z);
-  let s=pq_decode(v.x+0.560031*v.y-0.320627*v.z);
-  return max(vec3f(3.43661*l-2.50645*m+0.0698454*s,
-    -0.79133*l+1.9836*m-0.192271*s,
-    -0.0259499*l-0.0989137*m+1.12486*s),vec3f(0.0));
-}
-fn rgb_to_ictcp(v:vec3f)->vec3f {
-  let l=pq_encode((1688.0*v.r+2146.0*v.g+262.0*v.b)/4096.0);
-  let m=pq_encode((683.0*v.r+2951.0*v.g+462.0*v.b)/4096.0);
-  let s=pq_encode((99.0*v.r+309.0*v.g+3688.0*v.b)/4096.0);
-  return vec3f((2048.0*l+2048.0*m)/4096.0,
-    (6610.0*l-13613.0*m+7003.0*s)/4096.0,
-    (17933.0*l-17390.0*m-543.0*s)/4096.0);
-}
-fn tonemap_gt7(rgb:vec3f,peak_nits:f32,paper_white_nits:f32)->vec3f {
-  let t3=paper_white_nits/100.0;
-  let cursor=REC709_TO_REC2020*rgb*t3;
-  let format=peak_nits/100.0; let lin=0.444; let mid=0.538; let toe=1.280;
-  let dst=(lin-1.0)/(0.25-1.0);
-  let ka=format*lin+format*dst; let kb=-format*dst*exp(lin/dst);
-  let kc=-1.0/(dst*format);
-  let mapped=vec3f(gt7_channel(cursor.r),gt7_channel(cursor.g),gt7_channel(cursor.b));
-  let ict=rgb_to_ictcp(cursor); let mappedIct=rgb_to_ictcp(mapped);
-  let chroma=mix(ict.yz*(1.0-smoothstep(0.7,1.0,ict.x)),mappedIct.yz,0.7);
-  return REC2020_TO_REC709*(ictcp_to_rgb(vec3f(mappedIct.x,chroma.x,chroma.y))/t3);
+@fragment fn fs_hdr(@builtin(position) position:vec4f)->@location(0) vec4f {
+  let extent=textureDimensions(surface_radiance);
+  let pixel=min(vec2u(position.xy)*extent/output_size,extent-vec2u(1u));
+  let scene=textureLoad(surface_radiance,vec2i(pixel),0).rgb*
+    (adapted_exposure[0]/max(pre_exposure[0],1e-6));
+  let encoded=clamp(vec3f(linear_to_logc(scene.r),linear_to_logc(scene.g),
+    linear_to_logc(scene.b)),vec3f(0.0),vec3f(1.0));
+  let lut_size=f32(textureDimensions(display_lut).x);
+  let uvw=(encoded*(lut_size-1.0)+vec3f(0.5))/lut_size;
+  return vec4f(textureSampleLevel(display_lut,display_lut_sampler,uvw,0.0).rgb,1.0);
 }
 `;
 
@@ -89,25 +68,19 @@ export class SurfacePresentPass {
   private readonly lutTexture: GPUTexture;
   private readonly lutView: GPUTextureView;
   private readonly lutSampler: GPUSampler;
+  private readonly profile: "sdr" | "hdr";
 
-  constructor(private readonly device: GPUDevice, format: GPUTextureFormat) {
-    const lutSize = 16;
-    this.lutTexture = device.createTexture({ label: "Presentation/SDR static display LUT",
-      size: [lutSize, lutSize, lutSize], dimension: "3d", format: "rgba8unorm",
+  constructor(private readonly device: GPUDevice, format: GPUTextureFormat,
+    profile: "sdr" | "hdr" = "sdr") {
+    this.profile = profile;
+    const lutSize = 32;
+    this.lutTexture = device.createTexture({ label: `Presentation/${profile} static display LUT`,
+      size: [lutSize, lutSize, lutSize], dimension: "3d",
+      format: profile === "hdr" ? "rgba16float" : "rgba8unorm",
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
-    const lut = new Uint8Array(lutSize * lutSize * lutSize * 4);
-    let offset = 0;
-    for (let b = 0; b < lutSize; b++) for (let g = 0; g < lutSize; g++) {
-      for (let r = 0; r < lutSize; r++) {
-        // Static LUT slot: neutral grade for the pinned display profile.
-        lut[offset++] = Math.round(r * 255 / (lutSize - 1));
-        lut[offset++] = Math.round(g * 255 / (lutSize - 1));
-        lut[offset++] = Math.round(b * 255 / (lutSize - 1));
-        lut[offset++] = 255;
-      }
-    }
+    const lut = profile === "hdr" ? buildHdrDisplayLut(lutSize) : buildSdrDisplayLut(lutSize);
     device.queue.writeTexture({ texture: this.lutTexture }, lut,
-      { bytesPerRow: lutSize * 4, rowsPerImage: lutSize },
+      { bytesPerRow: lutSize * (profile === "hdr" ? 8 : 4), rowsPerImage: lutSize },
       { width: lutSize, height: lutSize, depthOrArrayLayers: lutSize });
     this.lutView = this.lutTexture.createView({ dimension: "3d" });
     this.lutSampler = device.createSampler({ label: "Presentation/SDR LUT linear",
@@ -119,19 +92,31 @@ export class SurfacePresentPass {
       { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
       { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "3d" } },
-      { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
     ] });
-    const module = device.createShaderModule({ code: SURFACE_PRESENT_WGSL });
+    const module = device.createShaderModule({
+      code: profile === "hdr" ? SURFACE_PRESENT_HDR_WGSL : SURFACE_PRESENT_WGSL });
     this.pipeline = device.createRenderPipeline({
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       vertex: { module, entryPoint: "vs" },
-      fragment: { module, entryPoint: "fs", targets: [{ format }] },
+      fragment: { module, entryPoint: profile === "hdr" ? "fs_hdr" : "fs",
+        targets: [{ format }] },
       primitive: { topology: "triangle-list" }
     });
   }
 
+  /** Rebuild only when static color-grade parameters change. */
+  setGrade(options: SdrGradeOptions): void {
+    const size = 32;
+    this.device.queue.writeTexture({ texture: this.lutTexture },
+      this.profile === "hdr" ? buildHdrDisplayLut(size, options) : buildSdrDisplayLut(size, options),
+      { bytesPerRow: size * (this.profile === "hdr" ? 8 : 4), rowsPerImage: size },
+      { width: size, height: size, depthOrArrayLayers: size });
+  }
+
   addToGraph(graph: FrameGraph, input: ResourceId, swapchain: ResourceId,
-    exposure: ResourceId, width: number, height: number): ResourceId {
+    exposure: ResourceId, preExposure: ResourceId, width: number, height: number): ResourceId {
     const present = graph.add("Surface/present radiance", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const size = command.allocateTransientBufferAndLoad(
@@ -141,14 +126,15 @@ export class SurfacePresentPass {
         { binding: 1, resource: { buffer: size } }
         ,{ binding: 2, resource: { buffer: resources.get(exposure) as GPUBuffer } },
         { binding: 3, resource: this.lutView },
-        { binding: 4, resource: this.lutSampler }
+        { binding: 4, resource: this.lutSampler },
+        { binding: 5, resource: { buffer: resources.get(preExposure) as GPUBuffer } }
       ] });
       const pass = command.beginRenderPass({ label: "Surface/present radiance",
         colorAttachments: [{ view: resolveTextureView(resources.get(swapchain)),
           loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, bind); pass.draw(3); pass.end();
     });
-    present.read(input); present.read(exposure); present.write(swapchain);
+    present.read(input); present.read(exposure); present.read(preExposure); present.write(swapchain);
     return swapchain;
   }
 

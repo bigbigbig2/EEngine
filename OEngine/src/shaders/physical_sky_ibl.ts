@@ -27,7 +27,7 @@ fn radiance(@builtin(global_invocation_id) id: vec3u) {
   if any(id.xy>=dimensions) { return; }
   let direction=oct_decode((vec2f(id.xy)+0.5)/vec2f(dimensions));
   let position=atmosphere_world_to_planet(probe.camera_world,probe.world_to_unit);
-  let value=atmosphere_sky(position,direction,normalize(-probe.sun_direction),
+  let value=atmosphere_sky(position,direction,normalize(probe.sun_direction),
     transmittance,scattering,higher_order,lut_sampler)*probe.sky_scale;
   textureStore(output_radiance,id.xy,vec4f(max(value,vec3f(0.0)),1.0));
 }

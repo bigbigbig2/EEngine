@@ -121,6 +121,8 @@ GPU Scene previous state + Visibility depth/identity + Surface material facts
 
 **D5 结束可观察点**：SDR canvas 不再接 raw HDR；Bloom/grade/GT7 都有实际 GPU producer→consumer；HDR 路径只在成功能力协商后存在，未取得目标浏览器/显示器画质证据时只称实现 profile，不称 HDR 画质验收。
 
+**2026-09-28 回补记录**：D4 的 Rec.2020、GPU `P_t/E_t`、Wicked histogram/适应及 FSR3 曝光比例已接入同一生产 FrameGraph；D5 的 Filament 选定 Bloom、静态 grade/GT7 LUT、SDR Present 与 opt-in extended HDR profile 已接入。最小平面＋立方体的几何、受光、AO 在本机 Chrome 分别完成截图；Dungeon 的 798 实例真实材质和连续相机运动完成截图，生产路径包含 radiometry、bloom、present，WebGPU 错误计数为 0。发现并修正物理环境“指向太阳”向量在 Sky/IBL/Surface 中反向使用的问题；VSM 光线传播方向保持原合同。HDR 显示效果、正式画质/性能及系统矩阵仍按本计划第 11 节留给整链验收；本段仅记录本次开发验证，不是正式 evidence 或 claim。
+
 ## 9. D6：一次模块集中检查、返工与交接
 
 先逐条对[设计文档](../next-design/temporal-radiometry-presentation.md)核实；遇到遗漏或把 donor 阶段缩成同名近似实现，直接返工。检查重点：

@@ -11,7 +11,7 @@ export function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): s
     case "meshlet-work": return `${prefix} var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;`;
     case "material-records": return `${prefix} var<storage, read> material_records: array<OEngineShadingMaterialRecord>;`;
     case "frame-view": return `${prefix} var<uniform> shading_view: OEngineSparseShadingView;`;
-    case "pre-exposure": return `${prefix} var<storage, read> radiometry_pre_exposure: array<f32>;`;
+    case "pre-exposure": return `${prefix} var<uniform> radiometry_pre_exposure: RadiometryPreExposure;`;
     case "radiance-output": return `${prefix} var output_hdr: texture_storage_2d<rgba16float, write>;`;
     case "motion-output": return `${prefix} var output_motion: texture_storage_2d<rg16float, write>;`;
     case "visibility-depth": return `${prefix} var visibility_depth: texture_depth_2d;`;

@@ -315,7 +315,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     resolve: (runtime: import("../temporal/GpuRadiometryPass.js").GpuRadiometryPass) => GPUBuffer): ResourceId =>
     graph.import_resource(`radiometry/${name}`, { kind: "imported", label: `Radiometry ${name}` },
       bind(`radiometry/${name}`, bindings => resolve(bindings.radiometry)));
-  const gpuPreExposure = owners.radiometry.importPreExposure(graph, bindRadiometry);
+  const gpuPreviousExposure = owners.radiometry.importPreviousExposure(graph, bindRadiometry);
+  const gpuPriorExposure = owners.radiometry.importPriorExposure(graph, bindRadiometry);
   const surface = owners.surface.addToGraph(graph, {
     width: result.frame.domain.width,
     height: result.frame.domain.height,
@@ -328,8 +329,9 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       outputHeight: plan.request.outputHeight,
     preExposure: bindings.preExposure
     })),
-    preExposureBuffer: gpuPreExposure,
+    preExposureBuffer: gpuPreviousExposure,
     activeSets,
+    activeExceptionLanes: plan.request.activeExceptionLanes,
     textureBankMask: plan.request.textureBankMask ?? 0x1ff,
     hasLit: plan.request.hasLit,
     indirectVisibility: scalarAo,
@@ -378,7 +380,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   assertTextureProduct(plan, graph, "surface-radiance", surface.radiance);
   assertTextureProduct(plan, graph, "surface-motion", surface.motion);
   lowerPresentation(plan, initial, owners, graph, bind, cameraBuffer, result, surface,
-    instances, materialRecords, physicalEnvironmentSun, gpuPreExposure, bindRadiometry);
+    instances, materialRecords, physicalEnvironmentSun, gpuPreviousExposure, gpuPriorExposure, bindRadiometry);
   return graph.compile();
 }
 
@@ -465,7 +467,8 @@ function lowerPresentation(
   graph: FrameGraph, bind: SceneBind, cameraBuffer: ResourceId,
   result: PackedVisibilityOutputs, surface: ReturnType<SurfaceMaterialPass["addToGraph"]>,
   instances: ResourceId, materialRecords: ResourceId,
-  physicalEnvironmentSun: ResourceId | undefined, gpuPreExposure: ResourceId,
+  physicalEnvironmentSun: ResourceId | undefined, gpuPreviousExposure: ResourceId,
+  gpuPriorExposure: ResourceId,
   bindRadiometry: (name: string,
     resolve: (runtime: import("../temporal/GpuRadiometryPass.js").GpuRadiometryPass) => GPUBuffer) => ResourceId
 ): void {
@@ -488,7 +491,7 @@ function lowerPresentation(
         hdr: surface.radiance, depth: result.frame.depth, camera: cameraBuffer,
         transmittance: atmosphereEnvironment, scattering: skyRadiance,
         higherOrder: higherOrderScattering, environment: physicalEnvironmentSun!,
-        preExposure: gpuPreExposure
+        preExposure: gpuPreviousExposure
       });
   if (plan.request.physicalEnvironment) assertTextureProduct(plan, graph, "sky-radiance", environmentRadiance);
   const aerialRadiance = !plan.stages.includes("aerial") || atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || physicalEnvironmentSun === undefined || owners.aerial === null
@@ -496,7 +499,7 @@ function lowerPresentation(
     : owners.aerial.addToGraph(graph, { scene: environmentRadiance, depth: result.frame.depth,
         camera: cameraBuffer, environment: physicalEnvironmentSun,
         transmittance: atmosphereEnvironment, scattering: skyRadiance,
-        higherOrder: higherOrderScattering, preExposure: gpuPreExposure,
+        higherOrder: higherOrderScattering, preExposure: gpuPreviousExposure,
         width: result.frame.domain.width, height: result.frame.domain.height });
   if (plan.request.physicalEnvironment) assertTextureProduct(plan, graph, "aerial-radiance", aerialRadiance);
   const previousCamera = graph.import_resource(
@@ -517,16 +520,18 @@ function lowerPresentation(
   const reconstructedRadiance = initial.fsr3.addToGraph(graph, {
     color: aerialRadiance, depth: result.frame.depth, motion: facts.motion,
     reactiveMask: facts.mask, validityMask: facts.mask,
+    preExposure: gpuPreviousExposure, priorExposure: gpuPriorExposure,
     width: result.frame.domain.width, height: result.frame.domain.height,
     outputWidth: plan.request.outputWidth, outputHeight: plan.request.outputHeight
   }, (name, resolve) => bind(`fsr3/${name}`, bindings => resolve(bindings.fsr3)));
   assertTextureProduct(plan, graph, "reconstructed-color", reconstructedRadiance);
   const radiometry = owners.radiometry.addToGraph(graph, {
     scene: reconstructedRadiance, width: plan.request.outputWidth, height: plan.request.outputHeight,
-    deltaTime: 1 / 60, preExposure: gpuPreExposure
+    previousExposure: gpuPreviousExposure,
+    priorExposure: gpuPriorExposure
   }, bindRadiometry);
   const bloom = owners.bloom.addToGraph(graph, {
-    scene: reconstructedRadiance, preExposure: gpuPreExposure,
+    scene: reconstructedRadiance, preExposure: gpuPreviousExposure,
     width: plan.request.outputWidth, height: plan.request.outputHeight
   });
   assertTextureProduct(plan, graph, "bloom-hdr", bloom);
@@ -536,7 +541,7 @@ function lowerPresentation(
     bind("swapchain", bindings => bindings.swapchain)
   );
   const displayColor = owners.present.addToGraph(
-    graph, bloom, swapchain, radiometry.adaptedExposure,
+    graph, bloom, swapchain, radiometry.adaptedExposure, gpuPreviousExposure,
     plan.request.outputWidth, plan.request.outputHeight
   );
   assertTextureProduct(plan, graph, "display-color", displayColor);

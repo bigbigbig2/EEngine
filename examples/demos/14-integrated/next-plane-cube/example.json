@@ -3,6 +3,6 @@
   "title": "Next Plane + Cube",
   "category": "14-integrated",
   "order": 16,
-  "description": "Minimal A-D scene with a plane and a cube on the current renderer path.",
+  "description": "Plane and cube for staged A-D checks: default uses simplified unlit Surface; ?realGeometry enables reconstruction, ?lit adds direct light, and ?lit&ao adds environment AO.",
   "tags": ["integrated", "webgpu", "geometry", "a-d"]
 }

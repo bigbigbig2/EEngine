@@ -36,6 +36,7 @@ export interface SurfaceMaterialInputs {
   readonly frame: SurfaceMaterialFrame;
   readonly preExposureBuffer: ResourceId;
   readonly activeSets: readonly number[];
+  readonly activeExceptionLanes?: readonly number[];
   readonly textureBankMask: number;
   readonly hasLit: boolean;
   /** Same-frame XeGTAO scalar product. Omitted when no lit consumer exists. */
@@ -217,17 +218,20 @@ export class SurfaceMaterialPass {
     if (scalarAo && !hasLit) throw new Error("Surface AO has no lit consumer");
     const activeSets = new Set(input.activeSets);
     const virtualBankCount = input.virtualBanks?.length ?? 0;
+    const physicalEnvironment = input.physicalEnvironmentSun !== undefined;
     const dense = activeSets.size === 0 ? null :
       this.program(hasLit, input.virtualGeometry, virtualBankCount,
-        input.textureBankMask, scalarAo, "dense", 0,
+        input.textureBankMask, physicalEnvironment, scalarAo, "dense", 0,
         vsmBindings !== undefined);
-    const lanes = Array.from({ length: SURFACE_EXCEPTION_LANES }, (_, lane) => {
+    const requestedLanes = input.activeExceptionLanes ??
+      Array.from({ length: SURFACE_EXCEPTION_LANES }, (_, lane) => lane);
+    const lanes = requestedLanes.map(lane => {
       const setId = lane === 0 ? 0 : 1 + Math.floor((lane - 1) / 2);
       return activeSets.has(setId) ? { lane, setId,
         binned: this.program(hasLit, input.virtualGeometry, virtualBankCount,
-          input.textureBankMask, scalarAo, "binned", lane, vsmBindings !== undefined),
+          input.textureBankMask, physicalEnvironment, scalarAo, "binned", lane, vsmBindings !== undefined),
         fallback: this.program(hasLit, input.virtualGeometry, virtualBankCount,
-          input.textureBankMask, scalarAo, "fallback", lane, vsmBindings !== undefined) } : null;
+          input.textureBankMask, physicalEnvironment, scalarAo, "fallback", lane, vsmBindings !== undefined) } : null;
     }).filter((value): value is NonNullable<typeof value> => value !== null);
     const surface = graph.add("Surface/Dense and bounded exceptions", {},
       (_data, resources, context) => {
@@ -340,16 +344,17 @@ export class SurfaceMaterialPass {
   }
 
   private program(hasLit: boolean, virtualGeometry: boolean, virtualBankCount: number,
-    textureBankMask: number, scalarAo: boolean,
+    textureBankMask: number, physicalEnvironment: boolean, scalarAo: boolean,
     mode: SurfaceExecutionMode, lane: number, vsmShadowEnabled: boolean): Program {
     const coated = hasLit && mode !== "dense" && (lane === 0 || (lane & 1) === 0);
-    const key = `${hasLit}:${virtualGeometry}:${virtualBankCount}:${textureBankMask}:${scalarAo}:${mode}:${coated}:${vsmShadowEnabled}`;
+    const key = `${hasLit}:${virtualGeometry}:${virtualBankCount}:${textureBankMask}:${physicalEnvironment}:${scalarAo}:${mode}:${coated}:${vsmShadowEnabled}`;
     const cached = this.programs.get(key);
     if (cached) return cached;
     const compiled = compileSurfaceProgramLayout({
       kernel: { programId: hasLit ? 15 : 3,
         outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask },
       virtualGeometry, virtualBankCount, lighting: hasLit ? "direct" : "unlit",
+      physicalEnvironment,
       aoProfile: scalarAo ? "scalar-high" : "off",
       shadowProfile: vsmShadowEnabled ? "vsm" : "off",
       source: "surface-execution-v2", capabilityFingerprint: "webgpu-core",
@@ -357,8 +362,8 @@ export class SurfaceMaterialPass {
     }, this.device.limits);
     const source = surfaceExecutionWgsl(compiled.plan, mode,
       coated ? 0 : 1, hasLit, virtualGeometry, vsmShadowEnabled,
-      virtualBankCount, textureBankMask, this.virtualUnlitFallback);
-    const layoutKey = `${hasLit}:${virtualGeometry}:${virtualBankCount}:${textureBankMask}:${scalarAo}:${vsmShadowEnabled}`;
+      virtualBankCount, textureBankMask, this.virtualUnlitFallback, physicalEnvironment);
+    const layoutKey = `${hasLit}:${virtualGeometry}:${virtualBankCount}:${textureBankMask}:${physicalEnvironment}:${scalarAo}:${vsmShadowEnabled}`;
     let layouts = this.layouts.get(layoutKey);
     if (layouts === undefined) {
       layouts = createSurfaceBindGroupLayouts(this.device, compiled.plan);
@@ -385,7 +390,6 @@ export class SurfaceMaterialPass {
     if (binding.role === "physical-sky-irradiance-sampler" ||
         binding.role === "physical-sky-specular-sampler") return this.samplers[1]!;
     const id = binding.role === "frame-view" ? view :
-      binding.role === "pre-exposure" ? input.preExposureBuffer :
       binding.role === "frequency-plan" ? frequencyPlan :
       binding.role === "radiance-output" ? hdr :
       binding.role === "motion-output" ? motion :
@@ -406,6 +410,7 @@ export class SurfaceMaterialPass {
       case "visibility-key": return input.visibilityKey;
       case "meshlet-work": return input.meshletWork;
       case "material-records": return input.materialRecords;
+      case "pre-exposure": return input.preExposureBuffer;
       case "visibility-depth": return input.depth;
       case "instance-records": return input.instances;
       case "geometry-metadata": return input.geometryMetadata;

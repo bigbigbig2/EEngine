@@ -25,6 +25,9 @@ export interface GpuShadingInstancePublication {
 
 export interface ActiveShadingSummary {
   readonly binRefCounts: Readonly<Uint32Array>;
+  /** Opaque active instances by resident texture set and Surface closure family. */
+  readonly standardSetRefCounts: Readonly<Uint32Array>;
+  readonly coatedSetRefCounts: Readonly<Uint32Array>;
   readonly activeBinMaskLo: number;
   readonly activeBinMaskHi: number;
   readonly opaqueLitReceiverCount: number;

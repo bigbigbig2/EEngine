@@ -5,11 +5,9 @@ export interface PreExposureContract {
   readonly colorSpace: "working-linear";
 }
 
-/** Renderer-owned radiometry state. GPU exposure adaptation may replace the
- * multiplier later, but all producers consume one immutable frame contract. */
+/** CPU temporal epoch marker. Physical P/E values live in GPU radiometry buffers. */
 export class RadiometryRuntime {
   private generationValue = 0;
-  private multiplierValue = 1;
   private environmentGeneration: number | null = null;
 
   beginFrame(environmentGeneration: number | null): PreExposureContract {
@@ -19,19 +17,10 @@ export class RadiometryRuntime {
       // meaning of this multiplier. Keep the history rescale epoch stable.
     }
     return Object.freeze({
-      multiplier: this.multiplierValue,
+      multiplier: 1,
       generation: this.generationValue,
       colorSpace: "working-linear" as const
     });
-  }
-
-  setMultiplier(multiplier: number): void {
-    if (!Number.isFinite(multiplier) || multiplier <= 0) {
-      throw new RangeError("Radiometry multiplier must be finite and positive");
-    }
-    if (multiplier !== this.multiplierValue) {
-      this.multiplierValue = multiplier;
-    }
   }
 
   invalidate(): void {

@@ -4,7 +4,7 @@
 
 本轮通过 GitHub 固定 revision 的目录、许可证原文和下列标明的实现文件进行核查；未构建这些上游工程，未跑其 benchmark，也未证明移植后的 WebGPU 性能。**固定 commit 是复现调查的版本，不是自动引入依赖或升级现有来源的指令。** 本地已有 port 继续以 [geometry](./geometry.md)、[visibility](./visibility.md)、[shading](./shading.md)、[platform](./platform.md) 的既有 revision 为准。
 
-所有新增候选当前 Adoption 均为 **not adopted**。下表的“优先/候选/参考”只表示实施推荐；完成实际迁移后，逐项写入本地生产文件、源函数映射、差异和验证，再改为 `traceable local port` 或其他真实采用方式。
+下表的“优先/候选/参考”只表示实施推荐；实际采用状态以各来源条目的本地映射和验证为准，不能从固定 revision 或编译通过推断已完成移植。
 
 复杂算法与渲染效果实施前必须先搜完整 GitHub 源码及可核验论文/详细技术文章，优先跨语言忠实移植固定版本。每项 ledger 需写清源 entry point、完整阶段与关键条件、本地对应入口、WebGPU 必须差异、fallback、oracle/GPU 验证；找不到完整 donor 时记录检索范围与缺口，选择具名本地方案，不得以缩减算法冒充迁移完成。简单确定性工具、ABI 编解码、绑定、队列及资源生命周期接线不强制外部调研，但属本地集成，须与来源算法分别标识；不能将一个复杂效果拆分后按简单任务豁免。
 
@@ -24,7 +24,7 @@
 | Light Transport / Screen GI | **UnitySSGIURP 优先算法候选**；Wicked Engine compute 链作执行对照 | 对照完整追踪、fallback、时域、降噪、上采样；实施前固定一个完整 profile | 改写 fullscreen/URP 依赖、GPU ray work、与 World Field/Sky 的能量边界及求值预算 |
 | Environment & Media / shading | Takram atmosphere WebGPU | LUT、太阳/天光、shadow-aware aerial transport | 去 Three/TSL 宿主、单位与环境权威 owner |
 | Environment & Media / shading | Adria VolumetricFog（候选） | 注入、历史、积分与合成 | bounded binding、介质输入和大气区间合成 |
-| Temporal & Presentation / frame-runtime、shading | FidelityFX SDK v1.1.4 FSR3 Upscaler R12；Wicked Engine histogram R24；Filament Bloom/ColorGrading/GT7 R25 | 固定 FSR3 全阶段、两段 histogram/适应、选定 Bloom/grade/tone 阶段 | WebGPU 后端、共享事实/事务、Rec.2020 与 GPU P/E、SDR/HDR canvas 适配；新增来源均未采用 |
+| Temporal & Presentation / frame-runtime、shading | FidelityFX SDK v1.1.4 FSR3 Upscaler R12；Wicked Engine histogram R24；Filament Bloom/ColorGrading/GT7 R25 | 固定 FSR3 全阶段、两段 histogram/适应、选定 Bloom/grade/tone 阶段 | WebGPU 后端、共享事实/事务、Rec.2020 与 GPU P/E、SDR/HDR canvas 适配；R24/R25 的选定范围已接入，正式画质与性能声明待整链验收 |
 | Visibility & Surface / 频率分类 | Intel DeferredCoarsePixelShading（R20）为完整 2×2 coarse/fallback 候选；FidelityFX VRS 仅供另一种分类数学对照 | `RequiresPerPixelShading`、coarse/full 消费与全样本写回须按数据依赖对照 | 当前 VisibilityKey 前置决策、三层频带和 4×4 策略不是上游实现，不得冠以其完成移植 |
 | VT / materials-textures | **Wicked Engine 地形 VT + LibVT 通用 VT 双来源候选** | 前者取 GPU 请求/分配/驻留，后者对照页表/过滤/离线切页完整性；先保留 Texture Residency | 两者均不能整套直搬；通用资产布局、WebGPU 有界绑定、异步反馈/上传闭环需原型 |
 | Adaptive Compute Shading / shading | R20 有可核实的 2×2 coarse/fallback 完整源码，但没有吻合本地前置 VisibilityKey 决策和三层频率合同的整套 donor | 若选 R20 必须保留其所有决策、执行、写回条件，并明确扩展部分 | 产品身份、材质/光照风险、4×4、WebGPU 有界队列和重建验证 |
@@ -242,16 +242,16 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 
 - **检索与选择（2026-09-27）**：核对 Wicked 的完整 GPU histogram 主链、Godot `servers/rendering/renderer_rd/effects/luminance.cpp` / `shaders/effects/luminance_reduce.glsl`、Falcor `Source/RenderPasses/ToneMapper/*`，并用 [Alex Tardif histogram 文章](https://www.alextardif.com/HistogramLuminance.html)核对分箱、黑像素和时间适应。Godot/Falcor 的平均亮度或最高 mip log 平均易受极端构图影响，不选作 D 的完整 donor；文章是解释资料，不替代代码。以上仅是已核范围，不声称穷尽来源。
 - **Upstream / Revision / License**：[turanszkij/WickedEngine](https://github.com/turanszkij/WickedEngine/tree/0c97cfcdc2a146e12e31ef9464a7aece71706264)，`0c97cfcdc2a146e12e31ef9464a7aece71706264`，根 `LICENSE.txt` 为 MIT（已读）。与 R23 共享同一 pin，但采用状态独立。已读以下固定源码入口；未构建/运行上游工程。
-- **具体入口**：[`WickedEngine/shaders/luminancePass1CS.hlsl`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/shaders/luminancePass1CS.hlsl) `main`；[`luminancePass2CS.hlsl`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/shaders/luminancePass2CS.hlsl) `main`；[`WickedEngine/wiRenderer.cpp`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/wiRenderer.cpp) `CreateLuminanceResources`、`ComputeLuminance`，以及常量/offset 定义的 `ShaderInterop_Postprocess.h`。本地拟落点：`RadiometryContract.ts` 的 GPU 状态、Module D 新 histogram pass/WGSL、`FrameProgramLowering.ts` 的生产边与 display consumer；**这些文件当前尚无该移植**。
+- **具体入口**：[`WickedEngine/shaders/luminancePass1CS.hlsl`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/shaders/luminancePass1CS.hlsl) `main`；[`luminancePass2CS.hlsl`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/shaders/luminancePass2CS.hlsl) `main`；[`WickedEngine/wiRenderer.cpp`](https://github.com/turanszkij/WickedEngine/blob/0c97cfcdc2a146e12e31ef9464a7aece71706264/WickedEngine/wiRenderer.cpp) `CreateLuminanceResources`、`ComputeLuminance`，以及常量/offset 定义的 `ShaderInterop_Postprocess.h`。本地入口：`GpuRadiometryPass.ts` 的 histogram/adapt WGSL、`RadiometryContract.ts` 的 GPU 状态、`FrameProgramLowering.ts` 的生产边、`SurfacePresentPass.ts` 的显示消费。
 
 | 固定源阶段/决策 | Module D 本地拟产物 | 保留条件与明确差异 |
 | --- | --- | --- |
-| `CreateLuminanceResources/ComputeLuminance` | device 期 histogram/adapted-exposure 双槽资源、Frame Program meter stage | 半分辨率采样、Pass1→Pass2→下帧资源生命周期；GPU work 同一 frame submit，无 CPU 曝光读回 |
-| `luminancePass1CS::main` | scene-linear HDR/`P_t` → 分组 histogram → 全局 bins | 低亮 bin 0、log2 区间截取、bin index `[1,N-1]`、组共享计数与全局 atomic 累计；WebGPU workgroup size/storage 限额可改分批，不省略分箱 |
-| `luminancePass2CS::main` | bins + 上帧 adapted luminance → `E_t` | weighted bin-index reduction、排除 bin 0 的像素数、反 log、指数 delta-time 适应、key/adapted luminance、末尾清全部 bins；空图/NaN 正值守卫为本地 WebGPU 合同 |
+| `CreateLuminanceResources/ComputeLuminance` | `GpuRadiometryPass.ts` 双槽 adapted-exposure、Frame Program radiometry stage | 半分辨率采样、Pass1→Pass2→下帧资源生命周期；GPU work 同一 frame submit，无 CPU 曝光读回 |
+| `luminancePass1CS::main` | `GpuRadiometryPass.ts` scene-linear HDR/`P_t` → 分组 histogram → 全局 bins | 低亮 bin 0、log2 区间截取、bin index `[1,N-1]`、组共享计数与全局 atomic 累计；WebGPU workgroup size/storage 限额调整 |
+| `luminancePass2CS::main` | `GpuRadiometryPass.ts` bins + 上帧 adapted luminance → `E_t`；`GpuRadiometryOracle.ts` CPU 对照 | weighted bin-index reduction、排除 bin 0 的像素数、反 log、真实 delta-time 指数适应、key/adapted luminance、末尾清全部 bins；空图/NaN 正值守卫为本地 WebGPU 合同 |
 | source Rec.709 `dot(color, 0.2127/0.7152/0.0722)` | linear Rec.2020 的 scene luminance meter | 源系数**不能**直接用于目标 Rec.2020 RGB；改为目标工作空间亮度系数或显式转换回源基底，是具名色彩空间适配。不能一面改系数一面称字节级原样移植 |
 
-- **边界、fallback、adoption**：Wicked 返回 exposure 是 `eyeAdaptationKey/max(adaptedLuminance,epsilon)`；EEngine 将其作为 GPU `E_t`，并以已提交 `P_t` 预曝光，不照搬 Wicked 的 host 渲染架构。中心加权/percentile/高亮保护若实施属于本地质量扩展，须和原 histogram 基线分别对照。当前 `not adopted`；只有固定源分支核对、CPU/WGSL histogram 与适应 oracle、生产 GPU meter→display 消费证据齐备才按实际范围提升状态。Module D 收口时运行必要 targeted tests；最终曝光画质/性能矩阵后置。
+- **边界、fallback、adoption**：Wicked 返回 exposure 是 `eyeAdaptationKey/max(adaptedLuminance,epsilon)`；EEngine 将其作为 GPU `E_t`，并以已提交 `P_t` 预曝光，不照搬 Wicked 的 host 渲染架构。中心加权/percentile/高亮保护未选入本次范围。选定两段 histogram/适应为 `traceable local port`：固定源分支已核对，CPU oracle 和独立 Chrome GPU 数值比对已通过，生产 FrameGraph 的 radiometry→Present 消费已在最小示例与 Dungeon 运行。正式曝光画质/性能矩阵后置。
 
 ### R25 · Filament：Module D Bloom、ColorGrading 与 GT7 显示映射
 
@@ -260,12 +260,12 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 
 | 固定源阶段/分支 | Module D 本地拟产物 | 保留的条件、输入输出及差异 |
 | --- | --- | --- |
-| `PostProcessManager::bloom` + 2×/9×/常规 downsample、upsample materials | output HDR → Bloom mip 链 → HDR 合成 | 选 High core、threshold on、flare/dirt off；保留奇偶尺寸 9/13 tap、kernel 权重、边界采样、层级合成；WebGPU physical pass 和纹理 usage 可改，关闭的可选效果不宣称已 port |
-| `ColorGrading.cpp::hdrColorAt` 的 LogC、white balance、ASC CDL、contrast、vibrance、saturation、GT7 tone、gamut/OETF 与 LUT 生成 | 静态参数 → 完整 SDR grade+tone+display LUT；最终 pass 采样 | **源顺序不可交换**；动态曝光在 LUT 采样前应用，不每帧重建 LUT。未选中的调整参数和自定义 LUT 不冒称已 port |
-| `ToneMapper.cpp::GT7ToneMapper` | Rec.2020 工作 HDR → GT7 tone 数学 → SDR LUT / HDR 宽范围目标 | `Rec2020_to_ICtCp`、toe/shoulder、chroma scale、blend、SDR correction 与亮度上限；HDR 目标 peak/paper-white 初始化属于目标 profile，逐值核对源参数 |
-| `colorGrading.fs` LUT sampling 与 `ColorGrading.cpp::hdrColorAt` | SDR LUT consumer、HDR 宽范围输出适配 | 源 `hdrColorAt` 在 OETF 前 `saturate(v)` 到 `[0,1]`；它**不能原样用于 extended HDR**。HDR grade/Canvas 适配是具名 EEngine 本地方案，不声称 Filament 当前 SDR LUT 原样提供 HDR |
+| `PostProcessManager::bloom` + 2×/9×/常规 downsample、upsample materials | `BloomPass.ts` output HDR → Bloom mip 链 → HDR 合成 | 选 High core、threshold on、flare/dirt off；保留奇偶尺寸 9/13 tap、kernel 权重、边界采样、层级合成；WebGPU physical pass 和纹理 usage 适配，关闭的可选效果不宣称已 port |
+| `ColorGrading.cpp::hdrColorAt` 的 LogC、white balance、ASC CDL、contrast、vibrance、saturation、GT7 tone、gamut/OETF 与 LUT 生成 | `DisplayColorGrading.ts` 静态 SDR grade+tone+display LUT；`SurfacePresentPass.ts` 采样 | 源顺序保留；动态曝光在 LUT 采样前应用，不每帧重建 LUT。未选中的调整参数和自定义 LUT 不冒称已 port |
+| `ToneMapper.cpp::GT7ToneMapper` | `DisplayColorGrading.ts` Rec.2020 工作 HDR → GT7 tone 数学 → SDR 与 extended HDR LUT | `Rec2020_to_ICtCp`、toe/shoulder、chroma scale、blend、SDR correction 与亮度上限；HDR 目标峰值为本地 1000-nit profile |
+| `colorGrading.fs` LUT sampling 与 `ColorGrading.cpp::hdrColorAt` | `SurfacePresentPass.ts` SDR/HDR LUT consumer、opt-in HDR 宽范围输出适配 | 源 `hdrColorAt` 在 OETF 前 `saturate(v)` 到 `[0,1]`；它**不能原样用于 extended HDR**。HDR 采用 `DisplayColorGrading.ts` 具名本地 `rgba16float` LUT 和 linear Display-P3 输出，不声称 Filament 当前 SDR LUT 原样提供 HDR |
 
-- **WebGPU / lifecycle / adoption**：静态 LUT 参数改变时重建；Bloom 是暂存 mip 链；SDR baseline 写 preferred canvas 格式；HDR 要探测实际 `rgba16float`、`toneMapping: extended` 与 colorSpace 配置，fallback 仍是同一 Renderer 的 SDR profile。Module D 的 `SurfacePresentPass.ts`/Frame Program 是目标本地落点，现仍直接写 HDR。R25 当前 `not adopted`；须逐分支核对、CPU/WGSL 数值 oracle、真实生产 GPU Bloom→tone/grade→display 消费后才按**选中范围**升级。HDR 画质/显示性能声明留最终系统验收。
+- **WebGPU / lifecycle / adoption**：静态 LUT 在 device 期建立，静态 grade 变化时更新；Bloom 是暂存 mip 链；SDR baseline 写 preferred canvas 格式；HDR opt-in 探测 `rgba16float`、`toneMapping: extended` 与 colorSpace，失败回退 SDR。选定 Bloom/grade/GT7 阶段已按固定源映射实现，并在 Chrome 的生产 Bloom→Present 链截图运行，CPU LogC/GT7/SDR-HDR LUT oracle 已通过；**当前仍为 provisional local integration**，待补更完整的源数值对照和 GPU 读回再提升为 `traceable local port`。HDR 分支未经 HDR 显示器验证，画质与显示性能声明留最终系统验收。
 
 ### R13 · FSR2：备选，不与 FSR3 内部阶段拼装
 

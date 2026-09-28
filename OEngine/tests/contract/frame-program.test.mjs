@@ -5,6 +5,7 @@ import { lowerFrameProgram } from "../../.test-dist/render/program/FrameProgramL
 import { assertFrameProgramBindings } from "../../.test-dist/render/program/FrameProgramBindings.js";
 import { HzbHistoryState } from "../../.test-dist/render/HzbHistory.js";
 import { FrameGraph, FrameGraphBindingLayout, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
+import { BloomPass } from "../../.test-dist/render/passes/BloomPass.js";
 
 const scene = {
   kind: "scene", intent: "present", viewFamily: "main",
@@ -15,10 +16,48 @@ const scene = {
   activeSets: [0], hasLit: true, physicalEnvironment: true
 };
 
+test("Bloom upsamples each mip at its high input extent", () => {
+  const previousUsage = globalThis.GPUTextureUsage;
+  const previousStage = globalThis.GPUShaderStage;
+  globalThis.GPUTextureUsage = { STORAGE_BINDING: 1, TEXTURE_BINDING: 2 };
+  globalThis.GPUShaderStage = { COMPUTE: 4 };
+  try {
+    const device = {
+      createSampler: () => ({}),
+      createShaderModule: () => ({}),
+      createBindGroupLayout: () => ({}),
+      createPipelineLayout: () => ({}),
+      createComputePipeline: () => ({})
+    };
+    const graph = new FrameGraph("Bloom extents");
+    const sceneColor = graph.create_resource("test/scene", { kind: "transient_texture",
+      width: 640, height: 360, format: "rgba16float", domain: "output-full", usage: 3 });
+    const preExposure = graph.import_resource("test/pre-exposure", { kind: "imported" }, {});
+    new BloomPass(device).addToGraph(graph, { scene: sceneColor,
+      preExposure, width: 640, height: 360 });
+    for (let level = 0; level < 4; level++) {
+      const node = Array.from({ length: graph.resourceNodeCount }, (_, id) => graph.getResourceNode(id))
+        .find(node => node.name === `Bloom/up${level}`);
+      assert.ok(node);
+      const descriptor = graph.getDescriptor(node.id);
+      assert.equal(descriptor.width, 640 >> (level + 1));
+      assert.equal(descriptor.height, 360 >> (level + 1));
+    }
+  } finally {
+    globalThis.GPUTextureUsage = previousUsage;
+    globalThis.GPUShaderStage = previousStage;
+  }
+});
+
 test("Frame Program closes the current scene product demand with a structural key", () => {
   const first = buildFrameProgram(scene);
   const sameShape = buildFrameProgram({ ...scene, activeSets: [0] });
   assert.equal(first.key, sameShape.key);
+  const denseOnly = buildFrameProgram({ ...scene, activeExceptionLanes: [] });
+  assert.deepEqual(denseOnly.request.activeExceptionLanes, []);
+  assert.notEqual(first.key, denseOnly.key);
+  assert.throws(() => buildFrameProgram({ ...scene, activeExceptionLanes: [1] }),
+    /outside active resident sets/u);
   for (const product of ["visibility", "depth", "hzb", "meshlet-work", "light-cluster",
     "surface-radiance", "surface-motion", "sky-radiance", "aerial-radiance",
     "reconstructed-color", "swapchain"]) assert.ok(first.products.includes(product), product);
@@ -97,6 +136,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       const pass = graph.add("test/FSR3", {}, () => {});
       pass.read(input.color); pass.read(input.depth); pass.read(input.motion);
       pass.read(input.reactiveMask); pass.read(input.validityMask); pass.read(history);
+      pass.read(input.preExposure); pass.read(input.priorExposure);
       return pass.create("test/reconstructed", { kind: "transient_texture", width: 1280,
         height: 720, format: "rgba16float", domain: "output-full", usage: 7 });
     }, history: resource
@@ -155,23 +195,27 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       return { radiance: create("test/radiance", "rgba16float"),
         motion: create("test/motion", "rg16float") };
     } },
-    radiometry: { importPreExposure(_graph, bind) {
-      return bind("pre-exposure", runtime => runtime.readBuffer());
+    radiometry: { importPreviousExposure(_graph, bind) {
+      return bind("previous-exposure", runtime => runtime.readBuffer());
+    }, importPriorExposure(_graph, bind) {
+      return bind("prior-exposure", runtime => runtime.writeBuffer());
     }, addToGraph(graph, input, bind) {
-      const adapted = bind("adapted-exposure", runtime => runtime.writeBuffer());
       const pass = graph.add("test/Radiometry", {}, () => {});
-      pass.read(input.scene); pass.read(input.preExposure); pass.write(adapted);
-      return { preExposure: input.preExposure, adaptedExposure: adapted };
+      pass.read(input.scene); pass.read(input.previousExposure);
+      const adaptedExposure = pass.write(input.priorExposure);
+      return { previousExposure: input.previousExposure, adaptedExposure };
     } },
     bloom: { addToGraph(graph, input) {
       const pass = graph.add("test/Bloom", {}, () => {});
-      pass.read(input.scene); pass.read(input.preExposure);
+      pass.read(input.scene);
+      pass.read(input.preExposure);
       return pass.create("test/bloom", { kind: "transient_texture", width: 1280,
         height: 720, format: "rgba16float", domain: "output-full", usage: 7 });
     } },
-    present: { addToGraph(graph, color, swapchain, exposure) {
+    present: { addToGraph(graph, color, swapchain, exposure, preExposure) {
       const pass = graph.add("test/Present", {}, () => {});
-      pass.read(color); pass.read(exposure); pass.write(swapchain); pass.make_side_effect();
+      pass.read(color); pass.read(exposure); pass.read(preExposure);
+      pass.write(swapchain); pass.make_side_effect();
       return swapchain;
     } }, temporalFacts, sky: null, aerial: null, lightCluster() { throw new Error("feature-off light cluster"); }
   };
@@ -229,14 +273,12 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       const pass = graph.add("test/Sky", {}, () => {});
       pass.read(input.hdr); pass.read(input.depth); pass.read(input.transmittance);
       pass.read(input.scattering); pass.read(input.higherOrder); pass.read(input.environment);
-      pass.read(input.preExposure);
       return pass.write(input.hdr);
     } },
     aerial: { addToGraph(graph, input) {
       const pass = graph.add("test/Aerial", {}, () => {});
       pass.read(input.scene); pass.read(input.depth); pass.read(input.transmittance);
       pass.read(input.scattering); pass.read(input.higherOrder); pass.read(input.environment);
-      pass.read(input.preExposure);
       return pass.create("test/aerial", { kind: "transient_texture", width: 640,
         height: 360, format: "rgba16float", domain: "internal-full", usage: 7 });
     } }

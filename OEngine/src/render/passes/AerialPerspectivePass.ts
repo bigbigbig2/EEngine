@@ -4,9 +4,11 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import { ATMOSPHERE_RUNTIME_WGSL } from "../../shaders/atmosphere/runtime.js";
+import { LINEAR_REC709_TO_REC2020_WGSL } from "../../shaders/working_color.js";
 
 const WGSL = `${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${ATMOSPHERE_RUNTIME_WGSL}
+${LINEAR_REC709_TO_REC2020_WGSL}
 @group(0) @binding(0) var scene: texture_2d<f32>;
 @group(0) @binding(1) var depth: texture_depth_2d;
 @group(0) @binding(2) var transmittance: texture_2d<f32>;
@@ -23,7 +25,7 @@ ${ATMOSPHERE_RUNTIME_WGSL}
   let scene_color = textureLoad(scene, pixel, 0); let d = textureLoad(depth, pixel, 0);
   let camera_position_m = camera.transform[3].xyz;
   let camera_position = atmosphere_world_to_planet(camera_position_m, environment.world_to_unit);
-  let sun = normalize(-environment.sun_direction_world);
+  let sun = normalize(environment.sun_direction_world);
   if (d <= 0.0001) {
     textureStore(output, pixel, scene_color);
     return;
@@ -33,7 +35,8 @@ ${ATMOSPHERE_RUNTIME_WGSL}
   let point = atmosphere_world_to_planet(world.xyz / max(world.w, 1e-5), environment.world_to_unit);
   let transport = atmosphere_to_point(camera_position, point, sun, transmittance, scattering, higher_order, lut_sampler);
   textureStore(output, pixel, vec4f(scene_color.rgb * transport.transmittance +
-    (transport.inscattering * environment.sky_luminance_scale) * max(pre_exposure[0], 1e-6), scene_color.a));
+    oengine_linear_rec709_to_rec2020(transport.inscattering) *
+    environment.sky_luminance_scale * max(pre_exposure[0], 1e-6), scene_color.a));
 }
 `;
 
@@ -53,7 +56,7 @@ export class AerialPerspectivePass {
       { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
       { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
       { binding: 8, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
-      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
+      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
     ] });
     this.pipeline = device.createComputePipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }), compute: { module, entryPoint: "main" } });
     this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });

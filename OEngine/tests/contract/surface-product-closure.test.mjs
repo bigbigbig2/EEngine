@@ -124,8 +124,8 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   };
   const narrow = planSurfaceKernelBindings(base, desktopLimits);
   assert.deepEqual(narrow.totals, {
-    storageBuffers: 4, storageTextures: 2, sampledTextures: 2,
-    samplers: 0, uniformBuffers: 2
+    storageBuffers: 3, storageTextures: 2, sampledTextures: 2,
+    samplers: 0, uniformBuffers: 3
   });
   assert.deepEqual(narrow.bindings.map(binding => binding.role), [
     "shading-work", "meshlet-work", "material-records", "frame-view", "pre-exposure", "radiance-output",
@@ -136,16 +136,20 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
       textureBankMask: 0x1ff } };
   const plan = planSurfaceKernelBindings(full, desktopLimits);
   assert.deepEqual(plan.totals, {
-    storageBuffers: 16, storageTextures: 2, sampledTextures: 16,
-    samplers: 8, uniformBuffers: 4
+    storageBuffers: 15, storageTextures: 2, sampledTextures: 16,
+    samplers: 8, uniformBuffers: 5
   });
+  const aoPlan = planSurfaceKernelBindings({ ...full, aoProfile: "scalar-high" }, desktopLimits);
+  assert.equal(aoPlan.totals.storageBuffers, 16);
+  assert.equal(aoPlan.bindings.find(binding => binding.role === "indirect-visibility")?.kind,
+    "read-only-storage");
   assert.equal(new Set(plan.bindings.map(binding =>
     `${binding.group}:${binding.binding}`)).size, plan.bindings.length);
   assert.equal(plan.bindings.filter(binding => binding.role === "virtual-product-banks").length, 4);
   assert.equal(plan.bindings.filter(binding => binding.role === "texture-banks").length, 9);
   assert.throws(() => planSurfaceKernelBindings(full, {
-    ...desktopLimits, maxStorageBuffersPerShaderStage: 15
-  }), /maxStorageBuffersPerShaderStage >= 16/);
+    ...desktopLimits, maxStorageBuffersPerShaderStage: 14
+  }), /maxStorageBuffersPerShaderStage >= 15/);
   assert.throws(() => planSurfaceKernelBindings(full, {
     ...desktopLimits, maxBindingsPerBindGroup: 15
   }), /maxBindingsPerBindGroup >= 16/);
@@ -173,6 +177,16 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   const compactWgsl = surfaceExecutionWgsl(compact.plan, "dense", 0, true, true, false, 1, 1);
   assert.match(compactWgsl, /virtual_product_bank_0/);
   assert.doesNotMatch(compactWgsl, /virtual_product_bank_1/);
+  assert.equal([...compactWgsl.matchAll(/struct OEngineInstanceRecord\s*\{/gu)].length, 1);
+  const withoutSky = compileSurfaceProgramLayout({
+    ...compact.closure, physicalEnvironment: false, layoutSignature: "without-sky"
+  }, desktopLimits);
+  assert.equal(withoutSky.plan.bindings.some(binding =>
+    binding.role.startsWith("physical-")), false);
+  const noSkyWgsl = surfaceExecutionWgsl(withoutSky.plan, "dense", 0,
+    true, true, false, 1, 1, false, false);
+  assert.doesNotMatch(noSkyWgsl, /physical_environment_sun|atmosphere_world_to_planet/u);
+  assert.match(noSkyWgsl, /return direct \+ surface\.emissive;/u);
   const emitted = [];
   const fakeDevice = { createBindGroupLayout(descriptor) {
     emitted.push(descriptor);

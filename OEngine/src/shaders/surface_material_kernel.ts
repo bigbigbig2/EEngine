@@ -2,7 +2,6 @@
  * Program closure and physical bindings stay with their owning runtime. */
 import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.js";
 import { GPU_NORMAL_FORMAT, GPU_POSITION_FORMAT, GPU_UV_FORMAT } from "../gpu/GpuGeometryAbi.js";
-import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_DECODE_PROFILE } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_MATERIAL_VISIBILITY_FLAGS } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { GPU_SHADING_PROGRAM, shadingProgramUsesTextures } from "../gpu/GpuShadingProgramAbi.js";
@@ -200,7 +199,6 @@ fn sparse_has_tangent_ref(vertex_ref: SparseVertexRef) -> bool { return sparse_m
 fn sparse_has_color_ref(vertex_ref: SparseVertexRef) -> bool { return sparse_meta_u32(vertex_ref.geometry_base, 44u) != 0u; }
 `;
   return /* wgsl */ `
-${GPU_INSTANCE_RECORD_WGSL}
 const SPARSE_GEOMETRY_WORDS: u32 = 60u;
 const SPARSE_MESHLET_WORDS: u32 = 28u;
 struct SparseVertexRef {
@@ -396,13 +394,13 @@ export function lightingWgsl(
   directionalShadowMode: "legacy" | "vsm" = "legacy"
 ): string {
   return /* wgsl */ `
-struct PhysicalEnvironmentSun {
+${environmentIblEnabled ? `struct PhysicalEnvironmentSun {
   direction_world: vec3f,
   world_to_unit: f32,
   irradiance: vec3f,
   generation: f32,
   sky_luminance_scale: f32,
-}
+}` : ""}
 ${createProductionSparseDirectLightingWgsl(shadowSamplingEnabled, directionalShadowMode)}
 ${environmentIblEnabled ? `${OCTAHEDRAL_SAMPLE_WGSL}
 // Filament R03 DFV_Multiscatter: x = integrated Schlick Fc, y = total
@@ -474,16 +472,16 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
     vec2f(pixel) + vec2f(0.5),
     surface.view_depth
   );
-  let environment_position = atmosphere_world_to_planet(surface.position_ws,
+  ${environmentIblEnabled ? `let environment_position = atmosphere_world_to_planet(surface.position_ws,
     physical_environment_sun.world_to_unit);
   let environment_radius = length(environment_position);
   let environment_altitude = clamp((environment_radius - 6360.0) / 60.0, 0.0, 1.0);
   let environment_mu_s = clamp(dot(normalize(environment_position),
-    normalize(-physical_environment_sun.direction_world)), -1.0, 1.0);
+    normalize(physical_environment_sun.direction_world)), -1.0, 1.0);
   let sun_transmittance = textureSampleLevel(physical_environment_transmittance, physical_sky_sampler,
     atmosphere_transmittance_uv(environment_radius, environment_mu_s), 0.0).rgb;
   var sun_incident: GpuPrimitiveTypeTable;
-  sun_incident.direction = normalize(-physical_environment_sun.direction_world);
+  sun_incident.direction = normalize(physical_environment_sun.direction_world);
   sun_incident.color = physical_environment_sun.irradiance * sun_transmittance;
   sun_incident.radius = 0.004675;
   sun_incident.distance = 1.496e11;
@@ -543,7 +541,7 @@ fn sparse_direct(surface:OEngineSparseSurface,pixel:vec2u)->vec3f{
     let coat_fresnel = (0.04 + 0.96 * pow(1.0 - coat_no_v, 5.0)) * surface.coat_factor;
     physical_sky *= 1.0 - coat_fresnel;
   }
-  return direct + physical_sun + physical_sky + surface.emissive;`}
+  return direct + physical_sun + physical_sky + surface.emissive;`}` : "return direct + surface.emissive;"}
 }
 `;
 }

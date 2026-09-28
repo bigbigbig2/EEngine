@@ -7,9 +7,11 @@ import { resolveDepthAttachmentView, resolveTextureView } from "../RenderTargetV
 import { ENVIRONMENT_BACKGROUND_FORMAT } from "../../shaders/environment_ibl.js";
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import { ATMOSPHERE_RUNTIME_WGSL } from "../../shaders/atmosphere/runtime.js";
+import { LINEAR_REC709_TO_REC2020_WGSL } from "../../shaders/working_color.js";
 
 const SKY_WGSL = `${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${ATMOSPHERE_RUNTIME_WGSL}
+${LINEAR_REC709_TO_REC2020_WGSL}
 @group(0) @binding(0) var<uniform> camera: CommandEncoder;
 @group(0) @binding(1) var depth: texture_depth_2d;
 @group(0) @binding(2) var transmittance: texture_2d<f32>;
@@ -30,8 +32,9 @@ struct SkyVertex { @builtin(position) position: vec4f, @location(0) uv: vec2f };
   let world = camera.view_projection_matrix_inverse * clip;
   let camera_position = atmosphere_world_to_planet(camera.transform[3].xyz, environment.world_to_unit);
   let direction = normalize(world.xyz / max(world.w, 1e-5) - camera.transform[3].xyz);
-  return vec4f(atmosphere_sky(camera_position, direction, normalize(-environment.sun_direction_world),
-    transmittance, scattering, higher_order, lut_sampler) * environment.sky_luminance_scale *
+  return vec4f(oengine_linear_rec709_to_rec2020(
+    atmosphere_sky(camera_position, direction, normalize(environment.sun_direction_world),
+    transmittance, scattering, higher_order, lut_sampler)) * environment.sky_luminance_scale *
     max(pre_exposure[0], 1e-6), 1.0);
 }
 `;
@@ -46,7 +49,7 @@ const PIPELINE: CachedRenderPipelineDescriptor = {
     { binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float", viewDimension: "3d" } },
     { binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
     { binding: 6, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
-    { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } }
+    { binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "read-only-storage" } },
   ] }] },
   vertex: { module: { code: SKY_WGSL }, entryPoint: "vs_main" },
   fragment: { module: { code: SKY_WGSL }, entryPoint: "fs_main", targets: [{ format: ENVIRONMENT_BACKGROUND_FORMAT }] },

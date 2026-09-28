@@ -28,11 +28,13 @@ test("Takram copied assets match pinned LFS objects, not pointer files", () => {
 function harness() {
   const dispatches = [];
   let destroyed = 0;
+  let destroyedTextures = 0;
   const device = {
+    queue: { onSubmittedWorkDone: () => Promise.resolve() },
     limits: { maxTextureDimension2D: 8192, maxTextureDimension3D: 2048,
       maxStorageTexturesPerShaderStage: 4, maxComputeInvocationsPerWorkgroup: 256,
       maxComputeWorkgroupSizeZ: 64, maxComputeWorkgroupStorageSize: 16384 },
-    createTexture: () => ({ createView: () => ({}), destroy: () => destroyed++ }),
+    createTexture: () => ({ createView: () => ({}), destroy: () => { destroyed++; destroyedTextures++; } }),
     createSampler: () => ({}),
     createBuffer: () => ({ getMappedRange: () => new ArrayBuffer(96), unmap() {}, destroy: () => destroyed++ }),
     createShaderModule: () => ({}),
@@ -42,7 +44,8 @@ function harness() {
   const encoder = { beginComputePass: ({ label }) => ({
     setPipeline() {}, setBindGroup() {}, dispatchWorkgroups: (...size) => dispatches.push([label, size]), end() {}
   }) };
-  return { device, encoder, dispatches, destroyed: () => destroyed };
+  return { device, encoder, dispatches, destroyed: () => destroyed,
+    destroyedTextures: () => destroyedTextures };
 }
 
 test("aborted LUT encoding is regenerated; only successful submission publishes the complete generation", () => {
@@ -82,17 +85,18 @@ test("sun and sky edits publish parameters without regenerating the fixed Earth 
   const initial = { lutGeneration: 1, worldToUnit: 0.001,
     sunDirectionWorld: [0, 1, 0], sunIrradiance: [1, 1, 1],
     skyLuminanceScale: 1, shadowLength: [0, 0] };
-  const first = environment.record(h.encoder, initial);
-  environment.commit(first);
-  assert.equal(h.dispatches.length, 4);
+  const first = environment.record(h.encoder, initial, [0, 0, 0]);
+  environment.commit(first, Promise.resolve());
+  const lutDispatches = () => h.dispatches.filter(([label]) => label.startsWith("Atmosphere/"));
+  assert.equal(lutDispatches().length, 4);
   const second = environment.record(h.encoder, { ...initial,
-    sunIrradiance: [2, 1, 1], skyLuminanceScale: 1.5 });
+    sunIrradiance: [2, 1, 1], skyLuminanceScale: 1.5 }, [0, 0, 0]);
   let parameters;
   environment.writeParameters((_buffer, data) => { parameters = new DataView(data); });
   assert.equal(parameters.getFloat32(16, true), 2);
   assert.equal(parameters.getFloat32(32, true), 1.5);
-  environment.commit(second);
-  assert.equal(h.dispatches.length, 4);
+  environment.commit(second, Promise.resolve());
+  assert.equal(lutDispatches().length, 4);
   environment.destroy();
 });
 
@@ -104,11 +108,11 @@ test("replaced LUT generation retires only after the submitted frame completes",
   const snapshot = { lutGeneration: 1, worldToUnit: 0.001,
     sunDirectionWorld: [0, 1, 0], sunIrradiance: [1, 1, 1],
     skyLuminanceScale: 1, shadowLength: [0, 0] };
-  environment.commit(environment.record(h.encoder, snapshot));
-  environment.commit(environment.record(h.encoder, { ...snapshot, lutGeneration: 2 }));
+  environment.commit(environment.record(h.encoder, snapshot, [0, 0, 0]), Promise.resolve());
+  environment.commit(environment.record(h.encoder, { ...snapshot, lutGeneration: 2 }, [0, 0, 0]), Promise.resolve());
   assert.equal(h.destroyed(), 0);
   complete();
   await Promise.resolve();
-  assert.equal(h.destroyed(), 6);
+  assert.equal(h.destroyedTextures(), 7); // Five Earth LUTs and two retired sky IBL textures.
   environment.destroy();
 });

@@ -81,6 +81,8 @@ export interface SurfaceProgramClosure {
   /** Published physical bank shape; omitted by offline callers using the four-bank ABI. */
   readonly virtualBankCount?: number;
   readonly lighting: "unlit" | "direct";
+  /** Whether this program consumes the physical sun and sky products. */
+  readonly physicalEnvironment?: boolean;
   readonly source: string;
   readonly layoutSignature: string;
   readonly capabilityFingerprint: string;
@@ -133,7 +135,8 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
   return JSON.stringify([
     1, kernel.programId, kernel.outputDependencyMask, kernel.textureBankMask,
     closure.virtualGeometry, closure.virtualBankCount ?? 4, closure.lighting, closure.layoutSignature,
-    closure.capabilityFingerprint, closure.formatProfile, closure.aoProfile ?? "off",
+    closure.capabilityFingerprint, closure.formatProfile, closure.physicalEnvironment !== false,
+    closure.aoProfile ?? "off",
     closure.shadowProfile ?? "off",
     closure.source
   ]);
@@ -197,11 +200,11 @@ export function surfaceMaterialRequirements(
   if (s.lit && closure.lighting === "direct") {
     if (closure.aoProfile === "scalar-high") roles.push("indirect-visibility");
     roles.push("direct-light-records", "direct-light-cluster-lookup",
-      "direct-light-cluster-data", "direct-light-cluster-params",
+      "direct-light-cluster-data", "direct-light-cluster-params", "motion-output");
+    if (closure.physicalEnvironment !== false) roles.push(
       "physical-environment-sun", "physical-sky-irradiance", "physical-sky-irradiance-sampler",
       "physical-environment-transmittance", "physical-sky-specular", "physical-sky-dfg",
-      "physical-sky-specular-sampler",
-      "motion-output");
+      "physical-sky-specular-sampler");
     if (closure.shadowProfile === "vsm") {
       roles.push("vsm-page-table", "vsm-atlas-depth", "vsm-sampling-constants");
     }

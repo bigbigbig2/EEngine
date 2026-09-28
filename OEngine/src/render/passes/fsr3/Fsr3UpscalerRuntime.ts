@@ -11,6 +11,23 @@ import { Fsr3AccumulatePass } from "./Fsr3AccumulatePass.js";
 import { Fsr3RcasPass, packFsr3RcasConstants } from "./Fsr3RcasPass.js";
 import { FSR3_UPSCALER_CONSTANTS_BYTES, packFsr3UpscalerConstants } from "./Fsr3UpscalerConstants.js";
 
+// P_t and P_(t-1) remain on the GPU. The SDK constant is updated before any
+// FSR stage reads it, in the same frame command encoder.
+export const FSR3_PRE_EXPOSURE_RATIO_WGSL = /* wgsl */ `
+@group(0) @binding(0) var<storage, read> current_exposure:array<f32>;
+@group(0) @binding(1) var<storage, read> prior_exposure:array<f32>;
+@group(0) @binding(2) var<storage, read_write> constants:array<u32>;
+@group(0) @binding(3) var<uniform> history_valid:u32;
+@compute @workgroup_size(1)
+fn main() {
+  let current=current_exposure[0];
+  let prior=prior_exposure[0];
+  let valid=history_valid!=0u && current>0.0 && prior>0.0 &&
+    current<1e6 && prior<1e6;
+  constants[29]=bitcast<u32>(select(1.0,clamp(current/prior,1e-4,1e4),valid));
+}
+`;
+
 interface Fsr3HistoryTextures {
   readonly color: [GPUTexture, GPUTexture];
   readonly luma: [GPUTexture, GPUTexture];
@@ -30,7 +47,6 @@ export interface Fsr3FrameInput {
   readonly cameraFovY: number;
   readonly cameraInfiniteFar: boolean;
   readonly frameTimeMs: number;
-  readonly preExposure: number;
   readonly reset: boolean;
   /** TemporalFabric's committed physical color role; supplied by production. */
   readonly historyReadIndex?: 0 | 1;
@@ -52,6 +68,8 @@ export class Fsr3UpscalerRuntime {
   private readonly accumulate: Fsr3AccumulatePass;
   private readonly rcas: Fsr3RcasPass;
   private readonly constants: GPUBuffer;
+  private readonly ratioLayout: GPUBindGroupLayout;
+  private readonly ratioPipeline: GPUComputePipeline;
   private readonly rcasConstants: GPUBuffer;
   private readonly defaultMask: GPUTexture;
   private histories: Fsr3HistoryTextures | null = null;
@@ -63,8 +81,7 @@ export class Fsr3UpscalerRuntime {
   private generationValue = 0;
   private frameIndex = -1;
   private previousJitter: readonly [number, number] = [0, 0];
-  private previousPreExposure = 0;
-  private pending: { jitter: readonly [number, number]; preExposure: number; frameIndex: number } | null = null;
+  private pending: { jitter: readonly [number, number]; frameIndex: number } | null = null;
 
   constructor(private readonly device: GPUDevice) {
     this.prepareInputs = new Fsr3PrepareInputsPass(device);
@@ -77,7 +94,16 @@ export class Fsr3UpscalerRuntime {
     this.rcas = new Fsr3RcasPass(device);
     this.constants = device.createBuffer({ label: "FSR3 Upscaler constants",
       size: FSR3_UPSCALER_CONSTANTS_BYTES,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.ratioLayout = device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
+    ] });
+    this.ratioPipeline = device.createComputePipeline({ label: "FSR3/GPU pre-exposure ratio",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.ratioLayout] }),
+      compute: { module: device.createShaderModule({ code: FSR3_PRE_EXPOSURE_RATIO_WGSL }), entryPoint: "main" } });
     this.rcasConstants = device.createBuffer({ label: "FSR3 RCAS constants", size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.defaultMask = device.createTexture({ label: "FSR3 default zero mask", size: [1, 1],
@@ -173,28 +199,45 @@ export class Fsr3UpscalerRuntime {
       tanHalfFOV: Math.tan(frame.cameraFovY / 2) * width / height,
       jitterPhaseCount: phaseCount,
       deltaTime: Math.max(0, Math.min(1, frame.frameTimeMs / 1000)),
-      deltaPreExposure: this.previousPreExposure > 0
-        ? frame.preExposure / this.previousPreExposure : 1,
+      // GPU ratio pass overwrites this field before any FSR stage consumes it.
+      deltaPreExposure: 1,
       viewSpaceToMetersFactor: 1,
       frameIndex: nextFrameIndex,
       velocityFactor: 1, reactivenessScale: 1, shadingChangeScale: 1,
       accumulationAddedPerFrame: 1 / 3, minDisocclusionAccumulation: -1 / 3
     });
     command.writeBuffer(this.constants, 0, constants, 0, constants.byteLength);
-    this.pending = { jitter, preExposure: frame.preExposure, frameIndex: nextFrameIndex };
+    this.pending = { jitter, frameIndex: nextFrameIndex };
   }
 
   addToGraph(graph: FrameGraph, input: {
     color: ResourceId; depth: ResourceId; motion: ResourceId;
     reactiveMask: ResourceId; validityMask: ResourceId;
+    preExposure: ResourceId; priorExposure: ResourceId;
     width: number; height: number; outputWidth: number; outputHeight: number;
   }, bind: Fsr3GraphResourceBinder): ResourceId {
     if (!this.histories || !this.pending) throw new Error("FSR3 frame must be prepared before graph build");
     const imported = (name: string, resolve: (runtime: Fsr3UpscalerRuntime) => GPUTexture,
       domain?: "internal-full" | "output-full") =>
       graph.import_resource(name, { kind: "imported", label: name, ...(domain ? { domain } : {}) }, bind(name, resolve));
-    const constants = graph.import_resource("FSR3/constants", { kind: "imported", label: "FSR3 constants" },
+    const importedConstants = graph.import_resource("FSR3/constants", { kind: "imported", label: "FSR3 constants" },
       bind("constants", runtime => runtime.constants));
+    const ratio = graph.add("FSR3/GPU pre-exposure ratio", {}, (_data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      const valid = command.allocateTransientBufferAndLoad(
+        new Uint32Array([this.frameIndex >= 0 ? 1 : 0]).buffer, GPUBufferUsage.UNIFORM);
+      const group = this.device.createBindGroup({ layout: this.ratioLayout, entries: [
+        { binding: 0, resource: { buffer: resources.get(input.preExposure) as GPUBuffer } },
+        { binding: 1, resource: { buffer: resources.get(input.priorExposure) as GPUBuffer } },
+        { binding: 2, resource: { buffer: resources.get(importedConstants) as GPUBuffer } },
+        { binding: 3, resource: { buffer: valid } }
+      ] });
+      const pass = command.beginComputePass({ label: "FSR3/GPU pre-exposure ratio" });
+      pass.setPipeline(this.ratioPipeline); pass.setBindGroup(0, group);
+      pass.dispatchWorkgroups(1); pass.end();
+    });
+    ratio.read(input.preExposure); ratio.read(input.priorExposure);
+    const constants = ratio.write(importedConstants);
     const rcasConstants = graph.import_resource("FSR3/RCAS constants", { kind: "imported", label: "FSR3 RCAS constants" },
       bind("rcas-constants", runtime => runtime.rcasConstants));
     const defaultMask = imported("FSR3/default mask", runtime => runtime.defaultMask);
@@ -260,7 +303,6 @@ export class Fsr3UpscalerRuntime {
     if (!this.pending) throw new Error("FSR3 frame was not prepared");
     this.index = this.writeIndex;
     this.previousJitter = this.pending.jitter;
-    this.previousPreExposure = this.pending.preExposure;
     this.frameIndex = this.pending.frameIndex;
     this.pending = null;
     this.lastSubmittedGpuDone = gpuDone;
@@ -310,7 +352,6 @@ export class Fsr3UpscalerRuntime {
     this.index = 0;
     this.frameIndex = -1;
     this.previousJitter = [0, 0];
-    this.previousPreExposure = 0;
     this.generationValue++;
   }
 

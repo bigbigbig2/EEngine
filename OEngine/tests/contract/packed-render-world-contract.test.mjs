@@ -245,6 +245,8 @@ test("GPU Render World publishes stage and release only when their command commi
   const runtime = fixture.registry.runtime(fixture.scene);
   assert.equal(runtime?.handle, handle);
   assert.equal(runtime.activeShadingSummary.binRefCounts[4], 1);
+  assert.equal(runtime.activeShadingSummary.standardSetRefCounts[0], 1);
+  assert.equal(runtime.activeShadingSummary.coatedSetRefCounts[0], 0);
   assert.equal(runtime.activeShadingSummary.activeBinMaskLo, 1 << 4);
   assert.equal(runtime.activeShadingSummary.opaqueLitReceiverCount, 1);
   const shadingPublication = runtime.shadingPublication;
@@ -543,6 +545,41 @@ test("Packed material patch commits classification and restores the queued patch
   assert.equal(fixture.registry.runtime(fixture.scene).shadingPublication.revision, 2);
   assert.notStrictEqual(fixture.registry.runtime(fixture.scene).shadingPublication, abortedPublication);
   assert.equal(fixture.calls.patches.length, 2);
+});
+
+test("Packed material family counts use the prior instance classification during preview and abort", () => {
+  const fixture = createPackedRegistryFixture();
+  const stage = new FakeCommand("packed-family-stage");
+  fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, stage);
+  stage.finish();
+  const initial = fixture.registry.runtime(fixture.scene).activeShadingSummary;
+  const setId = 4 >> 4;
+  assert.equal(initial.standardSetRefCounts[setId], 1);
+  assert.equal(initial.coatedSetRefCounts[setId], 0);
+
+  fixture.manifest.source.materials[0].clearcoat_factor = 1;
+  fixture.registry.queuePatch(fixture.scene, {
+    frameId: 13,
+    materials: { indices: new Uint32Array([0]), materialIndices: new Uint32Array([0]) }
+  });
+  const preview = fixture.registry.previewNextShadingPublication(fixture.scene).summary;
+  assert.equal(preview.standardSetRefCounts[setId], 0);
+  assert.equal(preview.coatedSetRefCounts[setId], 1);
+  assert.strictEqual(fixture.registry.runtime(fixture.scene).activeShadingSummary, initial);
+
+  const aborted = new FakeCommand("packed-family-abort");
+  fixture.registry.encodePendingPatch(fixture.scene, aborted);
+  const pending = fixture.registry.runtime(fixture.scene).activeShadingSummary;
+  assert.equal(pending.standardSetRefCounts[setId], 0);
+  assert.equal(pending.coatedSetRefCounts[setId], 1);
+  aborted.abort(new Error("injected family patch failure"));
+  assert.strictEqual(fixture.registry.runtime(fixture.scene).activeShadingSummary, initial);
+  const retry = new FakeCommand("packed-family-retry");
+  fixture.registry.encodePendingPatch(fixture.scene, retry);
+  retry.finish();
+  const committed = fixture.registry.runtime(fixture.scene).activeShadingSummary;
+  assert.equal(committed.standardSetRefCounts[setId], 0);
+  assert.equal(committed.coatedSetRefCounts[setId], 1);
 });
 
 test("Packed visibility patch updates ActiveShadingSummary once and abort restores its immutable revision", () => {

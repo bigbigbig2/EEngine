@@ -1,5 +1,7 @@
 /** Phase 1 Renderer configuration. Effects return through semantic products in later phases. */
 export interface RendererConfig {
+  /** Opt in to extended Display-P3 when canvas and display report support. */
+  readonly displayProfile?: "sdr" | "hdr-auto";
   /** Create the VSM resource and pass owners. Disabled for A-D validation runs. */
   readonly enableVsm?: boolean;
   /** Create physical sky and atmosphere resources. Disabled for geometry-only A-D runs. */
