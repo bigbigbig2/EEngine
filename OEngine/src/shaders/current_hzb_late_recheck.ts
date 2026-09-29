@@ -1,3 +1,4 @@
+import { HZB_FOOTPRINT_WGSL } from "./hzb_footprint.js";
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
@@ -9,6 +10,7 @@ import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
  * projection metadata; invalid metadata always remains visible (fail-open).
  */
 export const CURRENT_HZB_LATE_RECHECK_WGSL = /* wgsl */ `
+${HZB_FOOTPRINT_WGSL}
 struct OEngineCurrentHzbLateRecheckHeader {
   attempted_count: atomic<u32>,
   written_count: atomic<u32>,
@@ -63,21 +65,7 @@ fn recheck_candidate_valid(candidate: OEngineCurrentHzbLateRecheckCandidate) -> 
 }
 
 fn recheck_occluded(candidate: OEngineCurrentHzbLateRecheckCandidate) -> bool {
-  let footprint = max(
-    max((candidate.screen_max.x - candidate.screen_min.x) * f32(recheck_settings.view_size.x),
-      (candidate.screen_max.y - candidate.screen_min.y) * f32(recheck_settings.view_size.y)),
-    1.0
-  );
-  let mip = min(u32(ceil(log2(footprint))), recheck_settings.mip_count - 1u);
-  let size = max(recheck_settings.view_size >> vec2u(mip), vec2u(1u));
-  let lo = clamp(vec2i(floor(candidate.screen_min * vec2f(size))), vec2i(0), vec2i(size - 1u));
-  let hi = clamp(vec2i(floor(candidate.screen_max * vec2f(size))), vec2i(0), vec2i(size - 1u));
-  let farthest = min(
-    min(textureLoad(current_hzb, lo, i32(mip)).x,
-      textureLoad(current_hzb, vec2i(hi.x, lo.y), i32(mip)).x),
-    min(textureLoad(current_hzb, vec2i(lo.x, hi.y), i32(mip)).x,
-      textureLoad(current_hzb, hi, i32(mip)).x)
-  );
+  let farthest = hzb_footprint_min_depth(current_hzb, candidate.screen_min, candidate.screen_max);
   return candidate.nearest_depth + recheck_settings.epsilon < farthest;
 }
 
@@ -139,6 +127,7 @@ ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
 
+${HZB_FOOTPRINT_WGSL}
 struct OEngineCurrentHzbMeshletSettings {
   view_size: vec2u,
   mip_count: u32,
@@ -221,18 +210,7 @@ fn current_meshlet_occluded(work: OEngineMeshletRasterWork) -> bool {
   if any(uv_max <= vec2f(0.0)) || any(uv_min >= vec2f(1.0)) { return false; }
   uv_min = clamp(uv_min, vec2f(0.0), vec2f(1.0));
   uv_max = clamp(uv_max, vec2f(0.0), vec2f(1.0));
-  let footprint = max((uv_max.x - uv_min.x) * f32(current_settings.view_size.x),
-    (uv_max.y - uv_min.y) * f32(current_settings.view_size.y));
-  let mip = min(u32(ceil(log2(max(footprint, 1.0)))), current_settings.mip_count - 1u);
-  let size = max(current_settings.view_size >> vec2u(mip), vec2u(1u));
-  let last = vec2i(size - vec2u(1u));
-  let lo = clamp(vec2i(floor(uv_min * vec2f(size))), vec2i(0), last);
-  let hi = clamp(vec2i(floor(uv_max * vec2f(size))), vec2i(0), last);
-  let farthest = min(
-    min(textureLoad(current_hzb_meshlets, lo, i32(mip)).x,
-      textureLoad(current_hzb_meshlets, vec2i(hi.x, lo.y), i32(mip)).x),
-    min(textureLoad(current_hzb_meshlets, vec2i(lo.x, hi.y), i32(mip)).x,
-      textureLoad(current_hzb_meshlets, hi, i32(mip)).x));
+  let farthest = hzb_footprint_min_depth(current_hzb_meshlets, uv_min, uv_max);
   return nearest + current_settings.epsilon < farthest;
 }
 

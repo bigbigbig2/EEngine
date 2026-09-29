@@ -5,6 +5,9 @@ import { resolveTextureView } from "../RenderTargetViews.js";
 import type { VisibilityFeature, PackedVisibilityOutputs } from "../features/VisibilityFeature.js";
 import type { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
 import type { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
+import type { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
+import type { RenderDebugViewResources } from "../passes/RenderDebugViewPass.js";
+import { RenderDebugView as RenderDebugViewValue } from "../../debug/RenderDebugView.js";
 import type { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
 import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import type { BloomPass } from "../passes/BloomPass.js";
@@ -32,6 +35,7 @@ export type FrameProgramOwners = Readonly<{
   radiometry: GpuRadiometryPass;
   bloom: BloomPass;
   present: SurfacePresentPass;
+  debug: RenderDebugViewPass;
   sky: PhysicalSkyPass | null;
   aerial: AerialPerspectivePass | null;
   lightCluster: () => LightClusterPass;
@@ -548,9 +552,24 @@ function lowerPresentation(
     "swapchain", { kind: "imported", label: "swapchain" },
     bind("swapchain", bindings => bindings.swapchain)
   );
+  const debugColor = plan.request.debugView !== undefined &&
+    plan.request.debugView !== RenderDebugViewValue.None
+    ? owners.debug.addToGraph(graph, plan.request.debugView, {
+        visibilityKey: result.frame.visibilityKey,
+        packedVisibility: result.debugResolve,
+        depth: result.frame.depth,
+        velocity: null, gPbr: null, gNormal: null, gAlbedo: null,
+        gEmissive: null, surfaceFlags: null, indirectDiffuse: null,
+        indirectSpecular: null, linearHdr: null,
+        screenSpaceReflectionHitMiss: null, screenSpaceReflectionResolve: null,
+        screenSpaceReflectionTemporal: null, screenSpaceReflectionHistoryConfidence: null
+      } satisfies RenderDebugViewResources,
+      plan.request.outputWidth, plan.request.outputHeight)
+    : null;
+  const displayInput = debugColor ?? bloom;
   const displayColor = owners.present.addToGraph(
-    graph, bloom, swapchain, radiometry.adaptedExposure, gpuPreviousExposure,
-    plan.request.outputWidth, plan.request.outputHeight
+    graph, displayInput, swapchain, radiometry.adaptedExposure, gpuPreviousExposure,
+    plan.request.outputWidth, plan.request.outputHeight, debugColor !== null
   );
   assertTextureProduct(plan, graph, "display-color", displayColor);
 }

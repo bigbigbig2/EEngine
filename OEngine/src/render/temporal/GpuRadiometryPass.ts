@@ -103,7 +103,11 @@ export class GpuRadiometryPass {
   private deltaTime = 1 / 60;
   private lastGpuDone: Promise<void> | null = null;
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(private readonly device: GPUDevice, private readonly autoExposure = true,
+    private readonly fixedExposure = 1) {
+    if (!Number.isFinite(fixedExposure) || fixedExposure <= 0) {
+      throw new RangeError("GPU radiometry fixed exposure must be positive");
+    }
     if (device.limits.maxStorageBuffersPerShaderStage < 3) {
       throw new RangeError("GPU radiometry requires three storage buffers");
     }
@@ -134,7 +138,7 @@ export class GpuRadiometryPass {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.UNIFORM |
           GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
         mappedAtCreation: true });
-      new Float32Array(buffer.getMappedRange()).set([1, 0.18]);
+      new Float32Array(buffer.getMappedRange()).set([this.fixedExposure, 0.18 / this.fixedExposure]);
       buffer.unmap(); return buffer;
     }) as unknown as Pair;
   }
@@ -148,7 +152,8 @@ export class GpuRadiometryPass {
     this.deltaTime = Number.isFinite(deltaTime) ? Math.max(0, Math.min(1, deltaTime)) : 1 / 60;
     if (!historyValid) {
       // Reset P_0 on the device queue; the subsequent frame encoder consumes it.
-      this.device.queue.writeBuffer(this.readBuffer(), 0, new Float32Array([1, 0.18]));
+      this.device.queue.writeBuffer(this.readBuffer(), 0,
+        new Float32Array([this.fixedExposure, 0.18 / this.fixedExposure]));
     }
   }
   readBuffer(): GPUBuffer { return this.buffers[this.readIndex]; }
@@ -168,6 +173,9 @@ export class GpuRadiometryPass {
     bind: RadiometryResourceBinder): RadiometryProducts {
     if (!this.prepared) throw new Error("GPU radiometry must be prepared before graph build");
     const previousExposure = input.previousExposure ?? this.importPreviousExposure(graph, bind);
+    // Both history slots start at 1x and remain constant without an adaptation writer.
+    // Reuse the same exposure for pre-exposure and display, including after history resets.
+    if (!this.autoExposure) return { previousExposure, adaptedExposure: previousExposure };
     const priorExposure = input.priorExposure ?? this.importPriorExposure(graph, bind);
     const makeSettings = () => {
       const values = new Uint32Array([input.width, input.height, 0, Number(this.historyValid)]);

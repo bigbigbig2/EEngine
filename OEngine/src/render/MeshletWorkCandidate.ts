@@ -571,7 +571,8 @@ export class VirtualGeometryMeshletWorkCandidate {
           visibility: GPUShaderStage.COMPUTE,
           buffer: { type: "read-only-storage" as GPUBufferBindingType, minBindingSize: 4 }
         })),
-        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 176 } }
+        { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 176 } },
+        { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 256 } }
       ]
     });
     const module = device.createShaderModule({
@@ -592,6 +593,7 @@ export class VirtualGeometryMeshletWorkCandidate {
   prepare(input: {
     readonly virtualGeometry: GeometryProductGpuBindingsV1;
     readonly visibleClusters: GPUBuffer;
+    readonly viewUniform: GPUBuffer;
     readonly visibleClusterCapacity: number;
     readonly capacity: number;
     readonly counterBuffer: GPUBuffer;
@@ -653,10 +655,7 @@ export class VirtualGeometryMeshletWorkCandidate {
       input.visibleClusterCapacity,
       0
     ]));
-    const bindGroup = this.device.createBindGroup({
-      label: "S1 Product MeshletWork bindings",
-      layout: this.layout,
-      entries: [
+    const entries: GPUBindGroupEntry[] = [
         { binding: 0, resource: { buffer: input.visibleClusters } },
         { binding: 1, resource: { buffer: queue } },
         { binding: 2, resource: { buffer: settings } },
@@ -664,8 +663,11 @@ export class VirtualGeometryMeshletWorkCandidate {
         { binding: 4, resource: { buffer: drawIndirect } },
         { binding: 5, resource: { buffer: input.virtualGeometry.metadata } },
         ...banks.map((buffer, index) => ({ binding: index + 6, resource: { buffer } })),
-        { binding: 10, resource: { buffer: input.scene.instances } }
-      ]
+        { binding: 10, resource: { buffer: input.scene.instances } },
+        { binding: 11, resource: { buffer: input.viewUniform } }
+      ];
+    const bindGroup = this.device.createBindGroup({
+      label: "S1 Product MeshletWork bindings", layout: this.layout, entries
     });
     const prepared = Object.freeze({
       [PREPARED_MESHLET_WORK_CANDIDATE]: true as const,
@@ -685,6 +687,10 @@ export class VirtualGeometryMeshletWorkCandidate {
       drawIndirect,
       settings,
       bindGroup,
+      entries,
+      counterBuffer: input.counterBuffer,
+      countersEnabled: input.countersEnabled,
+      ownedBankBegin: input.virtualGeometry.banks.length,
       banks: Object.freeze(banks),
       visibleClusterCapacity: input.visibleClusterCapacity,
       destroyed: false
@@ -693,8 +699,21 @@ export class VirtualGeometryMeshletWorkCandidate {
     return prepared;
   }
 
-  rebind(): void {
-    // Product bindings are immutable for one prepared visibility work set.
+  rebind(prepared: PreparedMeshletWorkCandidate, input: {
+    counterBuffer: GPUBuffer; countersEnabled: boolean;
+  }): void {
+    const state = this.requireState(prepared);
+    if (state.countersEnabled !== input.countersEnabled) {
+      this.device.queue.writeBuffer(state.settings, 0, new Uint32Array([input.countersEnabled ? 1 : 0]));
+      state.countersEnabled = input.countersEnabled;
+    }
+    if (state.counterBuffer !== input.counterBuffer) {
+      state.entries[3] = { binding: 3, resource: { buffer: input.counterBuffer } };
+      state.bindGroup = this.device.createBindGroup({
+        label: "S1 Product MeshletWork bindings", layout: this.layout, entries: state.entries
+      });
+      state.counterBuffer = input.counterBuffer;
+    }
   }
 
   encode(command: ShadeGPUCommandContext, prepared: PreparedMeshletWorkCandidate): void {
@@ -717,7 +736,7 @@ export class VirtualGeometryMeshletWorkCandidate {
     state.queue.destroy();
     state.drawIndirect.destroy();
     state.settings.destroy();
-    for (const bank of state.banks.slice(4)) bank.destroy();
+    for (const bank of state.banks.slice(state.ownedBankBegin)) bank.destroy();
     PRODUCT_CANDIDATE_STATE.delete(prepared);
     this.prepared.delete(prepared);
   }
@@ -768,7 +787,11 @@ interface ProductCandidateState {
   readonly queue: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
   readonly settings: GPUBuffer;
-  readonly bindGroup: GPUBindGroup;
+  bindGroup: GPUBindGroup;
+  readonly entries: GPUBindGroupEntry[];
+  counterBuffer: GPUBuffer;
+  countersEnabled: boolean;
+  readonly ownedBankBegin: number;
   readonly banks: readonly GPUBuffer[];
   readonly visibleClusterCapacity: number;
   destroyed: boolean;

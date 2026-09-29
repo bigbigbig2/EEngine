@@ -367,9 +367,9 @@ fn product_raster_position(bank: u32, byte_offset: u32, meshlet: OEngineVirtualM
   let stride = format_word0 & 0xffffu;
   let position_offset = format_word1 & 0xffu;
   let at = byte_offset + meshlet.vertex_byte_offset + vertex * stride + position_offset;
-  let q = vec3f(f32(product_raster_u16(bank, at)), f32(product_raster_u16(bank, at + 2u)),
-    f32(product_raster_u16(bank, at + 4u))) / 65535.0;
-  return mix(meshlet.bounds_min, meshlet.bounds_max, q);
+  return vec3f(bitcast<f32>(product_raster_bank_word(bank, at >> 2u)),
+    bitcast<f32>(product_raster_bank_word(bank, (at + 4u) >> 2u)),
+    bitcast<f32>(product_raster_bank_word(bank, (at + 8u) >> 2u)));
 }
 
 fn product_raster_uv(bank: u32, byte_offset: u32, meshlet: OEngineVirtualMeshletHeaderV1,

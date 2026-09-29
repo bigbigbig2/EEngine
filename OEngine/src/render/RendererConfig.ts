@@ -6,6 +6,10 @@ export interface RendererConfig {
   readonly enableVsm?: boolean;
   /** Create physical sky and atmosphere resources. Disabled for geometry-only A-D runs. */
   readonly enablePhysicalEnvironment?: boolean;
+  /** Immutable for the renderer lifetime. False skips metering/adaptation and uses fixedExposure. Default true. */
+  readonly autoExposure?: boolean;
+  /** Fixed scene exposure used when autoExposure is false. Defaults to 1. */
+  readonly fixedExposure?: number;
   /** Use the bounded unlit Surface consumer for Product geometry in A-D validation runs. */
   readonly surfaceVirtualUnlitFallback?: boolean;
   /** Internal visibility resolution relative to the output, in (0, 1]. */
@@ -43,6 +47,10 @@ export function validateRendererConfig(config: RendererConfig): void {
   if (config.textureMaxResolution !== undefined &&
       ![256, 512, 1024, 2048, 4096].includes(config.textureMaxResolution)) {
     throw new RangeError("textureMaxResolution must be a supported texture bank size");
+  }
+  if (config.fixedExposure !== undefined &&
+      (!Number.isFinite(config.fixedExposure) || config.fixedExposure <= 0 || config.fixedExposure > 64)) {
+    throw new RangeError("fixedExposure must be finite and in (0, 64]");
   }
   for (const [index, capacity] of (config.textureBankMaxCapacities ?? []).entries()) {
     if (!Number.isInteger(capacity) || capacity < 1) {

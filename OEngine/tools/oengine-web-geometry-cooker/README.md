@@ -28,7 +28,7 @@ canonical-window builder, and the Phase D optional spill-release hook
 
 ```text
 oengine-web-geometry-cooker.mjs   SHA-256 d7ef6fadde37615d244a82081d44ab7f4e39ef71fa3e10005c94527b5bfa7e5a
-oengine-web-geometry-cooker.wasm  SHA-256 56bbfaf11974b9af2cdfaa5696712d9f1d95a04ea5e38c0d9961e3e42011d765
+oengine-web-geometry-cooker.wasm  SHA-256 8be431b4dc6a96d3c510efa8a3460c80d6788cf5b1225908961e4626b9689b39
 ```
 
 The cooker emits one Product asset per canonical material domain, so a
@@ -64,5 +64,10 @@ The current artifact carries the same ADR-0017/ADR-0018 Phase B ABI
 
 ```text
 threads/oengine-web-geometry-cooker.mjs   SHA-256 7bf8123a706d735908df0f0f50ed10b42d5e27f9cb23b1c0c52f776db9bc4bec
-threads/oengine-web-geometry-cooker.wasm  SHA-256 e0ef7a7bc660c463a0d522e1b2a8f9ed76f64d0ffe0ea9b6b181ce5278e66f4e
+threads/oengine-web-geometry-cooker.wasm  SHA-256 201efaeb7b769b5b3b78ada45ab4fa757a90260a0f18d6054f0b0b23c9a740d3
 ```
+
+2026-09-29: both artifacts rebuilt for nyx-hierarchy-v3.1 and
+static-pbr-page-local-f32-v4. VertexFormat byte 10 is now 1 (Float32x3);
+meshlet-local U16 products must be recooked. Native ABI oracle includes exact
+shared-position bits and terminal LOD error after a rejected simplification.

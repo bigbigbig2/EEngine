@@ -35,7 +35,7 @@ function fixture() {
   const formatView = new DataView(vertexFormats.buffer);
   formatView.setUint16(0, 16, true);
   formatView.setUint16(2, 3, true);
-  formatView.setUint8(5, 6);
+  formatView.setUint8(5, 12); formatView.setUint8(10, 1);
   const descriptor = {
     schemaVersion: 1,
     productId: new Uint8Array(32).fill(2),

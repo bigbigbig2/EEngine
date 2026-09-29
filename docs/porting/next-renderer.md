@@ -8,6 +8,17 @@
 
 复杂算法与渲染效果实施前必须先搜完整 GitHub 源码及可核验论文/详细技术文章，优先跨语言忠实移植固定版本。每项 ledger 需写清源 entry point、完整阶段与关键条件、本地对应入口、WebGPU 必须差异、fallback、oracle/GPU 验证；找不到完整 donor 时记录检索范围与缺口，选择具名本地方案，不得以缩减算法冒充迁移完成。简单确定性工具、ABI 编解码、绑定、队列及资源生命周期接线不强制外部调研，但属本地集成，须与来源算法分别标识；不能将一个复杂效果拆分后按简单任务豁免。
 
+## 2026-09-29：Virtual Geometry 正确性修复
+
+- **固定来源**：Nyx `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`，MIT；本地只读 checkout 与原账本的七个源文件 hash 对齐。参考 `DAGCull.slang::ProcessNodeBatch/ProcessMeshletBatch`、`CullCommon.slang::TestForLod`、`VBufferMesh.slang::GetClipPosition/BuildVertexOutput`。
+- **Meshlet handoff 映射**：`hierarchy_lod.ts` 共享 view ABI/SSE 数学；hierarchy 选择 fine 的 `error > threshold` 与 `virtual_geometry_work.ts` 保留 coarse 的 `error <= threshold` 互补。只有真实 refine target resident 才切换；缺页发 demand 并保留 coarse meshlet，删除 spatial BVH ancestor replacement。`refineGroupId` 按 Product group base 重定位，不误用 asset group base。
+- **有界执行适配**：64 lanes 分两轮处理至多 128 meshlets，逐 meshlet gate 后统一 compaction/reservation。修正原先仅写 0–63 却发布 128 个 work 的错误。保留 overflow/invalid 的 fail-closed indirect 发布规则。无本帧 GPU→CPU→GPU visible control、无额外 production submit。
+- **HZB 边界**：本地 `hzb_footprint.ts` 遍历实际 mip 的完整有界 texel footprint，异常大范围 fail open；`hzb_reduce.ts` 在 RG16F 存储前向外舍入 min/max，含 subnormal 处理。原 ceil-mip 四角方案在 footprint 至多 2×2 时本可保守，不能把“四角”本身当作已证实根因。**Virtual Geometry 的 previous-HZB early rejection 暂停**，直到接通 Nyx two-pass disocclusion recovery；current-HZB recheck 保留，不宣称完整 two-pass 移植。
+- **位置与 cooker**：恢复 Nyx 的 Float32 xyz，统一 Native/WASM producer、Visibility raster、Surface 和 VSM 位置消费者；VSM 不启用。VertexFormat byte 10 为 `positionEncoding=1`，旧 U16 Product/pack 必须 recook，无双解码路径。recipe identity 升至 `nyx-hierarchy-v3.1` / `static-pbr-page-local-f32-v4`。简化因 minimumLodReduction 提前停止时，将丢弃替代物对应的 terminal group parentError 恢复为 FLT_MAX，避免远处无替代物却被 SSE 剔除。
+- **实际验证**：RTX 2060 SUPER、D3D12 driver 32.0.15.9186，Dawn Node 0.6.1；production candidate owner 跑通 40 组 GPU readback（1/63/64/65/128 × leaf/missing/near/far/equal/mixed/overflow/invalid），16,384 个 RG16F 深度边界与 1,296 个 NPOT/clear-hole footprint 查询通过，8 个涉及的 production WGSL modules 编译通过。Native cooker ABI oracle 覆盖公共顶点逐 bit 相等与 terminal LOD；Native/WASM 同 GLB 对照通过。工具只安装于 `.tmp/gpu-check`，不加入 production 依赖。
+- **构建与局部回归**：OEngine typecheck/build、examples build:examples、单线程及 pthread WASM 构建、Native cooker 构建通过；56 项 contract/oracle/scheduler 测试通过，另有 Native/WASM 同 GLB 对照与 validation overflow-source 检查通过。examples 构建仍有已有的 large.glb 缺失及大 chunk 警告。
+- **未完成验证及成本**：本地 Chrome 插件缺少 `scripts/browser-client.mjs`，本轮未取得 Showcase 近距离/旋转截图；Dawn GPU oracle 不替代浏览器整链画面验证。位置从 6 B 增加到 12 B/vertex，最终 stride 按 4 B 对齐；关闭 previous-HZB 可能增加 work。本轮不作性能提升或完整 Nyx runtime parity 声明。
+
 ## 1. 推荐总表
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |

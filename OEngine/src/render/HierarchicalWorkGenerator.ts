@@ -132,6 +132,8 @@ export interface HierarchicalWorkEvidenceLayout {
 }
 
 export interface GeneratedHierarchyWork {
+  /** Shared per-frame view/SSE for the complementary meshlet LOD gate. */
+  readonly viewUniform: GPUBuffer;
   /** Header begins at byte 0; VisibleCluster records begin at byte 32. */
   readonly visibleClusters: GPUBuffer;
   readonly visibleClusterCapacity: number;
@@ -706,6 +708,7 @@ export class HierarchicalWorkGenerator {
         totalHeaderCount: evidenceHeaderCount
       });
       const generated = Object.freeze({
+        viewUniform,
         visibleClusters: selectedQueue,
         visibleClusterCapacity: scene.visibleClusterCapacity,
         rasterWork: rasterQueue,

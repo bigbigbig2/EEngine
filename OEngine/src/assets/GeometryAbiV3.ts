@@ -59,6 +59,8 @@ export interface GeometryAssetRecordV3 {
 }
 
 export interface VertexFormatRecordV3 {
+  /** Byte 10: Float32x3. U16 products are rejected and must be recooked. */
+  readonly positionEncoding: 1;
   readonly strideBytes: number;
   readonly attributeMask: number;
   readonly positionOffset: number;

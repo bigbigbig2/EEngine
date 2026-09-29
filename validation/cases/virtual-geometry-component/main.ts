@@ -38,7 +38,7 @@ try {
       device = await adapter.requestDevice({
         label: "S1 Product ABI validation",
         requiredFeatures: ["core-features-and-limits"],
-        requiredLimits: { maxStorageBuffersPerShaderStage: 9 }
+        requiredLimits: { maxStorageBuffersPerShaderStage: 10 }
       });
       errorCollection = attachGpuErrorCollection(device, controller, () => intentionalLoss);
       controller.addEvidence("device", { features: snapshotGpuFeatures(device.features), limits: snapshotGpuLimits(device.limits) });
@@ -86,6 +86,7 @@ try {
       page[16] = 3 | (1 << 16); page[17] = 168; page[18] = 160;
       page[22] = 0; page[23] = 0; page[24] = 0x3f800000; page[25] = 0x3f800000; page[26] = 0x3f800000;
       page[27] = 0x3f800000; page[28] = 3 | (1 << 16); page[29] = 168; page[30] = 163;
+      page[19] = 0xffffffff; page[31] = 0xffffffff;
       const input = device.createBuffer({ label: "S1 Product metadata fixture", size: metadata.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
       const pageBuffer = device.createBuffer({ label: "S1 Product resident page fixture", size: page.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       const output = device.createBuffer({ label: "S1 Product metadata readback source", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
@@ -104,7 +105,7 @@ try {
       const pipeline = oracleResult.value;
       const bindGroup = device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: input } }, { binding: 1, resource: { buffer: pageBuffer } }, { binding: 2, resource: { buffer: output } }] });
 
-      const visibleBytes = new Uint8Array(52);
+      const visibleBytes = new Uint8Array(56);
       const visibleView = new DataView(visibleBytes.buffer);
       visibleView.setUint32(0, 1, true); visibleView.setUint32(4, 1, true);
       visibleView.setUint32(8, 1, true); visibleView.setUint32(20, 1, true);
@@ -123,6 +124,11 @@ try {
       device.queue.writeBuffer(workBuffer, 0, workBytes);
       device.queue.writeBuffer(settingsBuffer, 0, new Uint32Array([1, 1, 1, 0]));
 
+      const instanceBuffer = device.createBuffer({ label: "Product overflow instance", size: 176, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      const instanceWords = new Uint32Array(44); instanceWords[11] = 1;
+      device.queue.writeBuffer(instanceBuffer, 0, instanceWords);
+      const viewBuffer = device.createBuffer({ label: "Product overflow LOD view", size: 256, usage: GPUBufferUsage.UNIFORM });
+      owned.push(instanceBuffer, viewBuffer);
       const overflowLayout = device.createBindGroupLayout({
         label: "S5 Product overflow bind group layout",
         entries: [
@@ -135,7 +141,9 @@ try {
           { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
           { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
           { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-          { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
+          { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+          { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+          { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
         ]
       });
       const overflowPipelineLayout = device.createPipelineLayout({ label: "S5 Product overflow pipeline layout", bindGroupLayouts: [overflowLayout] });
@@ -158,7 +166,9 @@ try {
           { binding: 6, resource: { buffer: pageBuffer } },
           { binding: 7, resource: { buffer: pageBuffer } },
           { binding: 8, resource: { buffer: pageBuffer } },
-          { binding: 9, resource: { buffer: pageBuffer } }
+          { binding: 9, resource: { buffer: pageBuffer } },
+          { binding: 10, resource: { buffer: instanceBuffer } },
+          { binding: 11, resource: { buffer: viewBuffer } }
         ]
       });
       controller.transition("warming");

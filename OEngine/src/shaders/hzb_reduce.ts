@@ -8,6 +8,19 @@ fn sanitize_reverse_z(depth: f32) -> f32 {
   return select(clamp(depth, 0.0, 1.0), 0.0, depth != depth);
 }
 
+fn conservative_rg16_bounds(farthest: f32, nearest: f32) -> vec2f {
+  // RG16F stores must not round reverse-Z minima toward the viewer. Round
+  // outward once here; subsequent pyramid levels preserve representable bounds.
+  var lo = pack2x16float(vec2f(farthest, 0.0)) & 0xffffu;
+  var hi = pack2x16float(vec2f(nearest, 0.0)) & 0xffffu;
+  if (unpack2x16float(lo).x > farthest && lo > 0u) { lo -= 1u; }
+  if (unpack2x16float(hi).x < nearest) { hi += 1u; }
+  // Also conservative on implementations that flush f16 subnormals.
+  if (farthest < 0.00006103515625) { lo = 0u; }
+  if (nearest > 0.0 && nearest < 0.00006103515625) { hi = 0x0400u; }
+  return vec2f(unpack2x16float(lo).x, unpack2x16float(hi).x);
+}
+
 fn coverage_first(coord: u32, source_size: u32, output_size: u32) -> u32 {
   return (coord * source_size) / output_size;
 }
@@ -56,7 +69,7 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       nearest = max(nearest, depth);
     }
   }
-  textureStore(output_hzb, vec2i(gid.xy), vec4f(farthest, nearest, 0.0, 0.0));
+  textureStore(output_hzb, vec2i(gid.xy), vec4f(conservative_rg16_bounds(farthest, nearest), 0.0, 0.0));
 }
 `;
 
@@ -90,6 +103,6 @@ fn main(@builtin(global_invocation_id) gid: vec3u) {
       nearest = max(nearest, sanitize_reverse_z(min_max.y));
     }
   }
-  textureStore(output_hzb, vec2i(gid.xy), vec4f(farthest, nearest, 0.0, 0.0));
+  textureStore(output_hzb, vec2i(gid.xy), vec4f(conservative_rg16_bounds(farthest, nearest), 0.0, 0.0));
 }
 `;

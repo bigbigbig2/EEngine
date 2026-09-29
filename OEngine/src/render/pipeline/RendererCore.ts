@@ -30,6 +30,8 @@ import { TemporalFabric } from "../TemporalFabric.js";
 import { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
 import { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import { BloomPass } from "../passes/BloomPass.js";
+import { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
+import { RenderDebugView as RenderDebugViewValue, type RenderDebugView } from "../../debug/RenderDebugView.js";
 import { captureGpuAdapterIdentity, type BenchmarkAdapterIdentity } from "../../debug/EnvironmentManifest.js";
 import type { HierarchicalZBuffer } from "../HierarchicalZBuffer.js";
 import type { PerspectiveCamera } from "../../camera/PerspectiveCamera.js";
@@ -288,6 +290,7 @@ export class Renderer {
   private _temporalFacts!: TemporalFactsPass;
   private _gpuRadiometry!: GpuRadiometryPass;
   private _bloom!: BloomPass;
+  private _renderDebugViewPass!: RenderDebugViewPass;
   private _fsr3!: Fsr3UpscalerRuntime;
   private _historyRuntime: GpuRenderWorldRuntime | null = null;
   private _sceneHistoryEpoch = 0;
@@ -334,12 +337,15 @@ export class Renderer {
   private readonly _vsmGeneration = new VsmGeneration();
   private _vsmCasterPublicationRevision = 0;
   private _shadowVisibilityEnabled = true;
+  private _render_debug_view: RenderDebugView = RenderDebugViewValue.None;
   private _lastFrameGraph: Readonly<{ cacheKey: string; dump: CompiledFrameGraphDump;
     resources: FrameResourceSummary; program: Pick<FrameProgram, "products" | "facts" | "stages" | "bindingRoles"> }> | null = null;
   private readonly _graphCache = new CompiledFrameGraphCache(8);
   private readonly _programCache = new FrameProgramCache(8);
   protected deviceEpoch = 1;
   packed_visibility_sse_threshold = 4;
+  /** Showcase/debug hosts can disable subpixel jitter while inspecting geometry. */
+  temporal_jitter_enabled = true;
   packed_geometry_work_budget: GeometryWorkBudget = DEFAULT_GEOMETRY_WORK_BUDGET;
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
@@ -373,11 +379,28 @@ export class Renderer {
   get vsmCapabilities() { return this._vsm?.capabilities ?? null; }
   /** GPU-resident VSM diagnostic locations; never a CPU work-control input. */
   vsmDiagnostics(): VsmDiagnostics | null { return this._vsm?.diagnostics() ?? null; }
+  /** GPU-driven geometry residency evidence for a published Scene. */
+  geometryStreamingEvidence(scene: Scene): ReturnType<GeometryPageStreamingRuntimeV1["evidence"]> | null {
+    return this._virtualProductScenes.get(scene)?.streamingRuntime?.evidence() ?? null;
+  }
+  /** Drops temporal/exposure history after a diagnostic feature or camera cut changes. */
+  invalidateTemporalHistory(): void {
+    this._temporal.invalidate();
+    this._fsr3.invalidate();
+  }
   get shadowVisibilityEnabled(): boolean { return this._shadowVisibilityEnabled; }
   set shadowVisibilityEnabled(enabled: boolean) {
     if (this._shadowVisibilityEnabled === enabled) return;
     this._shadowVisibilityEnabled = enabled;
     if (enabled) this._vsmGeneration.invalidate();
+  }
+  get render_debug_view(): RenderDebugView { return this._render_debug_view; }
+  set render_debug_view(view: RenderDebugView) {
+    if (this._render_debug_view === view) return;
+    this._render_debug_view = view;
+    this._programCache.clear();
+    this._temporal.invalidate();
+    this._fsr3?.invalidate();
   }
   get views(): ViewManager { return this._views; }
   get output_resolution(): Vec2 { return this._output_resolution.clone(); }
@@ -1183,8 +1206,9 @@ export class Renderer {
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
     this._temporalFacts = new TemporalFactsPass(device);
-    this._gpuRadiometry = new GpuRadiometryPass(device);
+    this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
     this._bloom = new BloomPass(device);
+    this._renderDebugViewPass = new RenderDebugViewPass(this._graphics);
     this._fsr3 = new Fsr3UpscalerRuntime(device);
     // The pinned Takram LUT profile is device-local and recorded into the
     // first frame submission; consumers can bind its immutable views by
@@ -1234,6 +1258,7 @@ export class Renderer {
       temporalFacts: this._temporalFacts,
       radiometry: this._gpuRadiometry,
       bloom: this._bloom,
+      debug: this._renderDebugViewPass,
       xeGtaoPreparation: this._xeGtaoPreparation,
       xeGtaoMain: this._xeGtaoMain,
       xeGtaoDenoise: this._xeGtaoDenoise,
@@ -1315,7 +1340,9 @@ export class Renderer {
         featureRevision: Number(this.packed_visibility_hzb_enabled), formatRevision: 1,
         deviceRevision: this.deviceEpoch,
         preExposure,
-        temporalEnabled: true, nssEnabled: false
+        temporalEnabled: true, nssEnabled: false,
+        taaJitter: this.temporal_jitter_enabled && this._render_debug_view === RenderDebugViewValue.None
+          ? undefined : [0, 0]
       });
       temporalActive = true;
       this._graphics.encodeFrameMaintenance(command);
@@ -1374,6 +1401,14 @@ export class Renderer {
         let matrixDelta = 0;
         for (let index = 0; index < 16; index++) {
           matrixDelta = Math.max(matrixDelta, Math.abs(currentViewMatrix[index]! - previousViewMatrix[index]!));
+        }
+        // The current WebGPU visibility path has one previous-HZB producer
+        // and no Nyx-style current-view recovery pass.  A moving camera can
+        // therefore make newly exposed geometry look occluded by the old
+        // view.  Invalidate HZB for every real matrix change; the next stable
+        // frame rebuilds it and restores the fast path without dropping work.
+        if (matrixDelta > 1e-5) {
+          hzb.invalidate("camera-cut");
         }
         // Camera motion invalidates temporal data, but never changes graph topology.
         if (matrixDelta > 0.25) {
@@ -1488,7 +1523,8 @@ export class Renderer {
           ? this._vsm!.profile : hasLit ? "shadow-disabled" : "off",
         physicalEnvironment: this._environmentRuntime !== null,
         fsr3Enabled: this.fsr3_enabled,
-        bloomEnabled: this.bloom_enabled
+        bloomEnabled: this.bloom_enabled,
+        debugView: this._render_debug_view
       });
       assertFrameProgramBindings(program, graphBindings);
       const graphKey = program.key;
@@ -1632,8 +1668,9 @@ export class Renderer {
     this._fsr3?.destroy();
       this._present?.destroy();
       this._temporalFacts?.destroy();
-      this._gpuRadiometry?.destroy();
+    this._gpuRadiometry?.destroy();
     this._bloom?.destroy();
+    this._renderDebugViewPass?.destroy();
     this._vsm?.destroy();
     this._vsm = null;
     this._vsmReceiverDemand?.destroy();

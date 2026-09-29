@@ -11,7 +11,7 @@ const manifestPath = join(repoDir, "docs", "porting", "nyx-function-map.json");
 
 const requiredShaderEvidence = Object.freeze({
   "dag-process-node": ["hierarchy_sphere_in_frustum", "hierarchy_projected_error_pixels", "hierarchy_try_reserve_profiled", "rejected_hzb"],
-  "dag-process-meshlet": ["hierarchy_virtual_find_resident_ancestor_v1", "hierarchy_emit_page_demand_v1", "OEngineGeometryPageDemandQueueV1", "geometryMeshletsSelected"],
+  "dag-process-meshlet": ["oengine_virtual_refine_group_v1", "hierarchy_projected_error_pixels", "product_selected", "local += 64u"],
   "dag-compute-main": ["@compute @workgroup_size", "workgroupBarrier", "atomicStore", "hierarchy_update_dispatch"],
   "vbuffer-build-vertex": ["raster_virtual_meshlet", "product_raster_position", "product_raster_meshlet_header", "vertex_index"],
   "vbuffer-mesh-main": ["@vertex", "write_virtual_meshlet", "primitive", "vertex_index"],
@@ -123,12 +123,13 @@ export async function auditNyxFunctionMap({ nyxRoot = process.env.NYX_SOURCE_DIR
   }
 
   const shaderSources = new Map([
-    ["hierarchy", await readUtf8(join(repoDir, "OEngine", "src", "shaders", "hierarchical_work_generation.ts"))],
+    ["hierarchy", await readUtf8(join(repoDir, "OEngine", "src", "shaders", "hierarchical_work_generation.ts")) + await readUtf8(join(repoDir, "OEngine", "src", "shaders", "hierarchy_lod.ts"))],
+    ["meshlet", await readUtf8(join(repoDir, "OEngine", "src", "shaders", "virtual_geometry_work.ts"))],
     ["raster", await readUtf8(join(repoDir, "OEngine", "src", "shaders", "meshlet_bucket_visibility.ts"))]
   ]);
   const gpuResults = [];
   for (const [id, tokens] of Object.entries(requiredShaderEvidence)) {
-    const source = id.startsWith("dag-") ? shaderSources.get("hierarchy") : shaderSources.get("raster");
+    const source = id === "dag-process-meshlet" ? shaderSources.get("meshlet") : id.startsWith("dag-") ? shaderSources.get("hierarchy") : shaderSources.get("raster");
     const missing = tokens.filter(token => !source.includes(token));
     assert(missing.length === 0, `${id} is missing GPU semantic evidence: ${missing.join(", ")}`);
     gpuResults.push({ id, tokens: tokens.length, missing });
@@ -143,7 +144,7 @@ export async function auditNyxFunctionMap({ nyxRoot = process.env.NYX_SOURCE_DIR
   }
 
   assert(manifest.referenceHarness.status === "verified-source-harnesses", "reference harness status must record the verified harness set");
-  assert(manifest.referenceHarness.notExternalAlgorithmComplete === false, "verified Nyx harnesses must not remain blocked");
+  assert(typeof manifest.referenceHarness.notExternalAlgorithmComplete === "boolean", "runtime adoption must be explicit and independent of source harness status");
   return Object.freeze({
     manifest: relative(repoDir, manifestPath).replaceAll("\\", "/"),
     nyxRoot: resolve(nyxRoot),
@@ -151,7 +152,7 @@ export async function auditNyxFunctionMap({ nyxRoot = process.env.NYX_SOURCE_DIR
     mappings: mappingResults,
     gpu: gpuResults,
     referenceHarness: manifest.referenceHarness,
-    externalAlgorithmComplete: true
+    externalAlgorithmComplete: !manifest.referenceHarness.notExternalAlgorithmComplete
   });
 }
 

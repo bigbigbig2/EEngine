@@ -1,9 +1,9 @@
 import { counterByteOffset } from "../debug/GpuFrameCounters.js";
+import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import {
   GPU_MESHLET_RASTER_WORK_WGSL,
-  GPU_MESHLET_DECODE_PROFILE,
-  GPU_MESHLET_RASTER_FLAGS
+  GPU_MESHLET_DECODE_PROFILE
 } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import {
   GPU_VISIBLE_CLUSTER_RECORD_SCHEMA,
@@ -30,6 +30,7 @@ ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_WORK_GENERATION_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
+${HIERARCHY_LOD_WGSL}
 
 struct OEngineCandidateVisibleHeaderRead {
   written: u32,
@@ -69,7 +70,11 @@ struct OEngineDrawIndirectArgs {
 @group(0) @binding(8) var<storage, read> product_bank_2: array<u32>;
 @group(0) @binding(9) var<storage, read> product_bank_3: array<u32>;
 @group(0) @binding(10) var<storage, read> product_instances: array<OEngineInstanceRecord>;
+@group(0) @binding(11) var<uniform> product_view: OEngineHierarchyView;
 
+var<workgroup> product_selected: array<u32, 128>;
+var<workgroup> product_offsets: array<u32, 128>;
+var<workgroup> product_visible_count: u32;
 var<workgroup> product_group_base: u32;
 var<workgroup> product_group_count: u32;
 var<workgroup> product_group_id: u32;
@@ -84,12 +89,6 @@ fn product_bank_word(bank: u32, word: u32) -> u32 {
   if (bank == 1u) { return product_bank_1[word]; }
   if (bank == 2u) { return product_bank_2[word]; }
   return product_bank_3[word];
-}
-
-fn product_meshlet_counts(bank: u32, byte_offset: u32, header_offset: u32, local: u32) -> vec2u {
-  let at = (byte_offset + header_offset + local * 48u) >> 2u;
-  let counts = product_bank_word(bank, at);
-  return vec2u(counts & 0xffffu, counts >> 16u);
 }
 
 fn product_reserve(count: u32) -> u32 {
@@ -126,7 +125,8 @@ fn prepare_virtual_geometry_work() {
 @compute @workgroup_size(64)
 fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
   @builtin(local_invocation_index) lane: u32) {
-  let visible_count = min(product_visible.header.written, product_visible.header.capacity);
+  if (lane == 0u) { product_visible_count = min(product_visible.header.written, product_visible.header.capacity); }
+  let visible_count = workgroupUniformLoad(&product_visible_count);
   if (group.x >= visible_count || group.x >= product_settings.visible_capacity) { return; }
   if (lane == 0u) {
     product_group_valid = 0u;
@@ -151,30 +151,75 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
         product_group_meshlet_offset = meshlet_offset;
         product_group_payload = payload;
         product_group_count = meshlets;
-        product_group_base = product_reserve(meshlets);
-        product_group_valid = select(0u, 1u, product_group_base != 0xffffffffu);
+        product_group_valid = 1u;
       }
     }
     if (product_group_valid == 0u) {
       atomicAdd(&product_work.header.invalid_count, 1u);
     }
   }
-  workgroupBarrier();
-  if (product_group_valid == 0u || lane >= product_group_count) { return; }
+  let group_valid = workgroupUniformLoad(&product_group_valid);
+  if (group_valid == 0u) { return; }
   let visible = product_visible.elements[group.x];
-  let counts = product_meshlet_counts(product_group_page_bank, product_group_page_byte,
-    product_group_meshlet_offset, lane);
-  let triangle_count = counts.y;
-  if (triangle_count == 0u || triangle_count > 128u) {
-    if (lane == 0u) { atomicAdd(&product_work.header.invalid_count, 1u); }
-    return;
+  let instance = product_instances[visible.instance_record_index];
+  let asset = oengine_geometry_product_resolve_asset_v1(
+    &product_heap, visible.geometry_record_index, oengine_instance_geometry_generation(instance));
+  let transform = oengine_instance_current_object_to_world(instance);
+  // Nyx DAGCull::ProcessMeshletBatch: retain coarse geometry while its actual
+  // refine group is missing. Use exactly the complementary hierarchy SSE gate.
+  // A group has up to 128 meshlets; all 64 lanes process both halves.
+  for (var local = lane; local < product_group_count; local += 64u) {
+    let at = (product_group_page_byte + product_group_meshlet_offset + local * 48u) >> 2u;
+    let counts = product_bank_word(product_group_page_bank, at);
+    let vertex_count = counts & 0xffffu;
+    let triangle_count = counts >> 16u;
+    var keep = vertex_count > 0u && vertex_count <= 128u &&
+      triangle_count > 0u && triangle_count <= 128u;
+    if (!keep) { atomicAdd(&product_work.header.invalid_count, 1u); }
+    let refine_local = product_bank_word(product_group_page_bank, at + 3u);
+    if (keep && refine_local != 0xffffffffu) {
+      // Payload IDs are product-local; the heap group directory is global.
+      let refine = oengine_virtual_refine_group_v1(&product_heap, asset, refine_local);
+      if (!refine.valid) {
+        atomicAdd(&product_work.header.invalid_count, 1u);
+        keep = false;
+      } else {
+        let location = oengine_geometry_product_lookup_page_heap_v1(&product_heap, asset, refine.page_id);
+        if (refine.valid && location.valid && location.bank_index < 4u) {
+          let header = (location.byte_offset + refine.offset_in_page) >> 2u;
+          let sphere = vec4f(
+            bitcast<f32>(product_bank_word(location.bank_index, header)),
+            bitcast<f32>(product_bank_word(location.bank_index, header + 1u)),
+            bitcast<f32>(product_bank_word(location.bank_index, header + 2u)),
+            bitcast<f32>(product_bank_word(location.bank_index, header + 3u)));
+          let error = bitcast<f32>(product_bank_word(location.bank_index, header + 10u));
+          keep = hierarchy_projected_error_pixels(error, hierarchy_transform_sphere(sphere, transform),
+            hierarchy_conservative_scale(transform), &product_view) <= product_view.sse.x;
+        }
+      }
+    }
+    product_selected[local] = select(0u, 1u, keep);
   }
-  let encoded_group_meshlet = (product_group_id << 7u) | lane;
-  let packed = ${GPU_MESHLET_DECODE_PROFILE.VirtualGeometryProductV1}u |
-    (0u << 8u) | (0u << 16u);
-  product_work.elements[product_group_base + lane] = OEngineMeshletRasterWork(
-    visible.instance_record_index, visible.geometry_record_index,
-    encoded_group_meshlet, visible.material_handle, visible.raster_flags, packed);
+  workgroupBarrier();
+  if (lane == 0u) {
+    var count = 0u;
+    for (var local = 0u; local < product_group_count; local++) {
+      product_offsets[local] = count;
+      count += product_selected[local];
+    }
+    product_group_base = 0xffffffffu;
+    if (count != 0u) { product_group_base = product_reserve(count); }
+  }
+  workgroupBarrier();
+  if (product_group_base == 0xffffffffu) { return; }
+  for (var local = lane; local < product_group_count; local += 64u) {
+    if (product_selected[local] == 0u) { continue; }
+    let encoded_group_meshlet = (product_group_id << 7u) | local;
+    let packed = ${GPU_MESHLET_DECODE_PROFILE.VirtualGeometryProductV1}u;
+    product_work.elements[product_group_base + product_offsets[local]] = OEngineMeshletRasterWork(
+      visible.instance_record_index, visible.geometry_record_index,
+      encoded_group_meshlet, visible.material_handle, visible.raster_flags, packed);
+  }
 }
 
 @compute @workgroup_size(1)

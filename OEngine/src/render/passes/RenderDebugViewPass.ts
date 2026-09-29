@@ -167,9 +167,7 @@ export class RenderDebugViewPass {
         uintTextureEntry(0),
         storageBufferEntry(1),
         storageBufferEntry(2),
-        storageBufferEntry(3),
-        storageBufferEntry(4),
-        uniformEntry(5, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE)
+        uniformEntry(3, GPU_VISIBILITY_DEBUG_SETTINGS_SIZE)
       ],
       surfaceProfile
     );
@@ -242,8 +240,6 @@ export class RenderDebugViewPass {
           bindings.push({ buffer: lookup.meshletWork });
         } else if (lookup !== null) {
           bindings.push(
-            { buffer: lookup.instances },
-            { buffer: lookup.meshlets },
             { buffer: lookup.meshletWork },
             { buffer: lookup.materials }
           );

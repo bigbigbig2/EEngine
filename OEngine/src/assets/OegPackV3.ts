@@ -218,8 +218,9 @@ function parsePageDirectory(view: DataView, at: number): GeometryPageDirectoryV3
 }
 
 function parseVertexFormat(view: DataView, at: number): VertexFormatRecordV3 {
-  if (new Uint8Array(view.buffer, view.byteOffset + at + 10, 6).some(value => value !== 0)) throw new OegPackV3Error("vertex format reserved bytes are invalid");
-  return Object.freeze({ strideBytes: view.getUint16(at, true), attributeMask: view.getUint16(at + 2, true), positionOffset: view.getUint8(at + 4), normalOffset: view.getUint8(at + 5), tangentOffset: view.getUint8(at + 6), uv0Offset: view.getUint8(at + 7), uv1Offset: view.getUint8(at + 8), colorOffset: view.getUint8(at + 9) });
+  if (new Uint8Array(view.buffer, view.byteOffset + at + 11, 5).some(value => value !== 0)) throw new OegPackV3Error("vertex format reserved bytes are invalid");
+  if (view.getUint8(at + 10) !== 1) throw new OegPackV3Error("obsolete position encoding: recook as Float32x3");
+  return Object.freeze({ positionEncoding: 1, strideBytes: view.getUint16(at, true), attributeMask: view.getUint16(at + 2, true), positionOffset: view.getUint8(at + 4), normalOffset: view.getUint8(at + 5), tangentOffset: view.getUint8(at + 6), uv0Offset: view.getUint8(at + 7), uv1Offset: view.getUint8(at + 8), colorOffset: view.getUint8(at + 9) });
 }
 
 function validateTableRanges(header: OegPackHeaderV3, metadataBytes: number): void {
@@ -325,7 +326,7 @@ function validateMetadata(
   }
   for (let index = 0; index < formats.length; index++) {
     const format = formats[index]!;
-    if ((format.attributeMask & 3) !== 3 || (format.attributeMask & ~0x3f) !== 0 || !format.strideBytes || format.positionOffset + 6 > format.strideBytes || format.normalOffset + 4 > format.strideBytes) throw new OegPackV3Error(`vertex format ${index} is invalid`);
+    if ((format.attributeMask & 3) !== 3 || (format.attributeMask & ~0x3f) !== 0 || !format.strideBytes || (format.positionOffset & 3) !== 0 || (format.strideBytes & 3) !== 0 || format.positionOffset + 12 > format.strideBytes || format.normalOffset + 4 > format.strideBytes) throw new OegPackV3Error(`vertex format ${index} is invalid`);
     const optionalAttributes: ReadonlyArray<readonly [number, number]> = [
       [format.tangentOffset, 6], [format.uv0Offset, 4], [format.uv1Offset, 4], [format.colorOffset, 4],
     ];

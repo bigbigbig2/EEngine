@@ -12,7 +12,7 @@ function fixture() {
   const hierarchy = new Uint8Array(48), hv = new DataView(hierarchy.buffer); hv.setFloat32(12, 1, true); hv.setUint32(44, 1, true);
   const groups = new Uint8Array(16), gv = new DataView(groups.buffer); gv.setUint32(8, 64, true); gv.setUint32(12, 1, true);
   const pages = new Uint8Array(32); pages.set(hash.subarray(0, 16)); new DataView(pages.buffer).setUint32(20, 1, true);
-  const formats = new Uint8Array(16), fv = new DataView(formats.buffer); fv.setUint16(0, 16, true); fv.setUint16(2, 3, true); fv.setUint8(5, 6);
+  const formats = new Uint8Array(16), fv = new DataView(formats.buffer); fv.setUint16(0, 16, true); fv.setUint16(2, 3, true); fv.setUint8(5, 12); fv.setUint8(10, 1);
   return { schemaVersion: 1, productId: new Uint8Array(32).fill(2), revision: 4, replaces: { productId: new Uint8Array(32).fill(7), revision: 3 }, producerKind: "web-runtime", producerId: "oengine-web-nyx", producerVersion: "1.0-test", sourceIdentityKind: "session", sourceIdentityHash: new Uint8Array(32).fill(3), recipeHash: new Uint8Array(32).fill(4), runtimeProfile: "oengine-vg-v1-v3-decoded", decodedPageBytes: 262144, assetRecords: asset, rootNodeIds: new Uint32Array([0]), hierarchyNodes: hierarchy, groupDirectory: groups, pageRecords: pages, bootstrapPageIds: new Uint32Array([0]), vertexFormats: formats, activationPageIds: new Uint32Array([0]) };
 }
 
@@ -21,7 +21,7 @@ test("Geometry Product descriptor binary V1 has canonical deterministic bytes an
   assert.equal(encoded.byteLength % 16, 0); assert.equal(new DataView(encoded).getUint32(0, true), binary.GEOMETRY_PRODUCT_BINARY_MAGIC_V1);
   assert.equal(decoded.producerId, descriptor.producerId); assert.equal(decoded.producerVersion, descriptor.producerVersion); assert.deepEqual([...decoded.productId], [...descriptor.productId]); assert.deepEqual([...decoded.rootNodeIds], [0]); assert.deepEqual(decoded.replaces, descriptor.replaces);
   assert.deepEqual(new Uint8Array(binary.encodeGeometryProductDescriptorBinaryV1(decoded)), new Uint8Array(encoded));
-  assert.equal(createHash("sha256").update(new Uint8Array(encoded)).digest("hex"), "20e439c5cd9a9f580e41edde5f803123618ca28f854170b20298a743acbb1c0a");
+  assert.equal(createHash("sha256").update(new Uint8Array(encoded)).digest("hex"), "d4e43da182922400f38ea6665c9bbe0f1b25fe936dd00d92c1381e6488ee450e");
 });
 
 test("Geometry Product descriptor binary V1 rejects reserved, alias, padding and trailing corruption", () => {

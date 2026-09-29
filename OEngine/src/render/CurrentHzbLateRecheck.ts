@@ -447,15 +447,17 @@ function candidateOccluded(
   );
   const [levelWidth, levelHeight] = hzbLevelDimensions(view.width, view.height, mip);
   const level = view.levels[mip]!;
-  const points: readonly [number, number][] = [
-    [minX, minY], [maxX, minY], [minX, maxY], [maxX, maxY]
-  ];
+  const loX = Math.max(0, Math.min(levelWidth - 1, Math.floor(minX * levelWidth)));
+  const loY = Math.max(0, Math.min(levelHeight - 1, Math.floor(minY * levelHeight)));
+  const hiX = Math.max(0, Math.min(levelWidth - 1, Math.floor(maxX * levelWidth)));
+  const hiY = Math.max(0, Math.min(levelHeight - 1, Math.floor(maxY * levelHeight)));
+  if (hiX - loX > 3 || hiY - loY > 3) return false;
   let occluderFarthest = 1;
-  for (const [x, y] of points) {
-    const ix = Math.max(0, Math.min(levelWidth - 1, Math.floor(x * levelWidth)));
-    const iy = Math.max(0, Math.min(levelHeight - 1, Math.floor(y * levelHeight)));
-    const offset = (iy * levelWidth + ix) * 2;
-    occluderFarthest = Math.min(occluderFarthest, sanitizeReverseZDepth(level.minMax[offset]!));
+  for (let y = loY; y <= hiY; y++) {
+    for (let x = loX; x <= hiX; x++) {
+      const offset = (y * levelWidth + x) * 2;
+      occluderFarthest = Math.min(occluderFarthest, sanitizeReverseZDepth(level.minMax[offset]!));
+    }
   }
   return isReverseZOccluded(candidate.nearestDepth, occluderFarthest, epsilon);
 }

@@ -81,3 +81,9 @@ Bootstrap page id 必须唯一、合法，并完整覆盖每个 asset 声明的 
 - golden pack 覆盖 raw/LZ4、bootstrap、multi-page、deterministic recook 和 native validator/TS reader 互读。
 - corruption matrix 覆盖 magic/version/endian/reserved、table overlap/range、hash/CRC、非法 tree、跨页 group、payload offset、vertex/triangle 越界和 refine edge。
 - `OEngine/tests/contract/oegpack-v3.test.mjs` 是当前 DEV oracle；还需增加 OEGPACK -> Geometry Product conformance golden。真实 V3 bootstrap geometry 经统一 admission 到达生产 Visibility 并通过 MILESTONE 后才可冻结本 spec。
+
+## 2026-09-29 Position profile 修订
+
+固定 16 B VertexFormatRecordV3 的 byte 10 明确定义为 positionEncoding = 1（Float32x3），byte 11–15 仍为 reserved zero。position offset 和 stride 必须 4-byte aligned，position 范围为 12 B。Nyx 的 VBufferMesh.slang::GetClipPosition/BuildVertexOutput 直接读取 Float32 xyz，本地恢复这一位置表示；meshlet AABB 仅供 bounds/culling，不再用于顶点解码。
+
+唯一 production profile 为 static-pbr-page-local-f32-v4 / float32-object-space，hierarchy recipe 为 nyx-hierarchy-v3.1。旧 positionEncoding = 0 / meshlet-local U16 payload 明确拒绝并重新 cook；没有兼容解码分支。C++/TS recipe identity 和 Native/WASM 产物一起更新。每顶点位置从 6 B 增加到 12 B（最终 stride 还受 4 B 对齐影响）；本次是正确性修复，不宣称性能提升。

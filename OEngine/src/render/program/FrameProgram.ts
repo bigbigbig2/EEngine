@@ -1,17 +1,20 @@
 
 /** The finite set of products with real Module A producers and consumers. */
 import { surfaceExceptionLane } from "../surface/SurfaceExecutionAbi.js";
+import type { RenderDebugView } from "../../debug/RenderDebugView.js";
+import { isRenderableRenderDebugView, RenderDebugView as RenderDebugViewValue } from "../../debug/RenderDebugView.js";
 
 export type FrameProduct =
   | "swapchain" | "display-color" | "reconstructed-color" | "bloom-hdr" | "adapted-exposure" | "aerial-radiance" | "sky-radiance"
   | "surface-radiance" | "surface-motion"
+  | "debug-color"
   | "temporal-motion" | "temporal-mask" | "temporal-identity"
   | "visibility" | "depth" | "meshlet-work" | "hzb" | "light-cluster"
   | "indirect-visibility" | "shadow-demand" | "shadow-allocation" | "shadow-visibility";
 
 export type FrameProgramStage =
   | "clear-present" | "visibility" | "hzb" | "light-cluster"
-  | "xe-gtao" | "vsm" | "surface" | "physical-sky" | "aerial" | "temporal-facts" | "fsr3" | "radiometry" | "bloom" | "present";
+  | "xe-gtao" | "vsm" | "surface" | "physical-sky" | "aerial" | "temporal-facts" | "fsr3" | "radiometry" | "bloom" | "debug-view" | "present";
 
 /** Finite physical AO profiles; only off is requested by production until C4–C6. */
 export type FrameAoProfile = "off" | "scalar-high";
@@ -63,6 +66,8 @@ export type FrameProgramRequest = FrameProgramBase & (
       fsr3Enabled?: boolean;
       /** Perf-host diagnostic: keep the semantic bloom edge but bypass Bloom passes. */
       bloomEnabled?: boolean;
+      /** Optional final debug resolve. `none` keeps the production presentation. */
+      debugView?: RenderDebugView;
     }>
 );
 
@@ -102,6 +107,8 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
     value: "working-linear pre-exposed", coverage: "background plus surface", invalid: "surface fallback", version: "frame" },
   "surface-radiance": { producer: "surface", domain: "internal-full", format: "rgba16float",
     value: "working-linear pre-exposed", coverage: "full internal", invalid: "clear color", version: "frame" },
+  "debug-color": { producer: "debug-view", domain: "output-full", format: "rgba16float",
+    value: "geometry diagnostic resolve", coverage: "full output", invalid: "black background", version: "frame" },
   "surface-motion": { producer: "surface", domain: "internal-full", format: "rg16float",
     value: "current-minus-previous UV", coverage: "visible surface", invalid: "zero background", version: "frame" },
   "temporal-motion": { producer: "temporal-facts", domain: "internal-full", format: "rg16float",
@@ -155,7 +162,13 @@ const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<Fra
   },
   "display-color": {
     "bloom-hdr": { domain: "output-full", value: "scene HDR plus Filament-profile bloom" },
+    "debug-color": { domain: "output-full", value: "geometry diagnostic resolve" },
     "adapted-exposure": { domain: "gpu-work", value: "GPU adapted exposure E_t" }
+  },
+  "debug-color": {
+    visibility: { domain: "internal-full", value: "packed VisibilityKey" },
+    depth: { domain: "internal-full", value: "reverse depth" },
+    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" }
   },
   "bloom-hdr": { "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" } },
   "adapted-exposure": { "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" } },
@@ -268,6 +281,10 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   if (shadowProfile !== "off" && !request.hasLit) {
     throw new RangeError("VSM requires a lit Surface consumer");
   }
+  const debugView = request.debugView ?? RenderDebugViewValue.None;
+  if (!isRenderableRenderDebugView(debugView) && debugView !== RenderDebugViewValue.None) {
+    throw new RangeError(`Unsupported Frame Program debug view '${debugView}'`);
+  }
   return Object.freeze({
     ...request,
     activeSets: Object.freeze(activeSets),
@@ -275,7 +292,8 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
     textureBankMask: request.textureBankMask ?? 0x1ff,
     shadowProfile,
     fsr3Enabled: request.fsr3Enabled !== false,
-    bloomEnabled: request.bloomEnabled !== false
+    bloomEnabled: request.bloomEnabled !== false,
+    debugView
   });
 }
 
@@ -290,7 +308,8 @@ function structuralKey(request: FrameProgramRequest): string {
     request.previousHzb, request.currentHzbLateRecheck,
     request.activeSets, request.activeExceptionLanes, request.textureBankMask ?? 0x1ff,
     request.hasLit, request.aoProfile ?? "off", request.shadowProfile ?? "off",
-    request.physicalEnvironment, request.fsr3Enabled !== false, request.bloomEnabled !== false
+    request.physicalEnvironment, request.fsr3Enabled !== false, request.bloomEnabled !== false,
+    request.debugView ?? RenderDebugViewValue.None
   ]);
 }
 
@@ -298,8 +317,11 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
   if (request.kind === "empty") return [];
   switch (product) {
     case "swapchain": return ["display-color"];
-    case "display-color": return ["bloom-hdr", "adapted-exposure"];
+    case "display-color": return request.debugView !== undefined && request.debugView !== RenderDebugViewValue.None
+      ? ["debug-color", "bloom-hdr", "adapted-exposure"]
+      : ["bloom-hdr", "adapted-exposure"];
     case "bloom-hdr": return ["reconstructed-color"];
+    case "debug-color": return ["visibility", "depth", "meshlet-work"];
     case "adapted-exposure": return ["reconstructed-color"];
     case "reconstructed-color": return [
       request.physicalEnvironment ? "aerial-radiance" : "surface-radiance", "depth",
@@ -374,7 +396,9 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       request.shadowProfile !== "shadow-disabled" ? ["vsm" as const] : []),
     ...(request.aoProfile === "scalar-high" ? ["xe-gtao" as const] : []), "surface",
     ...(request.physicalEnvironment ? ["physical-sky" as const, "aerial" as const] : []),
-    "temporal-facts", "fsr3", "radiometry", "bloom", "present"
+    "temporal-facts", "fsr3", "radiometry", "bloom",
+    ...(request.debugView !== undefined && request.debugView !== RenderDebugViewValue.None
+      ? ["debug-view" as const] : []), "present"
   ];
   const facts = ordered.map((product): FrameProductFact => {
     const spec = PRODUCT_SPEC[product];

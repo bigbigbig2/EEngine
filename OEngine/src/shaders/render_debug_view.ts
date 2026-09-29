@@ -5,8 +5,6 @@
  * 输出为 rgba16float；输出尺寸可与内部渲染尺寸不同，坐标按整数比例映射。
  */
 
-import { GPU_MESHLET_RECORD_WGSL } from "../gpu/GpuGeometryAbi.js";
-import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
@@ -328,8 +326,6 @@ export const PACKED_VISIBILITY_DEBUG_RESOLVE_WGSL = /* wgsl */ `
 ${SSR_FULLSCREEN_VERTEX_WGSL}
 
 ${GPU_VISIBILITY_KEY_WGSL}
-${GPU_INSTANCE_RECORD_WGSL}
-${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_VISIBILITY_DEBUG_STATUS_WGSL}
@@ -345,11 +341,9 @@ struct R4DebugResolveSettings {
 }
 
 @group(0) @binding(0) var visibility_keys: texture_2d<u32>;
-@group(0) @binding(1) var<storage, read> debug_instances: array<OEngineInstanceRecord>;
-@group(0) @binding(2) var<storage, read> debug_meshlets: array<GpuMeshletRecord>;
-@group(0) @binding(3) var<storage, read> debug_meshlet_work: OEngineMeshletWorkQueueRead;
-@group(0) @binding(4) var<storage, read> debug_materials: array<OEngineShadingMaterialRecord>;
-@group(0) @binding(5) var<uniform> settings: R4DebugResolveSettings;
+@group(0) @binding(1) var<storage, read> debug_meshlet_work: OEngineMeshletWorkQueueRead;
+@group(0) @binding(2) var<storage, read> debug_materials: array<OEngineShadingMaterialRecord>;
+@group(0) @binding(3) var<uniform> settings: R4DebugResolveSettings;
 
 ${DEBUG_VIEW_COORDINATE_WGSL}
 ${DEBUG_HASH_WGSL}
@@ -418,70 +412,36 @@ fn fs_main(@builtin(position) position: vec4f) -> @location(0) vec4f {
   if (work.packed_profile_lod >> 24u) != OENGINE_VISIBILITY_KEY_PARTITION {
     return fail(OENGINE_VIS_DEBUG_INVALID_KEY);
   }
-  if work.meshlet_slot >= min(
-    settings.meshlet_record_count,
-    arrayLength(&debug_meshlets)
-  ) {
-    return fail(OENGINE_VIS_DEBUG_MESHLET_OOB);
-  }
-  let meshlet = debug_meshlets[work.meshlet_slot];
-  if decoded.local_primitive >= meshlet.triangle_count {
-    return fail(OENGINE_VIS_DEBUG_TRIANGLE_OOB);
-  }
-  if work.instance_slot >= min(
-    settings.instance_record_count,
-    arrayLength(&debug_instances)
-  ) {
-    return fail(OENGINE_VIS_DEBUG_INSTANCE_OOB);
-  }
-  let instance = debug_instances[work.instance_slot];
-  if !oengine_instance_active(instance) {
-    return fail(OENGINE_VIS_DEBUG_INACTIVE_INSTANCE);
-  }
-  if work.geometry_slot >= settings.geometry_record_count {
-    return fail(OENGINE_VIS_DEBUG_GEOMETRY_OOB);
-  }
-  if instance.geometry_record_index != work.geometry_slot ||
-    instance.material_handle != work.material_slot_or_range {
-    return fail(OENGINE_VIS_DEBUG_IDENTITY_MISMATCH);
-  }
-  if work.material_slot_or_range >= min(
-    settings.material_capacity,
-    arrayLength(&debug_materials)
-  ) {
-    return fail(OENGINE_VIS_DEBUG_MATERIAL_OOB);
-  }
-  let material = debug_materials[work.material_slot_or_range].payload;
-  if (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
-    return fail(OENGINE_VIS_DEBUG_MATERIAL_INVALID);
-  }
-  if material.alpha_mode == OENGINE_MATERIAL_ALPHA_BLEND {
-    return fail(OENGINE_VIS_DEBUG_BLEND_MATERIAL);
-  }
-
-  let full_identity_hash = avalanche_hash(
+  // Product MeshletWork stores a group/local slot, not an index into the
+  // legacy meshlet-record buffer. The VisibilityKey already contains the
+  // visible local primitive; keep this diagnostic in the producer's domain.
+  var identity_hash = avalanche_hash(
     meshlet_work_slot ^
     avalanche_hash(work.instance_slot + 0x9e3779b9u) ^
-    avalanche_hash(work.meshlet_slot + decoded.local_primitive * 0x85ebca6bu) ^
-    avalanche_hash(instance.debug_id + work.geometry_slot * 0xc2b2ae35u) ^
-    avalanche_hash(work.material_slot_or_range)
+    avalanche_hash(work.geometry_slot + work.meshlet_slot * 0x85ebca6bu) ^
+    avalanche_hash(decoded.local_primitive + 0xc2b2ae35u)
   );
-  let identity_hash = select(
-    full_identity_hash,
-    avalanche_hash(work.material_slot_or_range),
-    settings.debug_mode == 1u
-  );
+  if settings.debug_mode == 1u {
+    if work.material_slot_or_range >= min(
+      settings.material_capacity,
+      arrayLength(&debug_materials)
+    ) {
+      return fail(OENGINE_VIS_DEBUG_MATERIAL_OOB);
+    }
+    let material = debug_materials[work.material_slot_or_range].payload;
+    if (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID) == 0u {
+      return fail(OENGINE_VIS_DEBUG_MATERIAL_INVALID);
+    }
+    if material.alpha_mode == OENGINE_MATERIAL_ALPHA_BLEND {
+      return fail(OENGINE_VIS_DEBUG_BLEND_MATERIAL);
+    }
+    identity_hash = avalanche_hash(work.material_slot_or_range);
+  }
   var color = 0.15 + vec3f(
     f32(identity_hash & 255u),
     f32((identity_hash >> 8u) & 255u),
     f32((identity_hash >> 16u) & 255u)
   ) / 255.0 * 0.65;
-  if material.alpha_mode == OENGINE_MATERIAL_ALPHA_MASK {
-    color = mix(color, vec3f(0.1, 0.95, 0.65), 0.38);
-  }
-  if (material.flags & OENGINE_MATERIAL_VISIBILITY_DOUBLE_SIDED) != 0u {
-    color = min(color + vec3f(0.12, 0.08, 0.0), vec3f(1.0));
-  }
   return vec4f(color, 1.0);
 }
 `;

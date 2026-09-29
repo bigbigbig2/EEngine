@@ -463,7 +463,7 @@ VertexFormatRecordV3 MakeVertexFormat(std::uint16_t mask) {
     std::memset(&format, 0xff, sizeof(format));
     format.attributeMask = mask;
     std::uint8_t cursor = 0u;
-    format.positionOffset = cursor; cursor += 6u;
+    format.positionOffset = cursor; cursor += 12u;
     format.normalOffset = cursor; cursor += 4u;
     if (mask & kAttributeTangent) { format.tangentOffset = cursor; cursor += 6u; }
     if (mask & kAttributeUv0) { format.uv0Offset = cursor; cursor += 4u; }
@@ -471,16 +471,18 @@ VertexFormatRecordV3 MakeVertexFormat(std::uint16_t mask) {
     if (mask & kAttributeColor) { format.colorOffset = cursor; cursor += 4u; }
     format.strideBytes = std::uint16_t(AlignUp(cursor, 4u));
     std::memset(format.reserved, 0, sizeof(format.reserved));
+    format.positionEncoding = 1u; // Float32x3; old meshlet-local U16 products must be recooked.
     return format;
 }
 
 void PackVertex(
     std::vector<std::uint8_t>& bytes, std::uint32_t offset, const CanonicalVertex& vertex,
-    const Meshlet& meshlet, const VertexFormatRecordV3& format) {
+    const VertexFormatRecordV3& format) {
     for (std::uint32_t axis = 0; axis < 3u; ++axis) {
-        const float extent = meshlet.bboxMax[axis] - meshlet.bboxMin[axis];
-        const float normalized = extent > 0.0f ? (vertex.position[axis] - meshlet.bboxMin[axis]) / extent : 0.0f;
-        WriteU16(bytes, offset + format.positionOffset + axis * 2u, std::uint16_t(std::lround(std::max(0.0f, std::min(1.0f, normalized)) * 65535.0f)));
+        std::uint32_t bits;
+        std::memcpy(&bits, &vertex.position[axis], sizeof(bits));
+        WriteU16(bytes, offset + format.positionOffset + axis * 4u, std::uint16_t(bits));
+        WriteU16(bytes, offset + format.positionOffset + axis * 4u + 2u, std::uint16_t(bits >> 16u));
     }
     const auto normal = EncodeOct(vertex.normal[0], vertex.normal[1], vertex.normal[2]);
     WriteU16(bytes, offset + format.normalOffset, std::uint16_t(normal[0]));
@@ -544,7 +546,7 @@ SerializedGroupV3 SerializeGroup(
         std::copy(meshlet.triangles.begin(), meshlet.triangles.end(), output.bytes.begin() + triangleCursor);
         triangleCursor += AlignUp(std::uint32_t(meshlet.triangles.size()), 4u);
         for (std::uint32_t vertex : meshlet.vertices) {
-            PackVertex(output.bytes, vertexCursor, source.vertices[vertex], meshlet, format);
+            PackVertex(output.bytes, vertexCursor, source.vertices[vertex], format);
             vertexCursor += format.strideBytes;
             evidence.serializedVertexBytes += format.strideBytes;
         }
@@ -591,7 +593,12 @@ DomainProduct CookDomain(const MaterialDomain& source, const GeometryCookRecipeV
         std::uint32_t triangleCount = 0u;
         for (const Meshlet& meshlet : generated) triangleCount += std::uint32_t(meshlet.triangles.size() / 3u);
         const float reduction = 1.0f - float(triangleCount) / float(previousTriangles);
-        if (reduction < recipe.minimumLodReduction) break;
+        if (reduction < recipe.minimumLodReduction) {
+            // Generated replacements are discarded: these groups remain DAG roots.
+            // A finite parent error would cull them at distance with no replacement.
+            for (std::uint32_t groupId : groupIds) groups[groupId].parentError = FLT_MAX;
+            break;
+        }
         previousTriangles = triangleCount;
         meshlets.insert(meshlets.end(), std::make_move_iterator(generated.begin()), std::make_move_iterator(generated.end()));
         active = std::move(next); ++lodLevel;

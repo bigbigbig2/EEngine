@@ -22,7 +22,7 @@ function fixture() {
   hv.setFloat32(0, 0, true); hv.setFloat32(4, 0, true); hv.setFloat32(8, 0, true); hv.setFloat32(12, 1, true); hv.setFloat32(40, 0, true); hv.setUint32(44, 1, true);
   const groups = new Uint8Array(16); const gv = new DataView(groups.buffer); gv.setUint32(0, 0, true); gv.setUint32(4, 0, true); gv.setUint32(8, 64, true); gv.setUint32(12, 1, true);
   const pages = new Uint8Array(32); pages.set(hash.subarray(0, 16)); const pv = new DataView(pages.buffer); pv.setUint32(16, 0, true); pv.setUint32(20, 1, true);
-  const formats = new Uint8Array(16); const fv = new DataView(formats.buffer); fv.setUint16(0, 16, true); fv.setUint16(2, 3, true); fv.setUint8(4, 0); fv.setUint8(5, 6);
+  const formats = new Uint8Array(16); const fv = new DataView(formats.buffer); fv.setUint16(0, 16, true); fv.setUint16(2, 3, true); fv.setUint8(4, 0); fv.setUint8(5, 12); fv.setUint8(10, 1);
   const descriptor = { schemaVersion: 1, productId: new Uint8Array(32).fill(2), revision: 0, producerKind: "offline-native", producerId: "fixture", producerVersion: "1", sourceIdentityKind: "session", sourceIdentityHash: new Uint8Array(32).fill(3), recipeHash: new Uint8Array(32).fill(4), runtimeProfile: "oengine-vg-v1-v3-decoded", decodedPageBytes: 262144, assetRecords: asset, rootNodeIds: new Uint32Array([0]), hierarchyNodes: hierarchy, groupDirectory: groups, pageRecords: pages, bootstrapPageIds: new Uint32Array([0]), vertexFormats: formats, activationPageIds: new Uint32Array([0]) };
   return { descriptor, page };
 }
@@ -34,6 +34,15 @@ test("Product V1 descriptor validates and rejects reserved/page-cut corruption",
   const bad = { ...descriptor, pageRecords: descriptor.pageRecords.slice() };
   new DataView(bad.pageRecords.buffer).setUint32(24, 1, true);
   assert.equal(validateGeometryProductDescriptorV1(bad).valid, false);
+});
+
+test("Product V1 rejects obsolete U16 position encoding instead of silently misdecoding", () => {
+  const { descriptor } = fixture();
+  const old = { ...descriptor, vertexFormats: descriptor.vertexFormats.slice() };
+  old.vertexFormats[10] = 0;
+  const report = validateGeometryProductDescriptorV1(old);
+  assert.equal(report.valid, false);
+  assert.ok(report.issues.some(issue => issue.code === "position-encoding"));
 });
 
 test("Product-aware residency uploads activation pages with generation-tagged locations", async () => {

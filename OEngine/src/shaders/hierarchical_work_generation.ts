@@ -1,3 +1,5 @@
+import { HZB_FOOTPRINT_WGSL } from "./hzb_footprint.js";
+import { HIERARCHY_LOD_WGSL } from "./hierarchy_lod.js";
 import {
   GPU_CLUSTER_RECORD_WGSL,
   GPU_GEOMETRY_RECORD_WGSL,
@@ -52,6 +54,7 @@ fn hierarchy_leaf_hzb_occluded(
 `;
 
 const HIERARCHICAL_HZB_ENABLED_WGSL = /* wgsl */ `
+${HZB_FOOTPRINT_WGSL}
 @group(0) @binding(10) var hierarchy_previous_hzb: texture_2d<f32>;
 @group(1) @binding(10) var traversal_previous_hzb: texture_2d<f32>;
 @group(3) @binding(10) var leaf_previous_hzb: texture_2d<f32>;
@@ -92,22 +95,7 @@ fn hierarchy_hzb_occluded_bounds_from(
   }
   uv_min = clamp(uv_min, vec2f(0.0), vec2f(1.0));
   uv_max = clamp(uv_max, vec2f(0.0), vec2f(1.0));
-  let base_size = vec2f((*view).hzb.xy);
-  let footprint = max((uv_max.x - uv_min.x) * base_size.x,
-    (uv_max.y - uv_min.y) * base_size.y);
-  let mip = min(
-    u32(ceil(log2(max(footprint, 1.0)))),
-    (*view).hzb.z - 1u
-  );
-  let mip_size = max((*view).hzb.xy >> vec2u(mip), vec2u(1u));
-  let last = vec2i(mip_size - vec2u(1u));
-  let lo = clamp(vec2i(floor(uv_min * vec2f(mip_size))), vec2i(0), last);
-  let hi = clamp(vec2i(floor(uv_max * vec2f(mip_size))), vec2i(0), last);
-  let h00 = textureLoad(hzb_texture, lo, i32(mip)).x;
-  let h10 = textureLoad(hzb_texture, vec2i(hi.x, lo.y), i32(mip)).x;
-  let h01 = textureLoad(hzb_texture, vec2i(lo.x, hi.y), i32(mip)).x;
-  let h11 = textureLoad(hzb_texture, hi, i32(mip)).x;
-  let occluder_farthest = min(min(h00, h10), min(h01, h11));
+  let occluder_farthest = hzb_footprint_min_depth(hzb_texture, uv_min, uv_max);
   return candidate_nearest + 1e-6 < occluder_farthest;
 }
 
@@ -172,21 +160,7 @@ ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_WORK_GENERATION_WGSL}
 ${virtualGeometryEnabled ? `${VIRTUAL_GEOMETRY_PRODUCT_WGSL}\n${GEOMETRY_PAGE_DEMAND_WGSL}` : ""}
 
-struct OEngineHierarchyView {
-  camera_position: vec4f,
-  frustum_planes: array<vec4f, 6>,
-  // threshold, viewport height, perspective projection scale Y, near plane
-  sse: vec4f,
-  // orthographic vertical world size; remaining lanes are reserved
-  orthographic: vec4f,
-  // instance begin, instance count, encoded hierarchy rounds, required instance flags
-  scene: vec4u,
-  // maxComputeWorkgroupsPerDimension; remaining lanes are reserved
-  limits: vec4u,
-  world_to_clip: mat4x4f,
-  // previous HZB width, height, mip count, feature flags
-  hzb: vec4u,
-};
+${HIERARCHY_LOD_WGSL}
 
 struct OEngineWorkQueueHeaderRead {
   written: u32,
@@ -244,56 +218,6 @@ fn hierarchy_emit_page_demand_v1(
   );
 }
 
-struct OEngineVirtualAncestorFallbackV1 {
-  valid: bool,
-  group_id: u32,
-};
-
-fn hierarchy_virtual_find_resident_ancestor_v1(
-  heap: ptr<storage, array<u32>, read>,
-  asset: OEngineGeometryProductResolvedAssetV1,
-  node_id: u32
-) -> OEngineVirtualAncestorFallbackV1 {
-  if (!asset.valid) {
-    return OEngineVirtualAncestorFallbackV1(false, 0u);
-  }
-  let hierarchy_begin = (*heap)[asset.asset_word_offset + 20u];
-  var current = node_id;
-  // The cooker bounds normal hierarchy depth; the cap also prevents corrupt
-  // cyclic topology from turning fallback into an unbounded shader loop.
-  for (var depth = 0u; depth < 256u; depth++) {
-    let node = oengine_virtual_hierarchy_node_v1(heap, asset, current);
-    if (oengine_virtual_node_is_group_v1(node)) {
-      let group_id = oengine_virtual_node_group_id_v1(node);
-      let group = oengine_virtual_group_v1(heap, asset, group_id);
-      if (group.valid && oengine_geometry_product_lookup_page_heap_v1(
-        heap, asset, group.page_id
-      ).valid) {
-        return OEngineVirtualAncestorFallbackV1(true, group_id);
-      }
-    }
-    var parent = OENGINE_WORK_QUEUE_INVALID_OFFSET;
-    for (var candidate = 0u; candidate < asset.hierarchy_count; candidate++) {
-      if (hierarchy_begin > 0xffffffffu - candidate) { break; }
-      let parent_id = hierarchy_begin + candidate;
-      let candidate_node = oengine_virtual_hierarchy_node_v1(
-        heap, asset, parent_id
-      );
-      let child_count = oengine_virtual_node_child_count_v1(candidate_node);
-      if (!candidate_node.valid || child_count == 0u) { continue; }
-      let child_begin = oengine_virtual_node_child_begin_v1(candidate_node);
-      if (child_begin <= current && current - child_begin < child_count) {
-        parent = parent_id;
-        break;
-      }
-    }
-    if (parent == OENGINE_WORK_QUEUE_INVALID_OFFSET || parent == current) {
-      break;
-    }
-    current = parent;
-  }
-  return OEngineVirtualAncestorFallbackV1(false, 0u);
-}
 ` : ""}
 
 struct OEngineRasterWorkQueue {
@@ -365,10 +289,7 @@ fn hierarchy_instance_enabled(
     (instance.flags & excluded_flags) == 0u;
 }
 
-struct OEngineWorldSphere {
-  center: vec3f,
-  radius: f32,
-};
+
 
 @group(0) @binding(0) var<uniform> hierarchy_view: OEngineHierarchyView;
 @group(0) @binding(1) var<storage, read> hierarchy_instances: array<OEngineInstanceRecord>;
@@ -380,77 +301,6 @@ struct OEngineWorldSphere {
 @group(0) @binding(7) var<storage, read_write> hierarchy_output_dispatch: OEngineDispatchIndirectArgs;
 @group(0) @binding(8) var<storage, read_write> hierarchy_counters: array<atomic<u32>>;
 ${virtualGeometryEnabled ? "@group(0) @binding(9) var<storage, read> hierarchy_product_heap: array<u32>;\n@group(0) @binding(12) var<storage, read_write> hierarchy_page_demand: OEngineGeometryPageDemandQueueV1;\n@group(0) @binding(14) var<storage, read_write> hierarchy_page_demand_mask: OEngineGeometryPageDemandMaskV1;" : ""}
-
-fn hierarchy_conservative_scale(transform: mat4x4f) -> f32 {
-  let x_axis = transform[0].xyz;
-  let y_axis = transform[1].xyz;
-  let z_axis = transform[2].xyz;
-  let x_length = length(x_axis);
-  let y_length = length(y_axis);
-  let z_length = length(z_axis);
-  let safe_x = max(x_length, 1e-20);
-  let safe_y = max(y_length, 1e-20);
-  let safe_z = max(z_length, 1e-20);
-  let shear = max(
-    abs(dot(x_axis, y_axis) / (safe_x * safe_y)),
-    max(
-      abs(dot(x_axis, z_axis) / (safe_x * safe_z)),
-      abs(dot(y_axis, z_axis) / (safe_y * safe_z))
-    )
-  );
-  if shear <= 1e-5 {
-    return max(x_length, max(y_length, z_length));
-  }
-  // Frobenius norm conservatively bounds the largest singular value.
-  return sqrt(
-    dot(x_axis, x_axis) + dot(y_axis, y_axis) + dot(z_axis, z_axis)
-  );
-}
-
-fn hierarchy_transform_sphere(
-  local: vec4f,
-  transform: mat4x4f
-) -> OEngineWorldSphere {
-  return OEngineWorldSphere(
-    (transform * vec4f(local.xyz, 1.0)).xyz,
-    local.w * hierarchy_conservative_scale(transform)
-  );
-}
-
-fn hierarchy_sphere_in_frustum(
-  sphere: OEngineWorldSphere,
-  view: ptr<uniform, OEngineHierarchyView>
-) -> bool {
-  for (var plane_index = 0u; plane_index < 6u; plane_index++) {
-    let plane = (*view).frustum_planes[plane_index];
-    let normal_length = length(plane.xyz);
-    // A zero-normal plane with non-negative W is an explicit disabled plane,
-    // used by infinite-far Perspective views.
-    if normal_length > 0.0 &&
-      dot(sphere.center, plane.xyz) + plane.w < -sphere.radius * normal_length {
-      return false;
-    }
-  }
-  return true;
-}
-
-fn hierarchy_projected_error_pixels(
-  object_error: f32,
-  sphere: OEngineWorldSphere,
-  conservative_scale: f32,
-  view: ptr<uniform, OEngineHierarchyView>
-) -> f32 {
-  let world_error = object_error * conservative_scale;
-  if (*view).orthographic.y > 0.5 {
-    return world_error / (*view).orthographic.x * (*view).sse.y;
-  }
-  let nearest_distance = max(
-    distance(sphere.center, (*view).camera_position.xyz) - sphere.radius,
-    (*view).sse.w
-  );
-  return world_error / nearest_distance * (*view).sse.z *
-    0.5 * (*view).sse.y;
-}
 
 // meshoptimizer v1.0 README/meshoptimizer.h perspective cone test. OEngine
 // accepts only positive-orientation uniform-scale transforms; every other
@@ -945,13 +795,8 @@ ${virtualGeometryEnabled ? /* wgsl */ `
                   asset, group.page_id, traversal_view.limits.z,
                   traversal_view.limits.w
                 );
-                let fallback = hierarchy_virtual_find_resident_ancestor_v1(
-                  &traversal_product_heap, asset, work.cluster_record_index
-                );
-                if (fallback.valid) {
-                  selected = true;
-                  selected_cluster = fallback.group_id;
-                }
+                // Resident coarse meshlets provide refine-DAG coverage.
+                // Spatial BVH ancestors are never LOD replacement geometry.
               }
             }
           } else {

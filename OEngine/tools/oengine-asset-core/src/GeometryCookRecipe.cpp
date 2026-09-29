@@ -19,7 +19,7 @@ void ValidateRecipe(const GeometryCookRecipeV3& r) {
     if (r.pageShift != kGeometryPageShiftV3) throw std::runtime_error("V3 pageShift must be 18");
     if (r.pagePackingAlgorithmVersion != "tier-locality-bounded-best-fit-16-v1") throw std::runtime_error("unsupported V3 page packing algorithm");
     if (r.pageCodecPolicy != "lz4-or-raw") throw std::runtime_error("V3 codec policy must be lz4-or-raw");
-    if (r.positionQuantization != "meshlet-aabb-u16") throw std::runtime_error("V3 position quantization must be meshlet-aabb-u16");
+    if (r.positionQuantization != "float32-object-space") throw std::runtime_error("V3 position quantization must be float32-object-space");
     if (r.bootstrapBudgetPolicy != "scene-decoded-payload-hard-fail-v1") throw std::runtime_error("unsupported bootstrap budget policy");
     if (r.floatMode != "ieee754-nearest-no-fast-math") throw std::runtime_error("unsupported floatMode");
 }

@@ -1,4 +1,4 @@
-﻿/** Exact Phase 2 extraction of visibility-to-Surface reconstruction, material evaluation, and direct-light WGSL.
+/** Exact Phase 2 extraction of visibility-to-Surface reconstruction, material evaluation, and direct-light WGSL.
  * Program closure and physical bindings stay with their owning runtime. */
 import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.js";
 import { GPU_NORMAL_FORMAT, GPU_POSITION_FORMAT, GPU_UV_FORMAT } from "../gpu/GpuGeometryAbi.js";
@@ -133,10 +133,9 @@ fn sparse_ref_is_virtual(vertex_ref: SparseVertexRef) -> bool { return vertex_re
 fn sparse_position_ref(vertex_ref: SparseVertexRef) -> vec3f {
   if !sparse_ref_is_virtual(vertex_ref) { return sparse_position(vertex_ref.geometry_base, vertex_ref.vertex); }
   let at = vertex_ref.byte_offset + (vertex_ref.format1 & 0xffu);
-  let q = vec3f(f32(sparse_virtual_u16(vertex_ref.bank, at)),
-    f32(sparse_virtual_u16(vertex_ref.bank, at + 2u)),
-    f32(sparse_virtual_u16(vertex_ref.bank, at + 4u))) / 65535.0;
-  return mix(vertex_ref.bounds_min, vertex_ref.bounds_max, q);
+  return vec3f(bitcast<f32>(sparse_virtual_bank_word(vertex_ref.bank, at >> 2u)),
+    bitcast<f32>(sparse_virtual_bank_word(vertex_ref.bank, (at + 4u) >> 2u)),
+    bitcast<f32>(sparse_virtual_bank_word(vertex_ref.bank, (at + 8u) >> 2u)));
 }
 fn sparse_virtual_oct(vertex_ref: SparseVertexRef, at: u32) -> vec3f {
   let packed = sparse_virtual_u16(vertex_ref.bank, at) |

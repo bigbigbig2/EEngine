@@ -172,6 +172,21 @@ fn oengine_virtual_group_v1(
   );
 }
 
+// Meshlet refine IDs are relative to the Product, not its individual asset.
+fn oengine_virtual_refine_group_v1(
+  heap: ptr<storage, array<u32>, read>,
+  asset: OEngineGeometryProductResolvedAssetV1,
+  product_local_id: u32
+) -> OEngineVirtualGroupV1 {
+  if (!asset.valid) { return oengine_virtual_invalid_group_v1(); }
+  let table = (*heap)[4u] + asset.product_table_slot * 16u;
+  let group_begin = (*heap)[table + 8u];
+  if (product_local_id >= (*heap)[table + 9u] || product_local_id > 0xffffffffu - group_begin) {
+    return oengine_virtual_invalid_group_v1();
+  }
+  return oengine_virtual_group_v1(heap, asset, group_begin + product_local_id);
+}
+
 fn oengine_virtual_group_header_v1(
   bank: ptr<storage, array<u32>, read>,
   location: OEngineGeometryPageLookupV1,

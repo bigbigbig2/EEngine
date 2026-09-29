@@ -142,6 +142,13 @@ export function validateGeometryProductDescriptorV1(descriptor: GeometryProductD
   const groupView = new DataView(descriptor.groupDirectory.buffer, descriptor.groupDirectory.byteOffset, descriptor.groupDirectory.byteLength);
   const pageView = new DataView(descriptor.pageRecords.buffer, descriptor.pageRecords.byteOffset, descriptor.pageRecords.byteLength);
   const activation = new Set(descriptor.activationPageIds);
+  const formatView = new DataView(descriptor.vertexFormats.buffer, descriptor.vertexFormats.byteOffset, descriptor.vertexFormats.byteLength);
+  for (let at = 0; at + 16 <= descriptor.vertexFormats.byteLength; at += 16) {
+    const stride = formatView.getUint16(at, true), offset = formatView.getUint8(at + 4);
+    if (formatView.getUint8(at + 10) !== 1 || (stride & 3) !== 0 || (offset & 3) !== 0 || offset + 12 > stride) {
+      issue("position-encoding", "Product requires Float32x3 positions; recook obsolete U16 data", "vertexFormats", at / 16);
+    }
+  }
   const bootstrap = new Set(descriptor.bootstrapPageIds);
   const pageGroups = new Map<number, number[]>();
   for (let group = 0; group < groupCount; group++) {
@@ -233,7 +240,7 @@ export function encodeAssetRecordsV3(records: readonly GeometryAssetRecordV3[]):
 }
 
 export function encodeGroupDirectoryV3(records: readonly GeometryGroupDirectoryV3[]): Uint8Array { const bytes = new Uint8Array(records.length * 16), view = new DataView(bytes.buffer); records.forEach((record, index) => { const at = index * 16; view.setUint32(at, record.pageId, true); view.setUint32(at + 4, record.offsetInDecodedPage, true); view.setUint32(at + 8, record.payloadBytes, true); view.setUint32(at + 12, record.flags, true); }); return bytes; }
-export function encodeVertexFormatsV3(records: readonly VertexFormatRecordV3[]): Uint8Array { const bytes = new Uint8Array(records.length * 16), view = new DataView(bytes.buffer); records.forEach((record, index) => { const at = index * 16; view.setUint16(at, record.strideBytes, true); view.setUint16(at + 2, record.attributeMask, true); [record.positionOffset, record.normalOffset, record.tangentOffset, record.uv0Offset, record.uv1Offset, record.colorOffset].forEach((value, field) => view.setUint8(at + 4 + field, value)); }); return bytes; }
+export function encodeVertexFormatsV3(records: readonly VertexFormatRecordV3[]): Uint8Array { const bytes = new Uint8Array(records.length * 16), view = new DataView(bytes.buffer); records.forEach((record, index) => { const at = index * 16; view.setUint8(at + 10, record.positionEncoding); view.setUint16(at, record.strideBytes, true); view.setUint16(at + 2, record.attributeMask, true); [record.positionOffset, record.normalOffset, record.tangentOffset, record.uv0Offset, record.uv1Offset, record.colorOffset].forEach((value, field) => view.setUint8(at + 4 + field, value)); }); return bytes; }
 
 function checkByteTable(bytes: Uint8Array, stride: number, name: string, issue: (code: string, message: string, table?: string) => void): void { if (!(bytes instanceof Uint8Array) || bytes.byteLength % stride !== 0) issue("stride", `${name} byte length must be a multiple of ${stride}`, name); }
 function isStrictlyIncreasingUnique(values: Uint32Array): boolean { for (let index = 1; index < values.length; index++) if (values[index]! <= values[index - 1]!) return false; return true; }

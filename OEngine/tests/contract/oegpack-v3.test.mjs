@@ -150,12 +150,10 @@ test("page independence: every group on an arbitrary page decodes from page-loca
       assert.ok([...triangles].every(local => local < meshlet.vertexCount));
       for (let vertex = 0; vertex < meshlet.vertexCount; vertex++) {
         const vertexOffset = meshlet.vertexByteOffset + vertex * format.strideBytes + format.positionOffset;
-        const decoded = [0, 1, 2].map(axis => {
-          const quantized = view.getUint16(vertexOffset + axis * 2, true);
-          return meshlet.bboxMin[axis] + (meshlet.bboxMax[axis] - meshlet.bboxMin[axis]) * quantized / 65535;
-        });
+        assert.equal(format.positionEncoding, 1);
+        const decoded = [0, 1, 2].map(axis => view.getFloat32(vertexOffset + axis * 4, true));
         const distance = Math.hypot(decoded[0] - header.boundsSphere[0], decoded[1] - header.boundsSphere[1], decoded[2] - header.boundsSphere[2]);
-        assert.ok(distance <= header.boundsSphere[3] + 1e-4, "quantized vertex must remain inside its conservative group sphere");
+        assert.ok(distance <= header.boundsSphere[3] + 1e-4, "Float32 vertex must remain inside its conservative group sphere");
       }
     }
   }
@@ -437,4 +435,4 @@ function buildFixtureGlb({ distinctMaterialIds = false } = {}) {
 // Updated only when an intentional ABI/algorithm/recipe change is reviewed.
 // 2026-09-19: page identity is now rolled up from Group payloads (ADR-0017 step 1) instead of
 // being the SHA-256 of the whole decoded page, so every pack byte stream changes.
-const GOLDEN_PACK_SHA256 = "dbb720fac611344a84c07162d99bd487a62fe687033ee4b02fe49c5488efbacc";
+const GOLDEN_PACK_SHA256 = "873d7b69f5bf41135ea4ad002e813d4358fbb6c62d427144828d733268ace6ef";

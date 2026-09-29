@@ -78,7 +78,7 @@ function fixture({ identity }) {
   const fv = new DataView(formats.buffer);
   fv.setUint16(0, 16, true);
   fv.setUint16(2, 3, true);
-  fv.setUint8(5, 6);
+  fv.setUint8(5, 12); fv.setUint8(10, 1);
   return {
     schemaVersion: 1,
     productId: new Uint8Array(32).fill(2),

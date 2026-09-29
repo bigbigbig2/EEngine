@@ -8,11 +8,11 @@ decision: ADR-0020
 goal: Establish the final architecture's Frame Program, Surface and Temporal boundaries on the single production path, then integrate planned providers in large continuous modules.
 
 currentSlice:
-  id: dungeon-performance-baseline
-  title: Next Renderer Dungeon performance baseline and first diagnostics
+  id: virtual-geometry-lod-correctness
+  title: Virtual Geometry LOD handoff, residency fallback and conservative depth
   status: active
-  goal: Establish a trustworthy Dungeon GPU/CPU P50/P95 baseline on the single Next Renderer path before adding the next provider.
-  completed: VSM E0-E9 completed directional page demand, 32-byte disjoint-mip page-table ABI, bounded GPU allocation and caster work, dirty-slot Atlas clear/raster, fail-open Surface sampling, CSM cutover, lifecycle integration and focused E9 tests. Perf Host now runs without an artificial FPS limiter, records existing GPU timestamp/counter and CPU evidence, and has completed Full plus GTAO/FSR3/Bloom/Environment/bounded-geometry A/B at 1280x720 with VSM disabled.
+  goal: Repair the single production geometry path against Nyx and verify close-range, rotation and static views before continuing providers.
+  completed: Meshlet refineGroupId handoff, 128-meshlet emission, spatial-ancestor fallback removal, conservative HZB footprint and RG16F rounding, Float32 position profile and terminal LOD error repair are implemented. Native RTX 2060 SUPER GPU oracles pass; local Chrome Showcase visual verification is pending because the browser plugin control script is missing. Previous-HZB early rejection stays disabled for Virtual Geometry until recovery is connected. VSM E0-E9 completed directional page demand, 32-byte disjoint-mip page-table ABI, bounded GPU allocation and caster work, dirty-slot Atlas clear/raster, fail-open Surface sampling, CSM cutover, lifecycle integration and focused E9 tests. Perf Host now runs without an artificial FPS limiter, records existing GPU timestamp/counter and CPU evidence, and has completed Full plus GTAO/FSR3/Bloom/Environment/bounded-geometry A/B at 1280x720 with VSM disabled.
 
 nextModules:
   - id: sssr

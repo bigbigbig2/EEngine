@@ -16,7 +16,7 @@ import { hzbMipLevelCount } from "./HzbReference.js";
 export { hzbMipLevelCount } from "./HzbReference.js";
 
 export const HZB_FORMAT: GPUTextureFormat = "rg16float";
-export const HZB_FORMAT_REVISION = 2;
+export const HZB_FORMAT_REVISION = 3;
 export const HZB_COMPUTE_PASSES_PER_BUILD = 1;
 const SOURCE_REGION_BYTES = 16;
 

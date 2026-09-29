@@ -14,7 +14,7 @@ Owners: geometry admission/residency owner、`GpuAssetStore`、GPU hierarchy/wor
 
 Residency、GPU traversal 和 Visibility consumer 的算法来源是用户提供的本地 Nyx 只读快照，具体源文件与 producer hash 见 [Geometry Product V1 的 Nyx provenance](./geometry-product-v1.md#nyx-provenance-与移植合同)。Runtime 必须逐项移植：`GeometryStreaming.cpp`（`acb3aa4786eb6367e92b99e9e295c83e0aade516d59578f23ff38496f838a072`）和 `.h`（`4bee73ffc0c29ad7670bb7c5ac1567a281b3f33271adfc534d834dc88897c264`）的初始化、root pin、request mask、延迟 readback、page I/O、publish/revoke/evict；`DAGCull.slang`（`6534dd8794248d693acd07488653a625df3b4fac11117f96537a43857dcfee7e`）的 `ProcessNodeBatch`、`ProcessMeshletBatch`、`computeMain`；以及 `VBufferMesh.slang`（`9f374a2437d5ab939ae4d98289c150097bdab17305191ff97abf3fd1d13c621d`）的 `BuildVertexOutput`、`meshMain`、`pixelMain`。
 
-WebGPU 适配只允许改变 DX12/Slang 的资源绑定、mesh shader/DispatchMesh 表达、I/O API、GPU address 表达和 fence/lifecycle API。request mask、wavefront/bounded reservation、SSE/HZB、resident ancestor fallback、refinement request、page-independent validation 和 local primitive identity 不得被 CPU visible-list、整包常驻、单层 frustum、普通 per-object draw 或无状态上传替代。没有 source function map 和 CPU/WASM/WGSL differential oracle 的实现不得提升为 candidate。
+WebGPU 适配只允许改变 DX12/Slang 的资源绑定、mesh shader/DispatchMesh 表达、I/O API、GPU address 表达和 fence/lifecycle API。request mask、wavefront/bounded reservation、SSE/HZB、resident refine-DAG coarse-meshlet retention、refinement request、page-independent validation 和 local primitive identity 不得被 CPU visible-list、整包常驻、单层 frustum、普通 per-object draw 或无状态上传替代。没有 source function map 和 CPU/WASM/WGSL differential oracle 的实现不得提升为 candidate。
 
 ## Contract
 
@@ -43,7 +43,7 @@ offered
   -> retired
 ```
 
-任何激活前状态都可进入 `failed` 或 `cancelled`。`active` revision 的后台 page failure 不使整个 revision 失效，只保持 ancestor fallback 并记录失败；descriptor/profile corruption、activation page failure或依赖不完整则禁止激活。
+任何激活前状态都可进入 `failed` 或 `cancelled`。`active` revision 的后台 page failure 不使整个 revision 失效，只保持 refine-DAG coarse fallback 并记录失败；descriptor/profile corruption、activation page failure或依赖不完整则禁止激活。
 
 Admission 为每次 offer 分配非零 `productGeneration: u32`。同一 `(ProductID, revision)` 的重复 offer 只允许在 descriptor 完全相同且复用同一 source transaction 时合并；否则拒绝。generation wrap 前必须清空相关异步任务和 GPU reference，不能静默复用仍可见的 generation。
 
@@ -200,7 +200,9 @@ range 不能成为首个 active bootstrap revision 的等待条件。
 
 ### Fallback、失败与 retry
 
-desired Group 的 page 不 resident 时，traversal 必须沿合法 hierarchy 找到同 product generation 的 resident ancestor/bootstrap Group；找不到则 fail closed，不能访问 invalid location。fallback 本身仍受 raster work queue capacity 约束。
+desired Group 缺页时，traversal 仅发 demand，不沿 spatial BVH 查找替代几何。各 LOD 的 resident Group 独立成为候选：coarse meshlet 的 refineGroupId 为 invalid 时保留；有效但对应 Page 缺失时保留；只有对应 Page resident 且同一 hierarchy view/SSE 判定要求细化时才剔除 coarse meshlet。边界统一为 fine projectedError > threshold、coarse <= threshold，后者在 reservation 前逐 meshlet 压紧。payload refine ID 是 Product-local，必须先加 Product table 的 Group begin，再由 asset 范围验证，不能加 asset begin。
+
+Virtual Geometry 暂停 previous-HZB early rejection，直到接通 Nyx two-pass recovery；当前帧 HZB recheck 仍可用。RG16F 的 min/max 向外舍入，投影查询遍历选中 mip 的完整有界 footprint，异常范围 fail open。这不是完整 Nyx two-pass occlusion 的完成声明。
 
 range、cook、decode、hash 或 upload validation 失败不得发布 page。retry 以 error class、最大次数、deadline 和 backoff 有界；确定性 corruption/unsupported profile 不重试。失败必须保留 `lastError`、attempt count 与受影响 key 的诊断，但不得把 source URL 写入 GPU record。
 
@@ -224,7 +226,7 @@ Counter readback 必须有界且可以关闭；关闭诊断不能改变 correctn
 - 状态机覆盖 duplicate/out-of-order page、stale generation、cancel/replace、activation rollback、generation ABA、slot retire race、aborted submit 和 recovery。
 - 压力用例覆盖 demand queue overflow、pinned admission failure、Worker/output/upload backpressure、8 MiB upload 和 256 KiB readback上限。
 - source/corruption matrix覆盖 Web live provider 与 OEGPACK adapter，并证明 source 差异未进入 GPU consumer。
-- MILESTONE 在 ADR-0014 宿主中证明 `GPU desired LOD -> delayed demand readback -> async source/cook -> upload/publication -> GPU consumer`，缺页全过程由 ancestor/bootstrap 输出合法像素。
+- MILESTONE 在 ADR-0014 宿主中证明 `GPU desired LOD -> delayed demand readback -> async source/cook -> upload/publication -> GPU consumer`，缺页全过程由 refine-DAG coarse/bootstrap meshlet 输出合法像素。
 - feature-off 证明无 heap、queue、readback、Worker、Pass 和独立 submit；性能结论使用固定 adapter、分辨率/DPR、画质、workload、warm-up 与 capability fingerprint。
 ## glTF 作者材质与纹理发布门禁（第三步）
 

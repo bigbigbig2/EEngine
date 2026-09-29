@@ -441,7 +441,9 @@ export class PackedVisibilityPass {
       {
         coneEnabled: job.coneEnabled,
         excludedInstanceFlags: GPU_INSTANCE_FLAGS.Transparent,
-        previousHzb: job.previousHzb,
+        // A changing refine cut cannot safely reject against the previous cut
+        // without Nyx's disocclusion recovery pass. Current-HZB recheck stays live.
+        previousHzb: job.virtualGeometry === undefined ? job.previousHzb : null,
         demandFrameRevisionLow: job.demandFrameRevisionLow
       }
     );
@@ -572,7 +574,9 @@ export class PackedVisibilityPass {
       });
       if (existing.meshletWorkCandidate !== null) {
         if (existing.meshletWorkCandidate.productMode) {
-          this.virtualMeshletCandidate.rebind();
+          this.virtualMeshletCandidate.rebind(existing.meshletWorkCandidate, {
+            counterBuffer: bindings.counters, countersEnabled: bindings.countersEnabled
+          });
         } else {
           this.meshletCandidate.rebind(existing.meshletWorkCandidate, {
             camera: bindings.camera,
@@ -621,6 +625,7 @@ export class PackedVisibilityPass {
       if (job.virtualGeometry !== undefined) {
         meshletWorkCandidate = this.virtualMeshletCandidate.prepare({
           virtualGeometry: job.virtualGeometry,
+          viewUniform: prepared.generated.viewUniform,
           visibleClusters: prepared.generated.visibleClusters,
           visibleClusterCapacity: prepared.generated.visibleClusterCapacity,
           capacity: key.meshletWorkCandidateCapacity,

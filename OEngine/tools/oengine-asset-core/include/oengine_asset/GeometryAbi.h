@@ -63,7 +63,8 @@ struct VertexFormatRecordV3 {
     std::uint8_t uv0Offset;
     std::uint8_t uv1Offset;
     std::uint8_t colorOffset;
-    std::uint8_t reserved[6];
+    std::uint8_t positionEncoding; // 1 = Float32x3
+    std::uint8_t reserved[5];
 };
 
 struct GroupHeaderV3 {

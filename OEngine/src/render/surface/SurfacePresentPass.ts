@@ -61,10 +61,29 @@ fn linear_to_logc(x:f32)->f32 {
 }
 `;
 
+/** Debug views are authored in display-linear colors, so they must bypass the
+ * scene exposure and display LUT used by the production radiance path. */
+export const SURFACE_PRESENT_DEBUG_WGSL = /* wgsl */ `
+@group(0) @binding(0) var debug_color:texture_2d<f32>;
+@group(0) @binding(1) var<uniform> output_size:vec2u;
+@vertex fn vs(@builtin(vertex_index) index:u32)->@builtin(position) vec4f {
+  return vec4f(f32((index<<1u)&2u)*2.0-1.0,
+    f32(index&2u)*2.0-1.0,0.0,1.0);
+}
+@fragment fn fs(@builtin(position) position:vec4f)->@location(0) vec4f {
+  let extent=textureDimensions(debug_color);
+  let pixel=min(vec2u(position.xy)*extent/output_size,extent-vec2u(1u));
+  return vec4f(clamp(textureLoad(debug_color,vec2i(pixel),0).rgb,
+    vec3f(0.0),vec3f(1.0)),1.0);
+}
+`;
+
 /** Presents the completed Surface/FSR3 radiance; queue overflow is resolved in Surface. */
 export class SurfacePresentPass {
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPURenderPipeline;
+  private readonly debugLayout: GPUBindGroupLayout;
+  private readonly debugPipeline: GPURenderPipeline;
   private readonly lutTexture: GPUTexture;
   private readonly lutView: GPUTextureView;
   private readonly lutSampler: GPUSampler;
@@ -104,6 +123,18 @@ export class SurfacePresentPass {
         targets: [{ format }] },
       primitive: { topology: "triangle-list" }
     });
+    this.debugLayout = device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: GPUShaderStage.FRAGMENT,
+        texture: { sampleType: "unfilterable-float" } },
+      { binding: 1, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } }
+    ] });
+    const debugModule = device.createShaderModule({ code: SURFACE_PRESENT_DEBUG_WGSL });
+    this.debugPipeline = device.createRenderPipeline({
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.debugLayout] }),
+      vertex: { module: debugModule, entryPoint: "vs" },
+      fragment: { module: debugModule, entryPoint: "fs", targets: [{ format }] },
+      primitive: { topology: "triangle-list" }
+    });
   }
 
   /** Rebuild only when static color-grade parameters change. */
@@ -116,25 +147,33 @@ export class SurfacePresentPass {
   }
 
   addToGraph(graph: FrameGraph, input: ResourceId, swapchain: ResourceId,
-    exposure: ResourceId, preExposure: ResourceId, width: number, height: number): ResourceId {
-    const present = graph.add("Surface/present radiance", {}, (_data, resources, context) => {
+    exposure: ResourceId, preExposure: ResourceId, width: number, height: number,
+    debug = false): ResourceId {
+    const present = graph.add(debug ? "Surface/present debug color" : "Surface/present radiance", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const size = command.allocateTransientBufferAndLoad(
         new Uint32Array([width, height, 0, 0]).buffer, GPUBufferUsage.UNIFORM);
-      const bind = this.device.createBindGroup({ layout: this.layout, entries: [
-        { binding: 0, resource: resolveTextureView(resources.get(input)) },
-        { binding: 1, resource: { buffer: size } }
-        ,{ binding: 2, resource: { buffer: resources.get(exposure) as GPUBuffer } },
-        { binding: 3, resource: this.lutView },
-        { binding: 4, resource: this.lutSampler },
-        { binding: 5, resource: { buffer: resources.get(preExposure) as GPUBuffer } }
-      ] });
-      const pass = command.beginRenderPass({ label: "Surface/present radiance",
+      const bind = debug
+        ? this.device.createBindGroup({ layout: this.debugLayout, entries: [
+          { binding: 0, resource: resolveTextureView(resources.get(input)) },
+          { binding: 1, resource: { buffer: size } }
+        ] })
+        : this.device.createBindGroup({ layout: this.layout, entries: [
+          { binding: 0, resource: resolveTextureView(resources.get(input)) },
+          { binding: 1, resource: { buffer: size } },
+          { binding: 2, resource: { buffer: resources.get(exposure) as GPUBuffer } },
+          { binding: 3, resource: this.lutView },
+          { binding: 4, resource: this.lutSampler },
+          { binding: 5, resource: { buffer: resources.get(preExposure) as GPUBuffer } }
+        ] });
+      const pass = command.beginRenderPass({ label: debug ? "Surface/present debug color" : "Surface/present radiance",
         colorAttachments: [{ view: resolveTextureView(resources.get(swapchain)),
           loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
-      pass.setPipeline(this.pipeline); pass.setBindGroup(0, bind); pass.draw(3); pass.end();
+      pass.setPipeline(debug ? this.debugPipeline : this.pipeline); pass.setBindGroup(0, bind); pass.draw(3); pass.end();
     });
-    present.read(input); present.read(exposure); present.read(preExposure); present.write(swapchain);
+    present.read(input);
+    if (!debug) { present.read(exposure); present.read(preExposure); }
+    present.write(swapchain);
     return swapchain;
   }
 

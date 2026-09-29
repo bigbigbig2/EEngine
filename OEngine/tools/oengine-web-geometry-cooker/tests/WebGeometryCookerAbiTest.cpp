@@ -1,6 +1,10 @@
 #include "oengine_web_geometry_cooker/WebGeometryCookerAbi.h"
 
 #include "oengine_asset/GeometryAbi.h"
+#include "oengine_asset/GeometryCooker.h"
+#include "oengine_asset/OegPackCodec.h"
+#include <cfloat>
+#include <set>
 #include "oengine_asset/GeometryCookRecipe.h"
 #include "oengine_asset/DecodedGeometryProduct.h"
 #include "oengine_asset/Hash.h"
@@ -363,7 +367,63 @@ void AssertWindowedBuilderParity(const std::vector<std::uint8_t>& recipe) {
     assert(!LastError().empty());
 }
 
+// Exercise the actual producer: non-grid-aligned shared vertices must retain
+// bit-identical positions across meshlets and across the accepted LODs.
+void AssertMeshletSeamsAndTerminalLod() {
+    CanonicalGeometryAsset source;
+    source.sourceName = "shared-seam-regression";
+    MaterialDomain domain;
+    constexpr std::uint32_t side = 33;
+    std::set<std::array<std::uint32_t, 3>> sourcePositions;
+    for (std::uint32_t y = 0; y < side; ++y) for (std::uint32_t x = 0; x < side; ++x) {
+        CanonicalVertex v;
+        v.position[0] = float(x) * 0.137f + 0.031f;
+        v.position[1] = float(y) * 0.193f + 0.017f;
+        v.position[2] = float((x * y) % 11) * 0.00013f;
+        domain.vertices.push_back(v);
+        std::array<std::uint32_t, 3> bits;
+        std::memcpy(bits.data(), v.position, 12);
+        sourcePositions.insert(bits);
+    }
+    for (std::uint32_t y = 0; y + 1 < side; ++y) for (std::uint32_t x = 0; x + 1 < side; ++x) {
+        const auto i = y * side + x;
+        domain.indices.insert(domain.indices.end(), {i, i + 1, i + side, i + 1, i + side + 1, i + side});
+    }
+    source.domains.push_back(domain);
+    for (const float minimumReduction : {0.01f, 1.0f}) {
+        GeometryCookRecipeV3 recipe;
+        recipe.groupTargetMeshlets = 4;
+        recipe.minimumLodReduction = minimumReduction;
+        CookEvidenceV3 evidence;
+        const auto cooked = CookGeometryAssetV3(source, recipe, evidence);
+        assert(cooked.groups.size() > 1);
+        std::set<std::array<std::uint32_t, 3>> seen;
+        std::size_t shared = 0;
+        for (const auto& group : cooked.groups) {
+            GroupHeaderV3 header{}; DecodeRecordV3(group.bytes.data(), &header);
+            const auto& format = cooked.vertexFormats[header.vertexFormatId];
+            assert(format.positionEncoding == 1 && format.normalOffset == 12);
+            if (minimumReduction == 1.0f) {
+                assert(header.parentError == FLT_MAX);
+                assert((group.flags & kGroupBootstrap) != 0);
+            }
+            for (std::uint32_t m = 0; m < header.meshletCount; ++m) {
+                MeshletHeaderV3 meshlet{};
+                DecodeRecordV3(group.bytes.data() + header.meshletHeaderOffset + m * 48, &meshlet);
+                for (std::uint32_t v = 0; v < meshlet.vertexCount; ++v) {
+                    std::array<std::uint32_t, 3> bits;
+                    std::memcpy(bits.data(), group.bytes.data() + meshlet.vertexByteOffset + v * format.strideBytes + format.positionOffset, 12);
+                    assert(sourcePositions.count(bits) == 1);
+                    if (!seen.insert(bits).second) ++shared;
+                }
+            }
+        }
+        assert(shared > 0);
+    }
+}
+
 int main() {
+    AssertMeshletSeamsAndTerminalLod();
     AssertPageIdentityRollup();
     assert(oengine_web_geometry_cook_abi_version() == 2u);
     const std::vector<std::uint8_t> canonical = CanonicalCube();

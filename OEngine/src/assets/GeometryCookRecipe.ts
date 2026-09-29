@@ -22,7 +22,7 @@ export type GeometryVertexProfile =
 export interface GeometryCookRecipeV3 {
   readonly recipeVersion: 3;
   readonly meshoptimizerRevision: string;
-  readonly hierarchyAlgorithmVersion: "nyx-hierarchy-v3.0";
+  readonly hierarchyAlgorithmVersion: "nyx-hierarchy-v3.1";
   readonly meshletMaxVertices: number;
   readonly meshletMinTriangles: number;
   readonly meshletMaxTriangles: number;
@@ -42,8 +42,8 @@ export interface GeometryCookRecipeV3 {
   readonly pagePackingAlgorithmVersion: "tier-locality-bounded-best-fit-16-v1";
   readonly pageCodecPolicy: "lz4-or-raw";
   readonly rawCodecThresholdBytes: number;
-  readonly vertexProfileVersion: "static-pbr-page-local-v3";
-  readonly positionQuantization: "meshlet-aabb-u16";
+  readonly vertexProfileVersion: "static-pbr-page-local-f32-v4";
+  readonly positionQuantization: "float32-object-space";
   readonly bootstrapGeometryBudgetBytes: number;
   readonly bootstrapBudgetPolicy: "scene-decoded-payload-hard-fail-v1";
   readonly deterministicSeed: number;
@@ -56,7 +56,7 @@ export function createGeometryCookRecipeV3(
   const recipe: GeometryCookRecipeV3 = {
     recipeVersion: 3,
     meshoptimizerRevision: "nyx-bc7e5b1e51f6-meshoptimizer-0.25-a05dfed026d1",
-    hierarchyAlgorithmVersion: "nyx-hierarchy-v3.0",
+    hierarchyAlgorithmVersion: "nyx-hierarchy-v3.1",
     meshletMaxVertices: 64,
     meshletMinTriangles: 32,
     meshletMaxTriangles: 128,
@@ -76,22 +76,22 @@ export function createGeometryCookRecipeV3(
     pagePackingAlgorithmVersion: "tier-locality-bounded-best-fit-16-v1",
     pageCodecPolicy: "lz4-or-raw",
     rawCodecThresholdBytes: 256,
-    vertexProfileVersion: "static-pbr-page-local-v3",
-    positionQuantization: "meshlet-aabb-u16",
+    vertexProfileVersion: "static-pbr-page-local-f32-v4",
+    positionQuantization: "float32-object-space",
     bootstrapGeometryBudgetBytes: 64 * 1024 * 1024,
     bootstrapBudgetPolicy: "scene-decoded-payload-hard-fail-v1",
     deterministicSeed: 0,
     floatMode: "ieee754-nearest-no-fast-math",
     ...input
   };
-  if (recipe.recipeVersion !== 3 || recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v3.0") throw new RangeError("invalid GeometryCookRecipeV3 identity");
+  if (recipe.recipeVersion !== 3 || recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v3.1") throw new RangeError("invalid GeometryCookRecipeV3 identity");
   assertIntegerInRange(recipe.meshletMaxVertices, 3, 128, "meshletMaxVertices");
   assertIntegerInRange(recipe.meshletMinTriangles, 1, recipe.meshletMaxTriangles, "meshletMinTriangles");
   assertIntegerInRange(recipe.meshletMaxTriangles, 1, 128, "meshletMaxTriangles");
   assertIntegerInRange(recipe.groupTargetMeshlets, 1, 128, "groupTargetMeshlets");
   assertFiniteInRange(recipe.simplifyTargetRatio, 0, 1, false, "simplifyTargetRatio");
   assertFiniteInRange(recipe.simplifyFailureRatio, recipe.simplifyTargetRatio, 1, true, "simplifyFailureRatio");
-  if (recipe.hierarchyFanout !== 8 || recipe.pageShift !== 18 || recipe.pagePackingAlgorithmVersion !== "tier-locality-bounded-best-fit-16-v1" || recipe.pageCodecPolicy !== "lz4-or-raw" || recipe.positionQuantization !== "meshlet-aabb-u16" || recipe.bootstrapBudgetPolicy !== "scene-decoded-payload-hard-fail-v1") throw new RangeError("Geometry V3 ABI constants cannot be specialized per pack");
+  if (recipe.hierarchyFanout !== 8 || recipe.pageShift !== 18 || recipe.pagePackingAlgorithmVersion !== "tier-locality-bounded-best-fit-16-v1" || recipe.pageCodecPolicy !== "lz4-or-raw" || recipe.positionQuantization !== "float32-object-space" || recipe.bootstrapBudgetPolicy !== "scene-decoded-payload-hard-fail-v1") throw new RangeError("Geometry V3 ABI constants cannot be specialized per pack");
   assertIntegerInRange(recipe.deterministicSeed, 0, 0xffffffff, "deterministicSeed");
   return Object.freeze(recipe);
 }
