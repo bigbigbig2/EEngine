@@ -1,0 +1,8 @@
+{
+  "id": "next-renderer-showcase",
+  "title": "EEngine Next Renderer Showcase",
+  "category": "14-integrated",
+  "order": 17,
+  "description": "Full-screen Dungeon scene with live Next Renderer effect and camera controls.",
+  "tags": ["integrated", "webgpu", "next-renderer", "showcase"]
+}
