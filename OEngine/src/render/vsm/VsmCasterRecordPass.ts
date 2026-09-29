@@ -65,6 +65,7 @@ export class VsmCasterRecordPass {
     ] });
     this.finalizeLayout = device.createBindGroupLayout({ label: "VSM/raster indirect finalize layout", entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
     ] });
@@ -121,13 +122,14 @@ export class VsmCasterRecordPass {
       const command = context.encoder as ShadeGPUCommandContext;
       const group = this.device.createBindGroup({ label: "VSM/finalize raster indirect bindings", layout: this.finalizeLayout, entries: [
         { binding: 0, resource: { buffer: resolved.get(currentConstants) as GPUBuffer } },
+        { binding: 1, resource: { buffer: resolved.get(allocation) as GPUBuffer } },
         { binding: 5, resource: { buffer: resolved.get(caster) as GPUBuffer } },
         { binding: 7, resource: { buffer: resolved.get(indirect) as GPUBuffer } }
       ] });
       const pass = command.beginComputePass({ label: "VSM/finalize raster indirect" });
       pass.setPipeline(this.finalizePipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end();
     });
-    finalize.read(currentConstants); finalize.read(caster); finalize.write(indirect); finalize.make_side_effect();
+    finalize.read(currentConstants); finalize.read(allocation); finalize.read(caster); finalize.write(indirect); finalize.make_side_effect();
     return { casterRecords: caster, rasterIndirect: indirect, generation: input.generation, capacity: input.resources.capabilities.casterRecordCapacity };
   }
 

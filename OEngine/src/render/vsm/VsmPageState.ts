@@ -4,6 +4,8 @@ export const VSM_META_ENTRY_WORDS = 8;
 export const VSM_PAGE_WORK_WORDS = 8;
 export const VSM_DEMAND_HEADER_WORDS = 4;
 export const VSM_DEMAND_RECORD_WORDS = 8;
+/** Each clip level owns disjoint mip planes, including the coarsest fallback plane. */
+export const VSM_MIP_LEVELS = 6;
 
 export const VSM_PAGE_FLAGS = Object.freeze({
   allocated: 1 << 0,
@@ -57,22 +59,41 @@ export interface VsmDemandRecord {
   readonly receiverMaxY: number;
 }
 
+export function vsmEntriesPerClipLevel(pagesPerAxis: number): number {
+  if (!Number.isInteger(pagesPerAxis) || pagesPerAxis < 1) {
+    throw new RangeError("VSM pages per axis must be positive");
+  }
+  let count = 0;
+  for (let mip = 0; mip < VSM_MIP_LEVELS; mip++) {
+    const axis = Math.max(1, Math.floor(pagesPerAxis / 2 ** mip));
+    count += axis * axis;
+  }
+  return count;
+}
+
 export function vsmPageTableEntryIndex(
-  level: number, pageX: number, pageY: number, pagesPerAxis: number
+  level: number, mip: number, pageX: number, pageY: number, pagesPerAxis: number
 ): number {
+  const perLevel = vsmEntriesPerClipLevel(pagesPerAxis);
+  const axis = Math.max(1, Math.floor(pagesPerAxis / 2 ** mip));
   if (!Number.isInteger(level) || level < 0 ||
-      !Number.isInteger(pageX) || pageX < 0 || pageX >= pagesPerAxis ||
-      !Number.isInteger(pageY) || pageY < 0 || pageY >= pagesPerAxis ||
-      !Number.isInteger(pagesPerAxis) || pagesPerAxis <= 0) {
+      !Number.isInteger(mip) || mip < 0 || mip >= VSM_MIP_LEVELS ||
+      !Number.isInteger(pageX) || pageX < 0 || pageX >= axis ||
+      !Number.isInteger(pageY) || pageY < 0 || pageY >= axis) {
     throw new RangeError("VSM page coordinate is outside the fixed virtual page domain");
   }
-  return (level * pagesPerAxis + pageY) * pagesPerAxis + pageX;
+  let offset = level * perLevel;
+  for (let previous = 0; previous < mip; previous++) {
+    const planeAxis = Math.max(1, Math.floor(pagesPerAxis / 2 ** previous));
+    offset += planeAxis * planeAxis;
+  }
+  return offset + pageY * axis + pageX;
 }
 
 export function vsmPageTableEntryByteOffset(
-  level: number, pageX: number, pageY: number, pagesPerAxis: number
+  level: number, mip: number, pageX: number, pageY: number, pagesPerAxis: number
 ): number {
-  return vsmPageTableEntryIndex(level, pageX, pageY, pagesPerAxis) * VSM_PAGE_ENTRY_WORDS * 4;
+  return vsmPageTableEntryIndex(level, mip, pageX, pageY, pagesPerAxis) * VSM_PAGE_ENTRY_WORDS * 4;
 }
 
 export function vsmMetaEntryByteOffset(slot: number): number {

@@ -9,7 +9,7 @@ export class VsmPageTable {
 
   constructor(readonly resources: VsmResources, readonly capabilities: VsmCapabilities = resources.capabilities) {
     if (resources.profile === "shadow-disabled") throw new Error("Disabled VSM has no page table");
-    this.virtualEntryCount = capabilities.clipLevels * capabilities.virtualPagesPerAxis ** 2;
+    this.virtualEntryCount = capabilities.virtualEntryCount;
     this.slotCount = capabilities.residentSlots;
     if (capabilities.pageTableBytes < this.virtualEntryCount * VSM_PAGE_ENTRY_WORDS * 4 ||
         capabilities.metaTableBytes < this.slotCount * VSM_META_ENTRY_WORDS * 4) {
@@ -17,8 +17,8 @@ export class VsmPageTable {
     }
   }
 
-  entryByteOffset(level: number, pageX: number, pageY: number): number {
-    return vsmPageTableEntryByteOffset(level, pageX, pageY, this.capabilities.virtualPagesPerAxis);
+  entryByteOffset(level: number, mip: number, pageX: number, pageY: number): number {
+    return vsmPageTableEntryByteOffset(level, mip, pageX, pageY, this.capabilities.virtualPagesPerAxis);
   }
 
   metaByteOffset(slot: number): number {

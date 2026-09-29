@@ -57,14 +57,13 @@ export class VsmResources {
     this.createBuffer("demand", capabilities.demandBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer("allocation", capabilities.allocationBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer("casterRecords", capabilities.casterRecordBytes, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-    const dirtyWords = Math.ceil((capabilities.clipLevels * capabilities.virtualPagesPerAxis ** 2) / 32);
+    const dirtyWords = Math.ceil(capabilities.virtualEntryCount / 32);
     this.createBuffer("dirtyMask", Math.max(256, dirtyWords * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer("generation", 256, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer("overflowCounters", 256, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer("rasterIndirect", 5 * 4 * 64, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST);
     this.createBuffer("pageConstants", 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-    const virtualEntryCount = capabilities.clipLevels * capabilities.virtualPagesPerAxis ** 2;
-    this.createBuffer("pageLocks", Math.max(256, virtualEntryCount * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    this.createBuffer("pageLocks", Math.max(256, capabilities.virtualEntryCount * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer("slotLocks", Math.max(256, capabilities.residentSlots * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
   }
 

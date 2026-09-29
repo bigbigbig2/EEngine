@@ -14,7 +14,7 @@ export interface VsmAllocationFrame {
 }
 
 export function virtualEntryCount(capabilities: VsmCapabilities): number {
-  return capabilities.clipLevels * capabilities.virtualPagesPerAxis ** 2;
+  return capabilities.virtualEntryCount;
 }
 
 export function allocationRecordCapacity(capabilities: VsmCapabilities): number {

@@ -1,7 +1,7 @@
 # Module E 执行：VSM / Shadow Visibility
 
 > 本文是模块 E 的连续实施顺序。设计语义见 [VSM design](../next-design/vsm.md)。
-> E0-E7 已修改生产主链并完成集中 typecheck/build/targeted contract test；E8/E9 尚未完成。来源 adoption 与浏览器/GPU 证据仍按最终验收规则后置。
+> E0-E9 已接入单一生产主链；E9 的 typecheck/build、focused CPU/WGSL/epoch 检查于 2026-09-28 完成。R07 adoption、完整场景覆盖和正式浏览器/画质/性能矩阵仍后置。
 
 ## 来源入口
 
@@ -340,16 +340,17 @@ E1-E8 的 producer→consumer 已在同一 Frame Program、同一 command contex
 
 ### 收口检查表
 
-- [ ] 只有一条 production renderer path。
-- [ ] 无本帧 GPU→CPU→GPU visible/work control。
-- [ ] 无额外 frame submit。
-- [ ] receiver demand、allocation、caster work、atlas raster、sampling 均有真实 GPU consumer。
-- [ ] page/meta 双向一致、generation 正确、overflow/fallback 可观测。
+- [x] 只有一条 production renderer path。
+- [x] 无本帧 GPU→CPU→GPU visible/work control。
+- [x] 无额外 frame submit。
+- [x] receiver demand、allocation、caster work、atlas raster、sampling 均接到生产 FrameGraph 的 GPU consumer；完整端到端 GPU 证据仍不足以提升 R07 adoption。
+- [x] page/meta 双向一致、generation 正确、allocation/caster overflow 可观测。
+- [ ] sampling fallback 与 overflow mask 当前只有保留的 telemetry 槽；有效计数留到 provider 交互诊断接通。
 - [x] CSM owner 不再被 production import。
 - [x] Standard/Coated direct lobe 只按 VSM visibility 乘一次。
-- [ ] 缺页不会产生错误全黑，且与 demand 规则一致。
-- [ ] resize、camera cut、sun change、scene patch、device loss 有明确生命周期。
-- [ ] typecheck/build/必要 targeted tests 的实际状态如实记录。
+- [x] 缺页、旧代际和 dirty 页返回中性 visibility；WGSL 采样检查覆盖该分支。
+- [x] resize、camera cut、sun change、scene patch、device epoch 有明确生命周期；真实 device-loss 浏览器组合留到最终验收。
+- [x] typecheck/build/必要 targeted tests 的实际状态如实记录。
 
 ## 11. 后续模块交接
 
@@ -362,4 +363,12 @@ E 完成后直接进入 SSSR 或整体计划的下一项。SSSR 可以复用 dep
 - `RendererCore` rebuilds VSM resources and passes on a replacement device epoch; VSM frame constants use the lifecycle generation rather than `frameIndex`.
 - `Renderer.vsmDiagnostics()` exposes GPU buffer locations for page demand, allocation failure, dirty pages, caster records, atlas pixel capacity, sampling fallback, and overflow mask. These locations are diagnostic only and cannot control current-frame work.
 - Page-quantum shifts currently take the bounded full-generation fallback because the existing page-table ABI has no toroidal remap metadata; this prevents stale world-origin content from being sampled. Sub-page motion still keeps the generation and resident slots stable.
-- E8 implementation is complete. E9 remains the deferred module closeout for typecheck/build, CPU/WGSL focused checks, device-epoch checks, and browser/lifecycle coverage.
+- E8 implementation is complete. E9 focused module checks completed on 2026-09-28; browser/lifecycle combinations remain final acceptance.
+
+### E9 focused closeout (2026-09-28)
+
+- 修正页表 32-byte entry 容量和六个独立 mip 平面；128 页轴时每个 clip level 为 21,840 条目。能力协商同时检查 page table、page/slot locks 和各工作 buffer 的 binding/size limit。
+- 修正 caster 页范围使用实际 `entry.mip`；新增 GPU allocation indirect 驱动的 dirty 物理槽深度清理，保留 clean 缓存页；caster records 溢出时不提交部分 dirty 页。WGSL 采样的类型/保留字问题已修正。
+- `npm run build:test`、`node --test tests/oracle/vsm-e9.test.mjs`（6/6）、`node --test tests/contract/frame-program.test.mjs`（7/7）、`npm run typecheck`、`npm run build` 和 `git diff --check` 通过。CPU oracle 覆盖页表唯一性、容量/profile、奇数尺寸、分配复用/驱逐/溢出和 device epoch。
+- 本机 Chrome WebGPU 隔离检查：七份 VSM WGSL 模块无编译 error；普通/Product Atlas 和 dirty-slot clear 的真实 render pipeline 无 validation error。方形 Atlas 的 indirect clear 深度读回为 dirty 槽 0、相邻 clean 槽 1；采样 GPU 读回依次为缺页 1、dirty 页 1、clean 有遮挡页 0、旧代际页 1。2 个物理槽处理 3 个需求的分配微测得到 attempted=3、written=2、overflow=1，未出现 validation error。这些微测是调试检查，未登记为正式 evidence。
+- 当前 caster 来源仅为当帧 MeshletWork，不能证明屏幕外遮挡者全覆盖。`samplingFallback` 与 `overflowMask` 诊断位置尚为保留槽，不能解释为有效计数。R07 维持 `not adopted`；VSM/A–D 交互、画质、正式 GPU P50/P95 和跨浏览器矩阵留到整链集成验收。

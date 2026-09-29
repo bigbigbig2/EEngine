@@ -81,14 +81,14 @@ fn append_caster(record: VsmCasterRecord) {
   }
 }
 
-fn page_overlaps_sphere(center: vec3f, radius: f32, work: VsmPageWork) -> bool {
+fn page_overlaps_sphere(center: vec3f, radius: f32, work: VsmPageWork,
+  page_mip: u32) -> bool {
   let pages = constants.dimensions.x;
-  let level_span = pages * pages;
-  let level = min(work.virtual_page / level_span, 5u);
-  let local = work.virtual_page - level * level_span;
-  let page_x = local % pages;
-  let page_y = local / pages;
-  let mip = min(work.fallback_mip, 5u);
+  let coordinates = vsm_page_entry_coordinates(work.virtual_page, pages);
+  let level = min(coordinates.x, 5u);
+  let page_x = coordinates.z;
+  let page_y = coordinates.w;
+  let mip = min(page_mip, 5u);
   let axis = max(1u, pages >> mip);
   let extent = constants.clip_origin_extent[level].z;
   let origin = constants.clip_origin_extent[level].xy;
@@ -128,7 +128,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         entry.generation != constants.control.x ||
         (entry.flags & (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) !=
           (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) { continue; }
-    if (!page_overlaps_sphere(center, radius, page)) { continue; }
+    if (!page_overlaps_sphere(center, radius, page, entry.mip)) { continue; }
     append_caster(VsmCasterRecord(work.instance_slot, work.geometry_slot, work.meshlet_slot,
       work.material_slot_or_range, page.slot, page.virtual_page, work.packed_raster_flags,
       work.packed_profile_lod));
@@ -143,5 +143,7 @@ fn finalize_indirect() {
   let count = min(atomicLoad(&caster.written), constants.control.z);
   raster_indirect[0] = OEngineDrawIndirectArgs(384u, count, 0u, 0u);
   raster_indirect[1] = OEngineDrawIndirectArgs(384u, count, 0u, 0u);
+  raster_indirect[2] = OEngineDrawIndirectArgs(6u,
+    min(atomicLoad(&allocation.written), constants.control.w), 0u, 0u);
 }
 `;

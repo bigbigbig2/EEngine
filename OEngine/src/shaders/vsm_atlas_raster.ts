@@ -11,6 +11,45 @@ import { GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { VSM_PAGE_TABLE_WGSL } from "./vsm_page_table.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 
+/** Clear only dirty physical slots before caster raster, preserving clean cached pages. */
+export const VSM_ATLAS_PAGE_CLEAR_WGSL = /* wgsl */ `
+struct Constants {
+  light_view: mat4x4f,
+  clip_origin_extent: array<vec4f, 6>,
+  dimensions: vec4u, // pages/axis, page size, border, atlas dimension
+  control: vec4u,    // generation, work capacity, caster capacity, resident slots
+};
+struct PageWork {
+  virtual_page: u32, slot: u32, priority: u32, generation: u32,
+  flags: u32, fallback_mip: u32, reserved_0: u32, reserved_1: u32,
+};
+struct Allocation {
+  attempted: u32, written: u32, overflow: u32, generation: u32,
+  records: array<PageWork>,
+};
+@group(0) @binding(0) var<uniform> constants: Constants;
+@group(0) @binding(1) var<storage, read> allocation: Allocation;
+const corners = array<vec2f, 6>(
+  vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
+  vec2f(0.0, 1.0), vec2f(1.0, 0.0), vec2f(1.0, 1.0));
+@vertex fn clear_page(@builtin(vertex_index) vertex_index: u32,
+  @builtin(instance_index) record_index: u32) -> @builtin(position) vec4f {
+  if (record_index >= min(allocation.written, constants.control.w)) { return vec4f(2.0); }
+  let record = allocation.records[record_index];
+  if (record.generation != constants.control.x || (record.flags & 2u) == 0u ||
+      record.slot >= constants.control.w) { return vec4f(2.0); }
+  let pitch = constants.dimensions.y + constants.dimensions.z * 2u;
+  let slots_per_axis = max(1u, constants.dimensions.w / pitch);
+  let origin = vec2f(f32((record.slot % slots_per_axis) * pitch),
+    f32((record.slot / slots_per_axis) * pitch));
+  let texel = origin + corners[vertex_index] * f32(pitch);
+  let extent = f32(constants.dimensions.w);
+  return vec4f(texel.x / extent * 2.0 - 1.0,
+    1.0 - texel.y / extent * 2.0, 0.0, 1.0);
+}
+@fragment fn clear_depth() -> @builtin(frag_depth) f32 { return 0.0; }
+`;
+
 const VSM_PAGE_ALLOCATED = 1;
 const VSM_PAGE_DIRTY = 2;
 const VSM_PAGE_GENERATION_VALID = 8;
@@ -91,14 +130,11 @@ fn read_uv(byte_offset: u32, stride: u32, format: u32, vertex: u32) -> vec3f {
 }
 fn atlas_position(light: vec3f, entry: VsmPageEntry, virtual_page: u32) -> vec4f {
   let pages = constants.dimensions.x;
-  let level_span = pages * pages;
-  let level = min(5u, virtual_page / max(1u, level_span));
-  // The virtual page index carries the full-page stride; coordinates outside
-  // the selected mip are unused and therefore cannot address a dirty page.
-  let local = virtual_page - level * level_span;
+  let coordinates = vsm_page_entry_coordinates(virtual_page, pages);
+  let level = min(5u, coordinates.x);
   let page_axis = max(1u, pages >> min(entry.mip, 5u));
-  let page_x = local % pages;
-  let page_y = local / pages;
+  let page_x = coordinates.z;
+  let page_y = coordinates.w;
   let extent = constants.clip_origin_extent[level].z;
   let uv = (light.xy - constants.clip_origin_extent[level].xy) / max(extent, 1e-5) * f32(page_axis) - vec2f(f32(page_x), f32(page_y));
   let slot_x = entry.slot_x;
@@ -238,7 +274,7 @@ fn product_meshlet_header(bank: u32, location: OEngineGeometryPageLookupV1, grou
 fn product_pos(bank: u32, base: u32, meshlet: OEngineVirtualMeshletHeaderV1, format0: u32, format1: u32, vertex: u32) -> vec3f { let at = base + meshlet.vertex_byte_offset + vertex * (format0 & 0xffffu) + (format1 & 0xffu); let q = vec3f(f32(product_u16(bank, at)), f32(product_u16(bank, at + 2u)), f32(product_u16(bank, at + 4u))) / 65535.0; return mix(meshlet.bounds_min, meshlet.bounds_max, q); }
 fn product_uv(bank: u32, base: u32, meshlet: OEngineVirtualMeshletHeaderV1, format0: u32, format1: u32, format2: u32, vertex: u32, uv_set: u32) -> vec2f { if (uv_set > 1u) { return vec2f(0.0); } let bit = select(8u, 16u, uv_set == 1u); let offset = select((format1 >> 24u) & 0xffu, format2 & 0xffu, uv_set == 1u); if ((format0 & (bit << 16u)) == 0u || offset == 0xffu) { return vec2f(0.0); } let at = base + meshlet.vertex_byte_offset + vertex * (format0 & 0xffffu) + offset; return unpack2x16float(product_u16(bank, at) | (product_u16(bank, at + 2u) << 16u)); }
 fn valid_page(record: VsmCasterRecord) -> VsmPageEntry { if (record.virtual_page >= arrayLength(&page_table.entries)) { return VsmPageEntry(0u,0u,0u,0u,0u,0u,0u,0u); } let entry = page_table.entries[record.virtual_page]; let axis = max(1u, constants.dimensions.w / (constants.dimensions.y + constants.dimensions.z * 2u)); if (entry.slot_x + entry.slot_y * axis != record.page_slot || entry.generation != constants.control.x || (entry.flags & (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) != (${VSM_PAGE_ALLOCATED}u | ${VSM_PAGE_DIRTY}u | ${VSM_PAGE_GENERATION_VALID}u)) { return VsmPageEntry(0u,0u,0u,0u,0u,0u,0u,0u); } return entry; }
-fn atlas_position(light: vec3f, entry: VsmPageEntry, virtual_page: u32) -> vec4f { let pages = constants.dimensions.x; let span = pages * pages; let level = min(5u, virtual_page / max(1u, span)); let local = virtual_page - level * span; let axis = max(1u, pages >> min(entry.mip, 5u)); let page_x = local % pages; let page_y = local / pages; let extent = constants.clip_origin_extent[level].z; let uv = (light.xy - constants.clip_origin_extent[level].xy) / max(extent, 1e-5) * f32(axis) - vec2f(f32(page_x), f32(page_y)); let pitch = constants.dimensions.y + constants.dimensions.z * 2u; let texel = vec2f(f32(entry.slot_x * pitch + constants.dimensions.z), f32(entry.slot_y * pitch + constants.dimensions.z)) + uv * f32(constants.dimensions.y); return vec4f(texel.x / f32(constants.dimensions.w) * 2.0 - 1.0, 1.0 - texel.y / f32(constants.dimensions.w) * 2.0, clamp(0.5 - light.z / max(extent * 8.0, 1.0), 0.0, 1.0), 1.0); }
+fn atlas_position(light: vec3f, entry: VsmPageEntry, virtual_page: u32) -> vec4f { let pages = constants.dimensions.x; let coordinates = vsm_page_entry_coordinates(virtual_page, pages); let level = min(5u, coordinates.x); let axis = max(1u, pages >> min(entry.mip, 5u)); let page_x = coordinates.z; let page_y = coordinates.w; let extent = constants.clip_origin_extent[level].z; let uv = (light.xy - constants.clip_origin_extent[level].xy) / max(extent, 1e-5) * f32(axis) - vec2f(f32(page_x), f32(page_y)); let pitch = constants.dimensions.y + constants.dimensions.z * 2u; let texel = vec2f(f32(entry.slot_x * pitch + constants.dimensions.z), f32(entry.slot_y * pitch + constants.dimensions.z)) + uv * f32(constants.dimensions.y); return vec4f(texel.x / f32(constants.dimensions.w) * 2.0 - 1.0, 1.0 - texel.y / f32(constants.dimensions.w) * 2.0, clamp(0.5 - light.z / max(extent * 8.0, 1.0), 0.0, 1.0), 1.0); }
 fn transform_uv(record: OEngineMaterialVisibilityRecord, uv: vec2f) -> vec2f { let scaled = uv * record.uv_offset_scale.zw; return record.uv_offset_scale.xy + vec2f(record.uv_rotation.x * scaled.x - record.uv_rotation.y * scaled.y, record.uv_rotation.y * scaled.x + record.uv_rotation.x * scaled.y); }
 `;
 

@@ -415,3 +415,7 @@ E8 adds no new complex upstream algorithm or runtime dependency. The local mappi
 | diagnostics | `VsmResources.diagnostics` | GPU buffer locations only; no `mapAsync` result controls current-frame work |
 
 This is marked local integration. The E7 Timberdoodle mapping and its `not adopted` status remain unchanged until E9 or renderer-wide acceptance supplies the deferred CPU/WGSL/GPU evidence.
+
+### R07 E9 module checks (2026-09-28)
+
+The local page-table ABI now allocates 32 bytes per entry across disjoint mip planes. `VsmCasterRecordPass` uses the entry's mip for page overlap; `VsmAtlasRasterPass` clears GPU-selected dirty slots before raster and keeps dirty pages uncommitted on caster overflow. CPU oracles cover indexing, profile limits, allocation reuse/eviction/overflow and device epoch; Chrome WebGPU compiled the seven VSM modules, validated ordinary/Product/clear render pipelines, read back a dirty slot cleared to zero while its clean neighbor stayed at one, and observed sampling visibility 1/1/0/1 for missing/dirty/occluded-clean/stale pages. These checks do not establish complete off-camera caster coverage or a full production GPU producer-to-consumer capture. The Surface sampling fallback and overflow-mask diagnostic slots are reserved rather than measured. R07 remains **not adopted**; source mapping, WGSL/CPU checks and real production GPU evidence must all be present before promotion.

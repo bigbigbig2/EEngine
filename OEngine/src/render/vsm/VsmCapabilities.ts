@@ -2,6 +2,8 @@
  * Device-local VSM profile negotiation.  The negotiated profile is immutable
  * for a device epoch; per-frame demand and residency never participate in it.
  */
+import { VSM_PAGE_ENTRY_WORDS, vsmEntriesPerClipLevel } from "./VsmPageState.js";
+
 export type VsmProfile =
   | "vsm-directional-high"
   | "vsm-directional-bounded"
@@ -12,6 +14,7 @@ export interface VsmCapabilities {
   readonly reason: string;
   readonly clipLevels: number;
   readonly virtualPagesPerAxis: number;
+  readonly virtualEntryCount: number;
   readonly pageSize: number;
   readonly border: number;
   readonly atlasDimension: number;
@@ -40,10 +43,6 @@ const VIRTUAL_PAGES_PER_AXIS = 128;
 const HIGH_ATLAS = 4096;
 const BOUNDED_ATLAS = 2048;
 
-function bytesForPages(clipLevels: number, bytesPerEntry: number): number {
-  return clipLevels * VIRTUAL_PAGES_PER_AXIS * VIRTUAL_PAGES_PER_AXIS * bytesPerEntry;
-}
-
 function limitsOf(device: GPUDevice): VsmCapabilities["limits"] {
   return Object.freeze({
     maxTextureDimension2D: Number(device.limits.maxTextureDimension2D),
@@ -65,7 +64,8 @@ function makeCapabilities(
 ): VsmCapabilities {
   const atlasPagesPerAxis = Math.floor(atlasDimension / (PAGE_SIZE + BORDER * 2));
   const residentSlots = atlasPagesPerAxis * atlasPagesPerAxis;
-  const pageTableBytes = bytesForPages(clipLevels, 16);
+  const virtualEntryCount = clipLevels * vsmEntriesPerClipLevel(VIRTUAL_PAGES_PER_AXIS);
+  const pageTableBytes = virtualEntryCount * VSM_PAGE_ENTRY_WORDS * 4;
   const metaTableBytes = Math.max(256, residentSlots * 32);
   const demandBytes = Math.max(256, demandCapacity * 32 + 16);
   const allocationBytes = Math.max(256, residentSlots * 32 + 16);
@@ -75,6 +75,7 @@ function makeCapabilities(
     reason,
     clipLevels,
     virtualPagesPerAxis: VIRTUAL_PAGES_PER_AXIS,
+    virtualEntryCount,
     pageSize: PAGE_SIZE,
     border: BORDER,
     atlasDimension,
@@ -105,13 +106,13 @@ function profileFits(
 ): boolean {
   const limits = limitsOf(device);
   if (limits.maxTextureDimension2D < atlasDimension ||
-      // E5 binds demand, page/meta tables, allocation work, two lock arrays
-      // and GPU telemetry in one compute stage.
-      limits.maxStorageBuffersPerShaderStage < 7 ||
+      // E5 needs seven compute storage buffers; both Atlas vertex backends
+      // need eight. The material record is fragment-only in the ordinary path.
+      limits.maxStorageBuffersPerShaderStage < 8 ||
       limits.maxComputeWorkgroupsPerDimension < 1) return false;
   const candidate = makeCapabilities(device, "vsm-directional-bounded", "preflight", clipLevels,
     atlasDimension, demandCapacity, casterRecordCapacity);
-  const pageLocksBytes = Math.max(256, clipLevels * VIRTUAL_PAGES_PER_AXIS * VIRTUAL_PAGES_PER_AXIS * 4);
+  const pageLocksBytes = Math.max(256, candidate.virtualEntryCount * 4);
   const slotLocksBytes = Math.max(256, candidate.residentSlots * 4);
   return [candidate.pageTableBytes, candidate.metaTableBytes, candidate.demandBytes,
     candidate.allocationBytes, candidate.casterRecordBytes, pageLocksBytes, slotLocksBytes]

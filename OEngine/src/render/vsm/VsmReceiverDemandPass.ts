@@ -32,6 +32,14 @@ export interface VsmDemandFrame {
 
 const CONSTANT_BYTES = 256;
 
+export function vsmReceiverDispatch(width: number, height: number): readonly [number, number] {
+  if (!Number.isSafeInteger(width) || width < 1 ||
+      !Number.isSafeInteger(height) || height < 1) {
+    throw new RangeError("VSM receiver demand extent is invalid");
+  }
+  return [Math.ceil(width / 8), Math.ceil(height / 8)];
+}
+
 function normalize3(x: number, y: number, z: number): [number, number, number] {
   const length = Math.hypot(x, y, z);
   if (!Number.isFinite(length) || length < 1e-6) throw new RangeError("VSM sun direction is degenerate");
@@ -158,7 +166,7 @@ export class VsmReceiverDemandPass {
       const pass = command.beginComputePass({ label: "VSM/receiver demand" });
       pass.setPipeline(this.pipeline);
       pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(input.height / 8));
+      pass.dispatchWorkgroups(...vsmReceiverDispatch(input.width, input.height));
       pass.end();
     });
     produce.read(currentConstants);

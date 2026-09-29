@@ -23,7 +23,7 @@ function packConstants(input: VsmAllocatePagesInputs): ArrayBuffer {
     capabilities.clipLevels >>> 0,
     capabilities.virtualPagesPerAxis >>> 0,
     capabilities.atlasPagesPerAxis >>> 0,
-    capabilities.clipLevels * capabilities.virtualPagesPerAxis ** 2,
+    capabilities.virtualEntryCount,
     0
   ]);
   return data;

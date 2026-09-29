@@ -56,6 +56,7 @@ export class ShadeGPUCommandContext {
   #debugTimerErrorCallbacks = new Set<(error: unknown) => void>();
   #finished = false;
   #submitted = false;
+  #gpuDonePromise: Promise<void> | undefined;
   #abortCause: unknown | undefined;
   #label = "";
 
@@ -149,7 +150,9 @@ export class ShadeGPUCommandContext {
 
   /** Resolves only after the queue has completed all work submitted so far. */
   get gpuDone(): Promise<void> {
-    return this.submitted.then(() => this.device.queue.onSubmittedWorkDone());
+    return this.#gpuDonePromise ??= this.submitted.then(
+      () => this.device.queue.onSubmittedWorkDone()
+    );
   }
 
   static create(

@@ -89,7 +89,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let page_axis = constants.dimensions.w >> mip;
   let page = vec2u(min(page_axis - 1u, u32(uv.x * f32(page_axis))),
     min(page_axis - 1u, u32(uv.y * f32(page_axis))));
-  let virtual_page = vsm_page_entry_index(level, page.x, page.y, constants.dimensions.w);
+  let virtual_page = vsm_page_entry_index(level, mip, page.x, page.y, constants.dimensions.w);
   let ticket = atomicAdd(&demand.attempted, 1u);
   if (ticket >= constants.control.z) {
     atomicAdd(&demand.overflow, 1u);

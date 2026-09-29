@@ -227,6 +227,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       frame: vsmFrameBinding,
       generation: vsmFrameBinding.generation,
       pageTable: vsmAllocation.pageTable,
+      allocation: vsmAllocation.allocation,
       metaTable: vsmAllocation.metaTable,
       pageLocks: vsmAllocation.pageLocks,
       instances,
