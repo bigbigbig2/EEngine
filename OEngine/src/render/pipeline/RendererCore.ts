@@ -344,6 +344,11 @@ export class Renderer {
   packed_visibility_cone_enabled = true;
   packed_visibility_hzb_enabled = true;
   xe_gtao_enabled = true;
+  /** Perf-host diagnostic profile; production keeps both post stages enabled. */
+  fsr3_enabled = true;
+  bloom_enabled = true;
+  /** Diagnostic counter sampling; the normal production frame keeps shader atomics off. */
+  perf_gpu_counters_enabled = false;
   packed_visibility_current_hzb_late_recheck_enabled = false;
   packed_meshlet_work_candidate_capacity: number | undefined;
   packed_meshlet_work_compaction: "auto" | "portable" | "subgroup" = "auto";
@@ -1276,12 +1281,16 @@ export class Renderer {
     this._profiler.beginFrame(frameIndex);
     const frame = this._frameCoordinator.beginFrame(frameIndex, "Renderer/visibility-frame");
     const command = frame.command;
+    const sampleGeometryCounters = this.perf_gpu_counters_enabled &&
+      this._profiler.shouldSampleGpuCounters();
+    if (sampleGeometryCounters) this._profiler.encodeGpuCounterClear(command);
     let temporalActive = false;
     let activeHzb: HierarchicalZBuffer | null = null;
     let environmentGeneration: number | null | undefined;
     let cameraCut = false;
     let cameraChanged = false;
     try {
+      const finishScenePrepare = this._profiler.beginCpuSection("scene-prepare");
       if (this._fsr3.canRetainHistory(this._render_resolution.x, this._render_resolution.y,
           this._output_resolution.x, this._output_resolution.y) === false) {
         this._temporal.histories.invalidateNames(["color"], "internal-resize");
@@ -1338,6 +1347,8 @@ export class Renderer {
       if (hasLit) {
         environment.lights.updateDirectRecords(command);
       }
+      finishScenePrepare();
+      const finishViewPrepare = this._profiler.beginCpuSection("view-prepare");
       const view = this._views.obtain(GPUViewKey.from(camera, scene), environment);
       const width = this._render_resolution.x;
       const height = this._render_resolution.y;
@@ -1420,7 +1431,7 @@ export class Renderer {
         runtime,
         assets: bindings.assets,
         scene: bindings.scene,
-        countersEnabled: false,
+        countersEnabled: sampleGeometryCounters,
         width, height,
         hierarchyView: createPackedHierarchyView(camera, height),
         virtualGeometry: runtime.virtualGeometry ?? undefined,
@@ -1443,7 +1454,9 @@ export class Renderer {
       };
       const job: PackedVisibilityJob = {
         ...prepareJob,
-        prepared: this._visibilityFeature.prepare(prepareJob, runtime.counterSink, view.gpu_camera_state.buffer, command)
+        prepared: this._visibilityFeature.prepare(prepareJob,
+          sampleGeometryCounters ? this._profiler.gpuCounterBuffer! : runtime.counterSink,
+          view.gpu_camera_state.buffer, command)
       };
       const graphBindings: SceneFrameBindings = {
         kind: "scene",
@@ -1459,6 +1472,7 @@ export class Renderer {
             ) : null,
         vsmGeneration
       };
+      finishViewPrepare();
       const program = this._programCache.getOrCreate({
         kind: "scene", intent: "present", viewFamily: "main", outputWidth: this._output_resolution.x,
         outputHeight: this._output_resolution.y, outputFormat: this._format,
@@ -1472,7 +1486,9 @@ export class Renderer {
           ? "scalar-high" : "off",
         shadowProfile: vsmEnabled
           ? this._vsm!.profile : hasLit ? "shadow-disabled" : "off",
-        physicalEnvironment: this._environmentRuntime !== null
+        physicalEnvironment: this._environmentRuntime !== null,
+        fsr3Enabled: this.fsr3_enabled,
+        bloomEnabled: this.bloom_enabled
       });
       assertFrameProgramBindings(program, graphBindings);
       const graphKey = program.key;
@@ -1493,11 +1509,21 @@ export class Renderer {
           stages: program.stages, bindingRoles: program.bindingRoles }
       });
       command.encodeCompiledGraph(compiled, graphBindings);
+      if (sampleGeometryCounters) {
+        this._profiler.registerGpuCounterFields([
+          "geometryNodesTested", "geometryClustersAccepted", "geometryMeshletsSelected",
+          "geometryMeshletWorksProduced", "geometryRasterTriangles", "geometryPaddedVertices",
+          "meshletQueueAttempted", "meshletQueueWritten", "meshletQueueConsumed",
+          "meshletQueueOverflow", "meshletQueueInvalid", "meshletRasterTriangles",
+          "queueOverflowMask"
+        ]);
+        this._profiler.encodeGpuCounterReadback(command);
+      }
       this._temporal.markProduced("color");
       this._temporal.markProduced("identity");
       view.finish_frame(command, frameIndex);
       command.onFinished.addOne(() => this._previousViewMatrices.set(view, currentViewMatrix));
-      this._frameCoordinator.submitFrame(frame);
+      this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       this._fsr3.commit(command.gpuDone);
       this._temporalFacts.commit(command.gpuDone);
       this._gpuRadiometry.commit(command.gpuDone);

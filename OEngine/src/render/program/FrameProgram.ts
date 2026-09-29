@@ -59,6 +59,10 @@ export type FrameProgramRequest = FrameProgramBase & (
       aoProfile?: FrameAoProfile;
       shadowProfile?: FrameVsmProfile;
       physicalEnvironment: boolean;
+      /** Perf-host diagnostic: keep the semantic reconstruction edge but bypass FSR3 passes. */
+      fsr3Enabled?: boolean;
+      /** Perf-host diagnostic: keep the semantic bloom edge but bypass Bloom passes. */
+      bloomEnabled?: boolean;
     }>
 );
 
@@ -269,7 +273,9 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
     activeSets: Object.freeze(activeSets),
     activeExceptionLanes: Object.freeze(activeExceptionLanes),
     textureBankMask: request.textureBankMask ?? 0x1ff,
-    shadowProfile
+    shadowProfile,
+    fsr3Enabled: request.fsr3Enabled !== false,
+    bloomEnabled: request.bloomEnabled !== false
   });
 }
 
@@ -284,7 +290,7 @@ function structuralKey(request: FrameProgramRequest): string {
     request.previousHzb, request.currentHzbLateRecheck,
     request.activeSets, request.activeExceptionLanes, request.textureBankMask ?? 0x1ff,
     request.hasLit, request.aoProfile ?? "off", request.shadowProfile ?? "off",
-    request.physicalEnvironment
+    request.physicalEnvironment, request.fsr3Enabled !== false, request.bloomEnabled !== false
   ]);
 }
 

@@ -1,6 +1,7 @@
 import {
   createDefaultWebCookWorker, load_gltf, OrbitControls, PerspectiveCamera, Renderer, Scene,
   webCookCatalogSceneFraming,
+  type FrameProfileSnapshot,
   type MultiProductSceneHandles, type WebCookCatalogSceneFramingV1,
   type WebCookProductPublicationTiming, type WebCookRuntimeAsset
 } from "../../../../OEngine/src/index.ts";
@@ -18,12 +19,21 @@ const azimuthInput = element<HTMLInputElement>("#sun-azimuth");
 const elevationInput = element<HTMLInputElement>("#sun-elevation");
 const scene = new Scene();
 const modelUrl = new URL("../../../assets/three/rendering-lab/dungeon_warkarma.glb", import.meta.url).href;
-const loadOnly = new URLSearchParams(location.search).has("loadOnly");
-const boundedFrame = new URLSearchParams(location.search).has("boundedFrame");
-const geometryOnly = new URLSearchParams(location.search).has("geometryOnly");
-const skipAuthoredTextures = new URLSearchParams(location.search).has("skipTextures");
-const disableGtao = new URLSearchParams(location.search).has("disableGtao");
-const singleLitMaterial = new URLSearchParams(location.search).has("singleLit");
+const params = new URLSearchParams(location.search);
+const perfMode = params.has("perf");
+const perfWidth = params.has("perf1080") ? 1920 : 1280;
+const perfHeight = params.has("perf1080") ? 1080 : 720;
+const perfWarmup = 120;
+const perfFrames = 300;
+const loadOnly = params.has("loadOnly");
+const boundedFrame = params.has("boundedFrame");
+const geometryOnly = params.has("geometryOnly");
+const skipAuthoredTextures = params.has("skipTextures");
+const disableGtao = params.has("disableGtao");
+const bypassFsr3 = params.has("bypassFsr3");
+const disableBloom = params.has("disableBloom");
+const disableEnvironment = params.has("disableEnvironment");
+const singleLitMaterial = params.has("singleLit");
 
 let renderer: Renderer | undefined;
 let asset: WebCookRuntimeAsset | undefined;
@@ -48,6 +58,10 @@ let cookProgress: { stage: string; units: number; total: number; elapsedMs: numb
 let publicationCount = 0;
 let publicationTotals = { waitMs: 0, runtimeMs: 0, mapMs: 0, mergeMs: 0, publishMs: 0 };
 let lastPublication: WebCookProductPublicationTiming | undefined;
+let perfStartFrame = -1;
+let perfReport: Record<string, unknown> | undefined;
+const perfState = { ready: false, complete: false, report: undefined as Record<string, unknown> | undefined };
+if (perfMode) (window as Window & { __eenginePerf?: typeof perfState }).__eenginePerf = perfState;
 const loadStartedAt = performance.now();
 const abort = new AbortController();
 
@@ -75,11 +89,16 @@ async function start(): Promise<void> {
   if (!context) throw new Error("无法创建 WebGPU canvas context");
   renderer = new Renderer({
     enableVsm: false,
+    enablePhysicalEnvironment: !disableEnvironment,
+    renderScale: 1,
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 },
     textureMaxResolution: 1024
   });
   renderer.shadowVisibilityEnabled = false;
   renderer.xe_gtao_enabled = !disableGtao;
+  renderer.fsr3_enabled = !bypassFsr3;
+  renderer.bloom_enabled = !disableBloom;
+  renderer.perf_gpu_counters_enabled = perfMode;
   if (boundedFrame) renderer.packed_geometry_work_budget = {
     maxTestedHierarchyNodes: 16384,
     targetMeshletWork: 2048,
@@ -160,7 +179,7 @@ async function start(): Promise<void> {
   const draw = (now: number): void => {
     if (closed || !renderer || !camera) return;
     const targetFrameMs = refinementComplete ? 1000 / 20 : 1000 / 8;
-    if (previous > 0 && now - previous < targetFrameMs) {
+    if (!perfMode && previous > 0 && now - previous < targetFrameMs) {
       frameId = requestAnimationFrame(draw);
       return;
     }
@@ -169,7 +188,7 @@ async function start(): Promise<void> {
     if (interval > 0) fps = fps === 0 ? 1000 / interval :
       fps * 0.9 + (1000 / interval) * 0.1;
     try {
-      controls?.update(Math.min(0.1, (interval || 16.7) / 1000));
+      if (!perfMode) controls?.update(Math.min(0.1, (interval || 16.7) / 1000));
       camera.update();
       if (!renderer.render(camera, scene, Math.min(0.1, (interval || 16.7) / 1000))) {
         gpuUnavailable = true;
@@ -180,7 +199,9 @@ async function start(): Promise<void> {
         gpuUnavailable = diagnostics.deviceLostCount > 0;
         throw new Error(`GPU 验证失败，已停止提交（validation=${diagnostics.validationErrorCount}, uncaptured=${diagnostics.uncapturedErrorCount}）`);
       }
-      frameId = requestAnimationFrame(draw);
+      if (perfMode && perfStartFrame >= 0 && renderer.frame_count >= perfStartFrame + perfWarmup + perfFrames) {
+        void completePerf();
+      } else frameId = requestAnimationFrame(draw);
     } catch (error) {
       fail(error);
       void release();
@@ -192,6 +213,13 @@ async function start(): Promise<void> {
   await handles.settled();
   if (closed || failed) return;
   refinementComplete = true;
+  if (perfMode && renderer) {
+    renderer.profiler.configure({ enabled: true, gpuSampleInterval: 1,
+      gpuCounterSampleInterval: 8, historyCapacity: perfWarmup + perfFrames + 32 });
+    renderer.profiler.setMode("record");
+    perfStartFrame = renderer.frame_count;
+    perfState.ready = true;
+  }
   if (loadOnly) {
     console.info("A-D scene loading diagnostics", JSON.stringify({
       elapsedMs: Math.round(performance.now() - loadStartedAt),
@@ -216,6 +244,12 @@ function setView(preset: "overview" | "detail"): void {
 
 function resize(): void {
   if (!renderer || !camera) return;
+  if (perfMode) {
+    renderer.resize(perfWidth, perfHeight);
+    camera.aspect = perfWidth / perfHeight;
+    camera.update();
+    return;
+  }
   const width = Math.max(1, Math.round(canvas.clientWidth));
   const height = Math.max(1, Math.round(canvas.clientHeight));
   const scale = Math.min(1, 800 / width, 450 / height);
@@ -273,7 +307,7 @@ function exportDiagnostics(): void {
     schema: "eengine-next-validation-v1", capturedAt: new Date().toISOString(),
     mode: "baseline", modelUrl, adapter: renderer?.adapter_info,
     geometryOnly, singleLitMaterial, skipAuthoredTextures, disableGtao,
-    boundedFrame, loadOnly,
+    bypassFsr3, disableBloom, disableEnvironment, boundedFrame, loadOnly,
     sun: scene.physical_environment.snapshot(),
     camera: camera ? { position: camera.transform.position, near: camera.near, far: camera.far } : null,
     instances: handles?.current().source.count ?? 0,
@@ -283,6 +317,7 @@ function exportDiagnostics(): void {
       publicationCount, totals: publicationTotals, lastPublication },
     cook: asset?.evidence(),
     diagnostics: renderer?.profiler.diagnostics,
+    performance: perfReport ?? null,
     program: graph?.program ?? null,
     graphPasses: graph?.dump.passes.filter(pass => !pass.culled).map(pass => pass.name) ?? []
   };
@@ -292,6 +327,91 @@ function exportDiagnostics(): void {
   link.download = `eengine-next-baseline-${Date.now()}.json`;
   link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function percentile(values: number[], q: number): number | null {
+  if (!values.length) return null;
+  values.sort((a, b) => a - b);
+  return values[Math.min(values.length - 1, Math.ceil(values.length * q) - 1)]!;
+}
+
+function summarizePerf(frames: FrameProfileSnapshot[]): Record<string, unknown> {
+  const numbers = (select: (frame: FrameProfileSnapshot) => number | undefined) =>
+    frames.map(select).filter((value): value is number => value !== undefined && Number.isFinite(value));
+  const pair = (values: number[]) => ({ p50: percentile([...values], 0.5), p95: percentile([...values], 0.95), count: values.length });
+  const gpuFrames = frames.filter(frame => frame.gpu.sampled && !frame.gpu.pending && frame.gpu.segments.length > 0);
+  const labels = new Set(gpuFrames.flatMap(frame => frame.gpu.segments.map(segment => segment.label)));
+  const gpuPasses = Object.fromEntries([...labels].sort().map(label => [label,
+    pair(gpuFrames.map(frame => frame.gpu.segments.filter(segment => segment.label === label)
+      .reduce((sum, segment) => sum + segment.durationMs, 0)))]));
+  const phases = new Set(gpuFrames.flatMap(frame => frame.gpu.segments.map(segment => segment.phase)));
+  const gpuPhases = Object.fromEntries([...phases].sort().map(phase => [phase,
+    pair(gpuFrames.map(frame => frame.gpu.segments.filter(segment => segment.phase === phase)
+      .reduce((sum, segment) => sum + segment.durationMs, 0)))]));
+  const moduleRules: Readonly<Record<string, RegExp>> = {
+    GeometryVisibility: /R3-|S1 Product|VisibilityKey|visibility pass|Meshlet bucket/i,
+    HZB: /HZB/i,
+    LightCluster: /LightCluster|Light Cluster/i,
+    XeGTAO: /XeGTAO/i,
+    Surface: /Surface\//i,
+    PhysicalSkyAerial: /Environment\/(Physical Sky|Aerial)/i,
+    TemporalFacts: /Temporal Facts/i,
+    FSR3: /FSR3/i,
+    Radiometry: /Radiometry/i,
+    Bloom: /Bloom/i,
+    Present: /Present/i
+  };
+  const gpuModules = Object.fromEntries(Object.entries(moduleRules).map(([name, pattern]) => [name,
+    pair(gpuFrames.map(frame => frame.gpu.segments.filter(segment => pattern.test(segment.label))
+      .reduce((sum, segment) => sum + segment.durationMs, 0)))]));
+  const counterFrames = frames.filter(frame => frame.gpuCounters.sampled &&
+    !frame.gpuCounters.pending && !frame.gpuCounters.dropped);
+  const counterNames = new Set(counterFrames.flatMap(frame => Object.keys(frame.gpuCounters.values)));
+  const gpuWork = Object.fromEntries([...counterNames].sort().map(name => [name,
+    pair(counterFrames.map(frame => frame.gpuCounters.values[name as keyof typeof frame.gpuCounters.values])
+      .filter((value): value is number => value !== undefined))]));
+  const cpuLabels = new Set(frames.flatMap(frame => Object.keys(frame.cpuMs)));
+  const cpu = Object.fromEntries([...cpuLabels].sort().map(name => [name, pair(numbers(frame => frame.cpuMs[name]))]));
+  const hostCounters = new Set(frames.flatMap(frame => Object.keys(frame.counters)));
+  return {
+    schema: "eengine-next-perf-v1", capturedAt: new Date().toISOString(),
+    gpu: renderer?.adapter_info, browser: navigator.userAgent,
+    scene: "dungeon_warkarma.glb", resolution: [perfWidth, perfHeight], dpr: 1,
+    renderScale: 1, vsm: false,
+    variants: { disableGtao, bypassFsr3, disableBloom, disableEnvironment, boundedFrame },
+    warmupFrames: perfWarmup, requestedFrames: perfFrames, measuredFrames: frames.length,
+    cpu, gpuFrameMs: pair(gpuFrames.map(frame => frame.gpu.segments.reduce(
+      (sum, segment) => sum + segment.durationMs, 0))), gpuPhases, gpuModules, gpuPasses, gpuWork,
+    hostCounters: Object.fromEntries([...hostCounters].sort().map(name => [name,
+      pair(numbers(frame => frame.counters[name]))])),
+    uploads: { writes: pair(numbers(frame => frame.uploads.writes)), bytes: pair(numbers(frame => frame.uploads.bytes)) },
+    readbacks: { count: pair(numbers(frame => frame.readbacks.count)), bytes: pair(numbers(frame => frame.readbacks.bytes)) },
+    submits: pair(numbers(frame => frame.submits.count)),
+    graph: Object.fromEntries(["builds", "compiles", "executes", "cacheHits", "cacheMisses", "cacheEvictions"]
+      .map(name => [name, pair(numbers(frame => frame.graph[name as keyof typeof frame.graph]))])),
+    memory: renderer?.memoryEvidence(), diagnostics: renderer?.profiler.diagnostics
+  };
+}
+
+async function completePerf(): Promise<void> {
+  if (!renderer || perfState.complete) return;
+  const first = perfStartFrame + perfWarmup;
+  // GPU timestamp and counter readbacks patch the existing profiler frames asynchronously.
+  const deadline = performance.now() + 15000;
+  while (performance.now() < deadline) {
+    const frames = renderer.profiler.history.filter(frame => frame.frameIndex >= first &&
+      frame.frameIndex < first + perfFrames);
+    if (frames.length === perfFrames && frames.every(frame => !frame.gpu.sampled || !frame.gpu.pending) &&
+        frames.every(frame => !frame.gpuCounters.sampled || !frame.gpuCounters.pending)) break;
+    await new Promise(resolve => window.setTimeout(resolve, 100));
+  }
+  const frames = renderer.profiler.history.filter(frame => frame.frameIndex >= first &&
+    frame.frameIndex < first + perfFrames);
+  perfReport = summarizePerf(frames);
+  perfState.report = perfReport;
+  perfState.complete = true;
+  console.info("EEngine Next performance", perfReport);
+  setState(`性能采样完成 · ${frames.length} 帧`, "ready");
 }
 
 function setState(message: string, status: "loading" | "ready" | "error"): void {

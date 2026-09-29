@@ -215,8 +215,16 @@ export class Fsr3UpscalerRuntime {
     reactiveMask: ResourceId; validityMask: ResourceId;
     preExposure: ResourceId; priorExposure: ResourceId;
     width: number; height: number; outputWidth: number; outputHeight: number;
+    /** Diagnostic profile used by the validation Perf Host only. */
+    enabled?: boolean;
   }, bind: Fsr3GraphResourceBinder): ResourceId {
     if (!this.histories || !this.pending) throw new Error("FSR3 frame must be prepared before graph build");
+    if (input.enabled === false) {
+      if (input.width !== input.outputWidth || input.height !== input.outputHeight) {
+        throw new Error("FSR3 bypass requires equal internal and output extents");
+      }
+      return input.color;
+    }
     const imported = (name: string, resolve: (runtime: Fsr3UpscalerRuntime) => GPUTexture,
       domain?: "internal-full" | "output-full") =>
       graph.import_resource(name, { kind: "imported", label: name, ...(domain ? { domain } : {}) }, bind(name, resolve));

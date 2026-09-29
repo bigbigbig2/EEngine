@@ -145,7 +145,8 @@ export class BloomPass {
     this.compositePipeline=device.createComputePipeline({layout:device.createPipelineLayout({bindGroupLayouts:[emptyLayout,emptyLayout,this.compositeLayout]}),compute:{module,entryPoint:"composite_main"}});
   }
 
-  addToGraph(graph:FrameGraph,input:{scene:ResourceId;preExposure:ResourceId;width:number;height:number}):ResourceId {
+  addToGraph(graph:FrameGraph,input:{scene:ResourceId;preExposure:ResourceId;width:number;height:number;enabled?:boolean}):ResourceId {
+    if (input.enabled === false) return input.scene;
     const levels:ResourceId[]=[];
     const extent=(level:number)=>[Math.max(1,input.width>>level),Math.max(1,input.height>>level)] as const;
     const make=(node:PassBuilder,label:string,level:number)=>node.create(label,{kind:"transient_texture",width:extent(level)[0],height:extent(level)[1],format:"rgba16float",domain:"output-full",usage:GPUTextureUsage.STORAGE_BINDING|GPUTextureUsage.TEXTURE_BINDING});

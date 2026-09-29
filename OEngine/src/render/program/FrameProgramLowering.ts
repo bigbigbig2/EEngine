@@ -400,7 +400,8 @@ function lowerVisibility(plan: FrameProgram, graph: FrameGraph, bind: SceneBind,
   );
   const counters = graph.import_resource(
     "visibility-counters", { kind: "imported", label: "counter sink" },
-    bind("counter-sink", bindings => bindings.runtime.counterSink)
+    bind("counter-sink", bindings => bindings.job.prepared.bindings?.counters ??
+      bindings.runtime.counterSink)
   );
   const work = graph.import_resource(
     "meshlet-work", { kind: "imported", label: "GPU MeshletWork" },
@@ -523,9 +524,12 @@ function lowerPresentation(
     reactiveMask: facts.mask, validityMask: facts.mask,
     preExposure: gpuPreviousExposure, priorExposure: gpuPriorExposure,
     width: result.frame.domain.width, height: result.frame.domain.height,
-    outputWidth: plan.request.outputWidth, outputHeight: plan.request.outputHeight
+    outputWidth: plan.request.outputWidth, outputHeight: plan.request.outputHeight,
+    enabled: plan.request.fsr3Enabled
   }, (name, resolve) => bind(`fsr3/${name}`, bindings => resolve(bindings.fsr3)));
-  assertTextureProduct(plan, graph, "reconstructed-color", reconstructedRadiance);
+  if (plan.request.fsr3Enabled !== false) {
+    assertTextureProduct(plan, graph, "reconstructed-color", reconstructedRadiance);
+  }
   const radiometry = owners.radiometry.addToGraph(graph, {
     scene: reconstructedRadiance, width: plan.request.outputWidth, height: plan.request.outputHeight,
     previousExposure: gpuPreviousExposure,
@@ -533,9 +537,12 @@ function lowerPresentation(
   }, bindRadiometry);
   const bloom = owners.bloom.addToGraph(graph, {
     scene: reconstructedRadiance, preExposure: gpuPreviousExposure,
-    width: plan.request.outputWidth, height: plan.request.outputHeight
+    width: plan.request.outputWidth, height: plan.request.outputHeight,
+    enabled: plan.request.bloomEnabled
   });
-  assertTextureProduct(plan, graph, "bloom-hdr", bloom);
+  if (plan.request.bloomEnabled !== false) {
+    assertTextureProduct(plan, graph, "bloom-hdr", bloom);
+  }
   if (!plan.products.includes("adapted-exposure")) throw new Error("Frame Program omitted adapted exposure");
   const swapchain = graph.import_resource(
     "swapchain", { kind: "imported", label: "swapchain" },
