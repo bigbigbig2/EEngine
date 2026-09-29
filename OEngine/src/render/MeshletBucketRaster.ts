@@ -290,7 +290,11 @@ export class MeshletBucketRaster {
               ? [{ format: "r32uint" }]
               : [{ format: "r32uint" }, { format: "r8uint" }]
           },
-          primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
+          // Mixed Product draws need conservative fixed-function coverage.
+          // Nyx also uses a two-sided PSO, but separately culls primitives in
+          // VBufferMesh using material sidedness and mirrored-instance state.
+          // This PSO setting alone does not establish that full Nyx behavior.
+          primitive: { topology: "triangle-list", cullMode: "none", frontFace: "ccw" },
           depthStencil: {
             format: "depth32float",
             depthWriteEnabled: true,

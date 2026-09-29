@@ -180,9 +180,13 @@ test("Offline scene mapper builds the shared Virtual Geometry scene source", asy
   assert.equal(source.geometryProfiles[0].hasTangent, false);
   // fitHeight frames the model: base at -1, height 2.
   let minY = Infinity, maxY = -Infinity;
+  const { mat4TransformAABB } = await import("../../.test-dist/core/math/Mat4.js");
   for (let index = 0; index < source.count; index++) {
-    minY = Math.min(minY, source.boundsMin[index * 3 + 1]);
-    maxY = Math.max(maxY, source.boundsMax[index * 3 + 1]);
+    const world = new Float32Array(6);
+    mat4TransformAABB(world, [...source.boundsMin.slice(index * 3, index * 3 + 3),
+      ...source.boundsMax.slice(index * 3, index * 3 + 3)], source.currentTransforms.slice(index * 16, index * 16 + 16));
+    minY = Math.min(minY, world[1]);
+    maxY = Math.max(maxY, world[4]);
   }
   assert.ok(Math.abs(minY - (-1)) < 1e-3, `fitted base must be -1, got ${minY}`);
   assert.ok(Math.abs(maxY - 1) < 1e-3, `fitted height must be 2, got ${maxY - minY}`);

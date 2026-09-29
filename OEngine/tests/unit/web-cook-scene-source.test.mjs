@@ -4,6 +4,7 @@ import test from "node:test";
 const { createWebCookSceneSource, createWebCookSceneSourceAsync, decodeWebCookImageBitmap } = await import("../../.test-dist/assets/web-cook/WebCookSceneSource.js");
 const { webCookCatalogSceneFraming } = await import("../../.test-dist/assets/web-cook/WebCookSceneBounds.js");
 const { mergeVirtualGeometryProductSceneSourcesV1 } = await import("../../.test-dist/assets/geometry-product/VirtualGeometrySceneSourceV1.js");
+const { mat4TransformAABB } = await import("../../.test-dist/core/math/Mat4.js");
 
 test("Web Cook image decode fits the negotiated dimension without distorting aspect", async () => {
   const previous = globalThis.createImageBitmap;
@@ -55,9 +56,15 @@ test("separate Web Cook Products use one catalog fit without moving earlier inst
   const firstY = parts[0].source.currentTransforms[13];
   const combined = mergeVirtualGeometryProductSceneSourcesV1(parts);
   assert.equal(combined.currentTransforms[13], firstY, "later Product publication keeps the first transform");
-  assert.ok(Math.abs(combined.boundsMin[1] - framing.min[1]) < 1e-6);
-  assert.ok(Math.abs(combined.boundsMax[4] - framing.max[1]) < 1e-6);
-  assert.ok(Math.abs((combined.boundsMax[4] - combined.boundsMin[1]) - 2) < 1e-6);
+  const worldBounds = [0, 1].map(index => {
+    const box = new Float32Array(6);
+    mat4TransformAABB(box, [...combined.boundsMin.slice(index * 3, index * 3 + 3),
+      ...combined.boundsMax.slice(index * 3, index * 3 + 3)], combined.currentTransforms.slice(index * 16, index * 16 + 16));
+    return box;
+  });
+  assert.ok(Math.abs(worldBounds[0][1] - framing.min[1]) < 1e-6);
+  assert.ok(Math.abs(worldBounds[1][4] - framing.max[1]) < 1e-6);
+  assert.ok(Math.abs((worldBounds[1][4] - worldBounds[0][1]) - 2) < 1e-6);
 });
 
 test("geometry-only mapping preserves selected primitives and skips authored image reads", async () => {

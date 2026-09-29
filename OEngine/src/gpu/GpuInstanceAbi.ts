@@ -77,6 +77,7 @@ export interface GpuInstanceRecordCpu {
   readonly materialHandle: number;
   readonly flags: number;
   readonly debugId: number;
+  /** All three bounds fields are object-space, before currentObjectToWorld. */
   readonly boundsSphere: ArrayLike<number>;
   readonly boundsMin: ArrayLike<number>;
   readonly boundsMax: ArrayLike<number>;

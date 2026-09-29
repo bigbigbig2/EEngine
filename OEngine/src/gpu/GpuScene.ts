@@ -48,8 +48,11 @@ export interface InstanceSource {
   readonly materialHandles: Uint32Array;
   readonly currentTransforms: Float32Array;
   readonly previousTransforms?: Float32Array;
+  /** Object-space bounds; GPU visibility applies currentTransforms exactly once. */
   readonly boundsSpheres: Float32Array;
+  /** Object-space AABB minimum. */
   readonly boundsMin?: Float32Array;
+  /** Object-space AABB maximum. */
   readonly boundsMax?: Float32Array;
   readonly flags?: Uint32Array;
   readonly debugIds?: Uint32Array;

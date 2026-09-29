@@ -166,7 +166,9 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
     &product_heap, visible.geometry_record_index, oengine_instance_geometry_generation(instance));
   let transform = oengine_instance_current_object_to_world(instance);
   // Nyx DAGCull::ProcessMeshletBatch: retain coarse geometry while its actual
-  // refine group is missing. Use exactly the complementary hierarchy SSE gate.
+  // refine group is missing. With a resident refine group, TestForLod keeps
+  // the coarse meshlet when its replacement error is ACCEPTABLE (<= SSE).
+  // The hierarchy visits the fine group for the complementary > SSE case.
   // A group has up to 128 meshlets; all 64 lanes process both halves.
   for (var local = lane; local < product_group_count; local += 64u) {
     let at = (product_group_page_byte + product_group_meshlet_offset + local * 48u) >> 2u;
@@ -181,6 +183,7 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
       // Payload IDs are product-local; the heap group directory is global.
       let refine = oengine_virtual_refine_group_v1(&product_heap, asset, refine_local);
       if (!refine.valid) {
+        // An invalid directory ID is malformed metadata, not a nonresident page.
         atomicAdd(&product_work.header.invalid_count, 1u);
         keep = false;
       } else {
@@ -193,8 +196,13 @@ fn generate_virtual_geometry_work(@builtin(workgroup_id) group: vec3u,
             bitcast<f32>(product_bank_word(location.bank_index, header + 2u)),
             bitcast<f32>(product_bank_word(location.bank_index, header + 3u)));
           let error = bitcast<f32>(product_bank_word(location.bank_index, header + 10u));
-          keep = hierarchy_projected_error_pixels(error, hierarchy_transform_sphere(sphere, transform),
-            hierarchy_conservative_scale(transform), &product_view) <= product_view.sse.x;
+          let projected_error = hierarchy_projected_error_pixels(error,
+            hierarchy_transform_sphere(sphere, transform),
+            hierarchy_conservative_scale(transform), &product_view);
+          keep = projected_error <= product_view.sse.x;
+        } else {
+          // Can't read refine metadata - keep coarse
+          keep = true;
         }
       }
     }

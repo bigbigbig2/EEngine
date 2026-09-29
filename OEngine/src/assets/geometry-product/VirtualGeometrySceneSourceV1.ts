@@ -127,7 +127,10 @@ export function buildVirtualGeometrySceneSourceV1(
     throw new RangeError("Virtual Geometry scene scale must be positive and finite");
   }
 
-  // 3. Emit fitted transforms + world bounds.
+  // 3. Emit fitted transforms + OBJECT-SPACE bounds for GpuScene. Visibility
+  // transforms these bounds exactly once, just like the Product hierarchy and
+  // raster vertices. Publishing world bounds here applies the fit/instance
+  // transform twice and can reject geometry that is still inside the view.
   const transforms: number[] = [], geometryIndices: number[] = [], materialIndices: number[] = [], bounds: number[] = [], boundsMin: number[] = [], boundsMax: number[] = [], flags: number[] = [];
   for (const instance of instances) {
     const m = instance.transform;
@@ -144,28 +147,11 @@ export function buildVirtualGeometrySceneSourceV1(
     geometryIndices.push(instance.assetIndex);
     materialIndices.push(instance.materialIndex === 0xffffffff ? 0 : instance.materialIndex);
     const base = instance.assetIndex * ASSET_RECORD_STRIDE;
-    const center = [assetView.getFloat32(base + 32, true), assetView.getFloat32(base + 36, true), assetView.getFloat32(base + 40, true)];
-    const localRadius = assetView.getFloat32(base + 44, true);
-    const worldCenter = [
-      matrix[0]! * center[0]! + matrix[4]! * center[1]! + matrix[8]! * center[2]! + matrix[12]!,
-      matrix[1]! * center[0]! + matrix[5]! * center[1]! + matrix[9]! * center[2]! + matrix[13]!,
-      matrix[2]! * center[0]! + matrix[6]! * center[1]! + matrix[10]! * center[2]! + matrix[14]!
-    ];
-    const worldScale = Math.max(Math.hypot(matrix[0]!, matrix[1]!, matrix[2]!), Math.hypot(matrix[4]!, matrix[5]!, matrix[6]!), Math.hypot(matrix[8]!, matrix[9]!, matrix[10]!));
-    bounds.push(worldCenter[0]!, worldCenter[1]!, worldCenter[2]!, localRadius * worldScale);
+    bounds.push(assetView.getFloat32(base + 32, true), assetView.getFloat32(base + 36, true),
+      assetView.getFloat32(base + 40, true), assetView.getFloat32(base + 44, true));
     const { min, max } = localBounds(instance.assetIndex);
-    const instanceMin = [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY];
-    const instanceMax = [Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY, Number.NEGATIVE_INFINITY];
-    for (let corner = 0; corner < 8; corner++) {
-      const x = corner & 1 ? max[0] : min[0], y = corner & 2 ? max[1] : min[1], z = corner & 4 ? max[2] : min[2];
-      const wx = matrix[0]! * x + matrix[4]! * y + matrix[8]! * z + matrix[12]!;
-      const wy = matrix[1]! * x + matrix[5]! * y + matrix[9]! * z + matrix[13]!;
-      const wz = matrix[2]! * x + matrix[6]! * y + matrix[10]! * z + matrix[14]!;
-      instanceMin[0] = Math.min(instanceMin[0]!, wx); instanceMin[1] = Math.min(instanceMin[1]!, wy); instanceMin[2] = Math.min(instanceMin[2]!, wz);
-      instanceMax[0] = Math.max(instanceMax[0]!, wx); instanceMax[1] = Math.max(instanceMax[1]!, wy); instanceMax[2] = Math.max(instanceMax[2]!, wz);
-    }
-    boundsMin.push(instanceMin[0]!, instanceMin[1]!, instanceMin[2]!);
-    boundsMax.push(instanceMax[0]!, instanceMax[1]!, instanceMax[2]!);
+    boundsMin.push(...min);
+    boundsMax.push(...max);
     if (declaredFlags) flags.push(instance.flags!);
   }
   const capacity = Math.min(65535, Math.max(256, assetCount * 16));
