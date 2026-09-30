@@ -2,9 +2,10 @@ import { openRuntimeAssetPackageV2, writeRuntimeAssetPackageV2,
   type RuntimeAssetPackageV2, type RuntimeAssetChunkInputV2, type RuntimeAssetDependencyV2 } from "./RuntimeAssetManifestV2.js";
 import type { AppearanceCookedProduct } from "../material/AppearanceMipCooker.js";
 import { encodeFloat16, decodeFloat16 } from "../core/Float16.js";
+import { APPEARANCE_NORMAL_FILTER_MODEL, type AppearanceNormalFilterContract } from "../material/AppearanceNormalFilter.js";
 
-export const APPEARANCE_ASSET_SCHEMA_VERSION = 1;
-export const APPEARANCE_COOKER_VERSION = "reevaluated-mip-half-fields-v1";
+export const APPEARANCE_ASSET_SCHEMA_VERSION = 2;
+export const APPEARANCE_COOKER_VERSION = "typed-half-fields-v2";
 const METADATA = "appearance-metadata", PROFILE = "portable-half-fields";
 
 export interface AppearanceAssetSource {
@@ -27,6 +28,8 @@ export interface AppearanceAssetField {
 }
 export interface AppearanceAssetPackage {
   readonly runtime: RuntimeAssetPackageV2;
+  readonly kind: AppearanceCookedProduct["kind"];
+  readonly normalFilters: readonly AppearanceNormalFilterContract[];
   readonly fields: readonly AppearanceAssetField[];
   readonly coordinateDomain: string | null;
   readonly domainMin: readonly [number, number];
@@ -39,7 +42,7 @@ export interface AppearanceAssetPackage {
 /** Local deterministic packing. Only products probed AFTER half quantization enter this profile. */
 export async function writeAppearanceAssetPackage(product: AppearanceCookedProduct,
   source: AppearanceAssetSource): Promise<ArrayBuffer> {
-  if (product.kind !== "reevaluated-mip-fields" || product.storagePrecision !== "float16" ||
+  if ((product.kind !== "reevaluated-mip-fields" && product.kind !== "coupled-vmf-moments") || product.storagePrecision !== "float16" ||
       product.validation.maxBudgetRatio > 1) throw new RangeError("Appearance packing requires a validated half-field product");
   const chunks: RuntimeAssetChunkInputV2[] = [];
   const fields = Object.entries(product.fields).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([name, field], index) => {
@@ -65,6 +68,7 @@ export async function writeAppearanceAssetPackage(product: AppearanceCookedProdu
     return { name, width: field.width, format, mips };
   });
   const metadata = { schemaVersion: APPEARANCE_ASSET_SCHEMA_VERSION, colorSpace: "scene-linear-rec709",
+    kind: product.kind, normalFilters: product.normalFilters ?? [],
     coordinateDomain: product.coordinateDomain, domainMin: product.domainMin, domainMax: product.domainMax,
     errorBudget: product.errorBudget, validation: product.validation, fields };
   // Round-trip typed validation also rejects malformed externally constructed products.
@@ -72,6 +76,7 @@ export async function writeAppearanceAssetPackage(product: AppearanceCookedProdu
   chunks.unshift({ id: METADATA, sectionType: 0x300, semantic: METADATA, compression: "none",
     decodedBytes: metadataBytes.byteLength, expectedResidentBytes: 0, data: metadataBytes });
   const recipeHash = await hash(new TextEncoder().encode(JSON.stringify({ cooker: APPEARANCE_COOKER_VERSION,
+    kind: product.kind, normalFilters: product.normalFilters ?? [],
     filter: product.validation.filter, precision: product.storagePrecision, errorBudget: product.errorBudget })));
   const payloadHashes = await Promise.all(chunks.map(chunk => hash(chunk.data as Uint8Array)));
   const assetId = await hash(new TextEncoder().encode(JSON.stringify([source.contentHash, recipeHash, payloadHashes])));
@@ -97,6 +102,7 @@ export async function openAppearanceAssetPackage(bytes: ArrayBuffer): Promise<Ap
   if (encoded === undefined) throw new Error("Appearance metadata missing");
   const raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(encoded));
   if (!isRecord(raw) || raw.schemaVersion !== APPEARANCE_ASSET_SCHEMA_VERSION || raw.colorSpace !== "scene-linear-rec709" ||
+      (raw.kind !== "reevaluated-mip-fields" && raw.kind !== "coupled-vmf-moments") || !Array.isArray(raw.normalFilters) ||
       (raw.coordinateDomain !== null && (typeof raw.coordinateDomain !== "string" || raw.coordinateDomain.length === 0)) ||
       !vec2(raw.domainMin) || !vec2(raw.domainMax) || raw.domainMax[0] <= raw.domainMin[0] || raw.domainMax[1] <= raw.domainMin[1] ||
       !Number.isFinite(Math.fround(raw.domainMax[0] - raw.domainMin[0])) || !Number.isFinite(Math.fround(raw.domainMax[1] - raw.domainMin[1])) ||
@@ -158,7 +164,29 @@ export async function openAppearanceAssetPackage(bytes: ArrayBuffer): Promise<Ap
       (fields.some(field => field.mips.length > 0) && (raw.coordinateDomain === null || raw.validation.probeCount === 0))) {
     throw new RangeError("Appearance chunks or variable field domain/validation are incomplete");
   }
-  return Object.freeze({ runtime, fields: Object.freeze(fields), coordinateDomain: raw.coordinateDomain,
+  const momentFields = new Set<string>(), normalOutputs = new Set<string>();
+  const normalFilters: AppearanceNormalFilterContract[] = raw.normalFilters.map((item: unknown) => {
+    if (!isRecord(item) || item.model !== APPEARANCE_NORMAL_FILTER_MODEL ||
+        typeof item.momentField !== "string" || momentFields.has(item.momentField) ||
+        !fields.some(field => field.name === item.momentField && field.width === 3) ||
+        typeof item.normalOutput !== "string" || !item.normalOutput || normalOutputs.has(item.normalOutput) ||
+        typeof item.roughnessOutput !== "string" || !item.roughnessOutput || normalOutputs.has(item.roughnessOutput) ||
+        item.normalOutput === item.roughnessOutput || !nonnegative(item.maxAngleRadians) || item.maxAngleRadians > Math.PI ||
+        !nonnegative(item.maxRoughnessError) || !nonnegative(item.measuredAngleRadians) ||
+        !nonnegative(item.measuredRoughnessError) || item.measuredAngleRadians > item.maxAngleRadians ||
+        item.measuredRoughnessError > item.maxRoughnessError) throw new RangeError("Invalid Appearance normal filter contract");
+    momentFields.add(item.momentField); normalOutputs.add(item.normalOutput); normalOutputs.add(item.roughnessOutput);
+    return Object.freeze({ model: APPEARANCE_NORMAL_FILTER_MODEL, momentField: item.momentField,
+      normalOutput: item.normalOutput, roughnessOutput: item.roughnessOutput, maxAngleRadians: item.maxAngleRadians,
+      maxRoughnessError: item.maxRoughnessError, measuredAngleRadians: item.measuredAngleRadians,
+      measuredRoughnessError: item.measuredRoughnessError });
+  });
+  if ((raw.kind === "coupled-vmf-moments" && momentFields.size !== fields.length) ||
+      (raw.kind === "reevaluated-mip-fields" && momentFields.size !== 0)) {
+    throw new RangeError("Appearance product kind does not match its normal filter fields");
+  }
+  return Object.freeze({ runtime, kind: raw.kind, normalFilters: Object.freeze(normalFilters),
+    fields: Object.freeze(fields), coordinateDomain: raw.coordinateDomain,
     domainMin: Object.freeze([...raw.domainMin]) as readonly [number, number],
     domainMax: Object.freeze([...raw.domainMax]) as readonly [number, number], residentBytes,
     errorBudget: Object.freeze({ absolute: raw.errorBudget.absolute, relative: raw.errorBudget.relative }),

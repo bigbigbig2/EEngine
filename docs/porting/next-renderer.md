@@ -165,6 +165,27 @@ Local validation：编译基础提交`23d0110`的`tests/oracle/appearance-graph.
 
 该profile的CPU/ABI/生命周期与完整RuntimeAsset回归十组98项通过，build/build:test通过。`appearance-asset-gpu-oracle`同一诊断command上传12个mip并读实际GPU过滤结果，3,328值通过；GPU→packed参考误差`0.000162751`、GPU→该fixture源表达式误差`0.018849826`，fixture预算0.025单独声明，不能借用为生产画质门槛。没有移植采纳提升：包/upload helper没有长期纹理owner，没有真实Surface chart/asset程序替换consumer，normal variance/roughness及动态缓存/历史仍缺。
 
+### 联合法线 / roughness 过滤（2026-10-01，实施 profile）
+
+先核读完整开源阶段，再核对文章与论文：
+
+- [The Forge](https://github.com/ConfettiFX/The-Forge/blob/cd5046893faba2dc7869243873bf01f02a6f0df9/Common_3/Tools/AssetPipeline/src/AssetPipeline_Textures.cpp)，固定 `cd5046893faba2dc7869243873bf01f02a6f0df9`，根 LICENSE Apache-2.0、源文件版权头已读。根 NOTICE URL 为404；不虚构已取得该文件。完整核读 `GenerateVMFLayer`、`GenerateVMFFilteredMipmaps` 与 `ProcessTextures` 的输入准入、callback/mip/compression/释放调用链。
+- [Filament roughness-prefilter](https://github.com/google/filament/blob/1230b0b854b13406ccea38fe25bc16b8573f487e/tools/roughness-prefilter/src/main.cpp)，固定 `1230b0b854b13406ccea38fe25bc16b8573f487e`，Apache-2.0；完整 main、`solveVMF`、两种 `prefilter`、`normalFiltering`，以及 `ImageSampler.cpp::generateMipmaps/resampleImage` BOX 阶段已读。它独立生成 roughness、限制正方形POT与同尺寸输入，以0.2阈值截断方差，不作为联合矩的最终 donor。
+- [Karis 2018，Normal map filtering using vMF (part 3)](https://graphicrants.blogspot.com/2018/05/normal-map-filtering-using-vmf-part-3.html)全文核读：`alpha` 为微表面斜率参数，vMF r-form 同时编码法线与roughness；先过滤r，再解码。文章明确指出只加normal variance、不让roughness影响法线过滤的缺口。并对照 [Toksvig 2004，Mipmapping Normal Maps](https://developer.download.nvidia.com/whitepapers/2006/Mipmapping_Normal_Maps.pdf) 全文的平均法线长度/指数过滤与实时插值限制。论文不是源代码许可。
+
+选定具名本地 `CoupledVmfAppearanceFilter`，不是 The Forge 完整移植：其源pipeline只写归一化normal、丢弃矩长度且未生成对应filtered roughness；末端1×N插值分母为零。不能复制这些缺口再宣称R10完成。
+
+| 完整参考阶段 / 分支 | 本地阶段、输入输出与不变量 | 明确差异与拒绝 / 降级 |
+| --- | --- | --- |
+| `GenerateVMFLayer`：normal/roughness准入、linear decode、r-form转换 | `AppearanceNormalFilter` 将编译字段的signed TS normal归一化，当前perceptual roughness先平方成GGX alpha，再以Karis的coth/InvLambda转换为三通道联合矩；scale已由材质图求值 | 不把glTF perceptual roughness直接当alpha；无方向/非有限normal拒绝cook。参数/源版本仍是字段依赖 |
+| `GenerateVMFFilteredMipmaps`：过滤r、保留内部rData然后归一化输出 | `AppearanceNormalCooker` 从base lattice以面积box生成独立mip，保留未归一化r；GPU在bilinear/trilinear采样之后解码 | NPOT与1×N面积权重不丢末行列、不除零；不先decode再插值；不是与旧filter-before-expression逐位等价的声称 |
+| Karis解码：clamp r²、逆浓度、alpha与方向 | CPU/WGSL共用具名数学profile，alpha转回perceptual roughness，base/coat各自配对 | 近零矩表示方向不确定、最大roughness，返回显式validity；不伪造可共享尖锐高光。该vMF→GGX拟合有误差，并非精确混合GGX |
+| Filament/source tool mip与输出准入 | Cook前预留完整output+reference scratch；half量化后空间/分数LOD probes；独立double数值逆coth oracle检查方向与perceptual roughness误差，包保留配对语义和预算 | 低roughness half矩可能损失精度；任何显式质量预算失败拒绝此产品，保持source程序需求。多UV/动态/几何/视向/非局部不进入该静态profile |
+
+该profile的过滤组件已实现：`AppearanceBakeProfile`统一静态域准入；`AppearanceNormalFilter`实施r-form/消费解码/double逆coth参考；`AppearanceNormalCooker`实施独立pair、NPOT面积mip与量化后滤波/方向/roughness质量拒绝；`appearance_normal_filter`是生产WGSL事实源；`AppearanceAssetPackage` schema v2保留typed pair合同。11组108项targeted tests及build/build:test通过。真实D3D12 diagnostic 256 lanes/2,048值覆盖half矩上传/空间/分数LOD、方向退化和负Z；decode数值误差`1.1920929e-7`。
+
+第一次GPU滤波断言失败并保留：旧颜色fixture的0.0003容差不足，本fixture硬件滤波对packed高精度trilinear最大误差`0.003502712`。最终fixture显式矩0.005、方向0.01rad、perceptual roughness0.025预算，GPU方向`0.004642322`rad/roughness`0.010636690`通过；不是生产默认。CPU probes不含硬件滤波误差，shader→GPU解码数值准确与最终滤波画质预算分别报告。API errors/device loss零，原生adapter/cache HRESULT诊断仍在。normal资产替换程序与新Surface主链消费尚未完成；采用保持 `not adopted`，不提高R10或性能/画质状态。有限probe验证定义base lattice与声明滤波域，不证明未采样的连续材质、所有设备或最终视频无误差。
+
 ## 1. 推荐总表
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |

@@ -42,6 +42,10 @@ S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态
 
 本模块十组98项targeted tests及build/build:test通过，包含binary16全部65,536 encodings、half中点、包往返/完整性/typed ABI负例、量化预算负例、零纹理常量、NPOT/row padding、capability/容量、提交与abort。GTX 1650 Ti/D3D12真实组件验证三种half纹理、12个mip copy、256 lanes/3,328值：GPU过滤对packed CPU参考最大误差`0.000162751`，对这个fixture源表达式最大误差`0.018849826`，在其**显式0.025预算**内；该数值仅为诊断fixture预算，不是AAA画质或所有资产的通用默认。API errors/device loss零，Dawn原生诊断仍在。**该上传helper不拥有长期纹理，不是完整Appearance residency/cache owner；烘焙产品尚未绑定材质程序并进入新Surface主链，normal-variance/roughness、字段失效更新及S2–S7仍未完成。**没有Chrome、整帧、视频或性能通过声明。
 
+联合法线过滤基础随后完成：固定审读The Forge `GenerateVMFLayer/GenerateVMFFilteredMipmaps/ProcessTextures`全部链、Filament roughness工具/BOX mip与Karis/Toksvig原始资料，选择具名本地`CoupledVmfAppearanceFilter`。将perceptual roughness平方为GGX alpha，以联合r-form保留法线与roughness依赖；独立base/coat矩，NPOT/1×N面积mip保留所有源texel，shader在最终过滤之后解码。近零矩返回方向无效与最大roughness，低roughness half矩丢失或inverse拟合超过明确预算均拒绝；包schema v2保留配对与误差合同。参考double逆coth与可复用scratch纳入峰值预算，不在GPU热consumer添加每像素验证。
+
+本模块11组108项targeted tests与build/build:test（含typecheck）通过。D3D12真实half矩上传/过滤/解码诊断256 lanes/2,048值通过，API validation/uncaptured errors及device loss零。初始沿用平滑颜色fixture的0.0003滤波容差失败：实测硬件滤波对packed CPU trilinear最大`0.003502712`；失败保留在忽略诊断目录。最后明确采用**此fixture独立**的矩0.005、角度0.01 rad、roughness 0.025预算，直接核查最终GPU输出：decode数值误差`1.1920929e-7`，方向误差`0.004642322`rad，roughness误差`0.010636690`。CPU cook探针没有包含硬件插值精度，不能将上述预算设成生产通用默认或宣称AAA画质。Dawn native adapter/cache诊断仍存在。**这只完成过滤组件；静态资产重连、长期residency/new Surface消费、动态字段版本及S2–S7仍未完成，S1与R10均保持未完成。**
+
 ## 3. 设计要求到证明的追踪
 
 所有条目初始为未完成。对应证据必须指出生产 producer、consumer 和测试覆盖范围；文件存在或 manifest 声称 completed 都不能替代证明。

@@ -3,6 +3,8 @@ import { APPEARANCE_DEPENDENCY as D, selectAppearanceProductProgram } from "./Ap
 import type { CompiledAppearanceGraph } from "./AppearanceGraphCompiler.js";
 import type { AppearanceTextureBinding } from "./AppearanceGraph.js";
 import { encodeFloat16, decodeFloat16 } from "../core/Float16.js";
+import { prepareAppearanceBake } from "./AppearanceBakeProfile.js";
+import type { AppearanceNormalFilterContract } from "./AppearanceNormalFilter.js";
 
 export interface AppearanceSourceFootprint {
   readonly ddx: readonly [number, number];
@@ -37,7 +39,10 @@ export interface AppearanceCookedField {
   readonly mips: readonly AppearanceCookedMip[];
 }
 export interface AppearanceCookedProduct {
-  readonly kind: "reevaluated-mip-fields";
+  readonly kind: "reevaluated-mip-fields" | "coupled-vmf-moments";
+  readonly normalFilters?: readonly AppearanceNormalFilterContract[];
+  /** Offline peak includes reference scratch, when an algorithm retains it. */
+  readonly peakWorkingBytes?: number;
   readonly coordinateDomain: string | null;
   readonly domainMin: readonly [number, number];
   readonly domainMax: readonly [number, number];
@@ -63,34 +68,8 @@ export interface AppearanceCookedProduct {
  */
 export function cookAppearanceMipProduct(source: CompiledAppearanceGraph,
   roots: Readonly<Record<string, readonly number[]>>, options: AppearanceBakeOptions): AppearanceCookedProduct {
-  const program = selectAppearanceProductProgram(source, roots);
-  const dimensions = validateOptions(options);
+  const { program, dimensions, coordinateDomain, coordinateAt, evaluate } = prepareAppearanceBake(source, roots, options);
   const outputEntries = Object.entries(program.outputs);
-  if (outputEntries.length === 0) throw new RangeError("Appearance cook needs fields");
-  if (program.instructions.some(instruction => (instruction.dependency & (D.Geometry | D.Dynamic | D.View | D.Nonlocal)) !== 0)) {
-    throw new RangeError("Appearance static cook excludes dynamic/geometry/view/nonlocal dependencies");
-  }
-  if (program.inputs.length > 1 || program.inputs.some(input => input.domain !== "surface" || input.width !== 2)) {
-    throw new RangeError("Appearance cook requires a single two-channel coordinate domain");
-  }
-  const input = program.inputs[0];
-  const coordinate = input === undefined ? null : program.instructions.flatMap((instruction, index) =>
-    instruction.kind === "input" && instruction.input === input.name ? [{ index, channel: instruction.channel! }] : []);
-  if (coordinate !== null && (!coordinate.some(c => c.channel === 0) || !coordinate.some(c => c.channel === 1))) {
-    // Procedural fields may use a single coordinate component; no source sample can need a missing component.
-    if (program.samples.length !== 0) throw new RangeError("Appearance source sampling requires both chart coordinates");
-  }
-  for (const sample of program.samples) {
-    if (coordinate === null || sample.uv.some((ref, channel) => !coordinate.some(c => c.index === ref && c.channel === channel))) {
-      throw new RangeError("Appearance cook profile requires direct chart UV plus each source's affine sampling transform");
-    }
-  }
-  const domains = [...new Set(program.instructions.flatMap(instruction => instruction.coordinateDomains))];
-  if (domains.length > 1) throw new RangeError("Appearance cook cannot merge multiple UV domains");
-  if (input !== undefined && [...options.domainMin, ...options.domainMax].some(value =>
-    Math.fround(value) < input.range.low || Math.fround(value) > input.range.high)) {
-    throw new RangeError("Appearance cook domain violates the source coordinate range");
-  }
 
   const fields: Record<string, AppearanceCookedField> = Object.create(null);
   let allocatedBytes = 0;
@@ -119,21 +98,6 @@ export function cookAppearanceMipProduct(source: CompiledAppearanceGraph,
   if (!Number.isSafeInteger(probeCount) || probeCount > options.validationProbeBudget) {
     throw new RangeError(`Appearance cook requires ${probeCount} probes, budget ${options.validationProbeBudget}`);
   }
-  const span = options.domainMax.map((value, axis) => value - options.domainMin[axis]!) as [number, number];
-  const evaluate = (uv: readonly [number, number], lod: number) => evaluateCompiledAppearance(program, {
-    inputs: input === undefined ? {} : { [input.name]: uv },
-    sample: (binding, transformedUv) => {
-      const c = Math.cos(binding.rotation), s = Math.sin(binding.rotation), lodScale = 2 ** lod;
-      const x = span[0] / options.width * lodScale * binding.scale[0];
-      const y = span[1] / options.height * lodScale * binding.scale[1];
-      const ddx: readonly [number, number] = [Math.fround(c * x), Math.fround(s * x)];
-      const ddy: readonly [number, number] = [Math.fround(-s * y), Math.fround(c * y)];
-      if (![...ddx, ...ddy].every(Number.isFinite)) throw new RangeError("Appearance cook produced a nonfinite source footprint");
-      return options.sample(binding, transformedUv, { chartLod: lod, ddx, ddy });
-    }
-  });
-  const coordinateAt = (x: number, y: number): readonly [number, number] =>
-    [options.domainMin[0] + x * span[0], options.domainMin[1] + y * span[1]];
   const mips: Record<string, AppearanceCookedMip[]> = Object.create(null);
   for (const [name] of outputEntries) mips[name] = [];
   for (let level = 0; variableFields && level < dimensions.length; level++) {
@@ -174,7 +138,7 @@ export function cookAppearanceMipProduct(source: CompiledAppearanceGraph,
     }
   }
   if (maxBudgetRatio > 1) throw new RangeError(`Appearance cooked filtering exceeds quality budget: ratio ${maxBudgetRatio}, absolute ${maxAbsoluteError}`);
-  return Object.freeze({ kind: "reevaluated-mip-fields", coordinateDomain: domains[0] ?? null,
+  return Object.freeze({ kind: "reevaluated-mip-fields", coordinateDomain,
     domainMin: Object.freeze([...options.domainMin]) as readonly [number, number],
     domainMax: Object.freeze([...options.domainMax]) as readonly [number, number], fields: Object.freeze({ ...fields }), allocatedBytes,
     storagePrecision: options.storagePrecision ?? "float32", errorBudget: Object.freeze({ ...options.error }),
@@ -196,27 +160,4 @@ export function sampleAppearanceCookedField(field: AppearanceCookedField, u: num
     return mix(mix(read(x0, y0), read(x1, y0), px - x0), mix(read(x0, y1), read(x1, y1), px - x0), py - y0);
   };
   return Array.from({ length: field.width }, (_, channel) => Math.fround(mix(at(low, channel), at(high, channel), boundedLod - low)));
-}
-
-function validateOptions(options: AppearanceBakeOptions): readonly { width: number; height: number }[] {
-  if (options.storagePrecision !== undefined && options.storagePrecision !== "float32" && options.storagePrecision !== "float16") {
-    throw new RangeError("Unknown appearance storage precision");
-  }
-  for (const [name, value] of Object.entries({ width: options.width, height: options.height,
-    mipCount: options.mipCount, byteBudget: options.byteBudget, validationProbeBudget: options.validationProbeBudget })) {
-    if (!Number.isSafeInteger(value) || value < (name.endsWith("Budget") ? 0 : 1)) throw new RangeError(`Invalid appearance cook ${name}`);
-  }
-  if (options.width > 16384 || options.height > 16384 || options.mipCount > Math.floor(Math.log2(Math.max(options.width, options.height))) + 1) {
-    throw new RangeError("Appearance cook dimensions/mips exceed its offline profile");
-  }
-  if (options.domainMin.length !== 2 || options.domainMax.length !== 2 ||
-      ![...options.domainMin, ...options.domainMax].every(value => Number.isFinite(Math.fround(value))) ||
-      options.domainMax.some((value, axis) => value <= options.domainMin[axis]!) ||
-      options.domainMax.some((value, axis) => !Number.isFinite(Math.fround(value - options.domainMin[axis]!))) ||
-      ![options.error.absolute, options.error.relative].every(value => Number.isFinite(value) && value >= 0)) {
-    throw new RangeError("Invalid appearance cook domain/error budget");
-  }
-  return Array.from({ length: options.mipCount }, (_, level) => ({
-    width: Math.max(1, Math.floor(options.width / 2 ** level)),
-    height: Math.max(1, Math.floor(options.height / 2 ** level)) }));
 }

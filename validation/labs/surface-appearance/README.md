@@ -30,3 +30,11 @@ node validation/labs/surface-appearance/appearance-asset-gpu-oracle.mjs .local/s
 实际cook（先half量化再质量probes）→RuntimeAsset包往返→调用者拥有的array layers→同一command事务copy→GPU bilinear/trilinear sample→数值readback。NPOT 5×3、三层mip、r16float/rg16float/rgba16float及f32常量；12个copy、256 lanes/3,328值。比较GPU过滤与packed CPU参考（最大`0.000162751`），也比较该fixture源表达式（最大`0.018849826`），后者在显式0.025预算内；这个预算不作为任何生产画质默认或结论。Payload 396 bytes、padded staging与实际buffer各2228 bytes。Raw为`asset-gpu-oracle.json`。
 
 上传helper不创建或拥有长期texture，正式Appearance residency/cache owner和材质program替换consumer尚未接通。有限probes与这个GPU fixture不证明连续域完全等价，不证明normal variance/roughness、anisotropy、chart seam/LOD、Chrome画质或性能。Dawn原生adapter/cache blob诊断同前两个宿主。
+
+联合法线第四个组件宿主：
+
+```powershell
+node validation/labs/surface-appearance/appearance-normal-gpu-oracle.mjs .local/surface-gpu-oracle
+```
+
+真实NPOT half矩上传→GPU spatial/fractional-LOD滤波→生产`appearance_normal_filter`解码，256 lanes/2,048值，包括取消矩/单位矩/负Z。Raw为`normal-gpu-oracle.json`。GPU decode对实际采样矩的CPU f32参考误差`1.1920929e-7`，硬件滤波对packed CPU高精度滤波误差`0.003502712`；后者超过初始0.0003断言（失败保留在`normal-gpu-oracle-filter-failure.json`），不能把两者混称数值精确。最终诊断fixture单独声明矩0.005、方向0.01rad、roughness0.025预算，并实际检查最终方向`0.004642322`rad/roughness`0.010636690`；这些只是fixture预算，CPU cook的有限探针不包括硬件滤波差异。该组件不证明法线已进入新Surface、所有硬件/连续域画质或性能，来源采用状态不变。
