@@ -1,6 +1,9 @@
 import { ShadeTransparencyMode } from "./enums.js";
 import type { StandardShadeMaterial } from "./StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
+import { compileAppearanceGraph } from "./AppearanceGraphCompiler.js";
+import type { CompiledAppearanceGraph } from "./AppearanceGraphCompiler.js";
+import { lowerStandardAppearanceGraph } from "./StandardAppearanceGraph.js";
 
 export const MATERIAL_CLOSURE_FAMILY = Object.freeze({
   Unlit: 0,
@@ -38,6 +41,7 @@ export interface CanonicalTextureSample {
 }
 
 export interface CanonicalMaterial {
+  readonly appearance: CompiledAppearanceGraph;
   readonly family: 0 | 1 | 2;
   readonly coverage: "opaque" | "masked" | "transparent";
   readonly featureMask: number;
@@ -134,9 +138,12 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       prior.offset[0] === offset[0] && prior.offset[1] === offset[1] &&
       prior.scale[0] === scale[0] && prior.scale[1] === scale[1] &&
       prior.rotation === rotation && prior.colorDecode === colorDecode);
-    samples.push(Object.freeze({ role, texture, colorDecode, uvSet, offset, scale, rotation,
+    samples.push(Object.freeze({ role, texture, colorDecode, uvSet,
+      offset: Object.freeze([...offset]) as readonly [number, number],
+      scale: Object.freeze([...scale]) as readonly [number, number], rotation,
       equivalentSample: equal < 0 ? samples.length : samples[equal]!.equivalentSample }));
   }
-  return Object.freeze({ family, coverage, featureMask, samples: Object.freeze(samples),
-    ior, specularFactor, specularColor, coatFactor, coatRoughness, coatNormalScale });
+  const appearance = compileAppearanceGraph(lowerStandardAppearanceGraph(material, samples));
+  return Object.freeze({ family, coverage, featureMask, samples: Object.freeze(samples), appearance,
+    ior, specularFactor, specularColor: Object.freeze(specularColor), coatFactor, coatRoughness, coatNormalScale });
 }

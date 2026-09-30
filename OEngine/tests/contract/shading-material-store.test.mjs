@@ -87,6 +87,10 @@ test("material store publishes geometry-dependent association records in one gen
   assert.equal(stage.materialGeneration, 1, "aborted publication must not advance generation");
   assert.equal(stage.textureGeneration, 1);
   assert.equal(stage.publicationRevision, 1);
+  assert.equal(stage.appearancePrograms.length, stage.associationSlots.length);
+  assert.equal(stage.appearancePrograms[0], stage.appearancePrograms[1],
+    "geometry associations of one material share its immutable compile product");
+  assert.deepEqual(Object.keys(stage.appearancePrograms[0].outputs).sort(), ["alpha", "baseColor"]);
   committed.finish();
 
   const materialBytes = stage.bindings.materialRecords.bytes;

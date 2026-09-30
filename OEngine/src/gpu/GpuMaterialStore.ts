@@ -1,6 +1,8 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { compileCanonicalMaterial } from "../material/CanonicalMaterial.js";
+import type { CanonicalMaterial } from "../material/CanonicalMaterial.js";
+import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
 import type { TextureSurfacePublication } from "./TextureVariation.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import {
@@ -52,6 +54,8 @@ export interface GpuMaterialStage {
   readonly bindings: GpuMaterialBindings;
   /** GPU slots in exactly the same order as the staged association sources. */
   readonly associationSlots: readonly number[];
+  /** Immutable publication products, aligned with slots; new Surface lowering consumes these. */
+  readonly appearancePrograms: readonly CompiledAppearanceGraph[];
   readonly materialGeneration: number;
   readonly textureGeneration: number;
   readonly publicationRevision: number;
@@ -128,7 +132,7 @@ export class GpuMaterialStore {
     surfacePublications?: ReadonlyMap<ShadeTexture, TextureSurfacePublication>
   ): GpuMaterialStage {
     this.assertStageCommand(command);
-    this.preflight(associations, textureRefsByMaterial);
+    const canonicalMaterials = this.preflight(associations, textureRefsByMaterial);
     const generation = nextGeneration(this.committedGeneration);
     const slots = Object.freeze(associations.map(() => this.freeSlots.pop()!));
     const handle = Object.freeze({}) as GpuMaterialStageHandle;
@@ -161,7 +165,7 @@ export class GpuMaterialStore {
     try {
       for (let index = 0; index < associations.length; index++) {
         const association = associations[index]!;
-        const canonical = compileCanonicalMaterial(association.material);
+        const canonical = canonicalMaterials[index]!;
         const slot = slots[index]!;
         const textureRefs = textureRefsByMaterial.get(association.material)!;
         const textureRef = (texture: ShadeTexture | undefined): number =>
@@ -257,6 +261,7 @@ export class GpuMaterialStore {
         handle,
         bindings: this.bindings(),
         associationSlots: slots,
+        appearancePrograms: Object.freeze(canonicalMaterials.map(material => material.appearance)),
         materialGeneration: generation,
         textureGeneration: generation,
         publicationRevision: generation
@@ -352,7 +357,7 @@ export class GpuMaterialStore {
   private preflight(
     associations: readonly GpuMaterialAssociationSource[],
     textureRefsByMaterial: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>
-  ): void {
+  ): readonly CanonicalMaterial[] {
     if (associations.length === 0) {
       throw new RangeError("GpuMaterialStore requires at least one shading association");
     }
@@ -362,6 +367,8 @@ export class GpuMaterialStore {
         `${this.freeSlots.length} of ${GPU_MATERIAL_CAPACITY} are free`
       );
     }
+    const compiled = new Map<StandardShadeMaterial, CanonicalMaterial>();
+    const result: CanonicalMaterial[] = [];
     for (const association of associations) {
       if (!textureRefsByMaterial.has(association.material)) {
         throw new Error(
@@ -374,7 +381,12 @@ export class GpuMaterialStore {
         0,
         association.textureBindingSetId
       );
-      const canonical = compileCanonicalMaterial(association.material);
+      let canonical = compiled.get(association.material);
+      if (canonical === undefined) {
+        canonical = compileCanonicalMaterial(association.material);
+        compiled.set(association.material, canonical);
+      }
+      result.push(canonical);
       // Header validation is deliberately part of preflight, before slots are reserved.
       packGpuShadingMaterialRecord({
         programId: association.programId,
@@ -387,6 +399,7 @@ export class GpuMaterialStore {
         featureMask: canonical.featureMask
       }, source.packed);
     }
+    return Object.freeze(result);
   }
 
   private retire(publication: ResidentPublication): void {

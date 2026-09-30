@@ -15,7 +15,7 @@
 
 | 阶段 | 完整交付 | 删除/接通边界 | 完成证据与当前状态 |
 | --- | --- | --- | --- |
-| S0 设计与来源 | 明确输出字段、算法 profile、owner、全部要求追踪、验证范围；设定 active workstream | 新设计替代旧 Surface 目标，旧实现事实留在历史执行记录 | 本文件与来源映射；设计检查中 |
+| S0 设计与来源 | 明确输出字段、算法 profile、owner、全部要求追踪、验证范围；设定 active workstream | 新设计替代旧 Surface 目标，旧实现事实留在历史执行记录 | 本文件与来源映射已提交`182fd51`；算法模块开工前继续补完整profile |
 | S1 材质编译与 Appearance 产品 | 有类型 IR；常量折叠、输出/通道活性、等价采样、静态/动态/几何/视向依赖；固定材质 lowering；静态数据/烘焙产品与动态程序 | 材质发布消费真正编译产物；旧十角色循环在新 consumer 切入时删除 | 独立数值对照、变更/快照、过滤非等价负例、真实 GPU 编译消费；未完成 |
 | S2 几何共享与稳定地址 | residency 属性准备；同帧 transform/shape 数据；winner-demand primitive coefficients；source domain/LOD mapping | raster 与 Surface 共用新几何数据；替换 workgroup 大 Setup；Loader 无长期 GPU owner | Native/WASM/Product、透视/近裁剪/非均匀变换/接缝/LOD 数值与真实 GPU 消费；未完成 |
 | S3 新 Surface 主链与 Appearance 缓存 | 有界需求去重、页表/更新/淘汰、跨帧版本；简单源页与动态缺失统一消费；精简程序与必要字段 | 删除 Probe/旧 SampleWork/SampleResult/Resolve 调度生产依赖；完整全率覆盖是新主链合法模式 | 零工作、容量、缺页/失效、覆盖互斥、multi-UV/normal/ORM/coat；未完成 |
@@ -25,6 +25,10 @@
 | S7 测试与性能验收 | 独立本地 Chrome 宿主、两 coverage 组、材质/场景/变化矩阵、独立旧 revision 对照、全部成本/P50/P95/画质 | 清除未证实的完成声明；未达目标继续返工 | Surface 至少下降50%、GPU pass合计至少下降30%，P50/P95均检查；未完成 |
 
 S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态烘焙、动态缓存、几何共享、稀疏照明、历史验证和重建均是必做项。允许同一模块内连续修改多个 owner；不为机械文件拆分制造阶段完成声明。
+
+### S1 进行中：编译基础，2026-10-01
+
+`AppearanceGraph`与`AppearanceGraphCompiler`已实现typed DAG、Kahn排序、f32常量折叠、保序CSE、逐输出/通道活性、完整采样快照与依赖域。`StandardAppearanceGraph`已lower当前Standard/Coated/glTF字段，材质发布保留编译产物，独立数值oracle与材质合同回归通过。旧GPU消费者、feature mask与纹理route仍按旧合同；本轮没有将编译数据存在CPU上误报为真实GPU消费。**S1仍未完成**：静态烘焙产品、动态程序、有限profile lowering及GPU消费仍待实现；R04/R05/R06/R07均未提升为完成。没有本轮浏览器/性能结论。
 
 ## 3. 设计要求到证明的追踪
 

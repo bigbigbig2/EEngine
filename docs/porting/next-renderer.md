@@ -149,7 +149,9 @@ DACS 独立工程 `da514fe9f6b1a2c5a732b0b9f2e20c25227960e3` 的 license 未明�
 
 具名本地部分：typed数据图、通道活性/CSE、完整当前材质lowering、source/static/dynamic/view/geometry域与WebGPU程序/页合同。来源检索包含MaterialX官方完整仓库、已有Khronos glTF规范renderer和Filament材质实现；尚未找到完整实现同时覆盖本地fixed texture banks、VG LOD mapping与多域缓存。保留本地表达，不冒称这些组合是MaterialX的完整上游移植。
 
-Local validation：本阶段仅设计/源函数审读；尚无新编译器数值或GPUconsumer证据。烘焙、cache allocation/history/seam filtering、稀疏照明和temporal完整profile在对应模块开工前继续核对；不能把它们拆成绑定胶水以免除算法调研。
+2026-10-01 本地实现映射：`material/AppearanceGraph.ts`定义有类型字段图与采样快照；`AppearanceGraphCompiler.ts::compileAppearanceGraph/validateAndSort`执行Kahn排序、逐通道lowering、f32常量折叠、保序CSE、输出可达性与依赖域分析；`StandardAppearanceGraph.ts::lowerStandardAppearanceGraph`保留当前Standard/glTF全部字段，物理零字段按其语义消去，不对任意IR套用`0*x=0`。`CanonicalMaterial`生产编译产物，`GpuMaterialStore::preflight/stage`每发布一次编译并保留与association slot对齐的不可变产品。旧Surface仍消费旧ABI；新增产品尚无生产WGSLconsumer，不构成GPU采用。
+
+Local validation：`tests/oracle/appearance-graph.test.mjs`包含独立未优化vector解释器对照（512组、全部当前算子）、完整Standard/Coated字段数值、ORM/AO通道合并、alpha/零normal scale/零coat、采样签名负例、非线性过滤负例、依赖域/多UV、快照变更、错误图和12000层迭代编译。build/build:test与材质相关targeted tests通过。来源采用仍为`not adopted`；烘焙、动态页、GPUlowering及实际新主链消费未完成。`TextureBaker::bakeShaderInputs/bakeGraphOutput/optimizeBakedTextures/generateNewDocumentFromShader`已继续核读world-space排除、纹理空间输出、color encoding、精确uniform判定及产物重连；其渲染采样不能自动证明本地非线性mip等价。cache allocation/history/seam filtering、稀疏照明和temporal完整profile在对应模块开工前继续核对；不能把它们拆成绑定胶水以免除算法调研。
 
 ## 1. 推荐总表
 
