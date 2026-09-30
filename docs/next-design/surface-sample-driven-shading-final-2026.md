@@ -1,6 +1,6 @@
 # Surface 可见性驱动分频着色：最终设计
 
-日期：2026-09-30。状态：目标设计；阶段一至阶段三主链已实现并做定向验证，阶段四待执行。尚无本地加速或最终画质验收结论。
+日期：2026-09-30。状态：阶段一至阶段四主链已实现并完成模块级验证；正式浏览器、画质、整帧性能与 claims 验收仍待整体 Next Renderer 阶段。尚无本地净加速或最终画质验收结论。
 
 本文确定 Surface 重构的唯一推荐方向，替代 [前期调查](surface-shading-performance-design-2026.md) 中的候选排序和“先 A/B 小优化”顺序；上位架构仍为 [Next 整体设计](eengine-next-overall-architecture-final-2026.md)。执行顺序见 [Surface 重构执行文档](../next-execution/surface-sample-driven-shading-rebuild-2026.md)，来源/阶段映射见 [Next 来源账本](../porting/next-renderer.md)。
 
@@ -31,11 +31,11 @@
 
 | 当前事实 | 已核对入口 | 对本设计的含义 |
 | --- | --- | --- |
-| planner 后执行内部全屏 dense compute，再消费七条 exception lanes | `OEngine/src/render/surface/SurfaceMaterialPass.ts::addToGraph`；`OEngine/src/shaders/surface_execution.ts` | 替换工作生成与重着色调度，不只改 dispatch 尺寸 |
-| coarse 只接受受限 Unlit，且要求静态、same key、近似相同 depth | `OEngine/src/shaders/shading_frequency.ts::frequency_eligible/frequency_block_eligible` | 普通移动相机 PBR 不获得本设计所需的样本减量 |
-| `surface_store` 将同一 radiance 和 motion 复制整个 rate block | `OEngine/src/shaders/surface_execution.ts::surface_store` | 必须拆出逐像素 motion，不能原样复用作为新 Resolve |
-| PBR 每 sample 解码三顶点、投影、重心、法线/UV、纹理和照明 | `OEngine/src/shaders/surface_material_kernel.ts::sparse_evaluate_geometry` | 主目标同时触及 material 与 lighting，保留原材质与 radiometry 语义 |
-| exception 由 texture set + Coated 分流，每 lane 容量最多约 P/7 | `OEngine/src/render/surface/SurfaceExecutionAbi.ts::surfaceExceptionLane/surfaceLaneCapacity` | 旧容量和“异常稀少”的假定不能搬到 full-rate 工作 |
+| Probe 后由 tile Work Builder 选择 full/coarse/mixed 工作，worker 与 Resolve 使用同一 Surface 数学 | `OEngine/src/render/surface/SurfaceMaterialPass.ts::addToGraph`；`OEngine/src/shaders/surface_sample_work.ts`、`surface_sample_worker.ts` | 维护固定 tile state、有限 profile、不可变 sample results 与整 tile fallback |
+| signal-rate 由 Probe 发布并由 Builder/worker/Resolve 共同解释 | `OEngine/src/render/surface/SurfaceSignalPlan.ts`；`OEngine/src/shaders/surface_probe.ts`、`SurfaceSampleAbi.ts` | 方向性 material/lighting/emissive/normal rate 取保守交集；未知和高频信号保持 full-rate |
+| Surface 不再生产 motion；Resolve 只读取不可变 coarse results 与 visibility/depth 边界 | `OEngine/src/render/temporal/TemporalFactsPass.ts`、`OEngine/src/shaders/temporal_facts.ts`、`SurfaceMaterialPass.ts` | TemporalFacts 独立拥有 motion/identity；Resolve 不读写 HDR 同一写域 |
+| PBR 每 sample 解码三顶点、投影、重心、法线/UV、纹理和照明 | `OEngine/src/shaders/surface_geometry.ts`、`surface_material_evaluation.ts`、`surface_lighting.ts` | full/coarse/fallback 共用材质与 radiometry 语义 |
+| 固定 tile state、record/result pool 与二维 indirect 在创建前按 device limits 收敛 | `OEngine/src/render/surface/SurfaceSampleAbi.ts`、`SurfaceMaterialPass.ts` | pool overflow 退回整 tile full-rate；不依赖 repair queue 或 CPU 本帧读回 |
 | 现存大三角形 setup 使用普通 Geometry/Meshlet ABI | `OEngine/src/shaders/large_triangle_setup.ts::build_large_triangle_setup` | VG 需要自己的正确 Product 恢复；不能声称现成缓存已支持 |
 | VisibilityKey 编码 frame-local MeshletWork slot | `OEngine/src/gpu/GpuVisibilityKeyAbi.ts` 文件契约 | 不能直接作为跨帧 shading cache key |
 | Temporal 已有几何/材质签名与 rigid previous mapping | `OEngine/src/shaders/temporal_facts.ts::geometry_signature/previous_clip_for_surface` | 改现有权威链路，不新建互相竞争的 motion/identity 定义 |
@@ -239,7 +239,7 @@ Resolve 的基础是本像素 owner sample，必要时有限邻域重建只访�
 | Owner / 当前入口 | 重构职责与边界 |
 | --- | --- |
 | shading：`render/surface/SurfaceMaterialPass.ts`、`SurfaceProducts.ts`、`SurfaceKernelBindingPlan.ts` | 以 Surface coordinator 重写/替换原 pass；拥有 work builder、有限 worker families、样本/容量、Resolve 与诊断；名称可保留但算法责任必须下沉 |
-| shader：`shading_frequency.ts`、`surface_execution.ts`、`surface_material_kernel.ts` | 删除旧窄 planner/热 shader 内七 lane producer，迁移材质数学至新 sample/full consumers；新 shader 以功能职责命名 |
+| shader：`surface_probe.ts`、`surface_sample_work.ts`、`surface_sample_worker.ts`、`surface_geometry.ts`、`surface_material_evaluation.ts`、`surface_lighting.ts` | 维护 Probe/Builder/worker/Resolve 的单一生产主链；旧窄 planner、Dense/七 lane producer 和旧 ABI 已从生产源码切断 |
 | geometry/assets：`assets/geometry-product/*`、`gpu/GeometryProductGpuAbiV1.ts`、Cooker | 发布连续性与风险，版本/recipe/Native-WASM 统一；shading 不自建第二套几何权威 |
 | materials-textures：`GpuMaterialStore.ts`、`GpuShadingMaterialAbi.ts`、`TextureResidency.ts` | 一致发布 role 风险/variation/residency 代际；保持有限物理纹理 profile |
 | temporal：`TemporalFactsPass.ts`、`temporal_facts.ts` | 逐像素 motion/identity/validity，解除 surface-motion 依赖；未来缓存另有明确所有者 |

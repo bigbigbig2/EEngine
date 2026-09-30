@@ -34,33 +34,33 @@ test("Web geometry canonical and recipe ABIs are deterministic and canonical", (
   const canonical = abi.encodeWebCanonicalGeometryV1([cubeDomain()]);
   const view = new DataView(canonical), bytes = new Uint8Array(canonical);
   assert.equal(new TextDecoder().decode(bytes.subarray(0, 7)), "OEWGCAN");
-  assert.equal(abi.WEB_GEOMETRY_COOKER_ABI_VERSION, 2);
-  assert.equal(view.getUint32(8, true), 2);
+  assert.equal(abi.WEB_GEOMETRY_COOKER_ABI_VERSION, 3);
+  assert.equal(view.getUint32(8, true), 3);
   assert.equal(view.getUint32(12, true), 128);
   assert.equal(view.getUint32(16, true), canonical.byteLength);
   assert.equal(view.getUint32(20, true), 1);
   assert.equal(view.getUint32(24, true), 8);
   assert.equal(view.getUint32(28, true), 36);
   assert.equal(view.getUint32(32, true), 128);
-  assert.equal(view.getUint32(36, true), 160);
-  assert.equal(view.getUint32(40, true), 736);
+  assert.equal(view.getUint32(36, true), 176);
+  assert.equal(view.getUint32(40, true), 752);
   assert.equal(view.getUint32(44, true), 72);
-  assert.equal(view.getUint32(48, true), 32);
-  assert.equal(canonical.byteLength, 880);
+  assert.equal(view.getUint32(48, true), 48);
+  assert.equal(canonical.byteLength, 896);
   // Golden freeze of the fixture encoding itself: pins the exact byte layout
   // (including the ABI version word) so an accidental fixture edit cannot mask
   // a real cooker regression.
-  assert.equal(createHash("sha256").update(bytes).digest("hex"), "bf445f9207ee9a3a76a7656bbc1a31aaac36efab1c64dea489423d84f28e6a29");
+  assert.equal(createHash("sha256").update(bytes).digest("hex"), "c9aea8577e63d53aa1e22f2af3c68d621e443b597b1350aadb2f36ccc22b5576");
 
   const recipe = abi.encodeWebGeometryCookRecipeV1(), recipeView = new DataView(recipe);
   assert.equal(new TextDecoder().decode(new Uint8Array(recipe, 0, 7)), "OEWGRCP");
-  assert.equal(recipeView.getUint32(8, true), 2);
+  assert.equal(recipeView.getUint32(8, true), 3);
   assert.equal(recipeView.getUint32(12, true), 96);
   assert.equal(recipeView.getUint32(16, true), 64);
   assert.equal(recipeView.getUint32(52, true), 3);
   assert.equal(recipeView.getUint32(68, true), 8);
   assert.equal(recipeView.getUint32(72, true), 18);
-  assert.equal(createHash("sha256").update(new Uint8Array(recipe)).digest("hex"), "4c7311b0954eb9592036cb3e135464e1001e11949876dfe4de9460179c5db01b");
+  assert.equal(createHash("sha256").update(new Uint8Array(recipe)).digest("hex"), "5bd5edd24e5a5d1f6db3bdc44a1ec2690f087020416760a293443e8256b43cc7");
 });
 
 test("Two-phase ABI exposes the descriptor stage before any payload exists", () => {

@@ -1,7 +1,7 @@
 # EEngine Next：整体架构层执行计划（2026）
 
 > 设计依据：[整体架构 final](../next-design/eengine-next-overall-architecture-final-2026.md)。本文把整体边界变成可连续实施的切断顺序；具体 VSM 页表、Surface 物理打包、GI probe 格式等仍在各自模块设计时决定。
-> 当前状态：文档和开发校验流程的第一层重构已完成，workstream 已转向 Frame Program。Phase 3 旧计划中的 FSR3 production integration 已记录完成，但新架构的 Frame Program、Surface v2、统一 Temporal Facts 尚未完成。
+> 当前状态：Frame Program、统一 Temporal Facts 与 Surface sample-driven 主链已接入唯一生产路径；Surface 阶段四已完成模块清理和集中验证。browser matrix、完整画质/lifecycle、GPU P50/P95 与正式 evidence 仍属于整体 Next Renderer 验收。
 > 执行原则：每次只保留一条 production renderer path；一个大模块内部连续实现，原理与消费者连通后才集中检查；最终系统验证在主要架构和 planned providers 完成后进行。
 
 ## 0. 目标、范围和判断方法
@@ -19,12 +19,12 @@
 | `OEngine/src/render/pipeline/RendererCore.ts` | `Renderer` 仍直接拥有 Graph 拼装、Surface、环境、FSR3、Present 和生命周期；`build` 相关方法从约 1400 行开始拼资源和 Pass | 收缩成 composition root；把语义需求规划、FrameGraph lowering 与各 owner 的 pass registration 分开，不建并行 Renderer |
 | `OEngine/src/framegraph/FrameGraph.ts`、`CompiledFrameGraphCache.ts` | 已有 compile、late-bound bindings、执行和缓存基础 | 保留物理资源依赖/生命周期层；不要把语义 feature 决策塞入 Graph |
 | `OEngine/src/gpu/GpuRenderWorld.ts`、`OEngine/src/render/features/VisibilityFeature.ts` | 已有 GPU Scene/Visibility 工作资产 | 保留生产主干；定义稳定 Visibility/Temporal facts，避免为了重写后半段重做 Geometry |
-| `OEngine/src/render/surface/SurfaceMaterialPass.ts` | 当前按 active material class 构造程序、pipeline、pass 和 bind group；class 还混入 texture set | 在 Surface v2 中拆 authoring、execution class、resource binding；将 pipeline warmup 移出帧热路径 |
-| `OEngine/src/render/surface/SurfaceFrequencyResolvePass.ts` | 已有粗频结果回填与 motion 路径 | 重新审视 coverage、identity 与运动边界，接入真正的 field demand；不把现有策略直接改名为 v2 |
+| `OEngine/src/render/surface/SurfaceMaterialPass.ts` | 唯一 coordinator 注册 Probe、tile Work Builder、GPU finalize、有限 worker 与 Resolve；程序按 negotiated layout 缓存 | 维护 packed signal rate、容量和边界；不恢复旧 planner/dense owner |
+| `OEngine/src/render/surface/SurfaceSampleAbi.ts`、`SurfaceSignalPlan.ts` | 固定 tile state、record/result pool、二维 indirect 与 signal layout 的 CPU/WGSL 事实源 | 由设备 limits 在资源创建前收敛容量；overflow 以整 tile full-rate fallback 收口 |
 | `OEngine/src/render/TemporalFabric.ts`、`TemporalGpuHistory.ts` | 已有事务和 color/depth/motion 生命周期 | 保留 begin/commit/abort 与 GPU 资源管理思想；重建跨消费者事实和各自 confidence |
 | `OEngine/src/render/passes/fsr3/` | FSR3 Upscaler 阶段存在且旧 Phase 3 已完成 | 作为 Temporal Reconstruction backend 接入新事实；旧完成记录不等于新 Motion/Reactive/Presentation 合同完成 |
 
-上述判断来自当前文件与调用关系，不能推出质量或性能已经验证。尤其 `RendererCore.ts` 当前在运动相机条件下把 Surface 切到 full rate，并在 `SurfaceMaterialPass` 内对 active classes 建程序；这些是新 Frame Program 与 Surface v2 的真实切入点。已删除的旧 Phase 0–5 阶段概要可在 Git 历史查阅，不能自动把新总架构下的同名阶段标为完成。
+上述判断来自当前文件与调用关系，不能推出质量或性能已经验证。当前 `RendererCore.ts` 仍是 composition root，但 Surface 的程序、容量与资源边界已下沉到 Surface owner；TemporalFacts 独立生成 motion/identity。已删除的旧 Phase 0–5 阶段概要可在 Git 历史查阅，不能自动把新总架构下的同名阶段标为完成。
 
 ### 1.1 保留与直接切断
 

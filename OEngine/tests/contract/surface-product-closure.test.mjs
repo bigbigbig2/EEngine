@@ -60,7 +60,7 @@ test("logical Surface values distinguish normals, radiance and material identity
 test("material resource closure follows triangle, texture and direct-light demands", () => {
   const base = {
     kernel: { programId: 0, outputDependencyMask: 0, textureBankMask: 0 },
-    virtualGeometry: false, lighting: "direct", source: "surface-execution-v2",
+    virtualGeometry: false, lighting: "direct", source: "surface-samples-v1",
     layoutSignature: "new-surface", capabilityFingerprint: "portable", formatProfile: "rgba16float"
   };
   const unlit = surfaceMaterialRequirements(base);
@@ -95,7 +95,7 @@ test("material resource closure follows triangle, texture and direct-light deman
 test("physical Surface closure stays within the negotiated WebGPU envelope", () => {
   const base = {
     kernel: { programId: 0, outputDependencyMask: 0, textureBankMask: 0 },
-    virtualGeometry: false, lighting: "unlit", source: "surface-execution-v2",
+    virtualGeometry: false, lighting: "unlit", source: "surface-samples-v1",
     layoutSignature: "generated", capabilityFingerprint: "desktop", formatProfile: "rgba16float"
   };
   const narrow = planSurfaceKernelBindings(base, desktopLimits);

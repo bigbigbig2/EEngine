@@ -1,6 +1,6 @@
 # Surface 分频着色：实现重构执行顺序
 
-日期：2026-09-30。状态：阶段一、二、三已完成；阶段四待执行。唯一目标设计为 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，来源入口为 [Next renderer ledger](../porting/next-renderer.md)。
+日期：2026-09-30。状态：阶段一至四已完成；正式整体验收待执行。唯一目标设计为 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，来源入口为 [Next renderer ledger](../porting/next-renderer.md)。
 
 ## 执行原则
 
@@ -8,7 +8,7 @@
 
 按下面四个完整重构阶段推进，不拆成几十个文档/门禁任务。阶段内持续编码、按需调试；大模块原理与生产链贯通后集中 typecheck/build/必要 targeted tests。正式 browser matrix、P50/P95 与 claims 仍遵循根 AGENTS 的最终验收节奏。实际编译失败必须修复。
 
-当前 workstream 的 currentSlice 已进入 Surface 阶段三完成后的阶段四。既有 Virtual Geometry 画质/LOD 问题保持未验收；本次 Surface 重建不证明这些问题已经修复。正式画质、GPU 加速和整链性能仍按最终验收节奏处理。
+当前 workstream 的 currentSlice 已完成 Surface 阶段四。既有 Virtual Geometry 画质/LOD 问题保持未验收；本次 Surface 重建不证明这些问题已经修复。正式画质、GPU 加速和整链性能仍按最终验收节奏处理。
 
 ## 阶段一：建立能够服务真实 PBR 的数据与逐像素事实
 
@@ -38,7 +38,7 @@
 
 实际验证：typecheck/build 通过；131 项定向 Node checks 通过；Native Cooker build/ABI oracle、portable-single 与 pthread WASM 构建通过。Dawn D3D12 真实 GPU oracle 编译并运行生产 probe/Temporal shaders：非恒定 albedo Standard PBR 的 16 cells 产生 quad 候选并与 CPU reference 一致，有跨 primitive 通过计数；stale residency、高 variation/NaN、Coated、非法 key 全率；奇数尺寸边缘全率；相机和刚体运动、invalid motion、驻留身份变化读回符合预期。该 oracle 是受控生产 shader harness，不是正式浏览器宿主或完整场景验收。
 
-额外检查发现两处既有陈旧合同断言，未借本阶段修改无关协议：phase3-production.test.mjs 仍要求 reconstructed-color 直接由 Present 消费（现链为 Bloom/Radiometry）；web-geometry-cooker-abi.test.mjs 仍要求 canonical ABI v2（本阶段之前的源码已经是 v3）。因此不宣称全量测试全通过。未运行正式 browser matrix、画质/lifecycle 全矩阵、GPU P50/P95、evidence/claim promotion；未建立 shading sample worker 或 Resolve，未宣称性能改善。此前 VG 画质问题保持未验收。
+阶段一收口时记录的两处陈旧合同断言（reconstructed-color 消费者和 Web Geometry Cooker ABI）属于当时工作树状态；阶段四已按当前 Frame Program 与 Product ABI 修正。未运行正式 browser matrix、画质/lifecycle 全矩阵、GPU P50/P95、evidence/claim promotion；此前 VG 画质问题保持未验收。
 
 ## 阶段二：切换唯一 sample-driven Surface 主链
 
@@ -66,7 +66,7 @@
 
 验证：typecheck/build、31 项 targeted Node checks 与 Dawn D3D12 的真实 GPU producer/consumer oracle 通过。GPU 使用 d3d_skip_shader_optimizations 诊断 toggle，仍实际执行 D3D12，不使用 null backend，不用于性能测量。非恒定 resident albedo 普通 PBR + 非零方向光的 material/lighting counters 为 full 64、quad 16、方向率 32；mixed 为 21（17 coarse + 4 full），数值与同数学 full 对照的最大误差小于 0.04。record/result/双池/partial reservation overflow 完整退回 full 并逐位匹配 full HDR；Coated、背景、非法 key、驻留变化、当前灯表风险、moving camera、独立 Temporal motion、奇数尾部与强制 dispatch X=1 的跨两 tile 二维 indirect 消费均有实际 GPU 覆盖。上述仅为受控生产 FrameGraph oracle，不是正式画质验收。
 
-本阶段未改 Product/Cooker 或 WASM，不重复重建既有产物。正式 browser/场景/lifecycle/画质全矩阵、GPU P50/P95 与 evidence/claims 未运行；不宣称净加速。阶段一记录的两处陈旧断言仍保留。额外扩大到 material-closure、capability、VSM 和 specialization 的检查共 48 项，47 通过；shading-program-specialization.test.mjs 仍断言 ABI v6，任务开始前源码已是 v7，该既有失败未借阶段二修改。不宣称全量测试通过。
+本阶段未改 Product/Cooker 或 WASM，不重复重建既有产物。正式 browser/场景/lifecycle/画质全矩阵、GPU P50/P95 与 evidence/claims 未运行；不宣称净加速。阶段二当时的 material-closure/capability/VSM/specialization 检查记录保留为历史；其中 ABI v6 断言已在阶段四同步到当前 v7。
 
 ## 阶段三：完成分信号质量与有效 GPU 执行
 
@@ -89,7 +89,7 @@
 - Resolve 增加 visibility key、depth 和 result-capacity 边界检查；coarse 只读取不可变 sample results，full-rate 直接写 HDR，Resolve 不读取正在写入的 HDR。CPU `surfaceResolveReference` 对同 domain、深度/法线容差和 owner fallback 建立受限重建 oracle；代表位置和 footprint 仍由现有 sample mask/record 保持。
 - 新增 `surface-signal-plan.test.mjs`，覆盖信号 layout、unsafe closure 全率和跨 domain/depth/normal 邻居拒绝；现有 Surface sample/投影梯度定向检查保持通过。该阶段没有新增独立 submit、全屏 GBuffer 或长期 shading cache。
 
-实际验证：OEngine typecheck、build、build:test、Surface signal/sample/投影梯度定向测试通过；Dawn D3D12 生产 oracle 曾尝试启动，但宿主返回 `D3D12CreateDevice ... DXGI_ERROR_DRIVER_INTERNAL_ERROR`，未取得有效 GPU 结果。正式 browser 场景、完整 normal/emissive/Coated 画质矩阵与 GPU P50/P95 未运行，因此不宣称整帧性能或最终画质验收。阶段四仍需清理旧检查/owner、集中生命周期与完整模块验证。
+实际验证：OEngine typecheck、build、build:test、Surface signal/sample/投影梯度定向测试通过；Dawn D3D12 生产 oracle 曾尝试启动，但宿主返回 `D3D12CreateDevice ... DXGI_ERROR_DRIVER_INTERNAL_ERROR`，未取得有效 GPU 结果。正式 browser 场景、完整 normal/emissive/Coated 画质矩阵与 GPU P50/P95 未运行，因此不宣称整帧性能或最终画质验收。
 
 ## 阶段四：完成模块清理、验证与后续交接
 
@@ -105,6 +105,13 @@
 
 **阶段结果：** 生产主链完整、旧路径已切断、构建和必要测试通过、诊断能解释每类工作；未完成的正式验收如实列出。性能结论必须包含新增分析/probe/queue/Resolve 的合计成本与整帧，而不只看重 shader 单 pass。
 
+### 阶段四收口记录（2026-09-30）
+
+- 生产源码扫描确认 `SurfaceFrequencyResolvePass`、`ShadingWorkPass`、`SurfaceExecutionAbi`、`shading_frequency`、`surface_execution`、`activeExceptionLanes` 等 retired Surface owner/ABI 没有残留 import 或调用。当前唯一入口为 `SurfaceMaterialPass`，由 `SurfaceSampleAbi` 与 `SurfaceSignalPlan` 提供 CPU/WGSL layout，TemporalFacts 独立拥有 motion/identity。
+- 修正了三处陈旧合同：FrameProgram `reconstructed-color` 的真实消费者为 Bloom/Radiometry；Shading Material ABI 为 v7；Web Geometry Cooker canonical/recipe ABI 为 v3。新增阶段四契约覆盖 retired-owner 清理、FrameProgram resize/consumer 边界和 sample capacity overflow。
+- 复核生命周期边界：内部/输出尺寸进入 FrameProgram/Graph key；Surface pool 在创建前按 device limits 收敛；材质、纹理、几何 publication revision 由当前帧绑定；Temporal/HZB/FSR3 history 在 resize、camera cut、device epoch 变化时由各自 owner 处理；device loss 通过 Renderer shutdown/recovery 重建 device-local Surface pipelines，不把旧 GPU 资源带入新 epoch。Surface 不创建长期 Loader 资源、不读回本帧工作数，也不增加 submit。
+- 集中验证通过：`npm run typecheck`、`npm run build:test`、`npm run build`；阶段四及相关 Surface/Temporal/Product/ABI 定向检查共 24 项通过，另有扩展的材质、几何 Product、Temporal 和 Surface checks 通过；`git diff --check` 通过。未运行正式 browser matrix、场景/设备画质矩阵、GPU P50/P95、evidence/claim promotion。
+
 ## 之后按剩余瓶颈选择，不绑定首个重构
 
 1. 如果同一表面的材质/间接项跨帧重复仍主导，再选一类对象/纹理空间或屏幕空间缓存 profile；稳定表面位置、view/lighting 依赖、footprint、失效、缺页/eviction 与 miss 路径完整后再实施，不直接缓存最终 PBR 颜色。
@@ -119,4 +126,4 @@
 
 以上四阶段的规模按完整主链组织，不设置逐行、逐 pass 审批或实施前完整 benchmark 门禁。前期 35–65 人日仅为熟悉项目的资深工程师对选定 rigid opaque PBR 范围的粗估，非排期承诺；Product/质量未决项可能明显改变投入，各阶段与后续方案不机械相加。
 
-阶段一至三已实施，阶段四未实施。已运行与未运行范围见各阶段收口记录；不据本阶段宣称整帧性能改善或最终 Surface 模块验收。
+阶段一至四已实施。已运行与未运行范围见各阶段收口记录；不据本阶段宣称整帧性能改善或最终 Surface 模块的正式画质/性能验收。

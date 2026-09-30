@@ -18,7 +18,7 @@ test("Physical Environment production consumers share the pinned runtime transpo
   assert.match(aerial, /node\.write\(output\)/);
 });
 
-test("FSR3 product demand includes independent Temporal motion and the Present consumer", () => {
+test("FSR3 product demand includes independent Temporal motion and presentation consumers", () => {
   const program = buildFrameProgram({ kind: "scene", intent: "present", viewFamily: "main", outputWidth: 1280, outputHeight: 720,
     outputFormat: "bgra8unorm", capabilityProfile: "test", internalWidth: 640, internalHeight: 360,
     virtualGeometry: false, virtualBankCount: 0, previousHzb: true,
@@ -27,7 +27,8 @@ test("FSR3 product demand includes independent Temporal motion and the Present c
   for (const product of ["visibility", "surface-radiance", "temporal-motion",
     "reconstructed-color", "swapchain"]) assert.ok(program.products.includes(product), product);
   assert.deepEqual(program.facts.find(fact => fact.product === "temporal-motion").consumers, ["temporal-facts", "fsr3"]);
-  assert.deepEqual(program.facts.find(fact => fact.product === "reconstructed-color").consumers, ["present"]);
+  assert.deepEqual(program.facts.find(fact => fact.product === "reconstructed-color").consumers,
+    ["bloom", "radiometry"]);
 });
 
 test("Surface temporal and physical-environment resources have closed bindings", () => {
