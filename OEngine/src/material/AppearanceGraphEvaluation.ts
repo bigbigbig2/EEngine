@@ -22,7 +22,7 @@ export function evaluateCompiledAppearance(program: CompiledAppearanceGraph,
   }
   for (const instruction of program.instructions) {
     switch (instruction.kind) {
-      case "constant": values.push(instruction.value!); break;
+      case "constant": case "parameter": values.push(instruction.value!); break;
       case "input": values.push(Math.fround(context.inputs[instruction.input!]![instruction.channel!]!)); break;
       case "texture": {
         let texel = sampled.get(instruction.sample!);

@@ -20,7 +20,8 @@ export function lowerStandardAppearanceGraph(material: StandardShadeMaterial,
       uv.set(sample.uvSet, coordinate);
     }
     const binding = snapshotAppearanceTexture(sample.texture, sample.colorDecode,
-      sample.offset, sample.scale, sample.rotation);
+      sample.offset, sample.scale, sample.rotation, undefined,
+      sample.role === "normal" || sample.role === "coatNormal" ? [0.5, 0.5, 1, 1] : [1, 1, 1, 1]);
     leaves.set(sample.role, g.texture(binding, coordinate));
   }
   const one = g.constant(1), zero = g.constant(0);
@@ -34,13 +35,13 @@ export function lowerStandardAppearanceGraph(material: StandardShadeMaterial,
     if (!Number.isFinite(Math.fround(value))) throw new RangeError(`Material '${material.name}' ${name} must be finite f32`);
     return Math.fround(value);
   };
-  const factor = (value: number, name: string): AppearanceRef => g.constant(finite(value, name));
+  const factor = (value: number, name: string): AppearanceRef => g.parameter(name, finite(value, name));
   const boundedFactor = (value: number, name: string): number => Math.min(Math.max(finite(value, name), 0), 1);
   const scaleField = (scale: number, value: AppearanceRef, name: string): AppearanceRef => {
     const f = finite(scale, name);
     // These are physical fields: constant zero is independent of finite source
     // values. This is not a generic IEEE algebra rule applied to arbitrary IR.
-    return f === 0 ? zero : multiply(g.constant(f), value);
+    return f === 0 ? zero : multiply(g.parameter(name, f), value);
   };
 
   const base = leaf("base");
@@ -48,7 +49,7 @@ export function lowerStandardAppearanceGraph(material: StandardShadeMaterial,
   const colorFactors = [material.diffuse_color.r, material.diffuse_color.g, material.diffuse_color.b];
   const baseChannels = colorFactors.map((value, index) => {
     const constant = finite(value, `base color ${index}`);
-    return constant === 0 ? zero : multiply(multiply(g.constant(constant), channel(color, index)), channel(base, index));
+    return constant === 0 ? zero : multiply(multiply(g.parameter(`base color ${index}`, constant), channel(color, index)), channel(base, index));
   });
   g.output("baseColor", g.combine(...baseChannels));
   g.output("alpha", scaleField(material.diffuse_color.a, channel(base, 3), "alpha"));
@@ -59,7 +60,7 @@ export function lowerStandardAppearanceGraph(material: StandardShadeMaterial,
   g.output("roughness", clamp(scaleField(boundedFactor(material.roughness_factor, "roughness"), channel(orm, 1), "roughness")));
   const ao = leaves.has("occlusion") ? leaf("occlusion") : orm;
   const strength = boundedFactor(material.ambient_factors.a, "occlusion strength");
-  g.output("occlusion", strength === 0 ? one : g.operation("mix", one, channel(ao, 0), g.constant(strength)));
+  g.output("occlusion", strength === 0 ? one : g.operation("mix", one, channel(ao, 0), g.parameter("occlusion strength", strength, { low: 0, high: 1 })));
   g.output("emissive", g.combine(...[material.emissive_factor.r, material.emissive_factor.g, material.emissive_factor.b]
     .map((value, index) => scaleField(value, channel(leaf("emissive"), index), `emissive ${index}`))));
   const mappedNormal = (role: "normal" | "coatNormal", scale: number): AppearanceRef => {

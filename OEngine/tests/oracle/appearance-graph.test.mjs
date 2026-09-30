@@ -21,7 +21,7 @@ const close = (actual, expected, epsilon = 2e-6) => {
 function reference(graph, inputs, sample) {
   const values = [];
   for (const node of graph.nodes) {
-    if (node.kind === "constant") values.push(node.value.map(Math.fround));
+    if (node.kind === "constant" || node.kind === "parameter") values.push(node.value.map(Math.fround));
     else if (node.kind === "input") values.push(inputs[node.name].map(Math.fround));
     else if (node.kind === "texture") values.push(sample(node.binding, values[node.uv]).map(Math.fround));
     else if (node.kind === "swizzle") values.push(node.channels.map(c => values[node.source][c]));
@@ -148,6 +148,23 @@ test("clamp elision cannot change signed zero at a zero boundary", () => {
   const p = compileAppearanceGraph(g.build());
   const result = evaluateCompiledAppearance(p, { inputs: { x: [-0] }, sample: () => [] });
   assert.ok(Object.is(result.clamped[0], +0));
+});
+
+test("named material parameters remain separate, immutable and field dependency specific", () => {
+  const g = new AppearanceGraphBuilder();
+  const roughness = g.parameter("roughness", 0.5, { low: 0, high: 1 });
+  const coat = g.parameter("coat", 0.5, { low: 0, high: 1 });
+  g.output("roughness", roughness); g.output("coat", g.operation("multiply", coat, g.constant(0.7)));
+  const p = compileAppearanceGraph(g.build());
+  const result = evaluateCompiledAppearance(p, { inputs: {}, sample: () => [] });
+  close(result.roughness, [0.5]); close(result.coat, [0.35]);
+  const root = name => p.products.find(product => product.instruction === p.outputs[name][0]);
+  assert.deepEqual(root("roughness").parameters, ["roughness"]);
+  assert.deepEqual(root("coat").parameters, ["coat"]);
+  assert.equal(root("coat").kind, "constant");
+  assert.equal(p.instructions.filter(i => i.kind === "parameter").length, 2);
+  const invalid = new AppearanceGraphBuilder(); invalid.output("bad", invalid.parameter("a", 2, { low: 0, high: 1 }));
+  assert.throws(() => compileAppearanceGraph(invalid.build()), /parameter/);
 });
 
 test("nonlinear baking cannot silently commute source filtering", () => {

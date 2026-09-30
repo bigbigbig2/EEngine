@@ -157,6 +157,10 @@ Local validation：编译基础提交`23d0110`的`tests/oracle/appearance-graph.
 
 后续本地映射：`AppearanceGraphCompiler::selectAppearanceProductProgram`完成字段root→独立program/input/sample；`shaders/appearance_program::lowerAppearanceWgsl`将合法IR展开为straight-line WGSL，参数不直接写入shader模板，fetch按实际采样计划展开；pipeline族预算/异步准入由后续发布owner实现，lowerer不私自创建PSO。`AppearanceMipCooker::cookAppearanceMipProduct`实施上述单UVprofile与独立逐mip求值、容量预留、空间/LOD质量拒绝；输出f32中间字段，尚未当成GPU页或完整打包产品。Oracle新增抽取/逐mip、非线性质量拒绝、常量零存储、容量、NPOT/仿射footprint、不合profile和clamp signed-zero负例。32项targeted tests与build/build:test通过。独立D3D12组件GPU诊断5组/32,000值通过，但原生Dawn报告adapter/cache blob诊断；没有新生产Surfaceconsumer、没有完整烘焙资产/驻留/normal-variance证明、没有Chrome画面或性能证据，来源采用状态不变。
 
+2026-10-01 发布基础映射：`AppearanceGraphBuilder::parameter`与compiler的parameter-name/channel CSE保留参数来源，固定材质实例数值不进入PSO key；root增加parameters/dynamicInputs/sourceSamples精确依赖，material-only cooker只执行自身uniform子图。`AppearanceProgramRegistry`是本地WebGPU异步PSO/显式layout/有界缓存/取消和device-loss生命周期集成，不冒称MaterialX提供该GPU owner。`GpuAppearancePublication`将每association的参数、采样快照、语义fallback、TextureResidency routing与revision发布为实际大小GPU buffer；`GpuRenderWorld::prepareAppearance`及Renderer四条发布入口生产和保留它们。`appearance_resident_kernel`是numeric IR到现有resident-bank资源ABI的确定性适配，逐sample固定bank/sampler展开，与旧共享clamped-mip WGSL同一事实源；所有task可混合相同资源profile的实例offset，采样字段维持显式UV footprint。TextureResidency已完成source解码，consumer不二次解码RGB、不转换alpha。
+
+发布组件的D3D12实际GPU消费者是独立`appearance-resident-gpu-oracle.mjs`，并非画面中的Surface；5组/14,592值、最大误差`5.96046448e-8`通过，原numeric宿主32,000值重跑通过。曾中断全bank×全sampler原型的长时间编译，未登记通过；最终resource-profile采样不保留该原型。模块build/build:test及79项targeted tests通过。精确逐字段失效版本、动态图输入、normal variance与roughness过滤、完整cook资产打包驻留及Surface生产consumer仍未完成；来源采用状态保持not adopted，未提升R04–R07或性能/画质等级。
+
 ## 1. 推荐总表
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |

@@ -3,7 +3,7 @@ import type { AppearanceGraph, AppearanceInputDomain, AppearanceNode, Appearance
   AppearanceRange, AppearanceTextureBinding } from "./AppearanceGraph.js";
 
 export const APPEARANCE_DEPENDENCY = Object.freeze({
-  Surface: 1, Texture: 2, Geometry: 4, Dynamic: 8, View: 16, Nonlocal: 32
+  Surface: 1, Texture: 2, Geometry: 4, Dynamic: 8, View: 16, Nonlocal: 32, Material: 64
 } as const);
 const INPUT_DEPENDENCY: Readonly<Record<AppearanceInputDomain, number>> = Object.freeze({
   surface: APPEARANCE_DEPENDENCY.Surface, geometry: APPEARANCE_DEPENDENCY.Geometry,
@@ -12,10 +12,11 @@ const INPUT_DEPENDENCY: Readonly<Record<AppearanceInputDomain, number>> = Object
 });
 
 export interface AppearanceInstruction {
-  readonly kind: "constant" | "input" | "texture" | "operation";
+  readonly kind: "constant" | "parameter" | "input" | "texture" | "operation";
   readonly args: readonly number[];
   readonly value?: number;
   readonly input?: string;
+  readonly parameter?: string;
   readonly channel?: number;
   readonly sample?: number;
   readonly op?: AppearanceOp;
@@ -45,6 +46,9 @@ export interface AppearanceProductRoot {
   readonly kind: "constant" | "source-program" | "static-bake-candidate" |
     "dynamic-cache-program" | "per-target";
   readonly operationCost: number;
+  readonly parameters: readonly string[];
+  readonly dynamicInputs: readonly string[];
+  readonly sourceSamples: readonly number[];
 }
 export interface CompiledAppearanceGraph {
   readonly instructions: readonly AppearanceInstruction[];
@@ -89,6 +93,13 @@ export function compileAppearanceGraph(graph: AppearanceGraph,
     const node = graph.nodes[id]!;
     switch (node.kind) {
       case "constant": channels[id] = node.value.map(constant); break;
+      case "parameter": {
+        channels[id] = node.value.map((value, channel) =>
+          append(`parameter:${JSON.stringify([node.name, channel])}`, { kind: "parameter", args: [],
+            parameter: node.name, value: Math.fround(value), channel, dependency: APPEARANCE_DEPENDENCY.Material,
+            coordinateDomains: [], range: f32Range(node.range), filter: "constant" }));
+        break;
+      }
       case "input": {
         inputs.set(node.name, Object.freeze({ name: node.name, width: node.width,
           domain: node.domain, range: Object.freeze(f32Range(node.range)) }));
@@ -107,12 +118,13 @@ export function compileAppearanceGraph(graph: AppearanceGraph,
           sampler: Object.freeze([...node.binding.sampler]),
           offset: Object.freeze([...node.binding.offset]) as readonly [number, number],
           scale: Object.freeze([...node.binding.scale]) as readonly [number, number],
+          fallback: Object.freeze([...node.binding.fallback]) as readonly [number, number, number, number],
           range: Object.freeze(f32Range(node.binding.range)) });
         let source = sourceIds.get(binding.source);
         if (source === undefined) { source = sourceIds.size; sourceIds.set(binding.source, source); }
         const uv = channels[node.uv]! as [number, number];
         const key = JSON.stringify([source, binding.decode, binding.sampler, binding.offset,
-          binding.scale, binding.rotation, binding.range, uv]);
+          binding.scale, binding.rotation, binding.range, binding.fallback, uv]);
         let sample = sampleIds.get(key);
         if (sample === undefined) {
           sample = samples.length;
@@ -255,6 +267,7 @@ function validateAndSort(graph: AppearanceGraph): number[] {
   const consumers: number[][] = Array.from({ length: count }, () => []);
   const degree = new Uint32Array(count);
   const inputSignatures = new Map<string, string>();
+  const parameterSignatures = new Map<string, string>();
   for (let id = 0; id < count; id++) {
     const node = graph.nodes[id]!;
     if (!Number.isInteger(node.width) || node.width < 1 || node.width > 4) {
@@ -271,6 +284,20 @@ function validateAndSort(graph: AppearanceGraph): number[] {
           throw new RangeError(`Appearance constant ${id} must have finite f32 components`);
         }
         break;
+      case "parameter": {
+        validateRange(node.range);
+        if (node.name.length === 0 || node.value.length !== node.width || !node.value.every(value =>
+          Number.isFinite(Math.fround(value)) && Math.fround(value) >= Math.fround(node.range.low) &&
+          Math.fround(value) <= Math.fround(node.range.high))) {
+          throw new RangeError(`Invalid appearance parameter '${node.name}'`);
+        }
+        const signature = JSON.stringify([node.width, node.range,
+          node.value.map(value => numericKey(Math.fround(value)))]);
+        const prior = parameterSignatures.get(node.name);
+        if (prior !== undefined && prior !== signature) throw new RangeError(`Conflicting appearance parameter '${node.name}'`);
+        parameterSignatures.set(node.name, signature);
+        break;
+      }
       case "input": {
         if (!Object.hasOwn(INPUT_DEPENDENCY, node.domain) || node.name.length === 0 ||
             (node.domain === "surface" ? !node.coordinateDomain : node.coordinateDomain !== undefined)) {
@@ -288,7 +315,8 @@ function validateAndSort(graph: AppearanceGraph): number[] {
             !["srgb-rgb", "linear-rgb", "linear-alpha"].includes(node.binding.decode) ||
             node.binding.offset.length !== 2 || node.binding.scale.length !== 2 ||
             ![...node.binding.offset, ...node.binding.scale, node.binding.rotation].every(value => Number.isFinite(Math.fround(value))) ||
-            node.binding.sampler.length !== 9 || !node.binding.sampler.every(Number.isInteger)) {
+            node.binding.sampler.length !== 9 || !node.binding.sampler.every(Number.isInteger) ||
+            node.binding.fallback.length !== 4 || !node.binding.fallback.every(value => Number.isFinite(Math.fround(value)))) {
           throw new RangeError(`Appearance texture ${id} has invalid sampling signature`);
         }
         validateRange(node.binding.range);
@@ -411,20 +439,26 @@ function productRoots(instructions: readonly AppearanceInstruction[], outputs: R
     const visited = new Set<number>();
     const pending = [root];
     let operationCost = 0;
+    const parameters = new Set<string>(), dynamicInputs = new Set<string>(), sourceSamples = new Set<number>();
     while (pending.length > 0) {
       const ref = pending.pop()!;
       if (visited.has(ref)) continue;
       visited.add(ref);
       const instruction = instructions[ref]!;
+      if (instruction.kind === "parameter") parameters.add(instruction.parameter!);
+      if (instruction.kind === "input" && (instruction.dependency & APPEARANCE_DEPENDENCY.Dynamic) !== 0) dynamicInputs.add(instruction.input!);
+      if (instruction.kind === "texture") sourceSamples.add(instruction.sample!);
       operationCost += instruction.kind === "texture" ? 4 : instruction.kind !== "operation" ? 0 :
         ["pow", "sin", "cos", "sqrt"].includes(instruction.op!) ? 8 : 1;
       pending.push(...instruction.args);
     }
     const local = (value.dependency & targetMask) === 0 && value.coordinateDomains.length <= 1;
-    const kind: AppearanceProductRoot["kind"] = value.dependency === 0 ? "constant" : !local ? "per-target" :
+    const kind: AppearanceProductRoot["kind"] = (value.dependency & ~APPEARANCE_DEPENDENCY.Material) === 0 ? "constant" : !local ? "per-target" :
       operationCost <= 12 ? "source-program" : (value.dependency & APPEARANCE_DEPENDENCY.Dynamic) !== 0 ?
         "dynamic-cache-program" : "static-bake-candidate";
     return Object.freeze({ instruction: root, dependency: value.dependency,
-      coordinateDomains: value.coordinateDomains, filter: value.filter, kind, operationCost });
+      coordinateDomains: value.coordinateDomains, filter: value.filter, kind, operationCost,
+      parameters: Object.freeze([...parameters].sort()), dynamicInputs: Object.freeze([...dynamicInputs].sort()),
+      sourceSamples: Object.freeze([...sourceSamples].sort((a, b) => a - b)) });
   });
 }

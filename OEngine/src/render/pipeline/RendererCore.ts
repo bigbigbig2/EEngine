@@ -566,6 +566,7 @@ export class Renderer {
         publication.bindings,
         command
       );
+      await this._graphics.render_world.prepareAppearance(handle, command);
       beforeSubmit?.();
       command.finish();
       await command.submitted;
@@ -873,6 +874,7 @@ export class Renderer {
         scene, source, runtime.bindings(), command
       );
       const stagedAt = onTiming ? performance.now() : 0;
+      await this._graphics.render_world.prepareAppearance(handle, command);
       const preparedAt = onTiming ? performance.now() : 0;
       command.finish();
       await command.submitted;
@@ -932,6 +934,7 @@ export class Renderer {
       const handle = this._graphics.render_world.stageVirtualProduct(
         scene, mapped.source, nextResidency.bindings(), command, true
       );
+      await this._graphics.render_world.prepareAppearance(handle, command);
       if (next.state !== "ready-to-activate") throw new Error("Product replacement was cancelled before Scene submit");
       next.publishGpuRecord();
       command.finish();
@@ -1007,6 +1010,7 @@ export class Renderer {
             ordinaryMeshes,
             command
           );
+      await this._graphics.render_world.prepareAppearance(handle, command);
       command.finish();
       await command.submitted;
       uploadCommitted = true;

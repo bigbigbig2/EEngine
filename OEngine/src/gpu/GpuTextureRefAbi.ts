@@ -132,13 +132,8 @@ function sampleLevelBranches(sampler: string, bankMask: number): string {
   ).filter(Boolean).join("\n");
 }
 
-/** Shared explicit-bank sampling policy specialized to a static material read set. */
-export function gpuTextureBankSampleWgsl(bankMask = GPU_TEXTURE_BANK_ALL_MASK): string {
-  if (!Number.isInteger(bankMask) || bankMask < 1 ||
-      (bankMask & ~GPU_TEXTURE_BANK_ALL_MASK) !== 0) {
-    throw new RangeError("Texture bank sample WGSL requires at least one valid bank");
-  }
-  return /* wgsl */ `
+/** Same residency/mip policy for direct resource-profile sampling and bank routing. */
+export const GPU_TEXTURE_CLAMPED_SAMPLE_WGSL = /* wgsl */ `
 fn oengine_sample_texture_clamped(
   texture: texture_2d_array<f32>, texture_sampler: sampler, texture_ref: u32,
   sampler_class: u32, uv: vec2f, layer: i32, uv_dx: vec2f, uv_dy: vec2f
@@ -155,6 +150,16 @@ fn oengine_sample_texture_clamped(
     code == OENGINE_MATERIAL_SAMPLER_FULL_MIP_CODE || code > max_mip);
   return textureSampleLevel(texture, texture_sampler, uv, layer, max(lod, f32(min_mip)));
 }
+`;
+
+/** Shared explicit-bank sampling policy specialized to a static material read set. */
+export function gpuTextureBankSampleWgsl(bankMask = GPU_TEXTURE_BANK_ALL_MASK): string {
+  if (!Number.isInteger(bankMask) || bankMask < 1 ||
+      (bankMask & ~GPU_TEXTURE_BANK_ALL_MASK) !== 0) {
+    throw new RangeError("Texture bank sample WGSL requires at least one valid bank");
+  }
+  return /* wgsl */ `
+${GPU_TEXTURE_CLAMPED_SAMPLE_WGSL}
 
 fn oengine_sample_texture_bank(
   texture_ref: u32,

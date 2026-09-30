@@ -23,25 +23,30 @@ export interface AppearanceTextureBinding {
   readonly offset: readonly [number, number];
   readonly scale: readonly [number, number];
   readonly rotation: number;
+  readonly fallback: readonly [number, number, number, number];
   /** Source publication guarantees finite texels; tighter bounds enable exact elision. */
   readonly range: AppearanceRange;
 }
 
 export function snapshotAppearanceTexture(texture: ShadeTexture, decode: AppearanceDecode,
   offset: readonly [number, number] = [0, 0], scale: readonly [number, number] = [1, 1],
-  rotation = 0, range: AppearanceRange = APPEARANCE_FINITE_RANGE): AppearanceTextureBinding {
+  rotation = 0, range: AppearanceRange = APPEARANCE_FINITE_RANGE,
+  fallback: readonly [number, number, number, number] = [1, 1, 1, 1]): AppearanceTextureBinding {
   return Object.freeze({ texture, source: texture.runtime_asset_package_v2 ?? texture.image ?? texture,
     decode, sampler: Object.freeze([texture.flags, texture.minFilter, texture.magFilter,
       texture.mipmapFilter, texture.wrapS, texture.wrapT, texture.wrapR, texture.dimensions,
       texture.mipmapGenerationFilter]),
     offset: Object.freeze([...offset]) as readonly [number, number],
     scale: Object.freeze([...scale]) as readonly [number, number], rotation,
+    fallback: Object.freeze([...fallback]) as readonly [number, number, number, number],
     range: Object.freeze({ ...range }) });
 }
 
 interface AppearanceNodeBase { readonly width: AppearanceWidth }
 export type AppearanceNode =
   | (AppearanceNodeBase & { readonly kind: "constant"; readonly value: readonly number[] })
+  | (AppearanceNodeBase & { readonly kind: "parameter"; readonly name: string;
+      readonly value: readonly number[]; readonly range: AppearanceRange })
   | (AppearanceNodeBase & { readonly kind: "input"; readonly name: string;
       readonly domain: AppearanceInputDomain; readonly coordinateDomain?: string;
       readonly range: AppearanceRange })
@@ -67,6 +72,14 @@ export class AppearanceGraphBuilder {
     const values = typeof value === "number" ? [value] : [...value];
     return this.push({ kind: "constant", width: values.length as AppearanceWidth,
       value: Object.freeze(values) });
+  }
+
+  /** Publication-time material data with stable provenance, never a shader literal. */
+  parameter(name: string, value: number | readonly number[],
+    range: AppearanceRange = APPEARANCE_FINITE_RANGE): AppearanceRef {
+    const values = typeof value === "number" ? [value] : [...value];
+    return this.push({ kind: "parameter", name, width: values.length as AppearanceWidth,
+      value: Object.freeze(values), range: Object.freeze({ ...range }) });
   }
 
   input(name: string, width: AppearanceWidth, domain: AppearanceInputDomain,

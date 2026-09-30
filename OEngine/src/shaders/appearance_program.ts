@@ -9,6 +9,7 @@ export interface AppearanceWgslProgram {
   readonly constants: readonly number[];
   readonly outputSlots: Readonly<Record<string, readonly number[]>>;
   readonly outputCount: number;
+  readonly parameterSlots: Readonly<Record<string, readonly Readonly<{ slot: number; channel: number }>[]>>;
 }
 
 /**
@@ -24,11 +25,15 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph): Appearanc
   const lines: string[] = [];
   const sampled = new Set<number>();
   const expressions: string[] = [];
+  const parameterSlots: Record<string, { slot: number; channel: number }[]> = Object.create(null);
   let variable = 0;
   const expression = (id: number): string => expressions[id]!;
   for (let id = 0; id < program.instructions.length; id++) {
     const instruction = program.instructions[id]!;
-    if (instruction.kind === "constant") {
+    if (instruction.kind === "constant" || instruction.kind === "parameter") {
+      if (instruction.parameter !== undefined) {
+        (parameterSlots[instruction.parameter] ??= []).push({ slot: constants.length, channel: instruction.channel! });
+      }
       expressions.push(`appearance_constant(${constants.length}u)`);
       constants.push(instruction.value!);
       continue;
@@ -67,7 +72,9 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph): Appearanc
     program.inputs.map(input => [input.width, input.domain]),
     program.samples.map(sample => [sample.binding.decode, sample.readMask])]);
   return Object.freeze({ source, templateKey, constants: Object.freeze(constants),
-    outputSlots: Object.freeze({ ...outputSlots }), outputCount });
+    outputSlots: Object.freeze({ ...outputSlots }), outputCount,
+    parameterSlots: Object.freeze(Object.fromEntries(Object.entries(parameterSlots).map(([name, slots]) =>
+      [name, Object.freeze(slots.map(slot => Object.freeze(slot)))]))) });
 }
 
 function operationWgsl(op: AppearanceOp, args: readonly string[]): string {

@@ -50,6 +50,10 @@ import type {
 import type { ResourceHandle as AccountingResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import type { GeometryProductGpuBindingsV1 } from "./VirtualGeometryResidency.js";
 import { residentSamplingProfile } from "./PhysicalSamplingProfile.js";
+import { GpuAppearancePublication, type AppearancePublicationSource } from "./GpuAppearancePublication.js";
+import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
+import type { TextureSurfacePublication } from "./TextureVariation.js";
+import type { ShadeTexture } from "../texture/ShadeTexture.js";
 
 declare const GPU_RENDER_WORLD_HANDLE_BRAND: unique symbol;
 
@@ -175,6 +179,9 @@ export interface GpuRenderWorldRuntime {
   readonly textureGeneration: number;
   readonly materialPublicationRevision: number;
   readonly materialResources: GpuPackedMaterialBindings;
+  readonly appearancePrograms: readonly CompiledAppearanceGraph[];
+  /** Prepared before production Renderer upload submits; new Surface consumes at cutover. */
+  readonly appearancePublication: GpuAppearancePublication | null;
   readonly instanceBegin: number;
   readonly instanceCount: number;
   /** Number of resident instances whose current material class is BLEND. */
@@ -255,6 +262,15 @@ export class GpuRenderWorld {
   private readonly recoveryGeometry = new Map<Scene, readonly GeometryAssetPackage[]>();
   private readonly releasingCommands = new Map<Scene, ShadeGPUCommandContext>();
   private readonly stagedRuntimes = new WeakMap<GpuRenderWorldHandle, GpuRenderWorldRuntime>();
+  private readonly appearancePublications = new Set<GpuAppearancePublication>();
+  private readonly appearancePreparation = new Map<GpuRenderWorldHandle, {
+    command: ShadeGPUCommandContext;
+    sources: readonly AppearancePublicationSource[];
+    mipRanges: ReadonlyMap<ShadeTexture, readonly [number, number]>;
+    texturePublications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>;
+    publication: GpuAppearancePublication | null;
+    ready: Promise<void> | null;
+  }>();
   private ordinaryScenePatchCount = 0;
   private ordinarySceneStableFrameCount = 0;
   private ordinarySceneFullResyncRequiredCount = 0;
@@ -424,8 +440,23 @@ export class GpuRenderWorld {
       this.graphics.gpu_scene.append(instanceHandle, delta, materialHandles.subarray(0, begin), command);
       this.graphics.material_store.release(appendFrom.runtime.materialPublication, command);
       this.graphics.texture_residency.release(appendFrom.runtime.materials, command);
+      appendFrom.runtime.appearancePublication?.release(command);
     }
     const handle = Object.freeze({}) as GpuRenderWorldHandle;
+    const appearance = {
+      command,
+      sources: Object.freeze(associationPlan.sources.map((association, index) => Object.freeze({
+        materialSlot: materialStage.associationSlots[index]!,
+        textureBindingSetId: association.textureBindingSetId,
+        program: materialStage.appearancePrograms[index]!,
+        textureRefs: textureStage.materialTextureRoutingRefs.get(association.material)!
+      }))),
+      mipRanges: textureStage.textureMipRanges,
+      texturePublications: textureStage.surfacePublications,
+      publication: null as GpuAppearancePublication | null,
+      ready: null as Promise<void> | null
+    };
+    this.appearancePreparation.set(handle, appearance);
     const runtime: GpuRenderWorldRuntime = Object.freeze({
       handle,
       scene,
@@ -444,6 +475,8 @@ export class GpuRenderWorld {
       materialGeneration: materialStage.materialGeneration,
       textureGeneration: materialStage.textureGeneration,
       materialPublicationRevision: materialStage.publicationRevision,
+      appearancePrograms: materialStage.appearancePrograms,
+      get appearancePublication() { return appearance.publication; },
       materialResources: composeGpuPackedMaterialBindings(
         materialStage.bindings,
         textureStage.bindings
@@ -469,6 +502,7 @@ export class GpuRenderWorld {
     this.stagedRuntimes.set(handle, runtime);
     command.onFinished.addOne(() => {
       this.stagedRuntimes.delete(handle);
+      this.appearancePreparation.delete(handle);
       if (appendFrom !== undefined) HANDLE_RUNTIME.delete(appendFrom.runtime.handle as object);
       this.byScene.set(scene, runtime);
       this.classificationByScene.set(scene, classification);
@@ -487,6 +521,7 @@ export class GpuRenderWorld {
     });
     command.onAborted.addOne(() => {
       this.stagedRuntimes.delete(handle);
+      this.appearancePreparation.delete(handle);
       if (appendFrom === undefined) this.destroyCounterSink(counterSink);
     });
     return handle;
@@ -583,6 +618,24 @@ export class GpuRenderWorld {
     const runtime = this.stagedRuntimes.get(handle);
     if (!runtime) throw new Error("GPU Render World handle has no staged runtime");
     return runtime;
+  }
+
+  /** All production upload/append/swap paths await this before command.finish(). */
+  async prepareAppearance(handle: GpuRenderWorldHandle, command: ShadeGPUCommandContext): Promise<void> {
+    const preparation = this.appearancePreparation.get(handle);
+    if (preparation === undefined || preparation.command !== command || command.closed) {
+      throw new Error("Appearance preparation requires its staged Scene transaction");
+    }
+    if (preparation.ready === null) {
+      preparation.publication = new GpuAppearancePublication(this.graphics.device, this.graphics.appearance_programs,
+        preparation.sources, command, preparation.mipRanges, preparation.texturePublications,
+        this.graphics.resource_accounting);
+      const publication = preparation.publication;
+      this.appearancePublications.add(publication);
+      publication.onDestroyed(() => this.appearancePublications.delete(publication));
+      preparation.ready = preparation.publication.ready;
+    }
+    await preparation.ready;
   }
 
   /** Registers an ordinary Scene adapter in the same GPU Render World owner. */
@@ -686,6 +739,7 @@ export class GpuRenderWorld {
       this.graphics.material_store.release(runtime.materialPublication, command);
       this.graphics.texture_residency.release(runtime.materials, command);
       this.graphics.gpu_scene.release(runtime.instanceHandle, command);
+      runtime.appearancePublication?.release(command);
     } catch (error) {
       this.releasingScenes.delete(scene);
       this.releasingCommands.delete(scene);
@@ -896,7 +950,12 @@ export class GpuRenderWorld {
   }
 
   destroy(): void {
+    for (const publication of this.appearancePublications) publication.destroy();
+    this.appearancePublications.clear();
+    for (const preparation of this.appearancePreparation.values()) preparation.publication?.destroy();
+    this.appearancePreparation.clear();
     for (const runtime of this.byScene.values()) {
+      runtime.appearancePublication?.destroy();
       this.destroyCounterSink(runtime.counterSink);
     }
     this.byScene.clear();
@@ -906,6 +965,16 @@ export class GpuRenderWorld {
     this.classificationByScene.clear();
     this.ordinaryAdapters.clear();
     this.recoveryGeometry.clear();
+  }
+
+  appearanceMemoryEvidence(): Readonly<{ allocatedBytes: number; residentBytes: number; retiringBytes: number; stagingBytes: number }> {
+    const total = { allocatedBytes: 0, residentBytes: 0, retiringBytes: 0, stagingBytes: 0 };
+    for (const publication of this.appearancePublications) {
+      const entry = publication.evidence();
+      total.allocatedBytes += entry.allocatedBytes; total.residentBytes += entry.residentBytes;
+      total.retiringBytes += entry.retiringBytes; total.stagingBytes += entry.stagingBytes;
+    }
+    return Object.freeze(total);
   }
 
   private createCounterSink(descriptor: GPUBufferDescriptor): GPUBuffer {

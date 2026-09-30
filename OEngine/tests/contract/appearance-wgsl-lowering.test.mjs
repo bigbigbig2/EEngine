@@ -4,6 +4,8 @@ import { AppearanceGraphBuilder, snapshotAppearanceTexture } from "../../.test-d
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { lowerAppearanceWgsl } from "../../.test-dist/shaders/appearance_program.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
+import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
+import { compileCanonicalMaterial } from "../../.test-dist/material/CanonicalMaterial.js";
 
 function program(factor, binding) {
   const g = new AppearanceGraphBuilder();
@@ -38,4 +40,17 @@ test("zero demanded outputs produce a legal non-dispatched WGSL shape", () => {
   const p = lowerAppearanceWgsl(compileAppearanceGraph(g.build(), {}));
   assert.equal(p.outputCount, 0); assert.deepEqual(p.outputSlots, {});
   assert.ok(p.source.includes("array<f32, 1>(0.0)"));
+});
+
+test("material data provenance prevents numeric coincidences from creating per-instance shader shapes", () => {
+  const a = new StandardShadeMaterial(), b = new StandardShadeMaterial();
+  a.diffuse_color.set(0.5, 0.5, 0.5, 0.5); a.specular_color_factor.set(0.5, 0.5, 0.5);
+  b.diffuse_color.set(0.2, 0.3, 0.4, 0.8); b.specular_color_factor.set(0.6, 0.7, 0.9);
+  const p = lowerAppearanceWgsl(compileCanonicalMaterial(a).appearance);
+  const q = lowerAppearanceWgsl(compileCanonicalMaterial(b).appearance);
+  assert.equal(p.templateKey, q.templateKey);
+  assert.notDeepEqual(p.constants, q.constants);
+  assert.deepEqual(p.parameterSlots, q.parameterSlots);
+  assert.ok(p.parameterSlots["base color 0"]);
+  assert.ok(p.parameterSlots["specular color 0"]);
 });

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { compileCanonicalMaterial } from "../../.test-dist/material/CanonicalMaterial.js";
+import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgramRegistry.js";
 
 installWebGpuConstants();
 
@@ -328,6 +330,51 @@ test("GPU Render World publishes stage and release only when their command commi
   assert.deepEqual(fixture.calls.releases, ["material", "texture", "instance"]);
   assert.equal(runtime.counterSink.destroyed, true);
 });
+
+test("RenderWorld retains Appearance programs and awaits GPU publication readiness before commit", async () => {
+  const fixture = createPackedRegistryFixture();
+  const programs = installAppearanceDevice(fixture.graphics);
+  const command = new FakeCommand("appearance-stage"); command.device = fixture.graphics.device;
+  const handle = fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, command);
+  const pending = fixture.registry.previewStagedRuntime(handle);
+  assert.equal(pending.appearancePrograms.length, 1);
+  assert.equal(pending.appearancePublication, null);
+  await fixture.registry.prepareAppearance(handle, command);
+  assert.equal(fixture.registry.runtime(fixture.scene), null);
+  assert.ok(pending.appearancePublication.program(0));
+  command.finish(); assert.equal(fixture.registry.runtime(fixture.scene).appearancePublication, pending.appearancePublication);
+  assert.equal(fixture.registry.appearanceMemoryEvidence().residentBytes, pending.appearancePublication.allocatedBytes);
+  const release = new FakeCommand("appearance-release"); release.device = fixture.graphics.device;
+  fixture.registry.release(fixture.scene, release); release.finish(); await settlePromises();
+  assert.ok(fixture.buffers.every(buffer => buffer.destroyed)); programs.destroy();
+  assert.equal(fixture.registry.appearanceMemoryEvidence().allocatedBytes, 0);
+});
+
+test("RenderWorld async Appearance pipeline failure aborts without publishing a candidate", async () => {
+  const fixture = createPackedRegistryFixture();
+  const programs = installAppearanceDevice(fixture.graphics, new Error("injected async PSO failure"));
+  const command = new FakeCommand("appearance-failure"); command.device = fixture.graphics.device;
+  const handle = fixture.registry.stage(fixture.scene, fixture.manifest, fixture.assetHandles, command);
+  await assert.rejects(fixture.registry.prepareAppearance(handle, command), /injected async PSO failure/);
+  command.abort(new Error("PSO failed"));
+  assert.equal(fixture.registry.runtime(fixture.scene), null);
+  assert.equal(fixture.registry.evidence().sceneCount, 0);
+  assert.ok(fixture.buffers.every(buffer => buffer.destroyed)); programs.destroy();
+});
+
+function installAppearanceDevice(graphics, failure) {
+  Object.assign(graphics.device, { limits: {
+    maxBindGroups: 4, maxBindingsPerBindGroup: 1000, maxComputeWorkgroupSizeX: 256,
+    maxComputeInvocationsPerWorkgroup: 256, maxBufferSize: 1e8, maxStorageBufferBindingSize: 1e8,
+    maxUniformBufferBindingSize: 65536, maxStorageBuffersPerShaderStage: 8, maxUniformBuffersPerShaderStage: 12,
+    maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 16, maxStorageTexturesPerShaderStage: 4
+  }, lost: new Promise(() => {}), pushErrorScope() {}, popErrorScope: async () => null,
+  createShaderModule: () => ({ getCompilationInfo: async () => ({ messages: [] }) }),
+  createBindGroupLayout: descriptor => descriptor, createPipelineLayout: descriptor => descriptor,
+  createComputePipelineAsync: async descriptor => { if (failure) throw failure; return { descriptor }; } });
+  graphics.appearance_programs = new AppearanceProgramRegistry(graphics.device);
+  return graphics.appearance_programs;
+}
 
 test("Virtual Product append keeps the instance handle across abort, commit, and release", async () => {
   const fixture = createPackedRegistryFixture();
@@ -1418,6 +1465,8 @@ function createPackedRegistryFixture() {
           },
           materialBindingSetIds: new Map(materials.map((material) => [material, 0])),
           textureRefs: new Map(),
+          textureMipRanges: new Map(),
+          surfacePublications: new Map(),
           materialTextureRoutingRefs: new Map(materials.map((material) => [material, new Map()]))
         };
       },
@@ -1440,6 +1489,7 @@ function createPackedRegistryFixture() {
             textureRouteRecords: dummyBuffer
           },
           associationSlots: associations.map((_association, index) => 7 + index),
+          appearancePrograms: associations.map(association => compileCanonicalMaterial(association.material).appearance),
           materialGeneration: 1,
           textureGeneration: 1,
           publicationRevision: 1
@@ -1486,6 +1536,7 @@ function createPackedRegistryFixture() {
   };
   return {
     registry: new GpuRenderWorld(graphics),
+    graphics,
     scene: {},
     manifest: { source, packages: source.geometries, materials: source.materials },
     assetHandles: [{}],
@@ -1668,6 +1719,7 @@ class OneShotSignal {
 }
 
 class FakeCommand {
+  onBeforeFinish = new OneShotSignal();
   onFinished = new OneShotSignal();
   onAborted = new OneShotSignal();
   gpuDone = Promise.resolve();
@@ -1680,6 +1732,7 @@ class FakeCommand {
 
   finish() {
     if (this.closed) throw new Error("command is already closed");
+    this.onBeforeFinish.dispatch(this);
     this.closed = true;
     this.submitted = true;
     this.onFinished.dispatch(this);

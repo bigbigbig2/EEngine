@@ -34,6 +34,7 @@ import { GpuAssetStore, type GpuAssetStoreOptions } from "./GpuAssetStore.js";
 import { GpuScene } from "./GpuScene.js";
 import { GpuRenderWorld } from "./GpuRenderWorld.js";
 import { GpuMaterialStore } from "./GpuMaterialStore.js";
+import { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
 import {
   TextureResidency,
   TEXTURE_RESIDENCY_MAX_SIZE
@@ -91,6 +92,7 @@ export class GraphicsContext {
   private gpuSceneValue: GpuScene | undefined;
   private renderWorldValue: GpuRenderWorld | undefined;
   private materialStoreValue: GpuMaterialStore | undefined;
+  private appearanceProgramsValue: AppearanceProgramRegistry | undefined;
   private textureResidencyValue: TextureResidency | undefined;
   private assetCodecServiceValue: AssetCodecService | undefined;
   private readonly textureMaxResolution: number;
@@ -256,6 +258,12 @@ export class GraphicsContext {
     return this.materialStoreValue;
   }
 
+  /** Publication-time async PSOs; never requested from the frame draw path. */
+  get appearance_programs(): AppearanceProgramRegistry {
+    this.appearanceProgramsValue ??= new AppearanceProgramRegistry(this.device);
+    return this.appearanceProgramsValue;
+  }
+
   get material_store_if_created(): GpuMaterialStore | undefined {
     return this.materialStoreValue;
   }
@@ -324,6 +332,7 @@ export class GraphicsContext {
       (this.assetStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
       (this.renderWorldValue?.evidence().flatWorkBytes ?? 0) +
+      (this.renderWorldValue?.appearanceMemoryEvidence().allocatedBytes ?? 0) +
       (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.textureResidencyValue?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
@@ -338,6 +347,7 @@ export class GraphicsContext {
     const assets = this.assetStoreValue?.evidence();
     const scene = this.gpuSceneValue?.evidence();
     const materials = this.materialStoreValue?.evidence();
+    const appearance = this.renderWorldValue?.appearanceMemoryEvidence();
     const textureResidency = this.textureResidencyValue?.evidence();
     const buffers = this.buffer_allocator_main.evidence();
     const textures = this.allocator_textures.evidence();
@@ -352,15 +362,18 @@ export class GraphicsContext {
     const longLivedAllocatedBytes =
       (assets?.allocatedBytes ?? 0) +
       (scene?.allocatedBytes ?? 0) +
+      (appearance?.allocatedBytes ?? 0) +
       (materials?.allocatedBytes ?? 0) +
       (textureResidency?.allocatedBytes ?? 0);
     const residentLogicalBytes =
       (assets?.residentBytes ?? 0) +
       (scene?.residentBytes ?? 0) +
+      (appearance?.residentBytes ?? 0) +
       residentMaterialBytes;
     const retiringBytes =
       (assets?.retiringBytes ?? 0) +
       (scene?.retiringBytes ?? 0) +
+      (appearance?.retiringBytes ?? 0) +
       retiringMaterialBytes;
     const reclaimableBytes =
       (assets?.reclaimableBytes ?? 0) +
@@ -371,6 +384,7 @@ export class GraphicsContext {
     const fragmentationBytes = Math.max(
       0,
       longLivedAllocatedBytes - residentLogicalBytes - retiringBytes
+        - (appearance?.stagingBytes ?? 0)
     );
     return Object.freeze({
       schemaVersion: 1,
@@ -381,6 +395,7 @@ export class GraphicsContext {
       reclaimableBytes,
       fragmentationBytes,
       owners: Object.freeze({
+        appearance: Object.freeze({ ...appearance }),
         assets: Object.freeze({
           allocatedBytes: assets?.allocatedBytes ?? 0,
           residentBytes: assets?.residentBytes ?? 0,
@@ -419,6 +434,8 @@ export class GraphicsContext {
     unregisterGpuQueueProfiler(this.device, this.profiler);
     this.renderWorldValue?.destroy();
     this.renderWorldValue = undefined;
+    this.appearanceProgramsValue?.destroy();
+    this.appearanceProgramsValue = undefined;
     this.materialStoreValue?.destroy();
     this.materialStoreValue = undefined;
     this.textureResidencyValue?.destroy();

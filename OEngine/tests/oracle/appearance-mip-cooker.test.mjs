@@ -52,6 +52,21 @@ test("compiled constant fields consume neither texture mip storage nor probing b
   assert.deepEqual(sampleAppearanceCookedField(product.fields.hdr, 0.9, 0.4, 2), [0, 0.5, 8]);
 });
 
+test("material-only products evaluate their own subgraph without unrelated texture or target inputs", () => {
+  const g = new AppearanceGraphBuilder();
+  const parameter = g.parameter("factor", [0.25, 0.5]);
+  g.output("uniform", g.operation("multiply", parameter, g.constant(2)));
+  const uv = g.input("uv", 2, "surface", undefined, "uv0");
+  g.output("texture", g.texture(snapshotAppearanceTexture(new ShadeTexture(), "linear-rgb"), uv));
+  const p = compileAppearanceGraph(g.build());
+  const product = cookAppearanceMipProduct(p, { factor: p.outputs.uniform }, options({
+    byteBudget: 0, validationProbeBudget: 0,
+    sample: () => { throw new Error("unrelated texture must not execute"); }
+  }));
+  assert.deepEqual(product.fields.factor.constant, [0.5, 1]);
+  assert.equal(product.allocatedBytes, 0);
+});
+
 test("byte and probe reservation reject before any source work", () => {
   const p = graph(); let reads = 0;
   const sample = () => { reads++; return [0.2, 0.4, 0.6, 1]; };

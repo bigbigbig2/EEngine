@@ -34,6 +34,10 @@ S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态
 
 组件GPU诊断在GTX 1650 Ti、D3D12 driver `32.0.15.8142`、Dawn Node `webgpu@0.6.1`上执行5组256-lane kernel、32,000个值，真实1×1纹理读取与sRGB RGB/linear alpha通过；最大绝对误差`0.000312716`，uncaptured/validation errors及device loss为零。Dawn native仍打印其他adapter初始化失败及pipeline cache blob HRESULT诊断，不能当成无错误浏览器环境或性能结论。宿主见`validation/labs/surface-appearance/`；未测footprint/各向异性、cache seam/LOD、Chrome整帧。**有限程序族与异步PSO准入、动态图发布/产品依赖版本、烘焙打包驻留、正常法线过滤和RenderWorld→新Surface真正消费仍未完成，S1保持active**。
 
+随后完成了资源发布基础：材质具名参数与字面常量分开CSE，避免数值偶然相等改变shader拓扑；产品root保留精确parameter/dynamic-input/source-sample依赖。`AppearanceProgramRegistry`对拓扑/资源profile设置128个program、4个并发编译和每source 512KiB默认上限，进入Scene提交前异步创建显式layout/PSO，无热帧同步创建或独立submit；取消、失败重试、device loss和无引用program淘汰均有生命周期测试。`GpuAppearancePublication`以实际大小发布常量、采样route和目录，保留每材质输出/参数语义及source residency slot/revision；RenderWorld不再丢弃编译产品，Renderer四条upload/append/swap入口等待准备。abort释放candidate，已提交release在GPU完成后退休；device loss由唯一registry通知并撤销resident消费。逐字段版本更新/动态参数输入及静态Appearance资产打包驻留仍未完成。
+
+`appearance_resident_kernel`以发布时确定的每sample bank/sampler资源profile展开，直接消费TextureResidency已解码的scene-linear bank与独立linear alpha，不再次sRGB解码；task携带各材质constant/route/input/output偏移，同topology可混合材质实例，不要求逐材质dispatch。原“每sample全bank×全sampler分支”原型在D3D12出现长时间编译，运行中断且未取得通过结果，已被直接资源profile取代；不是保留的生产A/B。新组件宿主5组/14,592值通过，覆盖Coated两实例共享真实PSO、multi-UV、九个bank、2×2源纹理/仿射UV、alpha和语义fallback，最大绝对误差`5.96046448e-8`；不证明anisotropy、cache/LOD seam、动态footprint或Chrome整帧。更新后的原始numeric宿主32,000值亦通过，Dawn native adapter/cache blob诊断仍存在。build（含typecheck）、build:test通过；材质/发布/RenderWorld/图/cooker六组79项targeted tests通过。**新Surface帧consumer仍未切入，R04–R07不提升完成，S1保持active，无性能或画质达标声明。**
+
 ## 3. 设计要求到证明的追踪
 
 所有条目初始为未完成。对应证据必须指出生产 producer、consumer 和测试覆盖范围；文件存在或 manifest 声称 completed 都不能替代证明。

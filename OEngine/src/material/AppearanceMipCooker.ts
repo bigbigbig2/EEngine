@@ -89,10 +89,17 @@ export function cookAppearanceMipProduct(source: CompiledAppearanceGraph,
 
   const fields: Record<string, AppearanceCookedField> = Object.create(null);
   let allocatedBytes = 0;
+  const uniformRoots = Object.fromEntries(outputEntries.filter(([, refs]) =>
+    refs.every(ref => (program.instructions[ref]!.dependency & ~D.Material) === 0)));
+  const uniform = evaluateCompiledAppearance(selectAppearanceProductProgram(program, uniformRoots),
+    { inputs: {}, sample: () => { throw new Error("Uniform appearance products have no source sample"); } });
+  if (Object.values(uniform).some(values => values.some(value => !Number.isFinite(value)))) {
+    throw new RangeError("Appearance cook has a nonfinite uniform field");
+  }
   for (const [name, refs] of outputEntries) {
-    const constant = refs.every(ref => program.instructions[ref]!.kind === "constant");
+    const constant = refs.every(ref => (program.instructions[ref]!.dependency & ~D.Material) === 0);
     if (!constant) allocatedBytes += dimensions.reduce((sum, size) => sum + size.width * size.height * refs.length * 4, 0);
-    fields[name] = { width: refs.length, constant: constant ? Object.freeze(refs.map(ref => program.instructions[ref]!.value!)) : undefined,
+    fields[name] = { width: refs.length, constant: constant ? uniform[name] : undefined,
       mips: [] };
   }
   if (!Number.isSafeInteger(allocatedBytes) || allocatedBytes > options.byteBudget) {
