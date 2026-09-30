@@ -61,6 +61,24 @@ MaterialDomain DecodePrimitive(const cgltf_data& data, const cgltf_primitive& pr
     MaterialDomain domain;
     domain.materialId = primitive.material ? std::uint32_t(primitive.material - data.materials) : kInvalidId;
     domain.meshletFlags = MaterialFlags(primitive.material);
+    if (const auto* m = primitive.material) {
+        const auto uvSet = [](const cgltf_texture_view& slot) {
+            return slot.has_transform && slot.transform.has_texcoord ? slot.transform.texcoord : slot.texcoord;
+        };
+        const cgltf_texture_view* slots[] = {&m->pbr_metallic_roughness.base_color_texture,
+            &m->pbr_metallic_roughness.metallic_roughness_texture, &m->normal_texture,
+            &m->occlusion_texture, &m->emissive_texture};
+        for (const auto* slot : slots) if (slot->texture) {
+            const auto uv = uvSet(*slot);
+            if (uv < 0 || uv > 1) throw std::runtime_error("Geometry cooking supports UV0/UV1 only");
+            for (unsigned axis=0;axis<2;++axis) {
+                const float scale = slot->has_transform ? slot->transform.scale[axis] : 1.0f;
+                if (!std::isfinite(scale)) throw std::runtime_error("invalid texture scale");
+                domain.uvWeights[uv*2+axis] = std::max(domain.uvWeights[uv*2+axis], 0.1f*std::abs(scale));
+            }
+        }
+        if (m->normal_texture.texture) domain.normalUvSet = uvSet(m->normal_texture);
+    }
     domain.attributeMask = kAttributePosition | kAttributeNormal;
     if (tangent) domain.attributeMask |= kAttributeTangent;
     if (uv0) domain.attributeMask |= kAttributeUv0;

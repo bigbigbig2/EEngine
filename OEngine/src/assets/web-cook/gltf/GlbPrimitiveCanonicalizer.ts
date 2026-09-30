@@ -15,6 +15,8 @@ import {
   type WebCanonicalGeometryDomainV1
 } from "../wasm/WebGeometryCookerAbi.js";
 
+import { geometryAppearanceProfile } from "../../GeometryAppearanceProfile.js";
+
 export interface GlbPrimitiveRangeReader {
   readonly signal?: AbortSignal;
   readRange(range: GlbByteRange): Promise<ArrayBuffer>;
@@ -73,6 +75,7 @@ export async function canonicalizeGlbPrimitiveV1(unit: GlbCookPrimitive, reader:
     meshletFlags,
     attributeMask,
     generateNormals: (attributeMask & WEB_GEOMETRY_ATTRIBUTE_NORMAL) === 0,
+    appearance: geometryAppearanceProfile([unit.material.baseColorTexture, unit.material.metallicRoughnessTexture, unit.material.normalTexture, unit.material.occlusionTexture, unit.material.emissiveTexture], unit.material.normalTexture),
     vertices,
     indices
   });

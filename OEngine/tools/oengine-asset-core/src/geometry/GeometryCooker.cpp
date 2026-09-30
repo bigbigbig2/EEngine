@@ -54,21 +54,6 @@ std::uint32_t AlignUp(std::uint32_t value, std::uint32_t alignment) {
     return (value + alignment - 1u) & ~(alignment - 1u);
 }
 
-bool FloatBitsDiffer(float a, float b) {
-    std::uint32_t aa = 0u, bb = 0u;
-    std::memcpy(&aa, &a, sizeof(aa)); std::memcpy(&bb, &b, sizeof(bb));
-    return aa != bb;
-}
-
-bool AttributesDiffer(const CanonicalVertex& a, const CanonicalVertex& b, std::uint16_t mask) {
-    for (std::uint32_t i = 0; i < 3u; ++i) if (FloatBitsDiffer(a.normal[i], b.normal[i])) return true;
-    if (mask & kAttributeTangent) for (std::uint32_t i = 0; i < 4u; ++i) if (FloatBitsDiffer(a.tangent[i], b.tangent[i])) return true;
-    if (mask & kAttributeUv0) for (std::uint32_t i = 0; i < 2u; ++i) if (FloatBitsDiffer(a.uv0[i], b.uv0[i])) return true;
-    if (mask & kAttributeUv1) for (std::uint32_t i = 0; i < 2u; ++i) if (FloatBitsDiffer(a.uv1[i], b.uv1[i])) return true;
-    if (mask & kAttributeColor) for (std::uint32_t i = 0; i < 4u; ++i) if (FloatBitsDiffer(a.color[i], b.color[i])) return true;
-    return false;
-}
-
 void MergeSphere(const float a[4], const float b[4], float out[4]) {
     const float dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
     const float distance = std::sqrt(dx * dx + dy * dy + dz * dz);
@@ -183,108 +168,207 @@ void BuildSeamLocks(
     const std::vector<Group>& groups, const std::vector<std::uint32_t>& groupIds,
     const std::vector<Meshlet>& meshlets, const std::vector<std::uint32_t>& positionRemap,
     std::vector<unsigned char>& locks) {
-    if (recipe.simplifyPermissive) {
-        for (std::size_t i = 0; i < positionRemap.size(); ++i) {
-            const std::uint32_t representative = positionRemap[i];
-            if (representative != i && AttributesDiffer(source.vertices[i], source.vertices[representative], source.attributeMask)) {
-                locks[i] |= meshopt_SimplifyVertex_Protect;
-                locks[representative] |= meshopt_SimplifyVertex_Protect;
-            }
+    // Representatives may belong to old LODs. Only live wedges contribute to
+    // attributes, adjacency and ownership; a historical normal is never a seam.
+    std::unordered_map<std::uint32_t, std::uint32_t> first, owner;
+    std::unordered_map<std::uint64_t, unsigned> edges;
+    std::vector<std::uint32_t> live;
+    std::vector<unsigned char> seen(source.vertices.size());
+    for (std::uint32_t groupId : groupIds) for (std::uint32_t meshletId : groups[groupId].meshletIds) {
+        const Meshlet& m = meshlets[meshletId];
+        for (std::uint32_t id : m.vertices) {
+            if (!seen[id]) { seen[id] = 1; live.push_back(id); }
+            const auto p = positionRemap[id];
+            auto entry = owner.emplace(p, groupId);
+            if (!entry.second && entry.first->second != groupId) locks[p] |= meshopt_SimplifyVertex_Protect;
+            first.emplace(p, id);
+            // Ordinary UV discontinuities remain independent attribute wedges.
+            // Making every UV seam Protect turns atlas junctions into Locked
+            // vertices in meshoptimizer and prevents useful parent cuts.
+            // The joint metric evaluates each wedge, including both UV sets.
+
+        }
+        for (std::size_t i=0;i<m.triangles.size();i+=3) for (unsigned j=0;j<3;++j) {
+            auto a=positionRemap[m.vertices[m.triangles[i+j]]];
+            auto b=positionRemap[m.vertices[m.triangles[i+(j+1)%3]]];
+            if(a!=b) ++edges[(std::uint64_t(std::min(a,b))<<32)|std::max(a,b)];
         }
     }
-    std::vector<std::int32_t> owner(source.vertices.size(), -1);
-    std::vector<std::uint8_t> locked(source.vertices.size(), 0u);
-    for (std::uint32_t groupId : groupIds) {
-        for (std::uint32_t meshletId : groups[groupId].meshletIds) {
-            for (std::uint32_t vertex : meshlets[meshletId].vertices) {
-                const std::uint32_t position = positionRemap[vertex];
-                if (owner[position] == -1) owner[position] = std::int32_t(groupId);
-                else if (owner[position] != std::int32_t(groupId)) locked[position] = 1u;
-            }
-        }
+    // Open material-domain borders (including retired neighbouring groups) must
+    // remain stationary when domains/windows are cooked independently.
+    for (const auto& edge : edges) if (edge.second > 2u) {
+        locks[std::uint32_t(edge.first >> 32)] |= meshopt_SimplifyVertex_Lock;
+        locks[std::uint32_t(edge.first)] |= meshopt_SimplifyVertex_Lock;
     }
-    for (std::size_t i = 0; i < positionRemap.size(); ++i) if (locked[positionRemap[i]]) locks[i] |= meshopt_SimplifyVertex_Lock;
+    for (auto id : live) locks[id] |= locks[positionRemap[id]];
+}
+
+VertexFormatRecordV3 MakeVertexFormat(std::uint16_t mask);
+
+std::uint64_t MeshletPayloadCost(const std::vector<Meshlet>& items, std::uint32_t stride) {
+    std::uint32_t bytes=64u+48u*std::uint32_t(items.size());
+    for(const auto& m:items) bytes+=AlignUp(std::uint32_t(m.triangles.size()),4u);
+    bytes=AlignUp(bytes,16u);
+    for(const auto& m:items) bytes+=AlignUp(std::uint32_t(m.vertices.size())*stride,4u);
+    return AlignUp(bytes,16u);
 }
 
 bool SimplifyGroup(
-    const MaterialDomain& source, const GeometryCookRecipeV3& recipe,
+    MaterialDomain& source, const GeometryCookRecipeV3& recipe,
     const Group& group, const std::vector<Meshlet>& meshlets,
     const std::vector<unsigned char>& locks, std::vector<Meshlet>& output,
     float& outputError, bool& usedFallback) {
     std::vector<std::uint32_t> used;
-    used.reserve(group.meshletIds.size() * recipe.meshletMaxVertices);
-    for (std::uint32_t meshletId : group.meshletIds) used.insert(used.end(), meshlets[meshletId].vertices.begin(), meshlets[meshletId].vertices.end());
-    std::sort(used.begin(), used.end()); used.erase(std::unique(used.begin(), used.end()), used.end());
-    if (used.empty()) return false;
-    std::unordered_map<std::uint32_t, std::uint32_t> toLocal;
-    toLocal.reserve(used.size());
-    for (std::uint32_t i = 0; i < used.size(); ++i) toLocal.emplace(used[i], i);
+    for(auto id:group.meshletIds) used.insert(used.end(),meshlets[id].vertices.begin(),meshlets[id].vertices.end());
+    std::sort(used.begin(),used.end()); used.erase(std::unique(used.begin(),used.end()),used.end());
+    if(used.empty()) return false;
+    std::unordered_map<std::uint32_t,std::uint32_t> local;
+    std::vector<CanonicalVertex> original;
+    std::vector<unsigned char> localLocks;
+    for(auto id:used) {local[id]=std::uint32_t(original.size());original.push_back(source.vertices[id]);localLocks.push_back(locks[id]);}
     std::vector<std::uint32_t> indices;
-    for (std::uint32_t meshletId : group.meshletIds) {
-        const Meshlet& meshlet = meshlets[meshletId];
-        for (std::uint8_t local : meshlet.triangles) indices.push_back(toLocal.at(meshlet.vertices[local]));
+    std::uint64_t originalBytes=64u+48u*group.meshletIds.size();
+    std::uint32_t childTriangles=0,childVertices=0;
+    const auto stride=MakeVertexFormat(source.attributeMask).strideBytes;
+    for(auto id:group.meshletIds) {
+        const auto& m=meshlets[id];
+        for(auto v:m.triangles) indices.push_back(local.at(m.vertices[v]));
+        childTriangles+=AlignUp(std::uint32_t(m.triangles.size()),4u);
+        childVertices+=AlignUp(std::uint32_t(m.vertices.size())*stride,4u);
     }
-    if (indices.empty()) return false;
+    originalBytes = AlignUp(AlignUp(std::uint32_t(originalBytes)+childTriangles,16u)+childVertices,16u);
+    // Full-record weld, with flags ORed across identical records.
+    std::vector<unsigned> remap(original.size());
+    auto unique=meshopt_generateVertexRemap(remap.data(),indices.data(),indices.size(),original.data(),original.size(),sizeof(CanonicalVertex));
+    std::vector<CanonicalVertex> welded(unique);
+    std::vector<unsigned char> weldedLocks(unique);
+    meshopt_remapVertexBuffer(welded.data(),original.data(),original.size(),sizeof(CanonicalVertex),remap.data());
+    for(std::size_t i=0;i<original.size();++i) weldedLocks[remap[i]]|=localLocks[i];
+    meshopt_remapIndexBuffer(indices.data(),indices.data(),indices.size(),remap.data());
+    original=std::move(welded);localLocks=std::move(weldedLocks);
 
-    std::vector<float> positions(used.size() * 3u);
-    std::uint32_t attributeCount = 3u;
-    if (source.attributeMask & kAttributeTangent) attributeCount += 4u;
-    if (source.attributeMask & kAttributeUv0) attributeCount += 2u;
-    if (source.attributeMask & kAttributeUv1) attributeCount += 2u;
-    if (source.attributeMask & kAttributeColor) attributeCount += 4u;
-    std::vector<float> attributes(used.size() * attributeCount);
-    std::vector<unsigned char> localLocks(used.size());
-    for (std::size_t i = 0; i < used.size(); ++i) {
-        const CanonicalVertex& vertex = source.vertices[used[i]];
-        std::copy(vertex.position, vertex.position + 3, positions.begin() + i * 3u);
-        std::size_t cursor = i * attributeCount;
-        for (float v : vertex.normal) attributes[cursor++] = v;
-        if (source.attributeMask & kAttributeTangent) for (float v : vertex.tangent) attributes[cursor++] = v;
-        if (source.attributeMask & kAttributeUv0) for (float v : vertex.uv0) attributes[cursor++] = v;
-        if (source.attributeMask & kAttributeUv1) for (float v : vertex.uv1) attributes[cursor++] = v;
-        if (source.attributeMask & kAttributeColor) for (float v : vertex.color) attributes[cursor++] = v;
-        localLocks[i] = locks[used[i]];
+    // Like gltfpack::simplifyUvSplit, preserve mirrored charts even at vertices
+    // with identical UV coordinates. Extend the orientation key to BOTH UV sets.
+    std::vector<unsigned> orientations(original.size());
+    std::vector<unsigned> triangleSign(indices.size()/3);
+    for(std::size_t i=0;i<indices.size();i+=3) {
+        unsigned key=0;
+        for(unsigned uv=0;uv<2;++uv) if(source.attributeMask&(uv?kAttributeUv1:kAttributeUv0)) {
+            const auto& a=original[indices[i]];const auto& b=original[indices[i+1]];const auto& c=original[indices[i+2]];
+            const float* x=uv?a.uv1:a.uv0;const float* y=uv?b.uv1:b.uv0;const float* z=uv?c.uv1:c.uv0;
+            float determinant=(y[0]-x[0])*(z[1]-x[1])-(y[1]-x[1])*(z[0]-x[0]);
+            key|=(determinant>0?1u:determinant<0?2u:0u)<<(uv*2);
+        }
+        triangleSign[i/3]=key;
+        for(unsigned c=0;c<3;++c) orientations[indices[i+c]]|=key;
     }
-    std::vector<float> weights(attributeCount, 0.5f);
-    std::size_t weight = 3u;
-    if (source.attributeMask & kAttributeTangent) { weights[weight++] = 0.1f; weights[weight++] = 0.1f; weights[weight++] = 0.1f; weights[weight++] = 0.5f; }
-    if (source.attributeMask & kAttributeUv0) { weights[weight++] = 0.1f; weights[weight++] = 0.1f; }
-    if (source.attributeMask & kAttributeUv1) { weights[weight++] = 0.1f; weights[weight++] = 0.1f; }
-    if (source.attributeMask & kAttributeColor) { weights[weight++] = 0.05f; weights[weight++] = 0.05f; weights[weight++] = 0.05f; weights[weight++] = 0.05f; }
+    std::map<std::uint64_t,unsigned> split;
+    const auto beforeSplit=original.size();
+    for(std::size_t i=0;i<indices.size();++i) {
+        const auto old=indices[i];
+        if(source.normalUvSet < 0 || ((orientations[old]&3u)!=3u && ((orientations[old]>>2)&3u)!=3u)) continue;
+        const auto key=(std::uint64_t(old)<<4)|triangleSign[i/3];
+        auto entry=split.emplace(key,std::uint32_t(original.size()));
+        if(entry.second){original.push_back(original[old]);localLocks.push_back(localLocks[old]|meshopt_SimplifyVertex_Protect);}
+        indices[i]=entry.first->second;
+    }
+    (void)beforeSplit;
+    std::vector<float> positions(original.size()*3);
+    const unsigned attributesCount=3u+((source.attributeMask&kAttributeUv0)?2u:0u)+((source.attributeMask&kAttributeUv1)?2u:0u)+((source.attributeMask&kAttributeColor)?4u:0u);
+    std::vector<float> attributes(original.size()*attributesCount),weights(attributesCount,0.5f);
+    unsigned w=3;
+    if(source.attributeMask&kAttributeUv0){weights[w++]=source.uvWeights[0];weights[w++]=source.uvWeights[1];}
+    if(source.attributeMask&kAttributeUv1){weights[w++]=source.uvWeights[2];weights[w++]=source.uvWeights[3];}
+    if(source.attributeMask&kAttributeColor) for(unsigned c=0;c<4;++c)weights[w++]=0.05f;
+    for(std::size_t i=0;i<original.size();++i){
+        const auto& v=original[i];std::copy(v.position,v.position+3,positions.begin()+i*3);
+        unsigned k=unsigned(i*attributesCount);
+        for(float f:v.normal)attributes[k++]=f;
+        if(source.attributeMask&kAttributeUv0)for(float f:v.uv0)attributes[k++]=f;
+        if(source.attributeMask&kAttributeUv1)for(float f:v.uv1)attributes[k++]=f;
+        if(source.attributeMask&kAttributeColor)for(float f:v.color)attributes[k++]=f;
+    }
+    const auto target=std::size_t(indices.size()*recipe.simplifyTargetRatio);
+    const unsigned options=meshopt_SimplifySparse|meshopt_SimplifyErrorAbsolute|meshopt_SimplifyPreserveFolds|
+        (recipe.simplifyPermissive?meshopt_SimplifyPermissive:0);
+    struct Candidate { std::vector<CanonicalVertex> vertices;std::vector<Meshlet> meshlets;float error=0;std::size_t indices=0;bool updated=false; } best;
+    auto prepare=[&](std::vector<unsigned>& reduced,const std::vector<float>& p,const std::vector<float>& a,float error,bool updated)->bool {
+        if(reduced.empty() || reduced.size()>=indices.size() || float(reduced.size())/float(indices.size())>recipe.simplifyUpdateFailureRatio || !std::isfinite(error))return false;
+        std::vector<CanonicalVertex> vertices=original;
+        std::vector<unsigned char> referenced(vertices.size());for(auto id:reduced)referenced[id]=1;
+        for(std::size_t i=0;i<vertices.size();++i) if(referenced[i] && updated && !(localLocks[i]&meshopt_SimplifyVertex_Lock)) {
+            auto& v=vertices[i];std::copy(p.begin()+i*3,p.begin()+i*3+3,v.position);
+            unsigned k=unsigned(i*attributesCount);
+            for(float& f:v.normal)f=a[k++];
+            if(source.attributeMask&kAttributeUv0)for(float& f:v.uv0)f=a[k++];
+            if(source.attributeMask&kAttributeUv1)for(float& f:v.uv1)f=a[k++];
+            if(source.attributeMask&kAttributeColor)for(float& f:v.color)f=std::clamp(a[k++],0.0f,1.0f);
+            const float length=std::sqrt(v.normal[0]*v.normal[0]+v.normal[1]*v.normal[1]+v.normal[2]*v.normal[2]);
+            if(!(length>1e-8f)||!std::isfinite(length))return false;
+            for(float& f:v.normal)f/=length;
+            for(float f:v.position)if(!std::isfinite(f))return false;
+            for(float f:v.uv0)if(!std::isfinite(f))return false;
+            for(float f:v.uv1)if(!std::isfinite(f))return false;
+        }
+        for(std::size_t i=0;i<reduced.size();i+=3) {
+            const auto& a0=vertices[reduced[i]];const auto& b=vertices[reduced[i+1]];const auto& c=vertices[reduced[i+2]];
+            float ab[3],ac[3],n[3];for(unsigned j=0;j<3;++j){ab[j]=b.position[j]-a0.position[j];ac[j]=c.position[j]-a0.position[j];}
+            for(unsigned j=0;j<3;++j)n[j]=ab[(j+1)%3]*ac[(j+2)%3]-ab[(j+2)%3]*ac[(j+1)%3];
+            float len=std::sqrt(n[0]*n[0]+n[1]*n[1]+n[2]*n[2]);if(!(len>0)||!std::isfinite(len))return false;
+            for (auto* v : {&vertices[reduced[i]], &vertices[reduced[i + 1]], &vertices[reduced[i + 2]]}) {
+                const float alignment = (n[0] * v->normal[0] + n[1] * v->normal[1] + n[2] * v->normal[2]) / len;
+                if (alignment < 1e-4f) {
+                    v->normal[0] = n[0] / len; v->normal[1] = n[1] / len; v->normal[2] = n[2] / len;
+                }
+            }
 
-    std::vector<std::uint32_t> simplified(indices.size());
-    // Preserve Nyx's exact target_index_count contract; meshoptimizer owns triangle rounding.
-    const std::size_t target = std::size_t(indices.size() * recipe.simplifyTargetRatio);
-    float error = 0.0f;
-    const unsigned int options = unsigned(meshopt_SimplifySparse) | unsigned(meshopt_SimplifyErrorAbsolute) |
-        (recipe.simplifyPermissive ? unsigned(meshopt_SimplifyPermissive) : 0u);
-    std::size_t count = meshopt_simplifyWithAttributes(
-        simplified.data(), indices.data(), indices.size(), positions.data(), used.size(), sizeof(float) * 3u,
-        attributes.data(), sizeof(float) * attributeCount, weights.data(), attributeCount,
-        localLocks.data(), target, FLT_MAX, options, &error);
-    float ratio = float(count) / float(indices.size());
-    usedFallback = false;
-    if (ratio > recipe.simplifyFailureRatio) {
-        if (!recipe.sloppyFallback) return false;
-        float sloppyError = 0.0f;
-        const std::size_t sloppyCount = meshopt_simplifySloppy(
-            simplified.data(), indices.data(), indices.size(), positions.data(), used.size(), sizeof(float) * 3u,
-            localLocks.data(), target, FLT_MAX, &sloppyError);
-        if (float(sloppyCount) / float(indices.size()) > recipe.simplifySloppyFailureRatio) return false;
-        count = sloppyCount;
-        error = sloppyError * meshopt_simplifyScale(positions.data(), used.size(), sizeof(float) * 3u) * recipe.sloppyErrorFactor;
-        usedFallback = true;
+        }
+        std::vector<CanonicalVertex> corners;corners.reserve(reduced.size());
+        std::vector<float> tangents;
+        if((source.attributeMask&kAttributeTangent)&&(source.attributeMask&(source.normalUvSet==1?kAttributeUv1:kAttributeUv0))) {
+            tangents.resize(reduced.size()*4);
+            meshopt_generateTangents(tangents.data(),reduced.data(),reduced.size(),vertices[0].position,vertices.size(),sizeof(CanonicalVertex),vertices[0].normal,sizeof(CanonicalVertex),(source.normalUvSet==1?vertices[0].uv1:vertices[0].uv0),sizeof(CanonicalVertex),meshopt_TangentCompatible);
+        }
+        for(std::size_t i=0;i<reduced.size();++i) {
+            auto v=vertices[reduced[i]];            const std::size_t tri = (i / 3u) * 3u;
+            const auto& pa = vertices[reduced[tri]], &pb = vertices[reduced[tri + 1u]], &pc = vertices[reduced[tri + 2u]];
+            const float ux = pb.position[0] - pa.position[0], uy = pb.position[1] - pa.position[1], uz = pb.position[2] - pa.position[2];
+            const float vx = pc.position[0] - pa.position[0], vy = pc.position[1] - pa.position[1], vz = pc.position[2] - pa.position[2];
+            const float fn[3] = {uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx};
+            const float fl = std::sqrt(fn[0] * fn[0] + fn[1] * fn[1] + fn[2] * fn[2]);
+            if (fl > 1e-8f && (fn[0] * v.normal[0] + fn[1] * v.normal[1] + fn[2] * v.normal[2]) < 0.0f) {
+                v.normal[0] = fn[0] / fl; v.normal[1] = fn[1] / fl; v.normal[2] = fn[2] / fl;
+            }
+            if(!tangents.empty() && !(localLocks[reduced[i]]&meshopt_SimplifyVertex_Lock))std::copy(tangents.begin()+i*4,tangents.begin()+i*4+4,v.tangent);
+            corners.push_back(v);
+        }
+        std::vector<unsigned> remap(corners.size()),compactIndices(corners.size());
+        auto count=meshopt_generateVertexRemap(remap.data(),nullptr,corners.size(),corners.data(),corners.size(),sizeof(CanonicalVertex));
+        MaterialDomain temp;temp.attributeMask=source.attributeMask;temp.vertices.resize(count);
+        meshopt_remapVertexBuffer(temp.vertices.data(),corners.data(),corners.size(),sizeof(CanonicalVertex),remap.data());
+        std::copy(remap.begin(),remap.end(),compactIndices.begin());
+        auto built=BuildMeshlets(temp,recipe,compactIndices);
+        auto bytes=MeshletPayloadCost(built,stride);
+        if(built.empty()||built.size()>=group.meshletIds.size()||bytes>originalBytes)return false;
+        if(!best.meshlets.empty() && (built.size()>best.meshlets.size() || (built.size()==best.meshlets.size() && bytes>MeshletPayloadCost(best.meshlets,stride)) || (built.size()==best.meshlets.size() && bytes==MeshletPayloadCost(best.meshlets,stride) && !updated)))return false;
+        best.vertices=std::move(temp.vertices);best.meshlets=std::move(built);best.error=error;best.indices=reduced.size();best.updated=updated;
+        return true;
+    };
+    float error=0;std::vector<unsigned> reduced(indices.size());
+    reduced.resize(meshopt_simplifyWithAttributes(reduced.data(),indices.data(),indices.size(),positions.data(),original.size(),12,attributes.data(),attributesCount*4,weights.data(),attributesCount,localLocks.data(),target,FLT_MAX,options,&error));
+    prepare(reduced,positions,attributes,error,false);
+    if(recipe.simplifyWithUpdate) {
+        auto p=positions,a=attributes;auto updated=indices;
+        updated.resize(meshopt_simplifyWithUpdate(updated.data(),updated.size(),p.data(),original.size(),12,a.data(),attributesCount*4,weights.data(),attributesCount,localLocks.data(),target,FLT_MAX,options,&error));
+        prepare(updated,p,a,error,true);
     }
-    simplified.resize(count);
-    std::vector<std::uint32_t> global(count);
-    for (std::size_t i = 0; i < count; ++i) {
-        if (simplified[i] >= used.size()) throw std::runtime_error("meshoptimizer returned an invalid local vertex");
-        global[i] = used[simplified[i]];
-    }
-    output = BuildMeshlets(source, recipe, global);
-    for (Meshlet& meshlet : output) meshlet.refineGroupId = group.id;
-    outputError = error;
-    return !output.empty();
+    if(best.meshlets.empty())return false;
+    const auto base=std::uint32_t(source.vertices.size());
+    source.vertices.insert(source.vertices.end(),best.vertices.begin(),best.vertices.end());
+    output=std::move(best.meshlets);
+    for(auto& m:output){m.refineGroupId=group.id;for(auto& v:m.vertices)v+=base;}
+    outputError=best.error*recipe.attributeErrorScale;usedFallback=best.updated;
+    return true;
 }
 
 void ValidateLodBuild(const std::vector<Group>& groups, const std::vector<Meshlet>& meshlets) {
@@ -555,7 +639,7 @@ SerializedGroupV3 SerializeGroup(
     return output;
 }
 
-DomainProduct CookDomain(const MaterialDomain& source, const GeometryCookRecipeV3& recipe, CookEvidenceV3& evidence) {
+DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& recipe, CookEvidenceV3& evidence) {
     std::vector<Meshlet> meshlets = BuildMeshlets(source, recipe, source.indices);
     const std::uint32_t leafCount = std::uint32_t(meshlets.size());
     std::vector<std::uint32_t> active(meshlets.size()); std::iota(active.begin(), active.end(), 0u);
@@ -569,6 +653,7 @@ DomainProduct CookDomain(const MaterialDomain& source, const GeometryCookRecipeV
         for (std::uint32_t groupId : groupIds) for (std::uint32_t meshletId : groups[groupId].meshletIds) meshlets[meshletId].groupId = groupId;
         std::vector<unsigned char> locks(source.vertices.size(), 0u);
         BuildSeamLocks(source, recipe, groups, groupIds, meshlets, positionRemap, locks);
+        const auto levelVertexBegin = source.vertices.size();
         std::vector<Meshlet> generated;
         std::vector<std::uint32_t> next;
         for (std::uint32_t groupId : groupIds) {
@@ -584,12 +669,16 @@ DomainProduct CookDomain(const MaterialDomain& source, const GeometryCookRecipeV
             group.parentError = propagated;
             const std::uint32_t base = std::uint32_t(meshlets.size() + generated.size());
             for (Meshlet& item : simplified) {
-                std::copy(group.sphere, group.sphere + 4, item.sphere);
+                // WithUpdate can move parent vertices. The coarse bound must
+                // cover both the new coarse surface and every refinement
+                // descendant that can be selected below this group.
+                MergeSphere(item.sphere, group.sphere, item.sphere);
+                MergeAabb(item.bboxMin, item.bboxMax, group.bboxMin, group.bboxMax, item.bboxMin, item.bboxMax);
                 next.push_back(base + std::uint32_t(&item - simplified.data()));
                 generated.push_back(std::move(item));
             }
         }
-        if (generated.empty()) break;
+        if (generated.empty()) { source.vertices.resize(levelVertexBegin); break; }
         std::uint32_t triangleCount = 0u;
         for (const Meshlet& meshlet : generated) triangleCount += std::uint32_t(meshlet.triangles.size() / 3u);
         const float reduction = 1.0f - float(triangleCount) / float(previousTriangles);
@@ -597,10 +686,15 @@ DomainProduct CookDomain(const MaterialDomain& source, const GeometryCookRecipeV
             // Generated replacements are discarded: these groups remain DAG roots.
             // A finite parent error would cull them at distance with no replacement.
             for (std::uint32_t groupId : groupIds) groups[groupId].parentError = FLT_MAX;
+            source.vertices.resize(levelVertexBegin);
             break;
         }
         previousTriangles = triangleCount;
         meshlets.insert(meshlets.end(), std::make_move_iterator(generated.begin()), std::make_move_iterator(generated.end()));
+        // Coarse wedge records are appended during simplification. The next
+        // grouping/locking pass must include their shared geometric positions.
+        positionRemap.resize(source.vertices.size());
+        meshopt_generatePositionRemap(positionRemap.data(), source.vertices.front().position, source.vertices.size(), sizeof(CanonicalVertex));
         active = std::move(next); ++lodLevel;
         if (lodLevel == 255u) throw std::runtime_error("LOD level exceeds u8 ABI");
     }
@@ -660,6 +754,12 @@ CookedAssetV3 CookGeometryAssetV3(
         output.sourceTriangleCount += std::uint32_t(domain.indices.size() / 3u);
         evidence.uniqueReferencedVertexBytes += domain.vertices.size() * sizeof(CanonicalVertex);
         DomainProduct product = CookDomain(domain, recipe, evidence);
+        // Asset culling must enclose relocated parent geometry as well as leaves.
+        for (const auto& serialized : product.groups) {
+            GroupHeaderV3 header{}; DecodeRecordV3(serialized.bytes.data(), &header);
+            MergeSphere(output.boundsSphere, header.boundsSphere, output.boundsSphere);
+            MergeAabb(output.boundsMin, output.boundsMax, header.bboxMin, header.bboxMax, output.boundsMin, output.boundsMax);
+        }
         const std::uint32_t groupBase = std::uint32_t(output.groups.size());
         const std::uint32_t nodeBase = std::uint32_t(output.hierarchy.size());
         const std::uint8_t formatId = std::uint8_t(output.vertexFormats.size());

@@ -22,7 +22,7 @@ export type GeometryVertexProfile =
 export interface GeometryCookRecipeV3 {
   readonly recipeVersion: 3;
   readonly meshoptimizerRevision: string;
-  readonly hierarchyAlgorithmVersion: "nyx-hierarchy-v3.1";
+  readonly hierarchyAlgorithmVersion: "nyx-hierarchy-v4.0-attribute-update";
   readonly meshletMaxVertices: number;
   readonly meshletMinTriangles: number;
   readonly meshletMaxTriangles: number;
@@ -31,10 +31,10 @@ export interface GeometryCookRecipeV3 {
   readonly groupTargetMeshlets: number;
   readonly simplifyTargetRatio: number;
   readonly simplifyFailureRatio: number;
-  readonly simplifySloppyFailureRatio: number;
+  readonly simplifyUpdateFailureRatio: number;
   readonly simplifyPermissive: boolean;
-  readonly sloppyFallback: boolean;
-  readonly sloppyErrorFactor: number;
+  readonly simplifyWithUpdate: boolean;
+  readonly attributeErrorScale: number;
   readonly minimumLodReduction: number;
   readonly lodErrorMergeFactor: number;
   readonly hierarchyFanout: 8;
@@ -55,8 +55,8 @@ export function createGeometryCookRecipeV3(
 ): GeometryCookRecipeV3 {
   const recipe: GeometryCookRecipeV3 = {
     recipeVersion: 3,
-    meshoptimizerRevision: "nyx-bc7e5b1e51f6-meshoptimizer-0.25-a05dfed026d1",
-    hierarchyAlgorithmVersion: "nyx-hierarchy-v3.1",
+    meshoptimizerRevision: "meshoptimizer-1.3-9e1f07b159d3",
+    hierarchyAlgorithmVersion: "nyx-hierarchy-v4.0-attribute-update",
     meshletMaxVertices: 64,
     meshletMinTriangles: 32,
     meshletMaxTriangles: 128,
@@ -65,10 +65,10 @@ export function createGeometryCookRecipeV3(
     groupTargetMeshlets: 32,
     simplifyTargetRatio: 0.5,
     simplifyFailureRatio: 0.51,
-    simplifySloppyFailureRatio: 0.85,
+    simplifyUpdateFailureRatio: 0.85,
     simplifyPermissive: true,
-    sloppyFallback: true,
-    sloppyErrorFactor: 2,
+    simplifyWithUpdate: true,
+    attributeErrorScale: 1,
     minimumLodReduction: 0.01,
     lodErrorMergeFactor: 1.5,
     hierarchyFanout: 8,
@@ -84,7 +84,7 @@ export function createGeometryCookRecipeV3(
     floatMode: "ieee754-nearest-no-fast-math",
     ...input
   };
-  if (recipe.recipeVersion !== 3 || recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v3.1") throw new RangeError("invalid GeometryCookRecipeV3 identity");
+  if (recipe.recipeVersion !== 3 || recipe.hierarchyAlgorithmVersion !== "nyx-hierarchy-v4.0-attribute-update") throw new RangeError("invalid GeometryCookRecipeV3 identity");
   assertIntegerInRange(recipe.meshletMaxVertices, 3, 128, "meshletMaxVertices");
   assertIntegerInRange(recipe.meshletMinTriangles, 1, recipe.meshletMaxTriangles, "meshletMinTriangles");
   assertIntegerInRange(recipe.meshletMaxTriangles, 1, 128, "meshletMaxTriangles");
@@ -92,12 +92,17 @@ export function createGeometryCookRecipeV3(
   assertFiniteInRange(recipe.simplifyTargetRatio, 0, 1, false, "simplifyTargetRatio");
   assertFiniteInRange(recipe.simplifyFailureRatio, recipe.simplifyTargetRatio, 1, true, "simplifyFailureRatio");
   if (recipe.hierarchyFanout !== 8 || recipe.pageShift !== 18 || recipe.pagePackingAlgorithmVersion !== "tier-locality-bounded-best-fit-16-v1" || recipe.pageCodecPolicy !== "lz4-or-raw" || recipe.positionQuantization !== "float32-object-space" || recipe.bootstrapBudgetPolicy !== "scene-decoded-payload-hard-fail-v1") throw new RangeError("Geometry V3 ABI constants cannot be specialized per pack");
+  assertFiniteInRange(recipe.simplifyUpdateFailureRatio, recipe.simplifyTargetRatio, 1, true, "simplifyUpdateFailureRatio");
+  assertFiniteInRange(recipe.minimumLodReduction, 0, 1, true, "minimumLodReduction");
+  if (!Number.isFinite(recipe.attributeErrorScale) || recipe.attributeErrorScale < 1) throw new RangeError("attributeErrorScale must be finite and >= 1");
+  if (!Number.isFinite(recipe.lodErrorMergeFactor) || recipe.lodErrorMergeFactor < 1) throw new RangeError("lodErrorMergeFactor must be finite and >= 1");
   assertIntegerInRange(recipe.deterministicSeed, 0, 0xffffffff, "deterministicSeed");
   return Object.freeze(recipe);
 }
 
 export function geometryCookRecipeV3Key(recipe: GeometryCookRecipeV3): string {
   return JSON.stringify({
+    attributeErrorScale: canonicalRecipeF32(recipe.attributeErrorScale),
     bootstrapBudgetPolicy: recipe.bootstrapBudgetPolicy,
     bootstrapGeometryBudgetBytes: recipe.bootstrapGeometryBudgetBytes,
     clusterSplitFactor: canonicalRecipeF32(recipe.clusterSplitFactor),
@@ -120,10 +125,9 @@ export function geometryCookRecipeV3Key(recipe: GeometryCookRecipeV3): string {
     rawCodecThresholdBytes: recipe.rawCodecThresholdBytes,
     simplifyFailureRatio: canonicalRecipeF32(recipe.simplifyFailureRatio),
     simplifyPermissive: recipe.simplifyPermissive,
-    simplifySloppyFailureRatio: canonicalRecipeF32(recipe.simplifySloppyFailureRatio),
     simplifyTargetRatio: canonicalRecipeF32(recipe.simplifyTargetRatio),
-    sloppyErrorFactor: canonicalRecipeF32(recipe.sloppyErrorFactor),
-    sloppyFallback: recipe.sloppyFallback,
+    simplifyUpdateFailureRatio: canonicalRecipeF32(recipe.simplifyUpdateFailureRatio),
+    simplifyWithUpdate: recipe.simplifyWithUpdate,
     vertexProfileVersion: recipe.vertexProfileVersion
   });
 }

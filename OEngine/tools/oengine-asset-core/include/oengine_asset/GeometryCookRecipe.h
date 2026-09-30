@@ -6,8 +6,8 @@
 namespace oengine::asset {
 
 struct GeometryCookRecipeV3 {
-    std::string meshoptimizerRevision = "nyx-bc7e5b1e51f6-meshoptimizer-0.25-a05dfed026d1";
-    std::string hierarchyAlgorithmVersion = "nyx-hierarchy-v3.1";
+    std::string meshoptimizerRevision = "meshoptimizer-1.3-9e1f07b159d3";
+    std::string hierarchyAlgorithmVersion = "nyx-hierarchy-v4.0-attribute-update";
     std::uint32_t meshletMaxVertices = 64u;
     std::uint32_t meshletMinTriangles = 32u;
     std::uint32_t meshletMaxTriangles = 128u;
@@ -16,10 +16,10 @@ struct GeometryCookRecipeV3 {
     std::uint32_t groupTargetMeshlets = 32u;
     float simplifyTargetRatio = 0.5f;
     float simplifyFailureRatio = 0.51f;
-    float simplifySloppyFailureRatio = 0.85f;
+    float simplifyUpdateFailureRatio = 0.85f;
     bool simplifyPermissive = true;
-    bool sloppyFallback = true;
-    float sloppyErrorFactor = 2.0f;
+    bool simplifyWithUpdate = true;
+    float attributeErrorScale = 1.0f;
     float minimumLodReduction = 0.01f;
     float lodErrorMergeFactor = 1.5f;
     std::uint32_t hierarchyFanout = 8u;

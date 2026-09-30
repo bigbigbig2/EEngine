@@ -23,6 +23,7 @@ const requiredHashes = new Map([
   ["MiniEngine/Model/GeometryStreaming.h", "4bee73ffc0c29ad7670bb7c5ac1567a281b3f33271adfc534d834dc88897c264"],
   ["MiniEngine/Model/Shaders/DAGCull.slang", "6534dd8794248d693acd07488653a625df3b4fac11117f96537a43857dcfee7e"],
   ["MiniEngine/Model/Shaders/VBufferMesh.slang", "9f374a2437d5ab939ae4d98289c150097bdab17305191ff97abf3fd1d13c621d"],
+  ["MiniEngine/ThirdParty/meshoptimizer/simplifier.cpp", "131b2092e1acd5546d46fba5463c2a8027089565826ce75790c3e5bc45acf8b2"],
   ["MiniEngine/ThirdParty/meshoptimizer/meshoptimizer.h", "a05dfed026d1dbeea6b38751ff22397e48a6706a4138e92a160ad57e33f7c0fd"],
   ["MiniEngine/ThirdParty/lz4/lz4.c", "aba04f8c20e7f7396bed55e0ee041f762d9ee123e175d1b48cf8a9533a360074"],
   ["MiniEngine/ThirdParty/cgltf/cgltf.h", "123d322d3eff8db5dc34a690131037a89972dff91793050caa48353a5911b4d7"],
@@ -35,7 +36,12 @@ for (const [relative, expected] of requiredHashes) {
 }
 
 await mkdir(dirname(output), { recursive: true });
-const meshoptimizerDir = join(nyxRoot, "MiniEngine", "ThirdParty", "meshoptimizer");
+const meshoptimizerManifest = JSON.parse(await readFile(join(coreDir, "vendor", "meshoptimizer", "source.json"), "utf8"));
+for (const [name, expected] of Object.entries(meshoptimizerManifest.files)) {
+  const actual = createHash("sha256").update(await readFile(join(coreDir, "vendor", "meshoptimizer", name))).digest("hex");
+  if (actual !== expected) throw new Error("meshoptimizer source identity mismatch: " + name);
+}
+const meshoptimizerDir = join(coreDir, "vendor", "meshoptimizer");
 const meshoptimizerSources = (await readdir(meshoptimizerDir))
   .filter((name) => name.endsWith(".cpp"))
   .sort()

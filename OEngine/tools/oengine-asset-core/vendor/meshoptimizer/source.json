@@ -1,0 +1,28 @@
+{
+  "revision": "9e1f07b159d3cb777f1c67ed31fc11fd117986f4",
+  "license": "MIT",
+  "files": {
+    "allocator.cpp": "9c88aa946b0232367ed4ce18ed38a9544ffafd5d90d15ad50eac351686b74670",
+    "clusterizer.cpp": "f77396dcf163ffa4450c18fbdeb2a9b54f7d4a24aa486d3834abdff278d4422c",
+    "indexanalyzer.cpp": "c02c50cc51d55fa8bd6f86ccf6bcd141512d4e14da8797ecc264788e52d168a4",
+    "indexcodec.cpp": "291317aa4dc2c6e56fbd8891b543403872e8022cef5acb4b8bee81ca9c18e668",
+    "indexgenerator.cpp": "98c42c48a1e2980754558177939f8b00d2fd51f2450518406c70f622fd60914c",
+    "meshletcodec.cpp": "ed78340ec76a46228b3694c99d3be365271b78e64081e355d0ab96058a6178ef",
+    "meshletutils.cpp": "042f59a3a1e7c1981dea6674e101d2e5d4b07bb06e632f4ce6b06b96e222faf9",
+    "meshoptimizer.h": "39faabd70506239e65c8c5c993b7f6fae0fabfe9a7a703e881283235903439b0",
+    "opacitymap.cpp": "d37a0802c35e36e74e6aa818fee6ccf37c0d8d975fd5b13af5a2b1ed35a1cb54",
+    "overdrawoptimizer.cpp": "124365169dd194facb525e266473e9a5d17de0ea867ee74bb85c542e3d067ab5",
+    "partition.cpp": "36cdf3f88e4ca5db275a99252b6ac0ad74b34fcbc69abbadf668bd5e444cd353",
+    "quantization.cpp": "424c4b8b6032ffd083c3d5dfe3a70c18af78ea8e0f707ce2195330f06c87df5e",
+    "rasterizer.cpp": "d2b08658ba7199d8fc19905c1ab4455694856f12e3f2bc75e7fc6a4af31c3d42",
+    "remesher.cpp": "30254329ee9eb8ffb927ecabaccab5c09198f4c506e3742018cb912273ccd1ca",
+    "simplifier.cpp": "d53027293a373c268bd5a541ae30735c53da75f7a274a722787435f893497422",
+    "spatialorder.cpp": "d8ee0dc15600ad2187c0598bf70fe596d9bbce173f2af130a593e8fd7a83f0e4",
+    "stripifier.cpp": "931f10a017bb931cf6089663e749c96d82980b00c61d85bd78c317ca0a3685e1",
+    "tangentspace.cpp": "8061b60b0ba9e088683ed8e7b46eb5f5faa3c8103b99df27752b136dbfb9bd93",
+    "vcacheoptimizer.cpp": "18f73036eb30bab434ef2059a44274fd65fcd9bd5906af293f1ea6a949db48b7",
+    "vertexcodec.cpp": "18158e9be1ed0fbc1ee15411728d6d736fb7d9d0657c69744003835dbb6eb26f",
+    "vertexfilter.cpp": "b2801fded2b35e14049ea8e379cc5b845fd60758531c41d6913c01be78f94801",
+    "vfetchoptimizer.cpp": "b5c85c5ade9c62aa96135a2de29e43abd116b0e2257e6cea6060e2757f7d65aa"
+  }
+}

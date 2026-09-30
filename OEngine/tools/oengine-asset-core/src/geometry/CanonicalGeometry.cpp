@@ -43,6 +43,11 @@ void ValidateDomain(const MaterialDomain& domain) {
         alphaModes == 0u || (alphaModes & (alphaModes - 1u)) != 0u) {
         throw std::runtime_error("canonical geometry material flags are invalid");
     }
+    if (domain.normalUvSet < -1 || domain.normalUvSet > 1 ||
+        (domain.normalUvSet >= 0 && !(domain.attributeMask & (domain.normalUvSet == 0 ? kAttributeUv0 : kAttributeUv1))))
+        throw std::runtime_error("canonical normal texture UV set is invalid");
+    for (float weight : domain.uvWeights) if (!std::isfinite(weight) || weight < 0)
+        throw std::runtime_error("canonical UV weight is invalid");
     for (const CanonicalVertex& vertex : domain.vertices) {
         const auto finite = [](const float* values, std::size_t count) {
             return std::all_of(values, values + count, [](float value) {
@@ -147,6 +152,8 @@ void FinalizeCanonicalGeometryAssetV3(CanonicalGeometryAsset& asset) {
         AddU32(hash, domain.materialId);
         AddU32(hash, domain.meshletFlags);
         AddU32(hash, domain.attributeMask);
+        AddU32(hash, std::uint32_t(domain.normalUvSet));
+        for (float weight : domain.uvWeights) AddF32(hash, weight);
         AddU32(hash, std::uint32_t(domain.vertices.size()));
         AddU32(hash, std::uint32_t(domain.indices.size()));
         for (const CanonicalVertex& vertex : domain.vertices) {

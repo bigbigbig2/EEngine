@@ -21,11 +21,11 @@ namespace {
 
 using namespace oengine::asset;
 
-constexpr std::uint32_t kAbiVersion = 2u;
+constexpr std::uint32_t kAbiVersion = 3u;
 /** Upper bound on per-cook worker threads; the pthread pool is sized the same. */
 [[maybe_unused]] constexpr std::uint32_t kMaxCookThreads = 8u;
 constexpr std::uint32_t kCanonicalHeaderBytes = 128u;
-constexpr std::uint32_t kCanonicalDomainBytes = 32u;
+constexpr std::uint32_t kCanonicalDomainBytes = 48u;
 constexpr std::uint32_t kCanonicalVertexBytes = 72u;
 constexpr std::uint32_t kRecipeBytes = 96u;
 constexpr std::array<std::uint8_t, 8> kCanonicalMagic = {'O','E','W','G','C','A','N',0};
@@ -173,12 +173,12 @@ GeometryCookRecipeV3 DecodeRecipe(
     recipe.clusterSplitFactor = ReadF32(bytes, 36u);
     recipe.simplifyTargetRatio = ReadF32(bytes, 40u);
     recipe.simplifyFailureRatio = ReadF32(bytes, 44u);
-    recipe.simplifySloppyFailureRatio = ReadF32(bytes, 48u);
+    recipe.simplifyUpdateFailureRatio = ReadF32(bytes, 48u);
     const std::uint32_t flags = ReadU32(bytes, 52u);
     if ((flags & ~3u) != 0u) throw std::runtime_error("Web geometry recipe flags are invalid");
     recipe.simplifyPermissive = (flags & 1u) != 0u;
-    recipe.sloppyFallback = (flags & 2u) != 0u;
-    recipe.sloppyErrorFactor = ReadF32(bytes, 56u);
+    recipe.simplifyWithUpdate = (flags & 2u) != 0u;
+    recipe.attributeErrorScale = ReadF32(bytes, 56u);
     recipe.minimumLodReduction = ReadF32(bytes, 60u);
     recipe.lodErrorMergeFactor = ReadF32(bytes, 64u);
     recipe.hierarchyFanout = ReadU32(bytes, 68u);
@@ -247,12 +247,16 @@ CanonicalGeometryAsset DecodeCanonicalInput(
         domain.materialId = ReadU32(bytes, at);
         domain.meshletFlags = ReadU32(bytes, at + 4u);
         domain.attributeMask = ReadU16(bytes, at + 8u);
+        const auto normalUv = ReadU32(bytes, at + 28u);
+        if (normalUv != 0xffffffffu && normalUv > 1u) throw std::runtime_error("invalid normal UV set");
+        domain.normalUvSet = normalUv == 0xffffffffu ? -1 : std::int32_t(normalUv);
+        for (unsigned axis=0;axis<4;++axis) domain.uvWeights[axis] = ReadF32(bytes, at + 32u + axis*4u);
         const std::uint16_t flags = ReadU16(bytes, at + 10u);
         const std::uint32_t vertexBegin = ReadU32(bytes, at + 12u);
         const std::uint32_t domainVertexCount = ReadU32(bytes, at + 16u);
         const std::uint32_t indexBegin = ReadU32(bytes, at + 20u);
         const std::uint32_t domainIndexCount = ReadU32(bytes, at + 24u);
-        if ((flags & ~kDomainGenerateNormals) != 0u || ReadU32(bytes, at + 28u) != 0u ||
+        if ((flags & ~kDomainGenerateNormals) != 0u ||
             vertexBegin != expectedVertexBegin || indexBegin != expectedIndexBegin ||
             domainVertexCount < 3u || domainIndexCount == 0u || domainIndexCount % 3u != 0u ||
             std::uint64_t(vertexBegin) + domainVertexCount > vertexCount ||

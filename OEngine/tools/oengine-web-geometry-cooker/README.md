@@ -27,8 +27,8 @@ canonical-window builder, and the Phase D optional spill-release hook
 (`abi_version == 2`):
 
 ```text
-oengine-web-geometry-cooker.mjs   SHA-256 d7ef6fadde37615d244a82081d44ab7f4e39ef71fa3e10005c94527b5bfa7e5a
-oengine-web-geometry-cooker.wasm  SHA-256 8be431b4dc6a96d3c510efa8a3460c80d6788cf5b1225908961e4626b9689b39
+oengine-web-geometry-cooker.mjs   SHA-256 4530ca139fc7cba81a5310e729a2879add9f88142877bea64776630cc05f270f
+oengine-web-geometry-cooker.wasm  SHA-256 ee9c99f637d4d51cef647e95777eed24b4e0fd7bd82de8ad848bd3801b11216e
 ```
 
 The cooker emits one Product asset per canonical material domain, so a
@@ -63,11 +63,15 @@ The current artifact carries the same ADR-0017/ADR-0018 Phase B ABI
 (`abi_version == 2`):
 
 ```text
-threads/oengine-web-geometry-cooker.mjs   SHA-256 7bf8123a706d735908df0f0f50ed10b42d5e27f9cb23b1c0c52f776db9bc4bec
-threads/oengine-web-geometry-cooker.wasm  SHA-256 201efaeb7b769b5b3b78ada45ab4fa757a90260a0f18d6054f0b0b23c9a740d3
+threads/oengine-web-geometry-cooker.mjs   SHA-256 06c5d7a9c461085d386dae48434c6151634b49b7522825d14d0a55ab48cda0e7
+threads/oengine-web-geometry-cooker.wasm  SHA-256 3616fbaf73c97c156113a0b91d189b3da7c3f38b381f90d838ba8beb907cab49
 ```
 
 2026-09-29: both artifacts rebuilt for nyx-hierarchy-v3.1 and
 static-pbr-page-local-f32-v4. VertexFormat byte 10 is now 1 (Float32x3);
 meshlet-local U16 products must be recooked. Native ABI oracle includes exact
 shared-position bits and terminal LOD error after a rejected simplification.
+
+2026-09-29 historical experiment: v3.2 rejected sloppy for entire seam-bearing groups. It retained excessive fine geometry and is no longer current behavior.
+
+2026-09-30: hashes above describe current experimental nyx-hierarchy-v3.3 artifact pairs (canonical ABI remains version 2). The Nyx 0.25 sloppy extension carries source triangle-corner attributes separately from clustered positions, compacts coarse wedges and preserves fine vertices. Prior builds and targeted geometry tests passed, but same-close-camera barrel artifacts remain. This is not visual/performance acceptance or a meshoptimizer v1.3 port. The candidate is described in docs/next-design/virtual-geometry-attribute-simplification-2026.md and docs/porting/next-renderer.md. Always copy WASM with matching .mjs; recipe changes require recooking old products.

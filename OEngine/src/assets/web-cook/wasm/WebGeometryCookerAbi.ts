@@ -3,9 +3,11 @@ import {
   type GeometryCookRecipeV3
 } from "../../GeometryCookRecipe.js";
 
-export const WEB_GEOMETRY_COOKER_ABI_VERSION = 2;
+import type { GeometryAppearanceProfile } from "../../GeometryAppearanceProfile.js";
+
+export const WEB_GEOMETRY_COOKER_ABI_VERSION = 3;
 export const WEB_GEOMETRY_CANONICAL_HEADER_BYTES = 128;
-export const WEB_GEOMETRY_CANONICAL_DOMAIN_BYTES = 32;
+export const WEB_GEOMETRY_CANONICAL_DOMAIN_BYTES = 48;
 export const WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS = 18;
 export const WEB_GEOMETRY_CANONICAL_VERTEX_BYTES = WEB_GEOMETRY_CANONICAL_VERTEX_FLOATS * 4;
 export const WEB_GEOMETRY_RECIPE_BYTES = 96;
@@ -52,6 +54,7 @@ export interface WebCanonicalGeometryDomainV1 {
   readonly meshletFlags: number;
   readonly attributeMask: number;
   readonly generateNormals: boolean;
+  readonly appearance?: GeometryAppearanceProfile;
   /** 18 f32 values per vertex: position, normal, tangent, uv0, uv1, color. */
   readonly vertices: Float32Array;
   readonly indices: Uint32Array;
@@ -117,6 +120,9 @@ export function encodeWebCanonicalGeometryV1(domains: readonly WebCanonicalGeome
   let vertexCount = 0, indexCount = 0;
   for (const domain of domains) {
     assertU32(domain.materialId, "materialId");
+    const appearance = domain.appearance;
+    if (appearance && (![-1, 0, 1].includes(appearance.normalUvSet) || appearance.uvWeights.length !== 4 || appearance.uvWeights.some(w => !Number.isFinite(Math.fround(w)) || w < 0))) throw new RangeError("invalid geometry appearance profile");
+    if (appearance && appearance.normalUvSet >= 0 && (domain.attributeMask & (appearance.normalUvSet === 0 ? WEB_GEOMETRY_ATTRIBUTE_UV0 : WEB_GEOMETRY_ATTRIBUTE_UV1)) === 0) throw new RangeError("normal texture UV set is missing");
     assertU32(domain.meshletFlags, "meshletFlags");
     const knownAttributes = WEB_GEOMETRY_ATTRIBUTE_POSITION | WEB_GEOMETRY_ATTRIBUTE_NORMAL | WEB_GEOMETRY_ATTRIBUTE_TANGENT | WEB_GEOMETRY_ATTRIBUTE_UV0 | WEB_GEOMETRY_ATTRIBUTE_UV1 | WEB_GEOMETRY_ATTRIBUTE_COLOR;
     if (!Number.isInteger(domain.attributeMask) || (domain.attributeMask & WEB_GEOMETRY_ATTRIBUTE_POSITION) === 0 || (domain.attributeMask & ~knownAttributes) !== 0) throw new RangeError("attributeMask must contain POSITION and only known V3 attributes");
@@ -162,6 +168,8 @@ export function encodeWebCanonicalGeometryV1(domains: readonly WebCanonicalGeome
     view.setUint32(at + 16, domainVertexCount, true);
     view.setUint32(at + 20, indexBegin, true);
     view.setUint32(at + 24, domain.indices.length, true);
+    view.setInt32(at + 28, domain.appearance?.normalUvSet ?? -1, true);
+    for (let axis = 0; axis < 4; axis++) view.setFloat32(at + 32 + axis * 4, domain.appearance?.uvWeights[axis] ?? 0.1, true);
     const domainVertexOffset = vertexOffset + vertexBegin * WEB_GEOMETRY_CANONICAL_VERTEX_BYTES;
     domain.vertices.forEach((value, index) => view.setFloat32(domainVertexOffset + index * 4, value, true));
     domain.indices.forEach((value, index) => view.setUint32(indexOffset + (indexBegin + index) * 4, value, true));
@@ -186,9 +194,9 @@ export function encodeWebGeometryCookRecipeV1(input: Partial<GeometryCookRecipeV
   view.setFloat32(36, recipe.clusterSplitFactor, true);
   view.setFloat32(40, recipe.simplifyTargetRatio, true);
   view.setFloat32(44, recipe.simplifyFailureRatio, true);
-  view.setFloat32(48, recipe.simplifySloppyFailureRatio, true);
-  view.setUint32(52, (recipe.simplifyPermissive ? 1 : 0) | (recipe.sloppyFallback ? 2 : 0), true);
-  view.setFloat32(56, recipe.sloppyErrorFactor, true);
+  view.setFloat32(48, recipe.simplifyUpdateFailureRatio, true);
+  view.setUint32(52, (recipe.simplifyPermissive ? 1 : 0) | (recipe.simplifyWithUpdate ? 2 : 0), true);
+  view.setFloat32(56, recipe.attributeErrorScale, true);
   view.setFloat32(60, recipe.minimumLodReduction, true);
   view.setFloat32(64, recipe.lodErrorMergeFactor, true);
   view.setUint32(68, recipe.hierarchyFanout, true);

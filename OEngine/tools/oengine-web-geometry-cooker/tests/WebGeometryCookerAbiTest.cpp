@@ -8,6 +8,7 @@
 #include "oengine_asset/GeometryCookRecipe.h"
 #include "oengine_asset/DecodedGeometryProduct.h"
 #include "oengine_asset/Hash.h"
+#include "meshoptimizer.h"
 
 #include <algorithm>
 #include <array>
@@ -51,11 +52,11 @@ std::vector<std::uint8_t> Recipe() {
     std::vector<std::uint8_t> bytes(96u, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','R','C','P',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 2u); U32(bytes, 12u, 96u);
+    U32(bytes, 8u, 3u); U32(bytes, 12u, 96u);
     U32(bytes, 16u, 64u); U32(bytes, 20u, 32u); U32(bytes, 24u, 128u);
     U32(bytes, 28u, 32u); F32(bytes, 32u, 0.0f); F32(bytes, 36u, 2.0f);
     F32(bytes, 40u, 0.5f); F32(bytes, 44u, 0.51f); F32(bytes, 48u, 0.85f);
-    U32(bytes, 52u, 3u); F32(bytes, 56u, 2.0f); F32(bytes, 60u, 0.01f);
+    U32(bytes, 52u, 3u); F32(bytes, 56u, 1.0f); F32(bytes, 60u, 0.01f);
     F32(bytes, 64u, 1.5f); U32(bytes, 68u, 8u); U32(bytes, 72u, 18u);
     U32(bytes, 76u, 256u); U32(bytes, 80u, 64u * 1024u * 1024u);
     U32(bytes, 84u, 0u); U32(bytes, 88u, 0u);
@@ -74,16 +75,18 @@ std::vector<std::uint8_t> CanonicalCube() {
         1,2,6, 1,6,5, 2,3,7, 2,7,6, 3,0,4, 3,4,7
     }};
     constexpr std::size_t domainOffset = 128u;
-    constexpr std::size_t vertexOffset = 160u;
+    constexpr std::size_t vertexOffset = 176u;
     constexpr std::size_t indexOffset = AlignUp(vertexOffset + positions.size() * 72u, 16u);
     constexpr std::size_t totalBytes = AlignUp(indexOffset + indices.size() * 4u, 16u);
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 2u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 3u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, 1u); U32(bytes, 24u, positions.size()); U32(bytes, 28u, indices.size());
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
-    U32(bytes, 44u, 72u); U32(bytes, 48u, 32u);
+    U32(bytes, 44u, 72u); U32(bytes, 48u, 48u);
+    U32(bytes, domainOffset + 28u, 0xffffffffu);
+    for (unsigned i=0;i<4;++i) F32(bytes,domainOffset+32u+i*4u,0.1f);
     U32(bytes, domainOffset, 7u);
     U32(bytes, domainOffset + 4u, kMeshletOpaque | kMeshletCastsShadow);
     U16(bytes, domainOffset + 8u, kAttributePosition);
@@ -116,19 +119,21 @@ std::vector<std::uint8_t> CanonicalDomains(std::size_t domainCount, std::size_t 
     const std::size_t vertexCount = domainVertexCount * domainCount;
     const std::size_t indexCount = domainIndexCount * domainCount;
     const std::size_t domainOffset = 128u;
-    const std::size_t vertexOffset = AlignUp(domainOffset + domainCount * 32u, 16u);
+    const std::size_t vertexOffset = AlignUp(domainOffset + domainCount * 48u, 16u);
     const std::size_t indexOffset = AlignUp(vertexOffset + vertexCount * 72u, 16u);
     const std::size_t totalBytes = AlignUp(indexOffset + indexCount * 4u, 16u);
     std::vector<std::uint8_t> bytes(totalBytes, 0u);
     const std::uint8_t magic[8] = {'O','E','W','G','C','A','N',0};
     std::copy(magic, magic + 8u, bytes.begin());
-    U32(bytes, 8u, 2u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
+    U32(bytes, 8u, 3u); U32(bytes, 12u, 128u); U32(bytes, 16u, totalBytes);
     U32(bytes, 20u, std::uint32_t(domainCount)); U32(bytes, 24u, std::uint32_t(vertexCount)); U32(bytes, 28u, std::uint32_t(indexCount));
     U32(bytes, 32u, domainOffset); U32(bytes, 36u, vertexOffset); U32(bytes, 40u, indexOffset);
-    U32(bytes, 44u, 72u); U32(bytes, 48u, 32u);
+    U32(bytes, 44u, 72u); U32(bytes, 48u, 48u);
     for (std::size_t domain = 0u; domain < domainCount; ++domain) {
         const std::size_t sourceDomain = firstDomain + domain;
-        const std::size_t at = domainOffset + domain * 32u;
+        const std::size_t at = domainOffset + domain * 48u;
+        U32(bytes, at + 28u, 0xffffffffu);
+        for (unsigned i=0;i<4;++i) F32(bytes,at+32u+i*4u,0.1f);
         U32(bytes, at, std::uint32_t(7u + sourceDomain));
         U32(bytes, at + 4u, kMeshletOpaque | kMeshletCastsShadow);
         U16(bytes, at + 8u, kAttributePosition);
@@ -425,15 +430,15 @@ void AssertMeshletSeamsAndTerminalLod() {
 int main() {
     AssertMeshletSeamsAndTerminalLod();
     AssertPageIdentityRollup();
-    assert(oengine_web_geometry_cook_abi_version() == 2u);
+    assert(oengine_web_geometry_cook_abi_version() == 3u);
     const std::vector<std::uint8_t> canonical = CanonicalCube();
     const std::vector<std::uint8_t> recipe = Recipe();
     // Golden freeze of the fixture encoding itself: these digests pin the exact
     // recipe/canonical byte layout (including the ABI version word) so that any
     // accidental edit to the fixture is caught before it can mask a real
     // regression in the cooker.
-    assert(Hex(Sha256(canonical)) == "bf445f9207ee9a3a76a7656bbc1a31aaac36efab1c64dea489423d84f28e6a29");
-    assert(Hex(Sha256(recipe)) == "4c7311b0954eb9592036cb3e135464e1001e11949876dfe4de9460179c5db01b");
+    assert(Hex(Sha256(canonical)) == "c9aea8577e63d53aa1e22f2af3c68d621e443b597b1350aadb2f36ccc22b5576");
+    assert(Hex(Sha256(recipe)) == "5bd5edd24e5a5d1f6db3bdc44a1ec2690f087020416760a293443e8256b43cc7");
     AssertTwoPhaseParity(canonical, recipe);
     AssertWindowedBuilderParity(recipe);
     const std::uintptr_t first = oengine_web_geometry_cook(

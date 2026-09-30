@@ -71,6 +71,8 @@ export interface CookedSceneGeometryProductV1 {
   readonly provider: GeometryProductRevisionSourceV1 & { revisions(signal?: AbortSignal): AsyncIterable<GeometryProductRevisionSourceV1> };
 }
 
+import { geometryAppearanceProfile } from "../GeometryAppearanceProfile.js";
+
 const VERTEX_FLOATS = 6;
 const TANGENT_FLOATS = 4;
 const COLOR_FLOATS = 3;
@@ -244,8 +246,22 @@ function canonicalizeMeshletGeometry(geometry: MeshletGeometryBase, material: St
       ? WEB_GEOMETRY_MESHLET_MASK
       : WEB_GEOMETRY_MESHLET_OPAQUE;
   const meshletFlags = alpha | WEB_GEOMETRY_MESHLET_CASTS_SHADOW | (material.draw_side === ShadeDrawSide.Double ? WEB_GEOMETRY_MESHLET_TWO_SIDED : 0);
+  const slots = [
+    [material.texture_albedo, material.base_color_uv_set, material.base_color_uv_scale],
+    [material.texture_normal, material.normal_uv_set, material.normal_uv_scale],
+    [material.texture_orm, material.orm_uv_set, material.orm_uv_scale],
+    [material.texture_occlusion, material.occlusion_uv_set, material.occlusion_uv_scale],
+    [material.texture_emissive, material.emissive_uv_set, material.emissive_uv_scale],
+    [material.texture_specular, material.specular_uv_set, material.specular_uv_scale],
+    [material.texture_specular_color, material.specular_color_uv_set, material.specular_color_uv_scale],
+    [material.texture_clearcoat, material.clearcoat_uv_set, material.clearcoat_uv_scale],
+    [material.texture_clearcoat_roughness, material.clearcoat_roughness_uv_set, material.clearcoat_roughness_uv_scale],
+    [material.texture_clearcoat_normal, material.clearcoat_normal_uv_set, material.clearcoat_normal_uv_scale]
+  ] as const;
+  const textureSlots = slots.map(([texture, texCoord, scale]) => texture ? { texCoord, scale } : undefined);
+  const appearance = geometryAppearanceProfile(textureSlots, textureSlots[1]);
   return Object.freeze({
-    domain: Object.freeze({ materialId, meshletFlags, attributeMask, generateNormals: false, vertices, indices }),
+    domain: Object.freeze({ materialId, meshletFlags, attributeMask, generateNormals: false, appearance, vertices, indices }),
     profile: Object.freeze({
       hasAuthoredVertexColor: geometry.colorData !== null,
       hasUv0: geometry.uv0Data !== null,

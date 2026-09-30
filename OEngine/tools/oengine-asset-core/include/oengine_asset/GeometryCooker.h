@@ -25,6 +25,9 @@ struct MaterialDomain {
     std::uint32_t materialId = kInvalidId;
     std::uint32_t meshletFlags = kMeshletOpaque | kMeshletCastsShadow;
     std::uint16_t attributeMask = kAttributePosition | kAttributeNormal;
+    // Cook-only appearance metadata, included in canonical content identity.
+    std::int32_t normalUvSet = -1;
+    float uvWeights[4]{0.1f, 0.1f, 0.1f, 0.1f};
     std::vector<CanonicalVertex> vertices;
     std::vector<std::uint32_t> indices;
 };

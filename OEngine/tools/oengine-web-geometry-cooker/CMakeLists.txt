@@ -29,11 +29,13 @@ require_nyx_sha256("MiniEngine/Model/GeometryStreaming.cpp" "acb3aa4786eb6367e92
 require_nyx_sha256("MiniEngine/Model/GeometryStreaming.h" "4bee73ffc0c29ad7670bb7c5ac1567a281b3f33271adfc534d834dc88897c264")
 require_nyx_sha256("MiniEngine/Model/Shaders/DAGCull.slang" "6534dd8794248d693acd07488653a625df3b4fac11117f96537a43857dcfee7e")
 require_nyx_sha256("MiniEngine/Model/Shaders/VBufferMesh.slang" "9f374a2437d5ab939ae4d98289c150097bdab17305191ff97abf3fd1d13c621d")
+require_nyx_sha256("MiniEngine/ThirdParty/meshoptimizer/simplifier.cpp" "131b2092e1acd5546d46fba5463c2a8027089565826ce75790c3e5bc45acf8b2")
 require_nyx_sha256("MiniEngine/ThirdParty/meshoptimizer/meshoptimizer.h" "a05dfed026d1dbeea6b38751ff22397e48a6706a4138e92a160ad57e33f7c0fd")
 
 get_filename_component(OENGINE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../.." ABSOLUTE)
 set(ASSET_CORE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../oengine-asset-core")
-set(MESHOPTIMIZER_DIR "${NYX_SOURCE_DIR}/MiniEngine/ThirdParty/meshoptimizer")
+set(MESHOPTIMIZER_DIR "${ASSET_CORE_DIR}/vendor/meshoptimizer")
+include("${MESHOPTIMIZER_DIR}/verify.cmake")
 file(GLOB MESHOPTIMIZER_SOURCES CONFIGURE_DEPENDS "${MESHOPTIMIZER_DIR}/*.cpp")
 
 set(WEB_COOKER_SOURCES

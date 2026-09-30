@@ -42,6 +42,110 @@ function triangleCanonical(materialId = 0, xOffset = 0) {
   }]);
 }
 
+// Faceted boxes: each triangle has independent corner records, including
+// duplicate wedges that match the position representative's attributes.
+function hardSeamBoxesCanonical() {
+  const values = [], indices = [];
+  const faces = [
+    [[1, 0, 0], [0, 1, 0], [0, 0, 1]],
+    [[-1, 0, 0], [0, -1, 0], [0, 0, 1]],
+    [[0, 1, 0], [0, 0, 1], [1, 0, 0]],
+    [[0, -1, 0], [0, 0, -1], [1, 0, 0]],
+    [[0, 0, 1], [1, 0, 0], [0, 1, 0]],
+    [[0, 0, -1], [-1, 0, 0], [0, 1, 0]]
+  ];
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  for (let box = 0; box < 16; box++) {
+    for (const [normal, u, v] of faces) {
+      for (const corner of [0, 1, 2, 0, 2, 3]) {
+        const [s, t] = corners[corner];
+        const position = normal.map((n, axis) => n + u[axis] * s + v[axis] * t +
+          (axis === 0 ? (box % 4) * 3 : axis === 2 ? Math.floor(box / 4) * 3 : 0));
+        indices.push(indices.length);
+        values.push(...position, ...normal, 1, 0, 0, 1, (s + 1) / 2, (t + 1) / 2, 0, 0, 1, 1, 1, 1);
+      }
+    }
+  }
+  return encodeWebCanonicalGeometryV1([{ materialId: 0, meshletFlags: 1,
+    attributeMask: 11, generateNormals: false,
+    vertices: Float32Array.from(values), indices: Uint32Array.from(indices) }]);
+}
+
+test("coarse LOD reduces real geometry while preserving corner attributes", async () => {
+  const { decodeGroupHeaderV3, decodeMeshletHeaderV3 } = await import("../../.test-dist/assets/GeometryAbiV3.js");
+  const module = await loadArtifact();
+  const fixtures = [{ name: "duplicated box wedges", canonical: hardSeamBoxesCanonical(), minimumAlignment: 0.999, minimumCorners: 16 * 12 * 3, requireCoarse: false }];
+  // Real counterexample: locking only coincident wedges still lets Sloppy
+  // reconnect nearby window-wall faces to the opposite side.
+  globalThis.GPUBufferUsage ??= Object.freeze({ COPY_DST: 8, STORAGE: 128 });
+  const { openGlbRangeSource } = await import("../../.test-dist/loaders/gltf/streaming/GlbRangeSource.js");
+  const { buildGlbSceneCatalog } = await import("../../.test-dist/loaders/gltf/streaming/GlbSceneCatalog.js");
+  const { canonicalizeGlbPrimitiveV1 } = await import("../../.test-dist/assets/web-cook/gltf/GlbPrimitiveCanonicalizer.js");
+  const glb = new Uint8Array(await readFile(new URL("../../../examples/assets/three/rendering-lab/dungeon_warkarma.glb", import.meta.url)));
+  const source = await openGlbRangeSource("https://fixture.test/dungeon.glb", { fetch: async () => new Response(glb.slice().buffer, { status: 200 }) });
+  try {
+    const catalog = buildGlbSceneCatalog(source);
+    for (const meshIndex of [0, 1, 2, 5, 10, 11]) {
+      const unit = catalog.primitives.find(primitive => primitive.meshIndex === meshIndex);
+      const domain = await canonicalizeGlbPrimitiveV1(unit, { readRange: r => source.readBufferRange(r.bufferIndex, r.byteOffset, r.byteLength) });
+      fixtures.push({ name: `Dungeon mesh ${meshIndex}`, canonical: encodeWebCanonicalGeometryV1([domain]), minimumAlignment: 0.9, minimumCorners: domain.indices.length, requireCoarse: false });
+    }
+  } finally { source.release(); }
+  const normalize = value => { const length = Math.hypot(...value); return value.map(x => x / length); };
+  const subtract = (a, b) => a.map((x, i) => x - b[i]);
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  for (const fixture of fixtures) for (const simplifyPermissive of [true, false]) {
+    const result = cookWebGeometryWasmV1(module, fixture.canonical,
+      encodeWebGeometryCookRecipeV1({ simplifyPermissive, simplifyWithUpdate: true }), 16 * 262144);
+    try {
+      const sections = result.descriptorSections();
+      const directory = new DataView(sections.groupDirectory.buffer, sections.groupDirectory.byteOffset, sections.groupDirectory.byteLength);
+      const formats = new DataView(sections.vertexFormats.buffer, sections.vertexFormats.byteOffset, sections.vertexFormats.byteLength);
+      let cornersChecked = 0;
+      const levels = new Map();
+      for (let g = 0; g < directory.byteLength / 16; g++) {
+        const page = result.copyPage(directory.getUint32(g * 16, true));
+        const group = new DataView(page, directory.getUint32(g * 16 + 4, true), directory.getUint32(g * 16 + 8, true));
+        const header = decodeGroupHeaderV3(group), format = header.vertexFormatId * 16;
+        const level = levels.get(header.lodLevel) ?? { triangles: 0, meshlets: 0 };
+        level.meshlets += header.meshletCount;
+        levels.set(header.lodLevel, level);
+        const stride = formats.getUint16(format, true), positionOffset = formats.getUint8(format + 4), normalOffset = formats.getUint8(format + 5);
+        for (let m = 0; m < header.meshletCount; m++) {
+          const meshlet = decodeMeshletHeaderV3(group, header.meshletHeaderOffset + m * 48);
+          level.triangles += meshlet.triangleCount;
+          for (let t = 0; t < meshlet.triangleCount; t++) {
+            const vertices = [0, 1, 2].map(c => meshlet.vertexByteOffset + group.getUint8(meshlet.triangleByteOffset + t * 3 + c) * stride);
+            const p = vertices.map(at => [0, 1, 2].map(axis => group.getFloat32(at + positionOffset + axis * 4, true)));
+            const geometric = normalize(cross(subtract(p[1], p[0]), subtract(p[2], p[0])));
+            for (const at of vertices) {
+              let x = Math.max(-1, group.getInt16(at + normalOffset, true) / 32767);
+              let y = Math.max(-1, group.getInt16(at + normalOffset + 2, true) / 32767);
+              const z = 1 - Math.abs(x) - Math.abs(y);
+              if (z < 0) { const oldX = x; x = (1 - Math.abs(y)) * (x >= 0 ? 1 : -1); y = (1 - Math.abs(oldX)) * (y >= 0 ? 1 : -1); }
+              const normal = normalize([x, y, z]);
+              const alignment = normal.reduce((sum, n, axis) => sum + n * geometric[axis], 0);
+              // A coarse face may tilt as geometry is reduced. Its original
+              // corner attributes must not be replaced by opposite-side ones.
+              const minimum = header.lodLevel === 0 ? fixture.minimumAlignment : 0;
+              assert.ok(header.lodLevel === 0 ? alignment > minimum : alignment >= -1e-4, `${fixture.name} permissive=${simplifyPermissive} LOD${header.lodLevel} group=${g} meshlet=${m} triangle=${t}: normal alignment ${alignment}`);
+              cornersChecked++;
+            }
+          }
+        }
+      }
+      assert.ok(cornersChecked >= fixture.minimumCorners, `${fixture.name}: original faces must remain represented`);
+      const fine = levels.get(0);
+      const coarse = levels.get(Math.max(...levels.keys()));
+      if (fixture.requireCoarse === true) {
+        assert.ok(levels.size >= 2, `${fixture.name}: fixing shading must not disable coarse LOD`);
+        assert.ok(coarse.triangles <= fine.triangles * 0.51, `${fixture.name}: retain at least 49% triangle reduction`);
+        assert.ok(coarse.meshlets < fine.meshlets, `${fixture.name}: the coarse cut must emit fewer meshlets`);
+      }
+    } finally { result.release(); }
+  }
+});
+
 test("checked-in Web geometry artifact consumes independent canonical windows", async () => {
   const module = await loadArtifact();
   const builder = beginWebGeometryCookWasmBuilderV1(module, encodeWebGeometryCookRecipeV1(), 8 * 262144);
@@ -62,7 +166,7 @@ test("checked-in Web geometry artifact consumes independent canonical windows", 
 test("checked-in Web geometry artifact executes the Product ABI", async () => {
   const module = await loadArtifact();
   assert.equal(module._oengine_web_geometry_cook_abi_version(), WEB_GEOMETRY_COOKER_ABI_VERSION);
-  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 2);
+  assert.equal(WEB_GEOMETRY_COOKER_ABI_VERSION, 3);
   const result = cookWebGeometryWasmV1(module, triangleCanonical(), encodeWebGeometryCookRecipeV1(), 8 * 262144);
   try {
     assert.ok(result.pageCount >= 1);
