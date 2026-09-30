@@ -1,6 +1,5 @@
 
 /** The finite set of products with real Module A producers and consumers. */
-import { surfaceExceptionLane } from "../surface/SurfaceExecutionAbi.js";
 import type { RenderDebugView } from "../../debug/RenderDebugView.js";
 import { isRenderableRenderDebugView, RenderDebugView as RenderDebugViewValue } from "../../debug/RenderDebugView.js";
 
@@ -54,8 +53,6 @@ export type FrameProgramRequest = FrameProgramBase & (
       previousHzb: boolean;
       currentHzbLateRecheck: boolean;
       activeSets: readonly number[];
-      /** CPU publication proves which bounded Surface exception lanes can receive work. */
-      activeExceptionLanes?: readonly number[];
       /** Union of the texture banks referenced by the active resident sets. */
       textureBankMask?: number;
       hasLit: boolean;
@@ -245,15 +242,6 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   if (activeSets.some(id => !Number.isInteger(id) || id < 0 || id >= 4)) {
     throw new RangeError("activeSets contains an invalid resident set");
   }
-  const possibleLanes = activeSets.flatMap(setId => setId === 0
-    ? [surfaceExceptionLane(0, true)]
-    : [surfaceExceptionLane(setId, false), surfaceExceptionLane(setId, true)]);
-  const activeExceptionLanes = [...new Set(request.activeExceptionLanes ?? possibleLanes)]
-    .sort((a, b) => a - b);
-  if (activeExceptionLanes.some(lane => !Number.isInteger(lane) ||
-      !possibleLanes.includes(lane))) {
-    throw new RangeError("activeExceptionLanes is outside active resident sets");
-  }
   if (!Number.isInteger(request.textureBankMask ?? 0x1ff) ||
       (request.textureBankMask ?? 0x1ff) < 1 ||
       ((request.textureBankMask ?? 0x1ff) & ~0x1ff) !== 0) {
@@ -281,7 +269,6 @@ function normalizeRequest(request: FrameProgramRequest): FrameProgramRequest {
   return Object.freeze({
     ...request,
     activeSets: Object.freeze(activeSets),
-    activeExceptionLanes: Object.freeze(activeExceptionLanes),
     textureBankMask: request.textureBankMask ?? 0x1ff,
     shadowProfile,
     fsr3Enabled: request.fsr3Enabled !== false,
@@ -299,7 +286,7 @@ function structuralKey(request: FrameProgramRequest): string {
     ...base, request.internalWidth, request.internalHeight,
     request.virtualGeometry, request.virtualBankCount,
     request.previousHzb, request.currentHzbLateRecheck,
-    request.activeSets, request.activeExceptionLanes, request.textureBankMask ?? 0x1ff,
+    request.activeSets, request.textureBankMask ?? 0x1ff,
     request.hasLit, request.aoProfile ?? "off", request.shadowProfile ?? "off",
     request.physicalEnvironment, request.fsr3Enabled !== false, request.bloomEnabled !== false,
     request.debugView ?? RenderDebugViewValue.None

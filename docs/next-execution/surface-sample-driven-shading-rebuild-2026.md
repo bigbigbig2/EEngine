@@ -1,6 +1,6 @@
 # Surface 分频着色：实现重构执行顺序
 
-日期：2026-09-30。状态：阶段一已完成；阶段二至四待执行。唯一目标设计为 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，来源入口为 [Next renderer ledger](../porting/next-renderer.md)。
+日期：2026-09-30。状态：阶段一、二已完成；阶段三、四待执行。唯一目标设计为 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，来源入口为 [Next renderer ledger](../porting/next-renderer.md)。
 
 ## 执行原则
 
@@ -8,7 +8,7 @@
 
 按下面四个完整重构阶段推进，不拆成几十个文档/门禁任务。阶段内持续编码、按需调试；大模块原理与生产链贯通后集中 typecheck/build/必要 targeted tests。正式 browser matrix、P50/P95 与 claims 仍遵循根 AGENTS 的最终验收节奏。实际编译失败必须修复。
 
-当前 workstream 的 currentSlice 已记录 Surface 阶段一。既有 Virtual Geometry 画质/LOD 问题保持未验收；Surface 阶段一不证明这些问题已经修复。下一步是本文阶段二，本次仅完成阶段一，不提前切换 heavy worker/Resolve。
+当前 workstream 的 currentSlice 已记录 Surface 阶段二。既有 Virtual Geometry 画质/LOD 问题保持未验收；本次 Surface 重建不证明这些问题已经修复。下一步是本文阶段三，不提前宣称最终画质、GPU 加速或分信号重建完成。
 
 ## 阶段一：建立能够服务真实 PBR 的数据与逐像素事实
 
@@ -55,6 +55,18 @@
 **切换规则：** 新代码可在独立 oracle/harness 中开发，但生产入口只有一次替换，没有 old/new runtime toggle。新 full-rate worker 是同一体系的必要分支，不是旧 dense renderer 的保留副本。未接通前不把新 pipeline 标记已采用，接通后不为回退保留旧 owner。
 
 **阶段结果：** ordinary PBR 的 material/lighting sample counters 实际减量；全率/粗率/背景/非法 key/overflow 都有唯一写域；moving camera 可正常输出。只有 Work Builder 或队列演示不算完成。
+
+### 阶段二收口记录（2026-09-30）
+
+- 唯一 coordinator 接通 Probe → tile Work Builder → GPU finalize → material/lighting workers → Resolve → 既有 HDR/Sky/Aerial/FSR3/Bloom/Radiometry/Present。删除旧 frequency shader/ABI、Dense 内七 lane producer、旧 lane 容量和运行开关；Frame Program 不再携带 exception lanes。
+- 四个 resident-set profiles 共享同一 Standard/Unlit/Coated 数学；几何、texture/closure 与 lighting 已从 surface_material_kernel 拆分为独立模块。所有 worker 的 demand mask 为零，不恢复重复 motion 求值。纯同率/full tile 只发一个 descriptor；mixed tile 才建立 24-byte record（tile、代表 pixel、64-bit coverage mask、result、profile）和 profile index list。
+- 160-byte 固定 tile 状态含 16 个 cell rate/result bases；record 与 result 池均按 tile 完整预约后提交。任一池不足使整个 tile fallback；partial reservations 不发布 descriptor/indices，workers/Resolve 检查最终状态。fallback 直接扫描固定 tile 状态，没有 repair queue。独立 finalize 生成合法二维 indirect，正常 full-rate 直接写 HDR，coarse 只写独立 rgba16float result pool，Resolve 不读取 HDR。背景、非法 key、奇数尾部和 overflow 都有互斥写域。
+- 具名 directional-no-shadow 同率 profile 消费当前位置/视向/法线与 roughness 风险；有 punctual active light list、VSM 或物理天空/IBL 就保守全率，不借代表 pixel 的 cluster/light list 替其他像素漏光。ORM、normal-map 未证明风险、Coated 与未知数据保持全率；AO 非一致 cell 也全率。预算通过不可变 RendererConfig.surfaceShadingBudget 传入，默认全零；这不是新旧运行桥梁或最终画质阈值。
+- 容量在创建前协商：fixed states/descriptors、record/index、coarse result extent、u32 上界及二维 dispatch。默认 record/result capacity 均为 ceil(P/2)，record capacity 进一步受 storage binding/buffer limit 截断；高频 homogeneous tile 不依赖这些池。最宽 AO worker 为 16 storage buffers、15 sampled textures、2 storage textures；lit probe workgroup facts 为 11264 bytes。
+
+验证：typecheck/build、31 项 targeted Node checks 与 Dawn D3D12 的真实 GPU producer/consumer oracle 通过。GPU 使用 d3d_skip_shader_optimizations 诊断 toggle，仍实际执行 D3D12，不使用 null backend，不用于性能测量。非恒定 resident albedo 普通 PBR + 非零方向光的 material/lighting counters 为 full 64、quad 16、方向率 32；mixed 为 21（17 coarse + 4 full），数值与同数学 full 对照的最大误差小于 0.04。record/result/双池/partial reservation overflow 完整退回 full 并逐位匹配 full HDR；Coated、背景、非法 key、驻留变化、当前灯表风险、moving camera、独立 Temporal motion、奇数尾部与强制 dispatch X=1 的跨两 tile 二维 indirect 消费均有实际 GPU 覆盖。上述仅为受控生产 FrameGraph oracle，不是正式画质验收。
+
+本阶段未改 Product/Cooker 或 WASM，不重复重建既有产物。正式 browser/场景/lifecycle/画质全矩阵、GPU P50/P95、evidence/claims 和阶段三分信号/tail packing 未运行或未实施，原因是按阶段计划延后；不宣称净加速。阶段一记录的两处陈旧断言仍保留。额外扩大到 material-closure、capability、VSM 和 specialization 的检查共 48 项，47 通过；shading-program-specialization.test.mjs 仍断言 ABI v6，任务开始前源码已是 v7，该既有失败未借阶段二修改。不宣称全量测试通过。
 
 ## 阶段三：完成分信号质量与有效 GPU 执行
 

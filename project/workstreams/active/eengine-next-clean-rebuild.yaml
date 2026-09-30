@@ -8,18 +8,16 @@ decision: ADR-0020
 goal: Establish the final architecture's Frame Program, Surface and Temporal boundaries on the single production path, then integrate planned providers in large continuous modules.
 
 currentSlice:
-  id: surface-sample-driven-shading-phase-one
-  title: Surface 分频着色阶段一：连续性、材质签名、SurfaceProbe 与独立 motion
+  id: surface-sample-driven-shading-phase-two
+  title: Surface 分频着色阶段二：唯一 sample-driven worker、整 tile 提交与 Resolve
   status: completed
-  goal: 阶段一已完成真实 textured Standard PBR 候选事实与独立 rigid motion；下一步实施 sample-driven worker/Resolve，不提前宣称重着色减量。
+  goal: 阶段二已完成普通贴图 PBR 材质/方向光减样本与整 tile 多池回退主链；下一步阶段三分信号质量和有效执行，不提前宣称整帧加速。
   completed: |
-    Surface 阶段一：recipe surface-v5/32-byte primitive domain-risk-variation metadata、资产内唯一域 ID、完整 page/group 容量切分、材质 ABI v7/64-byte role routes、TextureResidency 实际版本/区间发布、8x8 workgroup SurfaceProbe/CPU reference/counters 和独立 Temporal rigid motion 已接入唯一生产路径。PBR 重着色仍全率，默认预算全零，受控非恒定纹理 GPU oracle 能产生跨 primitive quad 候选；阶段二至四未实施。
-    typecheck/build、131 项定向 Node checks、Dawn D3D12 生产 shader GPU oracle、Native Cooker/ABI oracle 和两种 WASM 构建通过。正式 browser/画质/lifecycle/性能与 claims 未运行。额外检查中的两处既有陈旧合同断言见 Surface 执行文档，不宣称全量测试全通过。
+    Surface 阶段一：recipe surface-v5/32-byte primitive domain-risk-variation metadata、资产内唯一域 ID、完整 page/group 容量切分、材质 ABI v7/64-byte role routes、TextureResidency 实际版本/区间发布、8x8 workgroup SurfaceProbe/CPU reference/counters 和独立 Temporal rigid motion 已接入唯一生产路径。阶段二已替换旧 frequency/Dense/seven-lane ABI：四个 resident-set profiles、同率 descriptor/mixed compact、record/result 整 tile 提交、独立 finalize、不可变 sample results 与 Resolve 接入唯一生产 FrameGraph。默认预算严格；受控真实非恒定纹理 PBR/方向光由64降至16 material/lighting samples；未知 punctual/阴影/天空/ORM/normal-map/Coated 全率；阶段三、四待执行。
+    阶段二 typecheck/build、31 项 targeted Node checks 与 Dawn D3D12 生产 FrameGraph GPU oracle 通过；记录 full/方向率/quad/mixed、全池及 partial overflow、背景/非法 key/Coated/灯表/驻留变化/移动相机与独立 motion。GPU shader 诊断关闭驱动优化，不作为性能测量；本次未改 Cooker/Product，不重复重建 Native/WASM。阶段一已有131项/Native/WASM验证记录保留。正式 browser/画质/lifecycle/性能与 claims 未运行。额外检查中的两处既有陈旧合同断言见 Surface 执行文档，不宣称全量测试全通过。
     历史 VG/VSM 记录保留其验收边界：VG 曾修复 object-space bounds、meshlet handoff、保守 HZB 和 Float32 位置/terminal error，并有相应定向测试；此前近景 barrel/wedge 与 UV/tangent 质量问题未完成验收，不能因本次 metadata 或既有 attribute-update cooker 源码而视为关闭。Previous-HZB early rejection 的 recovery 仍待接通。VSM E0-E9 的既有页需求/分配/caster/Atlas/Surface 集成及 Perf Host 测量记录不证明本次 Surface 或 VG 性能。
 
 nextModules:
-  - id: surface-sample-driven-shading-phase-two
-    title: Surface 阶段二：唯一 sample-driven worker 与 Resolve 主链
   - id: surface-sample-driven-shading-phase-three
     title: Surface 阶段三：分信号质量与有效 GPU 执行
   - id: surface-sample-driven-shading-phase-four

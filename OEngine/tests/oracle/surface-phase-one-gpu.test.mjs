@@ -5,12 +5,13 @@ import "../webgpu-test-globals.mjs";
 import { cookSurfacePlane } from "../fixtures/surface-phase-one.mjs";
 
 const gpuModule = process.env.OENGINE_TEST_WEBGPU_MODULE;
-test("production SurfaceProbe consumes cooked textured Standard PBR and fails full on stale residency", {
+test("production Surface samples and Resolve consume textured PBR with independent moving-camera facts", {
   skip: !gpuModule && "Set OENGINE_TEST_WEBGPU_MODULE to a Dawn node-webgpu module for actual GPU execution"
 }, async () => {
   const { create, globals } = await import(pathToFileURL(gpuModule).href);
   Object.assign(globalThis, globals);
-  const gpu = create(["backend=d3d12", "enable-dawn-features=allow_unsafe_apis"]);
+  const gpu = create(["backend=d3d12", "enable-dawn-features=allow_unsafe_apis" +
+    (process.env.OENGINE_TEST_DAWN_SKIP_OPTIMIZATIONS === "1" ? ",d3d_skip_shader_optimizations" : "")]);
   const adapter = await gpu.requestAdapter(); assert.ok(adapter);
   assert.ok(adapter.features.has("texture-formats-tier1"));
   const device = await adapter.requestDevice({ requiredFeatures: ["texture-formats-tier1"], requiredLimits: { maxStorageBuffersPerShaderStage: 16,
@@ -24,6 +25,7 @@ test("production SurfaceProbe consumes cooked textured Standard PBR and fails fu
     const { GpuMaterialStore } = await import("../../.test-dist/gpu/GpuMaterialStore.js");
     const { StandardShadeMaterial } = await import("../../.test-dist/material/StandardShadeMaterial.js");
     const { ShadeTexture, ShadeImage } = await import("../../.test-dist/texture/ShadeTexture.js");
+    const { encodeGpuTextureRef } = await import("../../.test-dist/gpu/GpuTextureRefAbi.js");
     const { decodedTextureVariation } = await import("../../.test-dist/gpu/TextureVariation.js");
     const { packSurfaceProbeBudget, surfaceProbeCellReference } = await import("../../.test-dist/render/surface/SurfaceProbe.js");
     const { TEMPORAL_FACTS_WGSL } = await import("../../.test-dist/shaders/temporal_facts.js");
@@ -65,7 +67,7 @@ test("production SurfaceProbe consumes cooked textured Standard PBR and fails fu
       onAborted: { addOne() {} }, gpuDone: Promise.resolve(),
       writeBuffer(target, offset, data, begin, size) { device.queue.writeBuffer(target, offset, data, begin, size); } };
     const stage = store.stage([{ material, programId: 15, textureBindingSetId: 0 }],
-      new Map([[material, new Map([[material.texture_albedo, 0x10000001]])]]), command,
+      new Map([[material, new Map([[material.texture_albedo, encodeGpuTextureRef(0, 1)]])]]), command,
       new Map([[material.texture_albedo, [0, 0]]]), new Map([[material.texture_albedo, {
         slot: 1, revision: 1, variation: decodedTextureVariation(material.texture_albedo)
       }]]));
@@ -134,6 +136,9 @@ test("production SurfaceProbe consumes cooked textured Standard PBR and fails fu
     assert.equal(baseline.counts[0], 16); assert.equal(baseline.counts[1], 64);
     assert.equal(baseline.counts[5], 16); assert.ok(baseline.counts[14] > 0);
     assert.equal(baseline.counts[15], 64);
+    const { surfacePhaseTwoGpuOracle } = await import("../fixtures/surface-phase-two-gpu.mjs");
+    await surfacePhaseTwoGpuOracle({ device, resources, buffer, visibility, depth, work, instance, metadata, page, dummy,
+      stage, residency, identity, viewSource, probeBudget, materialSlot, keys });
     device.queue.writeBuffer(residency, 4, new Uint32Array([2]));
     const stale = await execute();
     assert.deepEqual(stale.rates, Array(16).fill(0)); assert.equal(stale.counts[10], 64);

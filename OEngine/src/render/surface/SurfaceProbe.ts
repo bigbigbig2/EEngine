@@ -4,6 +4,9 @@ export interface SurfaceProbeBudget {
   readonly normal: number;
   readonly depth: number;
   readonly uv: number;
+  readonly lightingPosition?: number;
+  readonly lightingView?: number;
+  readonly minimumRoughness?: number;
 }
 export const EXACT_SURFACE_PROBE_BUDGET: SurfaceProbeBudget = Object.freeze({
   color: 0, parameter: 0, normal: 0, depth: 0, uv: 0
@@ -14,12 +17,44 @@ export const SURFACE_PROBE_REASONS = Object.freeze({
   variation: 11, uv: 12, samePrimitive: 13, crossPrimitive: 14, recoveries: 15
 });
 export const SURFACE_PROBE_COUNTER_BYTES = 64;
+export const SURFACE_PROBE_LIGHTING_WORKGROUP_STORAGE_BYTES = 176 * 64;
+export interface SurfaceLightingCellRisk {
+  readonly shadow: boolean;
+  readonly environment: boolean;
+  readonly punctualLights: number;
+  readonly roughness: number;
+  readonly ormTexture: boolean;
+  readonly positions: readonly (readonly [number, number, number])[];
+  readonly viewDirections: readonly (readonly [number, number, number])[];
+  readonly ao?: readonly number[];
+}
+export function surfaceLightingRateReference(candidate: 0 | 1 | 2 | 3,
+  budget: SurfaceProbeBudget, risk: SurfaceLightingCellRisk): 0 | 1 | 2 | 3 {
+  packSurfaceProbeBudget(budget);
+  if (candidate === 0 || risk.shadow || risk.environment || risk.punctualLights !== 0 ||
+      risk.ormTexture || !(risk.roughness >= (budget.minimumRoughness ?? 0.6) && risk.roughness <= 1) ||
+      risk.positions.length !== 4 || risk.viewDirections.length !== 4 ||
+      (risk.ao !== undefined && (risk.ao.length !== 4 || !risk.ao.every(value => Number.isFinite(value) && value === risk.ao![0])))) return 0;
+  const difference = (values: readonly (readonly number[])[], begin: number, end: number, maximum: number) =>
+    values[begin]!.every((value, index) => Number.isFinite(value) && Number.isFinite(values[end]![index]) &&
+      Math.abs(value - values[end]![index]!) <= maximum);
+  const pair = (begin: number, end: number) =>
+    difference(risk.positions, begin, end, budget.lightingPosition ?? 0) &&
+    difference(risk.viewDirections, begin, end, budget.lightingView ?? 0);
+  const horizontal = (candidate & 1) !== 0 && pair(0, 1) && pair(2, 3);
+  const vertical = (candidate & 2) !== 0 && pair(0, 2) && pair(1, 3);
+  return (Number(horizontal) | (Number(vertical) << 1)) as 0 | 1 | 2 | 3;
+}
 export function packSurfaceProbeBudget(budget: SurfaceProbeBudget): Float32Array<ArrayBuffer> {
   const values = [budget.color, budget.parameter, budget.normal, budget.depth, budget.uv];
   if (!values.every(value => Number.isFinite(value) && value >= 0)) {
     throw new RangeError("SurfaceProbe requires finite nonnegative named signal budgets");
   }
-  return new Float32Array([...values, 0, 0, 0]);
+  const lighting = [budget.lightingPosition ?? 0, budget.lightingView ?? 0, budget.minimumRoughness ?? 0.6];
+  if (!lighting.every(value => Number.isFinite(value) && value >= 0) || lighting[2]! > 1) {
+    throw new RangeError("Surface lighting budgets must be finite and nonnegative");
+  }
+  return new Float32Array([...values, ...lighting]);
 }
 export interface SurfaceProbeFact {
   readonly valid: boolean;

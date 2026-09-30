@@ -22,7 +22,7 @@ validation:
 ---
 # Surface / Work V1：Phase 2 实现边界
 
-本合同冻结已实现的单链结构和有限 profile，不代表正式 GPU 画质或性能验收。[v2 目标合同](./render-product-work-history-v2.md) 的跨消费者规划和 Temporal 仍待后续阶段；旧 exactly-once evidence 不转授本合同。
+本合同记录已退役的早期 Phase 2 结构，不再描述当前 sample-driven 主链。当前实现事实见 [Shading](../domains/shading.md) 与 [Surface 执行计划](../next-execution/surface-sample-driven-shading-rebuild-2026.md)。下文历史合同冻结当时的单链结构和有限 profile，不代表正式 GPU 画质或性能验收。[v2 目标合同](./render-product-work-history-v2.md) 的跨消费者规划和 Temporal 仍待后续阶段；旧 exactly-once evidence 不转授本合同。
 
 ## 所有权与提取
 

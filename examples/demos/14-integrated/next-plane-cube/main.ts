@@ -54,7 +54,6 @@ async function start(): Promise<void> {
   renderer = new Renderer({
     enableVsm: false,
     enablePhysicalEnvironment: ao,
-    surfaceVirtualUnlitFallback: !realGeometry,
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 }
   });
   renderer.shadowVisibilityEnabled = false;

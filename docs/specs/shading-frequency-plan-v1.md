@@ -5,7 +5,7 @@ owner: shading
 ---
 # Shading Frequency Plan V1
 
-Status: retired historical Phase 2 contract. Module B replaced its buffer/queue/Present reconstruction with a GPU-written `r32uint` tile texture consumed by Dense Surface before FSR3. The current facts are in [Shading](../domains/shading.md) and `shaders/shading_frequency.ts`; the contract below must not be used to infer production behavior.
+Status: retired historical Phase 2 contract. Module B replaced its buffer/queue/Present reconstruction with a GPU-written `r32uint` tile texture consumed by Dense Surface before FSR3. The frequency planner was then deleted by Surface sample-driven stage two; current facts are in [Shading](../domains/shading.md) and `shaders/surface_sample_work.ts`; the contract below must not be used to infer production behavior.
 
 Owners: Visibility & Surface / shading
 

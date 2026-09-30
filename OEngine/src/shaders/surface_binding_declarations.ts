@@ -3,11 +3,11 @@ import type { SurfacePhysicalBinding } from "../render/surface/SurfaceKernelBind
 export function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): string {
   const prefix = `@group(${binding.group}) @binding(${binding.binding})`;
   switch (binding.role) {
-    case "shading-work": return `${prefix} var<storage, read_write> work:SurfaceWorkQueue;`;
+    case "shading-work": return `${prefix} var<storage, read_write> work:SurfaceSampleWork;`;
     case "visibility-key": return `${prefix} var visibility_texture: texture_2d<u32>;`;
-    case "frequency-plan": return `${prefix} var frequency_plan: texture_2d<u32>;`;
+    case "sample-results": return `${prefix} var sample_results: texture_storage_2d<rgba16float, write>;`;
     case "indirect-visibility": return `${prefix} var<storage, read> xe_visibility_words: array<u32>;`;
-    case "exception-lane": return `${prefix} var<uniform> exception_lane: u32;`;
+    case "sample-profile": return `${prefix} var<uniform> sample_selected_profile: u32;`;
     case "meshlet-work": return `${prefix} var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;`;
     case "material-records": return `${prefix} var<storage, read> material_records: array<OEngineShadingMaterialRecord>;`;
     case "frame-view": return `${prefix} var<uniform> shading_view: OEngineSparseShadingView;`;

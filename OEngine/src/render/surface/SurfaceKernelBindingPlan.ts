@@ -50,7 +50,7 @@ export function compileSurfaceProgramLayout(
 
 /**
  * Four groups reflect work/output, scene geometry, material textures and direct
- * light. Locations belong to the one Dense/exception Surface owner; no legacy layout
+ * light. Locations belong to the one sample-driven Surface owner; no legacy layout
  * is imported. Only a demanded resource receives a physical slot.
  */
 export function planSurfaceKernelBindings(
@@ -75,8 +75,8 @@ export function planSurfaceKernelBindings(
   add("radiance-output", 0, 4, "write-only-rgba16float");
   add("visibility-depth", 0, 5, "sampled-depth");
   add("visibility-key", 0, 6, "sampled-uint");
-  add("exception-lane", 0, 8, "uniform");
-  add("frequency-plan", 0, 9, "sampled-uint");
+  add("sample-profile", 0, 8, "uniform");
+  add("sample-results", 0, 9, "write-only-rgba16float");
   add("indirect-visibility", 0, 10, "read-only-storage");
 
   add("instance-records", 1, 0, "read-only-storage");

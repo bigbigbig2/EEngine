@@ -340,7 +340,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     })),
     preExposureBuffer: gpuPreviousExposure,
     activeSets,
-    activeExceptionLanes: plan.request.activeExceptionLanes,
     textureBankMask: plan.request.textureBankMask ?? 0x1ff,
     hasLit: plan.request.hasLit,
     indirectVisibility: scalarAo,

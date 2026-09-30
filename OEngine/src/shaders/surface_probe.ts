@@ -6,7 +6,7 @@ import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { SURFACE_METADATA_GROUP_FLAG, SURFACE_PRIMITIVE_BYTES } from "../gpu/SurfacePrimitiveAbi.js";
 import { geometryWgsl } from "./surface_material_kernel.js";
 
-export function surfaceProbeWgsl(virtualGeometry: boolean, bankCount: number): string {
+export function surfaceProbeWgsl(virtualGeometry: boolean, bankCount: number, lighting = false): string {
   const headers = Array.from({ length: bankCount }, (_, bank) =>
     `if location.bank_index == ${bank}u {
       header = oengine_virtual_group_header_v1(&virtual_product_bank_${bank}, location, group);
@@ -19,7 +19,7 @@ ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_SPARSE_SHADING_VIEW_WGSL}
-struct ProbeBudget { color: f32, parameter: f32, normal: f32, depth: f32, uv: f32, _pad0: f32, _pad1: f32, _pad2: f32, }
+struct ProbeBudget { color: f32, parameter: f32, normal: f32, depth: f32, uv: f32, lighting_position: f32, lighting_view: f32, minimum_roughness: f32, }
 @group(0) @binding(0) var probe_key: texture_2d<u32>;
 @group(0) @binding(1) var probe_depth: texture_depth_2d;
 @group(0) @binding(2) var<storage, read> probe_work: OEngineMeshletWorkQueueRead;
@@ -43,6 +43,7 @@ struct ProbeFact {
   domain: u32, risk: u32, depth: f32, normal: vec3f, color: vec3f,
   uv0: vec2f, uv1: vec2f, dx0: vec2f, dy0: vec2f, dx1: vec2f, dy1: vec2f,
   normal_variation: f32, color_variation: f32,
+  ${lighting ? "position: vec3f, view_direction: vec3f," : ""}
 }
 fn probe_reject(reason: u32) -> bool {
   atomicAdd(&probe_counters[reason], 1u); return false;
@@ -112,7 +113,7 @@ fn probe_fact(pixel: vec2u) -> ProbeFact {
   let published_instance = instance_records[work.instance_slot];
   if (published_instance.flags & 1u) == 0u ||
     published_instance.geometry_record_index != work.geometry_slot ||
-    ((work.packed_raster_flags >> 8u) & 63u) != material.program_id ||
+    ((work.packed_raster_flags >> 8u) & 63u) != material.texture_binding_set_id * 16u + material.program_id ||
     work.material_slot_or_range >= shading_view.material_count { return result; }
   if material.family == 1u { atomicAdd(&probe_counters[1u], 1u); }
   if material.family != 1u || material.payload.alpha_mode != 0u ||
@@ -120,6 +121,8 @@ fn probe_fact(pixel: vec2u) -> ProbeFact {
     material.material_generation != shading_view.material_generation ||
     material.texture_generation != shading_view.texture_generation ||
     material.publication_revision != shading_view.publication_revision { return result; }
+  ${lighting ? `if !(material.payload.pbr_factors.y >= probe_budget.minimum_roughness && material.payload.pbr_factors.y <= 1.0) ||
+    material.payload.orm_texture_ref != 0xffffffffu { return result; }` : ""}
   let primitive = oengine_visibility_key_local_primitive(key);
   let triangle = probe_triangle(work, primitive);
   let metadata = triangle.metadata;
@@ -149,6 +152,8 @@ fn probe_fact(pixel: vec2u) -> ProbeFact {
   if !bary.valid || dot(face, face) <= 1e-16 { return result; }
   result.normal = sparse_world_normal(model, sparse_normal_ref(ref0) * bary.weights.x +
     sparse_normal_ref(ref1) * bary.weights.y + sparse_normal_ref(ref2) * bary.weights.z, normalize(face));
+  ${lighting ? `result.position = p0.xyz * bary.weights.x + p1.xyz * bary.weights.y + p2.xyz * bary.weights.z;
+  result.view_direction = normalize(shading_view.camera_position.xyz - result.position);` : ""}
   result.color = sparse_color_ref(ref0) * bary.weights.x + sparse_color_ref(ref1) * bary.weights.y + sparse_color_ref(ref2) * bary.weights.z;
   let uv00 = sparse_uv_ref(ref0, 0u); let uv01 = sparse_uv_ref(ref1, 0u); let uv02 = sparse_uv_ref(ref2, 0u);
   let uv10 = sparse_uv_ref(ref0, 1u); let uv11 = sparse_uv_ref(ref1, 1u); let uv12 = sparse_uv_ref(ref2, 1u);
@@ -163,7 +168,9 @@ fn probe_fact(pixel: vec2u) -> ProbeFact {
   result.domain = metadata.x; result.risk = metadata.y;
   result.normal_variation = bitcast<f32>(metadata.z); result.color_variation = bitcast<f32>(metadata.w);
   result.depth = textureLoad(probe_depth, vec2i(pixel), 0);
-  result.valid = !probe_failed && result.normal_variation >= 0.0 && result.normal_variation <= 2.0 &&
+  result.valid = !probe_failed &&
+    ${lighting ? "all(abs(result.position) < vec3f(65504.0)) && all(abs(result.view_direction) <= vec3f(1.001)) &&" : ""}
+    result.normal_variation >= 0.0 && result.normal_variation <= 2.0 &&
     result.color_variation >= 0.0 && result.color_variation <= 1.0 && result.depth > 0.0001 && all(abs(result.normal) < vec3f(65504.0)) &&
     all(abs(result.color) < vec3f(65504.0)) && all(abs(result.uv0) < vec2f(65504.0)) && all(abs(result.uv1) < vec2f(65504.0));
   return result;
@@ -208,6 +215,8 @@ fn probe_pair(begin: ProbeFact, end: ProbeFact) -> bool {
   if max(begin.normal_variation, end.normal_variation) > probe_budget.normal ||
     any(abs(begin.normal - end.normal) > vec3f(probe_budget.normal)) ||
     abs(begin.depth - end.depth) > probe_budget.depth { return probe_reject(7u); }
+  ${lighting ? `if any(abs(begin.position - end.position) > vec3f(probe_budget.lighting_position)) ||
+    any(abs(begin.view_direction - end.view_direction) > vec3f(probe_budget.lighting_view)) { return probe_reject(7u); }` : ""}
   let material = material_records[begin.material];
   if any(abs(begin.color - end.color) * abs(material.payload.base_color_factor.xyz) > vec3f(probe_budget.color)) ||
     max(begin.color_variation, end.color_variation) > probe_budget.color { return probe_reject(11u); }

@@ -49,6 +49,18 @@
 
 ### 具名本地算法：不是简单接线，也不是完整上游 port
 
+阶段二实施映射（2026-09-30）：重新核对上述固定 Wicked main 的 uniform/divergent tile bins 与 masked shader consumer、Intel CPS 的 RequiresPerPixelShading/DEFER_PER_PIXEL/零灯完整覆盖，以及 VRCS 23–38 页 compact/remap/coverage/race 边界。未找到包含本地 pre-material variation、WebGPU 多池整 tile commit 和 immutable Resolve 的完整 donor；采用具名本地 **Committed Tile Samples** 与 **Owner-Sample Resolve**，不是将 R20/R23 升级为完整 port。
+
+| 来源阶段/关键不变量 | 阶段二本地产物/消费者 | 保留或明确调整的边界 |
+| --- | --- | --- |
+| Wicked uniform/divergent tile 与固定 bins/indirect | SurfaceSampleAbi、surface_sample_work 的 build/finalize；SurfaceMaterialPass FrameGraph coordinator | 四个 resident-set profiles；纯同率 tile 用 descriptor，mixed 才 compact；不使用 bindless/wave/quad 或每材质全屏常态扫描 |
+| Intel CPS coarse/full 判定、当前光源集合和 DEFER_PER_PIXEL 覆盖 | surface_probe 当前 position/view/roughness；Builder 当前 active light list/VSM/environment/AO 风险；固定 tile fallback | 初始同率只放行具名方向光无阴影 profile；punctual/VSM/物理天空未知项全率，不复制代表 pixel 的 cluster list；不照搬 GBuffer 或原阈值 |
+| Forge CalcFullBary/Interpolate2DWithDeriv；既有 Filament Standard/Coated/lighting | surface_geometry、surface_material_evaluation、surface_lighting；surface_sample_worker full/implicit/compact | 按代表 winner 的解析一像素导数调用原数学，未增加 mip bias、廉价 BRDF 或 motion demand；Coated 完整保留但全率 |
+| VRCS compact remap 与覆盖，避免同 UAV 原地读取竞态 | 24-byte sample records/64-bit masks、160-byte 固定 tile state、独立 rgba16float sample results；surface_sample_work.resolve | top-left owner sample 有界复制到已认证 cell；HDR 只写不读，full/coarse/fallback 互斥；deblock/不同信号率/tail 优化仍是阶段三，不称完整 VRCS port |
+| 无完整 donor 的 multi-pool commit | record/result 同 tile 预约 → 最终状态 → 独立 finalize → worker/Resolve | partial reservation 只浪费槽、不部分提交；错误 tile 从固定状态定位，不使用可溢出 repair queue；无跨组自旋/本帧 readback/独立 submit |
+
+CPU coverage/reservation/二维 indirect/lighting-risk oracle、原透视梯度 oracle 与生产 FrameGraph 的 Dawn D3D12 material+lighting→results→Resolve→HDR 已执行。默认预算严格，受控真实纹理 PBR/非零方向光减少重样本；结果不提升正式采用/画质/性能 claims。诊断驱动关闭 shader 优化以缩短编译，不据此测量性能。
+
 阶段一实施映射（2026-09-30）：Continuity Publication 采用本地 **Source-Corner Edge Domains**，源完整属性角点焊接、双向流形边连通、各 LOD 实际角点回查、歧义/更新角点/退化/UV 翻转拒绝，发布到 page 内 primitive metadata；Native 与 WASM 共用 GeometryCooker.cpp。SurfaceProbe 采用本地 **Bounded Four-Corner Probe**：8×8 workgroup 的 64 invocations 各恢复一个 winner，使用 9216-byte workgroup facts 与无条件 barrier，16 个对齐 cell 各读取四角的透视 UV/法线/顶点色，读取同 publication 的各 role 采样签名、全 mip 保守 decoded 区间与实际 residency revision，输出候选方向率及拒绝计数。阶段一候选不是重着色 rate，PBR 保持全率消费，阶段二才切换 sample workers。默认具名预算全零；非恒定纹理 PBR 的 GPU oracle 使用显式受控预算，不将这些测试值冒充收敛后的画质阈值。压缩纹理/不可读来源 variation unknown、normal-map 尚无切线变化证明、Coated/mask/非法身份/版本不符均 full-rate。检索范围是本节冻结的 Forge/Wicked/Intel 完整源码、Decoupled Sampling 论文及 VRCS 原始技术资料；未发现可直接移植的 source-corner metadata 或 pre-material texture variation 全链 donor，以上明确为本地算法，不提升上游采用状态。
 
 以下需按复杂算法实施，而不能通过拆成 helper 规避来源/数学/消费核查：

@@ -10,12 +10,9 @@ import { GPU_SPARSE_SHADING_VIEW_BYTES, packGpuSparseShadingView } from "../../g
 import { createSurfaceBindGroupLayouts, compileSurfaceProgramLayout,
   type SurfacePhysicalBinding } from "./SurfaceKernelBindingPlan.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
-import { surfaceExecutionWgsl, SURFACE_WORK_CONTROL_WGSL,
-  type SurfaceExecutionMode } from "../../shaders/surface_execution.js";
-import { SURFACE_EXCEPTION_LANES, SURFACE_WORK_INDIRECT_BYTES,
-  surfaceLaneCapacity } from "./SurfaceExecutionAbi.js";
-import { shadingFrequencyPlanCapacity } from "./ShadingFrequencyPlanAbi.js";
-import { SHADING_FREQUENCY_PLAN_WGSL } from "../../shaders/shading_frequency.js";
+import { surfaceSampleWorkerWgsl, type SurfaceSampleWorkerMode } from "../../shaders/surface_sample_worker.js";
+import { surfaceSampleBuilderWgsl, SURFACE_SAMPLE_FINALIZE_WGSL, SURFACE_SAMPLE_RESOLVE_WGSL } from "../../shaders/surface_sample_work.js";
+import { surfaceSampleCapacity, packSurfaceSampleHeader, SURFACE_SAMPLE_INDIRECT_BYTES, SURFACE_SAMPLE_HEADER } from "./SurfaceSampleAbi.js";
 import type { PreExposureContract } from "../RadiometryContract.js";
 import type { VsmResources } from "../vsm/VsmResources.js";
 import type { VsmDirectionalFrameConstants } from "../vsm/VsmReceiverDemandPass.js";
@@ -37,7 +34,6 @@ export interface SurfaceMaterialInputs {
   readonly frame: SurfaceMaterialFrame;
   readonly preExposureBuffer: ResourceId;
   readonly activeSets: readonly number[];
-  readonly activeExceptionLanes?: readonly number[];
   readonly textureBankMask: number;
   readonly hasLit: boolean;
   /** Same-frame XeGTAO scalar product. Omitted when no lit consumer exists. */
@@ -82,69 +78,36 @@ type Program = Readonly<{
   bindings: readonly Readonly<SurfacePhysicalBinding>[];
 }>;
 
-/** One full-rate Dense producer followed by fixed GPU indirect exception lanes. */
 export class SurfaceMaterialPass {
   private readonly programs = new Map<string, Program>();
   private readonly layouts = new Map<string, readonly GPUBindGroupLayout[]>();
+  private readonly builders = new Map<string, GPUComputePipeline>();
   private readonly viewBuffer: GPUBuffer;
   private readonly samplers: readonly GPUSampler[];
-  private readonly controlLayout: GPUBindGroupLayout;
-  private readonly initialize: GPUComputePipeline;
   private readonly finalize: GPUComputePipeline;
-  private readonly frequencyLayout: GPUBindGroupLayout;
-  private readonly frequencyPipeline: GPUComputePipeline;
+  private readonly resolve: GPUComputePipeline;
   private readonly probe: SurfaceProbePass;
-
-  constructor(
-    private readonly device: GPUDevice,
-    private readonly virtualUnlitFallback = false,
-    probeBudget?: SurfaceProbeBudget
-  ) {
+  constructor(private readonly device: GPUDevice, probeBudget?: SurfaceProbeBudget) {
     this.probe = new SurfaceProbePass(device, probeBudget);
-    this.viewBuffer = device.createBuffer({
-      label: "Surface/frame view", size: Math.ceil(GPU_SPARSE_SHADING_VIEW_BYTES / 256) * 256,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
-    });
+    this.viewBuffer = device.createBuffer({ label: "Surface/frame view",
+      size: Math.ceil(GPU_SPARSE_SHADING_VIEW_BYTES / 256) * 256,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const modes = ["repeat", "clamp-to-edge", "mirror-repeat"] as const;
     this.samplers = Object.freeze(Array.from({ length: 6 }, (_, index) => {
       const filter = index < 3 ? "linear" : "nearest";
-      return device.createSampler({ addressModeU: modes[index % 3],
-        addressModeV: modes[index % 3], addressModeW: modes[index % 3],
+      return device.createSampler({ addressModeU: modes[index % 3], addressModeV: modes[index % 3],
         magFilter: filter, minFilter: filter, mipmapFilter: filter });
     }));
-    this.controlLayout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
-    ] });
-    const module = device.createShaderModule({ code: SURFACE_WORK_CONTROL_WGSL });
-    const layout = device.createPipelineLayout({ bindGroupLayouts: [this.controlLayout] });
-    this.initialize = device.createComputePipeline({ layout,
-      compute: { module, entryPoint: "initialize" } });
-    this.finalize = device.createComputePipeline({ layout,
-      compute: { module, entryPoint: "finalize" } });
-    this.frequencyLayout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-      { binding: 6, visibility: GPUShaderStage.COMPUTE,
-        storageTexture: { access: "write-only", format: "r32uint" } },
-      { binding: 7, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } }
-    ] });
-    this.frequencyPipeline = device.createComputePipeline({
-      layout: device.createPipelineLayout({ bindGroupLayouts: [this.frequencyLayout] }),
-      compute: { module: device.createShaderModule({ code: SHADING_FREQUENCY_PLAN_WGSL }),
-        entryPoint: "plan" }
-    });
+    this.finalize = device.createComputePipeline({ layout: "auto", compute: {
+      module: device.createShaderModule({ code: SURFACE_SAMPLE_FINALIZE_WGSL }), entryPoint: "finalize" } });
+    this.resolve = device.createComputePipeline({ layout: "auto", compute: {
+      module: device.createShaderModule({ code: SURFACE_SAMPLE_RESOLVE_WGSL }), entryPoint: "resolve" } });
   }
-
-  addToGraph(graph: FrameGraph, input: SurfaceMaterialInputs):
-    { radiance: ResourceId; work: ResourceId; probeCandidates: ResourceId; probeCounters: ResourceId } {
-    const { capacity, queueBytes } = surfaceLaneCapacity(input.width, input.height,
-      this.device.limits);
+  addToGraph(graph: FrameGraph, input: SurfaceMaterialInputs): {
+    radiance: ResourceId; work: ResourceId; sampleResults: ResourceId;
+    probeCandidates: ResourceId; probeCounters: ResourceId;
+  } {
+    const capacity = surfaceSampleCapacity(input.width, input.height, this.device.limits);
     const frameView = graph.import_resource("surface-frame-view",
       { kind: "imported", label: "Surface frame view" }, this.viewBuffer);
     const upload = graph.add("Surface/update material frame view", input.frame,
@@ -168,38 +131,6 @@ export class SurfaceMaterialPass {
           this.viewBuffer, 0, packed, 0, GPU_SPARSE_SHADING_VIEW_BYTES);
       });
     const currentView = upload.write(frameView);
-    const probe = this.probe.addToGraph(graph, input, currentView);
-    const tiles = shadingFrequencyPlanCapacity(input.width, input.height, this.device.limits);
-    const planner = graph.add("Surface/conservative spatial frequency", {},
-      (_data, resources, context) => {
-        const command = context.encoder as ShadeGPUCommandContext;
-        const group = this.device.createBindGroup({ layout: this.frequencyLayout, entries: [
-          { binding: 0, resource: resolveTextureView(resources.get(input.visibilityKey)) },
-          { binding: 1, resource: resolveTextureView(resources.get(input.depth)) },
-          { binding: 2, resource: { buffer: resources.get(input.meshletWork) as GPUBuffer } },
-          { binding: 3, resource: { buffer: resources.get(input.materialRecords) as GPUBuffer } },
-          { binding: 4, resource: { buffer: resources.get(input.instances) as GPUBuffer } },
-          { binding: 5, resource: { buffer: resources.get(currentView) as GPUBuffer } },
-          { binding: 6, resource: resolveTextureView(resources.get(frequencyPlan)) },
-          { binding: 7, resource: resolveTextureView(resources.get(probe.candidates)) }
-        ] });
-        const pass = command.beginComputePass({ label: "Surface/spatial frequency plan" });
-        pass.setPipeline(this.frequencyPipeline);
-        pass.setBindGroup(0, group);
-        pass.dispatchWorkgroups(Math.ceil(tiles.tilesX / 8), Math.ceil(tiles.tilesY / 8));
-        pass.end();
-      });
-    planner.read(input.visibilityKey);
-    planner.read(input.depth);
-    planner.read(input.meshletWork);
-    planner.read(input.materialRecords);
-    planner.read(input.instances);
-    planner.read(currentView);
-    planner.read(probe.candidates);
-    const frequencyPlan = planner.create("Surface/frequency plan", {
-      kind: "transient_texture", width: tiles.tilesX, height: tiles.tilesY,
-      format: "r32uint", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
-    });
     let vsmBindings: SurfaceVsmBindings | undefined;
     if (input.shadowVisibility !== undefined) {
       if (!input.hasLit) throw new Error("VSM shadow visibility requires a lit Surface consumer");
@@ -222,187 +153,153 @@ export class SurfaceMaterialPass {
           "vsm-sampling-constants"))
       });
     }
-    const hasLit = input.hasLit;
-    const scalarAo = input.indirectVisibility !== undefined;
+    const hasLit = input.hasLit, scalarAo = input.indirectVisibility !== undefined;
     if (scalarAo && !hasLit) throw new Error("Surface AO has no lit consumer");
-    const activeSets = new Set(input.activeSets);
+    const activeSets = [...new Set(input.activeSets)].sort((left, right) => left - right);
+    const builderKey = String(hasLit) + ":" + scalarAo;
+    let builderPipeline = this.builders.get(builderKey);
+    if (!builderPipeline) {
+      builderPipeline = this.device.createComputePipeline({ layout: "auto", compute: {
+        module: this.device.createShaderModule({ code: surfaceSampleBuilderWgsl(hasLit, scalarAo) }), entryPoint: "build" } });
+      this.builders.set(builderKey, builderPipeline);
+    }
+    const builderProgram = builderPipeline;
+    const probe = this.probe.addToGraph(graph, input, currentView);
+    const builder = graph.add("Surface/tile Work Builder", {}, (_data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      const queue = resources.get(work) as GPUBuffer;
+      command.clearBuffer(queue);
+      const header = packSurfaceSampleHeader(capacity); header[SURFACE_SAMPLE_HEADER.errorProfile] = activeSets[0] ?? 0;
+      command.writeBuffer(queue, 0, header.buffer, 0, header.byteLength);
+      const policy = command.allocateTransientBufferAndLoad(new Uint32Array([
+        Number(vsmBindings !== undefined || input.physicalEnvironmentSun !== undefined), 0, 0, 0]).buffer, GPUBufferUsage.UNIFORM);
+      const entries: GPUBindGroupEntry[] = [
+        { binding: 0, resource: { buffer: queue } },
+        { binding: 1, resource: resolveTextureView(resources.get(input.visibilityKey)) },
+        { binding: 2, resource: resolveTextureView(resources.get(probe.candidates)) },
+        { binding: 3, resource: { buffer: resources.get(input.meshletWork) as GPUBuffer } },
+        { binding: 4, resource: { buffer: resources.get(input.materialRecords) as GPUBuffer } },
+        { binding: 5, resource: { buffer: resources.get(currentView) as GPUBuffer } },
+        { binding: 6, resource: { buffer: policy } }
+      ];
+      if (hasLit) entries.push({ binding: 7, resource: { buffer: resources.get(required(input.lightData, "light-data")) as GPUBuffer } });
+      if (scalarAo) entries.push({ binding: 8, resource: { buffer: resources.get(input.indirectVisibility!) as GPUBuffer } });
+      const pass = command.beginComputePass({ label: "Surface/tile Work Builder" });
+      pass.setPipeline(builderProgram); pass.setBindGroup(0, this.device.createBindGroup({
+        layout: builderProgram.getBindGroupLayout(0), entries }));
+      pass.dispatchWorkgroups(capacity.tilesX, capacity.tilesY); pass.end();
+    });
+    for (const id of [input.visibilityKey, probe.candidates, input.meshletWork, input.materialRecords, currentView]) builder.read(id);
+    if (hasLit) builder.read(required(input.lightData, "light-data"));
+    if (scalarAo) builder.read(input.indirectVisibility!);
+    const work = builder.create("Surface/tile states and compact work", { kind: "transient_buffer",
+      size: capacity.workBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
+    const finalize = graph.add("Surface/finalize sample indirect", {}, (_data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      const pass = command.beginComputePass({ label: "Surface/finalize sample indirect" });
+      pass.setPipeline(this.finalize); pass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.finalize.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: resources.get(work) as GPUBuffer } },
+          { binding: 1, resource: { buffer: resources.get(indirect) as GPUBuffer } }
+        ] })); pass.dispatchWorkgroups(1); pass.end();
+    });
+    const finalizedWork = finalize.write(work);
+    const indirect = finalize.create("Surface/sample indirect", { kind: "transient_buffer",
+      size: SURFACE_SAMPLE_INDIRECT_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT });
     const virtualBankCount = input.virtualBanks?.length ?? 0;
     const physicalEnvironment = input.physicalEnvironmentSun !== undefined;
-    const dense = activeSets.size === 0 ? null :
-      this.program(hasLit, input.virtualGeometry, virtualBankCount,
-        input.textureBankMask, physicalEnvironment, scalarAo, "dense", 0,
-        vsmBindings !== undefined);
-    const requestedLanes = input.activeExceptionLanes ??
-      Array.from({ length: SURFACE_EXCEPTION_LANES }, (_, lane) => lane);
-    const lanes = requestedLanes.map(lane => {
-      const setId = lane === 0 ? 0 : 1 + Math.floor((lane - 1) / 2);
-      return activeSets.has(setId) ? { lane, setId,
-        binned: this.program(hasLit, input.virtualGeometry, virtualBankCount,
-          input.textureBankMask, physicalEnvironment, scalarAo, "binned", lane, vsmBindings !== undefined),
-        fallback: this.program(hasLit, input.virtualGeometry, virtualBankCount,
-          input.textureBankMask, physicalEnvironment, scalarAo, "fallback", lane, vsmBindings !== undefined) } : null;
-    }).filter((value): value is NonNullable<typeof value> => value !== null);
-    const surface = graph.add("Surface/Dense and bounded exceptions", {},
-      (_data, resources, context) => {
-        const command = context.encoder as ShadeGPUCommandContext;
-        const queue = resources.get(work) as GPUBuffer;
-        const args = resources.get(indirect) as GPUBuffer;
-        const clear = command.beginRenderPass({ label: "Surface/clear HDR",
-          colorAttachments: [{ view: resolveTextureView(resources.get(radiance)),
-            loadOp: "clear", storeOp: "store",
-            clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 } }] });
-        clear.end();
-        if (dense === null) return;
-        const control = command.allocateTransientBufferAndLoad(new Uint32Array([
-          capacity, Number(this.device.limits.maxComputeWorkgroupsPerDimension),
-          input.width, input.height
-        ]).buffer, GPUBufferUsage.UNIFORM);
-        const controlGroup = this.device.createBindGroup({ layout: this.controlLayout,
-          entries: [{ binding: 0, resource: { buffer: queue } },
-            { binding: 1, resource: { buffer: args } },
-            { binding: 2, resource: { buffer: control } }] });
-        const laneWords = new Uint32Array(SURFACE_EXCEPTION_LANES * 64);
-        for (let lane = 0; lane < SURFACE_EXCEPTION_LANES; lane++) {
-          laneWords[lane * 64] = lane;
-        }
-        const laneParameters = command.allocateTransientBufferAndLoad(
-          laneWords.buffer, GPUBufferUsage.UNIFORM);
-        const controlPass = (label: string, pipeline: GPUComputePipeline) => {
-          const pass = command.beginComputePass({ label });
-          pass.setPipeline(pipeline); pass.setBindGroup(0, controlGroup);
-          pass.dispatchWorkgroups(1); pass.end();
+    const programs = activeSets.map(setId => ({ setId,
+      implicit: this.program(hasLit, input.virtualGeometry, virtualBankCount, input.textureBankMask,
+        physicalEnvironment, scalarAo, "implicit", vsmBindings !== undefined),
+      compact: this.program(hasLit, input.virtualGeometry, virtualBankCount, input.textureBankMask,
+        physicalEnvironment, scalarAo, "compact", vsmBindings !== undefined),
+      fallback: this.program(hasLit, input.virtualGeometry, virtualBankCount, input.textureBankMask,
+        physicalEnvironment, scalarAo, "fallback", vsmBindings !== undefined) }));
+    const workers = graph.add("Surface/material and lighting samples", {}, (_data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      const clear = command.beginRenderPass({ label: "Surface/background", colorAttachments: [{
+        view: resolveTextureView(resources.get(radiance)), loadOp: "clear", storeOp: "store",
+        clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 } }] }); clear.end();
+      const pass = command.beginComputePass({ label: "Surface/material and lighting samples" });
+      for (const profile of programs) {
+        const parameters = command.allocateTransientBufferAndLoad(new Uint32Array([profile.setId, 0, 0, 0]).buffer,
+          GPUBufferUsage.UNIFORM);
+        const groups = profile.implicit.layouts.map((layout, groupIndex) => this.device.createBindGroup({
+          layout, entries: profile.implicit.bindings.filter(binding => binding.group === groupIndex).map(binding => ({
+            binding: binding.binding, resource: this.resolveBinding(binding, input, currentView, radiance,
+              finalizedWork, sampleResults, profile.setId, parameters, resources, vsmBindings) })) }));
+        const execute = (program: Program, compact: boolean) => {
+          pass.setPipeline(program.pipeline); groups.forEach((group, index) => pass.setBindGroup(index, group));
+          pass.dispatchWorkgroupsIndirect(resources.get(indirect) as GPUBuffer, profile.setId * 32 + Number(compact) * 16);
         };
-        controlPass("Surface/initialize exception lanes", this.initialize);
-        const groupsByLane = new Map<string, readonly GPUBindGroup[]>();
-        const encodeProgram = (pass: GPUComputePassEncoder, program: Program,
-          setId: number, laneId: number,
-          encode: (pass: GPUComputePassEncoder) => void) => {
-          const bindingKey = `${setId}:${laneId}`;
-          let groups = groupsByLane.get(bindingKey);
-          if (groups === undefined) {
-            groups = program.layouts.map((layout, groupIndex) =>
-              this.device.createBindGroup({ layout, entries: program.bindings
-              .filter(binding => binding.group === groupIndex)
-              .map(binding => ({ binding: binding.binding,
-              resource: this.resolveBinding(binding, input, currentView, frequencyPlan,
-                  radiance, work, setId, laneParameters, laneId, resources,
-                  vsmBindings) })) }));
-            groupsByLane.set(bindingKey, groups);
-          }
-          pass.setPipeline(program.pipeline);
-          groups.forEach((group, index) => pass.setBindGroup(index, group));
-          encode(pass);
-        };
-        const densePass = command.beginComputePass({ label: "Surface/Dense hot Standard and Unlit" });
-        encodeProgram(densePass, dense, 0, 0,
-          pass => pass.dispatchWorkgroups(Math.ceil(input.width / 8),
-            Math.ceil(input.height / 8)));
-        densePass.end();
-        controlPass("Surface/finalize exception indirect", this.finalize);
-        const exceptionPass = command.beginComputePass({ label: "Surface/bounded exception lanes" });
-        for (const lane of lanes) {
-          encodeProgram(exceptionPass, lane.binned, lane.setId, lane.lane,
-            pass => pass.dispatchWorkgroupsIndirect(args, lane.lane * 32));
-          encodeProgram(exceptionPass, lane.fallback, lane.setId, lane.lane,
-            pass => pass.dispatchWorkgroupsIndirect(args, lane.lane * 32 + 16));
-        }
-        exceptionPass.end();
-      });
-    for (const binding of dense?.bindings ?? []) {
-      if (binding.role === "radiance-output" ||
-          binding.role === "shading-work" || binding.role === "exception-lane" ||
-          binding.role === "frequency-plan" ||
-          binding.role.endsWith("sampler") ||
-          binding.role === "texture-samplers") continue;
-      if (binding.role === "frame-view") surface.read(currentView);
-      else if (binding.role === "pre-exposure") surface.read(input.preExposureBuffer);
-      else if (binding.role === "vsm-page-table" || binding.role === "vsm-atlas-depth" ||
-          binding.role === "vsm-sampling-constants") {
-        if (vsmBindings === undefined) throw new Error(`Surface binding missing ${binding.role}`);
-        surface.read(binding.role === "vsm-page-table" ? vsmBindings.pageTable :
-          binding.role === "vsm-atlas-depth" ? vsmBindings.atlasDepth : vsmBindings.constants);
+        execute(profile.implicit, false); execute(profile.compact, true);
+        pass.setPipeline(profile.fallback.pipeline); groups.forEach((group, index) => pass.setBindGroup(index, group));
+        pass.dispatchWorkgroups(capacity.tilesX, capacity.tilesY);
       }
-      else if (binding.role === "texture-banks") {
-        for (const setId of activeSets) {
-          const id = input.textureBanks[setId]?.[binding.element];
-          if (id !== undefined) surface.read(id);
-        }
-      } else surface.read(this.resolveResourceId(binding, input, 0));
-    }
-    surface.read(frequencyPlan);
-    const radiance = surface.create("Surface/radiance", {
-      kind: "transient_texture", width: input.width, height: input.height,
-      format: "rgba16float", domain: "internal-full",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING |
-        GPUTextureUsage.TEXTURE_BINDING
+      pass.end();
     });
-    const work = surface.create("Surface/exception work", {
-      kind: "transient_buffer", size: queueBytes, usage: GPUBufferUsage.STORAGE });
-    const indirect = surface.create("Surface/exception indirect", {
-      kind: "transient_buffer", size: SURFACE_WORK_INDIRECT_BYTES,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT });
-    return { radiance, work, probeCandidates: probe.candidates, probeCounters: probe.counters };
+    workers.read(indirect);
+    const completedWork = workers.write(finalizedWork);
+    for (const binding of programs[0]?.implicit.bindings ?? []) {
+      if (["radiance-output", "sample-results", "shading-work", "sample-profile", "texture-samplers"].includes(binding.role) ||
+          binding.role.endsWith("sampler")) continue;
+      if (binding.role === "frame-view") workers.read(currentView);
+      else if (binding.role === "texture-banks") {
+        for (const setId of activeSets) workers.read(required(input.textureBanks[setId]?.[binding.element], "texture-bank"));
+      } else workers.read(this.resolveResourceId(binding, input, 0, vsmBindings));
+    }
+    const radiance = workers.create("Surface/radiance", { kind: "transient_texture", width: input.width, height: input.height,
+      format: "rgba16float", domain: "internal-full", usage: GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC });
+    const sampleResults = workers.create("Surface/immutable coarse results", { kind: "transient_texture",
+      width: capacity.resultWidth, height: capacity.resultHeight, format: "rgba16float",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC });
+    const resolve = graph.add("Surface/coarse sample Resolve", {}, (_data, resources, context) => {
+      const pass = (context.encoder as ShadeGPUCommandContext).beginComputePass({ label: "Surface/coarse sample Resolve" });
+      pass.setPipeline(this.resolve); pass.setBindGroup(0, this.device.createBindGroup({
+        layout: this.resolve.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: resources.get(completedWork) as GPUBuffer } },
+          { binding: 1, resource: resolveTextureView(resources.get(sampleResults)) },
+          { binding: 2, resource: resolveTextureView(resources.get(radiance)) }
+        ] })); pass.dispatchWorkgroups(capacity.tilesX, capacity.tilesY); pass.end();
+    });
+    resolve.read(completedWork); resolve.read(sampleResults);
+    return { radiance: resolve.write(radiance), work: completedWork, sampleResults,
+      probeCandidates: probe.candidates, probeCounters: probe.counters };
   }
-
   private program(hasLit: boolean, virtualGeometry: boolean, virtualBankCount: number,
     textureBankMask: number, physicalEnvironment: boolean, scalarAo: boolean,
-    mode: SurfaceExecutionMode, lane: number, vsmShadowEnabled: boolean): Program {
-    const coated = hasLit && mode !== "dense" && (lane === 0 || (lane & 1) === 0);
-    const key = `${hasLit}:${virtualGeometry}:${virtualBankCount}:${textureBankMask}:${physicalEnvironment}:${scalarAo}:${mode}:${coated}:${vsmShadowEnabled}`;
-    const cached = this.programs.get(key);
-    if (cached) return cached;
+    mode: SurfaceSampleWorkerMode, vsmShadowEnabled: boolean): Program {
+    const layoutKey = [hasLit, virtualGeometry, virtualBankCount, textureBankMask,
+      physicalEnvironment, scalarAo, vsmShadowEnabled].join(":");
+    const key = layoutKey + ":" + mode;
+    const cached = this.programs.get(key); if (cached) return cached;
     const compiled = compileSurfaceProgramLayout({
-      kernel: { programId: hasLit ? 15 : 3,
-        outputDependencyMask: 0, textureBankMask },
-      virtualGeometry, virtualBankCount, lighting: hasLit ? "direct" : "unlit",
-      physicalEnvironment,
-      aoProfile: scalarAo ? "scalar-high" : "off",
-      shadowProfile: vsmShadowEnabled ? "vsm" : "off",
-      source: "surface-execution-v2", capabilityFingerprint: "webgpu-core",
-      formatProfile: "rgba16float"
+      kernel: { programId: hasLit ? 15 : 3, outputDependencyMask: 0, textureBankMask },
+      virtualGeometry, virtualBankCount, lighting: hasLit ? "direct" : "unlit", physicalEnvironment,
+      aoProfile: scalarAo ? "scalar-high" : "off", shadowProfile: vsmShadowEnabled ? "vsm" : "off",
+      source: "surface-samples-v1", capabilityFingerprint: "webgpu-core", formatProfile: "rgba16float"
     }, this.device.limits);
-    const source = surfaceExecutionWgsl(compiled.plan, mode,
-      coated ? 0 : 1, hasLit, virtualGeometry, vsmShadowEnabled,
-      virtualBankCount, textureBankMask, this.virtualUnlitFallback, physicalEnvironment);
-    const layoutKey = `${hasLit}:${virtualGeometry}:${virtualBankCount}:${textureBankMask}:${physicalEnvironment}:${scalarAo}:${vsmShadowEnabled}`;
     let layouts = this.layouts.get(layoutKey);
-    if (layouts === undefined) {
-      layouts = createSurfaceBindGroupLayouts(this.device, compiled.plan);
-      this.layouts.set(layoutKey, layouts);
-    }
-    const pipeline = this.device.createComputePipeline({
-      layout: this.device.createPipelineLayout({ bindGroupLayouts: [...layouts] }),
-      compute: { module: this.device.createShaderModule({ code: source }), entryPoint: "shade" }
-    });
-    const program = Object.freeze({ pipeline, layouts, bindings: compiled.plan.bindings });
-    this.programs.set(key, program);
-    return program;
+    if (!layouts) { layouts = createSurfaceBindGroupLayouts(this.device, compiled.plan); this.layouts.set(layoutKey, layouts); }
+    const pipeline = this.device.createComputePipeline({ layout: this.device.createPipelineLayout({ bindGroupLayouts: [...layouts] }),
+      compute: { module: this.device.createShaderModule({ code: surfaceSampleWorkerWgsl(compiled.plan, mode,
+        hasLit, virtualGeometry, vsmShadowEnabled, virtualBankCount, textureBankMask, physicalEnvironment) }), entryPoint: "shade" } });
+    const program = Object.freeze({ pipeline, layouts, bindings: compiled.plan.bindings }); this.programs.set(key, program); return program;
   }
-
   private resolveBinding(binding: Readonly<SurfacePhysicalBinding>, input: SurfaceMaterialInputs,
-    view: ResourceId, frequencyPlan: ResourceId, hdr: ResourceId,
-    work: ResourceId,
-    setId: number, laneParameters: GPUBuffer, laneId: number,
-    resources: { get(id: ResourceId): unknown },
-    vsmBindings?: SurfaceVsmBindings): GPUBindingResource {
+    view: ResourceId, hdr: ResourceId, work: ResourceId, results: ResourceId, setId: number,
+    parameters: GPUBuffer, resources: { get(id: ResourceId): unknown }, vsmBindings?: SurfaceVsmBindings): GPUBindingResource {
     if (binding.role === "texture-samplers") return this.samplers[binding.element]!;
-    if (binding.role === "exception-lane") return {
-      buffer: laneParameters, offset: laneId * 256, size: 16 };
-    if (binding.role === "physical-sky-irradiance-sampler" ||
-        binding.role === "physical-sky-specular-sampler") return this.samplers[1]!;
-    const id = binding.role === "frame-view" ? view :
-      binding.role === "frequency-plan" ? frequencyPlan :
-      binding.role === "radiance-output" ? hdr :
-      binding.role === "shading-work" ? work :
+    if (binding.role === "sample-profile") return { buffer: parameters };
+    if (binding.role === "physical-sky-irradiance-sampler" || binding.role === "physical-sky-specular-sampler") return this.samplers[1]!;
+    const id = binding.role === "frame-view" ? view : binding.role === "radiance-output" ? hdr :
+      binding.role === "sample-results" ? results : binding.role === "shading-work" ? work :
       this.resolveResourceId(binding, input, setId, vsmBindings);
     const resource = resources.get(id);
-    if (binding.kind === "sampled-depth" || binding.kind === "sampled-uint" ||
-        binding.kind === "sampled-array" || binding.kind === "sampled-2d" ||
-        binding.kind === "write-only-rgba16float" ||
-        binding.kind === "write-only-rg16float") return resolveTextureView(resource);
+    if (binding.kind.startsWith("sampled-") || binding.kind.startsWith("write-only-")) return resolveTextureView(resource);
     return { buffer: resource as GPUBuffer };
   }
-
   private resolveResourceId(binding: Readonly<SurfacePhysicalBinding>,
     input: SurfaceMaterialInputs, setId: number, vsmBindings?: SurfaceVsmBindings): ResourceId {
     switch (binding.role) {

@@ -5,7 +5,7 @@ import type { SurfaceMaterialInputs } from "./SurfaceMaterialPass.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { GPU_SURFACE_PROBE_WORKGROUP_STORAGE_BYTES } from "../../gpu/GpuSparseShadingCapability.js";
 import { surfaceProbeWgsl } from "../../shaders/surface_probe.js";
-import { EXACT_SURFACE_PROBE_BUDGET, packSurfaceProbeBudget, SURFACE_PROBE_COUNTER_BYTES,
+import { EXACT_SURFACE_PROBE_BUDGET, packSurfaceProbeBudget, SURFACE_PROBE_COUNTER_BYTES, SURFACE_PROBE_LIGHTING_WORKGROUP_STORAGE_BYTES,
   type SurfaceProbeBudget } from "./SurfaceProbe.js";
 
 export class SurfaceProbePass {
@@ -13,9 +13,10 @@ export class SurfaceProbePass {
     readonly pipeline: GPUComputePipeline;
     readonly layouts: readonly GPUBindGroupLayout[];
   }>();
-  constructor(private readonly device: GPUDevice,
-    private readonly budget: SurfaceProbeBudget = EXACT_SURFACE_PROBE_BUDGET) {
+  private readonly budget: SurfaceProbeBudget;
+  constructor(private readonly device: GPUDevice, budget: SurfaceProbeBudget = EXACT_SURFACE_PROBE_BUDGET) {
     packSurfaceProbeBudget(budget);
+    this.budget = Object.freeze({ ...budget });
   }
   addToGraph(graph: FrameGraph, input: SurfaceMaterialInputs, view: ResourceId): {
     readonly candidates: ResourceId; readonly counters: ResourceId;
@@ -25,7 +26,7 @@ export class SurfaceProbePass {
     const width = Math.ceil(input.width / 2), height = Math.ceil(input.height / 2);
     const bankCount = input.virtualBanks?.length ?? 1;
     const storageCount = 8 + (input.virtualGeometry ? 1 + bankCount : 0);
-    if (this.device.limits.maxComputeWorkgroupStorageSize < GPU_SURFACE_PROBE_WORKGROUP_STORAGE_BYTES ||
+    if (this.device.limits.maxComputeWorkgroupStorageSize < (input.hasLit ? SURFACE_PROBE_LIGHTING_WORKGROUP_STORAGE_BYTES : GPU_SURFACE_PROBE_WORKGROUP_STORAGE_BYTES) ||
         this.device.limits.maxComputeInvocationsPerWorkgroup < 64 ||
         this.device.limits.maxComputeWorkgroupSizeX < 8 || this.device.limits.maxComputeWorkgroupSizeY < 8 ||
         storageCount > this.device.limits.maxStorageBuffersPerShaderStage ||
@@ -34,7 +35,7 @@ export class SurfaceProbePass {
         Math.ceil(input.height / 8) > this.device.limits.maxComputeWorkgroupsPerDimension) {
       throw new RangeError("SurfaceProbe exceeds negotiated storage/dispatch limits");
     }
-    const key = `${input.virtualGeometry}:${bankCount}`;
+    const key = `${input.virtualGeometry}:${bankCount}:${input.hasLit}`;
     let program = this.programs.get(key);
     if (!program) {
       const entries: GPUBindGroupLayoutEntry[] = [
@@ -54,7 +55,7 @@ export class SurfaceProbePass {
       const pipeline = this.device.createComputePipeline({ label: "Surface/probe candidates",
         layout: this.device.createPipelineLayout({ bindGroupLayouts: layouts }),
         compute: { module: this.device.createShaderModule({ label: "Surface/bounded four-corner probe",
-          code: surfaceProbeWgsl(input.virtualGeometry, bankCount) }), entryPoint: "probe" } });
+          code: surfaceProbeWgsl(input.virtualGeometry, bankCount, input.hasLit) }), entryPoint: "probe" } });
       program = { pipeline, layouts }; this.programs.set(key, program);
     }
     const selected = program;
@@ -87,7 +88,7 @@ export class SurfaceProbePass {
       input.textureResidencyVersions, ...(input.virtualGeometry ? [input.virtualMetadata!, ...input.virtualBanks!] : [])]) node.read(id);
     const candidates = node.create("Surface/PBR candidate rates", {
       kind: "transient_texture", width, height, format: "r32uint",
-      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
     });
     const counters = node.create("Surface/probe counters", { kind: "transient_buffer",
       size: SURFACE_PROBE_COUNTER_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });

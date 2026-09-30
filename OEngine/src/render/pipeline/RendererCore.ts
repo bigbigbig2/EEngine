@@ -14,7 +14,6 @@ import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
-import { surfaceExceptionLane } from "../surface/SurfaceExecutionAbi.js";
 import { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
 import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
@@ -1200,7 +1199,7 @@ export class Renderer {
         // The SDR configure in resize is the fallback on unsupported devices.
       }
     }
-    this._surfaceMaterial = new SurfaceMaterialPass(device, config.surfaceVirtualUnlitFallback === true);
+    this._surfaceMaterial = new SurfaceMaterialPass(device, config.surfaceShadingBudget);
     this._xeGtaoPreparation = new XeGtaoPreparationPass(device);
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
@@ -1358,12 +1357,6 @@ export class Renderer {
       const activeSets = Array.from({ length: 4 }, (_, setId) => setId)
         .filter(setId => runtime.activeShadingSummary.binRefCounts
           .slice(setId * 16, setId * 16 + 16).some(count => count > 0));
-      const activeExceptionLanes = activeSets.flatMap(setId => [
-        ...(setId !== 0 && runtime.activeShadingSummary.standardSetRefCounts[setId]! > 0
-          ? [surfaceExceptionLane(setId, false)] : []),
-        ...(runtime.activeShadingSummary.coatedSetRefCounts[setId]! > 0
-          ? [surfaceExceptionLane(setId, true)] : [])
-      ]);
       const textureBankMask = activeSets.reduce((mask, setId) => {
         const set = runtime.materialResources.bindingSets.find(candidate => candidate.id === setId);
         if (!set) throw new Error(`Active texture set ${setId} is not resident`);
@@ -1516,7 +1509,7 @@ export class Renderer {
         virtualBankCount: runtime.virtualGeometry?.banks.length ?? 0,
         previousHzb: this.packed_visibility_hzb_enabled,
         currentHzbLateRecheck: job.prepared.currentHzbLateRecheck !== null,
-        activeSets, activeExceptionLanes, textureBankMask, hasLit,
+        activeSets, textureBankMask, hasLit,
         aoProfile: this.xe_gtao_enabled && hasLit && activeSets.length > 0
           ? "scalar-high" : "off",
         shadowProfile: vsmEnabled

@@ -53,11 +53,7 @@ test("Frame Program closes the current scene product demand with a structural ke
   const first = buildFrameProgram(scene);
   const sameShape = buildFrameProgram({ ...scene, activeSets: [0] });
   assert.equal(first.key, sameShape.key);
-  const denseOnly = buildFrameProgram({ ...scene, activeExceptionLanes: [] });
-  assert.deepEqual(denseOnly.request.activeExceptionLanes, []);
-  assert.notEqual(first.key, denseOnly.key);
-  assert.throws(() => buildFrameProgram({ ...scene, activeExceptionLanes: [1] }),
-    /outside active resident sets/u);
+  assert.equal(Object.hasOwn(first.request, "activeExceptionLanes"), false);
   for (const product of ["visibility", "depth", "hzb", "meshlet-work", "light-cluster",
     "surface-radiance", "temporal-motion", "sky-radiance", "aerial-radiance",
     "reconstructed-color", "swapchain"]) assert.ok(first.products.includes(product), product);

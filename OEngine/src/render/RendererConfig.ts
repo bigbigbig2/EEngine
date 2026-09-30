@@ -1,4 +1,6 @@
-/** Phase 1 Renderer configuration. Effects return through semantic products in later phases. */
+import { packSurfaceProbeBudget } from "./surface/SurfaceProbe.js";
+
+/** Immutable Renderer capability and execution configuration. */
 export interface RendererConfig {
   /** Opt in to extended Display-P3 when canvas and display report support. */
   readonly displayProfile?: "sdr" | "hdr-auto";
@@ -10,8 +12,8 @@ export interface RendererConfig {
   readonly autoExposure?: boolean;
   /** Fixed scene exposure used when autoExposure is false. Defaults to 1. */
   readonly fixedExposure?: number;
-  /** Use the bounded unlit Surface consumer for Product geometry in A-D validation runs. */
-  readonly surfaceVirtualUnlitFallback?: boolean;
+  /** Immutable named error budgets; omitted means exact/full-rate rejection. No shader or resource ownership transfers. */
+  readonly surfaceShadingBudget?: import("./surface/SurfaceProbe.js").SurfaceProbeBudget;
   /** Internal visibility resolution relative to the output, in (0, 1]. */
   readonly renderScale?: number;
   readonly textureMaxResolution?: 256 | 512 | 1024 | 2048 | 4096;
@@ -40,6 +42,7 @@ export function mergeRendererConfig(base: RendererConfig, override?: RendererCon
 }
 
 export function validateRendererConfig(config: RendererConfig): void {
+  if (config.surfaceShadingBudget !== undefined) packSurfaceProbeBudget(config.surfaceShadingBudget);
   if (config.renderScale !== undefined &&
       (!Number.isFinite(config.renderScale) || config.renderScale <= 0 || config.renderScale > 1)) {
     throw new RangeError("Renderer renderScale must be in (0, 1]");

@@ -9,10 +9,7 @@ import {
   surfaceMaterialRequirements, closeSurfaceBindings
 } from "../../.test-dist/render/surface/SurfaceProducts.js";
 import { GPU_SURFACE_KERNEL_DEMAND } from "../../.test-dist/gpu/GpuSurfaceProgramSpecialization.js";
-import { surfaceExecutionWgsl, SURFACE_WORK_CONTROL_WGSL } from
-  "../../.test-dist/shaders/surface_execution.js";
-import { SURFACE_EXCEPTION_LANES, surfaceExceptionLane, surfaceLaneCapacity } from
-  "../../.test-dist/render/surface/SurfaceExecutionAbi.js";
+import { surfaceSampleWorkerWgsl } from "../../.test-dist/shaders/surface_sample_worker.js";
 import { planSurfaceKernelBindings, compileSurfaceProgramLayout,
   createSurfaceBindGroupLayouts } from
   "../../.test-dist/render/surface/SurfaceKernelBindingPlan.js";
@@ -24,39 +21,19 @@ const desktopLimits = Object.freeze({
   maxUniformBuffersPerShaderStage: 12
 });
 
-test("production Surface has bounded Dense, Binned and whole-lane overflow paths", () => {
-  assert.equal(SURFACE_EXCEPTION_LANES, 7);
-  assert.equal(surfaceExceptionLane(0, true), 0);
-  assert.equal(surfaceExceptionLane(1, false), 1);
-  assert.equal(surfaceExceptionLane(3, true), 6);
-  assert.throws(() => surfaceExceptionLane(0, false), /Dense/);
-  const queue = surfaceLaneCapacity(64, 64, {
-    maxBufferSize: 65536, maxStorageBufferBindingSize: 65536,
-    maxComputeWorkgroupsPerDimension: 65535
-  });
-  assert.equal(queue.capacity, Math.ceil(64 * 64 / 7));
-  assert.match(SURFACE_WORK_CONTROL_WGSL, /attempted>work\.header\.capacity/);
-  assert.match(SURFACE_WORK_CONTROL_WGSL, /vec4u\(0u,0u,1u,0u\),overflow/);
+test("sample workers share the resource closure without motion or HDR readback", () => {
   const plan = compileSurfaceProgramLayout({
-    kernel: { programId: 15, outputDependencyMask: 0,
-      textureBankMask: 0x1ff },
-    virtualGeometry: false, lighting: "direct", source: "surface-execution-v2",
+    kernel: { programId: 15, outputDependencyMask: 0, textureBankMask: 0x1ff },
+    virtualGeometry: false, lighting: "direct", source: "surface-samples-v1",
     capabilityFingerprint: "webgpu-core", formatProfile: "rgba16float"
   }, desktopLimits).plan;
-  for (const [mode, lane] of [["dense", 0], ["binned", 1], ["binned", 0],
-    ["fallback", 1], ["fallback", 0]]) {
-    const source = surfaceExecutionWgsl(plan, mode, lane, true, false);
+  for (const mode of ["implicit", "compact", "fallback"]) {
+    const source = surfaceSampleWorkerWgsl(plan, mode, true, false);
     const actual = [...source.matchAll(/@group\((\d+)\)\s*@binding\((\d+)\)/gu)]
-      .map(match => `${match[1]}:${match[2]}`).sort();
-    assert.deepEqual(actual, plan.bindings.map(binding =>
-      `${binding.group}:${binding.binding}`).sort());
+      .map(match => match[1] + ":" + match[2]).sort();
+    assert.deepEqual(actual, plan.bindings.map(binding => binding.group + ":" + binding.binding).sort());
     assert.match(source, /fn shade\(/u);
-    assert.doesNotMatch(source, /ShadingWorkClassesRead/u);
-    if (mode === "dense") {
-      assert.match(source, /oengine_shading_anchor\(pixel\)==pixel/u);
-      assert.match(source, /surface_store\(pixel,vec4f\(radiance/u);
-      assert.doesNotMatch(source, /output_motion/u);
-    }
+    assert.doesNotMatch(source, /output_motion|textureLoad\(output_hdr|previous_object_to_world\s*\*/u);
   }
 });
 
@@ -90,9 +67,9 @@ test("material resource closure follows triangle, texture and direct-light deman
   assert.equal(unlit.triangleReconstruction, false);
   assert.equal(unlit.directLighting, false);
   assert.deepEqual(unlit.roles, [
-    "shading-work", "visibility-key", "frequency-plan", "meshlet-work",
+    "shading-work", "visibility-key", "sample-results", "meshlet-work",
     "material-records", "frame-view", "pre-exposure", "radiance-output",
-    "exception-lane"
+    "sample-profile"
   ]);
   const texturedPbr = { ...base, virtualGeometry: true,
     kernel: { programId: 15, outputDependencyMask: 0, textureBankMask: 3 }
@@ -123,19 +100,19 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   };
   const narrow = planSurfaceKernelBindings(base, desktopLimits);
   assert.deepEqual(narrow.totals, {
-    storageBuffers: 3, storageTextures: 1, sampledTextures: 2,
+    storageBuffers: 3, storageTextures: 2, sampledTextures: 1,
     samplers: 0, uniformBuffers: 3
   });
   assert.deepEqual(narrow.bindings.map(binding => binding.role), [
     "shading-work", "meshlet-work", "material-records", "frame-view", "pre-exposure", "radiance-output",
-    "visibility-key", "exception-lane", "frequency-plan"
+    "visibility-key", "sample-profile", "sample-results"
   ]);
   const full = { ...base, virtualGeometry: true, lighting: "direct",
     kernel: { programId: 15, outputDependencyMask: 0,
       textureBankMask: 0x1ff } };
   const plan = planSurfaceKernelBindings(full, desktopLimits);
   assert.deepEqual(plan.totals, {
-    storageBuffers: 15, storageTextures: 1, sampledTextures: 16,
+    storageBuffers: 15, storageTextures: 2, sampledTextures: 15,
     samplers: 8, uniformBuffers: 5
   });
   const aoPlan = planSurfaceKernelBindings({ ...full, aoProfile: "scalar-high" }, desktopLimits);
@@ -173,7 +150,7 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   assert.equal(compact.plan.bindings.filter(binding => binding.role === "virtual-product-banks").length, 1);
   assert.equal(compact.plan.bindings.filter(binding => binding.role === "texture-banks").length, 1);
   assert.notEqual(compact.plan.signature, plan.signature);
-  const compactWgsl = surfaceExecutionWgsl(compact.plan, "dense", 0, true, true, false, 1, 1);
+  const compactWgsl = surfaceSampleWorkerWgsl(compact.plan, "implicit", true, true, false, 1, 1);
   assert.match(compactWgsl, /virtual_product_bank_0/);
   assert.doesNotMatch(compactWgsl, /virtual_product_bank_1/);
   assert.equal([...compactWgsl.matchAll(/struct OEngineInstanceRecord\s*\{/gu)].length, 1);
@@ -182,8 +159,8 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   }, desktopLimits);
   assert.equal(withoutSky.plan.bindings.some(binding =>
     binding.role.startsWith("physical-")), false);
-  const noSkyWgsl = surfaceExecutionWgsl(withoutSky.plan, "dense", 0,
-    true, true, false, 1, 1, false, false);
+  const noSkyWgsl = surfaceSampleWorkerWgsl(withoutSky.plan, "implicit",
+    true, true, false, 1, 1, false);
   assert.doesNotMatch(noSkyWgsl, /physical_environment_sun|atmosphere_world_to_planet/u);
   assert.match(noSkyWgsl, /return direct \+ surface\.emissive;/u);
   const emitted = [];
