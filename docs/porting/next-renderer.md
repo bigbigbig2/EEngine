@@ -23,6 +23,92 @@
 - **构建与局部回归**：OEngine typecheck/build、examples build:examples、单线程及 pthread WASM 构建、Native cooker 构建通过；56 项 contract/oracle/scheduler 测试通过，另有 Native/WASM 同 GLB 对照与 validation overflow-source 检查通过。examples 构建仍有已有的 large.glb 缺失及大 chunk 警告。
 - **未完成验证及成本**：前轮 Chrome 插件缺少 `scripts/browser-client.mjs`；本轮按用户要求不启动浏览器，Showcase 近距离/旋转截图与整帧视觉验收由用户手动完成。Dawn GPU oracle 不替代浏览器整链画面验证。位置从 6 B 增加到 12 B/vertex，最终 stride 按 4 B 对齐；关闭 previous-HZB 可能增加 work。本轮不作性能提升或完整 Nyx runtime parity 声明。
 
+## 2026-09-30 Surface 最终设计：Signal-Rate Surface（未实施）
+
+最终设计见 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，实现顺序见 [四阶段重构](../next-execution/surface-sample-driven-shading-rebuild-2026.md)。这两份文件替代前期候选排序，确定先减少 ordinary PBR 的重样本，再按残余瓶颈做局部优化。**最终设计不等于采用完成**，本轮未改源码/当前 workstream，也未改 R02/R03/R20/R23 的既有状态。
+
+### 来源检索范围与核对记录
+
+先查固定 GitHub 版本的完整实现文件，再对照论文/第一方详细说明。前期已查 The Forge、Wicked Engine、Intel DeferredCoarsePixelShading、WeakKnight DACS、WeakKnight OSS，以及 DACS/FastAtlas 作者资料；后续核对 NVIDIA Decoupled Sampling、JCGT Visibility Buffer、Lighthugger README 与 DOOM GPC 2025 原始幻灯片。没有发现一个完整 donor 可以直接提供本地完整 profile；Ilum 未固定并审计具体版本，不列入可移植来源。
+
+本轮重新取得 The Forge utilities、Wicked 两个 shaders、Intel `ComputeShaderTile.hlsl` 的固定 revision 源文件和许可证信息，核对实际 primitive/material 判据与消费；The Forge/Wicked/OSS 仓库许可及 Intel 源文件头分别明确 Apache-2.0/MIT/Apache-2.0/Apache-2.0。Intel 根路径 `LICENSE` 返回 404，许可依据采用固定 shader 自带完整 Apache-2.0 声明，后续若移植其其他文件要继续核对各文件许可，不假定已查遍全仓。
+
+源码留存 `.tmp/surface-shading-oss-study/pinned-sources/` 仅作本地调查方便；正式依据是下表固定 SHA/URL 与源符号，不依赖 `.tmp` 进入版本控制。本轮没有运行外部工程或 GPU benchmark。
+
+### 选定来源到本地阶段的映射
+
+| 固定来源 / 许可 / 源入口 | 源输入 → 阶段 → 输出与关键分支 | 对应最终本地阶段 | 移植边界 / 验证需求 |
+| --- | --- | --- | --- |
+| [The Forge utilities](https://github.com/ConfettiFX/The-Forge/blob/cd5046893faba2dc7869243873bf01f02a6f0df9/Common_3/Renderer/VisibilityBuffer2/Shaders/FSL/VisibilityBufferShadingUtilities.h.fsl)，`cd5046893faba2dc7869243873bf01f02a6f0df9`，Apache-2.0；`CalcFullBary/Interpolate2DWithDeriv` | clip 三顶点 + NDC/pixel scale → reciprocal W、透视权重、一像素投影差分 → 插值 UV 与梯度 | `surface_material_kernel` 拆分后的 Geometry/Material sample worker；必要 setup 共享 | 继续原 R02 数学来源，不宣称新完整 port；本地退化/近裁剪/非法 generation 分支保留；CPU/WGSL 对照 perspective、UV transform、coarse footprint |
+| [Wicked resolve](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/visibility_resolveCS.hlsl)、[shade](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/visibility_shadeCS.hlsl)，`df44c3db4c4927492bc9c791eac715d98d7ed091`，MIT；两文件 `main` | primitive tile 的 uniform/divergent 分支 → shaderType mask、tile bin/indirect → masked per-pixel Surface load/TiledLighting/output；背景/失败 load 退出 | Work Builder 的 profile/tile masks、bounded indirect、full-rate worker 的写域参考 | 原消费者仍每像素求值，不作为 sparse shading donor；bindless/Wave/quad 改为已协商 WebGPU 路线；新 rate 与溢出合同本地设计。此 pin 与 R23 原 pin 分立 |
+| [Intel CPS](https://github.com/GameTechDev/DeferredCoarsePixelShading/blob/63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ComputeShaderTile.hlsl)，`63ad5c1adafbfcc2869a200f50a5ea11f28b4887`，源文件 Apache-2.0；`ComputeSurfaceDataFromGBufferAllSamplesCPS/RequiresPerPixelShading/ComputeShaderTileCS` | 已有四份 GBuffer surface → position derivative/depth/normal 判断、tile light list → coarse splat 或 full；`DEFER_PER_PIXEL` 控制补做，零灯也完整写回 | Lighting signal 的 coarse/full、光源集合与覆盖 oracle 参考 | 不照搬原角度/深度常量；不把 GBuffer 读取算成免费，也不称它是 pre-material classifier；R20 不提升 |
+| [DOOM GPC 2025 PDF](https://static.graphicsprogrammingconference.com/public/2025/talks/variable-rate-compute-shaders-in-doom-the-dark-ages/Fuller-Hammer-variable-rate-compute-shaders-in-doom-the-dark-ages.pdf)，71 页；SHA256 `e5fe7cf223006bf95089eb2890c878a47aecccd612eb9e5398c1fe43273d0fad`；无完整可复制源码许可 | 11–15 页 SRI+coverage → primaries/duplicates；23–25 页 tiled remap/compact commands；27–38 页位置/去块/噪声；42/51–58 页低分辨率/内部边界；62 页 normal consumer | rate/代表位置、sample packets、重建、continuity 与按 signal 精度的技术参考 | surfaceID 为 future potential；不复制第35页同UAV原地 race；不能把其融合 shader 未完成尝试当已验证最优；未运行原 shader，不宣称 port |
+| [Decoupled Sampling](https://research.nvidia.com/publication/decoupled-sampling-graphics-pipelines)，Ragan-Kelley 等，2011，作者论文页 | visibility 到 shading 的 many-to-one 映射、memoization、可变/自适应率 | `SurfaceSamplePlan` 的采样/覆盖解耦概念 | 论文架构/仿真结果，不是可直接集成的现代 WebGPU 源码；本地阈值/variation 不是论文已给的完整 profile |
+| [Visibility Buffer](https://jcgt.org/published/0002/02/04/paper.pdf)，Burns/Hunt，JCGT 2013 | 紧凑 triangle/instance 标识 → 延后恢复 barycentric/vertex data → shading | 保留当前 Visibility 底座与按需字段原则 | 原论文不自动提供自适应压缩；本轮核对 abstract/开头方法边界，不宣称通读/重跑全文 |
+| [OSS 工程](https://github.com/WeakKnight/real-time-seamless-object-space-shading/tree/473a59bbcdd30e3366cc567d66a5a97353620d48)，`473a59bbcdd30e3366cc567d66a5a97353620d48`，Apache-2.0；`ObjectSpaceShadingPipeline.cs/RenderTaskProcessing.compute` | virtualized halfedge/chart 与 shadel demand → allocation/tasks/indirect → surface storage | 主线之后的 selected object-/texture-space cache 候选 | 仅部分 host/task 文件、README/许可已审；完整 filtering/eviction/history/GI/LOD 与 Unity/RT 适配未审，不加入首版采用范围 |
+
+### 具名本地算法：不是简单接线，也不是完整上游 port
+
+以下需按复杂算法实施，而不能通过拆成 helper 规避来源/数学/消费核查：
+
+- **Continuity Publication**：源属性接缝与输出 LOD 属性 → 可共享 domain/risk；跨 primitive/UV/tangent/非均匀缩放/代际规则 → Work Builder/probe。
+- **Material Variation / SurfaceProbe**：实际采样路由与驻留 footprint → 必要几何 probe + 有限 variation 查询 → signal rate；未知/越界/不支持过滤模式全率。无现成全链 donor，明确本地设计；CPU/WGSL oracle 检查保守区间与误差预算。
+- **Tile Sample Scheduling**：visibility/rate/profile → 隐式 tile 或 compact packets → 多池 tile 级提交/finalize → worker/Resolve；partial reservation 不部分提交，fallback 不依赖第二个可溢出 queue。
+- **Signal Resolve**：不可变 sample results + 当前身份/深度/footprint → 有界重建/高频组合 → HDR；无邻居时用 owner sample、互斥写域、颜色/pre-exposure 一次转换、全率不二次滤波。
+
+motion 权威重接、Frame Program resource edges、ABI 编解码和生命周期接线属于本地集成；它们支持上述算法，不因此将整体算法归为“简单工具”。
+
+### 不选为当前 donor 的来源
+
+DACS 独立工程 `da514fe9f6b1a2c5a732b0b9f2e20c25227960e3` 的 license 未明确，不复制；其 wave32/多轮简化光照不作为完整 PBR。DACS 作者 2020 后续说明关于驱动改变导致旧软件实现失去净收益，是评价调度合计成本的提醒，不是反对所有分频着色。FastAtlas 未审完整 supplement/consumer/许可，仍研究参考。Lighthugger README 描述全屏 compute lighting resolve，只能作为 Visibility 组织参考，未审计固定 shader/完整 license，不列入可复制 donor。
+
+### 规范与当前能力依据
+
+核对日期 2026-09-30：[WGSL 2026-09-21 CRD](https://www.w3.org/TR/2026/CRD-WGSL-20260921/)，重点 §14.5 memory model、§17.11 synchronization、§17.12 subgroups 以及纹理采样；[WebGPU living specification](https://gpuweb.github.io/gpuweb/) 用于 device limits/features 与 indirect/resource usage 实现时核对。规范条目不是浏览器支持矩阵，core 路线不依赖固定 subgroup 宽度或 native bindless；optional feature 在资源创建前协商。
+
+正式采用仍要求所选 profile 的源/本地阶段映射、必要 CPU/WGSL oracle 和新生产 GPU 真实消费证据；开发按完整模块运行 typecheck/build/targeted checks，正式平台/画质/性能矩阵遵循根开发节奏，不引入逐批晋级门槛。
+
+## 2026-09-30 Surface 极致性能调查补充（历史调查，未实施）
+
+设计分析见 [Surface 着色性能](../next-design/surface-shading-performance-design-2026.md)，本地代码基线 `f4c2127a`。这次只修改设计/来源记录，不提升 R02/R03/R20/R23 的采用状态，不切换 currentSlice。旧账本关于 ShadingWork/classify/scatter 的阶段历史不作为当前事实；当前生产是 Dense + 七 lane exception，coarse 只覆盖受限静态 Unlit。
+
+**检索与核对顺序**：先检查完整 GitHub 源文件/目录/许可证，再核对 DACS/对象空间着色/FastAtlas 作者资料及 Microsoft 的 DOOM VRCS 第一方说明。The Forge 的 pin 与 R02 相同；Wicked 此次新调查 pin 与 R23 原 pin 分立。未运行任何上游工程。
+
+| 固定来源 / 许可 / 入口 | 源输入 → 阶段 → 输出 | 对应本地候选与必须保留的条件 | 采用边界 |
+| --- | --- | --- | --- |
+| The Forge `cd5046893faba2dc7869243873bf01f02a6f0df9` / Apache-2.0 / `VisibilityBuffer2/Shaders/FSL/VisibilityBufferShadingUtilities.h.fsl::CalcFullBary, Interpolate2DWithDeriv` | clip vertices + pixel → 透视权重/一像素投影差分 → UV/梯度 | `surface_material_kernel` 的几何 context/setup 复用仍保留 perspective、近裁剪/退化、UV transform 和 LOD 语义；只共享不变输入 | R02 原边界不变；setup 复用为本地设计，不是新的 Forge 整套 port |
+| Wicked Engine `df44c3db4c4927492bc9c791eac715d98d7ed091` / MIT (`LICENSE.txt`) / `WickedEngine/shaders/visibility_resolveCS.hlsl, visibility_shadeCS.hlsl` | primitive tile → uniform/divergent 读取、bin mask、原子 append/indirect → 每 tile/pixel Surface 与 light | 候选 tile/profile/family work 对照；保持 shader type/mask 一致与唯一写域；源 bindless/Wave/quad 不直接带入 WebGPU | 本次读两个完整 shader，未审整套 native host；reference only，不覆盖 R23 原 pin |
+| Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887` / Apache-2.0 / `ComputeShaderTile.hlsl` | 四份 GBuffer surface → depth/normal 判据与 tile light list → 首 sample lighting、其余 full 或 splat；可选 DEFER_PER_PIXEL 队列补算 | 对应 signal-rate lighting 的完整闭环参考；需保留 threshold 单位、所有 full/coarse/无光分支与完整覆盖；本地 high-frequency albedo/AO、motion 和 VG identity 约束另行定义 | R20 仍未采用；不能把其 GBuffer 后判据叫作 pre-material 降频 |
+| WeakKnight DACS `da514fe9f6b1a2c5a732b0b9f2e20c25227960e3` / 固定树未发现明确 license / `AdaptiveLightingPass.slang::pass0–pass4, shouldShade, DistributeWork`；`EntryPoint.py`；`Shading.slang` | GBuffer → 稀疏 seed → 四轮邻域方差/插值或重算 → full image；wave 内连续任务重分配 | 供研究执行利用率。此实现与原 DACS 论文的执行组织有差异，不混称作者源码；固定 wave32、RGB 方差 5e-4（以源函数为准）、gamma sqrt 和简化照明均不是本地标准 | 未明确授权前不复制；不选为完整 PBR donor；本轮未做 GPU/边界 oracle |
+| WeakKnight OSS `473a59bbcdd30e3366cc567d66a5a97353620d48` / Apache-2.0 (`License`) / `ObjectSpaceShading/Assets/Scripts/ObjectSpaceShadingPipeline.cs`；`Assets/Shaders/Resources/RenderTaskProcessing.compute::RenderTaskPrepare, RenderTaskIndirectDispatch`（均相对工程目录） | 对象 chart/remap/occupancy → shadel 需求/分配 → task/indirect → shading storage/屏幕消费的工程组织 | 长期 view-independent cache 候选；必须继续核读 IDMap、ShadelMemoryProcessing、GI、seam filtering、eviction/history。保持 atlas 映射、失效与完整消费；VG LOD chart 转换是本地未决问题 | 作者工程可获取；本次仅核对部分主链文件与 README/许可，不宣称完整可移植 profile；Unity/RT 依赖不得直搬 |
+
+相关固定链接：
+
+- [The Forge](https://github.com/ConfettiFX/The-Forge/blob/cd5046893faba2dc7869243873bf01f02a6f0df9/Common_3/Renderer/VisibilityBuffer2/Shaders/FSL/VisibilityBufferShadingUtilities.h.fsl)；[Wicked](https://github.com/turanszkij/WickedEngine/tree/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders)。
+- [Intel CPS](https://github.com/GameTechDev/DeferredCoarsePixelShading/blob/63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ComputeShaderTile.hlsl)；[DACS 独立工程](https://github.com/WeakKnight/DeferredAdaptiveComputeShading/tree/da514fe9f6b1a2c5a732b0b9f2e20c25227960e3)；[OSS 作者工程](https://github.com/WeakKnight/real-time-seamless-object-space-shading/tree/473a59bbcdd30e3366cc567d66a5a97353620d48)。
+- [DACS 作者方法说明](https://graphics.geometrian.com/research/dacs.html)，HPG 2018；[Microsoft DOOM VRCS 第一方文章](https://developer.microsoft.com/en-us/games/articles/2026/04/variable-rate-compute-shaders-doom-the-dark-ages/)，2026-04-09；[FastAtlas 作者页](https://www.cs.ubc.ca/labs/imager/tr/2025/fastatlas/)，EG 2025。后三者不提供本次已审计的完整 EEngine donor；VRCS 只确认减少 unique compute pixels/整 wave 提前结束的生产方向，不照搬报道收益。
+
+**具名本地方案与缺口**：建议 *EEngine Signal-Rate Surface*，包括 full-rate coverage/motion/identity、保持语义的 VG context/UV/采样复用、bounded tile/profile/family/rate work、分信号 coarse/full 消费和重建。没有核实一个完整 donor 同时覆盖 EEngine 的前置 VisibilityKey 判据、VG Product、有限纹理 profile、PBR/coat/IBL、运动、GPU overflow 和 WebGPU 绑定。不要把这个组合登记为完整 CPS、DACS、VRCS 或 OSS 移植。
+
+**2026-09-30 激进重构排序追加核对**：用户要求主瓶颈优先后，将材质/光照分频及跨 primitive 表面连续性（本地 F+）提为首要目标；不再先做 A/B 小优化。补读 GPC 2025 原始演讲 [Variable-Rate Compute Shaders in DOOM: The Dark Ages](https://static.graphicsprogrammingconference.com/public/2025/talks/variable-rate-compute-shaders-in-doom-the-dark-ages/Fuller-Hammer-variable-rate-compute-shaders-in-doom-the-dark-ages.pdf)，71 页，SHA256 `e5fe7cf223006bf95089eb2890c878a47aecccd612eb9e5398c1fe43273d0fad`。仅技术参考，未找到可据此直接复制的完整许可源码；本轮读取提取文本和阶段说明，不声称运行或完整移植。前述“未核读演讲”的调查范围更新为以下具体范围：
+
+| 演讲阶段/页码 | 本地 F+ 对应 | 分支、不变量和缺口 |
+| --- | --- | --- |
+| SRI 与 primary/duplicate，11–15 页 | 当前帧风险分析 → 少量采样率/代表位置映射 | 1×1/2×1/1×2/2×2；屏幕覆盖保持精确，历史 luma 不能证明当前新细节安全；新分类规则属本地设计 |
+| tiled remap、pixel commands，23–25 页 | 材质代表样本压紧；照明保留 tile/cluster 局部性 | 不能在 wave 内散落少量活跃 lane 后仍跑完整重 shader；无需强制所有阶段同一全局队列。源融合尝试出现 VGPR/长程序困难，本地不预承诺融合必胜 |
+| 代表位置/去块/噪声，27–38 页 | identity/depth/信号边界约束的重建 | 必须处理半像素偏移与低率噪声。第 35 页源描述存在同 UAV 原地读写 race，本地明确不复制，采用无竞争读写；这项算法改变不是忠实 port |
+| 三角形边缘与低分辨率，42、51–52 页 | 记录边界拒绝率，评估真实可降频覆盖 | foliage、小三角形、低内部分辨率可能降低收益；不引用其原平台耗时作为本地预测 |
+| surfaceID 提议，55–58 页 | Product/Cooker 连续性元数据，区分 winner identity 与 shading sharing identity | 属演讲未来方向而非已出货功能；UV/材料/normal/tangent/LOD 等边界由本地定义。同材质或单一 ID 不足以决定整个 PBR 可共享 |
+| normal 与反射消费者，62 页 | 材质/光照可采用不同采样率，按需求全率输出关键字段 | full-rate normal 有实际重建/纹理成本，必须计入总时间；不得用隐含全率 PBR 掩盖主线未省工作 |
+
+以上仍为候选设计，不改采用状态、currentSlice 或生产源码。设计文件已明确旧“先 A/B”排序被 F+ 主线替代。
+
+**性能证据反例**：[DACS 作者 HPG 2020 后续说明](https://graphics.geometrian.com/research/dacs_in_hw.html) 记载 GPU driver 改变曾使原样 2018 软件实现失去净性能收益。这里只把它作为不可照搬原调度/收益的证据，不推出所有现代软件自适应 shading 无效。
+
+**WebGPU 不变量**：GPU 生成实际 work 与 indirect，固定少量合法 dispatch，禁止同帧 readback 控制；不依赖未协商 subgroup size、bindless 或跨组自旋；所有 workgroupBarrier 保持 uniform control flow。容量创建前协商；失败 lane 取消不完整 work 并由同帧 full-rate 分支完整覆盖，粗率/全率和不同 profile 写域互斥。
+
+**验证与采用**：此次只做来源/源码分析。后续选定完整 profile 后保留源关键分支、补独立 WGSL/CPU oracle 与真实主链 GPU producer→consumer，之后才提升 adoption。coarse coverage/画质/时域稳定与分类+队列+求值+重建总成本必须同时评价。没有运行 typecheck/build、browser 或 benchmark；依据仓库节奏不为纯设计修改启动这些检查。
+
 ## 1. 推荐总表
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |
