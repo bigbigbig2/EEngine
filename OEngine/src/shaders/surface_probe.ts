@@ -3,16 +3,11 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js"
 import { GPU_SHADING_MATERIAL_WGSL, GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
-import { SURFACE_METADATA_GROUP_FLAG, SURFACE_PRIMITIVE_BYTES } from "../gpu/SurfacePrimitiveAbi.js";
+import { surfaceContinuityWgsl } from "./surface_continuity.js";
 import { geometryWgsl } from "./surface_material_kernel.js";
 import { SURFACE_SIGNAL_WGSL } from "../render/surface/SurfaceSignalPlan.js";
 
 export function surfaceProbeWgsl(virtualGeometry: boolean, bankCount: number, lighting = false): string {
-  const headers = Array.from({ length: bankCount }, (_, bank) =>
-    `if location.bank_index == ${bank}u {
-      header = oengine_virtual_group_header_v1(&virtual_product_bank_${bank}, location, group);
-      meshlet = oengine_virtual_meshlet_header_v1(&virtual_product_bank_${bank}, location, group, header, work.meshlet_slot & 127u);
-    }`).join("\n");
   return /* wgsl */ `
 requires unrestricted_pointer_parameters;
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -50,57 +45,7 @@ struct ProbeFact {
 fn probe_reject(reason: u32) -> bool {
   atomicAdd(&probe_counters[reason], 1u); return false;
 }
-struct ProbeTriangle {
-  valid: bool, metadata: vec4u, uv_span: vec4f, ref0: SparseVertexRef, ref1: SparseVertexRef, ref2: SparseVertexRef,
-}
-fn probe_triangle(work: OEngineMeshletRasterWork, primitive: u32) -> ProbeTriangle {
-  var result: ProbeTriangle;
-  ${virtualGeometry ? `
-  let asset = oengine_geometry_product_resolve_asset_v1(&virtual_product_metadata,
-    work.geometry_slot, oengine_instance_geometry_generation(instance_records[work.instance_slot]));
-  let group = oengine_virtual_group_v1(&virtual_product_metadata, asset, work.meshlet_slot >> 7u);
-  let location = oengine_geometry_product_lookup_page_heap_v1(&virtual_product_metadata, asset, group.page_id);
-  if !asset.valid || !group.valid || !location.valid || (group.flags & ${SURFACE_METADATA_GROUP_FLAG}u) == 0u {
-    return result;
-  }
-  var header = oengine_virtual_invalid_group_header_v1();
-  var meshlet = oengine_virtual_invalid_meshlet_header_v1();
-  ${headers}
-  let begin = (meshlet.triangle_byte_offset + meshlet.triangle_count * 3u + 3u) & ~3u;
-  let offset = begin + primitive * ${SURFACE_PRIMITIVE_BYTES}u;
-  if !header.valid || !meshlet.valid || primitive >= meshlet.triangle_count ||
-    offset > header.vertex_data_offset || header.vertex_data_offset - offset < ${SURFACE_PRIMITIVE_BYTES}u ||
-    header.vertex_format_id >= asset.vertex_format_count { return result; }
-  let word = (location.byte_offset + group.offset_in_page + offset) >> 2u;
-  result.metadata = vec4u(sparse_virtual_bank_word(location.bank_index, word),
-    sparse_virtual_bank_word(location.bank_index, word + 1u),
-    sparse_virtual_bank_word(location.bank_index, word + 2u),
-    sparse_virtual_bank_word(location.bank_index, word + 3u));
-  result.uv_span = bitcast<vec4f>(vec4u(sparse_virtual_bank_word(location.bank_index, word + 4u),
-    sparse_virtual_bank_word(location.bank_index, word + 5u),
-    sparse_virtual_bank_word(location.bank_index, word + 6u),
-    sparse_virtual_bank_word(location.bank_index, word + 7u)));
-  let format_at = asset.vertex_format_word_offset + header.vertex_format_id * 4u;
-  let format0 = virtual_product_metadata[format_at];
-  let format1 = virtual_product_metadata[format_at + 1u];
-  let format2 = virtual_product_metadata[format_at + 2u];
-  let stride = format0 & 0xffffu;
-  if stride < 16u || ((format2 >> 16u) & 255u) != 1u ||
-    meshlet.vertex_byte_offset > header.payload_bytes ||
-    meshlet.vertex_count * stride > header.payload_bytes - meshlet.vertex_byte_offset { return result; }
-  let base = location.byte_offset + group.offset_in_page;
-  var refs: array<SparseVertexRef, 3>;
-  for (var corner = 0u; corner < 3u; corner++) {
-    let vertex = sparse_virtual_u8(location.bank_index, base + meshlet.triangle_byte_offset + primitive * 3u + corner);
-    if vertex >= meshlet.vertex_count { return result; }
-    refs[corner] = SparseVertexRef(vertex, 0u, true, location.bank_index,
-      base + meshlet.vertex_byte_offset + vertex * stride, format0, format1, format2,
-      meshlet.bounds_min, meshlet.bounds_max);
-  }
-  result.ref0 = refs[0]; result.ref1 = refs[1]; result.ref2 = refs[2]; result.valid = true;
-  ` : ""}
-  return result;
-}
+${surfaceContinuityWgsl(virtualGeometry,bankCount)}
 fn probe_fact(pixel: vec2u) -> ProbeFact {
   var result: ProbeFact;
   if any(pixel >= vec2u(shading_view.width, shading_view.height)) { return result; }
@@ -123,10 +68,8 @@ fn probe_fact(pixel: vec2u) -> ProbeFact {
     material.material_generation != shading_view.material_generation ||
     material.texture_generation != shading_view.texture_generation ||
     material.publication_revision != shading_view.publication_revision { return result; }
-  ${lighting ? `if !(material.payload.pbr_factors.y >= probe_budget.minimum_roughness && material.payload.pbr_factors.y <= 1.0) ||
-    material.payload.orm_texture_ref != 0xffffffffu { return result; }` : ""}
   let primitive = oengine_visibility_key_local_primitive(key);
-  let triangle = probe_triangle(work, primitive);
+  let triangle = surface_triangle(work, primitive);
   let metadata = triangle.metadata;
   if !triangle.valid || metadata.x == 0u || metadata.y != 0u ||
     !all(triangle.uv_span >= vec4f(0.0)) || !all(triangle.uv_span <= vec4f(65504.0)) { return result; }
@@ -210,15 +153,16 @@ fn probe_uv(role: OEngineClosureTextureRole, value: vec2f, derivative: bool) -> 
     vec2f(role.uv_rotation.x * scaled.x - role.uv_rotation.y * scaled.y,
       role.uv_rotation.y * scaled.x + role.uv_rotation.x * scaled.y);
 }
-fn probe_pair(begin: ProbeFact, end: ProbeFact) -> bool {
+fn probe_pair(begin: ProbeFact, end: ProbeFact, include_lighting:bool) -> bool {
   if !begin.valid || !end.valid { return probe_reject(6u); }
   if begin.instance != end.instance || begin.material != end.material || begin.geometry != end.geometry ||
     begin.domain != end.domain || begin.representation != end.representation { return probe_reject(8u); }
-  if max(begin.normal_variation, end.normal_variation) > probe_budget.normal ||
+  if ${lighting ? "include_lighting && (" : ""}max(begin.normal_variation, end.normal_variation) > probe_budget.normal ||
     any(abs(begin.normal - end.normal) > vec3f(probe_budget.normal)) ||
-    abs(begin.depth - end.depth) > probe_budget.depth { return probe_reject(7u); }
-  ${lighting ? `if any(abs(begin.position - end.position) > vec3f(probe_budget.lighting_position)) ||
-    any(abs(begin.view_direction - end.view_direction) > vec3f(probe_budget.lighting_view)) { return probe_reject(7u); }` : ""}
+    abs(begin.depth - end.depth) > probe_budget.depth${lighting ? ")" : ""} { return probe_reject(7u); }
+  ${lighting ? `if include_lighting && (any(abs(begin.position - end.position) > vec3f(probe_budget.lighting_position)) ||
+    any(abs(begin.view_direction - end.view_direction) > vec3f(probe_budget.lighting_view)) ||
+    material_records[begin.material].payload.pbr_factors.y < probe_budget.minimum_roughness) { return probe_reject(7u); }` : ""}
   let material = material_records[begin.material];
   if any(abs(begin.color - end.color) * abs(material.payload.base_color_factor.xyz) > vec3f(probe_budget.color)) ||
     max(begin.color_variation, end.color_variation) > probe_budget.color { return probe_reject(11u); }
@@ -267,38 +211,35 @@ fn probe(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_ind
     any(id.xy >= vec2u(shading_view.width, shading_view.height)) { return; }
   atomicAdd(&probe_counters[0u], 1u);
   var rate = 0u;
+  var lighting_rate=0u;
   if all(id.xy + vec2u(1u) < vec2u(shading_view.width, shading_view.height)) {
     let first = probe_facts[local_index]; let second = probe_facts[local_index + 1u];
     let third = probe_facts[local_index + 8u]; let fourth = probe_facts[local_index + 9u];
-    let pair01 = probe_pair(first, second); let pair23 = probe_pair(third, fourth);
-    let pair02 = probe_pair(first, third); let pair13 = probe_pair(second, fourth);
+    let pair01 = probe_pair(first, second,false); let pair23 = probe_pair(third, fourth,false);
+    let pair02 = probe_pair(first, third,false); let pair13 = probe_pair(second, fourth,false);
     let horizontal = pair01 && pair23; let vertical = pair02 && pair13;
     rate = select(select(0u, 2u, vertical), select(1u, 3u, vertical), horizontal);
+    let light_h=horizontal && probe_pair(first,second,true) && probe_pair(third,fourth,true);
+    let light_v=vertical && probe_pair(first,third,true) && probe_pair(second,fourth,true);
+    lighting_rate=select(select(0u,2u,light_v),select(1u,3u,light_v),light_h);
   }
   atomicAdd(&probe_counters[2u + rate], 1u);
-  var packed = rate;
+  var packed = lighting_rate | (rate << SURFACE_SIGNAL_MATERIAL_SHIFT) |
+    (rate << SURFACE_SIGNAL_EMISSIVE_SHIFT) | (${lighting ? "lighting_rate" : "rate"} << SURFACE_SIGNAL_NORMAL_SHIFT) | SURFACE_SIGNAL_PACKED_FLAG;
   let first = probe_facts[local_index];
   if first.valid && first.material < arrayLength(&material_records) {
     let material = material_records[first.material];
     if material.payload.normal_texture_ref != OENGINE_TEXTURE_REF_INVALID {
-      packed = rate | (rate << SURFACE_SIGNAL_MATERIAL_SHIFT) |
-        (rate << SURFACE_SIGNAL_EMISSIVE_SHIFT) | (rate << SURFACE_SIGNAL_NORMAL_SHIFT) |
-        SURFACE_SIGNAL_PACKED_FLAG;
       packed = surface_signal_set(packed, SURFACE_SIGNAL_NORMAL_SHIFT, 0u);
     }
     if material.payload.orm_texture_ref != OENGINE_TEXTURE_REF_INVALID {
-      packed = rate | (rate << SURFACE_SIGNAL_MATERIAL_SHIFT) |
-        (rate << SURFACE_SIGNAL_EMISSIVE_SHIFT) | (rate << SURFACE_SIGNAL_NORMAL_SHIFT) |
-        SURFACE_SIGNAL_PACKED_FLAG;
       packed = surface_signal_set(packed, SURFACE_SIGNAL_MATERIAL_SHIFT, 0u);
     }
-    if material.payload.emissive_texture_ref != OENGINE_TEXTURE_REF_INVALID {
-      packed = rate | (rate << SURFACE_SIGNAL_MATERIAL_SHIFT) |
-        (rate << SURFACE_SIGNAL_EMISSIVE_SHIFT) | (rate << SURFACE_SIGNAL_NORMAL_SHIFT) |
-        SURFACE_SIGNAL_PACKED_FLAG;
-      packed = surface_signal_set(packed, SURFACE_SIGNAL_EMISSIVE_SHIFT, 0u);
-    }
   }
+  let final_lighting=surface_signal_rate(packed,SURFACE_SIGNAL_LIGHTING_SHIFT);
+  if final_lighting==surface_signal_rate(packed,SURFACE_SIGNAL_MATERIAL_SHIFT) &&
+    final_lighting==surface_signal_rate(packed,SURFACE_SIGNAL_EMISSIVE_SHIFT) &&
+    final_lighting==surface_signal_rate(packed,SURFACE_SIGNAL_NORMAL_SHIFT) { packed=final_lighting; }
   textureStore(probe_output, vec2i(id.xy / 2u), vec4u(packed, 0u, 0u, 0u));
 }
 `;

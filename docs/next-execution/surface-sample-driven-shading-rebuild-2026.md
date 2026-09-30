@@ -120,6 +120,30 @@
 - typecheck/build/build:test 与 32 项 Surface/资源 targeted Node checks 通过；另同步 FSR3 曝光资源和 camera projection 的陈旧 lifecycle fixture 后，6 项生命周期检查通过。现有生产 GPU oracle 经临时浏览器 host glue 在用户硬件 Chrome 执行，374 assertions 通过，覆盖 textured PBR full/quad/directional/mixed、各池与 partial overflow、Coated/背景/非法 key/驻留/灯表风险、7×5 尾部、二维 indirect、移动相机/刚体与独立 motion；增加 pass 内禁止上传的回归保护。浏览器运行没有关闭 shader optimization。Node Dawn 复跑仍受 D3D12CreateDevice/DXGI_ERROR_DRIVER_INTERNAL_ERROR 阻断，不宣称其通过。
 - 诊断和采样记录位于本地 ignored `.local/validation/surface-showcase-20260930/summary.md`。临时 examples oracle 页面已移除；构建脚本保留在 ignored `.codex-temp/`。这次是用户明确要求的现场开发验证，正式跨设备/完整画质与 lifecycle 矩阵、固定条件性能对比、evidence/claim promotion 仍开放。
 
+### 阶段三/四补齐与现场复核（2026-10-01）
+
+以下记录取代此前收口记录中“effective-rate 交集取消独立收益”和“GPU Resolve 仅 owner 复制”的当前事实；旧记录保留其当时验证边界。
+
+- Work Builder 按实际 material/emissive closure rate 组织有效样本。有限不同率 profile 采用材质粗率、照明全率；物理环境/VSM/灯表/变化 AO 只清照明，不因目标几何法线/depth 高率取消已证明材质复用。normal-map、ORM、Coated/未知 closure 继续全率。`surface_material_evaluation` 保留 canonical 数学，拆分照明没有材质纹理绑定，恢复目标 position、几何/属性法线，再完整执行 direct/AO/VSM/IBL/DFG/energy，色域转换与曝光只执行一次。
+- 私有不可变 results 为八个 `rgba32uint` texels、128 bytes/sample，同率存 radiance，不同率存未曝光精确 closure。GPU Resolve 使用 owner/右/下/右下和真实代表位置/stride 权重，拒绝身份/domain/representation/layout/footprint/depth/normal/finite 不匹配，归一化存活权重并回退 owner；不读取 HDR，不过滤 full/split 最终结果。CPU oracle 与实际 GPU 合成输入相互对照。
+- 16-slot workgroup TriangleSetup 分享三顶点 refs、model/world/clip，不分享目标 bary/gradient；精确 frame-local key、leader/barriers 和直接 miss/near-clip/degenerate 路径完整。现场发现旧模板替换未命中 canonical material 函数、setup 实际零消费，已改为显式模板参数，并增加 full/coarse material 的真实 setup-hit GPU 断言。finalized header/profile/result-reservation 的 116-byte workgroup cache 保留 mutable counters 的 atomic 语义。
+- schema v25 的 36 个 Surface 字段来自真实 Probe/Builder/worker/Resolve，通过现有 profiler 延后 ring 读取；Showcase HUD/export 消费已完成数据。现场复核修正 GPU 时间栏读取最新未完成帧而持续显示“等待”的问题，改读最近完成的 GPU timestamp 快照。没有用旧 diagnostic 槽冒充实际计数，没有本帧 GPU→CPU→GPU 控制或额外 submit。
+- 用户 Chrome 的实际 OOM 复现为 GPU 未完成时 42 套 fence-retained 瞬态帧、pool 约 6.8 GB，而不是缺少 WebGPU。FrameCoordinator 在创建新帧资源前限制两个未完成提交，队列完成/失败都释放槽，destroy 后迟到 fence 不恢复 owner。延迟 tick 不推进 graph/history/frame_count，Showcase FPS 统计真实编码帧；相关生命周期定向测试通过。此前编译/watchdog 故障与偶发 WebCook `Failed to fetch` 不据此宣称全部定因。
+- 集中通过 OEngine typecheck/build:test/build、77 项 Surface/Geometry/FrameCoordinator targeted Node tests，以及 Showcase 单页 TypeScript 检查。用户原硬件 Chrome、正常驱动优化执行 800 GPU assertions：full/方向率/quad/mixed、整 tile/partial overflow、非法 key/驻留/Coated/灯表、运动/奇数尾部/二维 indirect/Temporal、material 16 / lighting 64、normal 全率不取消材质粗率、完整 IBL/DFG/energy 与变化 pixel AO 的常量 closure 逐位一致、受限 Resolve 和真实 setup 消费。未改 Cooker/Product，不重复 Native/WASM；examples 全量旧 tsconfig 的 retired API 失败不冒称通过；Node Dawn D3D12 启动仍失败，不能替代 Chrome 的通过结果。
+
+开发性能复核使用独立 Git revision `d65a967` 作为基线，用户原 Chrome 154 / GTX 1650 Ti / D3D12 / driver 581.42，每版只保留一个 WebGPU 设备；canvas/内部尺寸均 1280×720，固定相同真实相机 transform/view/projection/frustum、SSE 4、曝光 8、太阳 30°/63°/1.5、AO/FSR3/Bloom/HZB/cone 开、VSM 关、物理环境开、jitter/自动旋转关。30 帧预热后每版取 300 个已完成且非零的 timestamp 帧，相机 signature 各自唯一且两版相同，几何工作计数相同，所有帧单次 submit，validation/uncaptured/device-loss/timestamp-failure 为零。首轮取景不同的数据保留但作废，不用于比较。
+
+| 开发采样 | GPU pass 合计 P50 / P95（ms） | Surface 子图 P50 / P95（ms） |
+| --- | --- | --- |
+| 基线 `d65a967` | 19.45 / 45.80 | 12.30 / 21.86 |
+| 本次工作区 | 19.21 / 94.32 | 11.99 / 62.29 |
+
+Surface 包含 Probe/Builder/finalize/background/material/closure lighting/Resolve，不含 Present；GPU pass 合计不是包括 copies、队列等待的整帧墙钟。温度日志实际记录约 88–91°C、1350→300 MHz 动态降频，因此上述 P95 长尾不能用来宣称稳定性能改善，也不隐去长尾只报告 P50。默认 Dungeon 固定视图的 visible/PBR/material/lighting/full 均为 290838，coarse/fallback/overflow 均零，setup builds/hits/misses 为 50869/262911/27927。实际 setup 消费成立，但严格预算导致该场景材质减量仍未实现；没有放宽 Showcase 默认预算伪造收益。
+
+另外在当前 Showcase 实际运行 1023×767 canvas resize、连续相机移动和新相机 cut，各保存 50 个完成的非零 GPU timestamp 帧，全部单次 submit、四类错误为零；完成 cut 并等待队列后 in-flight 为零，当前设备资源账面峰值 811359874 bytes，未再次出现多 GB fence-retained 帧积压。账面估算不等于驱动实际显存。截图纠正测试点击造成的 main 容器滚动后取景一致；受控 GPU oracle 的数值对照和这组截图均不能替代完整材质/场景画质矩阵。
+
+记录和完整逐帧数据位于本地 ignored `.local/validation/surface-completion-20261001/`。这些是用户要求的现场开发验证，不提升 formal claims 或上游 adoption；完整跨设备、材质组合画质与稳定温控性能矩阵仍开放。跨帧 shading cache 按设计 §13 在稳定映射和重复成本证明后选定 profile，不把本次 frame-local setup 或 sample pool 称为历史着色缓存。
+
 ## 之后按剩余瓶颈选择，不绑定首个重构
 
 1. 如果同一表面的材质/间接项跨帧重复仍主导，再选一类对象/纹理空间或屏幕空间缓存 profile；稳定表面位置、view/lighting 依赖、footprint、失效、缺页/eviction 与 miss 路径完整后再实施，不直接缓存最终 PBR 颜色。

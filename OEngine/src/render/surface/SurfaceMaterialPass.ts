@@ -1,5 +1,7 @@
+import type { FrameProfiler } from "../../debug/FrameProfiler.js";
+import { SURFACE_GPU_COUNTER_SOURCES } from "./SurfaceGpuCounters.js";
 import { SurfaceProbePass } from "./SurfaceProbePass.js";
-import type { SurfaceProbeBudget } from "./SurfaceProbe.js";
+import { packSurfaceProbeBudget, EXACT_SURFACE_PROBE_BUDGET, type SurfaceProbeBudget } from "./SurfaceProbe.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -7,7 +9,7 @@ import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GPUViewContext } from "../ViewContext.js";
 import { GPU_SPARSE_SHADING_VIEW_BYTES, packGpuSparseShadingView } from "../../gpu/GpuSparseShadingFrameAbi.js";
-import { createSurfaceBindGroupLayouts, compileSurfaceProgramLayout,
+import { createSurfaceBindGroupLayouts, compileSurfaceProgramLayout, planSurfaceClosureLightingBindings,
   type SurfacePhysicalBinding } from "./SurfaceKernelBindingPlan.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { surfaceSampleWorkerWgsl } from "../../shaders/surface_sample_worker.js";
@@ -90,9 +92,11 @@ export class SurfaceMaterialPass {
   private readonly finalize: GPUComputePipeline;
   private readonly resolve: GPUComputePipeline;
   private readonly probe: SurfaceProbePass;
-  constructor(private readonly device: GPUDevice, probeBudget?: SurfaceProbeBudget) {
+  constructor(private readonly device: GPUDevice, private readonly probeBudget: SurfaceProbeBudget = EXACT_SURFACE_PROBE_BUDGET,
+    private readonly profiler?: FrameProfiler, private readonly countersEnabled: () => boolean = () => true) {
+    if (device.limits.maxComputeWorkgroupStorageSize < 6144) throw new RangeError("Surface triangle setup requires 6144 workgroup bytes");
     this.shaderModules = new ShaderModuleCache(device);
-    this.probe = new SurfaceProbePass(device, probeBudget);
+    this.probe = new SurfaceProbePass(device, this.probeBudget);
     this.viewBuffer = device.createBuffer({ label: "Surface/frame view",
       size: Math.ceil(GPU_SPARSE_SHADING_VIEW_BYTES / 256) * 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -259,28 +263,65 @@ export class SurfaceMaterialPass {
       format: "rgba16float", domain: "internal-full", usage: GPUTextureUsage.RENDER_ATTACHMENT |
         GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC });
     const sampleResults = workers.create("Surface/immutable coarse results", { kind: "transient_texture",
-      width: capacity.resultWidth, height: capacity.resultHeight, format: "rgba16float",
+      width: capacity.resultWidth, height: capacity.resultHeight, format: "rgba32uint",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_SRC });
+    let composedRadiance = radiance;
+    let lightingWork = completedWork;
+    if (hasLit) {
+      const lightingProgram = this.program(hasLit, input.virtualGeometry, virtualBankCount,
+        input.textureBankMask, physicalEnvironment, scalarAo, vsmBindings !== undefined, true);
+      const lighting = graph.add("Surface/full-rate lighting from closure", {}, (_data, resources, context) => {
+        const groups = lightingProgram.layouts.map((layout, groupIndex) => this.device.createBindGroup({
+          layout, entries: lightingProgram.bindings.filter(binding => binding.group === groupIndex).map(binding => ({
+            binding: binding.binding, resource: this.resolveBinding(binding, input, currentView, radiance,
+              completedWork, sampleResults, 0, this.viewBuffer, resources, vsmBindings) })) }));
+        const pass = (context.encoder as ShadeGPUCommandContext).beginComputePass({ label: "Surface/full-rate lighting from closure" });
+        pass.setPipeline(lightingProgram.pipeline); groups.forEach((group, index) => pass.setBindGroup(index, group));
+        pass.dispatchWorkgroups(capacity.tilesX, capacity.tilesY); pass.end();
+      });
+      lighting.read(sampleResults);
+      for (const binding of lightingProgram.bindings) {
+        if (["radiance-output", "sample-results", "shading-work"].includes(binding.role) || binding.role.endsWith("sampler")) continue;
+        if (binding.role === "frame-view") lighting.read(currentView);
+        else lighting.read(this.resolveResourceId(binding, input, 0, vsmBindings));
+      }
+      lightingWork = lighting.write(completedWork);
+      composedRadiance = lighting.write(radiance);
+    }
     const resolve = graph.add("Surface/coarse sample Resolve", {}, (_data, resources, context) => {
-      const pass = (context.encoder as ShadeGPUCommandContext).beginComputePass({ label: "Surface/coarse sample Resolve" });
+      const command = context.encoder as ShadeGPUCommandContext;
+      const budget = command.allocateTransientBufferAndLoad(packSurfaceProbeBudget(this.probeBudget).buffer, GPUBufferUsage.UNIFORM);
+      const pass = command.beginComputePass({ label: "Surface/coarse sample Resolve" });
       pass.setPipeline(this.resolve); pass.setBindGroup(0, this.device.createBindGroup({
         layout: this.resolve.getBindGroupLayout(0), entries: [
-          { binding: 0, resource: { buffer: resources.get(completedWork) as GPUBuffer } },
+          { binding: 0, resource: { buffer: resources.get(lightingWork) as GPUBuffer } },
           { binding: 1, resource: resolveTextureView(resources.get(sampleResults)) },
           { binding: 2, resource: resolveTextureView(resources.get(radiance)) },
           { binding: 3, resource: resolveTextureView(resources.get(input.visibilityKey)) },
-          { binding: 4, resource: resolveTextureView(resources.get(input.depth)) }
+          { binding: 4, resource: resolveTextureView(resources.get(input.depth)) },
+          { binding: 5, resource: { buffer: budget } }
         ] })); pass.dispatchWorkgroups(capacity.tilesX, capacity.tilesY); pass.end();
     });
-    resolve.read(completedWork); resolve.read(sampleResults); resolve.read(input.visibilityKey); resolve.read(input.depth);
-    return { radiance: resolve.write(radiance), work: completedWork, sampleResults,
+    resolve.read(lightingWork); resolve.read(sampleResults); resolve.read(input.visibilityKey); resolve.read(input.depth);
+    const resolvedRadiance = resolve.write(composedRadiance);
+    const resolvedWork = resolve.write(lightingWork);
+    if (this.profiler) {
+      const observer = graph.add("Surface/async diagnostic counters", {}, (_data, resources, context) => {
+        if (!this.countersEnabled() || !this.profiler!.shouldSampleGpuCounters()) return;
+        const command = context.encoder as ShadeGPUCommandContext;
+        for (const counter of SURFACE_GPU_COUNTER_SOURCES) this.profiler!.copyGpuCounter(command, counter.field,
+          resources.get(counter.source === "work" ? resolvedWork : probe.counters) as GPUBuffer, counter.offset);
+      });
+      observer.read(resolvedWork); observer.read(probe.counters); observer.read(resolvedRadiance); observer.make_side_effect();
+    }
+    return { radiance: resolvedRadiance, work: resolvedWork, sampleResults,
       probeCandidates: probe.candidates, probeCounters: probe.counters };
   }
   private program(hasLit: boolean, virtualGeometry: boolean, virtualBankCount: number,
     textureBankMask: number, physicalEnvironment: boolean, scalarAo: boolean,
-    vsmShadowEnabled: boolean): Program {
+    vsmShadowEnabled: boolean, closureLighting = false): Program {
     const layoutKey = [hasLit, virtualGeometry, virtualBankCount, textureBankMask,
-      physicalEnvironment, scalarAo, vsmShadowEnabled].join(":");
+      physicalEnvironment, scalarAo, vsmShadowEnabled, closureLighting].join(":");
     const key = layoutKey;
     const cached = this.programs.get(key); if (cached) return cached;
     const compiled = compileSurfaceProgramLayout({
@@ -289,13 +330,14 @@ export class SurfaceMaterialPass {
       aoProfile: scalarAo ? "scalar-high" : "off", shadowProfile: vsmShadowEnabled ? "vsm" : "off",
       source: "surface-samples-v1", capabilityFingerprint: "webgpu-core", formatProfile: "rgba16float"
     }, this.device.limits);
+    const plan = closureLighting ? planSurfaceClosureLightingBindings(compiled.plan, this.device.limits) : compiled.plan;
     let layouts = this.layouts.get(layoutKey);
-    if (!layouts) { layouts = createSurfaceBindGroupLayouts(this.device, compiled.plan); this.layouts.set(layoutKey, layouts); }
+    if (!layouts) { layouts = createSurfaceBindGroupLayouts(this.device, plan); this.layouts.set(layoutKey, layouts); }
     const label = `Surface/samples (${layoutKey})`;
     const pipeline = this.device.createComputePipeline({ label, layout: this.device.createPipelineLayout({ bindGroupLayouts: [...layouts] }),
-      compute: { module: this.shaderModules.obtain({ label, code: surfaceSampleWorkerWgsl(compiled.plan,
-        hasLit, virtualGeometry, vsmShadowEnabled, virtualBankCount, textureBankMask, physicalEnvironment) }), entryPoint: "shade" } });
-    const program = Object.freeze({ pipeline, layouts, bindings: compiled.plan.bindings }); this.programs.set(key, program); return program;
+      compute: { module: this.shaderModules.obtain({ label, code: surfaceSampleWorkerWgsl(plan,
+        hasLit, virtualGeometry, vsmShadowEnabled, virtualBankCount, textureBankMask, physicalEnvironment, closureLighting) }), entryPoint: closureLighting ? "shade_closure" : "shade" } });
+    const program = Object.freeze({ pipeline, layouts, bindings: plan.bindings }); this.programs.set(key, program); return program;
   }
   private resolveBinding(binding: Readonly<SurfacePhysicalBinding>, input: SurfaceMaterialInputs,
     view: ResourceId, hdr: ResourceId, work: ResourceId, results: ResourceId, setId: number,

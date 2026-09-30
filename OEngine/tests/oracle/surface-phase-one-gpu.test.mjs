@@ -139,6 +139,8 @@ test("production Surface samples and Resolve consume textured PBR with independe
     const { surfacePhaseTwoGpuOracle } = await import("../fixtures/surface-phase-two-gpu.mjs");
     await surfacePhaseTwoGpuOracle({ device, resources, buffer, visibility, depth, work, instance, metadata, page, dummy,
       stage, residency, identity, viewSource, probeBudget, materialSlot, keys });
+    const { surfaceResolveGpuOracle } = await import("../fixtures/surface-resolve-gpu.mjs");
+    await surfaceResolveGpuOracle(device);
     device.queue.writeBuffer(residency, 4, new Uint32Array([2]));
     const stale = await execute();
     assert.deepEqual(stale.rates, Array(16).fill(0)); assert.equal(stale.counts[10], 64);

@@ -8,8 +8,8 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 24;
-export const GPU_COUNTER_BYTE_SIZE = 596;
+export const GPU_COUNTER_SCHEMA_VERSION = 25;
+export const GPU_COUNTER_BYTE_SIZE = 740;
 
 /** Stable schema holes; indices are never silently reused across ABI revisions. */
 export const GPU_COUNTER_RESERVED_INDICES = Object.freeze([
@@ -155,7 +155,43 @@ export const GPU_COUNTER_FIELDS = [
   { name: "shadingBinIndirectWorkgroups", index: 145, semantic: "sum of generated sparse indirect X times Y times Z" },
   { name: "shadingBinGeneratedMaskLo", index: 146, semantic: "GPU-authored generated bin mask low word" },
   { name: "shadingBinGeneratedMaskHi", index: 147, semantic: "GPU-authored generated bin mask high word" },
-  { name: "shadingBinIndirectNonzeroWords", index: 148, semantic: "number of sparse indirect tuples with executable work (nonzero X; (0,1,1) is the zero-work sentinel)" }
+  { name: "shadingBinIndirectNonzeroWords", index: 148, semantic: "number of sparse indirect tuples with executable work (nonzero X; (0,1,1) is the zero-work sentinel)" },
+  { name: "surfaceVisiblePixels", index: 149, semantic: "Surface/visible GPU producer count; sampled frames only" },
+  { name: "surfaceMaterialSamples", index: 150, semantic: "Surface/material GPU producer count; sampled frames only" },
+  { name: "surfaceLightingSamples", index: 151, semantic: "Surface/lighting GPU producer count; sampled frames only" },
+  { name: "surfaceFullSamples", index: 152, semantic: "Surface/full GPU producer count; sampled frames only" },
+  { name: "surfaceCoarseSamples", index: 153, semantic: "Surface/coarse GPU producer count; sampled frames only" },
+  { name: "surfaceFallbackTiles", index: 154, semantic: "Surface/fallback GPU producer count; sampled frames only" },
+  { name: "surfaceRecordOverflowTiles", index: 155, semantic: "Surface/recordOverflow GPU producer count; sampled frames only" },
+  { name: "surfaceResultOverflowTiles", index: 156, semantic: "Surface/resultOverflow GPU producer count; sampled frames only" },
+  { name: "surfaceImplicitTiles", index: 157, semantic: "Surface/implicit GPU producer count; sampled frames only" },
+  { name: "surfaceMixedTiles", index: 158, semantic: "Surface/mixed GPU producer count; sampled frames only" },
+  { name: "surfaceLightingRejectedCells", index: 159, semantic: "Surface/lightingRejected GPU producer count; sampled frames only" },
+  { name: "surfaceMaterialCoarseSamples", index: 160, semantic: "Surface/materialCoarse GPU producer count; sampled frames only" },
+  { name: "surfaceLightingCoarseSamples", index: 161, semantic: "Surface/lightingCoarse GPU producer count; sampled frames only" },
+  { name: "surfaceRecordsAttempted", index: 162, semantic: "Surface/records GPU producer count; sampled frames only" },
+  { name: "surfaceResultsAttempted", index: 163, semantic: "Surface/results GPU producer count; sampled frames only" },
+  { name: "surfaceSetupBuilds", index: 164, semantic: "Surface/setupBuilds GPU producer count; sampled frames only" },
+  { name: "surfaceSetupHits", index: 165, semantic: "Surface/setupHits GPU producer count; sampled frames only" },
+  { name: "surfaceSetupMisses", index: 166, semantic: "Surface/setupMisses GPU producer count; sampled frames only" },
+  { name: "surfaceSplitPixels", index: 167, semantic: "Surface/splitPixels GPU producer count; sampled frames only" },
+  { name: "surfaceReconstructionAccepted", index: 168, semantic: "Surface/reconstructionAccepted GPU producer count; sampled frames only" },
+  { name: "surfaceReconstructionRejected", index: 169, semantic: "Surface/reconstructionRejected GPU producer count; sampled frames only" },
+  { name: "surfacePbrPixels", index: 170, semantic: "Surface/pbrPixels GPU producer count; sampled frames only" },
+  { name: "surfaceProbeCells", index: 171, semantic: "Surface/cells GPU producer count; sampled frames only" },
+  { name: "surfaceRateFullCells", index: 172, semantic: "Surface/full GPU producer count; sampled frames only" },
+  { name: "surfaceRateHorizontalCells", index: 173, semantic: "Surface/horizontal GPU producer count; sampled frames only" },
+  { name: "surfaceRateVerticalCells", index: 174, semantic: "Surface/vertical GPU producer count; sampled frames only" },
+  { name: "surfaceRateQuadCells", index: 175, semantic: "Surface/quad GPU producer count; sampled frames only" },
+  { name: "surfaceSamePrimitivePairs", index: 176, semantic: "Surface/samePrimitive GPU producer count; sampled frames only" },
+  { name: "surfaceCrossPrimitivePairs", index: 177, semantic: "Surface/crossPrimitive GPU producer count; sampled frames only" },
+  { name: "surfaceInvalidRejected", index: 178, semantic: "Surface/invalid GPU producer count; sampled frames only" },
+  { name: "surfaceGeometryRejected", index: 179, semantic: "Surface/geometry GPU producer count; sampled frames only" },
+  { name: "surfaceContinuityRejected", index: 180, semantic: "Surface/continuity GPU producer count; sampled frames only" },
+  { name: "surfaceMaterialRejected", index: 181, semantic: "Surface/material GPU producer count; sampled frames only" },
+  { name: "surfaceResidencyRejected", index: 182, semantic: "Surface/residency GPU producer count; sampled frames only" },
+  { name: "surfaceVariationRejected", index: 183, semantic: "Surface/variation GPU producer count; sampled frames only" },
+  { name: "surfaceUvRejected", index: 184, semantic: "Surface/uv GPU producer count; sampled frames only" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

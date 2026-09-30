@@ -77,16 +77,16 @@ export function surfaceSignalRatesReference(input: SurfaceSignalRisk): SurfaceSi
   if (!finite(input.emissiveVariation) || !finite(input.normalVariation) || !finite(input.materialVariation)) {
     return Object.freeze({ lighting: 0, material: 0, emissive: 0, normal: 0 });
   }
-  const unsafeCoupling = input.coated === true || input.sharpSpecular === true || input.shadow === true ||
+  const unsafeLighting = input.coated === true || input.sharpSpecular === true || input.shadow === true ||
     (input.aoVariation !== undefined && (!Number.isFinite(input.aoVariation) || input.aoVariation > budget));
-  const materialSafe = !unsafeCoupling && !input.normalTexture && !input.ormTexture &&
+  const materialSafe = !input.coated && !input.normalTexture && !input.ormTexture &&
     input.materialVariation !== undefined && input.materialVariation <= budget;
   const emissiveSafe = !input.emissiveTexture ||
     (input.emissiveVariation !== undefined && input.emissiveVariation <= budget);
-  const normalSafe = !unsafeCoupling && !input.normalTexture &&
+  const normalSafe = !input.coated && !input.normalTexture &&
     input.normalVariation !== undefined && input.normalVariation <= budget;
   return Object.freeze({
-    lighting: unsafeCoupling ? 0 : (input.lighting === undefined ? candidate : rate(input.lighting)),
+    lighting: unsafeLighting ? 0 : (input.lighting === undefined ? candidate : rate(input.lighting)),
     material: materialSafe ? candidate : 0,
     emissive: emissiveSafe ? candidate : 0,
     normal: normalSafe ? candidate : 0
@@ -99,26 +99,43 @@ export interface SurfaceResolveSample {
   readonly depth: number;
   readonly normal: readonly [number, number, number];
   readonly valid: boolean;
+  readonly identity: readonly [number, number, number];
+  readonly representation: number;
+  readonly layout: number;
+  readonly position: readonly [number, number];
+  readonly stride: readonly [number, number];
+  readonly kind: 1 | 2;
 }
 
 /** Bounded owner/neighbor reconstruction oracle. It never crosses a surface domain. */
 export function surfaceResolveReference(owner: SurfaceResolveSample,
-  neighbors: readonly SurfaceResolveSample[], depthTolerance: number, normalTolerance: number): readonly [number, number, number, number] {
+  neighbors: readonly SurfaceResolveSample[], depthTolerance: number, normalTolerance: number,
+  target: readonly [number, number] = owner.position, targetDepth = owner.depth): readonly [number, number, number, number] {
   if (!owner.valid || !Number.isFinite(depthTolerance) || depthTolerance < 0 ||
       !Number.isFinite(normalTolerance) || normalTolerance < 0) return owner.value;
-  const compatible = neighbors.filter(sample => sample.valid && sample.domain === owner.domain &&
-    Number.isFinite(sample.depth) && Math.abs(sample.depth - owner.depth) <= depthTolerance &&
-    sample.normal.every((value, index) => Number.isFinite(value) &&
-      Math.abs(value - owner.normal[index]!) <= normalTolerance));
-  if (compatible.length === 0) return owner.value;
-  const samples = [owner, ...compatible];
+  if (owner.kind !== 1 || !owner.stride.every(value => value === 1 || value === 2)) return owner.value;
+  const fraction = target.map((value, index) => Math.max(0, Math.min(1,
+    (value - owner.position[index]!) / owner.stride[index]!)));
+  const weight = (corner: number) => ((corner & 1) ? fraction[0]! : 1 - fraction[0]!) *
+    ((corner & 2) ? fraction[1]! : 1 - fraction[1]!);
   const result = [0, 0, 0, 0];
-  for (const sample of samples) for (let channel = 0; channel < 4; channel++) {
-    const value = sample.value[channel]!;
-    if (!Number.isFinite(value)) return owner.value;
-    result[channel] = result[channel]! + value;
+  let total = weight(0);
+  for (let channel = 0; channel < 4; channel++) result[channel] = owner.value[channel]! * total;
+  for (let corner = 1; corner < 4; corner++) {
+    const position = [owner.position[0] + (corner & 1) * owner.stride[0],
+      owner.position[1] + ((corner >> 1) & 1) * owner.stride[1]];
+    const sample = neighbors.find(value => value.position.every((coordinate, index) => coordinate === position[index]));
+    if (weight(corner) <= 0 || !sample || !sample.valid || owner.domain === 0 || sample.domain !== owner.domain ||
+      sample.kind !== 1 || sample.layout !== owner.layout || sample.representation !== owner.representation ||
+      !sample.identity.every((value, index) => value === owner.identity[index]) ||
+      !(targetDepth >= 0 && targetDepth <= 1) || !Number.isFinite(sample.depth) || Math.abs(sample.depth - targetDepth) > depthTolerance ||
+      !sample.normal.every((value, index) => Number.isFinite(value) && Math.abs(value - owner.normal[index]!) <= normalTolerance) ||
+      !sample.value.every(value => Number.isFinite(value) && Math.abs(value) <= 65504)) continue;
+    const contribution = weight(corner);
+    for (let channel = 0; channel < 4; channel++) result[channel] = result[channel]! + sample.value[channel]! * contribution;
+    total += contribution;
   }
-  return result.map(value => value / samples.length) as [number, number, number, number];
+  return total > 0 ? result.map(value => value / total) as [number, number, number, number] : owner.value;
 }
 
 export const SURFACE_SIGNAL_WGSL = /* wgsl */ `
@@ -139,6 +156,11 @@ fn surface_signal_effective(packed:u32)->u32 {
     surface_signal_rate(packed,SURFACE_SIGNAL_NORMAL_SHIFT);
 }
 fn surface_signal_set(packed:u32, shift:u32, value:u32)->u32 {
-  return (packed & ~(3u << shift)) | ((value & 3u) << shift);
+  var expanded=packed;
+  if (packed & SURFACE_SIGNAL_PACKED_FLAG)==0u {
+    let rate=packed & 3u;
+    expanded=rate | (rate<<2u) | (rate<<4u) | (rate<<6u) | SURFACE_SIGNAL_PACKED_FLAG;
+  }
+  return (expanded & ~(3u << shift)) | ((value & 3u) << shift);
 }
 `;

@@ -4,7 +4,7 @@ import { surfaceMaterialRequirements } from "./SurfaceProducts.js";
 /** Physical lowering of one Surface program's logical demand, independent of a scene revision. */
 export type SurfaceBindingKind =
   | "read-only-storage" | "storage" | "uniform" | "sampled-depth" | "sampled-uint"
-  | "sampled-array" | "sampled-2d" | "filtering-sampler" | "write-only-rgba16float" | "write-only-rg16float";
+  | "sampled-array" | "sampled-2d" | "filtering-sampler" | "write-only-rgba32uint" | "write-only-rgba16float" | "write-only-rg16float";
 
 export interface SurfacePhysicalBinding {
   readonly group: 0 | 1 | 2 | 3;
@@ -76,7 +76,7 @@ export function planSurfaceKernelBindings(
   add("visibility-depth", 0, 5, "sampled-depth");
   add("visibility-key", 0, 6, "sampled-uint");
   add("sample-profile", 0, 8, "uniform");
-  add("sample-results", 0, 9, "write-only-rgba16float");
+  add("sample-results", 0, 9, "write-only-rgba32uint");
   add("indirect-visibility", 0, 10, "read-only-storage");
 
   add("instance-records", 1, 0, "read-only-storage");
@@ -125,8 +125,7 @@ export function planSurfaceKernelBindings(
   const totals = Object.freeze({
     storageBuffers: bindings.filter(binding => binding.kind === "read-only-storage" ||
       binding.kind === "storage").length,
-    storageTextures: bindings.filter(binding => binding.kind === "write-only-rgba16float" ||
-      binding.kind === "write-only-rg16float").length,
+    storageTextures: bindings.filter(binding => binding.kind.startsWith("write-only-")).length,
     sampledTextures: bindings.filter(binding =>
       binding.kind === "sampled-depth" || binding.kind === "sampled-uint" ||
       binding.kind === "sampled-array" || binding.kind === "sampled-2d").length,
@@ -161,6 +160,26 @@ function checkLimit(name: string, needed: number, available: number): void {
   if (!Number.isSafeInteger(available) || available < needed) {
     throw new RangeError(`Surface needs ${name} >= ${needed}, device permits ${available}`);
   }
+}
+
+/** Lighting consumes exact closure values and target geometry, with no material
+ * textures or samplers. Recount the physical envelope after changing result access. */
+export function planSurfaceClosureLightingBindings(
+  worker: Readonly<SurfacePhysicalBindingPlan>, limits: Readonly<SurfaceBindingLimits>
+): Readonly<SurfacePhysicalBindingPlan> {
+  const excluded = new Set<SurfaceResourceRole>(["texture-routes", "texture-banks", "texture-samplers", "sample-profile"]);
+  const bindings = worker.bindings.filter(binding => !excluded.has(binding.role)).map(binding =>
+    binding.role === "sample-results" ? Object.freeze({ ...binding, kind: "sampled-uint" as const }) : binding);
+  const totals = Object.freeze({
+    storageBuffers: bindings.filter(binding => binding.kind === "storage" || binding.kind === "read-only-storage").length,
+    storageTextures: bindings.filter(binding => binding.kind.startsWith("write-only-")).length,
+    sampledTextures: bindings.filter(binding => binding.kind.startsWith("sampled-")).length,
+    samplers: bindings.filter(binding => binding.kind === "filtering-sampler").length,
+    uniformBuffers: bindings.filter(binding => binding.kind === "uniform").length
+  });
+  checkLimit("maxSampledTexturesPerShaderStage", totals.sampledTextures, limits.maxSampledTexturesPerShaderStage);
+  return Object.freeze({ bindings: Object.freeze(bindings), totals, signature: JSON.stringify([2,
+    ...bindings.map(binding => [binding.group, binding.binding, binding.role, binding.element, binding.kind])]) });
 }
 
 /** Exact device layouts for the selected closure; resource objects are bound per publication. */
@@ -204,6 +223,9 @@ export function createSurfaceBindGroupLayouts(
             break;
           case "write-only-rgba16float":
             entry.storageTexture = { access: "write-only", format: "rgba16float" };
+            break;
+          case "write-only-rgba32uint":
+            entry.storageTexture = { access: "write-only", format: "rgba32uint" };
             break;
           case "write-only-rg16float":
             entry.storageTexture = { access: "write-only", format: "rg16float" };

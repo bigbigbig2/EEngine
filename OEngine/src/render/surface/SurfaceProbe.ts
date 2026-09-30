@@ -76,7 +76,7 @@ export interface SurfaceProbeFact {
   readonly residencyValid: boolean;
 }
 export function surfaceProbePairReference(begin: SurfaceProbeFact, end: SurfaceProbeFact,
-  budget: SurfaceProbeBudget): boolean {
+  budget: SurfaceProbeBudget, includeLighting = true): boolean {
   if (!begin.valid || !end.valid || begin.risk !== 0 || end.risk !== 0 ||
       !begin.residencyValid || !end.residencyValid || begin.instance !== end.instance ||
       begin.material !== end.material || begin.geometry !== end.geometry ||
@@ -88,12 +88,12 @@ export function surfaceProbePairReference(begin: SurfaceProbeFact, end: SurfaceP
   if (!finite) return false;
   const difference = (left: readonly number[], right: readonly number[]) =>
     Math.max(...left.map((value, index) => Math.abs(value - right[index]!)));
-  return difference(begin.normal, end.normal) <= budget.normal &&
+  return (!includeLighting || (difference(begin.normal, end.normal) <= budget.normal &&
     Math.max(begin.normalVariation ?? 0, end.normalVariation ?? 0) <= budget.normal &&
+    Math.abs(begin.depth - end.depth) <= budget.depth)) &&
     difference(begin.color, end.color) <= budget.color &&
     Math.max(begin.colorVariation ?? 0, end.colorVariation ?? 0, begin.variation, end.variation) <= budget.color &&
     Math.max(begin.parameterVariation, end.parameterVariation) <= budget.parameter &&
-    Math.abs(begin.depth - end.depth) <= budget.depth &&
     ((begin.variation === 0 && end.variation === 0 && begin.parameterVariation === 0 && end.parameterVariation === 0) ||
       difference(begin.uv, end.uv) <= budget.uv);
 }

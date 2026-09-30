@@ -56,7 +56,7 @@
 | Wicked uniform/divergent tile 与固定 bins/indirect | SurfaceSampleAbi、surface_sample_work 的 build/finalize；SurfaceMaterialPass FrameGraph coordinator | 四个 resident-set profiles；纯同率 tile 用 descriptor，mixed 才 compact；不使用 bindless/wave/quad 或每材质全屏常态扫描 |
 | Intel CPS coarse/full 判定、当前光源集合和 DEFER_PER_PIXEL 覆盖 | surface_probe 当前 position/view/roughness；Builder 当前 active light list/VSM/environment/AO 风险；固定 tile fallback | 初始同率只放行具名方向光无阴影 profile；punctual/VSM/物理天空未知项全率，不复制代表 pixel 的 cluster list；不照搬 GBuffer 或原阈值 |
 | Forge CalcFullBary/Interpolate2DWithDeriv；既有 Filament Standard/Coated/lighting | surface_geometry、surface_material_evaluation、surface_lighting；surface_sample_worker full/implicit/compact | 按代表 winner 的解析一像素导数调用原数学，未增加 mip bias、廉价 BRDF 或 motion demand；Coated 完整保留但全率 |
-| VRCS compact remap 与覆盖，避免同 UAV 原地读取竞态 | 24-byte sample records/64-bit masks、160-byte 固定 tile state、独立 rgba16float sample results；surface_sample_work.resolve | top-left owner sample 有界复制到已认证 cell；HDR 只写不读，full/coarse/fallback 互斥；进一步的独立 closure result split 仍不冒称完整 VRCS port |
+| VRCS compact remap 与覆盖，避免同 UAV 原地读取竞态 | 24-byte sample records/64-bit masks、160-byte 固定 tile state、128-byte rgba32uint sample results；surface_sample_resolve.resolve | owner 加最多三邻居的受限双线性重建；身份/domain/layout/footprint/depth/normal 拒绝后归一化；HDR 只写不读，full/coarse/fallback 互斥。独立 closure split 是本地集成，不冒称完整 VRCS port |
 | 无完整 donor 的 multi-pool commit | record/result 同 tile 预约 → 最终状态 → 独立 finalize → worker/Resolve | partial reservation 只浪费槽、不部分提交；错误 tile 从固定状态定位，不使用可溢出 repair queue；无跨组自旋/本帧 readback/独立 submit |
 
 CPU coverage/reservation/二维 indirect/lighting-risk oracle、原透视梯度 oracle 与生产 FrameGraph 的 Dawn D3D12 material+lighting→results→Resolve→HDR 已执行。默认预算严格，受控真实纹理 PBR/非零方向光减少重样本；结果不提升正式采用/画质/性能 claims。诊断驱动关闭 shader 优化以缩短编译，不据此测量性能。
@@ -419,6 +419,19 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 - **检索范围与 donor 缺口**：R20 的分类发生在四份已重建 GBuffer 之后，不能在昂贵材质求值之前证明纹理常量；R14 读取上一帧亮度和 motion，输出硬件 VRS image，不提供 WebGPU compute shading 的同帧材质发布证明。两份固定 revision 的完整源入口如上，均未实现本条件。因此它是 **EEngine 本地精确条件**，不是 R20/R14 的完整或部分算法移植，也未以同名效果冒充。
 - **本地入口、决策与依赖**：当前 Surface 入口为 `SurfaceMaterialPass`、`surface_sample_work.ts`、`surface_sample_worker.ts` 和 `SurfaceSignalPlan.ts`；材质/纹理 publication 通过 ABI v7、residency revision 和 variation 区间进入 Probe。常量/未知/高频信号按明确预算分别 coarse 或 full，不能以单 texel 证明普通 PBR 的普遍收益。
 - **fallback / 差异 / 验证**：缺 publication、normal/ORM/emissive/Coated 风险、shadow/AO/sky/IBL 或边界不满足预算时保持同架构 full-rate；tile pool 不足时整 tile fallback。正式画质、跨设备全帧性能和动态纹理源变更矩阵仍开放。
+
+### EEngine 本地方案 · 独立 closure rate 与受限 sample 重建（2026-10-01，生产集成）
+
+本轮先重新核读 R20 固定 revision 的完整 `ComputeShaderTile.hlsl`，以及 Wicked `df44c3db4c4927492bc9c791eac715d98d7ed091`（MIT）的完整 `visibility_shadeCS.hlsl`、Forge `cd5046893faba2dc7869243873bf01f02a6f0df9`（Apache-2.0）的 `VisibilityBufferShadingUtilities.h.fsl`；GitHub 搜索上述三仓库的 material/shading/decoupled/reconstruction 未取得完整的前置材质分率 donor。DACS 作者方法页本轮请求遇到访问挑战，未读取其内容；DOOM VRCS 数据流沿用此前已核读并固定 SHA256 的演讲记录。CPS 为 GBuffer-first，Wicked 为逐像素完整 Surface，Forge 仅提供透视插值数学；没有任一来源完整覆盖本地 VG/publication/texture-risk/overflow/profile 的分率链，因此以下是具名本地方案，保持来源 `not adopted`。
+
+| 参考阶段 / 不变量 | 本地生产阶段 | 输入输出、关键分支与 fallback |
+| --- | --- | --- |
+| CPS coarse/full 完整覆盖；不同像素必须消费正确灯表 | Probe 独立 material/lighting rate → Builder → closure worker → full-rate lighting consumer | material/emissive 与确有复用的法线决定 closure rate；full lighting 恢复目标法线/position，因此几何法线与深度差不取消材质证明。light-list/VSM/environment/AO 风险仅清 lighting，材质允许粗率时不重新采纹理；同率保持融合。未知材质/Coated/非法身份与任一池 overflow 全率。 |
+| Forge CalcFullBary/Interpolate2DWithDeriv | demand-driven triangle context 与 target geometry | 固定 winner 的实际代表位置、三顶点 clip 和一像素差分；16-slot workgroup cache 真实供 material/lighting 求值读取，三次统一 barrier；近裁剪/退化/哈希冲突直接恢复。无跨帧 key 重用。 |
+| DACS 插值接受/拒绝；VRCS 去块不得读取正在写的 UAV | immutable sample Resolve | owner 为底，候选必须同 instance/material/geometry/representation/domain/layout 且 depth/normal/footprint 兼容；无候选/非有限值使用 owner，full-rate 不滤波。不称完整 DACS/DOOM port。 |
+| 本地可观测调度胶水 | Surface counters → 既有异步 profiler readback | 只复制采样帧的计数，使用原 frame encoder/submit；GPU→CPU 数据不控制本帧 work。 |
+
+容量在创建前协商，closure 只为真实粗率样本物化紧凑字段，full-rate 直接 HDR；中间材质字段不乘曝光，最终 radiance 转色域/乘曝光一次。用户 Chrome 的 CPU/WGSL/生产 GPU oracle 已覆盖独立分率、完整 IBL/AO 和重建/overflow 数值。sample results 为精确 128-byte 私有布局；header/profile 仅在 finalize 后由 workgroup 缓存，未修改决策。Chrome 曾复现 42 套在途瞬态帧积压；FrameCoordinator 在分配前限制两帧，完成/失败/销毁回调均释放 admission。此为本地绑定/生命周期集成，不要求复杂算法 donor；不据本段提升正式采用或性能等级。
 
 ## 7. 补充核查：可替换原空白选型的源码
 

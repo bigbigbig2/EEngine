@@ -1199,7 +1199,7 @@ export class Renderer {
         // The SDR configure in resize is the fallback on unsupported devices.
       }
     }
-    this._surfaceMaterial = new SurfaceMaterialPass(device, config.surfaceShadingBudget);
+    this._surfaceMaterial = new SurfaceMaterialPass(device, config.surfaceShadingBudget, this._profiler, () => this.perf_gpu_counters_enabled);
     this._xeGtaoPreparation = new XeGtaoPreparationPass(device);
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
@@ -1275,6 +1275,9 @@ export class Renderer {
 
   render(camera: PerspectiveCamera, scene: Scene, timeDeltaSeconds = 1 / 60): boolean {
     if (this._deviceLost || this._destroyed) return false;
+    // A healthy device may defer this tick. No graph/resources/history are
+    // advanced until one of the two submitted frames has completed.
+    if (!this._frameCoordinator.canBeginFrame) return true;
     const runtime = this._graphics.render_world_if_created?.runtime(scene);
     if (!runtime) {
       if (scene.instance_count !== 0) throw new Error("Scene has no GPU Render World publication");

@@ -74,6 +74,7 @@ let failed = false;
 let refinementComplete = false;
 let fps = 0;
 let previousTime = 0;
+let previousRenderedTime = 0;
 let loadStart = performance.now();
 
 for (const id of ["toggle-gtao", "toggle-fsr3", "toggle-bloom", "toggle-hzb", "toggle-cone", "toggle-rotate", "toggle-profiler"]) {
@@ -310,12 +311,18 @@ function draw(now: number): void {
   if (closed || !renderer || !camera || failed) return;
   const delta = previousTime > 0 ? Math.min(0.1, Math.max(1 / 240, (now - previousTime) / 1000)) : 1 / 60;
   previousTime = now;
-  const instantaneous = 1 / delta;
-  fps = fps === 0 ? instantaneous : fps * 0.9 + instantaneous * 0.1;
   controls?.update(delta);
   camera.update();
   try {
+    const previousFrame = renderer.frame_count;
     if (!renderer.render(camera, scene, delta)) throw new Error("WebGPU 设备已失效，渲染已停止");
+    if (renderer.frame_count !== previousFrame) {
+      if (previousRenderedTime > 0) {
+        const instantaneous = 1000 / Math.max(1, now - previousRenderedTime);
+        fps = fps === 0 ? instantaneous : fps * 0.9 + instantaneous * 0.1;
+      }
+      previousRenderedTime = now;
+    }
     updateHud();
   } catch (error) {
     fail(error);
@@ -341,10 +348,19 @@ function updateHud(): void {
   if (!settings.profiler) return;
   const frame = renderer.profiler.latest;
   if (!frame) return;
-  const gpu = frame.gpu.segments.length > 0
-    ? frame.gpu.segments.reduce((sum, segment) => sum + segment.durationMs, 0) : undefined;
+  const completedProfiles = renderer.profiler.history.reverse();
+  const gpuFrame = completedProfiles.find(snapshot => snapshot.gpu.sampled &&
+    !snapshot.gpu.pending && snapshot.gpu.segments.length > 0);
+  const gpu = gpuFrame?.gpu.segments.reduce((sum, segment) => sum + segment.durationMs, 0);
   cpuReadout.textContent = Number.isFinite(frame.cpuMs.frame) ? `${frame.cpuMs.frame.toFixed(2)} ms` : "--";
   gpuReadout.textContent = gpu === undefined ? "等待" : `${gpu.toFixed(2)} ms`;
+  const counters = completedProfiles.find(snapshot => snapshot.gpuCounters.values.surfaceMaterialSamples !== undefined)?.gpuCounters.values;
+  if (counters) {
+    element<HTMLElement>("surface-visible-readout").textContent = `${counters.surfacePbrPixels} / ${counters.surfaceVisiblePixels}`;
+    element<HTMLElement>("surface-samples-readout").textContent = `${counters.surfaceMaterialSamples} / ${counters.surfaceLightingSamples}`;
+    element<HTMLElement>("surface-rate-readout").textContent = `${counters.surfaceCoarseSamples} / ${counters.surfaceFullSamples}`;
+    element<HTMLElement>("surface-overflow-readout").textContent = `${counters.surfaceFallbackTiles} / ${(counters.surfaceRecordOverflowTiles ?? 0) + (counters.surfaceResultOverflowTiles ?? 0)}`;
+  }
   resolutionReadout.textContent = `${renderer.internal_resolution_scale.toFixed(2)}×`;
 }
 
@@ -355,7 +371,8 @@ function exportDiagnostics(): void {
     camera: camera ? { position: camera.transform.position, near: camera.near, far: camera.far } : null,
     frameCount: renderer?.frame_count ?? 0, diagnostics: renderer?.profiler.diagnostics ?? null,
     streaming: renderer?.geometryStreamingEvidence(scene) ?? null,
-    latestProfile: renderer?.profiler.latest ?? null, graph: renderer?.mainFrameGraphEvidence() ?? null
+    latestProfile: renderer?.profiler.latest ?? null, graph: renderer?.mainFrameGraphEvidence() ?? null,
+    surfaceProfile: renderer?.profiler.history.reverse().find(snapshot => snapshot.gpuCounters.values.surfaceMaterialSamples !== undefined) ?? null
   };
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }));
   const link = document.createElement("a");

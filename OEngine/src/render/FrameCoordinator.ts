@@ -25,6 +25,13 @@ type FrameCommandFactory = (
 export class FrameCoordinator {
   private active: FrameEncoding | null = null;
   private destroyed = false;
+  private readonly inFlight = new Set<FrameEncoding>();
+
+  /** Queue-completion backpressure bounds fence-retained transient resources.
+   * This observes completion only; it never reads GPU work/visibility data. */
+  get canBeginFrame(): boolean {
+    return !this.destroyed && this.active === null && this.inFlight.size < 2;
+  }
 
   constructor(
     private readonly graphics: GraphicsContext,
@@ -39,6 +46,7 @@ export class FrameCoordinator {
         `FrameCoordinator frame ${this.active.frameIndex} is still active`
       );
     }
+    if (!this.canBeginFrame) throw new Error("FrameCoordinator is waiting for GPU completion");
     if (!Number.isInteger(frameIndex) || frameIndex < 0) {
       throw new RangeError("frameIndex must be a non-negative integer");
     }
@@ -57,6 +65,9 @@ export class FrameCoordinator {
     this.assertActive(frame);
     try {
       frame.command.finish();
+      this.inFlight.add(frame);
+      const completed = () => { this.inFlight.delete(frame); };
+      void frame.command.gpuDone.then(completed, completed);
     } catch (cause) {
       if (!frame.command.closed) {
         try { frame.command.abort(cause); }
@@ -92,6 +103,7 @@ export class FrameCoordinator {
       );
     }
     this.destroyed = true;
+    this.inFlight.clear();
   }
 
   private assertActive(frame: FrameEncoding): void {

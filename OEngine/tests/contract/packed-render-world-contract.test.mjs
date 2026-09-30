@@ -155,6 +155,37 @@ test("FrameCoordinator releases an active frame when submission fails", () => {
   closedCoordinator.beginFrame(1, "main");
 });
 
+test("FrameCoordinator bounds fence-retained frames and reopens after completion or loss", async () => {
+  const completions = [];
+  let creates = 0;
+  const coordinator = new FrameCoordinator({}, (_graphics, label) => {
+    creates++;
+    const command = new FakeCommand(label);
+    command.gpuDone = new Promise((resolve, reject) => completions.push({ resolve, reject }));
+    return command;
+  });
+  coordinator.submitFrame(coordinator.beginFrame(0, "main"));
+  coordinator.submitFrame(coordinator.beginFrame(1, "main"));
+  assert.equal(coordinator.canBeginFrame, false);
+  assert.throws(() => coordinator.beginFrame(2, "main"), /waiting for GPU completion/);
+  assert.equal(creates, 2, "backpressure must apply before creating any frame resources");
+  completions[0].resolve();
+  await Promise.resolve();
+  assert.equal(coordinator.canBeginFrame, true);
+  const aborted = coordinator.beginFrame(2, "main");
+  coordinator.abortFrame(aborted, new Error("encode failure"));
+  assert.equal(coordinator.canBeginFrame, true, "aborts cannot occupy a submitted slot");
+  coordinator.submitFrame(coordinator.beginFrame(3, "main"));
+  assert.equal(coordinator.canBeginFrame, false);
+  completions[1].reject(new Error("device lost"));
+  await Promise.resolve();
+  assert.equal(coordinator.canBeginFrame, true);
+  coordinator.destroy();
+  completions[3].resolve();
+  await Promise.resolve();
+  assert.equal(coordinator.canBeginFrame, false, "late fences must not reopen a destroyed coordinator");
+});
+
 test("Ordinary Scene adapter creates deterministic Packed dictionaries without GPU ownership", () => {
   const scene = new Scene();
   const geometry = new BoxGeometry(2, 2, 2);

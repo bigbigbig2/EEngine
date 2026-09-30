@@ -5,7 +5,9 @@ export function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): s
   switch (binding.role) {
     case "shading-work": return `${prefix} var<storage, read_write> work:SurfaceSampleWork;`;
     case "visibility-key": return `${prefix} var visibility_texture: texture_2d<u32>;`;
-    case "sample-results": return `${prefix} var sample_results: texture_storage_2d<rgba16float, write>;`;
+    case "sample-results": return binding.kind === "sampled-uint"
+      ? `${prefix} var sample_results: texture_2d<u32>;`
+      : `${prefix} var sample_results: texture_storage_2d<rgba32uint, write>;`;
     case "indirect-visibility": return `${prefix} var<storage, read> xe_visibility_words: array<u32>;`;
     case "sample-profile": return `${prefix} var<uniform> sample_dispatch: vec4u;`;
     case "meshlet-work": return `${prefix} var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;`;

@@ -2,10 +2,11 @@ import assert from "node:assert/strict";
 import { SurfaceMaterialPass } from "../../.test-dist/render/surface/SurfaceMaterialPass.js";
 import { FrameGraph, FrameGraphContext, FrameGraphResourceManager } from "../../.test-dist/framegraph/FrameGraph.js";
 import { surfaceSampleCapacity, SURFACE_SAMPLE_COUNTER } from "../../.test-dist/render/surface/SurfaceSampleAbi.js";
+import { packSurfaceSignalRates } from "../../.test-dist/render/surface/SurfaceSignalPlan.js";
 import { DIRECTIONAL_LIGHT_DESCRIPTOR, DIRECTIONAL_LIGHT_RECORD_TYPE } from "../../.test-dist/gpu/LightDatabase.js";
 import { writeWgslValue } from "../../.test-dist/core/WgslBufferIO.js";
 import { BinaryReader } from "../../.test-dist/loaders/BinaryReader.js";
-import { halfToFloat } from "../../.test-dist/loaders/float16.js";
+import { halfToFloat, floatToHalf } from "../../.test-dist/loaders/float16.js";
 import { GPU_SHADING_MATERIAL_RECORD_STRIDE, GPU_SHADING_MATERIAL_HEADER_STRIDE,
   GPU_SHADING_MATERIAL_HEADER_OFFSETS } from "../../.test-dist/gpu/GpuShadingMaterialAbi.js";
 import { GPU_MATERIAL_VISIBILITY_RECORD_STRIDE } from "../../.test-dist/gpu/GpuMaterialVisibilityAbi.js";
@@ -29,6 +30,17 @@ export async function surfacePhaseTwoGpuOracle(fixture) {
     128, 128, 128, 255, 129, 128, 128, 255, 128, 128, 128, 255, 129, 128, 128, 255
   ]), { bytesPerRow: 8 }, [2, 2, 1]);
   const bankView = bank.createView({ dimension: "2d-array" });
+  const aoBytes = Uint8Array.from({ length: 64 }, (_, index) => index % 2 ? 255 : 32);
+  const ao = buffer(new Uint32Array(aoBytes.buffer));
+  const sun = buffer(new Float32Array([0,0,1,1, 0.3,0.3,0.3,1, 1,0,0,0]), GPUBufferUsage.UNIFORM);
+  const environmentTexture = (value) => {
+    const texture = device.createTexture({ size: [2,2], format: "rgba16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+    resources.push(texture);
+    device.queue.writeTexture({ texture }, new Uint16Array(Array(4).fill(value).flat().map(floatToHalf)), { bytesPerRow: 16 }, [2,2]);
+    return texture;
+  };
+  const transmittance = environmentTexture([1,1,1,1]), irradiance = environmentTexture([0.2,0.3,0.4,1]);
+  const specular = environmentTexture([0.4,0.3,0.2,1]), dfg = environmentTexture([0.03,0.7,0,1]);
   const budget = { ...probeBudget, lightingPosition: 0.3, lightingView: 0.3, minimumRoughness: 0.8 };
   let surfaceOwner; resources.push({ destroy: () => surfaceOwner?.destroy() });
   async function execute(options = {}) {
@@ -54,7 +66,13 @@ export async function surfacePhaseTwoGpuOracle(fixture) {
       textureRoutes: importResource("routes", stage.bindings.textureRouteRecords),
       textureResidencyVersions: importResource("residency", residency), textureBanks: [[importResource("bank", bankView)]],
       lightRecords: importResource("lights", lights), lightLookup: importResource("clusters", lookup),
-      lightData: importResource("light data", lightData), lightParams: importResource("light parameters", lightParams) });
+      lightData: importResource("light data", lightData), lightParams: importResource("light parameters", lightParams),
+      ...(options.ao ? { indirectVisibility: importResource("AO", ao) } : {}),
+      ...(options.environment ? {
+        physicalEnvironmentSun: importResource("sun", sun), physicalEnvironmentTransmittance: importResource("transmittance", transmittance),
+        physicalSkyIrradiance: importResource("irradiance", irradiance), physicalSkySpecular: importResource("specular", specular),
+        physicalSkyDfg: importResource("DFG", dfg)
+      } : {}) });
     const width = options.width ?? 8, height = options.height ?? 8;
     const capacity = surfaceSampleCapacity(width, height, device.limits);
     const readback = device.createBuffer({ size: height * 256 + 256, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
@@ -129,8 +147,10 @@ export async function surfacePhaseTwoGpuOracle(fixture) {
   const coarse = await execute();
   assert.equal(full.counts[SURFACE_SAMPLE_COUNTER.material], 64);
   assert.equal(full.counts[SURFACE_SAMPLE_COUNTER.lighting], 64);
+  assert.ok(full.counts[SURFACE_SAMPLE_COUNTER.setupHits] > 0, "full material worker must consume TriangleSetup");
   assert.equal(coarse.counts[SURFACE_SAMPLE_COUNTER.material], 16);
   assert.equal(coarse.counts[SURFACE_SAMPLE_COUNTER.lighting], 16);
+  assert.ok(coarse.counts[SURFACE_SAMPLE_COUNTER.setupHits] > 0, "coarse material worker must consume TriangleSetup");
   assert.equal(coarse.counts[SURFACE_SAMPLE_COUNTER.records], 0);
   assert.equal(coarse.counts[SURFACE_SAMPLE_COUNTER.implicit], 1);
   assert.ok(coarse.hdr.some((value, index) => index % 4 !== 3 && value > 0x3000));
@@ -165,8 +185,40 @@ export async function surfacePhaseTwoGpuOracle(fixture) {
   device.queue.writeBuffer(lightData, 16, new Uint32Array([1]));
   const punctualRisk = await execute();
   assert.equal(punctualRisk.counts[SURFACE_SAMPLE_COUNTER.lighting], 64);
+  assert.equal(punctualRisk.counts[SURFACE_SAMPLE_COUNTER.material], 16);
+  assert.equal(punctualRisk.counts[SURFACE_SAMPLE_COUNTER.splitPixels], 64);
   assert.equal(punctualRisk.counts[SURFACE_SAMPLE_COUNTER.lightingRejected], 16);
-  assert.deepEqual(punctualRisk.hdr, full.hdr);
+  assert.ok(Math.max(...punctualRisk.hdr.map((value, index) => Math.abs(halfToFloat(value) - halfToFloat(full.hdr[index])))) < 0.001,
+    "full-rate lighting must retain pixel view/geometry while only material variation is shared");
+  // With an exact constant closure, independent lighting must be bit-identical.
+  device.queue.writeTexture({ texture: bank, origin: [0, 0, 1] }, new Uint8Array([
+    128,128,128,255,128,128,128,255,128,128,128,255,128,128,128,255
+  ]), { bytesPerRow: 8 }, [2, 2, 1]);
+  const constantFull = await execute({ full: true });
+  const constantSplit = await execute();
+  assert.deepEqual(constantSplit.hdr, constantFull.hdr);
+  assert.equal(constantSplit.counts[SURFACE_SAMPLE_COUNTER.material], 16);
+  assert.equal(constantSplit.counts[SURFACE_SAMPLE_COUNTER.lighting], 64);
+  assert.ok(constantSplit.counts[SURFACE_SAMPLE_COUNTER.setupBuilds] < 16);
+  assert.ok(constantSplit.counts[SURFACE_SAMPLE_COUNTER.setupHits] >= 64);
+  const normalFullSplit = await execute({ rates: Array(16).fill(packSurfaceSignalRates({
+    material: 3, emissive: 3, normal: 0, lighting: 0 })) });
+  assert.equal(normalFullSplit.counts[SURFACE_SAMPLE_COUNTER.material], 16);
+  assert.equal(normalFullSplit.counts[SURFACE_SAMPLE_COUNTER.lighting], 64);
+  assert.deepEqual(normalFullSplit.hdr, constantFull.hdr, "full target normals retain exact closure lighting");
+  device.queue.writeBuffer(lightData, 16, new Uint32Array([0]));
+  const environmentFull = await execute({ full: true, environment: true, ao: true });
+  const environmentSplit = await execute({ environment: true, ao: true });
+  assert.equal(environmentSplit.counts[SURFACE_SAMPLE_COUNTER.material], 16);
+  assert.equal(environmentSplit.counts[SURFACE_SAMPLE_COUNTER.lighting], 64);
+  assert.equal(environmentSplit.counts[SURFACE_SAMPLE_COUNTER.splitPixels], 64);
+  assert.deepEqual(environmentSplit.hdr, environmentFull.hdr,
+    "IBL/DFG/energy compensation/specular AO must consume exact target geometry and pixel AO");
+  const noAo = await execute({ environment: true });
+  assert.notDeepEqual(noAo.hdr, environmentSplit.hdr, "AO affects only its canonical nonlinear lobes");
+  device.queue.writeTexture({ texture: bank, origin: [0, 0, 1] }, new Uint8Array([
+    128,128,128,255,129,128,128,255,128,128,128,255,129,128,128,255
+  ]), { bytesPerRow: 8 }, [2, 2, 1]);
   device.queue.writeBuffer(lightData, 16, new Uint32Array([0]));
   device.queue.writeBuffer(residency, 4, new Uint32Array([2]));
   const stale = await execute(); assert.equal(stale.counts[SURFACE_SAMPLE_COUNTER.material], 64);

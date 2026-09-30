@@ -4,7 +4,7 @@
 
 本文确定 Surface 重构的唯一推荐方向，替代 [前期调查](surface-shading-performance-design-2026.md) 中的候选排序和“先 A/B 小优化”顺序；上位架构仍为 [Next 整体设计](eengine-next-overall-architecture-final-2026.md)。执行顺序见 [Surface 重构执行文档](../next-execution/surface-sample-driven-shading-rebuild-2026.md)，来源/阶段映射见 [Next 来源账本](../porting/next-renderer.md)。
 
-2026-09-30 阶段二直接替换唯一生产主链，阶段三继续在同一主链上加入 32-bit 分信号率布局、信号交集覆盖、Resolve key/depth 边界和 signal counters：8×8 tile/2×2 cell 的 Work Builder、descriptor/compact workers、整 tile 多池提交、独立 GPU finalize 与不可变 sample results → Resolve → HDR。真实非恒定 albedo Standard PBR 在具名受控预算、无阴影方向光 profile 下，材质及完整直接光 BRDF 求值由 64 降为 16；不是整帧性能结论。默认预算仍严格，当前 local lights、VSM、物理天空/IBL、未知纹理/normal-map/Coated 采用全率；阶段三的信号策略保持这些语义边界。Temporal 保持独立 motion，此前 VG 画质问题不因本阶段而关闭。
+2026-09-30 阶段二直接替换唯一生产主链，阶段三加入 32-bit 分信号率布局。2026-10-01 补齐有限的 material-coarse/lighting-full 精确 closure layout、受限 GPU 邻域重建、workgroup TriangleSetup 的实际消费与真实异步计数：8×8 tile/2×2 cell 的 Work Builder、descriptor/compact workers、整 tile 多池提交、独立 GPU finalize 与不可变 sample results → 目标照明 → Resolve → HDR。受控非恒定 resident albedo Standard PBR 在具名预算下有 material 16 / lighting 64 的实际 GPU 消费；完整 IBL/DFG/energy 和逐像素 AO 的常量 closure 对照逐位一致。默认预算仍严格；local lights、VSM、物理天空/IBL 和变化 AO 只约束 lighting，已证明材质复用可独立保留；未知纹理/normal-map/ORM/Coated 保守全率。默认 Dungeon 的材质与照明样本仍等于有效像素，不能据受控减量证明该场景 adaptive 净加速。Temporal 保持独立 motion，此前 VG 画质问题不因本阶段而关闭。
 
 ## 1. 决策：直接改重着色的工作单位
 
@@ -305,4 +305,4 @@ CPU oracle/独立诊断 harness 和 Git 历史可用于对照；新架构的全�
 
 性能与正式采用是另一级结论：在整体 Next 适当验收阶段，用固定 revision/场景/尺寸/相机/驱动/温度条件测量分析+probe+工作生成+重 shader+重建及整帧 P50/P95，并覆盖代表材质/画质/lifecycle 矩阵。旧基线用 Git revision/独立 harness 对照，不留双生产桥梁。只有源码映射、CPU/WGSL oracle 与真实生产 GPU 消费等证据齐备才提升对应采用状态；样本少但总时间不降不能叫性能改善。
 
-阶段一的实际实现与验证范围见执行文档的阶段一收口记录。本文其余章节仍是后续目标，不代表 sample scheduling、重着色减量、Resolve 或性能目标已完成；正式 browser matrix、画质与 GPU P50/P95 未运行。
+当前生产事实与实际验证见执行文档的各阶段及 2026-10-01 补齐记录。已有有限 material-coarse/lighting-full closure layout、目标法线恢复、受限 GPU 重建、需求驱动 TriangleSetup 和真实异步 counters；normal-map/ORM/Coated 等未证明信号保守全率。本文仍为目标约束；本地 Chrome 开发验证不等于正式 browser matrix、完整画质或性能采用。跨帧 cache 仍按 §13 的重复成本与稳定映射门槛后续选择。

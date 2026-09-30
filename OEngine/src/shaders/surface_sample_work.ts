@@ -73,8 +73,14 @@ fn build(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) thr
     ${scalarAo ? `if surface_signal_rate(rate,SURFACE_SIGNAL_LIGHTING_SHIFT)!=0u {
       let visibility=sample_ao(cell);
       if visibility!=sample_ao(cell+vec2u(1u,0u)) || visibility!=sample_ao(cell+vec2u(0u,1u)) ||
-        visibility!=sample_ao(cell+vec2u(1u,1u)) { rate=0u; sample_add(SAMPLE_COUNTER_lightingRejected,1u); }
+        visibility!=sample_ao(cell+vec2u(1u,1u)) {
+          rate=surface_signal_set(rate,SURFACE_SIGNAL_LIGHTING_SHIFT,0u); sample_add(SAMPLE_COUNTER_lightingRejected,1u);
+        }
     }` : ""}
+    let material_rate=sample_material_rate(rate);
+    if surface_signal_rate(rate,SURFACE_SIGNAL_LIGHTING_SHIFT)!=material_rate {
+      rate=surface_signal_set(rate,SURFACE_SIGNAL_LIGHTING_SHIFT,0u);
+    }
     cell_rates[thread]=rate;
   }
   workgroupBarrier();
@@ -93,10 +99,13 @@ fn build(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) thr
     sample_store(tile_base+SAMPLE_TILE_cellRates+cell,cell_rates[cell]);
   }
   if empty { sample_store(tile_base,0u); return; }
+  var visible=0u;
+  for(var index=0u;index<64u;index++) { visible+=select(0u,1u,pixel_profiles[index]<4u); }
+  sample_add(SAMPLE_COUNTER_visible,visible);
   homogeneous=homogeneous && pixel_profiles[0u]<4u;
   var records=0u; var results=0u;
   for(var cell=0u;cell<16u;cell++) {
-    let rate=sample_effective_rate(cell_rates[cell]); let stride=sample_stride(rate); let local_origin=sample_cell_origin(cell);
+    let rate=sample_material_rate(cell_rates[cell]); let stride=sample_stride(rate); let local_origin=sample_cell_origin(cell);
     sample_store(tile_base+SAMPLE_TILE_cellResults+cell,results);
     for(var vertical=0u;vertical<2u;vertical+=stride.y) {
       for(var horizontal=0u;horizontal<2u;horizontal+=stride.x) {
@@ -131,7 +140,7 @@ fn build(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) thr
   }
   var record_offset=0u;
   for(var cell=0u;cell<16u;cell++) {
-    let rate=sample_effective_rate(cell_rates[cell]); let stride=sample_stride(rate); let local_origin=sample_cell_origin(cell);
+    let rate=sample_material_rate(cell_rates[cell]); let stride=sample_stride(rate); let local_origin=sample_cell_origin(cell);
     var result_offset=0u;
     for(var vertical=0u;vertical<2u;vertical+=stride.y) {
       for(var horizontal=0u;horizontal<2u;horizontal+=stride.x) {
@@ -153,27 +162,4 @@ fn build(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) thr
 }
 `;
 }
-export const SURFACE_SAMPLE_RESOLVE_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage,read_write> work:SurfaceSampleWork;
-@group(0) @binding(1) var results:texture_2d<f32>;
-@group(0) @binding(2) var output_hdr:texture_storage_2d<rgba16float,write>;
-@group(0) @binding(3) var resolve_keys:texture_2d<u32>;
-@group(0) @binding(4) var resolve_depth:texture_depth_2d;
-${GPU_VISIBILITY_KEY_WGSL}
-${SURFACE_SAMPLE_WGSL}
-@compute @workgroup_size(8,8)
-fn resolve(@builtin(global_invocation_id) id:vec3u) {
-  let pixel=id.xy; if pixel.x>=sample_load(SAMPLE_HEADER_width) || pixel.y>=sample_load(SAMPLE_HEADER_height) { return; }
-  if !oengine_visibility_key_is_valid(textureLoad(resolve_keys,vec2i(pixel),0).x) { return; }
-  let depth=textureLoad(resolve_depth,vec2i(pixel),0);
-  if !(depth>=0.0 && depth<=1.0) { return; }
-  let tile=(pixel.y/8u)*sample_load(SAMPLE_HEADER_tilesX)+pixel.x/8u; let base=sample_tile(tile);
-  let mode=sample_load(base); if mode!=1u && mode!=2u { return; }
-  let local=pixel%8u; let cell=(local.y/2u)*4u+local.x/2u;
-  let packed=sample_load(base+SAMPLE_TILE_cellRates+cell); let rate=sample_effective_rate(packed); if rate==0u { return; }
-  let stride=sample_stride(rate); let child=(local%2u)/stride;
-  let result=sample_load(base+SAMPLE_TILE_cellResults+cell)+child.y*(2u/stride.x)+child.x;
-  if result>=sample_load(SAMPLE_HEADER_results) { return; }
-  textureStore(output_hdr,vec2i(pixel),textureLoad(results,sample_result_pixel(result),0));
-}
-`;
+export { SURFACE_SAMPLE_RESOLVE_WGSL } from "./surface_sample_resolve.js";
