@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgramRegistry.js";
-import { GpuAppearancePublication } from "../../.test-dist/gpu/GpuAppearancePublication.js";
+import { GpuAppearancePublication, APPEARANCE_DIRECTORY_STRIDE } from "../../.test-dist/gpu/GpuAppearancePublication.js";
 import { AppearanceGraphBuilder, snapshotAppearanceTexture } from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { encodeGpuTextureRef } from "../../.test-dist/gpu/GpuTextureRefAbi.js";
+import { cookAppearanceMipProduct } from "../../.test-dist/material/AppearanceMipCooker.js";
+import { writeAppearanceAssetPackage, openAppearanceAssetPackage } from "../../.test-dist/assets/AppearanceAssetPackage.js";
+import { bindAppearanceProducts } from "../../.test-dist/material/AppearanceProductBinding.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 4 };
 globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8 };
@@ -109,6 +112,36 @@ function source(value, materialSlot, texture) {
     textureRefs: new Map([[texture, encodeGpuTextureRef(0, 1)]]) };
 }
 
+async function bakedSource(value, materialSlot) {
+  const original = source(value, materialSlot, new ShadeTexture()), p = original.program;
+  const product = cookAppearanceMipProduct(p, { baked: p.outputs.field }, { width: 2, height: 2, mipCount: 2,
+    byteBudget: 4096, validationProbeBudget: 4096, domainMin: [0, 0], domainMax: [1, 1],
+    error: { absolute: 0.001, relative: 0 }, storagePrecision: "float16", sample: () => [0.5, 0.25, 0.75, 1] });
+  const asset = await openAppearanceAssetPackage(await writeAppearanceAssetPackage(product, {
+    uri: "test/publication-product", contentHash: "a".repeat(64), dependencies: [] }));
+  return { ...original, program: bindAppearanceProducts(p, [{ source: p, asset, roots: { baked: p.outputs.field } }]) };
+}
+
+test("shared PSO does not merge distinct physical product resource sets; capability preflight precedes asset allocation", async () => {
+  const sources = await Promise.all([bakedSource(0.25, 17), bakedSource(0.5, 18)]);
+  const f = fixture(true), c = command(f.device), allocations = [], released = [];
+  const owner = { acquire(asset) {
+    const texture = { asset: asset.runtime.manifest.assetId }; allocations.push(texture);
+    return { destination: () => ({ texture, layer: 0 }), release: () => released.push(texture) };
+  } };
+  const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(), new Map(), undefined, owner);
+  await p.ready;
+  assert.equal(p.entries[0].programIndex, p.entries[1].programIndex);
+  assert.notEqual(p.entries[0].resourceSetIndex, p.entries[1].resourceSetIndex);
+  assert.notEqual(p.entries[0].productTextures[0], p.entries[1].productTextures[0]);
+  assert.equal(allocations.length, 2); c.finish(); p.destroy(); assert.equal(released.length, 2); f.registry.destroy();
+  const capped = fixture(true); capped.device.limits.maxSampledTexturesPerShaderStage = 0;
+  let attempts = 0;
+  assert.throws(() => new GpuAppearancePublication(capped.device, capped.registry, sources, command(capped.device),
+    new Map(), new Map(), undefined, { acquire() { attempts++; throw new Error("must not allocate"); } }), /textures exceed/);
+  assert.equal(attempts, 0); assert.equal(capped.buffers.length, 0); assert.equal(capped.creates(), 0); capped.registry.destroy();
+});
+
 test("actual-sized GPU publication shares pipelines while retaining different instance data and snapshot sampling", async () => {
   const f = fixture(true), c = command(f.device), texture = new ShadeTexture();
   const sources = [source(0.25, 17, texture), source(0.5, 18, texture)];
@@ -118,8 +151,8 @@ test("actual-sized GPU publication shares pipelines while retaining different in
   assert.throws(() => p.program(0), /not consumable/);
   await p.ready; c.finish(); assert.equal(f.compiled.length, 1);
   assert.deepEqual([...new Float32Array(p.constants.bytes.buffer)], [0.25, 0.5]);
-  assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 18, 0, 1, 1]);
-  assert.equal(p.allocatedBytes, 8 + 128 + 32);
+  assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 0, 0, 0, 0, 18, 0, 1, 1, 0, 0, 0, 0]);
+  assert.equal(p.allocatedBytes, 8 + 128 + sources.length * APPEARANCE_DIRECTORY_STRIDE);
   const route = new DataView(p.routes.bytes.buffer);
   assert.equal(route.getUint32(8, true), 12); assert.equal(route.getUint32(12, true), 43);
   assert.equal(route.getUint32(4, true) & 3, 1, "use authored repeat snapshot, not later mirror mutation");

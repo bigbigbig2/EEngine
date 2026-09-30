@@ -35,6 +35,7 @@ import { GpuScene } from "./GpuScene.js";
 import { GpuRenderWorld } from "./GpuRenderWorld.js";
 import { GpuMaterialStore } from "./GpuMaterialStore.js";
 import { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
+import { AppearanceStaticResidency } from "./AppearanceStaticResidency.js";
 import {
   TextureResidency,
   TEXTURE_RESIDENCY_MAX_SIZE
@@ -93,6 +94,7 @@ export class GraphicsContext {
   private renderWorldValue: GpuRenderWorld | undefined;
   private materialStoreValue: GpuMaterialStore | undefined;
   private appearanceProgramsValue: AppearanceProgramRegistry | undefined;
+  private appearanceStaticValue: AppearanceStaticResidency | undefined;
   private textureResidencyValue: TextureResidency | undefined;
   private assetCodecServiceValue: AssetCodecService | undefined;
   private readonly textureMaxResolution: number;
@@ -264,6 +266,11 @@ export class GraphicsContext {
     return this.appearanceProgramsValue;
   }
 
+  get appearance_static(): AppearanceStaticResidency {
+    this.appearanceStaticValue ??= new AppearanceStaticResidency(this.device, this.appearance_programs, undefined, this.resource_accounting);
+    return this.appearanceStaticValue;
+  }
+
   get material_store_if_created(): GpuMaterialStore | undefined {
     return this.materialStoreValue;
   }
@@ -333,6 +340,7 @@ export class GraphicsContext {
       (this.gpuSceneValue?.evidence().allocatedBytes ?? 0) +
       (this.renderWorldValue?.evidence().flatWorkBytes ?? 0) +
       (this.renderWorldValue?.appearanceMemoryEvidence().allocatedBytes ?? 0) +
+      (this.appearanceStaticValue?.evidence().allocatedBytes ?? 0) +
       (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.textureResidencyValue?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
@@ -348,6 +356,7 @@ export class GraphicsContext {
     const scene = this.gpuSceneValue?.evidence();
     const materials = this.materialStoreValue?.evidence();
     const appearance = this.renderWorldValue?.appearanceMemoryEvidence();
+    const staticAppearance = this.appearanceStaticValue?.evidence();
     const textureResidency = this.textureResidencyValue?.evidence();
     const buffers = this.buffer_allocator_main.evidence();
     const textures = this.allocator_textures.evidence();
@@ -363,17 +372,20 @@ export class GraphicsContext {
       (assets?.allocatedBytes ?? 0) +
       (scene?.allocatedBytes ?? 0) +
       (appearance?.allocatedBytes ?? 0) +
+      (staticAppearance?.allocatedBytes ?? 0) +
       (materials?.allocatedBytes ?? 0) +
       (textureResidency?.allocatedBytes ?? 0);
     const residentLogicalBytes =
       (assets?.residentBytes ?? 0) +
       (scene?.residentBytes ?? 0) +
       (appearance?.residentBytes ?? 0) +
+      (staticAppearance?.residentBytes ?? 0) +
       residentMaterialBytes;
     const retiringBytes =
       (assets?.retiringBytes ?? 0) +
       (scene?.retiringBytes ?? 0) +
       (appearance?.retiringBytes ?? 0) +
+      (staticAppearance?.retiringBytes ?? 0) +
       retiringMaterialBytes;
     const reclaimableBytes =
       (assets?.reclaimableBytes ?? 0) +
@@ -385,6 +397,7 @@ export class GraphicsContext {
       0,
       longLivedAllocatedBytes - residentLogicalBytes - retiringBytes
         - (appearance?.stagingBytes ?? 0)
+        - (staticAppearance?.stagingBytes ?? 0)
     );
     return Object.freeze({
       schemaVersion: 1,
@@ -396,6 +409,7 @@ export class GraphicsContext {
       fragmentationBytes,
       owners: Object.freeze({
         appearance: Object.freeze({ ...appearance }),
+        staticAppearance: Object.freeze({ ...staticAppearance }),
         assets: Object.freeze({
           allocatedBytes: assets?.allocatedBytes ?? 0,
           residentBytes: assets?.residentBytes ?? 0,
@@ -436,6 +450,8 @@ export class GraphicsContext {
     this.renderWorldValue = undefined;
     this.appearanceProgramsValue?.destroy();
     this.appearanceProgramsValue = undefined;
+    this.appearanceStaticValue?.destroy();
+    this.appearanceStaticValue = undefined;
     this.materialStoreValue?.destroy();
     this.materialStoreValue = undefined;
     this.textureResidencyValue?.destroy();

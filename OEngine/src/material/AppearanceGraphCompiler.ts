@@ -1,6 +1,7 @@
 import { APPEARANCE_F32_MAX, appearanceNodeArguments, evaluateAppearanceOperation } from "./AppearanceGraph.js";
 import type { AppearanceGraph, AppearanceInputDomain, AppearanceNode, AppearanceOp,
   AppearanceRange, AppearanceTextureBinding } from "./AppearanceGraph.js";
+import type { AppearanceAssetPackage, AppearanceAssetField } from "../assets/AppearanceAssetPackage.js";
 
 export const APPEARANCE_DEPENDENCY = Object.freeze({
   Surface: 1, Texture: 2, Geometry: 4, Dynamic: 8, View: 16, Nonlocal: 32, Material: 64
@@ -12,13 +13,14 @@ const INPUT_DEPENDENCY: Readonly<Record<AppearanceInputDomain, number>> = Object
 });
 
 export interface AppearanceInstruction {
-  readonly kind: "constant" | "parameter" | "input" | "texture" | "operation";
+  readonly kind: "constant" | "parameter" | "input" | "texture" | "operation" | "product" | "normal-product";
   readonly args: readonly number[];
   readonly value?: number;
   readonly input?: string;
   readonly parameter?: string;
   readonly channel?: number;
   readonly sample?: number;
+  readonly product?: number;
   readonly op?: AppearanceOp;
   readonly dependency: number;
   readonly coordinateDomains: readonly string[];
@@ -56,8 +58,20 @@ export interface CompiledAppearanceGraph {
   readonly outputMasks: Readonly<Record<string, number>>;
   readonly inputs: readonly CompiledAppearanceInput[];
   readonly samples: readonly CompiledAppearanceSample[];
+  /** Resolved static data leaves, after an explicit source-snapshot substitution. */
+  readonly productReads?: readonly CompiledAppearanceProductRead[];
   /** Field roots plus reusable boundaries inside geometry/view/nonlocal expressions. */
   readonly products: readonly AppearanceProductRoot[];
+}
+
+export interface CompiledAppearanceProductRead {
+  readonly asset: AppearanceAssetPackage;
+  readonly field: AppearanceAssetField;
+  /** Null for an exact f32 constant field. */
+  readonly uv: readonly [number, number] | null;
+  /** Original immutable program and field roots preserve invalidation provenance. */
+  readonly source: CompiledAppearanceGraph;
+  readonly sourceRoots: readonly number[];
 }
 
 /**
@@ -230,15 +244,31 @@ export function selectAppearanceProductProgram(program: CompiledAppearanceGraph,
     if (live.has(id)) continue;
     live.add(id); pending.push(...program.instructions[id]!.args);
   }
-  const remap = new Map<number, number>();
-  const compact = program.instructions.filter((_, index) => {
-    if (!live.has(index)) return false;
-    remap.set(index, remap.size); return true;
-  });
+  // Product substitution may introduce coordinate anchors after source roots.
+  // Topologically sort the live physical graph rather than trusting source IDs.
+  const degree = new Map<number, number>(), consumers = new Map<number, number[]>();
+  for (const ref of live) {
+    degree.set(ref, program.instructions[ref]!.args.length);
+    for (const arg of program.instructions[ref]!.args) {
+      const list = consumers.get(arg) ?? []; list.push(ref); consumers.set(arg, list);
+    }
+  }
+  const queue = [...live].filter(ref => degree.get(ref) === 0).sort((a, b) => a - b);
+  for (let cursor = 0; cursor < queue.length; cursor++) for (const consumer of consumers.get(queue[cursor]!) ?? []) {
+    const next = degree.get(consumer)! - 1; degree.set(consumer, next);
+    if (next === 0) queue.push(consumer);
+  }
+  if (queue.length !== live.size) throw new RangeError("Appearance product substitution has cyclic dependencies");
+  const remap = new Map(queue.map((ref, index) => [ref, index]));
+  const compact = queue.map(ref => program.instructions[ref]!);
   const samples = new Map<number, { id: number; readMask: number }>();
   const inputNames = new Set<string>();
+  const productIndices = new Map<number, number>();
   for (const instruction of compact) {
     if (instruction.kind === "input") inputNames.add(instruction.input!);
+    if (instruction.product !== undefined && !productIndices.has(instruction.product)) {
+      productIndices.set(instruction.product, productIndices.size);
+    }
     if (instruction.kind !== "texture") continue;
     let sample = samples.get(instruction.sample!);
     if (sample === undefined) {
@@ -248,6 +278,7 @@ export function selectAppearanceProductProgram(program: CompiledAppearanceGraph,
   }
   const instructions = compact.map(instruction => Object.freeze({ ...instruction,
     args: Object.freeze(instruction.args.map(arg => remap.get(arg)!)),
+    product: instruction.product === undefined ? undefined : productIndices.get(instruction.product)!,
     sample: instruction.sample === undefined ? undefined : samples.get(instruction.sample)!.id }));
   const outputs = Object.freeze(Object.fromEntries(Object.entries(roots).map(([name, refs]) =>
     [name, Object.freeze(refs.map(ref => remap.get(ref)!))])));
@@ -258,6 +289,9 @@ export function selectAppearanceProductProgram(program: CompiledAppearanceGraph,
       const source = program.samples[original]!;
       return Object.freeze({ binding: source.binding, readMask: sample.readMask,
         uv: Object.freeze(source.uv.map(ref => remap.get(ref)!)) as readonly [number, number] });
+    })), productReads: Object.freeze([...productIndices.keys()].map(index => {
+      const read = program.productReads![index]!;
+      return Object.freeze({ ...read, uv: read.uv === null ? null : Object.freeze(read.uv.map(ref => remap.get(ref)!)) as readonly [number, number] });
     })), products: Object.freeze(productRoots(instructions, outputs)) });
 }
 

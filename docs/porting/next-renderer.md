@@ -186,6 +186,14 @@ Local validation：编译基础提交`23d0110`的`tests/oracle/appearance-graph.
 
 第一次GPU滤波断言失败并保留：旧颜色fixture的0.0003容差不足，本fixture硬件滤波对packed高精度trilinear最大误差`0.003502712`。最终fixture显式矩0.005、方向0.01rad、perceptual roughness0.025预算，GPU方向`0.004642322`rad/roughness`0.010636690`通过；不是生产默认。CPU probes不含硬件滤波误差，shader→GPU解码数值准确与最终滤波画质预算分别报告。API errors/device loss零，原生adapter/cache HRESULT诊断仍在。normal资产替换程序与新Surface主链消费尚未完成；采用保持 `not adopted`，不提高R10或性能/画质状态。有限probe验证定义base lattice与声明滤波域，不证明未采样的连续材质、所有设备或最终视频无误差。
 
+### Static Appearance reconnection / residency local integration
+
+`AppearanceProductBinding::bindAppearanceProducts` maps cooked field roots back into the immutable source IR, prunes dead leaves, preserves remaining dynamic/geometry/view work and independently reconnects named base/coat normal pairs. Source/root provenance is retained, but portable field fingerprint/content-version invalidation and scene authoring are not yet implemented. The existing MaterialX reconnection reference and named local mip/vMF profiles remain the algorithm sources; substitution/topological remapping is local compiler integration.
+
+`AppearanceStaticResidency` is local physical resource/lifecycle integration: same immutable asset shares textures, equal format/extent/mip fields occupy distinct array layers, admission precedes allocation, one caller transaction owns copies, abort disposes staged resources and GPU completion retires committed resources. Staging, resident and retiring allocations count against budgets. This is not the S3 GPU demand/dedup/eviction algorithm and uploads whole referenced assets. `GpuAppearancePublication` directly lowers product sampling with explicit gradients/domain mapping and leases; tasks carry physical resource-set identity independently of PSO identity.
+
+Build/typecheck and 119 targeted tests pass. A five-case D3D12 diagnostic consumes 4,864 values through real static residency/publication/PSOs, covering internal static roots with dynamic targets, retained source fallback, independent base/coat array layers, exact HDR constants and nonunit NPOT domains. Explicit fixture tolerances apply; native adapter/cache HRESULT diagnostics remain. Original 32,000-value numeric and 14,592-value resident diagnostics are rerun. No new production Surface consumer, final Chrome/video quality or performance evidence exists; adoption and requirement-completion states are unchanged.
+
 ## 1. 推荐总表
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |

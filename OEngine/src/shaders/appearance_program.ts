@@ -1,5 +1,6 @@
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
 import type { AppearanceOp } from "../material/AppearanceGraph.js";
+import { APPEARANCE_NORMAL_FILTER_WGSL } from "./appearance_normal_filter.js";
 
 export interface AppearanceWgslProgram {
   /** Straight-line function; the owner supplies the three declared integration callbacks. */
@@ -24,6 +25,7 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph): Appearanc
   const inputSlots = new Map(program.inputs.map((input, index) => [input.name, index]));
   const lines: string[] = [];
   const sampled = new Set<number>();
+  const productSamples = new Set<number>(), normalProducts = new Set<number>();
   const expressions: string[] = [];
   const parameterSlots: Record<string, { slot: number; channel: number }[]> = Object.create(null);
   let variable = 0;
@@ -41,6 +43,25 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph): Appearanc
     let value: string;
     if (instruction.kind === "input") {
       value = `appearance_input(${inputSlots.get(instruction.input!)}u, ${instruction.channel}u)`;
+    } else if (instruction.kind === "product" || instruction.kind === "normal-product") {
+      const index = instruction.product!, read = program.productReads![index]!;
+      if (!productSamples.has(index)) {
+        if (read.field.constant !== undefined) {
+          const fields = Array.from({ length: 4 }, (_, channel) => {
+            if (channel >= read.field.width) return "0.0";
+            const slot = constants.length; constants.push(read.field.constant![channel]!); return `appearance_constant(${slot}u)`;
+          });
+          lines.push(`  let product_${index} = vec4f(${fields.join(", ")});`);
+        } else {
+          lines.push(`  let product_${index} = appearance_product_sample_${index}(vec2f(${expression(read.uv![0])}, ${expression(read.uv![1])}));`);
+        }
+        productSamples.add(index);
+      }
+      if (instruction.kind === "normal-product") {
+        if (!normalProducts.has(index)) { lines.push(`  let normal_product_${index} = appearance_decode_normal_moment(product_${index}.xyz);`); normalProducts.add(index); }
+        value = instruction.channel! < 3 ? `normal_product_${index}.normal.${"xyz"[instruction.channel!]}` :
+          instruction.channel === 3 ? `normal_product_${index}.roughness` : `f32(normal_product_${index}.direction_valid)`;
+      } else value = `product_${index}.${"rgba"[instruction.channel!]}`;
     } else if (instruction.kind === "texture") {
       const sample = instruction.sample!;
       if (!sampled.has(sample)) {
@@ -66,11 +87,13 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph): Appearanc
   const outputCount = results.length;
   // A zero-demand program has no dispatch consumer; WGSL still needs a nonzero array size.
   const width = Math.max(outputCount, 1);
-  const source = `fn appearance_evaluate() -> array<f32, ${width}> {\n${lines.join("\n")}\n` +
+  const source = (normalProducts.size === 0 ? "" : APPEARANCE_NORMAL_FILTER_WGSL) +
+    `fn appearance_evaluate() -> array<f32, ${width}> {\n${lines.join("\n")}\n` +
     `  return array<f32, ${width}>(${results.length === 0 ? "0.0" : results.join(", ")});\n}\n`;
   const templateKey = JSON.stringify([source,
     program.inputs.map(input => [input.width, input.domain]),
-    program.samples.map(sample => [sample.binding.decode, sample.readMask])]);
+    program.samples.map(sample => [sample.binding.decode, sample.readMask]),
+    program.productReads?.map(read => [read.field.width, read.field.format, read.uv === null]) ?? []]);
   return Object.freeze({ source, templateKey, constants: Object.freeze(constants),
     outputSlots: Object.freeze({ ...outputSlots }), outputCount,
     parameterSlots: Object.freeze(Object.fromEntries(Object.entries(parameterSlots).map(([name, slots]) =>

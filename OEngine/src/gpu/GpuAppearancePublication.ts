@@ -8,6 +8,10 @@ import { appearanceResidentKernel, APPEARANCE_ROUTE_STRIDE, type AppearanceResid
   type AppearanceSampleResourceProfile } from "../shaders/appearance_resident_kernel.js";
 import { decodeGpuTextureRef, GPU_TEXTURE_REF_INVALID } from "./GpuTextureRefAbi.js";
 import { encodeSamplerClass, GPU_MATERIAL_VISIBILITY_SAMPLER } from "./GpuMaterialVisibilityAbi.js";
+import { AppearanceStaticResidency, appearanceStaticTextureKey, type AppearanceStaticLease } from "./AppearanceStaticResidency.js";
+import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js";
+
+export const APPEARANCE_DIRECTORY_STRIDE = 32;
 
 export interface AppearancePublicationSource {
   readonly materialSlot: number;
@@ -22,8 +26,11 @@ export interface AppearancePublishedEntry {
   readonly constantBase: number;
   readonly routeBase: number;
   readonly programIndex: number;
+  /** Tasks may share a dispatch only when both PSO and physical resource set agree. */
+  readonly resourceSetIndex: number;
   readonly kernel: AppearanceResidentKernel;
   readonly program: CompiledAppearanceGraph;
+  readonly productTextures: readonly GPUTexture[];
 }
 
 /** Immutable, actual-sized scene publication. Owns buffers and program leases. */
@@ -31,11 +38,12 @@ export class GpuAppearancePublication {
   readonly entries: readonly AppearancePublishedEntry[];
   readonly constants: GPUBuffer;
   readonly routes: GPUBuffer;
-  /** material slot, program index, constant base, route base; one row per association. */
+  /** Eight u32s per association: material, PSO, constants, routes, resource set, then reserved. */
   readonly directory: GPUBuffer;
   readonly allocatedBytes: number;
   readonly ready: Promise<void>;
   private readonly leases: readonly AppearanceProgramLease[];
+  private readonly staticLeases: AppearanceStaticLease[] = [];
   private readonly buffers: GPUBuffer[] = [];
   private readonly accountingHandles: ResourceHandle[] = [];
   private pipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] | null = null;
@@ -49,15 +57,19 @@ export class GpuAppearancePublication {
     sources: readonly AppearancePublicationSource[], command: ShadeGPUCommandContext,
     mipRanges: ReadonlyMap<ShadeTexture, readonly [number, number]>,
     texturePublications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>,
-    private readonly accounting?: ResourceAccounting) {
+    private readonly accounting?: ResourceAccounting, staticResidency?: AppearanceStaticResidency) {
     if (command.device !== device || command.closed) throw new Error("Appearance requires an open command on its GPUDevice");
     const entries: AppearancePublishedEntry[] = [];
     const leaseList: AppearanceProgramLease[] = [];
     const descriptors: AppearanceProgramDescriptor[] = [];
     const leaseIndices = new Map<string, number>();
+    const resourceSets = new Map<string, number>();
     const constants: number[] = [];
     const routes: ArrayBuffer[] = [];
-    const directory = new Uint32Array(sources.length * 4);
+    const directoryWords = APPEARANCE_DIRECTORY_STRIDE / 4;
+    const directory = new Uint32Array(sources.length * directoryWords);
+    const assets = new Map<string, AppearanceAssetPackage>();
+    const productTargets: { assetId: string; field: string; textures: GPUTexture[]; binding: number }[] = [];
     try {
       for (const [index, source] of sources.entries()) {
         if (!Number.isInteger(source.materialSlot) || source.materialSlot < 0 || source.materialSlot > 0xffffffff) {
@@ -79,11 +91,29 @@ export class GpuAppearancePublication {
           routes.push(route);
         }
         // A named parameter's numeric values never enter the compiled source.
-        const candidate = appearanceResidentKernel(source.program, resources);
-        const kernelKey = candidate.lowered.templateKey + ":resident-linear:" + JSON.stringify(resources);
+        const productBindings = new Map<string, number>(), productTextures: GPUTexture[] = [];
+        const productResources = (source.program.productReads ?? []).map(read => {
+          if (read.field.constant !== undefined) return null;
+          if (staticResidency === undefined) throw new Error("Appearance products require the long-lived static residency owner");
+          const key = appearanceStaticTextureKey(read.asset, read.field)!;
+          let binding = productBindings.get(key);
+          if (binding === undefined) {
+            binding = productBindings.size; productBindings.set(key, binding);
+            productTargets.push({ assetId: read.asset.runtime.manifest.assetId, field: read.field.name, textures: productTextures, binding });
+          }
+          const layer = read.asset.fields.filter(field => appearanceStaticTextureKey(read.asset, field) === key).findIndex(field => field.name === read.field.name);
+          routes.push(packProductRoute(read.asset, layer));
+          assets.set(read.asset.runtime.manifest.assetId, read.asset);
+          return binding;
+        });
+        const candidate = appearanceResidentKernel(source.program, resources, productResources);
+        const kernelKey = candidate.lowered.templateKey + ":resident-linear:" + JSON.stringify([resources, productResources]);
         // Metadata (output names and parameter provenance) belongs to each
         // material program even when its WGSL topology shares the same PSO.
         const kernel = candidate;
+        const resourceKey = JSON.stringify([source.textureBindingSetId, [...productBindings.keys()]]);
+        let resourceSetIndex = resourceSets.get(resourceKey);
+        if (resourceSetIndex === undefined) { resourceSetIndex = resourceSets.size; resourceSets.set(resourceKey, resourceSetIndex); }
         let programIndex = leaseIndices.get(kernelKey);
         if (programIndex === undefined) {
           programIndex = descriptors.length;
@@ -94,20 +124,28 @@ export class GpuAppearancePublication {
         // Values must come from this instance even when its topology reuses a kernel.
         constants.push(...candidate.lowered.constants);
         entries.push(Object.freeze({ materialSlot: source.materialSlot, textureBindingSetId: source.textureBindingSetId,
-          constantBase, routeBase, programIndex, kernel, program: source.program }));
-        directory.set([source.materialSlot, programIndex, constantBase, routeBase], index * 4);
+          constantBase, routeBase, programIndex, resourceSetIndex, kernel, program: source.program, productTextures }));
+        directory.set([source.materialSlot, programIndex, constantBase, routeBase, resourceSetIndex, 0, 0, 0], index * directoryWords);
       }
       const constantData = new Float32Array(Math.max(constants.length, 1));
       constantData.set(constants);
       const routeData = new Uint8Array(Math.max(routes.length, 1) * APPEARANCE_ROUTE_STRIDE);
       routes.forEach((route, index) => routeData.set(new Uint8Array(route), index * APPEARANCE_ROUTE_STRIDE));
-      const directoryData = sources.length === 0 ? new Uint32Array(4) : directory;
+      const directoryData = sources.length === 0 ? new Uint32Array(directoryWords) : directory;
       const maximum = Math.min(Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize));
       for (const data of [constantData, routeData, directoryData]) if (data.byteLength > maximum) {
         throw new RangeError(`Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`);
       }
       // Publication byte admission precedes every shader/layout/pipeline/buffer creation.
+      for (const descriptor of descriptors) registry.preflight(descriptor);
       for (const descriptor of descriptors) leaseList.push(registry.acquire(descriptor));
+      const assetLeases = new Map<string, AppearanceStaticLease>();
+      for (const [id, asset] of assets) {
+        const lease = staticResidency!.acquire(asset, command);
+        this.staticLeases.push(lease); assetLeases.set(id, lease);
+      }
+      for (const target of productTargets) target.textures[target.binding] = assetLeases.get(target.assetId)!.destination(target.field).texture;
+      for (const entry of entries) Object.freeze(entry.productTextures);
       this.constants = this.upload(device, command, "constants", constantData);
       this.routes = this.upload(device, command, "routes", routeData);
       this.directory = this.upload(device, command, "directory", directoryData);
@@ -131,6 +169,7 @@ export class GpuAppearancePublication {
       this.unwatchRegistry = registry.onStopped(() => this.destroy());
     } catch (error) {
       for (const lease of leaseList) lease.release();
+      for (const lease of this.staticLeases) lease.release();
       for (const buffer of this.buffers) buffer.destroy();
       for (const handle of this.accountingHandles) accounting?.destroyed(handle);
       throw error;
@@ -179,6 +218,7 @@ export class GpuAppearancePublication {
     for (const buffer of this.buffers) buffer.destroy();
     for (const handle of this.accountingHandles) this.accounting?.destroyed(handle);
     for (const lease of this.leases) lease.release();
+    for (const lease of this.staticLeases) lease.release();
     for (const callback of this.destroyedListeners) callback();
     this.destroyedListeners.clear();
   }
@@ -193,6 +233,16 @@ export class GpuAppearancePublication {
     command.writeBuffer(buffer, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
     return buffer;
   }
+}
+
+function packProductRoute(asset: AppearanceAssetPackage, layer: number): ArrayBuffer {
+  const data = new ArrayBuffer(APPEARANCE_ROUTE_STRIDE), view = new DataView(data);
+  view.setUint32(0, layer, true);
+  const mapping = [...asset.domainMin, ...asset.domainMax.map((max, axis) => 1 / (max - asset.domainMin[axis]!))];
+  if (!mapping.every(value => Number.isFinite(Math.fround(value)))) throw new RangeError("Appearance product coordinate mapping exceeds f32 publication range");
+  mapping
+    .forEach((value, index) => view.setFloat32(16 + index * 4, value, true));
+  return data;
 }
 
 function packRoute(binding: CompiledAppearanceGraph["samples"][number]["binding"], ref: number,

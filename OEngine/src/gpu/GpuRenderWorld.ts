@@ -629,7 +629,7 @@ export class GpuRenderWorld {
     if (preparation.ready === null) {
       preparation.publication = new GpuAppearancePublication(this.graphics.device, this.graphics.appearance_programs,
         preparation.sources, command, preparation.mipRanges, preparation.texturePublications,
-        this.graphics.resource_accounting);
+        this.graphics.resource_accounting, this.graphics.appearance_static);
       const publication = preparation.publication;
       this.appearancePublications.add(publication);
       publication.onDestroyed(() => this.appearancePublications.delete(publication));

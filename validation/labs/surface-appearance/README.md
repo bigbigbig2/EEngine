@@ -31,6 +31,14 @@ node validation/labs/surface-appearance/appearance-asset-gpu-oracle.mjs .local/s
 
 上传helper不创建或拥有长期texture，正式Appearance residency/cache owner和材质program替换consumer尚未接通。有限probes与这个GPU fixture不证明连续域完全等价，不证明normal variance/roughness、anisotropy、chart seam/LOD、Chrome画质或性能。Dawn原生adapter/cache blob诊断同前两个宿主。
 
+静态产品重连第五个组件宿主（长期静态owner已接通，替代上文尚无owner的早期组件状态）：
+
+```powershell
+node validation/labs/surface-appearance/appearance-product-gpu-oracle.mjs .local/surface-gpu-oracle
+```
+
+真实原图cook→产品绑定/裁剪→`AppearanceStaticResidency`→`GpuAppearancePublication`→实际PSO消费，5组/4,864值。静态内部root+动态target与保留源fallback误差0；base/coat独立过滤后共享array不同layer最大0.004868925（fixture预算0.01）；精确HDR常量0且无texture；非单位域NPOT最大0.000976563（fixture预算0.001）。Raw为`product-gpu-oracle.json`。发布目录以32-byte stride携带独立physical resource-set index，不将相同PSO误当相同texture set。API errors/device loss零，Dawn原生adapter/cache诊断仍在；不是Chrome结论。普通scene材质产品authoring、portable字段版本失效、新Surface主链、动态缓存与最终视频/性能仍未完成。
+
 联合法线第四个组件宿主：
 
 ```powershell

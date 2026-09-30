@@ -1,11 +1,14 @@
 import { evaluateAppearanceOperation } from "./AppearanceGraph.js";
 import type { AppearanceTextureBinding } from "./AppearanceGraph.js";
 import type { CompiledAppearanceGraph } from "./AppearanceGraphCompiler.js";
+import { decodeAppearanceNormalMoment } from "./AppearanceNormalFilter.js";
 
 export interface AppearanceEvaluationContext {
   readonly inputs: Readonly<Record<string, readonly number[]>>;
   /** Sample/decode/filter at transformed UV. Never decode RGB alpha as sRGB. */
   readonly sample: (binding: AppearanceTextureBinding, uv: readonly [number, number]) => readonly number[];
+  /** Data product filter uses chart coordinates; exact constants need no callback. CPU oracle only. */
+  readonly sampleProduct?: (productIndex: number, uv: readonly [number, number]) => readonly number[];
 }
 
 /** CPU product/oracle execution. GPU consumers use lowering, not this interpreter. */
@@ -13,6 +16,7 @@ export function evaluateCompiledAppearance(program: CompiledAppearanceGraph,
   context: AppearanceEvaluationContext): Readonly<Record<string, readonly number[]>> {
   const values: number[] = [];
   const sampled = new Map<number, readonly number[]>();
+  const products = new Map<number, readonly number[]>(), normals = new Map<number, readonly number[]>();
   for (const input of program.inputs) {
     const value = context.inputs[input.name];
     if (value === undefined || value.length !== input.width || !value.every(component =>
@@ -24,6 +28,26 @@ export function evaluateCompiledAppearance(program: CompiledAppearanceGraph,
     switch (instruction.kind) {
       case "constant": case "parameter": values.push(instruction.value!); break;
       case "input": values.push(Math.fround(context.inputs[instruction.input!]![instruction.channel!]!)); break;
+      case "product": case "normal-product": {
+        const index = instruction.product!, read = program.productReads![index]!;
+        let data = products.get(index);
+        if (data === undefined) {
+          data = read.field.constant ?? context.sampleProduct?.(index, [values[read.uv![0]]!, values[read.uv![1]]!]);
+          if (data === undefined || data.length < read.field.width || !data.every(Number.isFinite)) {
+            throw new RangeError("Appearance product sampler violates its publication contract");
+          }
+          data = data.map(Math.fround); products.set(index, data);
+        }
+        if (instruction.kind === "normal-product") {
+          let decoded = normals.get(index);
+          if (decoded === undefined) {
+            const result = decodeAppearanceNormalMoment(data.slice(0, 3));
+            decoded = [...result.normal, result.roughness, Number(result.directionValid)]; normals.set(index, decoded);
+          }
+          values.push(decoded[instruction.channel!]!);
+        } else values.push(data[instruction.channel!]!);
+        break;
+      }
       case "texture": {
         let texel = sampled.get(instruction.sample!);
         if (texel === undefined) {

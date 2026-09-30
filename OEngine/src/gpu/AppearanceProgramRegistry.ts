@@ -97,6 +97,12 @@ export class AppearanceProgramRegistry {
     } });
   }
 
+  /** Negotiate a complete resource profile before any publication resources are created. */
+  preflight(descriptor: AppearanceProgramDescriptor): void {
+    if (this.failure !== null) throw this.failure;
+    validateProfile(this.device.limits, descriptor, this.budget.maxSourceBytes);
+  }
+
   evidence(): Readonly<{ programs: number; referenced: number; queued: number; compiling: number; stopped: boolean }> {
     return Object.freeze({ programs: this.entries.size,
       referenced: [...this.entries.values()].filter(entry => entry.refs > 0).length,

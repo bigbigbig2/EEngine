@@ -14,6 +14,7 @@ export interface AppearanceResidentKernel {
   /** vec4 values followed by two explicit untransformed UV gradients per live sample. */
   readonly inputVectorCount: number;
   readonly bankMask: number;
+  readonly productTextureCount: number;
 }
 
 export interface AppearanceSampleResourceProfile {
@@ -31,11 +32,19 @@ export interface AppearanceSampleResourceProfile {
  * RGB/sRGB RGB and independently linear alpha. Do not decode these samples twice.
  */
 export function appearanceResidentKernel(program: CompiledAppearanceGraph,
-  resources: readonly AppearanceSampleResourceProfile[]): AppearanceResidentKernel {
+  resources: readonly AppearanceSampleResourceProfile[], productResources: readonly (number | null)[] = []): AppearanceResidentKernel {
   if (resources.length !== program.samples.length || resources.some(resource =>
     !Number.isInteger(resource.bank) || resource.bank < 0 || resource.bank >= 9 ||
     !Number.isInteger(resource.sampler) || resource.sampler < 0 || resource.sampler >= 6)) {
     throw new RangeError("Appearance resource profile does not match the live sampling program");
+  }
+  const reads = program.productReads ?? [], productBindings = new Set<number>();
+  if (productResources.length !== reads.length || productResources.some((binding, index) => {
+    if (reads[index]!.field.constant !== undefined) return binding !== null;
+    if (binding === null || !Number.isInteger(binding) || binding < 0) return true;
+    productBindings.add(binding); return false;
+  }) || [...productBindings].some(binding => binding >= productBindings.size)) {
+    throw new RangeError("Appearance product resources must be a dense texture-binding profile");
   }
   const bankMask = resources.reduce((mask, resource) => mask | (1 << resource.bank), 0) & GPU_TEXTURE_BANK_ALL_MASK;
   const samplerMask = resources.reduce((mask, resource) => mask | (1 << resource.sampler), 0);
@@ -87,6 +96,31 @@ fn appearance_sample_${index}(uv: vec2f) -> vec4f {
     i32(oengine_texture_ref_layer(route.identity.x)), dx, dy);
   return oengine_texture_ref_apply_routing(route.identity.x, value);
 }`).join("\n")}`;
+  const productGroup: GPUBindGroupLayoutEntry[] = [];
+  const productDeclarations: string[] = [], productFunctions: string[] = [];
+  const productSamplerBinding = productBindings.size;
+  for (const binding of [...productBindings].sort((a, b) => a - b)) {
+    productGroup.push({ binding, visibility, texture: { sampleType: "float", viewDimension: "2d-array" } });
+    productDeclarations.push(`@group(2) @binding(${binding}) var appearance_product_texture_${binding}: texture_2d_array<f32>;`);
+  }
+  if (productBindings.size > 0) {
+    productGroup.push({ binding: productSamplerBinding, visibility, sampler: { type: "filtering" } });
+    productDeclarations.push(`@group(2) @binding(${productSamplerBinding}) var appearance_product_sampler: sampler;`);
+  }
+  let productRoute = 0;
+  reads.forEach((read, index) => {
+    if (read.field.constant !== undefined) return;
+    const route = productRoute++;
+    productFunctions.push(`
+fn appearance_product_sample_${index}(uv: vec2f) -> vec4f {
+  let route = appearance_routes[appearance_task.y + ${program.samples.length + route}u];
+  let gradient_base = appearance_task.z + ${program.inputs.length + (program.samples.length + route) * 2}u;
+  let dx = appearance_inputs[gradient_base].xy * route.uv.zw;
+  let dy = appearance_inputs[gradient_base + 1u].xy * route.uv.zw;
+  return textureSampleGrad(appearance_product_texture_${productResources[index]}, appearance_product_sampler,
+    (uv - route.uv.xy) * route.uv.zw, i32(route.identity.x), dx, dy);
+}`);
+  });
   const source = `
 struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: vec4f }
 @group(0) @binding(0) var<storage, read> appearance_constants: array<f32>;
@@ -99,6 +133,8 @@ var<private> appearance_task: vec4u;
 fn appearance_constant(index: u32) -> f32 { return appearance_constants[appearance_task.x + index]; }
 fn appearance_input(index: u32, channel: u32) -> f32 { return appearance_inputs[appearance_task.z + index][channel]; }
 ${sampling}
+${productDeclarations.join("\n")}
+${productFunctions.join("\n")}
 ${lowered.source}
 @compute @workgroup_size(${APPEARANCE_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -109,7 +145,9 @@ ${Array.from({ length: lowered.outputCount }, (_, index) =>
     `  appearance_outputs[appearance_task.w + ${index}u] = value[${index}];`).join("\n")}
 }
 `;
+  const groups = productBindings.size > 0 ? [group, textures, productGroup] : textures.length === 0 ? [group] : [group, textures];
   return Object.freeze({ descriptor: Object.freeze({ source, entryPoint: "main", workgroupSize: APPEARANCE_WORKGROUP_SIZE,
-    groups: Object.freeze(textures.length === 0 ? [group] : [group, textures]) }),
-    lowered, inputVectorCount: program.inputs.length + program.samples.length * 2, bankMask });
+    groups: Object.freeze(groups) }), lowered,
+    inputVectorCount: program.inputs.length + (program.samples.length + productRoute) * 2, bankMask,
+    productTextureCount: productBindings.size });
 }

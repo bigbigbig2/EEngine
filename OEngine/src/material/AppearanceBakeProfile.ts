@@ -7,6 +7,7 @@ import type { AppearanceBakeOptions } from "./AppearanceMipCooker.js";
 export function prepareAppearanceBake(source: CompiledAppearanceGraph,
   roots: Readonly<Record<string, readonly number[]>>, options: AppearanceBakeOptions) {
   const program = selectAppearanceProductProgram(source, roots);
+  if (program.productReads?.length) throw new RangeError("Appearance cook requires original source roots before product substitution");
   const dimensions = validateAppearanceBakeOptions(options);
   if (Object.keys(program.outputs).length === 0) throw new RangeError("Appearance cook needs fields");
   if (program.instructions.some(instruction => (instruction.dependency & (D.Geometry | D.Dynamic | D.View | D.Nonlocal)) !== 0)) {

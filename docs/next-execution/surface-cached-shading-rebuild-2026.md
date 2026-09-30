@@ -46,6 +46,10 @@ S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态
 
 本模块11组108项targeted tests与build/build:test（含typecheck）通过。D3D12真实half矩上传/过滤/解码诊断256 lanes/2,048值通过，API validation/uncaptured errors及device loss零。初始沿用平滑颜色fixture的0.0003滤波容差失败：实测硬件滤波对packed CPU trilinear最大`0.003502712`；失败保留在忽略诊断目录。最后明确采用**此fixture独立**的矩0.005、角度0.01 rad、roughness 0.025预算，直接核查最终GPU输出：decode数值误差`1.1920929e-7`，方向误差`0.004642322`rad，roughness误差`0.010636690`。CPU cook探针没有包含硬件插值精度，不能将上述预算设成生产通用默认或宣称AAA画质。Dawn native adapter/cache诊断仍存在。**这只完成过滤组件；静态资产重连、长期residency/new Surface消费、动态字段版本及S2–S7仍未完成，S1与R10均保持未完成。**
 
+随后完成静态产品重连与驻留组件：`bindAppearanceProducts`替换静态内部root并重新做活性/拓扑排序，移除不再需要的源采样、参数和运算；保留动态target表达式与原source/root provenance。base/coat联合矩分别覆盖具名lobe输出，避免原roughness CSE将过滤结果错误合并；常量精确f32不读纹理。`AppearanceStaticResidency`由GraphicsContext拥有，按不可变asset共享、相同format/extent/mip字段共用array layers，预查设备/物理/累计事务上传预算，abort、GPU完成退休与device loss撤销均有合同测试。它不是S3动态缓存或字段流送算法。
+
+发布内核直接消费产品group 2、显式gradient与坐标域映射；任务目录增加独立`resourceSetIndex`，相同PSO但不同物理资产不能合并dispatch。目录stride的单一事实为`APPEARANCE_DIRECTORY_STRIDE`（32 bytes）。build（含typecheck）、build:test与119项targeted tests通过；组件5组/4,864值通过，包括同PSO两材质、静态子图与动态图重连、保留源fallback、独立base/coat共享array不同layer、HDR零纹理常量及非单位域NPOT；最大误差分别为0、0、0.004868925、0、0.000976563，在各fixture显式预算内。原numeric/resident诊断也复跑通过。Dawn native adapter/cache诊断仍存在。**普通scene材质尚未发布author产品绑定，字段fingerprint/content-version与精确失效尚未完成，新Surface帧consumer仍未切入；S1、R04–R07/R10保持未完成。**没有Chrome、视频画质或性能通过声明。
+
 ## 3. 设计要求到证明的追踪
 
 所有条目初始为未完成。对应证据必须指出生产 producer、consumer 和测试覆盖范围；文件存在或 manifest 声称 completed 都不能替代证明。
