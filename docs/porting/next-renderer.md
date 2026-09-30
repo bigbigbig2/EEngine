@@ -127,6 +127,30 @@ DACS 独立工程 `da514fe9f6b1a2c5a732b0b9f2e20c25227960e3` 的 license 未明�
 
 **验证与采用**：此次只做来源/源码分析。后续选定完整 profile 后保留源关键分支、补独立 WGSL/CPU oracle 与真实主链 GPU producer→consumer，之后才提升 adoption。coarse coverage/画质/时域稳定与分类+队列+求值+重建总成本必须同时评价。没有运行 typecheck/build、browser 或 benchmark；依据仓库节奏不为纯设计修改启动这些检查。
 
+## Surface 缓存与稀疏照明重构：2026-10-01 执行来源
+
+用户已选择 [最终设计](../next-design/surface-cached-shading-final-2026.md)，执行边界及完整要求见 [新执行计划](../next-execution/surface-cached-shading-rebuild-2026.md)。本节不把旧 Surface oracle 或已审读局部来源升级为新算法完成。
+
+### 材质图编译与烘焙
+
+- Owner：materials-textures；shader lowering由shading消费。
+- Upstream：[MaterialX](https://github.com/AcademySoftwareFoundation/MaterialX/tree/7d0baeeb0b88b24394cbb4cb73aa0794d641af0a)，revision `7d0baeeb0b88b24394cbb4cb73aa0794d641af0a`，根`LICENSE`为Apache-2.0。
+- 核读入口：`source/MaterialXGenShader/ShaderGraph.cpp::finalize/removeUnusedNodes/bypass/topologicalSort`、`ShaderGraphRefactor.cpp::NodeElisionRefactor::execute`及其他closure重构函数；`ShaderNode.cpp/.h`输入/输出连接；`source/MaterialXRender/TextureBaker.h/.inl`的烘焙和常量输出处理。
+- Algorithm profile：设备无关appearance表达式图的输出活性、常量/恒等式、等价采样、依赖域分离和烘焙合同；保留现有Standard/Coated/glTF规范语义。不是整个MaterialX文件格式/所有节点/BSDF图移植。
+- Adoption：`not adopted`。下表是源阶段到本地计划的映射，不是GPU采用证据。
+
+| 源阶段/分支与输入输出 | 本地产物与consumer | 不变量、适配与未完成 |
+| --- | --- | --- |
+| `ShaderGraph::finalize`在refactor后整理图并拓扑排序；颜色/单位变换与图接口不丢失 | 具名本地`AppearanceGraphCompiler`输出typed instructions、outputs、sample计划、每字段dependency；`CanonicalMaterial`lower固定材质图 | 不把色域/UV变换当成可任意交换的运算；当前材质没有通用MaterialX authoring接口，不能声称完整格式兼容 |
+| `NodeElisionRefactor::execute`区分合法constant节点/filename-dot，`bypass`重连上游或传递常量值及unit/color-space | 常量/恒等运算折叠、等价叶合并，publication前生成活跃采样合同 | 本地支持的typed算子及浮点语义逐项定义，不声称复制上游全部BSDF mix/layer refactors；动态参数不能当常量折叠 |
+| `removeUnusedNodes`从全部输出反向遍历、disconnect并删除未使用节点 | 输出/通道需求与活跃input/sample列表；材质发布和专用shader真实消费 | 不只看原材质feature flag；dead纹理role不应导致无关资源/采样；全部实际输出必须保持 |
+| `topologicalSort`使用Kahn算法、连接indegree与队列，避免递归排序 | 本地typed DAG合法拓扑与循环拒绝，迭代编译 | 每个输入必须先生产；错误图在publication前失败，不在每pixel校验 |
+| `TextureBaker`的shader生成、纹理输出、constant判断及baked material构造 | 后续Appearance静态产品与过滤合同、CPU/WGSL执行、发布/驻留 | GL renderer/文件导出不搬进frame；filter-before-expression与expression-before-filter不等价，烘焙不是简单降分辨率或只剩一个颜色常量 |
+
+具名本地部分：typed数据图、通道活性/CSE、完整当前材质lowering、source/static/dynamic/view/geometry域与WebGPU程序/页合同。来源检索包含MaterialX官方完整仓库、已有Khronos glTF规范renderer和Filament材质实现；尚未找到完整实现同时覆盖本地fixed texture banks、VG LOD mapping与多域缓存。保留本地表达，不冒称这些组合是MaterialX的完整上游移植。
+
+Local validation：本阶段仅设计/源函数审读；尚无新编译器数值或GPUconsumer证据。烘焙、cache allocation/history/seam filtering、稀疏照明和temporal完整profile在对应模块开工前继续核对；不能把它们拆成绑定胶水以免除算法调研。
+
 ## 1. 推荐总表
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |

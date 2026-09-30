@@ -1,5 +1,7 @@
 # Surface 可见性驱动分频着色：最终设计
 
+2026-10-01：后续重构目标已由用户选定的 [缓存 Surface 最终架构](surface-cached-shading-final-2026.md)替代。本文保留旧实现的设计与事实，不再作为新重构的唯一推荐方向；新执行入口见 [缓存 Surface 执行计划](../next-execution/surface-cached-shading-rebuild-2026.md)。
+
 日期：2026-09-30。状态：阶段一至阶段四主链已实现并完成模块级验证；正式浏览器、画质、整帧性能与 claims 验收仍待整体 Next Renderer 阶段。尚无本地净加速或最终画质验收结论。
 
 本文确定 Surface 重构的唯一推荐方向，替代 [前期调查](surface-shading-performance-design-2026.md) 中的候选排序和“先 A/B 小优化”顺序；上位架构仍为 [Next 整体设计](eengine-next-overall-architecture-final-2026.md)。执行顺序见 [Surface 重构执行文档](../next-execution/surface-sample-driven-shading-rebuild-2026.md)，来源/阶段映射见 [Next 来源账本](../porting/next-renderer.md)。

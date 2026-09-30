@@ -1,5 +1,7 @@
 # Surface 分频着色：实现重构执行顺序
 
+2026-10-01：本文转为旧实现历史执行记录；当前重构执行入口为 [缓存 Surface 与稀疏照明](surface-cached-shading-rebuild-2026.md)。旧阶段完成不证明新设计要求完成。
+
 日期：2026-09-30。状态：阶段一至四已完成；正式整体验收待执行。唯一目标设计为 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，来源入口为 [Next renderer ledger](../porting/next-renderer.md)。
 
 ## 执行原则
