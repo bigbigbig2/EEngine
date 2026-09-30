@@ -156,7 +156,7 @@ export function validateGeometryProductDescriptorV1(descriptor: GeometryProductD
     if (page >= pageCount) issue("range", `group ${group} references page ${page}`, "groupDirectory", group);
     const offset = groupView.getUint32(group * 16 + 4, true), payload = groupView.getUint32(group * 16 + 8, true), flags = groupView.getUint32(group * 16 + 12, true);
     if ((offset & 15) !== 0 || payload < 64 || offset + payload > OEGPACK_V3_PAGE_BYTES) issue("payload-range", `group ${group} payload is not aligned and wholly contained in its page`, "groupDirectory", group);
-    if ((flags & ~0x3f) !== 0) issue("flags", `group ${group} contains unknown flags`, "groupDirectory", group);
+    if ((flags & ~0x7f) !== 0) issue("flags", `group ${group} contains unknown flags`, "groupDirectory", group);
     const list = pageGroups.get(page) ?? []; list.push(group); pageGroups.set(page, list);
   }
   for (let page = 0; page < pageCount; page++) {

@@ -18,15 +18,15 @@ test("Physical Environment production consumers share the pinned runtime transpo
   assert.match(aerial, /node\.write\(output\)/);
 });
 
-test("FSR3 product demand includes Surface motion and the Present consumer", () => {
+test("FSR3 product demand includes independent Temporal motion and the Present consumer", () => {
   const program = buildFrameProgram({ kind: "scene", intent: "present", viewFamily: "main", outputWidth: 1280, outputHeight: 720,
     outputFormat: "bgra8unorm", capabilityProfile: "test", internalWidth: 640, internalHeight: 360,
     virtualGeometry: false, virtualBankCount: 0, previousHzb: true,
     currentHzbLateRecheck: false,
     activeSets: [0], hasLit: false, physicalEnvironment: false });
-  for (const product of ["visibility", "surface-radiance", "surface-motion",
+  for (const product of ["visibility", "surface-radiance", "temporal-motion",
     "reconstructed-color", "swapchain"]) assert.ok(program.products.includes(product), product);
-  assert.deepEqual(program.facts.find(fact => fact.product === "surface-motion").consumers, ["fsr3"]);
+  assert.deepEqual(program.facts.find(fact => fact.product === "temporal-motion").consumers, ["temporal-facts", "fsr3"]);
   assert.deepEqual(program.facts.find(fact => fact.product === "reconstructed-color").consumers, ["present"]);
 });
 
@@ -43,6 +43,6 @@ test("Surface temporal and physical-environment resources have closed bindings",
     hasLit: false, physicalEnvironment: true });
   assert.ok(program.stages.includes("physical-sky"));
   assert.ok(program.stages.includes("aerial"));
-  assert.deepEqual(program.facts.find(fact => fact.product === "surface-motion").consumers, ["fsr3"]);
+  assert.deepEqual(program.facts.find(fact => fact.product === "temporal-motion").consumers, ["temporal-facts", "fsr3"]);
   assert.match(pass, /case "physical-environment-transmittance"/);
 });

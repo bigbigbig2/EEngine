@@ -42,7 +42,7 @@ export interface GeometryCookRecipeV3 {
   readonly pagePackingAlgorithmVersion: "tier-locality-bounded-best-fit-16-v1";
   readonly pageCodecPolicy: "lz4-or-raw";
   readonly rawCodecThresholdBytes: number;
-  readonly vertexProfileVersion: "static-pbr-page-local-f32-v4";
+  readonly vertexProfileVersion: "static-pbr-page-local-f32-surface-v5";
   readonly positionQuantization: "float32-object-space";
   readonly bootstrapGeometryBudgetBytes: number;
   readonly bootstrapBudgetPolicy: "scene-decoded-payload-hard-fail-v1";
@@ -76,7 +76,7 @@ export function createGeometryCookRecipeV3(
     pagePackingAlgorithmVersion: "tier-locality-bounded-best-fit-16-v1",
     pageCodecPolicy: "lz4-or-raw",
     rawCodecThresholdBytes: 256,
-    vertexProfileVersion: "static-pbr-page-local-f32-v4",
+    vertexProfileVersion: "static-pbr-page-local-f32-surface-v5",
     positionQuantization: "float32-object-space",
     bootstrapGeometryBudgetBytes: 64 * 1024 * 1024,
     bootstrapBudgetPolicy: "scene-decoded-payload-hard-fail-v1",

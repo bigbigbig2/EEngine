@@ -10,7 +10,6 @@ export const SURFACE_PRODUCT = Object.freeze({
   ShadingNormal: "shading-normal",
   PerceptualRoughness: "perceptual-roughness",
   IndirectVisibility: "indirect-visibility",
-  Motion: "motion",
   MaterialIdentity: "material-identity"
 } as const);
 
@@ -59,12 +58,6 @@ export const SURFACE_PRODUCT_CONTRACTS: Readonly<Record<SurfaceProductKind, Surf
     missing: "neutral-one", space: "screen-space", units: "visibility-[0,1]",
     precision: "floating-point", colorSpace: "not-color", exposure: "not-radiance",
     filter: "none", temporalIdentity: "current-frame-only"
-  }),
-  motion: Object.freeze({
-    kind: "motion", resolution: "internal-full", coverage: "opaque-visibility-hit",
-    missing: "no-hit-or-explicit-error", space: "current-uv-minus-previous-uv", units: "normalized-view",
-    precision: "floating-point", colorSpace: "not-color", exposure: "not-radiance",
-    filter: "none", temporalIdentity: "scene-object-material-geometry-generation"
   }),
   "material-identity": Object.freeze({
     kind: "material-identity", resolution: "internal-full", coverage: "opaque-visibility-hit",
@@ -146,7 +139,7 @@ export function surfaceProgramKey(closure: Readonly<SurfaceProgramClosure>): str
 export type SurfaceResourceRole =
   | "shading-work" | "visibility-key" | "frequency-plan" | "exception-lane" |
     "meshlet-work" | "material-records"
-  | "frame-view" | "pre-exposure" | "radiance-output" | "motion-output"
+  | "frame-view" | "pre-exposure" | "radiance-output"
   | "instance-records" | "geometry-metadata" | "vertex-payload" | "visibility-depth"
   | "virtual-product-metadata" | "virtual-product-banks"
   | "texture-routes" | "texture-banks" | "texture-samplers"
@@ -178,7 +171,7 @@ export function surfaceMaterialRequirements(
   }
   const roles: SurfaceResourceRole[] = [
     "shading-work", "visibility-key", "frequency-plan", "meshlet-work",
-    "material-records", "frame-view", "pre-exposure", "radiance-output", "motion-output"
+    "material-records", "frame-view", "pre-exposure", "radiance-output"
   ];
   roles.push("exception-lane");
   if (s.reconstructTriangle) {
@@ -200,7 +193,7 @@ export function surfaceMaterialRequirements(
   if (s.lit && closure.lighting === "direct") {
     if (closure.aoProfile === "scalar-high") roles.push("indirect-visibility");
     roles.push("direct-light-records", "direct-light-cluster-lookup",
-      "direct-light-cluster-data", "direct-light-cluster-params", "motion-output");
+      "direct-light-cluster-data", "direct-light-cluster-params");
     if (closure.physicalEnvironment !== false) roles.push(
       "physical-environment-sun", "physical-sky-irradiance", "physical-sky-irradiance-sampler",
       "physical-environment-transmittance", "physical-sky-specular", "physical-sky-dfg",

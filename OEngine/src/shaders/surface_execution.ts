@@ -111,7 +111,7 @@ fn sparse_texture_route_valid(material_slot:u32,slot:u32,texture_ref:u32)->bool 
     }`;
   const shadeHit = /* wgsl */ `
 ${mode === "dense" ? SHADING_FREQUENCY_ANCHOR_WGSL : ""}
-fn surface_store(pixel:vec2u,color:vec4f,motion:vec4f) {
+fn surface_store(pixel:vec2u,color:vec4f) {
   let rate=${mode === "dense" ? "oengine_shading_rate(pixel)" : "1u"};
   // Material, texture, direct light, and IBL inputs arrive as linear Rec.709.
   // Convert once at the HDR product boundary before the GPU P_t multiplier.
@@ -120,12 +120,11 @@ fn surface_store(pixel:vec2u,color:vec4f,motion:vec4f) {
     for(var x=0u;x<rate;x++) {
       let output_pixel=pixel+vec2u(x,y);
       textureStore(output_hdr,vec2i(output_pixel),vec4f(rec2020*radiometry_pre_exposure.value,color.a));
-      textureStore(output_motion,vec2i(output_pixel),motion);
     }
   }
 }
 fn surface_error(pixel:vec2u) {
-  surface_store(pixel,vec4f(1.0,0.0,1.0,1.0),vec4f(0.0));
+  surface_store(pixel,vec4f(1.0,0.0,1.0,1.0));
 }
 fn surface_hit(pixel:vec2u,key:u32,work_item:OEngineMeshletRasterWork,
   material_slot:u32,material:OEngineShadingMaterialRecord) {
@@ -133,7 +132,7 @@ fn surface_hit(pixel:vec2u,key:u32,work_item:OEngineMeshletRasterWork,
   if surface_identity_failed { surface_error(pixel); return; }
   ${minimalVirtualUnlit ? `
   let base_color = material.payload.base_color_factor;
-  surface_store(pixel,base_color,vec4f(0.0));
+  surface_store(pixel,base_color);
   return;` : `
   let primitive=oengine_visibility_key_local_primitive(key);
   var surface:OEngineSparseSurface;
@@ -148,8 +147,7 @@ fn surface_hit(pixel:vec2u,key:u32,work_item:OEngineMeshletRasterWork,
   if surface_identity_failed { surface_error(pixel); return; }
   var radiance=surface.base_color;
   ${hasLit ? "if material.family!=0u { radiance=sparse_direct(surface,pixel); }" : ""}
-  surface_store(pixel,vec4f(radiance,surface.alpha),
-    vec4f(surface.velocity,0.0,0.0));
+  surface_store(pixel,vec4f(radiance,surface.alpha));
   `}
 }
 fn surface_material(pixel:vec2u,key:u32,report_error:bool)->u32 {

@@ -1,6 +1,7 @@
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { compileCanonicalMaterial } from "../material/CanonicalMaterial.js";
+import type { TextureSurfacePublication } from "./TextureVariation.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import {
   GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
@@ -123,7 +124,8 @@ export class GpuMaterialStore {
     associations: readonly GpuMaterialAssociationSource[],
     textureRefsByMaterial: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>,
     command: ShadeGPUCommandContext,
-    textureMipRanges?: ReadonlyMap<ShadeTexture, readonly [number, number]>
+    textureMipRanges?: ReadonlyMap<ShadeTexture, readonly [number, number]>,
+    surfacePublications?: ReadonlyMap<ShadeTexture, TextureSurfacePublication>
   ): GpuMaterialStage {
     this.assertStageCommand(command);
     this.preflight(associations, textureRefsByMaterial);
@@ -209,12 +211,29 @@ export class GpuMaterialStore {
           canonical.coatFactor > 0 ? textureRef(association.material.texture_clearcoat_roughness) : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE,
           canonical.coatFactor > 0 ? textureRef(association.material.texture_clearcoat_normal) : GPU_MATERIAL_VISIBILITY_INVALID_TEXTURE
         ];
+        const routeTextures = [association.material.texture_albedo, association.material.texture_normal,
+          association.material.texture_orm, association.material.texture_emissive, association.material.texture_occlusion,
+          association.material.texture_specular, association.material.texture_specular_color,
+          association.material.texture_clearcoat, association.material.texture_clearcoat_roughness,
+          association.material.texture_clearcoat_normal];
         for (let routeIndex = 0; routeIndex < routeRefs.length; routeIndex++) {
+          const texture = routeTextures[routeIndex];
+          const publication = texture === undefined ? undefined : surfacePublications?.get(texture);
+          let routeSignature = new DataView(packed.buffer).getUint32(36, true);
+          for (const value of [routeIndex, routeRefs[routeIndex]!, publication?.revision ?? 0]) {
+            routeSignature = Math.imul(routeSignature ^ value, 16777619) >>> 0;
+          }
           const route = packGpuShadingTextureRoute({
             textureRef: routeRefs[routeIndex]!,
             textureGeneration: generation,
             publicationRevision: generation,
-            textureBindingSetId: association.textureBindingSetId
+            textureBindingSetId: association.textureBindingSetId,
+            residencySlot: publication?.slot ?? 0,
+            residencyRevision: publication?.revision ?? 0,
+            variationKnown: publication?.variation.known ?? false,
+            samplingSignature: routeSignature,
+            variationLow: publication?.variation.low,
+            variationHigh: publication?.variation.high
           });
           const routeSlot = slot * GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL + routeIndex;
           command.writeBuffer(

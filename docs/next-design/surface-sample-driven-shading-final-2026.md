@@ -1,10 +1,10 @@
 # Surface 可见性驱动分频着色：最终设计
 
-日期：2026-09-30。状态：本次讨论收敛后的目标设计，尚未实现，尚无本地加速或最终画质验收结论。
+日期：2026-09-30。状态：目标设计；阶段一数据与独立 motion 已实现并做定向验证，阶段二至四未实施。尚无本地加速或最终画质验收结论。
 
 本文确定 Surface 重构的唯一推荐方向，替代 [前期调查](surface-shading-performance-design-2026.md) 中的候选排序和“先 A/B 小优化”顺序；上位架构仍为 [Next 整体设计](eengine-next-overall-architecture-final-2026.md)。执行顺序见 [Surface 重构执行文档](../next-execution/surface-sample-driven-shading-rebuild-2026.md)，来源/阶段映射见 [Next 来源账本](../porting/next-renderer.md)。
 
-本次任务交付设计与执行文档，不修改生产源码，不切换当前 `virtual-geometry-lod-correctness` workstream。开始实施本设计时按完整模块接续开发，不以旧 claim、逐批文档或正式 benchmark 作为编码许可门禁。
+2026-09-30 阶段一已进入唯一生产主链：Product primitive metadata、材质/纹理 publication、SurfaceProbe 候选和 Temporal 独立 rigid motion。普通 PBR 的重着色仍全率，候选只发布到现有 frequency plan 的预留位并提供 GPU counters；不是 sample-driven worker/Resolve 已完成。此前 Virtual Geometry 的画质问题不因本阶段而关闭。
 
 ## 1. 决策：直接改重着色的工作单位
 
@@ -305,4 +305,4 @@ CPU oracle/独立诊断 harness 和 Git 历史可用于对照；新架构的全�
 
 性能与正式采用是另一级结论：在整体 Next 适当验收阶段，用固定 revision/场景/尺寸/相机/驱动/温度条件测量分析+probe+工作生成+重 shader+重建及整帧 P50/P95，并覆盖代表材质/画质/lifecycle 矩阵。旧基线用 Git revision/独立 harness 对照，不留双生产桥梁。只有源码映射、CPU/WGSL oracle 与真实生产 GPU 消费等证据齐备才提升对应采用状态；样本少但总时间不降不能叫性能改善。
 
-本轮文档交付不代表上述实现或验证已完成；未运行 typecheck/build/browser/GPU benchmark。
+阶段一的实际实现与验证范围见执行文档的阶段一收口记录。本文其余章节仍是后续目标，不代表 sample scheduling、重着色减量、Resolve 或性能目标已完成；正式 browser matrix、画质与 GPU P50/P95 未运行。

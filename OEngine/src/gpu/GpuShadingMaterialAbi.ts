@@ -10,11 +10,11 @@ import {
 } from "./GpuShadingProgramAbi.js";
 import { GPU_CLOSURE_MATERIAL_STRIDE, GPU_CLOSURE_MATERIAL_WGSL } from "./GpuClosureMaterialAbi.js";
 
-export const GPU_SHADING_MATERIAL_ABI_VERSION = 6;
+export const GPU_SHADING_MATERIAL_ABI_VERSION = 7;
 export const GPU_SHADING_MATERIAL_HEADER_STRIDE = 48;
 export const GPU_SHADING_MATERIAL_RECORD_STRIDE =
   GPU_SHADING_MATERIAL_HEADER_STRIDE + GPU_MATERIAL_VISIBILITY_RECORD_STRIDE + GPU_CLOSURE_MATERIAL_STRIDE;
-export const GPU_SHADING_TEXTURE_ROUTE_STRIDE = 16;
+export const GPU_SHADING_TEXTURE_ROUTE_STRIDE = 64;
 export const GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL = 10;
 /** Publication-time facts, separate from Material Visibility payload flags. */
 export const GPU_SHADING_MATERIAL_FLAGS = Object.freeze({
@@ -31,7 +31,8 @@ export const GPU_SHADING_MATERIAL_HEADER_OFFSETS = Object.freeze({
   flags: 20,
   family: 24,
   featureMask: 28,
-  temporalSignature: 32
+  temporalSignature: 32,
+  samplingSignature: 36
 } as const);
 
 export interface GpuShadingMaterialRecordHeader {
@@ -50,6 +51,12 @@ export interface GpuShadingTextureRouteRecord {
   readonly textureGeneration: number;
   readonly publicationRevision: number;
   readonly textureBindingSetId: number;
+  readonly residencySlot?: number;
+  readonly residencyRevision?: number;
+  readonly variationKnown?: boolean;
+  readonly samplingSignature?: number;
+  readonly variationLow?: readonly [number, number, number, number];
+  readonly variationHigh?: readonly [number, number, number, number];
 }
 
 export function packGpuShadingMaterialRecord(
@@ -83,6 +90,7 @@ export function packGpuShadingMaterialRecord(
     signature = Math.imul(signature ^ bytes[index]!, 16777619) >>> 0;
   }
   view.setUint32(GPU_SHADING_MATERIAL_HEADER_OFFSETS.temporalSignature, signature, true);
+  view.setUint32(GPU_SHADING_MATERIAL_HEADER_OFFSETS.samplingSignature, signature, true);
   return bytes;
 }
 
@@ -114,12 +122,14 @@ export function packGpuShadingTextureRoute(
   route: GpuShadingTextureRouteRecord
 ): Uint8Array<ArrayBuffer> {
   validateRoute(route);
-  return new Uint8Array(new Uint32Array([
-    route.textureRef,
-    route.textureGeneration,
-    route.publicationRevision,
-    route.textureBindingSetId
-  ]).buffer);
+  const bytes = new Uint8Array(GPU_SHADING_TEXTURE_ROUTE_STRIDE);
+  const view = new DataView(bytes.buffer);
+  [route.textureRef, route.textureGeneration, route.publicationRevision, route.textureBindingSetId,
+    route.residencySlot ?? 0, route.residencyRevision ?? 0, Number(route.variationKnown ?? false),
+    route.samplingSignature ?? 0].forEach((value, index) => view.setUint32(index * 4, value, true));
+  (route.variationLow ?? [0, 0, 0, 0]).forEach((value, index) => view.setFloat32(32 + index * 4, value, true));
+  (route.variationHigh ?? [1, 1, 1, 1]).forEach((value, index) => view.setFloat32(48 + index * 4, value, true));
+  return bytes;
 }
 
 export function unpackGpuShadingTextureRoute(
@@ -135,7 +145,11 @@ export function unpackGpuShadingTextureRoute(
     textureRef: view.getUint32(0, true),
     textureGeneration: view.getUint32(4, true),
     publicationRevision: view.getUint32(8, true),
-    textureBindingSetId: view.getUint32(12, true)
+    textureBindingSetId: view.getUint32(12, true),
+    residencySlot: view.getUint32(16, true), residencyRevision: view.getUint32(20, true),
+    variationKnown: view.getUint32(24, true) === 1, samplingSignature: view.getUint32(28, true),
+    variationLow: [0, 1, 2, 3].map(index => view.getFloat32(32 + index * 4, true)) as [number, number, number, number],
+    variationHigh: [0, 1, 2, 3].map(index => view.getFloat32(48 + index * 4, true)) as [number, number, number, number]
   };
   validateRoute(route);
   return Object.freeze(route);
@@ -154,7 +168,7 @@ struct OEngineShadingMaterialRecord {
   family: u32,
   feature_mask: u32,
   temporal_signature: u32,
-  _temporal_pad0: u32,
+  sampling_signature: u32,
   _temporal_pad1: u32,
   _temporal_pad2: u32,
   payload: OEngineMaterialVisibilityRecord,
@@ -166,6 +180,12 @@ struct OEngineShadingTextureRoute {
   texture_generation: u32,
   publication_revision: u32,
   texture_binding_set_id: u32,
+  residency_slot: u32,
+  residency_revision: u32,
+  variation_known: u32,
+  sampling_signature: u32,
+  variation_low: vec4f,
+  variation_high: vec4f,
 };
 `;
 
@@ -188,6 +208,14 @@ function validateHeader(header: GpuShadingMaterialRecordHeader): void {
 
 function validateRoute(route: GpuShadingTextureRouteRecord): void {
   assertU32(route.textureRef, "texture ref");
+  assertU32(route.residencySlot ?? 0, "residency slot");
+  assertU32(route.residencyRevision ?? 0, "residency revision");
+  assertU32(route.samplingSignature ?? 0, "sampling signature");
+  const low = route.variationLow ?? [0, 0, 0, 0], high = route.variationHigh ?? [1, 1, 1, 1];
+  if (low.length !== 4 || high.length !== 4 || !low.every((value, index) =>
+    Number.isFinite(value) && Number.isFinite(high[index]) && value <= high[index]!)) {
+    throw new RangeError("Shading texture variation bounds are invalid");
+  }
   assertNonZeroU32(route.textureGeneration, "texture route generation");
   assertNonZeroU32(route.publicationRevision, "texture route publication revision");
   if (!Number.isInteger(route.textureBindingSetId) || route.textureBindingSetId < 0 ||

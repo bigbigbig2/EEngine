@@ -1,7 +1,7 @@
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
-import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
+import { GPU_SHADING_MATERIAL_WGSL, GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL } from "../gpu/GpuShadingMaterialAbi.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 
 /**
@@ -25,7 +25,6 @@ struct TemporalFactsConstants {
 // Mask A bits: 0 instance-set, 1 geometry/LOD, 2 material/residency,
 // 3 transform publication, 4 invalid motion, 5 emissive, 6 alpha-mask.
 @group(0) @binding(0) var visibility_key: texture_2d<u32>;
-@group(0) @binding(1) var surface_motion: texture_2d<f32>;
 @group(0) @binding(2) var surface_depth: texture_depth_2d;
 @group(0) @binding(3) var previous_identity: texture_2d<u32>;
 @group(0) @binding(4) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
@@ -37,6 +36,8 @@ struct TemporalFactsConstants {
 @group(0) @binding(10) var output_motion: texture_storage_2d<rg16float, write>;
 @group(0) @binding(11) var output_mask: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(12) var output_identity: texture_storage_2d<rgba32uint, write>;
+@group(0) @binding(13) var<storage, read> texture_routes: array<OEngineShadingTextureRoute>;
+@group(0) @binding(14) var<storage, read> texture_residency: array<u32>;
 
 // Stable instance slot is exact within one Scene allocation. The other lanes
 // are 32-bit local change detectors, not exact cross-frame object identifiers.
@@ -53,13 +54,23 @@ fn geometry_signature(instance: OEngineInstanceRecord,
   return hash_step(signature, work.packed_profile_lod);
 }
 fn material_signature(instance: OEngineInstanceRecord,
-  material: OEngineShadingMaterialRecord) -> u32 {
+  material: OEngineShadingMaterialRecord, material_slot: u32) -> u32 {
   var signature = hash_step(2166136261u, instance.material_handle);
   signature = hash_step(signature, instance.flags);
   signature = hash_step(signature, material.material_generation);
   signature = hash_step(signature, material.texture_generation);
   signature = hash_step(signature, material.publication_revision);
-  return hash_step(signature, material.temporal_signature);
+  signature = hash_step(signature, material.temporal_signature);
+  for (var role = 0u; role < ${GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL}u; role++) {
+    let index = material_slot * ${GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL}u + role;
+    if index < arrayLength(&texture_routes) {
+      let route = texture_routes[index];
+      if route.texture_ref != OENGINE_TEXTURE_REF_INVALID && route.residency_slot < arrayLength(&texture_residency) {
+        signature = hash_step(signature, texture_residency[route.residency_slot]);
+      }
+    }
+  }
+  return signature;
 }
 
 fn inside(uv: vec2f) -> bool {
@@ -121,11 +132,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           work.material_slot_or_range < arrayLength(&materials)) {
         let instance = instances[work.instance_slot];
         let material = materials[work.material_slot_or_range];
-        motion = textureLoad(surface_motion, pixel, 0).xy;
         identity = vec4u(work.instance_slot + 1u,
           geometry_signature(instance, work, oengine_visibility_key_local_primitive(key)),
-          material_signature(instance, material), instance.dynamic_revision);
+          material_signature(instance, material, work.material_slot_or_range), instance.dynamic_revision);
         let previous_clip = previous_clip_for_surface(uv, depth, instance);
+        let previous_uv = previous_clip.xy / previous_clip.w * vec2f(0.5, -0.5) + vec2f(0.5);
+        motion = uv - previous_uv;
         valid = oengine_instance_motion_valid(instance) && finite_motion(motion) &&
           inside(uv - motion) && depth > 0.0001 &&
           previous_clip.w > 1e-6 && previous_clip.z >= 0.0 &&

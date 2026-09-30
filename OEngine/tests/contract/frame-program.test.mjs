@@ -59,7 +59,7 @@ test("Frame Program closes the current scene product demand with a structural ke
   assert.throws(() => buildFrameProgram({ ...scene, activeExceptionLanes: [1] }),
     /outside active resident sets/u);
   for (const product of ["visibility", "depth", "hzb", "meshlet-work", "light-cluster",
-    "surface-radiance", "surface-motion", "sky-radiance", "aerial-radiance",
+    "surface-radiance", "temporal-motion", "sky-radiance", "aerial-radiance",
     "reconstructed-color", "swapchain"]) assert.ok(first.products.includes(product), product);
   assert.equal(first.directLighting, true);
   assert.deepEqual(first.facts.find(fact => fact.product === "light-cluster").consumers,
@@ -72,10 +72,10 @@ test("Frame Program closes the current scene product demand with a structural ke
   assert.ok(!noEnvironment.products.includes("aerial-radiance"));
   const unlit = buildFrameProgram({ ...scene, hasLit: false });
   assert.ok(!unlit.products.includes("light-cluster"));
-  assert.deepEqual(first.facts.find(fact => fact.product === "surface-motion").consumers, ["temporal-facts"]);
+  assert.deepEqual(first.facts.find(fact => fact.product === "temporal-motion").consumers, ["temporal-facts", "fsr3"]);
   assert.ok(!first.products.includes("shading-work"));
   assert.deepEqual(first.facts.find(fact => fact.product === "visibility").extent, [640, 360]);
-  assert.equal(first.facts.find(fact => fact.product === "surface-motion").format, "rg16float");
+  assert.equal(first.facts.find(fact => fact.product === "temporal-motion").format, "rg16float");
 });
 
 test("lit scalar AO closes a same-frame producer while off and unlit omit it", () => {
@@ -117,7 +117,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const plan = buildFrameProgram(request);
   const resource = {};
   const runtime = { virtualGeometry: null, activeShadingSummary: { binRefCounts: Array(64).fill(0) },
-    materialResources: { materialRecords: resource, textureRouteRecords: resource,
+    materialResources: { materialRecords: resource, textureRouteRecords: resource, surfaceResidencyVersions: resource,
       bindingSets: [{ id: 0,
         textureBankMask: 0x1ff,
         textureBanks: Array(9).fill(resource),
@@ -146,7 +146,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     assertPreparedFrame() {},
     addToGraph(graph, input) {
       const pass = graph.add("test/Temporal Facts", {}, () => {});
-      for (const value of [input.visibility, input.depth, input.surfaceMotion,
+      for (const value of [input.visibility, input.depth, input.textureRoutes, input.textureResidencyVersions,
         input.meshletWork, input.instances, input.materials,
         input.currentCamera, input.previousCamera]) pass.read(value);
       return {
@@ -257,7 +257,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       "test/Radiometry", "test/Bloom", "test/Present"]);
   const pass = name => dump.passes.find(entry => entry.name === name);
   for (const [producer, consumer] of [["test/Visibility", "test/Surface"],
-    ["test/Surface", "test/Temporal Facts"], ["test/Temporal Facts", "test/FSR3"],
+    ["test/Temporal Facts", "test/FSR3"],
     ["test/FSR3", "test/Radiometry"],
     ["test/Bloom", "test/Present"]]) {
     assert.ok(pass(consumer).dependencies.includes(pass(producer).id), `${producer} -> ${consumer}`);

@@ -27,7 +27,7 @@ struct GeometryCookRecipeV3 {
     std::string pagePackingAlgorithmVersion = "tier-locality-bounded-best-fit-16-v1";
     std::string pageCodecPolicy = "lz4-or-raw";
     std::uint32_t rawCodecThresholdBytes = 256u;
-    std::string vertexProfileVersion = "static-pbr-page-local-f32-v4";
+    std::string vertexProfileVersion = "static-pbr-page-local-f32-surface-v5";
     std::string positionQuantization = "float32-object-space";
     std::uint64_t bootstrapGeometryBudgetBytes = 64ull * 1024ull * 1024ull;
     std::string bootstrapBudgetPolicy = "scene-decoded-payload-hard-fail-v1";

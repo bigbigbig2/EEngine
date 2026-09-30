@@ -399,6 +399,7 @@ void AssertMeshletSeamsAndTerminalLod() {
         GeometryCookRecipeV3 recipe;
         recipe.groupTargetMeshlets = 4;
         recipe.minimumLodReduction = minimumReduction;
+        recipe.simplifyWithUpdate = false;
         CookEvidenceV3 evidence;
         const auto cooked = CookGeometryAssetV3(source, recipe, evidence);
         assert(cooked.groups.size() > 1);
@@ -427,7 +428,79 @@ void AssertMeshletSeamsAndTerminalLod() {
     }
 }
 
+void AssertSurfaceMetadataAndPageCapacity() {
+    CanonicalGeometryAsset source;
+    source.sourceName = "surface-page-capacity";
+    MaterialDomain domain;
+    domain.attributeMask = kAttributePosition | kAttributeNormal | kAttributeTangent |
+        kAttributeUv0 | kAttributeUv1 | kAttributeColor;
+    domain.meshletFlags = kMeshletOpaque;
+    constexpr std::uint32_t side = 97u;
+    for (std::uint32_t row = 0; row < side; ++row) for (std::uint32_t column = 0; column < side; ++column) {
+        CanonicalVertex vertex;
+        vertex.position[0] = float(column); vertex.position[1] = float(row);
+        vertex.normal[0] = 0.0f; vertex.normal[1] = 0.0f; vertex.normal[2] = 1.0f;
+        vertex.uv0[0] = float(column) / float(side - 1u);
+        vertex.uv0[1] = float(row) / float(side - 1u);
+        std::copy(vertex.uv0, vertex.uv0 + 2u, vertex.uv1);
+        domain.vertices.push_back(vertex);
+    }
+    for (std::uint32_t row = 0; row + 1u < side; ++row) for (std::uint32_t column = 0; column + 1u < side; ++column) {
+        const auto first = row * side + column;
+        domain.indices.insert(domain.indices.end(), {first, first + 1u, first + side,
+            first + 1u, first + side + 1u, first + side});
+    }
+    source.domains.push_back(domain);
+    GeometryCookRecipeV3 recipe;
+    recipe.groupTargetMeshlets = 128u; recipe.minimumLodReduction = 1.0f;
+    CookEvidenceV3 evidence;
+    const auto cooked = CookGeometryAssetV3(source, recipe, evidence);
+    assert(cooked.groups.size() >= 3u);
+    std::uint32_t sharingDomain = 0u, primitiveCount = 0u;
+    for (const auto& group : cooked.groups) {
+        assert(group.bytes.size() <= kGeometryPageBytesV3);
+        assert((group.flags & kGroupSurfaceMetadata) != 0u);
+        GroupHeaderV3 header{}; DecodeRecordV3(group.bytes.data(), &header);
+        assert(header.meshletCount <= 128u);
+        for (std::uint32_t meshletIndex = 0; meshletIndex < header.meshletCount; ++meshletIndex) {
+            MeshletHeaderV3 meshlet{};
+            DecodeRecordV3(group.bytes.data() + header.meshletHeaderOffset + meshletIndex * 48u, &meshlet);
+            const auto metadata = AlignUp(meshlet.triangleByteOffset + meshlet.triangleCount * 3u, 4u);
+            assert(metadata + meshlet.triangleCount * 32u <= header.vertexDataOffset);
+            for (std::uint32_t primitive = 0u; primitive < meshlet.triangleCount; ++primitive) {
+                const auto at = metadata + primitive * 32u;
+                const auto currentDomain = U32(group.bytes, at);
+                assert(currentDomain != 0u && U32(group.bytes, at + 4u) == 0u);
+                if (sharingDomain != 0u) assert(currentDomain == sharingDomain);
+                sharingDomain = currentDomain; ++primitiveCount;
+            }
+        }
+    }
+    assert(primitiveCount == domain.indices.size() / 3u);
+    CanonicalGeometryAsset duplicated;
+    duplicated.sourceName = "separate-material-domains";
+    MaterialDomain triangle;
+    triangle.attributeMask = kAttributePosition | kAttributeNormal;
+    triangle.vertices.resize(3u);
+    triangle.vertices[1].position[0] = 1.0f; triangle.vertices[2].position[1] = 1.0f;
+    triangle.indices = {0u, 1u, 2u}; triangle.materialId = 0u;
+    duplicated.domains = {triangle, triangle};
+    CookEvidenceV3 duplicateEvidence;
+    const auto separate = CookGeometryAssetV3(duplicated, recipe, duplicateEvidence);
+    assert(separate.groups.size() == 2u);
+    std::uint32_t identities[2]{};
+    for (std::uint32_t groupIndex = 0; groupIndex < 2u; ++groupIndex) {
+        GroupHeaderV3 header{}; DecodeRecordV3(separate.groups[groupIndex].bytes.data(), &header);
+        MeshletHeaderV3 meshlet{};
+        DecodeRecordV3(separate.groups[groupIndex].bytes.data() + header.meshletHeaderOffset, &meshlet);
+        identities[groupIndex] = U32(separate.groups[groupIndex].bytes,
+            AlignUp(meshlet.triangleByteOffset + meshlet.triangleCount * 3u, 4u));
+    }
+    assert(identities[0] > 0u && identities[1] > 0u && identities[0] != identities[1]);
+}
+
 int main() {
+    AssertSurfaceMetadataAndPageCapacity();
     AssertMeshletSeamsAndTerminalLod();
     AssertPageIdentityRollup();
     assert(oengine_web_geometry_cook_abi_version() == 3u);

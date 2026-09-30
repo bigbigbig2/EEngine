@@ -38,7 +38,7 @@ test("production Surface has bounded Dense, Binned and whole-lane overflow paths
   assert.match(SURFACE_WORK_CONTROL_WGSL, /attempted>work\.header\.capacity/);
   assert.match(SURFACE_WORK_CONTROL_WGSL, /vec4u\(0u,0u,1u,0u\),overflow/);
   const plan = compileSurfaceProgramLayout({
-    kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion,
+    kernel: { programId: 15, outputDependencyMask: 0,
       textureBankMask: 0x1ff },
     virtualGeometry: false, lighting: "direct", source: "surface-execution-v2",
     capabilityFingerprint: "webgpu-core", formatProfile: "rgba16float"
@@ -55,18 +55,17 @@ test("production Surface has bounded Dense, Binned and whole-lane overflow paths
     if (mode === "dense") {
       assert.match(source, /oengine_shading_anchor\(pixel\)==pixel/u);
       assert.match(source, /surface_store\(pixel,vec4f\(radiance/u);
-      assert.match(source, /textureStore\(output_motion,vec2i\(output_pixel\),motion\)/u);
+      assert.doesNotMatch(source, /output_motion/u);
     }
   }
 });
 
-test("logical Surface values distinguish normals, motion, radiance and material identity", () => {
-  assert.equal(Object.keys(SURFACE_PRODUCT).length, 7);
+test("logical Surface values distinguish normals, radiance and material identity; motion belongs to Temporal", () => {
+  assert.equal(Object.keys(SURFACE_PRODUCT).length, 6);
   assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.GeometricNormal].space, "world");
   assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.ShadingNormal].space, "world");
   assert.notEqual(SURFACE_PRODUCT.GeometricNormal, SURFACE_PRODUCT.ShadingNormal);
-  assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.Motion].space,
-    "current-uv-minus-previous-uv");
+  assert.equal(SURFACE_PRODUCT.Motion, undefined);
   assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.Radiance].exposure, "pre-exposed");
   assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.MaterialIdentity].precision, "integer-exact");
   assert.equal(SURFACE_PRODUCT_CONTRACTS[SURFACE_PRODUCT.IndirectVisibility].coverage, "full-internal");
@@ -92,11 +91,11 @@ test("material resource closure follows triangle, texture and direct-light deman
   assert.equal(unlit.directLighting, false);
   assert.deepEqual(unlit.roles, [
     "shading-work", "visibility-key", "frequency-plan", "meshlet-work",
-    "material-records", "frame-view", "pre-exposure", "radiance-output", "motion-output",
+    "material-records", "frame-view", "pre-exposure", "radiance-output",
     "exception-lane"
   ]);
   const texturedPbr = { ...base, virtualGeometry: true,
-    kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask: 3 }
+    kernel: { programId: 15, outputDependencyMask: 0, textureBankMask: 3 }
   };
   const pbr = surfaceMaterialRequirements(texturedPbr);
   assert.equal(pbr.triangleReconstruction, true);
@@ -124,19 +123,19 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   };
   const narrow = planSurfaceKernelBindings(base, desktopLimits);
   assert.deepEqual(narrow.totals, {
-    storageBuffers: 3, storageTextures: 2, sampledTextures: 2,
+    storageBuffers: 3, storageTextures: 1, sampledTextures: 2,
     samplers: 0, uniformBuffers: 3
   });
   assert.deepEqual(narrow.bindings.map(binding => binding.role), [
     "shading-work", "meshlet-work", "material-records", "frame-view", "pre-exposure", "radiance-output",
-    "motion-output", "visibility-key", "exception-lane", "frequency-plan"
+    "visibility-key", "exception-lane", "frequency-plan"
   ]);
   const full = { ...base, virtualGeometry: true, lighting: "direct",
-    kernel: { programId: 15, outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion,
+    kernel: { programId: 15, outputDependencyMask: 0,
       textureBankMask: 0x1ff } };
   const plan = planSurfaceKernelBindings(full, desktopLimits);
   assert.deepEqual(plan.totals, {
-    storageBuffers: 15, storageTextures: 2, sampledTextures: 16,
+    storageBuffers: 15, storageTextures: 1, sampledTextures: 16,
     samplers: 8, uniformBuffers: 5
   });
   const aoPlan = planSurfaceKernelBindings({ ...full, aoProfile: "scalar-high" }, desktopLimits);
@@ -203,7 +202,7 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   emitted.length = 0;
   createSurfaceBindGroupLayouts(fakeDevice, narrow);
   assert.equal(emitted.length, 1);
-  assert.equal(emitted[0].entries.length, 10);
+  assert.equal(emitted[0].entries.length, 9);
 });
 
 test("publication bindings close only the selected program's resource demand", () => {

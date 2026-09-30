@@ -7,6 +7,7 @@ import {
   createGpuSparseShadingCapabilityPlan,
   GPU_SPARSE_SHADING_CAPABILITY_SCHEMA_VERSION,
   GPU_SPARSE_SHADING_CLASSIFIER_WORKGROUP_STORAGE_BYTES,
+  GPU_SURFACE_PROBE_WORKGROUP_STORAGE_BYTES,
   GPU_SPARSE_SHADING_REQUIRED_FEATURES,
   GPU_SPARSE_SHADING_REQUIRED_LIMITS,
   UnsupportedGpuPerformanceBaselineError
@@ -35,7 +36,8 @@ test("ADR-0013 capability plan requests exact sparse-shading features and thresh
     Object.entries(exactLimits).sort(([left], [right]) => left.localeCompare(right))
   ));
   assert.equal(plan.requiredLimits.maxComputeInvocationsPerWorkgroup, 256);
-  assert.equal(plan.requiredLimits.maxComputeWorkgroupStorageSize, 768);
+  assert.equal(plan.requiredLimits.maxComputeWorkgroupStorageSize, GPU_SURFACE_PROBE_WORKGROUP_STORAGE_BYTES);
+  assert.equal(GPU_SURFACE_PROBE_WORKGROUP_STORAGE_BYTES, 9216);
   assert.equal(GPU_SPARSE_SHADING_CLASSIFIER_WORKGROUP_STORAGE_BYTES, 768);
   assert.ok(!plan.requiredFeatures.includes("subgroup-size-control"));
   assert.equal(plan.subgroupMinSize, 4);

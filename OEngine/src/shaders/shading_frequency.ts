@@ -21,6 +21,7 @@ ${GPU_SPARSE_SHADING_VIEW_WGSL}
 @group(0) @binding(4) var<storage, read> frequency_instances: array<OEngineInstanceRecord>;
 @group(0) @binding(5) var<uniform> frequency_view: OEngineSparseShadingView;
 @group(0) @binding(6) var frequency_plan: texture_storage_2d<r32uint, write>;
+@group(0) @binding(7) var frequency_candidates: texture_2d<u32>;
 
 fn frequency_camera_static() -> bool {
   // Identical view matrices plus static instances guarantee uniform zero motion.
@@ -89,6 +90,12 @@ fn plan(@builtin(global_invocation_id) id: vec3u) {
         let cell_origin = origin + vec2u((cell & 1u) * 2u, (cell >> 1u) * 2u);
         if frequency_block_eligible(cell_origin, 2u) { mask |= 1u << cell; }
       }
+    }
+  }
+  for (var cell = 0u; cell < 4u; cell++) {
+    let candidate_pixel = id.xy * 2u + vec2u(cell & 1u, cell >> 1u);
+    if all(candidate_pixel < textureDimensions(frequency_candidates)) {
+      mask |= (textureLoad(frequency_candidates, vec2i(candidate_pixel), 0).x & 3u) << (16u + cell * 2u);
     }
   }
   textureStore(frequency_plan, vec2i(id.xy), vec4u(mask, 0u, 0u, 0u));

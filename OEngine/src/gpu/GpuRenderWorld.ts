@@ -326,7 +326,8 @@ export class GpuRenderWorld {
       associationPlan.sources,
       textureStage.materialTextureRoutingRefs,
       command,
-      textureStage.textureMipRanges
+      textureStage.textureMipRanges,
+      textureStage.surfacePublications
     );
     initializeRenderWorldShadingPublication(
       classification,

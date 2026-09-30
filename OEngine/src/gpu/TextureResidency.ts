@@ -8,6 +8,7 @@ import {
 } from "../assets/TextureAssetPackage.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
+import { decodedTextureVariation, type TextureSurfacePublication, type TextureVariation } from "./TextureVariation.js";
 import { TextureFilterType } from "../texture/TextureFilterType.js";
 import type { CachedRenderPipelineDescriptor } from "./GPUDescriptorCaches.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
@@ -43,6 +44,7 @@ export const TEXTURE_RESIDENCY_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
 
 export interface TextureResidencyBindings {
   readonly textureCapacity: number;
+  readonly surfaceResidencyVersions: GPUBuffer;
   readonly bindingSets: readonly TextureBindingSet[];
 }
 
@@ -75,6 +77,7 @@ export interface TextureResidencyStage {
   /** Material-local routing because one physical segment may occupy different set slots. */
   readonly materialTextureRoutingRefs: ReadonlyMap<StandardShadeMaterial, ReadonlyMap<ShadeTexture, number>>;
   readonly textureMipRanges: ReadonlyMap<ShadeTexture, readonly [number, number]>;
+  readonly surfacePublications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>;
 }
 
 export interface TextureResidencyDescriptor {
@@ -245,6 +248,8 @@ interface ResidentTexture {
   readonly uploadBytes: number;
   readonly mipLevelCount: number;
   availableMip: number;
+  surfaceRevision: number;
+  readonly variation: TextureVariation;
   refCount: number;
   retireGeneration: number;
 }
@@ -339,6 +344,9 @@ export class TextureResidency {
   private readonly materials = new Map<StandardShadeMaterial, ResidentMaterialTextures>();
   private readonly descriptors = new Map<number, TextureResidencyDescriptor>();
   private readonly freeDescriptorSlots: number[] = [];
+  private readonly surfaceResidencyVersions: GPUBuffer;
+  private readonly surfaceResidencyAccounting: AccountingResourceHandle | null;
+  private nextSurfaceRevision = 1;
   private readonly descriptorGenerations: number[] = [0];
   private resizePipeline: GPURenderPipeline | null = null;
   private allocatedPeakBytes = 0;
@@ -418,6 +426,16 @@ export class TextureResidency {
     if (base.maxCapacity < TEXTURE_RESIDENCY_BASE_CAPACITY) {
       throw new RangeError(`TextureResidency base bank requires ${TEXTURE_RESIDENCY_BASE_CAPACITY} layers but the device permits ${base.maxCapacity}`);
     }
+    const residencyBytes = (this.logicalCapacity() + 1) * 4;
+    if (residencyBytes > Math.min(Number(limits.maxBufferSize), Number(limits.maxStorageBufferBindingSize))) {
+      throw new RangeError("Texture Surface residency table exceeds negotiated storage limits");
+    }
+    this.surfaceResidencyVersions = graphics.device.createBuffer({ label: "TextureResidency/surface versions",
+      size: residencyBytes, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.surfaceResidencyAccounting = graphics.resource_accounting?.created({
+      kind: "buffer", category: "resident", owner: "TextureResidency/surface versions",
+      bytes: residencyBytes, label: "TextureResidency/surface versions"
+    }) ?? null;
     this.allocateInitialBase(base);
     for (let slot = this.logicalCapacity(); slot >= 1; slot--) {
       this.freeDescriptorSlots.push(slot);
@@ -486,6 +504,10 @@ export class TextureResidency {
       this.graphics.textures.mipmaps.flush(command);
       const uncookedTextures = newTextures.filter((entry) => !entry.cooked);
       const cookedTextures = newTextures.filter((entry) => entry.cooked);
+      for (const entry of newTextures) {
+        const version = new Uint32Array([entry.surfaceRevision]);
+        command.writeBuffer(this.surfaceResidencyVersions, entry.slot * 4, version.buffer, 0, 4);
+      }
       for (const texture of uncookedTextures) this.encodeResizeCopy(command, texture);
       for (const bankClass of new Set(uncookedTextures.map((entry) => entry.bankClass))) {
         const bank = this.banks[bankClass]!;
@@ -528,7 +550,9 @@ export class TextureResidency {
         materialBindingSetIds: preflight.materialBindingSetIds,
         textureRefs: this.textureRefs(),
         materialTextureRoutingRefs: this.materialTextureRoutingRefs(materials),
-        textureMipRanges: this.textureMipRanges(materials)
+        textureMipRanges: this.textureMipRanges(materials),
+        surfacePublications: new Map([...this.textures.values()].filter(entry => entry.refCount > 0).map(entry =>
+          [entry.source, Object.freeze({ slot: entry.slot, revision: entry.surfaceRevision, variation: entry.variation })]))
       });
     } catch (error) {
       rollback();
@@ -582,6 +606,12 @@ export class TextureResidency {
       for (const upload of uploads) upload.staged.abort();
       throw error;
     }
+    const surfaceRevisions = uploads.map(upload => {
+      const revision = this.allocateSurfaceRevision();
+      const bytes = new Uint32Array([revision]);
+      command.writeBuffer(this.surfaceResidencyVersions, upload.entry.slot * 4, bytes.buffer, 0, 4);
+      return revision;
+    });
     let settled = false;
     command.onAborted.addOne(() => {
       if (settled) return;
@@ -594,6 +624,7 @@ export class TextureResidency {
       for (const upload of uploads) {
         upload.staged.commit(`TextureResidency/promotion-segment-${upload.entry.segment}-layer-${upload.entry.layer}`);
         upload.entry.availableMip = upload.nextMip;
+        upload.entry.surfaceRevision = surfaceRevisions[uploads.indexOf(upload)]!;
         this.progressiveMipUploadBytes += upload.staged.evidence.uploadBytes;
         this.cookedUploadBytes += upload.staged.evidence.uploadBytes;
         this.mipUploadCount++;
@@ -656,6 +687,7 @@ export class TextureResidency {
     const active = this.bindingSets.filter((set) => set.materialCount > 0);
     return Object.freeze({
       textureCapacity: this.logicalCapacity(),
+      surfaceResidencyVersions: this.surfaceResidencyVersions,
       bindingSets: Object.freeze(active.map((set): TextureBindingSet => {
         const views = [
           ...this.banks.map((bank) => bank.view ?? fallback),
@@ -887,6 +919,10 @@ export class TextureResidency {
     this.textures.clear();
     this.materials.clear();
     this.descriptors.clear();
+    this.surfaceResidencyVersions.destroy();
+    if (this.surfaceResidencyAccounting !== null) {
+      this.graphics.resource_accounting?.destroyed(this.surfaceResidencyAccounting);
+    }
     this.freeDescriptorSlots.length = 0;
     this.resizePipeline = null;
   }
@@ -1468,6 +1504,8 @@ export class TextureResidency {
         availableMip: packageAssignment === undefined
           ? 0
           : initialMipRange(packageAssignment.asset, packageAssignment.variant.mips.length)[0],
+        surfaceRevision: this.allocateSurfaceRevision(),
+        variation: decodedTextureVariation(texture, packageAssignment?.variant),
         refCount: 0,
         retireGeneration: 0
       };
@@ -1584,7 +1622,7 @@ export class TextureResidency {
   }
 
   private allocatedBytes(): number {
-    return this.banks.reduce(
+    return this.surfaceResidencyVersions.size + this.banks.reduce(
       (sum, bank) => sum + arrayBytes(bank.physicalSize, bank.capacity),
       0
     ) + this.packageSegments.reduce(
@@ -1627,6 +1665,11 @@ export class TextureResidency {
     ))];
     resetBindingSet(set);
     for (const segment of segments) this.reclaimPackageSegmentIfUnused(segment.id);
+  }
+
+  private allocateSurfaceRevision(): number {
+    if (this.nextSurfaceRevision > 0xffffffff) throw new RangeError("Texture Surface residency revision exhausted");
+    return this.nextSurfaceRevision++;
   }
 
   private createDescriptor(entry: ResidentTexture): TextureResidencyDescriptor {

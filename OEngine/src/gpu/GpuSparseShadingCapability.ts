@@ -10,12 +10,13 @@ export const GPU_SPARSE_SHADING_FORBIDDEN_FEATURES = Object.freeze([
   "subgroup-size-control"
 ] as const);
 export const GPU_SPARSE_SHADING_CLASSIFIER_WORKGROUP_STORAGE_BYTES = 768;
+export const GPU_SURFACE_PROBE_WORKGROUP_STORAGE_BYTES = 144 * 64;
 
 export const GPU_SPARSE_SHADING_REQUIRED_LIMITS = Object.freeze({
   maxComputeInvocationsPerWorkgroup: 256,
   maxComputeWorkgroupSizeX: 16,
   maxComputeWorkgroupSizeY: 16,
-  maxComputeWorkgroupStorageSize: GPU_SPARSE_SHADING_CLASSIFIER_WORKGROUP_STORAGE_BYTES,
+  maxComputeWorkgroupStorageSize: GPU_SURFACE_PROBE_WORKGROUP_STORAGE_BYTES,
   maxStorageBuffersPerShaderStage: 10,
   maxStorageTexturesPerShaderStage: 5,
   maxSampledTexturesPerShaderStage: 16,

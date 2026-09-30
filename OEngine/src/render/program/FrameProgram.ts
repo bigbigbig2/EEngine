@@ -6,7 +6,7 @@ import { isRenderableRenderDebugView, RenderDebugView as RenderDebugViewValue } 
 
 export type FrameProduct =
   | "swapchain" | "display-color" | "reconstructed-color" | "bloom-hdr" | "adapted-exposure" | "aerial-radiance" | "sky-radiance"
-  | "surface-radiance" | "surface-motion"
+  | "surface-radiance"
   | "debug-color"
   | "temporal-motion" | "temporal-mask" | "temporal-identity"
   | "visibility" | "depth" | "meshlet-work" | "hzb" | "light-cluster"
@@ -109,8 +109,6 @@ const PRODUCT_SPEC: Readonly<Record<FrameProduct, Readonly<{
     value: "working-linear pre-exposed", coverage: "full internal", invalid: "clear color", version: "frame" },
   "debug-color": { producer: "debug-view", domain: "output-full", format: "rgba16float",
     value: "geometry diagnostic resolve", coverage: "full output", invalid: "black background", version: "frame" },
-  "surface-motion": { producer: "surface", domain: "internal-full", format: "rg16float",
-    value: "current-minus-previous UV", coverage: "visible surface", invalid: "zero background", version: "frame" },
   "temporal-motion": { producer: "temporal-facts", domain: "internal-full", format: "rg16float",
     value: "valid current-minus-previous UV including sky rotation", coverage: "full internal",
     invalid: "zero with validity zero", version: "frame" },
@@ -173,7 +171,7 @@ const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<Fra
   "bloom-hdr": { "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" } },
   "adapted-exposure": { "reconstructed-color": { domain: "output-full", value: "working-linear pre-exposed" } },
   "temporal-motion": {
-    "surface-motion": { domain: "internal-full", value: "current-minus-previous UV" },
+    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
     visibility: { domain: "internal-full", value: "packed VisibilityKey" },
     depth: { domain: "internal-full", value: "reverse depth" }
   },
@@ -215,11 +213,6 @@ const INPUT_CONTRACTS: Readonly<Record<FrameProduct, Readonly<Partial<Record<Fra
   "shadow-demand": {},
   "shadow-allocation": {
     "shadow-demand": { domain: "gpu-work", value: "bounded directional VSM receiver demand" }
-  },
-  "surface-motion": {
-    visibility: { domain: "internal-full", value: "packed VisibilityKey" },
-    "meshlet-work": { domain: "gpu-work", value: "bounded GPU MeshletWork" },
-    depth: { domain: "internal-full", value: "reverse depth" }
   },
   "light-cluster": { hzb: { domain: "internal-half", value: "hierarchical depth range" } },
   visibility: {
@@ -327,7 +320,7 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
       request.physicalEnvironment ? "aerial-radiance" : "surface-radiance", "depth",
       "temporal-motion", "temporal-mask"
     ];
-    case "temporal-motion": return ["surface-motion", "visibility", "depth"];
+    case "temporal-motion": return ["visibility", "meshlet-work", "depth"];
     case "temporal-mask": return ["temporal-motion", "temporal-identity"];
     case "temporal-identity": return ["visibility", "meshlet-work", "depth"];
     case "aerial-radiance": return ["sky-radiance", "depth"];
@@ -339,7 +332,6 @@ function dependencies(product: FrameProduct, request: FrameProgramRequest): read
     case "shadow-demand": return [];
     case "shadow-allocation": return ["shadow-demand"];
     case "shadow-visibility": return ["visibility", "depth"];
-    case "surface-motion": return ["visibility", "meshlet-work", "depth"];
     case "light-cluster": return ["hzb"];
     case "visibility": return ["meshlet-work", "depth"];
     case "hzb": return ["depth"];

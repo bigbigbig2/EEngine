@@ -1,6 +1,6 @@
 # Surface 分频着色：实现重构执行顺序
 
-日期：2026-09-30。状态：执行设计，未开工。唯一目标设计为 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，来源入口为 [Next renderer ledger](../porting/next-renderer.md)。
+日期：2026-09-30。状态：阶段一已完成；阶段二至四待执行。唯一目标设计为 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，来源入口为 [Next renderer ledger](../porting/next-renderer.md)。
 
 ## 执行原则
 
@@ -8,7 +8,7 @@
 
 按下面四个完整重构阶段推进，不拆成几十个文档/门禁任务。阶段内持续编码、按需调试；大模块原理与生产链贯通后集中 typecheck/build/必要 targeted tests。正式 browser matrix、P50/P95 与 claims 仍遵循根 AGENTS 的最终验收节奏。实际编译失败必须修复。
 
-当前 workstream 仍为 `virtual-geometry-lod-correctness`。本文不擅自标记其完成或覆盖正在进行的修复；真正进入 Surface 实施时，将当前模块状态如实写入 currentSlice，然后按本文连续推进，不要求另外创建 claim 或逐批同步文档才能编码。
+当前 workstream 的 currentSlice 已记录 Surface 阶段一。既有 Virtual Geometry 画质/LOD 问题保持未验收；Surface 阶段一不证明这些问题已经修复。下一步是本文阶段二，本次仅完成阶段一，不提前切换 heavy worker/Resolve。
 
 ## 阶段一：建立能够服务真实 PBR 的数据与逐像素事实
 
@@ -24,6 +24,21 @@
 **涉及代码：** `assets/geometry-product/*`、`gpu/GeometryProductGpuAbiV1.ts`、`tools/oengine-asset-core/src/geometry/GeometryCooker.cpp` 及 WebCook/WASM 入口；`gpu/GpuMaterialStore.ts`、`gpu/TextureResidency.ts`；`render/temporal/*`、`shaders/temporal_facts.ts`；`render/program/FrameProgram*.ts`。
 
 **阶段结果：** 至少一个真实 ordinary textured PBR 资产能够由当前 GPU 数据决定候选 rate，且 moving-camera motion 已独立于重材质求值。不得仅发布没有 consumer 的 buffer，或以常量 Unlit 证明普通 PBR 已具备降频。该阶段不做性能改善声明。
+
+### 阶段一收口记录（2026-09-30）
+
+本次仅完成阶段一，实施事实如下：
+
+- GeometryCooker/SurfaceMetadata 在源完整属性角点与双向流形边上划分域；域 ID 在一个资产内不冲突。各 LOD 输出角点回查源域，缺失/歧义/跨域/退化/错误朝向/双面拒绝共享。Group bit 6 发布 32-byte primitive metadata，含 domain/risk、normal/color variation 与 UV0/UV1 span。完整 payload 按 256 KiB page 和 128 meshlets 切分；简化候选也检查新增 metadata 容量。
+- recipe 切换为 static-pbr-page-local-f32-surface-v5；Native 和两种 WASM 共用同一实现，产物已重建并同步哈希，旧 recipe 产品须 recook。不新增第二条生产几何或 renderer 路径。
+- ShadingMaterial ABI v7 的 64-byte role route 发布采样签名、decoded 全 mip 保守区间、residency slot/revision；签名覆盖现有 UV transform/sampler/role 等 packed 语义。TextureResidency 唯一拥有版本表，新增/复用/promotion 发布单调 revision，abort 不提交版本，销毁和记账接通。旧 route 与新 promotion revision 不符时 full-rate，直到新的材质 publication。
+- SurfaceProbe 的 8×8/64 invocations 恢复当前 winner 的透视 UV、法线、顶点色与 metadata，9216-byte workgroup facts 经无条件 barrier 供四角判断；输出 1×1/2×1/1×2/2×2 候选及 16 个 GPU counters。CPU reference 对照受控 PBR cell；候选已被当前 frequency planner 读取，但预留位不改变 PBR 的全率重着色。计数区分 pixels/recoveries、cells/rates、pair 拒绝与跨 primitive 通过。
+- 默认具名预算全零。RGBA8 可读来源使用保守区间，raw sRGB→RGBA8 resize 的量化误差纳入边界；压缩/不可读来源 unknown、normal-map 缺少切线变化证明、Coated/mask、非法身份、接缝、非均匀/镜像变换、代际或 residency 不符均保守 full-rate。受控 GPU oracle 的非恒定纹理预算不是最终画质阈值，不声称 bit-exact 或典型场景普遍可降频。
+- Temporal Facts 从 depth/instance/current+previous camera 独立恢复 rigid motion；sky rotation 分支保留。Surface 不再发布 motion attachment/binding/product，Frame Program 不再要求 surface.motion。identity/reactive/validity 保留，并把实际 texture residency revision 纳入身份。
+
+实际验证：typecheck/build 通过；131 项定向 Node checks 通过；Native Cooker build/ABI oracle、portable-single 与 pthread WASM 构建通过。Dawn D3D12 真实 GPU oracle 编译并运行生产 probe/Temporal shaders：非恒定 albedo Standard PBR 的 16 cells 产生 quad 候选并与 CPU reference 一致，有跨 primitive 通过计数；stale residency、高 variation/NaN、Coated、非法 key 全率；奇数尺寸边缘全率；相机和刚体运动、invalid motion、驻留身份变化读回符合预期。该 oracle 是受控生产 shader harness，不是正式浏览器宿主或完整场景验收。
+
+额外检查发现两处既有陈旧合同断言，未借本阶段修改无关协议：phase3-production.test.mjs 仍要求 reconstructed-color 直接由 Present 消费（现链为 Bloom/Radiometry）；web-geometry-cooker-abi.test.mjs 仍要求 canonical ABI v2（本阶段之前的源码已经是 v3）。因此不宣称全量测试全通过。未运行正式 browser matrix、画质/lifecycle 全矩阵、GPU P50/P95、evidence/claim promotion；未建立 shading sample worker 或 Resolve，未宣称性能改善。此前 VG 画质问题保持未验收。
 
 ## 阶段二：切换唯一 sample-driven Surface 主链
 
@@ -83,4 +98,4 @@
 
 以上四阶段的规模按完整主链组织，不设置逐行、逐 pass 审批或实施前完整 benchmark 门禁。前期 35–65 人日仅为熟悉项目的资深工程师对选定 rigid opaque PBR 范围的粗估，非排期承诺；Product/质量未决项可能明显改变投入，各阶段与后续方案不机械相加。
 
-本轮仅生成文档，以上阶段均未实施；未运行代码构建、GPU/浏览器或性能测试。
+阶段一已实施，阶段二至四未实施。已运行与未运行范围见阶段一收口记录；不据本阶段宣称着色减量、性能改善或完整 Surface 模块验收。

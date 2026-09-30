@@ -174,6 +174,10 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     "texture-routes", { kind: "imported", label: "published texture routes" },
     bind("texture-routes", bindings => bindings.runtime.materialResources.textureRouteRecords)
   );
+  const textureResidencyVersions = graph.import_resource(
+    "texture-residency-versions", { kind: "imported", label: "actual texture residency versions" },
+    bind("texture-residency-versions", bindings => bindings.runtime.materialResources.surfaceResidencyVersions)
+  );
   const textureBanks: number[][] = Array.from({ length: 4 }, () => []);
   for (const setId of activeSets) {
     const bindingSet = initial.runtime.materialResources.bindingSets.find(set => set.id === setId);
@@ -351,6 +355,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     virtualMetadata,
     virtualBanks,
     textureRoutes,
+    textureResidencyVersions,
     textureBanks,
     lightRecords,
     lightLookup: clusters?.lookup,
@@ -383,9 +388,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       : undefined
   });
   assertTextureProduct(plan, graph, "surface-radiance", surface.radiance);
-  assertTextureProduct(plan, graph, "surface-motion", surface.motion);
   lowerPresentation(plan, initial, owners, graph, bind, cameraBuffer, result, surface,
-    instances, materialRecords, physicalEnvironmentSun, gpuPreviousExposure, gpuPriorExposure, bindRadiometry);
+    instances, materialRecords, textureRoutes, textureResidencyVersions, physicalEnvironmentSun, gpuPreviousExposure, gpuPriorExposure, bindRadiometry);
   return graph.compile();
 }
 
@@ -473,6 +477,7 @@ function lowerPresentation(
   graph: FrameGraph, bind: SceneBind, cameraBuffer: ResourceId,
   result: PackedVisibilityOutputs, surface: ReturnType<SurfaceMaterialPass["addToGraph"]>,
   instances: ResourceId, materialRecords: ResourceId,
+  textureRoutes: ResourceId, textureResidencyVersions: ResourceId,
   physicalEnvironmentSun: ResourceId | undefined, gpuPreviousExposure: ResourceId,
   gpuPriorExposure: ResourceId,
   bindRadiometry: (name: string,
@@ -515,8 +520,8 @@ function lowerPresentation(
   const facts = owners.temporalFacts.addToGraph(graph, {
     width: result.frame.domain.width, height: result.frame.domain.height,
     visibility: result.frame.visibilityKey, depth: result.frame.depth,
-    surfaceMotion: surface.motion, meshletWork: result.frame.meshletWork.records,
-    instances, materials: materialRecords, currentCamera: cameraBuffer,
+    meshletWork: result.frame.meshletWork.records,
+    instances, materials: materialRecords, textureRoutes, textureResidencyVersions, currentCamera: cameraBuffer,
     previousCamera
   }, (name, resolve) => bind(`temporal-facts/${name}`,
     bindings => resolve(bindings.temporalFacts)));

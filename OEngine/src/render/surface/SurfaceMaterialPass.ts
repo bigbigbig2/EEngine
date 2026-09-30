@@ -1,3 +1,5 @@
+import { SurfaceProbePass } from "./SurfaceProbePass.js";
+import type { SurfaceProbeBudget } from "./SurfaceProbe.js";
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
@@ -5,7 +7,6 @@ import type { GpuRenderWorldRuntime } from "../../gpu/GpuRenderWorld.js";
 import type { GpuAssetBindings } from "../../gpu/GpuAssetStore.js";
 import type { GPUViewContext } from "../ViewContext.js";
 import { GPU_SPARSE_SHADING_VIEW_BYTES, packGpuSparseShadingView } from "../../gpu/GpuSparseShadingFrameAbi.js";
-import { GPU_SURFACE_KERNEL_DEMAND } from "../../gpu/GpuSurfaceProgramSpecialization.js";
 import { createSurfaceBindGroupLayouts, compileSurfaceProgramLayout,
   type SurfacePhysicalBinding } from "./SurfaceKernelBindingPlan.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
@@ -52,6 +53,7 @@ export interface SurfaceMaterialInputs {
   readonly virtualMetadata?: ResourceId;
   readonly virtualBanks?: readonly ResourceId[];
   readonly textureRoutes: ResourceId;
+  readonly textureResidencyVersions: ResourceId;
   readonly textureBanks: readonly (readonly ResourceId[])[];
   readonly lightRecords?: ResourceId;
   readonly lightLookup?: ResourceId;
@@ -91,11 +93,14 @@ export class SurfaceMaterialPass {
   private readonly finalize: GPUComputePipeline;
   private readonly frequencyLayout: GPUBindGroupLayout;
   private readonly frequencyPipeline: GPUComputePipeline;
+  private readonly probe: SurfaceProbePass;
 
   constructor(
     private readonly device: GPUDevice,
-    private readonly virtualUnlitFallback = false
+    private readonly virtualUnlitFallback = false,
+    probeBudget?: SurfaceProbeBudget
   ) {
+    this.probe = new SurfaceProbePass(device, probeBudget);
     this.viewBuffer = device.createBuffer({
       label: "Surface/frame view", size: Math.ceil(GPU_SPARSE_SHADING_VIEW_BYTES / 256) * 256,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -126,7 +131,8 @@ export class SurfaceMaterialPass {
       { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
       { binding: 6, visibility: GPUShaderStage.COMPUTE,
-        storageTexture: { access: "write-only", format: "r32uint" } }
+        storageTexture: { access: "write-only", format: "r32uint" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } }
     ] });
     this.frequencyPipeline = device.createComputePipeline({
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.frequencyLayout] }),
@@ -136,7 +142,7 @@ export class SurfaceMaterialPass {
   }
 
   addToGraph(graph: FrameGraph, input: SurfaceMaterialInputs):
-    { radiance: ResourceId; motion: ResourceId; work: ResourceId } {
+    { radiance: ResourceId; work: ResourceId; probeCandidates: ResourceId; probeCounters: ResourceId } {
     const { capacity, queueBytes } = surfaceLaneCapacity(input.width, input.height,
       this.device.limits);
     const frameView = graph.import_resource("surface-frame-view",
@@ -162,6 +168,7 @@ export class SurfaceMaterialPass {
           this.viewBuffer, 0, packed, 0, GPU_SPARSE_SHADING_VIEW_BYTES);
       });
     const currentView = upload.write(frameView);
+    const probe = this.probe.addToGraph(graph, input, currentView);
     const tiles = shadingFrequencyPlanCapacity(input.width, input.height, this.device.limits);
     const planner = graph.add("Surface/conservative spatial frequency", {},
       (_data, resources, context) => {
@@ -173,7 +180,8 @@ export class SurfaceMaterialPass {
           { binding: 3, resource: { buffer: resources.get(input.materialRecords) as GPUBuffer } },
           { binding: 4, resource: { buffer: resources.get(input.instances) as GPUBuffer } },
           { binding: 5, resource: { buffer: resources.get(currentView) as GPUBuffer } },
-          { binding: 6, resource: resolveTextureView(resources.get(frequencyPlan)) }
+          { binding: 6, resource: resolveTextureView(resources.get(frequencyPlan)) },
+          { binding: 7, resource: resolveTextureView(resources.get(probe.candidates)) }
         ] });
         const pass = command.beginComputePass({ label: "Surface/spatial frequency plan" });
         pass.setPipeline(this.frequencyPipeline);
@@ -187,6 +195,7 @@ export class SurfaceMaterialPass {
     planner.read(input.materialRecords);
     planner.read(input.instances);
     planner.read(currentView);
+    planner.read(probe.candidates);
     const frequencyPlan = planner.create("Surface/frequency plan", {
       kind: "transient_texture", width: tiles.tilesX, height: tiles.tilesY,
       format: "r32uint", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING
@@ -238,12 +247,10 @@ export class SurfaceMaterialPass {
         const command = context.encoder as ShadeGPUCommandContext;
         const queue = resources.get(work) as GPUBuffer;
         const args = resources.get(indirect) as GPUBuffer;
-        const clear = command.beginRenderPass({ label: "Surface/clear HDR and motion",
+        const clear = command.beginRenderPass({ label: "Surface/clear HDR",
           colorAttachments: [{ view: resolveTextureView(resources.get(radiance)),
             loadOp: "clear", storeOp: "store",
-            clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 } },
-          { view: resolveTextureView(resources.get(motion)), loadOp: "clear", storeOp: "store",
-            clearValue: { r: 0, g: 0, b: 0, a: 0 } }] });
+            clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 } }] });
         clear.end();
         if (dense === null) return;
         const control = command.allocateTransientBufferAndLoad(new Uint32Array([
@@ -278,7 +285,7 @@ export class SurfaceMaterialPass {
               .filter(binding => binding.group === groupIndex)
               .map(binding => ({ binding: binding.binding,
               resource: this.resolveBinding(binding, input, currentView, frequencyPlan,
-                  radiance, motion, work, setId, laneParameters, laneId, resources,
+                  radiance, work, setId, laneParameters, laneId, resources,
                   vsmBindings) })) }));
             groupsByLane.set(bindingKey, groups);
           }
@@ -302,7 +309,7 @@ export class SurfaceMaterialPass {
         exceptionPass.end();
       });
     for (const binding of dense?.bindings ?? []) {
-      if (binding.role === "radiance-output" || binding.role === "motion-output" ||
+      if (binding.role === "radiance-output" ||
           binding.role === "shading-work" || binding.role === "exception-lane" ||
           binding.role === "frequency-plan" ||
           binding.role.endsWith("sampler") ||
@@ -329,18 +336,12 @@ export class SurfaceMaterialPass {
       usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING |
         GPUTextureUsage.TEXTURE_BINDING
     });
-    const motion = surface.create("Surface/motion", {
-      kind: "transient_texture", width: input.width, height: input.height,
-      format: "rg16float", domain: "internal-full",
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.STORAGE_BINDING |
-        GPUTextureUsage.TEXTURE_BINDING
-    });
     const work = surface.create("Surface/exception work", {
       kind: "transient_buffer", size: queueBytes, usage: GPUBufferUsage.STORAGE });
     const indirect = surface.create("Surface/exception indirect", {
       kind: "transient_buffer", size: SURFACE_WORK_INDIRECT_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT });
-    return { radiance, motion, work };
+    return { radiance, work, probeCandidates: probe.candidates, probeCounters: probe.counters };
   }
 
   private program(hasLit: boolean, virtualGeometry: boolean, virtualBankCount: number,
@@ -352,7 +353,7 @@ export class SurfaceMaterialPass {
     if (cached) return cached;
     const compiled = compileSurfaceProgramLayout({
       kernel: { programId: hasLit ? 15 : 3,
-        outputDependencyMask: GPU_SURFACE_KERNEL_DEMAND.Motion, textureBankMask },
+        outputDependencyMask: 0, textureBankMask },
       virtualGeometry, virtualBankCount, lighting: hasLit ? "direct" : "unlit",
       physicalEnvironment,
       aoProfile: scalarAo ? "scalar-high" : "off",
@@ -380,7 +381,7 @@ export class SurfaceMaterialPass {
 
   private resolveBinding(binding: Readonly<SurfacePhysicalBinding>, input: SurfaceMaterialInputs,
     view: ResourceId, frequencyPlan: ResourceId, hdr: ResourceId,
-    motion: ResourceId, work: ResourceId,
+    work: ResourceId,
     setId: number, laneParameters: GPUBuffer, laneId: number,
     resources: { get(id: ResourceId): unknown },
     vsmBindings?: SurfaceVsmBindings): GPUBindingResource {
@@ -392,7 +393,6 @@ export class SurfaceMaterialPass {
     const id = binding.role === "frame-view" ? view :
       binding.role === "frequency-plan" ? frequencyPlan :
       binding.role === "radiance-output" ? hdr :
-      binding.role === "motion-output" ? motion :
       binding.role === "shading-work" ? work :
       this.resolveResourceId(binding, input, setId, vsmBindings);
     const resource = resources.get(id);

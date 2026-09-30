@@ -309,7 +309,7 @@ function validateMetadata(
   for (const group of groups) {
     assertIndex(group.pageId, pages.length, "group page");
     if ((group.offsetInDecodedPage & 15) || !group.payloadBytes || group.offsetInDecodedPage + group.payloadBytes > OEGPACK_V3_PAGE_BYTES) throw new OegPackV3Error("group is not wholly contained and 16-byte aligned in its page");
-    if ((group.flags & ~0x3f) !== 0) throw new OegPackV3Error("group flags contain unknown V3 bits");
+    if ((group.flags & ~0x7f) !== 0) throw new OegPackV3Error("group flags contain unknown V3 bits");
     pageCounts[group.pageId] = pageCounts[group.pageId]! + 1;
     const groupId = groups.indexOf(group);
     pageMinimumGroups[group.pageId] = Math.min(pageMinimumGroups[group.pageId]!, groupId);

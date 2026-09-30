@@ -13,7 +13,6 @@ export function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): s
     case "frame-view": return `${prefix} var<uniform> shading_view: OEngineSparseShadingView;`;
     case "pre-exposure": return `${prefix} var<uniform> radiometry_pre_exposure: RadiometryPreExposure;`;
     case "radiance-output": return `${prefix} var output_hdr: texture_storage_2d<rgba16float, write>;`;
-    case "motion-output": return `${prefix} var output_motion: texture_storage_2d<rg16float, write>;`;
     case "visibility-depth": return `${prefix} var visibility_depth: texture_depth_2d;`;
     case "instance-records": return `${prefix} var<storage, read> instance_records: array<OEngineInstanceRecord>;`;
     case "geometry-metadata": return `${prefix} var<storage, read> asset_metadata_heap: array<u32>;`;

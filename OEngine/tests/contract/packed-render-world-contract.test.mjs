@@ -737,18 +737,37 @@ test("TextureResidency publishes a cooked mip tail before generation-safe promot
   assert.deepEqual(tail?.residentMipRange, [6, 8]);
   assert.equal(fixture.writes.length, 3);
   assert.equal(stage.textureMipRanges.get(texture)?.[0], 6);
+  const publication = stage.surfacePublications.get(texture);
+  assert.ok(publication.slot > 0 && publication.revision > 0);
+  assert.equal(publication.variation.known, false);
+  const versions = stage.bindings.surfaceResidencyVersions;
+  assert.equal(new Uint32Array(versions.bytes.buffer)[publication.slot], publication.revision);
+
+  const abortedPromotion = new FakeCommand("progressive-promote-abort");
+  residency.promote([texture], abortedPromotion, 0);
+  abortedPromotion.abort();
+  assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [6, 8]);
+  assert.equal(new Uint32Array(versions.bytes.buffer)[publication.slot], publication.revision);
+  assert.equal(fixture.writes.length, 9);
 
   const promotion = new FakeCommand("progressive-promote");
   residency.promote([texture], promotion, 0);
   assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [6, 8]);
   promotion.finish();
   assert.deepEqual(residency.descriptor(ref)?.residentMipRange, [0, 8]);
-  assert.equal(fixture.writes.length, 9);
+  assert.equal(fixture.writes.length, 15);
+  const afterPromotion = new FakeCommand("after-promotion");
+  const promoted = residency.stage([material], afterPromotion).surfacePublications.get(texture);
+  afterPromotion.finish();
+  assert.ok(promoted.revision > publication.revision);
+  assert.equal(new Uint32Array(versions.bytes.buffer)[publication.slot], promoted.revision);
   const evidence = residency.evidence();
   assert.equal(evidence.mipPromotionCount, 1);
   assert.equal(evidence.mipUploadCount, 2);
   assert.ok(evidence.progressiveMipUploadBytes > 0);
   residency.destroy();
+  assert.equal(versions.destroyed, true);
+  assert.equal(fixture.accounting.snapshot().totalBytes, 0);
 });
 
 test("Texture sampling ABI clamps array-texture LOD with an explicit layer", () => {
@@ -1452,10 +1471,16 @@ function createTextureResidencyFixture(options = {}) {
     device: {
       features: new Set(options.features ?? []),
       limits: {
+        maxBufferSize: options.maxBufferSize ?? 256 * 1024 * 1024,
+        maxStorageBufferBindingSize: options.maxStorageBufferBindingSize ?? 128 * 1024 * 1024,
         maxTextureArrayLayers: options.maxTextureArrayLayers ?? 2048,
         maxTextureDimension2D: options.maxTextureDimension2D ?? 8192,
         maxSampledTexturesPerShaderStage: 16,
         maxSamplersPerShaderStage: 16
+      },
+      createBuffer(descriptor) {
+        return { descriptor, size: descriptor.size, bytes: new Uint8Array(descriptor.size),
+          destroyed: false, destroy() { this.destroyed = true; } };
       },
       createTexture(descriptor) {
         if (options.failTexture?.(descriptor)) throw new Error("injected texture allocation failure");
@@ -1647,6 +1672,11 @@ class FakeCommand {
       draw() {},
       end() {}
     };
+  }
+
+  writeBuffer(target, offset, data, begin, size) {
+    const bytes = new Uint8Array(data, begin, size).slice();
+    this.onFinished.addOne(() => target.bytes?.set(bytes, offset));
   }
 
   copyTextureToTexture() {}

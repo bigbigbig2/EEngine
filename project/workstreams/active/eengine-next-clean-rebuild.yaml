@@ -8,13 +8,22 @@ decision: ADR-0020
 goal: Establish the final architecture's Frame Program, Surface and Temporal boundaries on the single production path, then integrate planned providers in large continuous modules.
 
 currentSlice:
-  id: virtual-geometry-lod-correctness
-  title: Virtual Geometry LOD handoff, residency fallback and conservative depth
-  status: active
-  goal: Repair the single production geometry path against Nyx and verify close-range, rotation and static views before continuing providers.
-  completed: "Meshlet refineGroupId handoff, 128-meshlet emission, spatial-ancestor fallback removal, conservative HZB footprint and RG16F rounding, Float32 position profile and terminal LOD error repair are implemented. Repaired the shared VirtualGeometrySceneSource mapper publishing world-space bounds into the object-space Instance ABI, which caused double-transformed root culling. Native RTX 2060 SUPER production root/traversal tests reproduce 8 false rejections across 20 camera poses with old bounds and pass all 20 with corrected bounds, including terminal FLT_MAX. Restored the complementary coarse <= SSE handoff after an inverted workspace edit. The 40 handoff GPU cases and conservative HZB oracles pass again; typecheck/build and 20 focused Node tests pass. Subsequent fixed-camera close-up comparison reproduced black wedges with coarse LOD at SSE 16 versus finest at 0.0001. The v3.2 seam-wide sloppy rejection was rejected because it retained excessive fine geometry and has been removed. Current nyx-hierarchy-v3.3 is an experimental source-corner-preserving sloppy adapter: six Dungeon primitives reduce across multiple LODs with no opposite coarse corner normals, but same-close-camera barrel artifacts remain. Prior Native and both WASM builds, 18 targeted tests and typecheck/build passed; these do not establish UV/tangent quality or stable GPU performance. The source-backed meshoptimizer v1.3 joint simplification candidate is documented, not implemented or adopted, in docs/next-design/virtual-geometry-attribute-simplification-2026.md. Full browser matrix and performance acceptance remain deferred. Previous-HZB early rejection stays disabled for Virtual Geometry until recovery is connected. VSM E0-E9 completed directional page demand, 32-byte disjoint-mip page-table ABI, bounded GPU allocation and caster work, dirty-slot Atlas clear/raster, fail-open Surface sampling, CSM cutover, lifecycle integration and focused E9 tests. Perf Host now runs without an artificial FPS limiter, records existing GPU timestamp/counter and CPU evidence, and has completed Full plus GTAO/FSR3/Bloom/Environment/bounded-geometry A/B at 1280x720 with VSM disabled."
+  id: surface-sample-driven-shading-phase-one
+  title: Surface 分频着色阶段一：连续性、材质签名、SurfaceProbe 与独立 motion
+  status: completed
+  goal: 阶段一已完成真实 textured Standard PBR 候选事实与独立 rigid motion；下一步实施 sample-driven worker/Resolve，不提前宣称重着色减量。
+  completed: |
+    Surface 阶段一：recipe surface-v5/32-byte primitive domain-risk-variation metadata、资产内唯一域 ID、完整 page/group 容量切分、材质 ABI v7/64-byte role routes、TextureResidency 实际版本/区间发布、8x8 workgroup SurfaceProbe/CPU reference/counters 和独立 Temporal rigid motion 已接入唯一生产路径。PBR 重着色仍全率，默认预算全零，受控非恒定纹理 GPU oracle 能产生跨 primitive quad 候选；阶段二至四未实施。
+    typecheck/build、131 项定向 Node checks、Dawn D3D12 生产 shader GPU oracle、Native Cooker/ABI oracle 和两种 WASM 构建通过。正式 browser/画质/lifecycle/性能与 claims 未运行。额外检查中的两处既有陈旧合同断言见 Surface 执行文档，不宣称全量测试全通过。
+    历史 VG/VSM 记录保留其验收边界：VG 曾修复 object-space bounds、meshlet handoff、保守 HZB 和 Float32 位置/terminal error，并有相应定向测试；此前近景 barrel/wedge 与 UV/tangent 质量问题未完成验收，不能因本次 metadata 或既有 attribute-update cooker 源码而视为关闭。Previous-HZB early rejection 的 recovery 仍待接通。VSM E0-E9 的既有页需求/分配/caster/Atlas/Surface 集成及 Perf Host 测量记录不证明本次 Surface 或 VG 性能。
 
 nextModules:
+  - id: surface-sample-driven-shading-phase-two
+    title: Surface 阶段二：唯一 sample-driven worker 与 Resolve 主链
+  - id: surface-sample-driven-shading-phase-three
+    title: Surface 阶段三：分信号质量与有效 GPU 执行
+  - id: surface-sample-driven-shading-phase-four
+    title: Surface 阶段四：模块清理、验证与交接
   - id: sssr
     title: FidelityFX SSSR production provider
   - id: hybrid-gi
@@ -47,5 +56,5 @@ deferredValidation:
 links:
   design: docs/next-design/eengine-next-overall-architecture-final-2026.md
   execution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
-  currentDesign: docs/next-design/temporal-radiometry-presentation.md
-  currentExecution: docs/next-execution/temporal-radiometry-presentation.md
+  currentDesign: docs/next-design/surface-sample-driven-shading-final-2026.md
+  currentExecution: docs/next-execution/surface-sample-driven-shading-rebuild-2026.md

@@ -73,7 +73,6 @@ export function planSurfaceKernelBindings(
   add("frame-view", 0, 3, "uniform");
   add("pre-exposure", 0, 11, "uniform");
   add("radiance-output", 0, 4, "write-only-rgba16float");
-  add("motion-output", 0, 7, "write-only-rg16float");
   add("visibility-depth", 0, 5, "sampled-depth");
   add("visibility-key", 0, 6, "sampled-uint");
   add("exception-lane", 0, 8, "uniform");

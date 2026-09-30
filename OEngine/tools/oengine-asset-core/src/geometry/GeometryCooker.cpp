@@ -1,4 +1,5 @@
 #include "oengine_asset/GeometryCooker.h"
+#include "oengine_asset/SurfaceMetadata.h"
 #include "oengine_asset/OegPackCodec.h"
 
 #include "meshoptimizer.h"
@@ -121,6 +122,8 @@ std::vector<Meshlet> BuildMeshlets(
     return output;
 }
 
+VertexFormatRecordV3 MakeVertexFormat(std::uint16_t mask);
+
 std::vector<std::uint32_t> GroupMeshlets(
     const MaterialDomain& source, const GeometryCookRecipeV3& recipe,
     const std::vector<Meshlet>& meshlets, const std::vector<std::uint32_t>& active,
@@ -141,9 +144,35 @@ std::vector<std::uint32_t> GroupMeshlets(
     const std::size_t partitionCount = meshopt_partitionClusters(
         partitions.data(), clusterIndices.data(), clusterIndices.size(), clusterCounts.data(), active.size(),
         source.vertices.front().position, source.vertices.size(), sizeof(CanonicalVertex), recipe.groupTargetMeshlets);
-    std::vector<Group> created(partitionCount);
-    for (std::size_t i = 0; i < active.size(); ++i) created[partitions[i]].meshletIds.push_back(active[i]);
-    std::vector<std::uint32_t> ids(partitionCount);
+    std::vector<Group> partitioned(partitionCount);
+    for (std::size_t index = 0; index < active.size(); ++index)
+        partitioned[partitions[index]].meshletIds.push_back(active[index]);
+    const auto stride = MakeVertexFormat(source.attributeMask).strideBytes;
+    std::vector<Group> created;
+    for (const auto& partition : partitioned) {
+        Group bounded;
+        std::uint32_t triangleBytes = 0u, vertexBytes = 0u;
+        for (const auto id : partition.meshletIds) {
+            const auto& meshlet = meshlets[id];
+            const auto triangles = AlignUp(std::uint32_t(meshlet.triangles.size()), 4u) +
+                std::uint32_t(meshlet.triangles.size() / 3u) * kSurfacePrimitiveBytes;
+            const auto vertices = AlignUp(std::uint32_t(meshlet.vertices.size()) * stride, 4u);
+            auto payload = [&](std::uint32_t count, std::uint32_t triangleTotal, std::uint32_t vertexTotal) {
+                return AlignUp(AlignUp(AlignUp(64u + count * 48u, 16u) + triangleTotal, 16u) + vertexTotal, 16u);
+            };
+            if (!bounded.meshletIds.empty() && (bounded.meshletIds.size() == 128u ||
+                payload(std::uint32_t(bounded.meshletIds.size()) + 1u, triangleBytes + triangles,
+                    vertexBytes + vertices) > kGeometryPageBytesV3)) {
+                created.push_back(std::move(bounded));
+                bounded = Group{}; triangleBytes = 0u; vertexBytes = 0u;
+            }
+            if (payload(1u, triangles, vertices) > kGeometryPageBytesV3)
+                throw std::runtime_error("Surface meshlet payload exceeds one geometry page");
+            bounded.meshletIds.push_back(id); triangleBytes += triangles; vertexBytes += vertices;
+        }
+        if (!bounded.meshletIds.empty()) created.push_back(std::move(bounded));
+    }
+    std::vector<std::uint32_t> ids(created.size());
     for (std::size_t i = 0; i < created.size(); ++i) {
         Group& group = created[i];
         if (group.meshletIds.empty()) throw std::runtime_error("meshopt_partitionClusters produced an empty partition");
@@ -202,8 +231,6 @@ void BuildSeamLocks(
     }
     for (auto id : live) locks[id] |= locks[positionRemap[id]];
 }
-
-VertexFormatRecordV3 MakeVertexFormat(std::uint16_t mask);
 
 std::uint64_t MeshletPayloadCost(const std::vector<Meshlet>& items, std::uint32_t stride) {
     std::uint32_t bytes=64u+48u*std::uint32_t(items.size());
@@ -349,7 +376,9 @@ bool SimplifyGroup(
         std::copy(remap.begin(),remap.end(),compactIndices.begin());
         auto built=BuildMeshlets(temp,recipe,compactIndices);
         auto bytes=MeshletPayloadCost(built,stride);
-        if(built.empty()||built.size()>=group.meshletIds.size()||bytes>originalBytes)return false;
+        std::uint64_t surfaceBytes = bytes;
+        for (const auto& meshlet : built) surfaceBytes += (meshlet.triangles.size() / 3u) * kSurfacePrimitiveBytes;
+        if(built.empty()||built.size()>=group.meshletIds.size()||bytes>originalBytes||surfaceBytes>kGeometryPageBytesV3)return false;
         if(!best.meshlets.empty() && (built.size()>best.meshlets.size() || (built.size()==best.meshlets.size() && bytes>MeshletPayloadCost(best.meshlets,stride)) || (built.size()==best.meshlets.size() && bytes==MeshletPayloadCost(best.meshlets,stride) && !updated)))return false;
         best.vertices=std::move(temp.vertices);best.meshlets=std::move(built);best.error=error;best.indices=reduced.size();best.updated=updated;
         return true;
@@ -585,12 +614,12 @@ void PackVertex(
 SerializedGroupV3 SerializeGroup(
     const MaterialDomain& source, const Group& group, const std::vector<Meshlet>& meshlets,
     const std::vector<std::uint32_t>& oldToSerialized, std::uint8_t vertexFormatId,
-    const VertexFormatRecordV3& format, CookEvidenceV3& evidence) {
+    const VertexFormatRecordV3& format, const SourceSurfaceDomains& sharing, CookEvidenceV3& evidence) {
     const std::uint32_t meshletCount = std::uint32_t(group.meshletIds.size());
     const std::uint32_t headersEnd = 64u + meshletCount * 48u;
     const std::uint32_t triangleStart = AlignUp(headersEnd, 16u);
     std::uint32_t triangleCursor = triangleStart;
-    for (std::uint32_t id : group.meshletIds) triangleCursor += AlignUp(std::uint32_t(meshlets[id].triangles.size()), 4u);
+    for (std::uint32_t id : group.meshletIds) triangleCursor += AlignUp(std::uint32_t(meshlets[id].triangles.size()), 4u) + std::uint32_t(meshlets[id].triangles.size() / 3u) * kSurfacePrimitiveBytes;
     const std::uint32_t vertexStart = AlignUp(triangleCursor, 16u);
     std::uint32_t vertexCursor = vertexStart;
     for (std::uint32_t id : group.meshletIds) vertexCursor += AlignUp(std::uint32_t(meshlets[id].vertices.size()) * format.strideBytes, 4u);
@@ -599,7 +628,7 @@ SerializedGroupV3 SerializeGroup(
     SerializedGroupV3 output;
     output.bytes.resize(payloadBytes, 0u);
     output.lodLevel = group.lodLevel;
-    output.flags = 0u;
+    output.flags = kGroupSurfaceMetadata;
     if (group.simplificationFallback) output.flags |= kGroupSimplificationFallback;
     if (source.meshletFlags & kMeshletOpaque) output.flags |= kGroupOpaque;
     if (source.meshletFlags & kMeshletMask) output.flags |= kGroupMask;
@@ -629,6 +658,60 @@ SerializedGroupV3 SerializeGroup(
         EncodeRecordV3(output.bytes.data() + 64u + i * 48u, meshletHeader);
         std::copy(meshlet.triangles.begin(), meshlet.triangles.end(), output.bytes.begin() + triangleCursor);
         triangleCursor += AlignUp(std::uint32_t(meshlet.triangles.size()), 4u);
+        for (std::uint32_t primitive = 0; primitive < meshletHeader.triangleCount; ++primitive) {
+
+            std::uint32_t domain = 0u, risk = 0u;
+            const CanonicalVertex* corners[3];
+            for (std::uint32_t corner = 0; corner < 3u; ++corner)
+                corners[corner] = &source.vertices[meshlet.vertices[meshlet.triangles[primitive * 3u + corner]]];
+            const auto orientation = SurfaceUvOrientation(*corners[0], *corners[1], *corners[2], source.attributeMask);
+            for (std::uint32_t corner = 0; corner < 3u; ++corner) {
+                corners[corner] = &source.vertices[meshlet.vertices[meshlet.triangles[primitive * 3u + corner]]];
+                const auto found = sharing.corners.find(SurfaceCornerKey(*corners[corner], orientation));
+                if (found == sharing.corners.end()) { risk |= 2u; continue; }
+                if (found->second.size() != 1u) { risk |= 4u; continue; }
+                const auto sourceDomain = *found->second.begin();
+                if (domain != 0u && domain != sourceDomain) risk |= 4u;
+                domain = sourceDomain;
+            }
+            float normalRisk = 0.0f, colorRisk = 0.0f;
+            for (std::uint32_t corner = 0; corner < 3u; ++corner) {
+                const auto& begin = *corners[corner];
+                const auto& end = *corners[(corner + 1u) % 3u];
+                float dot = 0.0f;
+                for (std::uint32_t axis = 0; axis < 3u; ++axis) dot += begin.normal[axis] * end.normal[axis];
+                normalRisk = std::max(normalRisk, 1.0f - std::clamp(dot, -1.0f, 1.0f));
+                for (std::uint32_t channel = 0; channel < 4u; ++channel)
+                    colorRisk = std::max(colorRisk, std::abs(begin.color[channel] - end.color[channel]));
+            }
+            float edge0[3], edge1[3], face[3];
+            for (std::uint32_t axis = 0; axis < 3u; ++axis) {
+                edge0[axis] = corners[1]->position[axis] - corners[0]->position[axis];
+                edge1[axis] = corners[2]->position[axis] - corners[0]->position[axis];
+            }
+            face[0] = edge0[1] * edge1[2] - edge0[2] * edge1[1];
+            face[1] = edge0[2] * edge1[0] - edge0[0] * edge1[2];
+            face[2] = edge0[0] * edge1[1] - edge0[1] * edge1[0];
+            if (face[0] * face[0] + face[1] * face[1] + face[2] * face[2] <= 1e-16f) risk |= 1u;
+            for (const auto* corner : corners)
+                if (face[0] * corner->normal[0] + face[1] * corner->normal[1] + face[2] * corner->normal[2] <= 0.0f) risk |= 8u;
+            if (source.meshletFlags & kMeshletTwoSided) risk |= 16u;
+            const std::uint32_t values[2] = {risk == 0u ? domain : 0u, risk};
+            std::memcpy(output.bytes.data() + triangleCursor, values, sizeof(values));
+            float bounds[6] = {normalRisk, colorRisk, 0.0f, 0.0f, 0.0f, 0.0f};
+            for (std::uint32_t uv = 0; uv < 2u; ++uv)
+                for (std::uint32_t axis = 0; axis < 2u; ++axis) {
+                    const float first = uv == 0u ? corners[0]->uv0[axis] : corners[0]->uv1[axis];
+                    float low = first, high = first;
+                    for (const auto* corner : corners) {
+                        const float value = uv == 0u ? corner->uv0[axis] : corner->uv1[axis];
+                        low = std::min(low, value); high = std::max(high, value);
+                    }
+                    bounds[2u + uv * 2u + axis] = high - low;
+                }
+            std::memcpy(output.bytes.data() + triangleCursor + 8u, bounds, sizeof(bounds));
+            triangleCursor += kSurfacePrimitiveBytes;
+        }
         for (std::uint32_t vertex : meshlet.vertices) {
             PackVertex(output.bytes, vertexCursor, source.vertices[vertex], format);
             vertexCursor += format.strideBytes;
@@ -639,7 +722,9 @@ SerializedGroupV3 SerializeGroup(
     return output;
 }
 
-DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& recipe, CookEvidenceV3& evidence) {
+DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& recipe, CookEvidenceV3& evidence,
+    std::uint32_t surfaceDomainBase) {
+    const auto sharing = BuildSourceSurfaceDomains(source, surfaceDomainBase);
     std::vector<Meshlet> meshlets = BuildMeshlets(source, recipe, source.indices);
     const std::uint32_t leafCount = std::uint32_t(meshlets.size());
     std::vector<std::uint32_t> active(meshlets.size()); std::iota(active.begin(), active.end(), 0u);
@@ -712,7 +797,7 @@ DomainProduct CookDomain(MaterialDomain source, const GeometryCookRecipeV3& reci
     for (const Meshlet& meshlet : meshlets) if (meshlet.refineGroupId != kInvalidId) hasCoarseParent[meshlet.refineGroupId] = 1u;
     product.groups.reserve(groups.size());
     for (std::uint32_t oldId : order) {
-        SerializedGroupV3 serialized = SerializeGroup(source, groups[oldId], meshlets, oldToSerialized, 0u, product.vertexFormat, evidence);
+        SerializedGroupV3 serialized = SerializeGroup(source, groups[oldId], meshlets, oldToSerialized, 0u, product.vertexFormat, sharing, evidence);
         serialized.localStableId = oldToSerialized[oldId];
         // Every refine-DAG root is required. Branches can stop simplifying at
         // different LODs, so "maximum LOD only" would create bootstrap holes.
@@ -751,9 +836,13 @@ CookedAssetV3 CookGeometryAssetV3(
     std::copy(source.boundsMin, source.boundsMin + 3, output.boundsMin);
     std::copy(source.boundsMax, source.boundsMax + 3, output.boundsMax);
     for (const MaterialDomain& domain : source.domains) {
-        output.sourceTriangleCount += std::uint32_t(domain.indices.size() / 3u);
+        const auto surfaceDomainBase = output.sourceTriangleCount;
+        const auto triangleCount = domain.indices.size() / 3u;
+        if (triangleCount > std::uint64_t(UINT32_MAX) - surfaceDomainBase)
+            throw std::runtime_error("Surface sharing domain identity exceeds u32 capacity");
+        output.sourceTriangleCount += std::uint32_t(triangleCount);
         evidence.uniqueReferencedVertexBytes += domain.vertices.size() * sizeof(CanonicalVertex);
-        DomainProduct product = CookDomain(domain, recipe, evidence);
+        DomainProduct product = CookDomain(domain, recipe, evidence, surfaceDomainBase);
         // Asset culling must enclose relocated parent geometry as well as leaves.
         for (const auto& serialized : product.groups) {
             GroupHeaderV3 header{}; DecodeRecordV3(serialized.bytes.data(), &header);

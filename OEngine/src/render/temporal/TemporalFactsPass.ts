@@ -44,7 +44,6 @@ export class TemporalFactsPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
       { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth" } },
       { binding: 3, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
       ...[4, 5, 6].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
@@ -56,7 +55,9 @@ export class TemporalFactsPass {
       { binding: 11, visibility: GPUShaderStage.COMPUTE,
         storageTexture: { access: "write-only", format: "rgba8unorm" } },
       { binding: 12, visibility: GPUShaderStage.COMPUTE,
-        storageTexture: { access: "write-only", format: "rgba32uint" } }
+        storageTexture: { access: "write-only", format: "rgba32uint" } },
+      ...[13, 14].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: "read-only-storage" as const } }))
     ] });
     this.pipeline = device.createComputePipeline({ label: "Temporal Facts/resolve",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
@@ -112,8 +113,9 @@ export class TemporalFactsPass {
 
   addToGraph(graph: FrameGraph, input: {
     width: number; height: number;
-    visibility: ResourceId; depth: ResourceId; surfaceMotion: ResourceId;
+    visibility: ResourceId; depth: ResourceId;
     meshletWork: ResourceId; instances: ResourceId; materials: ResourceId;
+    textureRoutes: ResourceId; textureResidencyVersions: ResourceId;
     currentCamera: ResourceId; previousCamera: ResourceId;
   }, bind: TemporalFactsGraphBinder): TemporalFactProducts {
     const previous = graph.import_resource("Temporal Facts/previous identity",
@@ -127,24 +129,26 @@ export class TemporalFactsPass {
         const command = context.encoder as ShadeGPUCommandContext;
         const constants = new Uint32Array([data.width, data.height, Number(this.readValid), 0]);
         command.writeBuffer(this.constants, 0, constants.buffer, 0, constants.byteLength);
-        const ids = [data.visibility, data.surfaceMotion, data.depth, previous,
+        const ids = [data.visibility, data.depth, previous,
           data.meshletWork, data.instances, data.materials, data.currentCamera,
           data.previousCamera] as const;
-        const entries: GPUBindGroupEntry[] = ids.map((id, binding) => ({ binding,
-          resource: binding < 4 ? resolveTextureView(resources.get(id)) :
+        const entries: GPUBindGroupEntry[] = ids.map((id, index) => ({ binding: index === 0 ? 0 : index + 1,
+          resource: index < 3 ? resolveTextureView(resources.get(id)) :
             { buffer: resources.get(id) as GPUBuffer } }));
         entries.push({ binding: 9, resource: { buffer: this.constants } });
         entries.push({ binding: 10, resource: resolveTextureView(resources.get(motion)) });
         entries.push({ binding: 11, resource: resolveTextureView(resources.get(mask)) });
         entries.push({ binding: 12, resource: resolveTextureView(resources.get(identity)) });
+        entries.push({ binding: 13, resource: { buffer: resources.get(data.textureRoutes) as GPUBuffer } });
+        entries.push({ binding: 14, resource: { buffer: resources.get(data.textureResidencyVersions) as GPUBuffer } });
         const group = this.device.createBindGroup({ layout: this.layout, entries });
         const pass = command.beginComputePass({ label: "Temporal Facts/resolve" });
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
         pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
         pass.end();
       });
-    for (const id of [input.visibility, input.depth, input.surfaceMotion,
-      input.meshletWork, input.instances, input.materials,
+    for (const id of [input.visibility, input.depth,
+      input.meshletWork, input.instances, input.materials, input.textureRoutes, input.textureResidencyVersions,
       input.currentCamera, input.previousCamera, previous]) node.read(id);
     const motion = node.create("Temporal Facts/motion", {
       kind: "transient_texture", width: input.width, height: input.height,
