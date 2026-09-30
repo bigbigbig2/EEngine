@@ -30,6 +30,10 @@ S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态
 
 `AppearanceGraph`与`AppearanceGraphCompiler`已实现typed DAG、Kahn排序、f32常量折叠、保序CSE、逐输出/通道活性、完整采样快照与依赖域。`StandardAppearanceGraph`已lower当前Standard/Coated/glTF字段，材质发布保留编译产物，独立数值oracle与材质合同回归通过。旧GPU消费者、feature mask与纹理route仍按旧合同；本轮没有将编译数据存在CPU上误报为真实GPU消费。**S1仍未完成**：静态烘焙产品、动态程序、有限profile lowering及GPU消费仍待实现；R04/R05/R06/R07均未提升为完成。没有本轮浏览器/性能结论。
 
+编译基础已提交`23d0110`。随后实现了`selectAppearanceProductProgram`，可从真实IR提取可复用字段，去除无关target输入；`appearance_program`生成展开的WGSL、独立参数值和输出slot，不引入GPU字节码或角色循环。`AppearanceMipCooker`实现来源账本的`ReevaluatedMipAppearanceCooker` profile：独立字段、常量零mip存储、逐mip源footprint重新求值、bilinear/trilinear的空间与fractional LOD探针、显式误差/字节/探针预算拒绝。它是cook的scene-linear f32中间产物，尚未接通资产打包、GPU驻留或生产消费；不宣称覆盖normal variance/roughness全部过滤合同。
+
+组件GPU诊断在GTX 1650 Ti、D3D12 driver `32.0.15.8142`、Dawn Node `webgpu@0.6.1`上执行5组256-lane kernel、32,000个值，真实1×1纹理读取与sRGB RGB/linear alpha通过；最大绝对误差`0.000312716`，uncaptured/validation errors及device loss为零。Dawn native仍打印其他adapter初始化失败及pipeline cache blob HRESULT诊断，不能当成无错误浏览器环境或性能结论。宿主见`validation/labs/surface-appearance/`；未测footprint/各向异性、cache seam/LOD、Chrome整帧。**有限程序族与异步PSO准入、动态图发布/产品依赖版本、烘焙打包驻留、正常法线过滤和RenderWorld→新Surface真正消费仍未完成，S1保持active**。
+
 ## 3. 设计要求到证明的追踪
 
 所有条目初始为未完成。对应证据必须指出生产 producer、consumer 和测试覆盖范围；文件存在或 manifest 声称 completed 都不能替代证明。

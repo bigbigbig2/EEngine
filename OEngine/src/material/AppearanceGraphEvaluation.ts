@@ -33,8 +33,10 @@ export function evaluateCompiledAppearance(program: CompiledAppearanceGraph,
           const u = f(values[sample.uv[0]]! * f(binding.scale[0]));
           const v = f(values[sample.uv[1]]! * f(binding.scale[1]));
           const c = f(Math.cos(binding.rotation)), s = f(Math.sin(binding.rotation));
-          texel = context.sample(binding, [f(f(binding.offset[0]) + f(f(c * u) - f(s * v))),
-            f(f(binding.offset[1]) + f(f(s * u) + f(c * v)))]);
+          const transformed: readonly [number, number] = [f(f(binding.offset[0]) + f(f(c * u) - f(s * v))),
+            f(f(binding.offset[1]) + f(f(s * u) + f(c * v)))];
+          if (!transformed.every(Number.isFinite)) throw new RangeError("Appearance sampling produced a nonfinite UV");
+          texel = context.sample(binding, transformed);
           if (texel.length !== 4 || !texel.every(value => Number.isFinite(value) &&
             value >= binding.range.low && value <= binding.range.high)) {
             throw new RangeError("Appearance sampler violates its finite source range contract");

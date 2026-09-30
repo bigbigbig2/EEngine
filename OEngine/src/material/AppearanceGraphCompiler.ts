@@ -201,6 +201,54 @@ export function compileAppearanceGraph(graph: AppearanceGraph,
     })), products: Object.freeze(productRoots(finalInstructions, finalOutputs)) });
 }
 
+/** Extract actual reusable field roots, retaining only their inputs and source reads. */
+export function selectAppearanceProductProgram(program: CompiledAppearanceGraph,
+  roots: Readonly<Record<string, readonly number[]>>): CompiledAppearanceGraph {
+  const live = new Set<number>();
+  const pending: number[] = [];
+  for (const [name, refs] of Object.entries(roots)) {
+    if (refs.length < 1 || refs.length > 4 || refs.some(ref => !Number.isInteger(ref) ||
+      ref < 0 || ref >= program.instructions.length)) {
+      throw new RangeError(`Invalid appearance product roots '${name}'`);
+    }
+    pending.push(...refs);
+  }
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    if (live.has(id)) continue;
+    live.add(id); pending.push(...program.instructions[id]!.args);
+  }
+  const remap = new Map<number, number>();
+  const compact = program.instructions.filter((_, index) => {
+    if (!live.has(index)) return false;
+    remap.set(index, remap.size); return true;
+  });
+  const samples = new Map<number, { id: number; readMask: number }>();
+  const inputNames = new Set<string>();
+  for (const instruction of compact) {
+    if (instruction.kind === "input") inputNames.add(instruction.input!);
+    if (instruction.kind !== "texture") continue;
+    let sample = samples.get(instruction.sample!);
+    if (sample === undefined) {
+      sample = { id: samples.size, readMask: 0 }; samples.set(instruction.sample!, sample);
+    }
+    sample.readMask |= 1 << instruction.channel!;
+  }
+  const instructions = compact.map(instruction => Object.freeze({ ...instruction,
+    args: Object.freeze(instruction.args.map(arg => remap.get(arg)!)),
+    sample: instruction.sample === undefined ? undefined : samples.get(instruction.sample)!.id }));
+  const outputs = Object.freeze(Object.fromEntries(Object.entries(roots).map(([name, refs]) =>
+    [name, Object.freeze(refs.map(ref => remap.get(ref)!))])));
+  return Object.freeze({ instructions: Object.freeze(instructions), outputs,
+    outputMasks: Object.freeze(Object.fromEntries(Object.entries(roots).map(([name, refs]) => [name, (1 << refs.length) - 1]))),
+    inputs: Object.freeze(program.inputs.filter(input => inputNames.has(input.name))),
+    samples: Object.freeze([...samples].map(([original, sample]) => {
+      const source = program.samples[original]!;
+      return Object.freeze({ binding: source.binding, readMask: sample.readMask,
+        uv: Object.freeze(source.uv.map(ref => remap.get(ref)!)) as readonly [number, number] });
+    })), products: Object.freeze(productRoots(instructions, outputs)) });
+}
+
 /** Publication validation + iterative Kahn sort; does not recurse on authored depth. */
 function validateAndSort(graph: AppearanceGraph): number[] {
   const count = graph.nodes.length;
@@ -239,7 +287,7 @@ function validateAndSort(graph: AppearanceGraph): number[] {
         if (node.width !== 4 || graph.nodes[node.uv]!.width !== 2 ||
             !["srgb-rgb", "linear-rgb", "linear-alpha"].includes(node.binding.decode) ||
             node.binding.offset.length !== 2 || node.binding.scale.length !== 2 ||
-            ![...node.binding.offset, ...node.binding.scale, node.binding.rotation].every(Number.isFinite) ||
+            ![...node.binding.offset, ...node.binding.scale, node.binding.rotation].every(value => Number.isFinite(Math.fround(value))) ||
             node.binding.sampler.length !== 9 || !node.binding.sampler.every(Number.isInteger)) {
           throw new RangeError(`Appearance texture ${id} has invalid sampling signature`);
         }
@@ -303,7 +351,8 @@ function identityArgument(op: AppearanceOp, args: readonly number[], instruction
   if (op === "clamp") {
     const c = instructions[args[2]!]!;
     if (a.range && b?.kind === "constant" && c.kind === "constant" &&
-        a.range.low >= b.value! && a.range.high <= c.value!) return args[0];
+        a.range.low >= b.value! && a.range.high <= c.value! &&
+        !(a.range.low <= 0 && a.range.high >= 0 && (b.value === 0 || c.value === 0))) return args[0];
   }
   return undefined;
 }

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AppearanceGraphBuilder, snapshotAppearanceTexture } from "../../.test-dist/material/AppearanceGraph.js";
-import { compileAppearanceGraph, APPEARANCE_DEPENDENCY as D } from "../../.test-dist/material/AppearanceGraphCompiler.js";
+import { compileAppearanceGraph, selectAppearanceProductProgram, APPEARANCE_DEPENDENCY as D } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { evaluateCompiledAppearance } from "../../.test-dist/material/AppearanceGraphEvaluation.js";
 import { compileCanonicalMaterial } from "../../.test-dist/material/CanonicalMaterial.js";
 import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
@@ -142,6 +142,14 @@ test("static/dynamic/geometry/view/nonlocal and multi-UV dependencies partition 
   assert.deepEqual(root("multi").coordinateDomains, ["uv0", "uv1"]);
 });
 
+test("clamp elision cannot change signed zero at a zero boundary", () => {
+  const g = new AppearanceGraphBuilder(); const x = g.input("x", 1, "dynamic", { low: 0, high: 1 });
+  g.output("clamped", g.operation("clamp", x, g.constant(0), g.constant(1)));
+  const p = compileAppearanceGraph(g.build());
+  const result = evaluateCompiledAppearance(p, { inputs: { x: [-0] }, sample: () => [] });
+  assert.ok(Object.is(result.clamped[0], +0));
+});
+
 test("nonlinear baking cannot silently commute source filtering", () => {
   const source = [0.1, 0.9];
   const filteredThenSquared = ((source[0] + source[1]) / 2) ** 2;
@@ -155,6 +163,25 @@ test("nonlinear baking cannot silently commute source filtering", () => {
   const p = compileAppearanceGraph(g.build());
   assert.equal(p.instructions[p.outputs.nonlinear[0]].filter, "nonlinear");
   assert.equal(p.instructions[p.outputs.affine[0]].filter, "affine");
+});
+
+test("product extraction removes target geometry and retains exact reusable subgraph values", () => {
+  const g = new AppearanceGraphBuilder();
+  const uv = g.input("uv0", 2, "surface", undefined, "uv0");
+  const texel = g.texture(snapshotAppearanceTexture(texture(), "linear-rgb"), uv);
+  const staticValue = g.operation("pow", g.swizzle(texel, [0]), g.constant(2));
+  g.output("static", staticValue);
+  g.output("target", g.operation("multiply", staticValue, g.input("vertex", 1, "geometry")));
+  g.output("other", g.input("other", 3, "view"));
+  const full = compileAppearanceGraph(g.build());
+  const product = selectAppearanceProductProgram(full, { baked: full.outputs.static });
+  assert.deepEqual(product.inputs.map(input => input.name), ["uv0"]);
+  assert.equal(product.samples.length, 1); assert.equal(product.samples[0].readMask, 1);
+  const expected = evaluateCompiledAppearance(full, { inputs: { uv0: [0.2, 0.7], vertex: [0.8], other: [1, 2, 3] }, sample: () => sampleValue });
+  const actual = evaluateCompiledAppearance(product, context());
+  close(actual.baked, expected.static, 0);
+  assert.ok(product.instructions.length < full.instructions.length);
+  assert.throws(() => selectAppearanceProductProgram(full, { invalid: [-1] }), /roots/);
 });
 
 test("Standard and all coated fields match an independent authored-material oracle", () => {
@@ -239,6 +266,9 @@ test("cycles, types, conflicting inputs and nonfinite constants fail at publicat
   assert.throws(() => compileAppearanceGraph(b.build()), /nonfinite/);
   const c = new AppearanceGraphBuilder(); c.output("c", c.constant(1e39));
   assert.throws(() => compileAppearanceGraph(c.build()), /finite/);
+  const d = new AppearanceGraphBuilder(); const uv = d.input("uv", 2, "surface", undefined, "uv0");
+  d.output("d", d.texture(snapshotAppearanceTexture(texture(), "linear-rgb", [0, 0], [1e39, 1]), uv));
+  assert.throws(() => compileAppearanceGraph(d.build()), /sampling signature/);
 });
 
 test("topological compilation handles deep graphs without recursive stack use", () => {
