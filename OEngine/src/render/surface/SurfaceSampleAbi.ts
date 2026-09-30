@@ -1,3 +1,4 @@
+import { SURFACE_SIGNAL_PACKED_FLAG, SURFACE_SIGNAL_WGSL, surfaceSignalEffectiveRate, type SurfaceSignalRates } from "./SurfaceSignalPlan.js";
 export const SURFACE_SAMPLE_PROFILES = 4;
 export const SURFACE_SAMPLE_THREADS = 64;
 export const SURFACE_SAMPLE_HEADER_WORDS = 64;
@@ -16,7 +17,7 @@ export const SURFACE_TILE_MODE = Object.freeze({ Empty: 0, Implicit: 1, Mixed: 2
 export const SURFACE_SAMPLE_COUNTER = Object.freeze({
   records: 16, results: 17, material: 18, lighting: 19, full: 20, coarse: 21,
   fallback: 22, recordOverflow: 23, resultOverflow: 24, implicit: 25, mixed: 26,
-  lightingRejected: 27
+  lightingRejected: 27, materialCoarse: 28, lightingCoarse: 29, signalRejected: 30
 });
 export interface SurfaceSampleCapacity {
   readonly width: number;
@@ -100,6 +101,21 @@ export function surfaceCellSamples(rate: number, cell: number): readonly Readonl
   }
   return result;
 }
+export function surfacePackedCellRate(rates: SurfaceSignalRates): number {
+  const packed = (rates.lighting | (rates.material << 2) | (rates.emissive << 4) | (rates.normal << 6)) >>> 0;
+  return rates.material === rates.lighting && rates.emissive === rates.lighting && rates.normal === rates.lighting
+    ? rates.lighting : (packed | SURFACE_SIGNAL_PACKED_FLAG) >>> 0;
+}
+export function surfaceEffectivePackedRate(packed: number): 0 | 1 | 2 | 3 {
+  const lighting = ((packed >>> 0) & 3) as 0 | 1 | 2 | 3;
+  if ((packed & SURFACE_SIGNAL_PACKED_FLAG) === 0) return lighting;
+  return surfaceSignalEffectiveRate({
+    lighting,
+    material: ((packed >>> 2) & 3) as 0 | 1 | 2 | 3,
+    emissive: ((packed >>> 4) & 3) as 0 | 1 | 2 | 3,
+    normal: ((packed >>> 6) & 3) as 0 | 1 | 2 | 3
+  });
+}
 export function surfaceTileReservationReference(recordDemand: number, resultDemand: number,
   attempted: Readonly<{ records: number; results: number }>,
   capacity: Readonly<{ records: number; results: number }>) {
@@ -111,6 +127,7 @@ export function surfaceTileReservationReference(recordDemand: number, resultDema
     attempted: { records: attempted.records + recordDemand, results: attempted.results + resultDemand } });
 }
 export const SURFACE_SAMPLE_WGSL = /* wgsl */ `
+${SURFACE_SIGNAL_WGSL}
 ${Object.entries(SURFACE_SAMPLE_HEADER).map(([name, offset]) => `const SAMPLE_HEADER_${name}:u32=${offset}u;`).join("\n")}
 ${Object.entries(SURFACE_SAMPLE_TILE).map(([name, offset]) => `const SAMPLE_TILE_${name}:u32=${offset}u;`).join("\n")}
 ${Object.entries(SURFACE_SAMPLE_RECORD).map(([name, offset]) => `const SAMPLE_RECORD_${name}:u32=${offset}u;`).join("\n")}
@@ -123,6 +140,7 @@ fn sample_tile(tile:u32)->u32 { return ${SURFACE_SAMPLE_HEADER_WORDS}u+tile*${SU
 fn sample_profile(profile:u32)->u32 { return ${SURFACE_SAMPLE_PROFILE_BASE}u+profile*${SURFACE_SAMPLE_PROFILE_WORDS}u; }
 fn sample_origin(tile:u32)->vec2u { return vec2u(tile%sample_load(SAMPLE_HEADER_tilesX),tile/sample_load(SAMPLE_HEADER_tilesX))*8u; }
 fn sample_stride(rate:u32)->vec2u { return vec2u(1u+(rate&1u),1u+((rate>>1u)&1u)); }
+fn sample_effective_rate(packed:u32)->u32 { return surface_signal_effective(packed); }
 fn sample_count(rate:u32)->u32 { let stride=sample_stride(rate); return 4u/(stride.x*stride.y); }
 fn sample_cell_origin(cell:u32)->vec2u { return vec2u(cell%4u,cell/4u)*2u; }
 fn sample_result_pixel(index:u32)->vec2i { return vec2i(i32(index%sample_load(SAMPLE_HEADER_resultWidth)),i32(index/sample_load(SAMPLE_HEADER_resultWidth))); }

@@ -23,9 +23,9 @@
 - **构建与局部回归**：OEngine typecheck/build、examples build:examples、单线程及 pthread WASM 构建、Native cooker 构建通过；56 项 contract/oracle/scheduler 测试通过，另有 Native/WASM 同 GLB 对照与 validation overflow-source 检查通过。examples 构建仍有已有的 large.glb 缺失及大 chunk 警告。
 - **未完成验证及成本**：前轮 Chrome 插件缺少 `scripts/browser-client.mjs`；本轮按用户要求不启动浏览器，Showcase 近距离/旋转截图与整帧视觉验收由用户手动完成。Dawn GPU oracle 不替代浏览器整链画面验证。位置从 6 B 增加到 12 B/vertex，最终 stride 按 4 B 对齐；关闭 previous-HZB 可能增加 work。本轮不作性能提升或完整 Nyx runtime parity 声明。
 
-## 2026-09-30 Surface 最终设计：Signal-Rate Surface（未实施）
+## 2026-09-30 Surface 最终设计：Signal-Rate Surface（阶段三已实施，阶段四待执行）
 
-最终设计见 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，实现顺序见 [四阶段重构](../next-execution/surface-sample-driven-shading-rebuild-2026.md)。这两份文件替代前期候选排序，确定先减少 ordinary PBR 的重样本，再按残余瓶颈做局部优化。**最终设计不等于采用完成**，本轮未改源码/当前 workstream，也未改 R02/R03/R20/R23 的既有状态。
+最终设计见 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，实现顺序见 [四阶段重构](../next-execution/surface-sample-driven-shading-rebuild-2026.md)。这两份文件替代前期候选排序，确定先减少 ordinary PBR 的重样本，再按残余瓶颈做局部优化。阶段三已把分信号 layout、受限 Resolve 边界和生产 consumer 接线到现有主链；**最终设计不等于采用完成**，R02/R03/R20/R23 的上游采用状态与正式画质/性能 claims 不因本地接线自动改变。
 
 ### 来源检索范围与核对记录
 
@@ -56,10 +56,14 @@
 | Wicked uniform/divergent tile 与固定 bins/indirect | SurfaceSampleAbi、surface_sample_work 的 build/finalize；SurfaceMaterialPass FrameGraph coordinator | 四个 resident-set profiles；纯同率 tile 用 descriptor，mixed 才 compact；不使用 bindless/wave/quad 或每材质全屏常态扫描 |
 | Intel CPS coarse/full 判定、当前光源集合和 DEFER_PER_PIXEL 覆盖 | surface_probe 当前 position/view/roughness；Builder 当前 active light list/VSM/environment/AO 风险；固定 tile fallback | 初始同率只放行具名方向光无阴影 profile；punctual/VSM/物理天空未知项全率，不复制代表 pixel 的 cluster list；不照搬 GBuffer 或原阈值 |
 | Forge CalcFullBary/Interpolate2DWithDeriv；既有 Filament Standard/Coated/lighting | surface_geometry、surface_material_evaluation、surface_lighting；surface_sample_worker full/implicit/compact | 按代表 winner 的解析一像素导数调用原数学，未增加 mip bias、廉价 BRDF 或 motion demand；Coated 完整保留但全率 |
-| VRCS compact remap 与覆盖，避免同 UAV 原地读取竞态 | 24-byte sample records/64-bit masks、160-byte 固定 tile state、独立 rgba16float sample results；surface_sample_work.resolve | top-left owner sample 有界复制到已认证 cell；HDR 只写不读，full/coarse/fallback 互斥；deblock/不同信号率/tail 优化仍是阶段三，不称完整 VRCS port |
+| VRCS compact remap 与覆盖，避免同 UAV 原地读取竞态 | 24-byte sample records/64-bit masks、160-byte 固定 tile state、独立 rgba16float sample results；surface_sample_work.resolve | top-left owner sample 有界复制到已认证 cell；HDR 只写不读，full/coarse/fallback 互斥；进一步的独立 closure result split 仍不冒称完整 VRCS port |
 | 无完整 donor 的 multi-pool commit | record/result 同 tile 预约 → 最终状态 → 独立 finalize → worker/Resolve | partial reservation 只浪费槽、不部分提交；错误 tile 从固定状态定位，不使用可溢出 repair queue；无跨组自旋/本帧 readback/独立 submit |
 
 CPU coverage/reservation/二维 indirect/lighting-risk oracle、原透视梯度 oracle 与生产 FrameGraph 的 Dawn D3D12 material+lighting→results→Resolve→HDR 已执行。默认预算严格，受控真实纹理 PBR/非零方向光减少重样本；结果不提升正式采用/画质/性能 claims。诊断驱动关闭 shader 优化以缩短编译，不据此测量性能。
+
+阶段三实施映射（2026-09-30）：阶段二的 owner-sample 生产链保留唯一写域，新增本地 **Signal-Rate Cell Layout**。一个 cell record 的四个 2-bit 字段分别表示 lighting/material/emissive/normal 的方向率；CPU `SurfaceSignalPlan.ts` 与 WGSL `SURFACE_SIGNAL_WGSL` 共享 pack/unpack/effective-rate 事实源。Probe 将已通过 continuity、generation、residency、UV footprint 和 variation 检查的候选发布为 packed rates；normal-map、ORM、Coated/未知 closure 的相关字段回退 full。Builder 在 lighting/VSM/AO 风险时只清除 lighting 字段，实际 coverage 取各信号交集，tail 仍由固定 cell 状态定位。worker 读取相同 packed record 并记录 material/lighting coarse counters，Resolve 读取 immutable sample results 并验证 VisibilityKey、depth 资源和 result capacity，不读取正在写入的 HDR。`surfaceResolveReference` 覆盖同 sharing domain、深度/法线容差与 owner fallback 的 CPU 规则。
+
+该阶段采用的分信号布局、边界重建和 tail 处理是 EEngine 本地算法；没有把 Wicked/Intel/DOOM 的局部阶段冒称完整移植，也没有引入全屏 GBuffer、同 UAV 原地滤波、额外 submit 或本帧 readback。CPU signal/Resolve oracle、typecheck、build、build:test 与 Surface 定向检查通过；Dawn D3D12 生产 oracle 尝试时宿主返回 `DXGI_ERROR_DRIVER_INTERNAL_ERROR`，未取得有效 GPU 结果。browser 的完整 signal 组合、画质矩阵和 P50/P95 尚未运行，故不提升正式性能或画质状态。阶段四需继续清理旧合同/owner 并集中做模块收口验证。
 
 阶段一实施映射（2026-09-30）：Continuity Publication 采用本地 **Source-Corner Edge Domains**，源完整属性角点焊接、双向流形边连通、各 LOD 实际角点回查、歧义/更新角点/退化/UV 翻转拒绝，发布到 page 内 primitive metadata；Native 与 WASM 共用 GeometryCooker.cpp。SurfaceProbe 采用本地 **Bounded Four-Corner Probe**：8×8 workgroup 的 64 invocations 各恢复一个 winner，使用 9216-byte workgroup facts 与无条件 barrier，16 个对齐 cell 各读取四角的透视 UV/法线/顶点色，读取同 publication 的各 role 采样签名、全 mip 保守 decoded 区间与实际 residency revision，输出候选方向率及拒绝计数。阶段一候选不是重着色 rate，PBR 保持全率消费，阶段二才切换 sample workers。默认具名预算全零；非恒定纹理 PBR 的 GPU oracle 使用显式受控预算，不将这些测试值冒充收敛后的画质阈值。压缩纹理/不可读来源 variation unknown、normal-map 尚无切线变化证明、Coated/mask/非法身份/版本不符均 full-rate。检索范围是本节冻结的 Forge/Wicked/Intel 完整源码、Decoupled Sampling 论文及 VRCS 原始技术资料；未发现可直接移植的 source-corner metadata 或 pre-material texture variation 全链 donor，以上明确为本地算法，不提升上游采用状态。
 

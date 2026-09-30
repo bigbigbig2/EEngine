@@ -1,10 +1,10 @@
 # Surface 可见性驱动分频着色：最终设计
 
-日期：2026-09-30。状态：目标设计；阶段一与阶段二主链已实现并做定向验证，阶段三、四待执行。尚无本地加速或最终画质验收结论。
+日期：2026-09-30。状态：目标设计；阶段一至阶段三主链已实现并做定向验证，阶段四待执行。尚无本地加速或最终画质验收结论。
 
 本文确定 Surface 重构的唯一推荐方向，替代 [前期调查](surface-shading-performance-design-2026.md) 中的候选排序和“先 A/B 小优化”顺序；上位架构仍为 [Next 整体设计](eengine-next-overall-architecture-final-2026.md)。执行顺序见 [Surface 重构执行文档](../next-execution/surface-sample-driven-shading-rebuild-2026.md)，来源/阶段映射见 [Next 来源账本](../porting/next-renderer.md)。
 
-2026-09-30 阶段二直接替换唯一生产主链：8×8 tile/2×2 cell 的 Work Builder、descriptor/compact workers、整 tile 多池提交、独立 GPU finalize 与不可变 sample results → Resolve → HDR。真实非恒定 albedo Standard PBR 在具名受控预算、无阴影方向光 profile 下，材质及完整直接光 BRDF 求值由 64 降为 16；不是整帧性能结论。默认预算仍严格，当前 local lights、VSM、物理天空/IBL、未知纹理/normal-map/Coated 采用全率；分信号组合与 tail 优化属于阶段三。Temporal 保持独立 motion，此前 VG 画质问题不因本阶段而关闭。
+2026-09-30 阶段二直接替换唯一生产主链，阶段三继续在同一主链上加入 32-bit 分信号率布局、信号交集覆盖、Resolve key/depth 边界和 signal counters：8×8 tile/2×2 cell 的 Work Builder、descriptor/compact workers、整 tile 多池提交、独立 GPU finalize 与不可变 sample results → Resolve → HDR。真实非恒定 albedo Standard PBR 在具名受控预算、无阴影方向光 profile 下，材质及完整直接光 BRDF 求值由 64 降为 16；不是整帧性能结论。默认预算仍严格，当前 local lights、VSM、物理天空/IBL、未知纹理/normal-map/Coated 采用全率；阶段三的信号策略保持这些语义边界。Temporal 保持独立 motion，此前 VG 画质问题不因本阶段而关闭。
 
 ## 1. 决策：直接改重着色的工作单位
 

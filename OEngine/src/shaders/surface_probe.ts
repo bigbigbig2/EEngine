@@ -5,6 +5,7 @@ import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { SURFACE_METADATA_GROUP_FLAG, SURFACE_PRIMITIVE_BYTES } from "../gpu/SurfacePrimitiveAbi.js";
 import { geometryWgsl } from "./surface_material_kernel.js";
+import { SURFACE_SIGNAL_WGSL } from "../render/surface/SurfaceSignalPlan.js";
 
 export function surfaceProbeWgsl(virtualGeometry: boolean, bankCount: number, lighting = false): string {
   const headers = Array.from({ length: bankCount }, (_, bank) =>
@@ -19,6 +20,7 @@ ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_SPARSE_SHADING_VIEW_WGSL}
+${SURFACE_SIGNAL_WGSL}
 struct ProbeBudget { color: f32, parameter: f32, normal: f32, depth: f32, uv: f32, lighting_position: f32, lighting_view: f32, minimum_roughness: f32, }
 @group(0) @binding(0) var probe_key: texture_2d<u32>;
 @group(0) @binding(1) var probe_depth: texture_depth_2d;
@@ -274,7 +276,30 @@ fn probe(@builtin(global_invocation_id) id: vec3u, @builtin(local_invocation_ind
     rate = select(select(0u, 2u, vertical), select(1u, 3u, vertical), horizontal);
   }
   atomicAdd(&probe_counters[2u + rate], 1u);
-  textureStore(probe_output, vec2i(id.xy / 2u), vec4u(rate, 0u, 0u, 0u));
+  var packed = rate;
+  let first = probe_facts[local_index];
+  if first.valid && first.material < arrayLength(&material_records) {
+    let material = material_records[first.material];
+    if material.payload.normal_texture_ref != OENGINE_TEXTURE_REF_INVALID {
+      packed = rate | (rate << SURFACE_SIGNAL_MATERIAL_SHIFT) |
+        (rate << SURFACE_SIGNAL_EMISSIVE_SHIFT) | (rate << SURFACE_SIGNAL_NORMAL_SHIFT) |
+        SURFACE_SIGNAL_PACKED_FLAG;
+      packed = surface_signal_set(packed, SURFACE_SIGNAL_NORMAL_SHIFT, 0u);
+    }
+    if material.payload.orm_texture_ref != OENGINE_TEXTURE_REF_INVALID {
+      packed = rate | (rate << SURFACE_SIGNAL_MATERIAL_SHIFT) |
+        (rate << SURFACE_SIGNAL_EMISSIVE_SHIFT) | (rate << SURFACE_SIGNAL_NORMAL_SHIFT) |
+        SURFACE_SIGNAL_PACKED_FLAG;
+      packed = surface_signal_set(packed, SURFACE_SIGNAL_MATERIAL_SHIFT, 0u);
+    }
+    if material.payload.emissive_texture_ref != OENGINE_TEXTURE_REF_INVALID {
+      packed = rate | (rate << SURFACE_SIGNAL_MATERIAL_SHIFT) |
+        (rate << SURFACE_SIGNAL_EMISSIVE_SHIFT) | (rate << SURFACE_SIGNAL_NORMAL_SHIFT) |
+        SURFACE_SIGNAL_PACKED_FLAG;
+      packed = surface_signal_set(packed, SURFACE_SIGNAL_EMISSIVE_SHIFT, 0u);
+    }
+  }
+  textureStore(probe_output, vec2i(id.xy / 2u), vec4u(packed, 0u, 0u, 0u));
 }
 `;
 }

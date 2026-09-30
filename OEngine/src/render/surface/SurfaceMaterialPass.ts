@@ -260,10 +260,12 @@ export class SurfaceMaterialPass {
         layout: this.resolve.getBindGroupLayout(0), entries: [
           { binding: 0, resource: { buffer: resources.get(completedWork) as GPUBuffer } },
           { binding: 1, resource: resolveTextureView(resources.get(sampleResults)) },
-          { binding: 2, resource: resolveTextureView(resources.get(radiance)) }
+          { binding: 2, resource: resolveTextureView(resources.get(radiance)) },
+          { binding: 3, resource: resolveTextureView(resources.get(input.visibilityKey)) },
+          { binding: 4, resource: resolveTextureView(resources.get(input.depth)) }
         ] })); pass.dispatchWorkgroups(capacity.tilesX, capacity.tilesY); pass.end();
     });
-    resolve.read(completedWork); resolve.read(sampleResults);
+    resolve.read(completedWork); resolve.read(sampleResults); resolve.read(input.visibilityKey); resolve.read(input.depth);
     return { radiance: resolve.write(radiance), work: completedWork, sampleResults,
       probeCandidates: probe.candidates, probeCounters: probe.counters };
   }

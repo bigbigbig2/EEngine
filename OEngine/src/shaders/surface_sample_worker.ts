@@ -97,13 +97,21 @@ fn surface_evaluate(pixel:vec2u,key:u32)->vec4f {
   ${hasLit ? "if material.family!=0u { sample_add(SAMPLE_COUNTER_lighting,1u); radiance=sparse_direct(surface,pixel); }" : ""}
   return vec4f(radiance,surface.alpha);
 }
+fn surface_count_signal_work(pixel:vec2u,result:u32) {
+  if result==0xffffffffu { return; }
+  let tile=(pixel.y/8u)*sample_load(SAMPLE_HEADER_tilesX)+pixel.x/8u;
+  let local=pixel%8u; let cell=(local.y/2u)*4u+local.x/2u;
+  let packed=sample_load(sample_tile(tile)+SAMPLE_TILE_cellRates+cell);
+  if surface_signal_rate(packed,SURFACE_SIGNAL_MATERIAL_SHIFT)!=0u { sample_add(SAMPLE_COUNTER_materialCoarse,1u); }
+  if surface_signal_rate(packed,SURFACE_SIGNAL_LIGHTING_SHIFT)!=0u { sample_add(SAMPLE_COUNTER_lightingCoarse,1u); }
+}
 fn surface_write(pixel:vec2u,result:u32) {
   let key=textureLoad(visibility_texture,vec2i(pixel),0).x;
   if !oengine_visibility_key_is_valid(key) { return; }
   let linear=surface_evaluate(pixel,key);
   let color=vec4f(oengine_linear_rec709_to_rec2020(linear.rgb)*radiometry_pre_exposure.value,linear.a);
   if result==0xffffffffu { textureStore(output_hdr,vec2i(pixel),color); sample_add(SAMPLE_COUNTER_full,1u); }
-  else { textureStore(sample_results,sample_result_pixel(result),color); sample_add(SAMPLE_COUNTER_coarse,1u); }
+  else { textureStore(sample_results,sample_result_pixel(result),color); sample_add(SAMPLE_COUNTER_coarse,1u); surface_count_signal_work(pixel,result); }
 }
 `;
   const entry = mode === "implicit" ? /* wgsl */ `
@@ -114,7 +122,7 @@ fn shade(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) thr
   if index>=sample_load(profile) { return; }
   let tile=sample_load(sample_load(SAMPLE_HEADER_descriptors)+sample_selected_profile*sample_load(SAMPLE_HEADER_tileCount)+index);
   let base=sample_tile(tile); if sample_load(base)!=1u { return; }
-  let rate=sample_load(base+SAMPLE_TILE_rate); let stride=sample_stride(rate); let local=vec2u(thread%8u,thread/8u);
+  let packed_rate=sample_load(base+SAMPLE_TILE_rate); let rate=sample_effective_rate(packed_rate); let stride=sample_stride(rate); let local=vec2u(thread%8u,thread/8u);
   if any(local%stride!=vec2u(0u)) { return; }
   let cell=(local.y/2u)*4u+local.x/2u; let child=(local%2u)/stride;
   let result=select(0xffffffffu,sample_load(base+SAMPLE_TILE_cellResults+cell)+child.y*(2u/stride.x)+child.x,rate!=0u);
