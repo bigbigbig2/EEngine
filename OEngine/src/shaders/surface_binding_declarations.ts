@@ -7,7 +7,7 @@ export function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): s
     case "visibility-key": return `${prefix} var visibility_texture: texture_2d<u32>;`;
     case "sample-results": return `${prefix} var sample_results: texture_storage_2d<rgba16float, write>;`;
     case "indirect-visibility": return `${prefix} var<storage, read> xe_visibility_words: array<u32>;`;
-    case "sample-profile": return `${prefix} var<uniform> sample_selected_profile: u32;`;
+    case "sample-profile": return `${prefix} var<uniform> sample_dispatch: vec4u;`;
     case "meshlet-work": return `${prefix} var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;`;
     case "material-records": return `${prefix} var<storage, read> material_records: array<OEngineShadingMaterialRecord>;`;
     case "frame-view": return `${prefix} var<uniform> shading_view: OEngineSparseShadingView;`;

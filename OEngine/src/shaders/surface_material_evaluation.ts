@@ -127,10 +127,56 @@ export function materialEvaluationWgsl(descriptor: Readonly<SurfaceKernelProfile
     let sampled_${slot}=sparse_sample(${ref},sparse_sampler_${slot}(material),sparse_transform_uv_${slot}(material,uv_${slot},false),sparse_transform_uv_${slot}(material,uv_${slot}_dx,true),sparse_transform_uv_${slot}(material,uv_${slot}_dy,true),gradient_valid,${fallback});
     sample_${slot}=sampled_${slot};
   }`;
-  const closureSample = (slot: number, role: string, fallback: string) => `
-  if material.closure.${role}.texture_ref != ${GPU_TEXTURE_REF_INVALID}u {
-    let texture_role = material.closure.${role};
-    if !sparse_texture_route_valid(material_slot, ${slot}u, texture_role.texture_ref) {
+  // One sampling call site keeps bank/sampler/geometry decoder branches from
+  // being cloned ten times by the D3D shader optimizer. This is the same role
+  // order, route validation, fallback and explicit-gradient policy as above.
+  const genericSamples = generic ? /* wgsl */ `
+  var role_samples = array<vec4f,10>(vec4f(1.0),vec4f(0.5,0.5,1.0,1.0),
+    vec4f(1.0),vec4f(1.0),vec4f(1.0),vec4f(1.0),vec4f(1.0),
+    vec4f(1.0),vec4f(1.0),vec4f(0.5,0.5,1.0,1.0));
+  for (var role_slot=0u; role_slot<${includeCoat ? 10 : 7}u; role_slot++) {
+    var texture_role: OEngineClosureTextureRole;
+    var role_active = false;
+    switch role_slot {
+      case 0u: {
+        texture_role=OEngineClosureTextureRole(material.payload.texture_ref,
+          sparse_material_uv_set(material,0u),sparse_sampler_0(material),0u,
+          material.payload.uv_offset_scale,material.payload.uv_rotation);
+        role_active=material.payload.texture_ref!=${GPU_TEXTURE_REF_INVALID}u;
+      }
+      case 1u: {
+        texture_role=OEngineClosureTextureRole(material.payload.normal_texture_ref,
+          sparse_material_uv_set(material,1u),sparse_sampler_1(material),0u,
+          material.payload.normal_uv_offset_scale,material.payload.normal_uv_rotation);
+        role_active=(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasNormalTexture}u)!=0u;
+      }
+      case 2u: {
+        texture_role=OEngineClosureTextureRole(material.payload.orm_texture_ref,
+          sparse_material_uv_set(material,2u),sparse_sampler_2(material),0u,
+          material.payload.orm_uv_offset_scale,material.payload.orm_uv_rotation);
+        role_active=(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture}u)!=0u;
+      }
+      case 3u: {
+        texture_role=OEngineClosureTextureRole(material.payload.emissive_texture_ref,
+          sparse_material_uv_set(material,3u),sparse_sampler_3(material),0u,
+          material.payload.emissive_uv_offset_scale,material.payload.emissive_uv_rotation);
+        role_active=(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture}u)!=0u;
+      }
+      case 4u: {
+        texture_role=OEngineClosureTextureRole(material.payload.occlusion_texture_ref,
+          sparse_material_uv_set(material,4u),sparse_sampler_4(material),0u,
+          material.payload.occlusion_uv_offset_scale,material.payload.occlusion_uv_rotation);
+        role_active=(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasOcclusionTexture}u)!=0u;
+      }
+      case 5u: { texture_role=material.closure.specular; role_active=texture_role.texture_ref!=${GPU_TEXTURE_REF_INVALID}u; }
+      case 6u: { texture_role=material.closure.specular_color; role_active=texture_role.texture_ref!=${GPU_TEXTURE_REF_INVALID}u; }
+      ${includeCoat ? `case 7u: { texture_role=material.closure.coat; role_active=texture_role.texture_ref!=${GPU_TEXTURE_REF_INVALID}u; }
+      case 8u: { texture_role=material.closure.coat_roughness; role_active=texture_role.texture_ref!=${GPU_TEXTURE_REF_INVALID}u; }
+      case 9u: { texture_role=material.closure.coat_normal; role_active=texture_role.texture_ref!=${GPU_TEXTURE_REF_INVALID}u; }` : ""}
+      default: {}
+    }
+    if !role_active { continue; }
+    if !sparse_texture_route_valid(material_slot,role_slot,texture_role.texture_ref) {
       sparse_identity_error(); return sparse_invalid_surface();
     }
     let uv0=sparse_uv_ref(ref0,texture_role.uv_set);
@@ -139,11 +185,13 @@ export function materialEvaluationWgsl(descriptor: Readonly<SurfaceKernelProfile
     let uv=uv0*bary.weights.x+uv1*bary.weights.y+uv2*bary.weights.z;
     let uv_dx=(uv0*bary.ddx.x+uv1*bary.ddx.y+uv2*bary.ddx.z)/shading_view.upscale_ratio.x;
     let uv_dy=(uv0*bary.ddy.x+uv1*bary.ddy.y+uv2*bary.ddy.z)/shading_view.upscale_ratio.y;
-    sample_${slot}=sparse_sample(texture_role.texture_ref,texture_role.sampler_class,
+    role_samples[role_slot]=sparse_sample(texture_role.texture_ref,texture_role.sampler_class,
       sparse_transform_closure_uv(texture_role,uv,false),
       sparse_transform_closure_uv(texture_role,uv_dx,true),
-      sparse_transform_closure_uv(texture_role,uv_dy,true),gradient_valid,${fallback});
-  }`;
+      sparse_transform_closure_uv(texture_role,uv_dy,true),gradient_valid,role_samples[role_slot]);
+  }
+  ${Array.from({ length: 10 }, (_, slot) => `let sample_${slot}=role_samples[${slot}];`).join("\n  ")}
+` : "";
   const closureDefaults = "1.0,vec3f(1.0),1.5,0.0,0.0,vec3f(0.0,0.0,1.0)";
   if (!s.reconstructTriangle) {
     if (isFastUnlitFactor(descriptor)) return /* wgsl */ `
@@ -180,6 +228,7 @@ fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:
   var color=vec3f(1.0);${s.authoredVertexColor !== "never" ? "if sparse_has_color_ref(ref0) { color=sparse_color_ref(ref0)*bary.weights.x+sparse_color_ref(ref1)*bary.weights.y+sparse_color_ref(ref2)*bary.weights.z; }" : ""}
   let gradient_valid=bary.valid;
   let vertex_normal=normal;
+  ${generic ? genericSamples : /* wgsl */ `
   var sample_0=vec4f(1.0);var sample_1=vec4f(0.5,0.5,1.0,1.0);var sample_2=vec4f(1.0);var sample_3=vec4f(1.0);var sample_4=vec4f(1.0);
   var sample_5=vec4f(1.0);var sample_6=vec4f(1.0);var sample_7=vec4f(1.0);var sample_8=vec4f(1.0);var sample_9=vec4f(0.5,0.5,1.0,1.0);
   ${needsBase ? sample(0, "material.payload.texture_ref", "vec4f(1.0)", generic ? `(material.payload.texture_ref!=${GPU_TEXTURE_REF_INVALID}u)` : "true") : ""}
@@ -187,11 +236,7 @@ fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:
   ${needsOrm ? sample(2, "material.payload.orm_texture_ref", "vec4f(1.0)", generic ? `(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasOrmTexture}u)!=0u` : "true") : ""}
   ${needsEmissive ? sample(3, "material.payload.emissive_texture_ref", "vec4f(1.0)", generic ? `(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasEmissiveTexture}u)!=0u` : "true") : ""}
   ${needsOcclusion ? sample(4, "material.payload.occlusion_texture_ref", "vec4f(1.0)", `(material.payload.flags&${GPU_MATERIAL_VISIBILITY_FLAGS.HasOcclusionTexture}u)!=0u`) : ""}
-  ${generic ? closureSample(5, "specular", "vec4f(1.0)") : ""}
-  ${generic ? closureSample(6, "specular_color", "vec4f(1.0)") : ""}
-  ${generic && includeCoat ? closureSample(7, "coat", "vec4f(1.0)") : ""}
-  ${generic && includeCoat ? closureSample(8, "coat_roughness", "vec4f(1.0)") : ""}
-  ${generic && includeCoat ? closureSample(9, "coat_normal", "vec4f(0.5,0.5,1.0,1.0)") : ""}
+  `}
   let base=material.payload.base_color_factor.xyz*color*sample_0.xyz;let metallic=clamp(material.payload.pbr_factors.x*sample_2.b,0.0,1.0);let roughness=clamp(material.payload.pbr_factors.y*sample_2.g,0.0,1.0);let ao=mix(1.0,${aoSource},clamp(material.payload.pbr_factors.w,0.0,1.0));let emissive=material.payload.emissive_factor.xyz*sample_3.xyz;
   ${normalMapping}
   var coat_normal=vertex_normal;

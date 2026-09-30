@@ -27,8 +27,8 @@ test("sample workers share the resource closure without motion or HDR readback",
     virtualGeometry: false, lighting: "direct", source: "surface-samples-v1",
     capabilityFingerprint: "webgpu-core", formatProfile: "rgba16float"
   }, desktopLimits).plan;
-  for (const mode of ["implicit", "compact", "fallback"]) {
-    const source = surfaceSampleWorkerWgsl(plan, mode, true, false);
+  {
+    const source = surfaceSampleWorkerWgsl(plan, true, false);
     const actual = [...source.matchAll(/@group\((\d+)\)\s*@binding\((\d+)\)/gu)]
       .map(match => match[1] + ":" + match[2]).sort();
     assert.deepEqual(actual, plan.bindings.map(binding => binding.group + ":" + binding.binding).sort());
@@ -150,7 +150,7 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   assert.equal(compact.plan.bindings.filter(binding => binding.role === "virtual-product-banks").length, 1);
   assert.equal(compact.plan.bindings.filter(binding => binding.role === "texture-banks").length, 1);
   assert.notEqual(compact.plan.signature, plan.signature);
-  const compactWgsl = surfaceSampleWorkerWgsl(compact.plan, "implicit", true, true, false, 1, 1);
+  const compactWgsl = surfaceSampleWorkerWgsl(compact.plan, true, true, false, 1, 1);
   assert.match(compactWgsl, /virtual_product_bank_0/);
   assert.doesNotMatch(compactWgsl, /virtual_product_bank_1/);
   assert.equal([...compactWgsl.matchAll(/struct OEngineInstanceRecord\s*\{/gu)].length, 1);
@@ -159,7 +159,7 @@ test("physical Surface closure stays within the negotiated WebGPU envelope", () 
   }, desktopLimits);
   assert.equal(withoutSky.plan.bindings.some(binding =>
     binding.role.startsWith("physical-")), false);
-  const noSkyWgsl = surfaceSampleWorkerWgsl(withoutSky.plan, "implicit",
+  const noSkyWgsl = surfaceSampleWorkerWgsl(withoutSky.plan,
     true, true, false, 1, 1, false);
   assert.doesNotMatch(noSkyWgsl, /physical_environment_sun|atmosphere_world_to_planet/u);
   assert.match(noSkyWgsl, /return direct \+ surface\.emissive;/u);

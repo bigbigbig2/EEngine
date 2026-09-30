@@ -288,7 +288,7 @@ export class ShaderModuleCache {
         );
       }
     }).catch((error: unknown) => {
-      console.error("Shader compilation diagnostics failed", error);
+      console.error(`Shader compilation diagnostics failed [${descriptor.label ?? "unnamed"}]`, error);
     });
     void this.device.popErrorScope().then((error) => {
       if (error === null) return;
@@ -309,6 +309,8 @@ export class ShaderModuleCache {
           .filter((line) => line !== "")
           .join("\n")
       );
+    }).catch((error: unknown) => {
+      console.error(`Shader validation scope failed [${descriptor.label ?? "unnamed"}]`, error);
     });
     return module;
   }

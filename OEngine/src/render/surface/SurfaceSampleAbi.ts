@@ -1,6 +1,14 @@
 import { SURFACE_SIGNAL_PACKED_FLAG, SURFACE_SIGNAL_WGSL, surfaceSignalEffectiveRate, type SurfaceSignalRates } from "./SurfaceSignalPlan.js";
 export const SURFACE_SAMPLE_PROFILES = 4;
 export const SURFACE_SAMPLE_THREADS = 64;
+export const SURFACE_SAMPLE_DISPATCH = Object.freeze({ implicit: 0, compact: 1, fallback: 2 });
+export type SurfaceSampleWorkerMode = keyof typeof SURFACE_SAMPLE_DISPATCH;
+export function packSurfaceSampleDispatch(profile: number, mode: SurfaceSampleWorkerMode): Uint32Array<ArrayBuffer> {
+  if (!Number.isInteger(profile) || profile < 0 || profile >= SURFACE_SAMPLE_PROFILES) {
+    throw new RangeError("Surface sample dispatch profile is invalid");
+  }
+  return new Uint32Array([profile, SURFACE_SAMPLE_DISPATCH[mode], 0, 0]);
+}
 export const SURFACE_SAMPLE_HEADER_WORDS = 64;
 export const SURFACE_SAMPLE_TILE_WORDS = 40;
 export const SURFACE_SAMPLE_RECORD_WORDS = 6;

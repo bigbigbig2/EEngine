@@ -165,6 +165,8 @@ ${SURFACE_SAMPLE_WGSL}
 fn resolve(@builtin(global_invocation_id) id:vec3u) {
   let pixel=id.xy; if pixel.x>=sample_load(SAMPLE_HEADER_width) || pixel.y>=sample_load(SAMPLE_HEADER_height) { return; }
   if !oengine_visibility_key_is_valid(textureLoad(resolve_keys,vec2i(pixel),0).x) { return; }
+  let depth=textureLoad(resolve_depth,vec2i(pixel),0);
+  if !(depth>=0.0 && depth<=1.0) { return; }
   let tile=(pixel.y/8u)*sample_load(SAMPLE_HEADER_tilesX)+pixel.x/8u; let base=sample_tile(tile);
   let mode=sample_load(base); if mode!=1u && mode!=2u { return; }
   let local=pixel%8u; let cell=(local.y/2u)*4u+local.x/2u;

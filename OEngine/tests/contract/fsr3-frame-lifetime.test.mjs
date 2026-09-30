@@ -36,7 +36,7 @@ const frame = {
   renderWidth: 640, renderHeight: 360, outputWidth: 1280, outputHeight: 720,
   jitter: [0.5, -0.25], cameraNear: 0.1, cameraFar: 1000,
   cameraFovY: Math.PI / 3, cameraInfiniteFar: true,
-  frameTimeMs: 16.67, preExposure: 1, reset: true
+  frameTimeMs: 16.67, reset: true
 };
 
 test("FSR3 frame constants follow camera jitter and retain history across ordinary frames", () => {
@@ -51,12 +51,13 @@ test("FSR3 frame constants follow camera jitter and retain history across ordina
   assert.equal(h.writes[0].getFloat32(124, true), 0);
   fsr3.commit(Promise.resolve());
   fsr3.prepareFrame(h.command, { ...frame, jitter: [-0.5, 0.25],
-    preExposure: 2, reset: false });
+    reset: false });
   assert.equal(fsr3.generation, 1);
   assert.equal(h.writes[1].getFloat32(72, true), -0.25);
   assert.equal(h.writes[1].getFloat32(76, true), 0.125);
   assert.ok(Math.abs(h.writes[1].getFloat32(96, true) - (-0.5 / 640)) < 1e-9);
-  assert.equal(h.writes[1].getFloat32(116, true), 2);
+  // The GPU ratio pass replaces this neutral CPU placeholder before FSR3 reads it.
+  assert.equal(h.writes[1].getFloat32(116, true), 1);
   assert.equal(h.writes[1].getFloat32(124, true), 1);
   fsr3.invalidate();
   fsr3.prepareFrame(h.command, { ...frame, reset: true });
@@ -89,6 +90,7 @@ test("FSR3 graph roles follow the prepared frame and retired histories wait for 
   const output = fsr3.addToGraph(graph, {
     color: imported("color"), depth: imported("depth"), motion: imported("motion"),
     reactiveMask: imported("reactive"), validityMask: imported("validity"),
+    preExposure: imported("pre-exposure"), priorExposure: imported("prior-exposure"),
     width: 640, height: 360, outputWidth: 1280, outputHeight: 720
   }, (name, resolve) => {
     resolvers.set(name, resolve);
@@ -99,12 +101,13 @@ test("FSR3 graph roles follow the prepared frame and retired histories wait for 
   present.make_side_effect();
   const dump = graph.compile().dump();
   const executable = dump.executablePassOrder.map(id => dump.passes[id].name);
-  for (const stage of ["FSR3/Prepare Inputs", "FSR3/Luma SPD source",
+  for (const stage of ["FSR3/GPU pre-exposure ratio", "FSR3/Prepare Inputs", "FSR3/Luma SPD source",
     "FSR3/Shading SPD source", "FSR3/Shading Change", "FSR3/Prepare Reactivity",
     "FSR3/Luma Instability", "FSR3/Accumulate", "FSR3/RCAS",
     "test/consume reconstructed color"]) {
     assert.ok(executable.includes(stage), stage);
   }
+  assert.ok(executable.indexOf("FSR3/GPU pre-exposure ratio") < executable.indexOf("FSR3/Prepare Inputs"));
   assert.equal(dump.resources.find(entry => entry.name === "FSR3/previous color").imported, true);
   assert.equal(dump.resources.find(entry => entry.name === "FSR3/current color").imported, true);
   const read = resolvers.get("FSR3/previous color");

@@ -65,7 +65,16 @@ export async function surfacePhaseTwoGpuOracle(fixture) {
     }); sink.read(output.radiance); sink.read(output.work); sink.make_side_effect();
     const encoder = device.createCommandEncoder();
     const temporary = [];
+    let passOpen = false;
+    const trackPass = pass => {
+      assert.equal(passOpen, false, "GPU passes must not overlap");
+      passOpen = true;
+      const end = pass.end.bind(pass);
+      pass.end = () => { end(); passOpen = false; };
+      return pass;
+    };
     const upload = (bytes, usage) => {
+      assert.equal(passOpen, false, "Surface uploads must be prepared before opening a GPU pass");
       const resource = device.createBuffer({ size: Math.max(16, bytes.byteLength), mappedAtCreation: true,
         usage: usage | GPUBufferUsage.COPY_SRC });
       const mapped = resource.getMappedRange(); new Uint8Array(mapped).set(new Uint8Array(bytes));
@@ -73,7 +82,7 @@ export async function surfacePhaseTwoGpuOracle(fixture) {
       resource.unmap(); temporary.push(resource); return resource;
     };
     const command = { device, gpu_encoder: encoder,
-      beginRenderPass(descriptor) { return encoder.beginRenderPass(descriptor); },
+      beginRenderPass(descriptor) { return trackPass(encoder.beginRenderPass(descriptor)); },
       beginComputePass(descriptor) {
         if (descriptor.label === "Surface/tile Work Builder" && options.rates) {
           const bytes = new Uint32Array(256);
@@ -81,7 +90,7 @@ export async function surfacePhaseTwoGpuOracle(fixture) {
           encoder.copyBufferToTexture({ buffer: upload(bytes.buffer, GPUBufferUsage.COPY_SRC), bytesPerRow: 256 },
             { texture: graph.getResourceEntry(output.probeCandidates).resource }, [4, 4]);
         }
-        return encoder.beginComputePass(descriptor);
+        return trackPass(encoder.beginComputePass(descriptor));
       },
       clearBuffer(target) { encoder.clearBuffer(target); },
       allocateTransientBufferAndLoad(bytes, usage) { return upload(bytes, usage); },

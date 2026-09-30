@@ -10,14 +10,16 @@ import { GPU_SPARSE_SHADING_VIEW_BYTES, packGpuSparseShadingView } from "../../g
 import { createSurfaceBindGroupLayouts, compileSurfaceProgramLayout,
   type SurfacePhysicalBinding } from "./SurfaceKernelBindingPlan.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
-import { surfaceSampleWorkerWgsl, type SurfaceSampleWorkerMode } from "../../shaders/surface_sample_worker.js";
+import { surfaceSampleWorkerWgsl } from "../../shaders/surface_sample_worker.js";
 import { surfaceSampleBuilderWgsl, SURFACE_SAMPLE_FINALIZE_WGSL, SURFACE_SAMPLE_RESOLVE_WGSL } from "../../shaders/surface_sample_work.js";
-import { surfaceSampleCapacity, packSurfaceSampleHeader, SURFACE_SAMPLE_INDIRECT_BYTES, SURFACE_SAMPLE_HEADER } from "./SurfaceSampleAbi.js";
+import { surfaceSampleCapacity, packSurfaceSampleHeader, packSurfaceSampleDispatch,
+  type SurfaceSampleWorkerMode, SURFACE_SAMPLE_INDIRECT_BYTES, SURFACE_SAMPLE_HEADER } from "./SurfaceSampleAbi.js";
 import type { PreExposureContract } from "../RadiometryContract.js";
 import type { VsmResources } from "../vsm/VsmResources.js";
 import type { VsmDirectionalFrameConstants } from "../vsm/VsmReceiverDemandPass.js";
 import type { ShadowVisibilityFrame } from "../pipeline/FrameProducts.js";
 import { SHADOW_DEPTH_BIAS, SHADOW_DEPTH_SLOPE_SCALE, SHADOW_NORMAL_OFFSET_SCALE } from "../../gpu/ShadowContract.js";
+import { ShaderModuleCache } from "../../gpu/GPUDescriptorCaches.js";
 
 export interface SurfaceMaterialFrame {
   readonly runtime: GpuRenderWorldRuntime;
@@ -79,6 +81,7 @@ type Program = Readonly<{
 }>;
 
 export class SurfaceMaterialPass {
+  private readonly shaderModules: ShaderModuleCache;
   private readonly programs = new Map<string, Program>();
   private readonly layouts = new Map<string, readonly GPUBindGroupLayout[]>();
   private readonly builders = new Map<string, GPUComputePipeline>();
@@ -88,6 +91,7 @@ export class SurfaceMaterialPass {
   private readonly resolve: GPUComputePipeline;
   private readonly probe: SurfaceProbePass;
   constructor(private readonly device: GPUDevice, probeBudget?: SurfaceProbeBudget) {
+    this.shaderModules = new ShaderModuleCache(device);
     this.probe = new SurfaceProbePass(device, probeBudget);
     this.viewBuffer = device.createBuffer({ label: "Surface/frame view",
       size: Math.ceil(GPU_SPARSE_SHADING_VIEW_BYTES / 256) * 256,
@@ -98,10 +102,10 @@ export class SurfaceMaterialPass {
       return device.createSampler({ addressModeU: modes[index % 3], addressModeV: modes[index % 3],
         magFilter: filter, minFilter: filter, mipmapFilter: filter });
     }));
-    this.finalize = device.createComputePipeline({ layout: "auto", compute: {
-      module: device.createShaderModule({ code: SURFACE_SAMPLE_FINALIZE_WGSL }), entryPoint: "finalize" } });
-    this.resolve = device.createComputePipeline({ layout: "auto", compute: {
-      module: device.createShaderModule({ code: SURFACE_SAMPLE_RESOLVE_WGSL }), entryPoint: "resolve" } });
+    this.finalize = device.createComputePipeline({ label: "Surface/finalize sample indirect", layout: "auto", compute: {
+      module: this.shaderModules.obtain({ label: "Surface/finalize sample indirect", code: SURFACE_SAMPLE_FINALIZE_WGSL }), entryPoint: "finalize" } });
+    this.resolve = device.createComputePipeline({ label: "Surface/coarse sample Resolve", layout: "auto", compute: {
+      module: this.shaderModules.obtain({ label: "Surface/coarse sample Resolve", code: SURFACE_SAMPLE_RESOLVE_WGSL }), entryPoint: "resolve" } });
   }
   addToGraph(graph: FrameGraph, input: SurfaceMaterialInputs): {
     radiance: ResourceId; work: ResourceId; sampleResults: ResourceId;
@@ -159,8 +163,8 @@ export class SurfaceMaterialPass {
     const builderKey = String(hasLit) + ":" + scalarAo;
     let builderPipeline = this.builders.get(builderKey);
     if (!builderPipeline) {
-      builderPipeline = this.device.createComputePipeline({ layout: "auto", compute: {
-        module: this.device.createShaderModule({ code: surfaceSampleBuilderWgsl(hasLit, scalarAo) }), entryPoint: "build" } });
+      builderPipeline = this.device.createComputePipeline({ label: "Surface/tile Work Builder", layout: "auto", compute: {
+        module: this.shaderModules.obtain({ label: "Surface/tile Work Builder", code: surfaceSampleBuilderWgsl(hasLit, scalarAo) }), entryPoint: "build" } });
       this.builders.set(builderKey, builderPipeline);
     }
     const builderProgram = builderPipeline;
@@ -208,39 +212,42 @@ export class SurfaceMaterialPass {
       size: SURFACE_SAMPLE_INDIRECT_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT });
     const virtualBankCount = input.virtualBanks?.length ?? 0;
     const physicalEnvironment = input.physicalEnvironmentSun !== undefined;
-    const programs = activeSets.map(setId => ({ setId,
-      implicit: this.program(hasLit, input.virtualGeometry, virtualBankCount, input.textureBankMask,
-        physicalEnvironment, scalarAo, "implicit", vsmBindings !== undefined),
-      compact: this.program(hasLit, input.virtualGeometry, virtualBankCount, input.textureBankMask,
-        physicalEnvironment, scalarAo, "compact", vsmBindings !== undefined),
-      fallback: this.program(hasLit, input.virtualGeometry, virtualBankCount, input.textureBankMask,
-        physicalEnvironment, scalarAo, "fallback", vsmBindings !== undefined) }));
+    const program = this.program(hasLit, input.virtualGeometry, virtualBankCount, input.textureBankMask,
+      physicalEnvironment, scalarAo, vsmBindings !== undefined);
     const workers = graph.add("Surface/material and lighting samples", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const clear = command.beginRenderPass({ label: "Surface/background", colorAttachments: [{
         view: resolveTextureView(resources.get(radiance)), loadOp: "clear", storeOp: "store",
         clearValue: { r: 0.025, g: 0.035, b: 0.05, a: 1 } }] }); clear.end();
-      const pass = command.beginComputePass({ label: "Surface/material and lighting samples" });
-      for (const profile of programs) {
-        const parameters = command.allocateTransientBufferAndLoad(new Uint32Array([profile.setId, 0, 0, 0]).buffer,
-          GPUBufferUsage.UNIFORM);
-        const groups = profile.implicit.layouts.map((layout, groupIndex) => this.device.createBindGroup({
-          layout, entries: profile.implicit.bindings.filter(binding => binding.group === groupIndex).map(binding => ({
+      const dispatches = activeSets.map(setId => {
+        const parametersFor = (mode: SurfaceSampleWorkerMode): GPUBuffer =>
+          command.allocateTransientBufferAndLoad(packSurfaceSampleDispatch(setId, mode).buffer, GPUBufferUsage.UNIFORM);
+        const bindGroup = (groupIndex: number, parameters: GPUBuffer): GPUBindGroup => this.device.createBindGroup({
+          layout: program.layouts[groupIndex]!, entries: program.bindings.filter(binding => binding.group === groupIndex).map(binding => ({
             binding: binding.binding, resource: this.resolveBinding(binding, input, currentView, radiance,
-              finalizedWork, sampleResults, profile.setId, parameters, resources, vsmBindings) })) }));
-        const execute = (program: Program, compact: boolean) => {
-          pass.setPipeline(program.pipeline); groups.forEach((group, index) => pass.setBindGroup(index, group));
-          pass.dispatchWorkgroupsIndirect(resources.get(indirect) as GPUBuffer, profile.setId * 32 + Number(compact) * 16);
-        };
-        execute(profile.implicit, false); execute(profile.compact, true);
-        pass.setPipeline(profile.fallback.pipeline); groups.forEach((group, index) => pass.setBindGroup(index, group));
+              finalizedWork, sampleResults, setId, parameters, resources, vsmBindings) })) });
+        const parameters = parametersFor("implicit");
+        return { setId, groups: program.layouts.map((_layout, index) => bindGroup(index, parameters)),
+          compact: bindGroup(0, parametersFor("compact")), fallback: bindGroup(0, parametersFor("fallback")) };
+      });
+      // Upload copies must be encoded before opening the compute pass.
+      const pass = command.beginComputePass({ label: "Surface/material and lighting samples" });
+      pass.setPipeline(program.pipeline);
+      for (const dispatch of dispatches) {
+        dispatch.groups.forEach((group, index) => pass.setBindGroup(index, group));
+        pass.dispatchWorkgroupsIndirect(resources.get(indirect) as GPUBuffer, dispatch.setId * 32);
+        // Only group zero contains dispatch parameters. Resident and lighting
+        // groups remain bound for all three work kinds.
+        pass.setBindGroup(0, dispatch.compact);
+        pass.dispatchWorkgroupsIndirect(resources.get(indirect) as GPUBuffer, dispatch.setId * 32 + 16);
+        pass.setBindGroup(0, dispatch.fallback);
         pass.dispatchWorkgroups(capacity.tilesX, capacity.tilesY);
       }
       pass.end();
     });
     workers.read(indirect);
     const completedWork = workers.write(finalizedWork);
-    for (const binding of programs[0]?.implicit.bindings ?? []) {
+    for (const binding of program.bindings) {
       if (["radiance-output", "sample-results", "shading-work", "sample-profile", "texture-samplers"].includes(binding.role) ||
           binding.role.endsWith("sampler")) continue;
       if (binding.role === "frame-view") workers.read(currentView);
@@ -271,10 +278,10 @@ export class SurfaceMaterialPass {
   }
   private program(hasLit: boolean, virtualGeometry: boolean, virtualBankCount: number,
     textureBankMask: number, physicalEnvironment: boolean, scalarAo: boolean,
-    mode: SurfaceSampleWorkerMode, vsmShadowEnabled: boolean): Program {
+    vsmShadowEnabled: boolean): Program {
     const layoutKey = [hasLit, virtualGeometry, virtualBankCount, textureBankMask,
       physicalEnvironment, scalarAo, vsmShadowEnabled].join(":");
-    const key = layoutKey + ":" + mode;
+    const key = layoutKey;
     const cached = this.programs.get(key); if (cached) return cached;
     const compiled = compileSurfaceProgramLayout({
       kernel: { programId: hasLit ? 15 : 3, outputDependencyMask: 0, textureBankMask },
@@ -284,8 +291,9 @@ export class SurfaceMaterialPass {
     }, this.device.limits);
     let layouts = this.layouts.get(layoutKey);
     if (!layouts) { layouts = createSurfaceBindGroupLayouts(this.device, compiled.plan); this.layouts.set(layoutKey, layouts); }
-    const pipeline = this.device.createComputePipeline({ layout: this.device.createPipelineLayout({ bindGroupLayouts: [...layouts] }),
-      compute: { module: this.device.createShaderModule({ code: surfaceSampleWorkerWgsl(compiled.plan, mode,
+    const label = `Surface/samples (${layoutKey})`;
+    const pipeline = this.device.createComputePipeline({ label, layout: this.device.createPipelineLayout({ bindGroupLayouts: [...layouts] }),
+      compute: { module: this.shaderModules.obtain({ label, code: surfaceSampleWorkerWgsl(compiled.plan,
         hasLit, virtualGeometry, vsmShadowEnabled, virtualBankCount, textureBankMask, physicalEnvironment) }), entryPoint: "shade" } });
     const program = Object.freeze({ pipeline, layouts, bindings: compiled.plan.bindings }); this.programs.set(key, program); return program;
   }
@@ -339,6 +347,8 @@ export class SurfaceMaterialPass {
     this.viewBuffer.destroy();
     this.programs.clear();
     this.layouts.clear();
+    this.builders.clear();
+    this.shaderModules.clear();
   }
 }
 function required(value: ResourceId | undefined, role: string): ResourceId {

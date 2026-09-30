@@ -4,15 +4,15 @@ import { GPU_SHADING_MATERIAL_WGSL, GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL } fr
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js";
 import { GPU_SHADING_SURFACE_LITE_WGSL } from "../gpu/GpuComputeMaterialAbi.js";
-import { SURFACE_SAMPLE_WGSL, SURFACE_SAMPLE_RECORD_WORDS } from "../render/surface/SurfaceSampleAbi.js";
+import { SURFACE_SAMPLE_WGSL, SURFACE_SAMPLE_RECORD_WORDS, SURFACE_SAMPLE_THREADS,
+  SURFACE_SAMPLE_DISPATCH } from "../render/surface/SurfaceSampleAbi.js";
 import type { SurfacePhysicalBindingPlan } from "../render/surface/SurfaceKernelBindingPlan.js";
 import { bindingDeclaration } from "./surface_binding_declarations.js";
 import { geometryWgsl, lightingWgsl, materialEvaluationWgsl, textureWgsl } from "./surface_material_kernel.js";
 import { ATMOSPHERE_RUNTIME_WGSL } from "./atmosphere/runtime.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "./working_color.js";
-export type SurfaceSampleWorkerMode = "implicit" | "compact" | "fallback";
 export function surfaceSampleWorkerWgsl(plan: SurfacePhysicalBindingPlan,
-  mode: SurfaceSampleWorkerMode, hasLit: boolean, virtualGeometry: boolean,
+  hasLit: boolean, virtualGeometry: boolean,
   vsmShadowEnabled = false, virtualBankCount = 4, textureBankMask = 0x1ff,
   physicalEnvironment = true): string {
   const kernel = { programId: 15, outputDependencyMask: 0, textureBankMask };
@@ -76,7 +76,7 @@ fn surface_evaluate(pixel:vec2u,key:u32)->vec4f {
   let work_item=meshlet_work.elements[slot]; let material_slot=work_item.material_slot_or_range;
   if material_slot>=shading_view.material_count || material_slot>=arrayLength(&material_records) { return vec4f(1.0,0.0,1.0,1.0); }
   let material=material_records[material_slot];
-  if material.family>2u || material.texture_binding_set_id!=sample_selected_profile ||
+  if material.family>2u || material.texture_binding_set_id!=sample_dispatch.x ||
     ((work_item.packed_raster_flags>>8u)&63u)!=material.texture_binding_set_id*16u+material.program_id ||
     material.material_generation!=shading_view.material_generation ||
     material.texture_generation!=shading_view.texture_generation ||
@@ -114,43 +114,44 @@ fn surface_write(pixel:vec2u,result:u32) {
   else { textureStore(sample_results,sample_result_pixel(result),color); sample_add(SAMPLE_COUNTER_coarse,1u); surface_count_signal_work(pixel,result); }
 }
 `;
-  const entry = mode === "implicit" ? /* wgsl */ `
-@compute @workgroup_size(8,8)
+  // Dispatch mode is uniform across a workgroup. Resolve addressing first, then
+  // call the expensive material/lighting body once for all three work kinds.
+  const entry = /* wgsl */ `
+@compute @workgroup_size(${SURFACE_SAMPLE_THREADS})
 fn shade(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) thread:u32) {
-  let profile=sample_profile(sample_selected_profile);
+  var pixel:vec2u;
+  var result=0xffffffffu;
+  let profile=sample_profile(sample_dispatch.x);
+  if sample_dispatch.y==${SURFACE_SAMPLE_DISPATCH.implicit}u {
   let index=group.y*sample_load(profile+2u)+group.x;
   if index>=sample_load(profile) { return; }
-  let tile=sample_load(sample_load(SAMPLE_HEADER_descriptors)+sample_selected_profile*sample_load(SAMPLE_HEADER_tileCount)+index);
+  let tile=sample_load(sample_load(SAMPLE_HEADER_descriptors)+sample_dispatch.x*sample_load(SAMPLE_HEADER_tileCount)+index);
   let base=sample_tile(tile); if sample_load(base)!=1u { return; }
   let packed_rate=sample_load(base+SAMPLE_TILE_rate); let rate=sample_effective_rate(packed_rate); let stride=sample_stride(rate); let local=vec2u(thread%8u,thread/8u);
   if any(local%stride!=vec2u(0u)) { return; }
   let cell=(local.y/2u)*4u+local.x/2u; let child=(local%2u)/stride;
-  let result=select(0xffffffffu,sample_load(base+SAMPLE_TILE_cellResults+cell)+child.y*(2u/stride.x)+child.x,rate!=0u);
-  surface_write(sample_origin(tile)+local,result);
-}` : mode === "compact" ? /* wgsl */ `
-@compute @workgroup_size(64)
-fn shade(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) thread:u32) {
-  let profile=sample_profile(sample_selected_profile);
-  let index=(group.y*sample_load(profile+3u)+group.x)*64u+thread;
+  result=select(0xffffffffu,sample_load(base+SAMPLE_TILE_cellResults+cell)+child.y*(2u/stride.x)+child.x,rate!=0u);
+  pixel=sample_origin(tile)+local;
+  } else if sample_dispatch.y==${SURFACE_SAMPLE_DISPATCH.compact}u {
+  let index=(group.y*sample_load(profile+3u)+group.x)*${SURFACE_SAMPLE_THREADS}u+thread;
   if index>=sample_load(profile+1u) || index>=sample_load(SAMPLE_HEADER_records) { return; }
-  let record=sample_load(sample_load(SAMPLE_HEADER_indicesBase)+sample_selected_profile*sample_load(SAMPLE_HEADER_records)+index);
+  let record=sample_load(sample_load(SAMPLE_HEADER_indicesBase)+sample_dispatch.x*sample_load(SAMPLE_HEADER_records)+index);
   let offset=sample_load(SAMPLE_HEADER_recordsBase)+record*${SURFACE_SAMPLE_RECORD_WORDS}u; let tile=sample_load(offset);
   if sample_load(sample_tile(tile))!=2u { return; }
-  let linear=sample_load(offset+SAMPLE_RECORD_pixel); let pixel=vec2u(linear%shading_view.width,linear/shading_view.width);
+  let linear=sample_load(offset+SAMPLE_RECORD_pixel); pixel=vec2u(linear%shading_view.width,linear/shading_view.width);
   let local=pixel-sample_origin(tile); let bit=local.y*8u+local.x;
   let mask=select(sample_load(offset+SAMPLE_RECORD_low),sample_load(offset+SAMPLE_RECORD_high),bit>=32u);
-  if (mask&(1u<<(bit%32u)))==0u || sample_load(offset+SAMPLE_RECORD_profile)!=sample_selected_profile { return; }
-  surface_write(pixel,sample_load(offset+SAMPLE_RECORD_result));
-}` : /* wgsl */ `
-@compute @workgroup_size(8,8)
-fn shade(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) thread:u32) {
+  if (mask&(1u<<(bit%32u)))==0u || sample_load(offset+SAMPLE_RECORD_profile)!=sample_dispatch.x { return; }
+  result=sample_load(offset+SAMPLE_RECORD_result);
+  } else if sample_dispatch.y==${SURFACE_SAMPLE_DISPATCH.fallback}u {
   let tile=group.y*sample_load(SAMPLE_HEADER_tilesX)+group.x;
   if sample_load(sample_tile(tile))!=3u { return; }
-  let pixel=sample_origin(tile)+vec2u(thread%8u,thread/8u);
+  pixel=sample_origin(tile)+vec2u(thread%8u,thread/8u);
   if pixel.x>=shading_view.width || pixel.y>=shading_view.height { return; }
   let key=textureLoad(visibility_texture,vec2i(pixel),0).x;
-  if surface_classify(key)!=sample_selected_profile { return; }
-  surface_write(pixel,0xffffffffu);
+  if surface_classify(key)!=sample_dispatch.x { return; }
+  } else { return; }
+  surface_write(pixel,result);
 }`;
   return ["requires unrestricted_pointer_parameters;", SURFACE_SAMPLE_WGSL,
     GPU_VISIBILITY_KEY_WGSL,GPU_MESHLET_RASTER_WORK_WGSL,GPU_INSTANCE_RECORD_WGSL,

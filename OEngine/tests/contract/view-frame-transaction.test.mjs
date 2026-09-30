@@ -87,10 +87,13 @@ test("GPUCameraState can update its CPU mirror without a separate GPU submission
   mirror.cameraValue = { copy(value) { copiedCamera = value; } };
   mirror.viewportOffset = new Float32Array(2);
   mirror.viewProjection = new Float32Array(16);
+  mirror.currentProjection = new Float32Array(16);
   const source = { camera: { id: 7 }, viewportOffset: new Float32Array([0.2, -0.3]),
-    viewProjection: Float32Array.from({ length: 16 }, (_, index) => index + 1) };
+    viewProjection: Float32Array.from({ length: 16 }, (_, index) => index + 1),
+    currentProjection: Float32Array.from({ length: 16 }, (_, index) => index + 17) };
   mirror.copyCpu(source);
   assert.equal(copiedCamera, source.camera);
   assert.deepEqual([...mirror.viewportOffset], [...source.viewportOffset]);
   assert.deepEqual([...mirror.view_projection_matrix], [...source.viewProjection]);
+  assert.deepEqual([...mirror.projection_matrix], [...source.currentProjection]);
 });

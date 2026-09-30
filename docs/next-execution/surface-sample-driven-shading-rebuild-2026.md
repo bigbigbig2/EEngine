@@ -112,6 +112,14 @@
 - 复核生命周期边界：内部/输出尺寸进入 FrameProgram/Graph key；Surface pool 在创建前按 device limits 收敛；材质、纹理、几何 publication revision 由当前帧绑定；Temporal/HZB/FSR3 history 在 resize、camera cut、device epoch 变化时由各自 owner 处理；device loss 通过 Renderer shutdown/recovery 重建 device-local Surface pipelines，不把旧 GPU 资源带入新 epoch。Surface 不创建长期 Loader 资源、不读回本帧工作数，也不增加 submit。
 - 集中验证通过：`npm run typecheck`、`npm run build:test`、`npm run build`；阶段四及相关 Surface/Temporal/Product/ABI 定向检查共 24 项通过，另有扩展的材质、几何 Product、Temporal 和 Surface checks 通过；`git diff --check` 通过。未运行正式 browser matrix、场景/设备画质矩阵、GPU P50/P95、evidence/claim promotion。
 
+### 本地 Chrome 故障修复与开发验证（2026-10-01）
+
+- 用户原 Chrome 154 / GTX 1650 Ti / D3D12 已确认硬件 WebGPU 与 timestamp-query。现场诊断显示三个 Surface 重 worker 顺序重复编译，每份约 25–30 秒，场景 submit 等待期间实例最终失效；不能把它描述为浏览器不支持，驱动/watchdog 内部失效机制尚未证明。修复把十个材质 role 的采样合并到有界循环，并让 implicit/compact/fallback 共用单一 shader/pipeline 与一次重求值调用；runtime dispatch 参数保留各工作类型、二维 indirect、覆盖和整 tile fallback 的语义。
+- 修复两处真实 API 错误：参数上传的 CopyBufferToBuffer 在 compute pass 打开前编码；Resolve 真正读取并验证 depth，避免 auto layout 裁掉未使用 binding 后与 CPU bind group 不一致。Surface 编译接入带 label 的 ShaderModuleCache，并处理诊断 error-scope rejection。这些为本地 WebGPU 集成修正，没有第二条 renderer、独立 submit 或本帧 readback 控制。
+- 修复后用户原 Chrome 的 showcase 持续完成 GPU 提交，默认/半内部尺寸/移动相机/真实 1023×767 canvas resize 均有非零 GPU timestamps，四组采样的 validation/uncaptured/device-loss/timestamp-failure counters 均为零。每组约十秒；GPU pass 合计 P50/P95 分别为 18.50/19.89、8.46/9.25、19.04/20.72、17.20/35.00 ms。Surface 子图包含 Probe/Builder/finalize/background/worker/Resolve，不含 Present；相应 P50/P95 为 8.83/9.53、2.42/3.04、8.40/9.27、8.58/17.93 ms。该场景使用严格预算和物理环境保守全率，没有 Surface sample counters，不能据此证明 adaptive 净加速；冷启动仍有几十秒编译，resize 有长尾。
+- typecheck/build/build:test 与 32 项 Surface/资源 targeted Node checks 通过；另同步 FSR3 曝光资源和 camera projection 的陈旧 lifecycle fixture 后，6 项生命周期检查通过。现有生产 GPU oracle 经临时浏览器 host glue 在用户硬件 Chrome 执行，374 assertions 通过，覆盖 textured PBR full/quad/directional/mixed、各池与 partial overflow、Coated/背景/非法 key/驻留/灯表风险、7×5 尾部、二维 indirect、移动相机/刚体与独立 motion；增加 pass 内禁止上传的回归保护。浏览器运行没有关闭 shader optimization。Node Dawn 复跑仍受 D3D12CreateDevice/DXGI_ERROR_DRIVER_INTERNAL_ERROR 阻断，不宣称其通过。
+- 诊断和采样记录位于本地 ignored `.local/validation/surface-showcase-20260930/summary.md`。临时 examples oracle 页面已移除；构建脚本保留在 ignored `.codex-temp/`。这次是用户明确要求的现场开发验证，正式跨设备/完整画质与 lifecycle 矩阵、固定条件性能对比、evidence/claim promotion 仍开放。
+
 ## 之后按剩余瓶颈选择，不绑定首个重构
 
 1. 如果同一表面的材质/间接项跨帧重复仍主导，再选一类对象/纹理空间或屏幕空间缓存 profile；稳定表面位置、view/lighting 依赖、footprint、失效、缺页/eviction 与 miss 路径完整后再实施，不直接缓存最终 PBR 颜色。
