@@ -2,6 +2,7 @@ import { evaluateCompiledAppearance } from "./AppearanceGraphEvaluation.js";
 import { APPEARANCE_DEPENDENCY as D, selectAppearanceProductProgram } from "./AppearanceGraphCompiler.js";
 import type { CompiledAppearanceGraph } from "./AppearanceGraphCompiler.js";
 import type { AppearanceTextureBinding } from "./AppearanceGraph.js";
+import { encodeFloat16, decodeFloat16 } from "../core/Float16.js";
 
 export interface AppearanceSourceFootprint {
   readonly ddx: readonly [number, number];
@@ -18,6 +19,8 @@ export interface AppearanceBakeOptions {
   readonly domainMin: readonly [number, number];
   readonly domainMax: readonly [number, number];
   readonly error: AppearanceBakeBudget;
+  /** Quantize before the source-vs-product probes; never assert a pre-quantization budget afterward. */
+  readonly storagePrecision?: "float32" | "float16";
   /** Source sampler performs its own decode/filter using the supplied transformed footprint. */
   readonly sample: (binding: AppearanceTextureBinding, uv: readonly [number, number],
     footprint: AppearanceSourceFootprint) => readonly number[];
@@ -40,6 +43,8 @@ export interface AppearanceCookedProduct {
   readonly domainMax: readonly [number, number];
   readonly fields: Readonly<Record<string, AppearanceCookedField>>;
   readonly allocatedBytes: number;
+  readonly storagePrecision: "float32" | "float16";
+  readonly errorBudget: AppearanceBakeBudget;
   readonly validation: {
     readonly filter: "bilinear-clamp-trilinear";
     readonly probeCount: number;
@@ -142,7 +147,9 @@ export function cookAppearanceMipProduct(source: CompiledAppearanceGraph,
         const data = mips[name]![level]!.data;
         evaluated[name]!.forEach((value, channel) => {
           if (!Number.isFinite(value)) throw new RangeError(`Appearance cook '${name}' produced a nonfinite field`);
-          data[(y * size.width + x) * field.width + channel] = value;
+          const stored = options.storagePrecision === "float16" ? decodeFloat16(encodeFloat16(value)) : value;
+          if (!Number.isFinite(stored)) throw new RangeError(`Appearance cook '${name}' exceeds finite storage precision`);
+          data[(y * size.width + x) * field.width + channel] = stored;
         });
       }
     }
@@ -170,6 +177,7 @@ export function cookAppearanceMipProduct(source: CompiledAppearanceGraph,
   return Object.freeze({ kind: "reevaluated-mip-fields", coordinateDomain: domains[0] ?? null,
     domainMin: Object.freeze([...options.domainMin]) as readonly [number, number],
     domainMax: Object.freeze([...options.domainMax]) as readonly [number, number], fields: Object.freeze({ ...fields }), allocatedBytes,
+    storagePrecision: options.storagePrecision ?? "float32", errorBudget: Object.freeze({ ...options.error }),
     validation: Object.freeze({ filter: "bilinear-clamp-trilinear", probeCount, maxAbsoluteError, maxBudgetRatio }) });
 }
 
@@ -191,6 +199,9 @@ export function sampleAppearanceCookedField(field: AppearanceCookedField, u: num
 }
 
 function validateOptions(options: AppearanceBakeOptions): readonly { width: number; height: number }[] {
+  if (options.storagePrecision !== undefined && options.storagePrecision !== "float32" && options.storagePrecision !== "float16") {
+    throw new RangeError("Unknown appearance storage precision");
+  }
   for (const [name, value] of Object.entries({ width: options.width, height: options.height,
     mipCount: options.mipCount, byteBudget: options.byteBudget, validationProbeBudget: options.validationProbeBudget })) {
     if (!Number.isSafeInteger(value) || value < (name.endsWith("Budget") ? 0 : 1)) throw new RangeError(`Invalid appearance cook ${name}`);

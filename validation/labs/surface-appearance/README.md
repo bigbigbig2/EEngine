@@ -20,3 +20,13 @@ node validation/labs/surface-appearance/appearance-resident-gpu-oracle.mjs .loca
 它直接使用生产`AppearanceProgramRegistry`、`GpuAppearancePublication`和resident kernel：同一command先copy发布buffer再消费task，使用2×2、两layer的真实texture array、各bank与固定sampler profile，核对Coated两材质共享PSO、多UV、仿射采样、linear alpha、语义fallback及无纹理程序。这里的纹理已是resident scene-linear数据，不能按author sRGB再解码。Raw写入`resident-gpu-oracle.json`；五组14,592值，最大绝对误差`5.96046448e-8`。本地Dawn会输出adapter初始化及pipeline cached-blob HRESULT诊断，虽然API validation/uncaptured errors与device loss为零，不能描述为无原生诊断或Chrome兼容结论。全bank×全sampler采样原型曾长时间编译而中断，没有通过记录；最终内核按每sample资源profile直接绑定，原型已删除。
 
 两个宿主均不证明生产Surface已切换、不统计性能收益，也未覆盖各向异性、动态footprint/驻留更新、normal variance、cache seam/LOD或完整连续画面。
+
+静态half产品第三个组件宿主：
+
+```powershell
+node validation/labs/surface-appearance/appearance-asset-gpu-oracle.mjs .local/surface-gpu-oracle
+```
+
+实际cook（先half量化再质量probes）→RuntimeAsset包往返→调用者拥有的array layers→同一command事务copy→GPU bilinear/trilinear sample→数值readback。NPOT 5×3、三层mip、r16float/rg16float/rgba16float及f32常量；12个copy、256 lanes/3,328值。比较GPU过滤与packed CPU参考（最大`0.000162751`），也比较该fixture源表达式（最大`0.018849826`），后者在显式0.025预算内；这个预算不作为任何生产画质默认或结论。Payload 396 bytes、padded staging与实际buffer各2228 bytes。Raw为`asset-gpu-oracle.json`。
+
+上传helper不创建或拥有长期texture，正式Appearance residency/cache owner和材质program替换consumer尚未接通。有限probes与这个GPU fixture不证明连续域完全等价，不证明normal variance/roughness、anisotropy、chart seam/LOD、Chrome画质或性能。Dawn原生adapter/cache blob诊断同前两个宿主。

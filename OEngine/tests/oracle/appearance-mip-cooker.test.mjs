@@ -34,6 +34,21 @@ test("nonlinear trilinear mismatch exceeding the declared budget rejects the pro
   assert.throws(() => cookAppearanceMipProduct(p, { nonlinear: p.outputs.field }, options()), /quality budget/);
 });
 
+test("half-float product quality probes include quantization error and reject finite-storage overflow", () => {
+  const p = graph();
+  assert.throws(() => cookAppearanceMipProduct(p, { field: p.outputs.field }, options({
+    storagePrecision: "float16", sample: () => [0.2001, 0, 0, 1], error: { absolute: 1e-7, relative: 0 }
+  })), /quality budget/);
+  const result = cookAppearanceMipProduct(p, { field: p.outputs.field }, options({
+    storagePrecision: "float16", error: { absolute: 0.0002, relative: 0 }
+  }));
+  assert.equal(result.storagePrecision, "float16"); assert.ok(result.validation.maxAbsoluteError > 1e-5);
+  assert.ok(result.validation.maxBudgetRatio <= 1);
+  assert.throws(() => cookAppearanceMipProduct(p, { field: p.outputs.field }, options({
+    storagePrecision: "float16", sample: () => [100000, 0, 0, 1], error: { absolute: 100000, relative: 0 }
+  })), /finite storage precision/);
+});
+
 test("affine mip interpolation passes and all slow/mismatching probes contribute", () => {
   const p = graph();
   const product = cookAppearanceMipProduct(p, { color: p.outputs.field }, options());

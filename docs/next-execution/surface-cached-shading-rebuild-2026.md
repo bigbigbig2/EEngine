@@ -38,6 +38,10 @@ S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态
 
 `appearance_resident_kernel`以发布时确定的每sample bank/sampler资源profile展开，直接消费TextureResidency已解码的scene-linear bank与独立linear alpha，不再次sRGB解码；task携带各材质constant/route/input/output偏移，同topology可混合材质实例，不要求逐材质dispatch。原“每sample全bank×全sampler分支”原型在D3D12出现长时间编译，运行中断且未取得通过结果，已被直接资源profile取代；不是保留的生产A/B。新组件宿主5组/14,592值通过，覆盖Coated两实例共享真实PSO、multi-UV、九个bank、2×2源纹理/仿射UV、alpha和语义fallback，最大绝对误差`5.96046448e-8`；不证明anisotropy、cache/LOD seam、动态footprint或Chrome整帧。更新后的原始numeric宿主32,000值亦通过，Dawn native adapter/cache blob诊断仍存在。build（含typecheck）、build:test通过；材质/发布/RenderWorld/图/cooker六组79项targeted tests通过。**新Surface帧consumer仍未切入，R04–R07不提升完成，S1保持active，无性能或画质达标声明。**
 
+发布基础已提交`c34a5b6`。接着为静态字段实现了half-precision实际产品：`AppearanceMipCooker`先以ties-to-even量化，再对最终可过滤数据执行原空间/fractional-LOD质量探针；有限half溢出和预算失败拒绝，不在打包时静默量化尚未验证的f32。`AppearanceAssetPackage`使用现有RuntimeAsset V2容器保存独立r16/rg16/rgba16字段mip、源identity/dependencies、坐标域与过滤误差合同；常量仍为精确f32位模式（包含HDR和signed zero），不占纹理页。`AppearanceAssetUpload`向调用者拥有的texture-array layer事务编码全部mip的buffer→texture copy，预查format/extent/layer/limits与padded上传预算，成功提交才commit，部分编码异常直接abort。Frame command提供单一pooled upload buffer，无额外buffer中转或submit；实际pool capacity单独观测，staging allocator不再漏计active/pending allocation。
+
+本模块十组98项targeted tests及build/build:test通过，包含binary16全部65,536 encodings、half中点、包往返/完整性/typed ABI负例、量化预算负例、零纹理常量、NPOT/row padding、capability/容量、提交与abort。GTX 1650 Ti/D3D12真实组件验证三种half纹理、12个mip copy、256 lanes/3,328值：GPU过滤对packed CPU参考最大误差`0.000162751`，对这个fixture源表达式最大误差`0.018849826`，在其**显式0.025预算**内；该数值仅为诊断fixture预算，不是AAA画质或所有资产的通用默认。API errors/device loss零，Dawn原生诊断仍在。**该上传helper不拥有长期纹理，不是完整Appearance residency/cache owner；烘焙产品尚未绑定材质程序并进入新Surface主链，normal-variance/roughness、字段失效更新及S2–S7仍未完成。**没有Chrome、整帧、视频或性能通过声明。
+
 ## 3. 设计要求到证明的追踪
 
 所有条目初始为未完成。对应证据必须指出生产 producer、consumer 和测试覆盖范围；文件存在或 manifest 声称 completed 都不能替代证明。

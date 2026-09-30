@@ -276,6 +276,12 @@ export class ShadeGPUCommandContext {
     this.#encoder!.copyTextureToTexture(source, destination, copySize);
   }
 
+  /** Transactional cooked texture upload; encoded in the existing command/submit. */
+  copyBufferToTexture(source: GPUTexelCopyBufferInfo, destination: GPUTexelCopyTextureInfo,
+    copySize: GPUExtent3DStrict): void {
+    this.#encoder!.copyBufferToTexture(source, destination, copySize);
+  }
+
   beginComputePass(
     descriptor?: GPUComputePassDescriptor
   ): GPUComputePassEncoder {
@@ -441,6 +447,15 @@ export class ShadeGPUCommandContext {
     this.#stagingBuffers.push(staging);
     this.#graphics.profiler.recordUpload("staging-copy", size);
     this.copyBufferToBuffer(staging, 0, buffer, buffer_offset, size);
+  }
+
+  /** One pooled upload buffer, then direct buffer-to-texture copy; no intermediate buffer copy. */
+  allocateTextureUploadBuffer(data: ArrayBuffer): GPUBuffer {
+    const staging = this.#graphics.buffer_allocator_staging.get(data.byteLength);
+    this.device.queue.writeBuffer(staging, 0, data);
+    this.#stagingBuffers.push(staging);
+    this.#graphics.profiler.recordUpload("staging-copy", data.byteLength);
+    return staging;
   }
 
   finish(): void {

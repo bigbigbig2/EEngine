@@ -17,6 +17,7 @@ test("staging allocator reuses unmapped copy buffers without remapping", () => {
       createBuffer(value) { descriptor = value; return buffer; }
     });
     const allocated = allocator.get(64);
+    assert.equal(allocator.gpu_memory_usage, 64, "active upload buffers remain allocated");
     assert.equal(allocated, buffer);
     assert.equal(descriptor.usage, 3);
     assert.equal(descriptor.mappedAtCreation, undefined);
@@ -45,7 +46,9 @@ test("staging allocator waits for submitted work before reusing upload memory", 
     });
     const inFlight = allocator.get(64);
     allocator.release(inFlight, submitted);
+    assert.equal(allocator.gpu_memory_usage, 64, "in-flight uploads remain charged");
     const next = allocator.get(64);
+    assert.equal(allocator.gpu_memory_usage, 128);
     assert.notEqual(next, inFlight);
     complete();
     await submitted;

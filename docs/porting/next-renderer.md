@@ -161,6 +161,10 @@ Local validation：编译基础提交`23d0110`的`tests/oracle/appearance-graph.
 
 发布组件的D3D12实际GPU消费者是独立`appearance-resident-gpu-oracle.mjs`，并非画面中的Surface；5组/14,592值、最大误差`5.96046448e-8`通过，原numeric宿主32,000值重跑通过。曾中断全bank×全sampler原型的长时间编译，未登记通过；最终resource-profile采样不保留该原型。模块build/build:test及79项targeted tests通过。精确逐字段失效版本、动态图输入、normal variance与roughness过滤、完整cook资产打包驻留及Surface生产consumer仍未完成；来源采用状态保持not adopted，未提升R04–R07或性能/画质等级。
 
+静态产品后续映射：`AppearanceMipCooker`的float16 profile在Texel存储前按IEEE ties-to-even量化，原有源表达式→packed-field空间/LOD probes包含量化误差；既有MaterialX字段烘焙参考和具名本地ReevaluatedMip profile不变。`core/Float16`是确定性IEEE编解码工具，`assets/AppearanceAssetPackage`是本地RuntimeAsset V2 schema/half-field打包集成，`gpu/AppearanceAssetUpload`及frame command的buffer→texture/pooled upload seam是本地绑定和事务胶水，不是新增复杂渲染算法或MaterialX文件格式port。输入是经最终precision质量验证的独立字段，输出是r16float/rg16float/rgba16float mip payload与精确f32常量；保持source/dependency identity、单UV域、linear颜色/alpha、完整mip和显式误差预算。packed texel超出half有限域或任何预算失败时拒绝，保持实际source程序需求，不以截断精度掩盖失败。
+
+该profile的CPU/ABI/生命周期与完整RuntimeAsset回归十组98项通过，build/build:test通过。`appearance-asset-gpu-oracle`同一诊断command上传12个mip并读实际GPU过滤结果，3,328值通过；GPU→packed参考误差`0.000162751`、GPU→该fixture源表达式误差`0.018849826`，fixture预算0.025单独声明，不能借用为生产画质门槛。没有移植采纳提升：包/upload helper没有长期纹理owner，没有真实Surface chart/asset程序替换consumer，normal variance/roughness及动态缓存/历史仍缺。
+
 ## 1. 推荐总表
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |

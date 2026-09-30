@@ -21,7 +21,7 @@ export class GPUStagingBufferAllocator {
 
   get gpu_memory_usage(): number {
     let bytes = 0;
-    for (const buffer of this.cache) bytes += buffer.size;
+    for (const buffer of this.buffers) bytes += buffer.size;
     return bytes;
   }
 
