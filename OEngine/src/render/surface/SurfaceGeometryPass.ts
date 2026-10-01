@@ -38,6 +38,7 @@ export interface SurfaceGeometryInput {
   readonly sourceVertexData: number;
   readonly geometryOffset: number;
   readonly sampleOffset: number;
+  readonly recordCount: number;
   readonly geometryCapacity: number;
 }
 
@@ -222,7 +223,7 @@ export class SurfaceGeometryPass {
       ] });
       const pass = command.beginComputePass({ label: "Surface/GeometryRecord" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil(data.geometryCapacity / 64)); pass.end();
+      pass.dispatchWorkgroups(Math.ceil(data.recordCount / 64)); pass.end();
     });
     for (const resource of [input.visibility, input.work, input.arena, input.meshletWork,
       input.sourceHeap, input.vertexPayload, input.frameInstances, input.frameAttributes, input.camera]) node.read(resource);
