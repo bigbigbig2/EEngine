@@ -86,9 +86,9 @@ DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRec
 
 已新增 `SurfaceReconstructionPass`，只读取四类 packet、GeometryRecord 和 reactive 输入，按 tile 映射在全分辨率合成 HDR/reactive；未重新解码 Geometry Product 或执行材质 graph。AO、energy conservation、pre-exposure、真实 history reject/age 与 emissive 仍待接通，Phase 5 未完成，未运行编译、测试或 GPU/browser 验证。
 
-### Phase 6：全链与生命周期
+### Phase 6：全链与生命周期（实现中）
 
-接通 Environment/VSM/AO/TemporalFacts/FSR3 的真实消费者；依真实字段和 signal 依赖失效，拒绝错误身份、版本、signature、residency、depth/plane/normal/view、reactive 和超龄 history。保留 camera cut、resize、begin/commit/abort、device recovery、GPU completion retire 与最多两个 in-flight frame 的背压。
+SurfaceWorkRuntime 已纳入 RendererCore 的 prepare/commit/abort/destroy，reconstruct 读取唯一 TemporalFacts reactive mask，仍沿用 FrameCoordinator 的单一 submit 与最多两个 in-flight 背压。Environment/VSM/AO 的 signal 依赖、history identity/version/revision reject、camera cut/resize/device recovery 以及 GPU completion retire 还未全部接通，Phase 6 未完成，未运行编译、测试或 GPU/browser 验证。
 
 资源分类沿用原文 §7：publication、frame persistent、frame transient、output/history 各有 owner/accounting/retire point。创建前协商 buffer、workgroup、dispatch、binding、texture/storage limits；pipeline/bind group/sampler 在 publication/profile 阶段缓存，不按材质实例或纹理组合建立独立 PSO。
 

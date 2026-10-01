@@ -25,7 +25,7 @@ currentSlice:
     廉价合成，完成真实 FrameGraph 边、独立 signal 失效和生命周期。原文 §11 的 16 项
     不因文档切换提升完成。skin/morph 与 previous deformation、Product 跨 LOD/source/seam、
     nonlocal/provider、屏外 VSM caster 和透明 composition 缺口继续保留。
-    Phase 1 已完成；Phase 2 已加入 SurfaceWork 固定前缀、隐式 tile/sample 分区和唯一 GeometryRecord producer；Phase 3 已接入 stable key lookup、hit mask 与 bounded miss queue；Phase 4 已接入 diffuse/specular/coat/IBL 独立 packet buffers；Phase 5 已接入只读 packet/history 形态的 full-resolution reconstruct。完整 cluster/VSM/AO/IBL 数学、材质 miss evaluation、真实 history 与 pre-exposure 仍待接通。实现、adoption、连续画质和四版本同条件性能均未验收，
+    Phase 1 已完成；Phase 2 已加入 SurfaceWork 固定前缀、隐式 tile/sample 分区和唯一 GeometryRecord producer；Phase 3 已接入 stable key lookup、hit mask 与 bounded miss queue；Phase 4 已接入 diffuse/specular/coat/IBL 独立 packet buffers；Phase 5 已接入只读 packet/history 形态的 full-resolution reconstruct；Phase 6 已把 TemporalFacts mask 接入 reconstruct reactive 输入并保持单一 FrameGraph/submit 生命周期。完整 cluster/VSM/AO/IBL 数学、材质 miss evaluation、真实 history/pre-exposure、device recovery 与最终验证仍待接通。实现、adoption、连续画质和四版本同条件性能均未验收，
     不恢复旧链。
 
 nextModules:

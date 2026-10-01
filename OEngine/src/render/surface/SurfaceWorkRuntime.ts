@@ -104,7 +104,7 @@ export class SurfaceWorkRuntime {
     this.layout = surfaceWorkLayout(width, height, this.budget, this.device.limits); this.prepared = true;
   }
 
-  addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; fieldVersions: ResourceId; width: number; height: number; frame: SurfaceWorkFrame }): SurfaceWorkProducts {
+  addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; fieldVersions: ResourceId; factsMask: ResourceId; width: number; height: number; frame: SurfaceWorkFrame }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
     const layout = this.layout;
     let work!: ResourceId;
@@ -135,7 +135,7 @@ export class SurfaceWorkRuntime {
     const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: material.fields,
       width: input.width, height: input.height, recordCount, frame: input.frame.generation });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
-      coat: lighting.coatPackets, ibl: lighting.iblPackets, geometry: geometry.records, reactive: lighting.reactiveMask,
+      coat: lighting.coatPackets, ibl: lighting.iblPackets, geometry: geometry.records, reactive: input.factsMask,
       width: input.width, height: input.height, recordCount });
     let radiance!: ResourceId;
     let reactiveMask!: ResourceId;

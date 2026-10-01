@@ -15,7 +15,7 @@ FrameProgram 关闭有限产品需求，FrameProgramBindings 在 encode 前检�
 
 ## 帧事务与历史
 
-TemporalFactsPass 从 depth、instance 和 current/previous camera 发布 motion/identity/masks，SparseLighting 读取基础 facts 并产生自己的 signal history/reactive，FSR3 使用这些真实产品。Surface 不拥有第二套基础 motion。
+TemporalFactsPass 从 depth、instance 和 current/previous camera 发布 motion/identity/masks；SurfaceWork reconstruct 直接读取其 mask，FSR3 使用同一真实产品。Surface 不拥有第二套基础 motion。
 
 TemporalFabric 管理 begin/commit/abort 与读写角色，各 consumer 管理实际纹理。Camera cut、resize、scene/representation/environment 变化和 device recovery 根据真实依赖失效；GPU completion 延迟资源退役。FrameCoordinator 在创建新帧资源前限制最多两个已提交未完成帧，是 completion 背压，不是本帧 visible/work readback 控制。
 
