@@ -67,6 +67,7 @@ export function appearanceResidentKernel(program: CompiledAppearanceGraph,
     { binding: 3, visibility, buffer: { type: "read-only-storage", minBindingSize: 16 } },
     { binding: 4, visibility, buffer: { type: "storage", minBindingSize: 4 } },
     { binding: 5, visibility, buffer: { type: "uniform", minBindingSize: 16 } }
+    ,{ binding: 11, visibility, buffer: { type: "read-only-storage", minBindingSize: 4 } }
   ];
   const textures: GPUBindGroupLayoutEntry[] = [];
   const declarations: string[] = [];
@@ -139,6 +140,7 @@ struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: 
 @group(0) @binding(3) var<storage, read> appearance_inputs: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> appearance_outputs: array<f32>;
 @group(0) @binding(5) var<uniform> appearance_dispatch: vec4u;
+@group(0) @binding(11) var<storage, read> appearance_task_program: array<u32>;
 var<private> appearance_task: vec4u;
 fn appearance_constant(index: u32) -> f32 { return appearance_constants[appearance_task.x + index]; }
 fn appearance_input(index: u32, channel: u32) -> f32 { return appearance_inputs[appearance_task.z + index][channel]; }
@@ -147,6 +149,7 @@ fn appearance_input(index: u32, channel: u32) -> f32 { return appearance_inputs[
 @compute @workgroup_size(${APPEARANCE_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= appearance_dispatch.x { return; }
+  if appearance_task_program[appearance_dispatch.y + id.x] != appearance_dispatch.z { return; }
   appearance_task = appearance_tasks[appearance_dispatch.y + id.x];
   let value = appearance_evaluate();
 ${Array.from({ length: lowered.outputCount }, (_, index) =>

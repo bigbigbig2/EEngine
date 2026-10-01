@@ -15,6 +15,92 @@ import { standardAppearanceParameters } from "../material/AppearanceRuntimeInput
 import { appearanceCachePlan, appearanceCacheIntegration } from "../shaders/appearance_cache.js";
 import { APPEARANCE_FIELD_COUNT } from "./GpuAppearanceCacheAbi.js";
 import type { GpuAppearanceCache, PreparedAppearanceCache } from "./GpuAppearanceCache.js";
+import { GPU_VISIBILITY_KEY_WGSL, GPU_VISIBILITY_KEY_EMPTY, GPU_VISIBILITY_KEY_INVALID } from "./GpuVisibilityKeyAbi.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE } from "./GpuMeshletRasterWorkAbi.js";
+
+const APPEARANCE_FRAME_MAX_TASKS = 262144;
+const APPEARANCE_FRAME_MAX_PIXELS = 4194304;
+const APPEARANCE_FRAME_MAX_INPUT_VECTORS = 96;
+const APPEARANCE_FRAME_MAX_OUTPUTS = 64;
+const APPEARANCE_DEMAND_WGSL = /* wgsl */ `
+${GPU_VISIBILITY_KEY_WGSL}
+${GPU_MESHLET_RASTER_WORK_WGSL}
+struct Settings { width: u32, height: u32, task_capacity: u32, max_inputs: u32, max_outputs: u32, reserved0: u32, reserved1: u32, reserved2: u32 }
+@group(0) @binding(0) var visibility: texture_2d<u32>;
+@group(0) @binding(1) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
+@group(0) @binding(2) var<storage, read> material_lookup: array<u32>;
+@group(0) @binding(3) var<storage, read> directory: array<u32>;
+@group(0) @binding(4) var<storage, read> runtime_inputs: array<vec4f>;
+@group(0) @binding(5) var<storage, read_write> tasks: array<vec4u>;
+@group(0) @binding(6) var<storage, read_write> task_inputs: array<vec4f>;
+@group(0) @binding(7) var<storage, read_write> task_program: array<u32>;
+@group(0) @binding(8) var<storage, read_write> pixel_tasks: array<u32>;
+@group(0) @binding(9) var<storage, read_write> control: array<atomic<u32>>;
+@group(0) @binding(10) var<storage, read_write> indirect: array<u32>;
+@group(0) @binding(11) var<storage, read> metadata: array<vec4u>;
+@group(0) @binding(12) var<storage, read> input_domains: array<u32>;
+@group(0) @binding(13) var<uniform> settings: Settings;
+@compute @workgroup_size(8, 8)
+fn demand(@builtin(global_invocation_id) id: vec3u) {
+  if id.x >= settings.width || id.y >= settings.height { return; }
+  let pixel = id.y * settings.width + id.x;
+  let key = textureLoad(visibility, vec2i(id.xy), 0).x;
+  if key == ${GPU_VISIBILITY_KEY_EMPTY}u || key == ${GPU_VISIBILITY_KEY_INVALID}u { pixel_tasks[pixel] = 0xffffffffu; return; }
+  let decoded = oengine_visibility_key_decode(key);
+  if decoded.valid == 0u { pixel_tasks[pixel] = 0xffffffffu; return; }
+  if decoded.meshlet_work_slot >= meshlet_work.header.written_count { pixel_tasks[pixel] = 0xffffffffu; return; }
+  let work = meshlet_work.elements[decoded.meshlet_work_slot];
+  if work.material_slot_or_range >= arrayLength(&material_lookup) { pixel_tasks[pixel] = 0xffffffffu; return; }
+  let entry = material_lookup[work.material_slot_or_range];
+  if entry == 0xffffffffu { pixel_tasks[pixel] = 0xffffffffu; return; }
+  let meta = directory[entry * 8u];
+  let program = directory[entry * 8u + 1u];
+  let slot = atomicAdd(&control[0], 1u);
+  if slot >= settings.task_capacity { atomicAdd(&control[1], 1u); pixel_tasks[pixel] = 0xffffffffu; return; }
+  let source = entry * 8u;
+  let input_base = directory[source + 7u];
+  let input_shape = metadata[program * 4u + 3u];
+  let input_count = input_shape.x;
+  let input_vectors = input_shape.y;
+  let task_input_base = slot * settings.max_inputs;
+  for (var i = 0u; i < input_vectors; i++) {
+    let domain = input_domains[program * settings.max_inputs + i];
+    var value = vec4f(0.0);
+    if i < input_count { value = runtime_inputs[input_base + i]; }
+    if domain == 1u { value = vec4f((f32(id.x) + 0.5) / f32(settings.width), (f32(id.y) + 0.5) / f32(settings.height), 0.0, 0.0); }
+    if domain == 2u { value = vec4f(1.0); }
+    if domain == 3u { value = vec4f(1.0 / f32(settings.width), 1.0 / f32(settings.height), 0.0, 0.0); }
+    task_inputs[task_input_base + i] = value;
+  }
+  tasks[slot] = vec4u(directory[source + 2u], directory[source + 3u], task_input_base, slot * settings.max_outputs);
+  task_program[slot] = program;
+  pixel_tasks[pixel] = slot;
+}
+@compute @workgroup_size(1)
+fn finalize() {
+  let count = min(atomicLoad(&control[0]), settings.task_capacity);
+  indirect[0] = (count + 63u) / 64u; indirect[1] = 1u; indirect[2] = 1u;
+  indirect[3] = count;
+}
+@group(1) @binding(0) var<storage, read> resolve_tasks: array<vec4u>;
+@group(1) @binding(1) var<storage, read> resolve_program: array<u32>;
+@group(1) @binding(2) var<storage, read> resolve_pixels: array<u32>;
+@group(1) @binding(3) var<storage, read> resolve_outputs: array<f32>;
+@group(1) @binding(4) var resolve_settings: texture_storage_2d_array<rgba16float, write>;
+@group(1) @binding(5) var<uniform> resolve_size: vec4u;
+@compute @workgroup_size(8, 8)
+fn resolve(@builtin(global_invocation_id) id: vec3u) {
+  if id.x >= resolve_size.x || id.y >= resolve_size.y { return; }
+  let pixel = id.y * resolve_size.x + id.x;
+  let task = resolve_pixels[pixel];
+  if task == 0xffffffffu { return; }
+  let base = resolve_tasks[task].w;
+  for (var field = 0u; field < resolve_size.z; field++) {
+    let value = resolve_outputs[base + min(field, resolve_size.w - 1u)];
+    textureStore(resolve_settings, vec2i(id.xy), i32(field), vec4f(value, 0.0, 0.0, 1.0));
+  }
+}
+`;
 
 export const APPEARANCE_DIRECTORY_STRIDE = 32;
 /** u32 version, scalar output base, width, dependency mask. */
@@ -67,6 +153,26 @@ export class GpuAppearancePublication {
   private fieldWords!: Uint32Array<ArrayBuffer>;
   private fieldDependencies: readonly (readonly number[])[] = [];
   private readonly accountingHandles: ResourceHandle[] = [];
+  private readonly frameBuffers: GPUBuffer[] = [];
+  private readonly demandLayout: GPUBindGroupLayout;
+  private readonly resolveLayout: GPUBindGroupLayout;
+  private readonly demandPipeline: Promise<GPUComputePipeline>;
+  private readonly demandFinalizePipeline: Promise<GPUComputePipeline>;
+  private readonly resolvePipeline: Promise<GPUComputePipeline>;
+  private readonly frameTasks: GPUBuffer;
+  private readonly frameInputs: GPUBuffer;
+  private readonly frameOutputs: GPUBuffer;
+  private readonly framePrograms: GPUBuffer;
+  private readonly framePixels: GPUBuffer;
+  private readonly frameControl: GPUBuffer;
+  private readonly frameIndirect: GPUBuffer;
+  private readonly frameSettings: GPUBuffer;
+  private readonly frameMetadata: GPUBuffer;
+  private readonly frameInputDomains: GPUBuffer;
+  private readonly materialLookup: GPUBuffer;
+  private readonly maxFrameTasks = APPEARANCE_FRAME_MAX_TASKS;
+  private readonly maxFrameInputs = APPEARANCE_FRAME_MAX_INPUT_VECTORS;
+  private readonly maxFrameOutputs = APPEARANCE_FRAME_MAX_OUTPUTS;
   private pipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] | null = null;
   private readonly cancelReadiness: (reason: Error) => void;
   private unwatchRegistry: (() => void) | null = null;
@@ -133,8 +239,7 @@ export class GpuAppearancePublication {
         });
         const cachePlan = appearanceCachePlan(source.program, source.program.inputs.length + (source.program.samples.length +
           (source.program.productReads ?? []).filter(read => read.field.constant === undefined).length) * 2, 64);
-        const candidate = appearanceResidentKernel(source.program, resources, productResources,
-          appearanceCacheIntegration(cachePlan));
+        const candidate = appearanceResidentKernel(source.program, resources, productResources);
         const kernelKey = candidate.lowered.templateKey + ":resident-linear:" + JSON.stringify([resources, productResources]);
         // Metadata (output names and parameter provenance) belongs to each
         // material program even when its WGSL topology shares the same PSO.
@@ -186,7 +291,7 @@ export class GpuAppearancePublication {
         entries.push(Object.freeze({ material: source.material, inputBase, materialSlot: source.materialSlot, textureBindingSetId: source.textureBindingSetId,
           constantBase, routeBase, programIndex, resourceSetIndex, kernel, program: source.program, productTextures, fieldBase }));
         directory.set([source.materialSlot, programIndex, constantBase, routeBase, resourceSetIndex, fieldBase,
-          Object.keys(kernel.lowered.outputSlots).length, 0], index * directoryWords);
+          Object.keys(kernel.lowered.outputSlots).length, inputBase], index * directoryWords);
       }
       const constantData = new Float32Array(Math.max(constants.length, 1));
       constantData.set(constants);
@@ -214,6 +319,10 @@ export class GpuAppearancePublication {
       this.directory = this.upload(device, command, "directory", directoryData);
       this.fields = this.upload(device, command, "fields", fieldData);
       this.runtimeInputs = this.upload(device, command, "runtime-inputs", inputData);
+      const maxMaterialSlot = Math.max(0, ...sources.map(source => source.materialSlot));
+      const materialLookupData = new Uint32Array(maxMaterialSlot + 1); materialLookupData.fill(0xffffffff);
+      sources.forEach((source, index) => { materialLookupData[source.materialSlot] = index; });
+      this.materialLookup = this.upload(device, command, "material-lookup", materialLookupData);
       if (!cacheOwner) throw new Error("Appearance publication requires the shared cache owner");
       const maxInputs = Math.max(0, ...sources.map(source => source.program.inputs.length +
         (source.program.samples.length + (source.program.productReads ?? []).filter(read => read.field.constant === undefined).length) * 2));
@@ -223,10 +332,59 @@ export class GpuAppearancePublication {
       this.allocatedBytes = constantData.byteLength + routeData.byteLength + directoryData.byteLength + fieldData.byteLength + inputData.byteLength;
       this.entries = Object.freeze(entries);
       this.leases = Object.freeze(leaseList);
+      const demandModule = device.createShaderModule({ label: "Appearance GPU demand", code: APPEARANCE_DEMAND_WGSL });
+      this.demandLayout = device.createBindGroupLayout({ label: "Appearance demand layout", entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        ...[2, 3, 4].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" as GPUBufferBindingType } })),
+        ...[5, 6, 7, 8, 9, 10].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" as GPUBufferBindingType } })),
+        { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 32 } }
+      ] });
+      this.resolveLayout = device.createBindGroupLayout({ label: "Appearance field resolve layout", entries: [
+        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+        { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float", viewDimension: "2d-array" } },
+        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } }
+      ] });
+      const demandPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.demandLayout] });
+      const resolvePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.demandLayout, this.resolveLayout] });
+      this.demandPipeline = device.createComputePipelineAsync({ label: "Appearance/demand", layout: demandPipelineLayout, compute: { module: demandModule, entryPoint: "demand" } });
+      const finalizePipeline = device.createComputePipelineAsync({ label: "Appearance/demand-finalize", layout: demandPipelineLayout, compute: { module: demandModule, entryPoint: "finalize" } });
+      this.resolvePipeline = device.createComputePipelineAsync({ label: "Appearance/field-resolve", layout: resolvePipelineLayout, compute: { module: demandModule, entryPoint: "resolve" } });
+      this.demandFinalizePipeline = finalizePipeline;
+      const makeFrame = (label: string, size: number, usage: GPUBufferUsageFlags): GPUBuffer => {
+        if (size > Number(device.limits.maxBufferSize) || size > Number(device.limits.maxStorageBufferBindingSize)) throw new RangeError(`Appearance frame buffer '${label}' exceeds negotiated limits`);
+        const buffer = device.createBuffer({ label, size: Math.max(4, size), usage }); this.frameBuffers.push(buffer); return buffer;
+      };
+      this.frameTasks = makeFrame("Appearance frame tasks", this.maxFrameTasks * 16, GPUBufferUsage.STORAGE);
+      this.frameInputs = makeFrame("Appearance frame inputs", this.maxFrameTasks * this.maxFrameInputs * 16, GPUBufferUsage.STORAGE);
+      this.frameOutputs = makeFrame("Appearance frame outputs", this.maxFrameTasks * this.maxFrameOutputs * 4, GPUBufferUsage.STORAGE);
+      this.framePrograms = makeFrame("Appearance frame program ids", this.maxFrameTasks * 4, GPUBufferUsage.STORAGE);
+      this.framePixels = makeFrame("Appearance frame pixel tasks", APPEARANCE_FRAME_MAX_PIXELS * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+      this.frameControl = makeFrame("Appearance frame control", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+      this.frameIndirect = makeFrame("Appearance frame indirect", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT);
+      this.frameSettings = makeFrame("Appearance frame settings", 32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+      this.frameMetadata = makeFrame("Appearance frame metadata", Math.max(16, descriptors.length * 16), GPUBufferUsage.STORAGE);
+      this.frameInputDomains = makeFrame("Appearance frame input domains", Math.max(4, descriptors.length * this.maxFrameInputs * 4), GPUBufferUsage.STORAGE);
+      const meta = new Uint32Array(Math.max(4, descriptors.length * 4));
+      const domains = new Uint32Array(Math.max(1, descriptors.length * this.maxFrameInputs));
+      for (const [index, descriptor] of descriptors.entries()) {
+        const entry = entries.find(candidate => candidate.programIndex === index)!;
+        const inputCount = entry.program.inputs.length;
+        meta.set([inputCount, entry.kernel.inputVectorCount, 0, (inputCount & 0xffff) | (entry.kernel.inputVectorCount << 16)], index * 4);
+        for (let input = 0; input < inputCount; input++) domains[index * this.maxFrameInputs + input] = entry.program.inputs[input]!.domain === "surface" ? 1 : entry.program.inputs[input]!.domain === "geometry" ? 2 : 0;
+        for (let input = inputCount; input < entry.kernel.inputVectorCount; input++) domains[index * this.maxFrameInputs + input] = 3;
+      }
+      device.queue.writeBuffer(this.frameMetadata, 0, meta);
+      device.queue.writeBuffer(this.frameInputDomains, 0, domains);
       let cancel!: (reason: Error) => void;
       const cancellation = new Promise<never>((_resolve, reject) => { cancel = reject; });
       this.cancelReadiness = cancel;
-      this.ready = Promise.race([cancellation, Promise.all(leaseList.map(lease => lease.ready)).then(pipelines => {
+      this.ready = Promise.race([cancellation, Promise.all([...leaseList.map(lease => lease.ready), this.demandPipeline, this.demandFinalizePipeline, this.resolvePipeline]).then(pipelines => {
         if (this.state !== "staging") throw new Error("Appearance publication cancelled before program readiness");
         this.pipelines = Object.freeze(pipelines);
         this.state = "ready";
@@ -296,6 +454,87 @@ export class GpuAppearancePublication {
     command.onFinished.addOne(() => { this.constantValues = constants; this.inputValues = inputs; this.fieldWords = fields; });
   }
 
+  /** Build visible Appearance demand directly on the GPU and run every finite
+   * material program against the compact task stream. The stream is indirect;
+   * overflow is counted in the same control buffer and field layers are
+   * published only after all program consumers finish. */
+  encodeDemand(command: ShadeGPUCommandContext, input: {
+    readonly visibility: GPUTextureView;
+    readonly meshletWork: GPUBuffer;
+    readonly textureBanks: readonly GPUTextureView[];
+    readonly width: number;
+    readonly height: number;
+    readonly fields: GPUTextureView;
+    readonly frame: number;
+  }): void {
+    if (command.device !== this.device || command.closed || (this.state !== "ready" && this.state !== "resident")) {
+      throw new Error("Appearance demand requires an open resident frame");
+    }
+    if (input.width < 1 || input.height < 1 || input.width * input.height > APPEARANCE_FRAME_MAX_PIXELS) {
+      throw new RangeError("Appearance demand extent exceeds the negotiated frame pixel budget");
+    }
+    const demand = this.demandPipeline;
+    const finalize = this.demandFinalizePipeline;
+    const resolve = this.resolvePipeline;
+    const makeUniform = (data: Uint32Array): GPUBuffer => command.allocateTransientBufferAndLoad(data.buffer, GPUBufferUsage.UNIFORM);
+    command.gpu_encoder.clearBuffer(this.frameControl);
+    command.gpu_encoder.clearBuffer(this.framePixels);
+    command.writeBuffer(this.frameSettings, 0, new Uint32Array([input.width, input.height, this.maxFrameTasks, this.maxFrameInputs, this.maxFrameOutputs, input.frame, 0, 0]).buffer);
+    const demandGroup = this.device.createBindGroup({ layout: this.demandLayout, entries: [
+      { binding: 0, resource: input.visibility }, { binding: 1, resource: { buffer: input.meshletWork } },
+      { binding: 2, resource: { buffer: this.materialLookup } }, { binding: 3, resource: { buffer: this.directory } },
+      { binding: 4, resource: { buffer: this.runtimeInputs } }, { binding: 5, resource: { buffer: this.frameTasks } },
+      { binding: 6, resource: { buffer: this.frameInputs } }, { binding: 7, resource: { buffer: this.framePrograms } },
+      { binding: 8, resource: { buffer: this.framePixels } }, { binding: 9, resource: { buffer: this.frameControl } },
+      { binding: 10, resource: { buffer: this.frameIndirect } }, { binding: 11, resource: { buffer: this.frameMetadata } },
+      { binding: 12, resource: { buffer: this.frameInputDomains } }, { binding: 13, resource: { buffer: this.frameSettings } }
+    ] });
+    const pass = command.gpu_encoder.beginComputePass({ label: "Appearance GPU demand" });
+    pass.setPipeline(demand); pass.setBindGroup(0, demandGroup);
+    pass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(input.height / 8));
+    pass.setPipeline(finalize); pass.dispatchWorkgroups(1); pass.end();
+    const dispatch = makeUniform(new Uint32Array([this.maxFrameTasks, 0, 0, input.frame]));
+    for (let programIndex = 0; programIndex < this.leases.length; programIndex++) {
+      const lease = this.program(programIndex), entry = this.entries.find(candidate => candidate.programIndex === programIndex);
+      if (!entry) continue;
+      const layout = lease.layouts[0]!;
+      const common: GPUBindGroupEntry[] = [
+        { binding: 0, resource: { buffer: this.constants } }, { binding: 1, resource: { buffer: this.routes } },
+        { binding: 2, resource: { buffer: this.frameTasks } }, { binding: 3, resource: { buffer: this.frameInputs } },
+        { binding: 4, resource: { buffer: this.frameOutputs } }, { binding: 5, resource: { buffer: dispatch } },
+        { binding: 11, resource: { buffer: this.framePrograms } }
+      ];
+      const programGroup = this.device.createBindGroup({ layout, entries: common });
+      const textures = entry.kernel.descriptor.groups[1];
+      const textureEntries: GPUBindGroupEntry[] = [];
+      for (const descriptor of textures ?? []) {
+        if (descriptor.texture) textureEntries.push({ binding: descriptor.binding, resource: input.textureBanks[descriptor.binding]! });
+        else if (descriptor.sampler) textureEntries.push({ binding: descriptor.binding, resource: this.device.createSampler({ minFilter: "linear", magFilter: "linear", addressModeU: "repeat", addressModeV: "repeat" }) });
+      }
+      const groups: GPUBindGroup[] = [programGroup];
+      if (textureEntries.length) groups.push(this.device.createBindGroup({ layout: lease.layouts[1]!, entries: textureEntries }));
+      if (lease.layouts[2]) {
+        const productEntries: GPUBindGroupEntry[] = entry.productTextures.map((texture, binding) => ({ binding, resource: texture.createView({ dimension: "2d-array" }) }));
+        productEntries.push({ binding: entry.productTextures.length, resource: this.device.createSampler({ minFilter: "linear", magFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" }) });
+        groups.push(this.device.createBindGroup({ layout: lease.layouts[2], entries: productEntries }));
+      }
+      const programDispatch = makeUniform(new Uint32Array([this.maxFrameTasks, 0, programIndex, input.frame]));
+      const programPass = command.gpu_encoder.beginComputePass({ label: `Appearance/evaluate program ${programIndex}` });
+      programPass.setPipeline(lease.pipeline); groups.forEach((group, index) => programPass.setBindGroup(index, group));
+      programPass.setBindGroup(0, this.device.createBindGroup({ layout, entries: common.map(entryValue => entryValue.binding === 5 ? { binding: 5, resource: { buffer: programDispatch } } : entryValue) }));
+      programPass.dispatchWorkgroupsIndirect(this.frameIndirect, 0); programPass.end();
+    }
+    const resolveSize = makeUniform(new Uint32Array([input.width, input.height, APPEARANCE_FIELD_COUNT, this.maxFrameOutputs]));
+    const resolveGroup = this.device.createBindGroup({ layout: this.resolveLayout, entries: [
+      { binding: 0, resource: { buffer: this.frameTasks } }, { binding: 1, resource: { buffer: this.framePrograms } },
+      { binding: 2, resource: { buffer: this.framePixels } }, { binding: 3, resource: { buffer: this.frameOutputs } },
+      { binding: 4, resource: input.fields }, { binding: 5, resource: { buffer: resolveSize } }
+    ] });
+    const resolvePass = command.gpu_encoder.beginComputePass({ label: "Appearance field publication" });
+    resolvePass.setPipeline(resolve); resolvePass.setBindGroup(1, resolveGroup);
+    resolvePass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(input.height / 8)); resolvePass.end();
+  }
+
   evidence(): Readonly<{ allocatedBytes: number; residentBytes: number; retiringBytes: number; stagingBytes: number }> {
     const bytes = this.state === "destroyed" ? 0 : this.allocatedBytes;
     return Object.freeze({ allocatedBytes: bytes,
@@ -329,6 +568,7 @@ export class GpuAppearancePublication {
     this.cancelReadiness(new Error("Appearance publication cancelled or destroyed"));
     this.pipelines = null;
     for (const buffer of this.buffers) buffer.destroy();
+    for (const buffer of this.frameBuffers) buffer.destroy();
     if (this.cache) this.cacheOwner?.release(this.cache);
     for (const handle of this.accountingHandles) this.accounting?.destroyed(handle);
     for (const lease of this.leases) lease.release();

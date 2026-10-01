@@ -110,7 +110,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   const { result, cameraBuffer, builtHzb } = lowerVisibility(plan, graph, bind, owners);
   const appearancePublication = initial.runtime.appearancePublication;
   if (!appearancePublication) throw new Error("Appearance publication must be prepared before frame graph lowering");
-  owners.appearanceCache.addToGraph(graph, { visibility: result.frame.visibilityKey, publication: appearancePublication, frame: initial.frameIndex });
   assertTextureProduct(plan, graph, "visibility", result.frame.visibilityKey);
   let vsmOwnerBinding: NonNullable<SceneFrameBindings["vsm"]> | null = null;
   let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
@@ -199,6 +198,15 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       );
     }
   }
+  const appearanceFields = owners.appearanceCache.addToGraph(graph, {
+    visibility: result.frame.visibilityKey,
+    meshletWork: result.frame.meshletWork.records,
+    publication: appearancePublication,
+    frame: initial.frameIndex,
+    width: result.frame.domain.width,
+    height: result.frame.domain.height,
+    textureBanks
+  });
   const virtualMetadata = plan.request.virtualGeometry
     ? graph.import_resource(
         "virtual-geometry-metadata", { kind: "imported", label: "virtual geometry metadata" },

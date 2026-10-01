@@ -82,6 +82,7 @@ struct AppearanceCacheSettings { task_capacity: u32, bucket: u32, frame: u32, ma
 @group(0) @binding(9) var<storage, read> appearance_buckets: array<vec4u>;
 // material slot, field base, input base, reserved, in scattered task order.
 @group(0) @binding(10) var<storage, read> appearance_metadata: array<vec4u>;
+@group(0) @binding(11) var<storage, read> appearance_task_program: array<u32>;
 var<private> appearance_task: vec4u;
 var<private> appearance_missing: u32;
 fn appearance_constant(index: u32) -> f32 { return appearance_constants[appearance_task.x + index]; }
@@ -126,6 +127,7 @@ fn ${name}(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index)
   let local = appearance_flat_task(group, lane);
   if local >= appearance_task_count() { return; }
   let task = appearance_task_index(local);
+  if appearance_task_program[task] != cache_settings.bucket { return; }
   appearance_task = appearance_tasks[task];
   ${body}
 }
@@ -214,6 +216,7 @@ ${field.outputs.map((output, index) => `    appearance_outputs[appearance_task.w
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= cache_settings.task_capacity { return; }
+  if appearance_task_program[id.x] != cache_settings.bucket { return; }
   appearance_task = appearance_tasks[id.x];
   appearance_missing = 0xffffffffu;
   let value = appearance_evaluate();
@@ -222,6 +225,6 @@ ${Array.from({ length: outputCount }, (_, index) => `  appearance_outputs[appear
 `;
   return Object.freeze({ declarations, outputBits: plan.outputBits,
     entrySource: main + (cached.length ? reset + request + nominate + publish + evaluate + consume : evaluate),
-    groups: [[...Array.from({ length: 11 }, (_, binding) => buffer(binding,
+    groups: [[...Array.from({ length: 12 }, (_, binding) => buffer(binding,
       binding === 5 ? "uniform" : [4, 6, 7].includes(binding) ? "storage" : "read-only-storage"))]] });
 }
