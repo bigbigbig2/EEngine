@@ -16,8 +16,7 @@ fn schlick(f0: vec3f, cosine: f32) -> vec3f {
 }
 fn field(pixel: vec2i, layer: u32) -> f32 { return textureLoad(fields, pixel, i32(layer), 0).x; }
 fn field3(pixel: vec2i, layer: u32) -> vec3f {
-  let v = textureLoad(fields, pixel, i32(layer), 0).x;
-  return vec3f(v);
+  return textureLoad(fields, pixel, i32(layer), 0).xyz;
 }
 @compute @workgroup_size(8, 8)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -29,7 +28,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let roughness = max(field(p, 3u), 0.045);
   let occlusion = saturate(field(p, 4u));
   let emissive = field3(p, 5u);
-  let normalSample = field3(p, 6u) * 2.0 - vec3f(1.0);
+  let normalSample = field3(p, 6u);
   let n = normalize(select(vec3f(0.0, 0.0, 1.0), normalSample, dot(normalSample, normalSample) > 1e-5));
   let l = normalize(vec3f(-0.35, 0.8, 0.45));
   let v = normalize(vec3f(0.0, 0.0, 1.0));
@@ -82,7 +81,7 @@ export class SparseLightingPass {
       compute.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8)); compute.end();
     });
     pass.read(input.fields); pass.read(input.depth);
-    radiance = pass.create("Surface pre-exposed HDR radiance", { kind: "transient_texture", width: input.width, height: input.height, format: "rgba16float", domain: "internal-full", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
+    radiance = pass.create("Surface pre-exposed HDR radiance", { kind: "transient_texture", width: input.width, height: input.height, format: "rgba16float", domain: "internal-full", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT });
     return { radiance };
   }
   destroy(): void { /* device-owned pipeline is retired with the device */ }

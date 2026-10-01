@@ -63,6 +63,7 @@ const PHASE_RULES: readonly PhaseRule[] = [
   rule("light-cluster", /lightcluster/, /light cluster/, /cluster assign/),
   rule(
     "material-resolve",
+    /appearance/,
     /material expand/,
     /material resolve/,
     /sparse shading resolve/,

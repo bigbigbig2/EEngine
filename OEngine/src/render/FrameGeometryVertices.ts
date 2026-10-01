@@ -27,7 +27,7 @@ export class FrameGeometryVertices {
   private pipelines: readonly (readonly GPUComputePipeline[])[] | null = null;
   private destroyed = false;
   constructor(private readonly device: GPUDevice, private readonly accounting?: ResourceAccounting, observe = false,
-    private readonly maxBytes = 16 * 1024 * 1024) {
+    private readonly maxBytes = 129 * 1024 * 1024) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new RangeError("Invalid frame vertex owner budget");
     const l = device.limits;
     if (l.maxStorageBuffersPerShaderStage < 12 || l.maxBindingsPerBindGroup < 18 || l.maxBindGroups < 2 ||
@@ -56,9 +56,11 @@ export class FrameGeometryVertices {
     readonly assets: GpuAssetBindings; readonly product?: GeometryProductGpuBindingsV1; readonly productBanks?: readonly GPUBuffer[];
   }): PreparedFrameVertices {
     this.requireReady(); const { arena, instances, work, assets } = input, product = input.product !== undefined, l = this.device.limits;
-    if (arena.budget.workCapacity > l.maxComputeWorkgroupsPerDimension ** 2 || work.size < GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + arena.budget.workCapacity * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE ||
+    const attributeBytes = arena.budget.vertexCapacity * 128;
+    if (attributeBytes > l.maxBufferSize || attributeBytes > l.maxStorageBufferBindingSize ||
+      arena.budget.workCapacity > l.maxComputeWorkgroupsPerDimension ** 2 || work.size < GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + arena.budget.workCapacity * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE ||
       (product && input.productBanks?.length !== 4) || this.allocatedBytes + FRAME_VERTEX_SETTINGS_SIZE + FRAME_VERTEX_CONTROL_SIZE + 32 +
-        ((arena.budget.filteredWorkCapacity ?? 0) > 0 ? 16 : 0) > this.maxBytes) {
+        ((arena.budget.filteredWorkCapacity ?? 0) > 0 ? 16 : 0) + attributeBytes > this.maxBytes) {
       throw new RangeError("Frame vertices input capacity, Product banks or cumulative budget is invalid");
     }
     for (const [name, b] of [["instances", instances.records], ["work", work], ...(product ? [["Product metadata", input.product!.metadata],

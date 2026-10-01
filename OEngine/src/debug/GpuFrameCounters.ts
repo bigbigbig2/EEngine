@@ -8,8 +8,8 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 25;
-export const GPU_COUNTER_BYTE_SIZE = 740;
+export const GPU_COUNTER_SCHEMA_VERSION = 26;
+export const GPU_COUNTER_BYTE_SIZE = 752;
 
 /** Stable schema holes; indices are never silently reused across ABI revisions. */
 export const GPU_COUNTER_RESERVED_INDICES = Object.freeze([
@@ -186,7 +186,10 @@ export const GPU_COUNTER_FIELDS = [
   { name: "surfaceMaterialRejected", index: 181, semantic: "Surface/material GPU producer count; sampled frames only" },
   { name: "surfaceResidencyRejected", index: 182, semantic: "Surface/residency GPU producer count; sampled frames only" },
   { name: "surfaceVariationRejected", index: 183, semantic: "Surface/variation GPU producer count; sampled frames only" },
-  { name: "surfaceUvRejected", index: 184, semantic: "Surface/uv GPU producer count; sampled frames only" }
+  { name: "surfaceUvRejected", index: 184, semantic: "Surface/uv GPU producer count; sampled frames only" },
+  { name: "appearanceTasksAttempted", index: 185, semantic: "GPU Appearance demand reservation attempts; sampled frames only" },
+  { name: "appearanceTasksOverflow", index: 186, semantic: "GPU Appearance tasks rejected by frame capacity; sampled frames only" },
+  { name: "appearanceTasksWritten", index: 187, semantic: "GPU Appearance task records published within capacity; sampled frames only" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

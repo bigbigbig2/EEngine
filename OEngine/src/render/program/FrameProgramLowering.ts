@@ -13,6 +13,7 @@ import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
 import type { SparseLightingPass } from "../surface/SparseLightingPass.js";
 import type { BloomPass } from "../passes/BloomPass.js";
 import type { LightClusterPass } from "../passes/LightClusterPass.js";
+import type { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
 import type { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import type { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
 import type { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
@@ -31,6 +32,7 @@ import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 
 export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
+  visibilityCounters: VisibilityCounterPass;
   temporalFacts: TemporalFactsPass;
   appearanceCache: AppearanceCachePass;
   sparseLighting: SparseLightingPass;
@@ -203,8 +205,11 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   const appearanceFields = owners.appearanceCache.addToGraph(graph, {
     visibility: result.frame.visibilityKey,
     meshletWork: result.frame.meshletWork.records,
-    publication: appearancePublication,
-    frame: initial.frameIndex,
+    counters: result.counters,
+    frame: bind("appearance-frame", bindings => {
+      if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
+      return { publication: bindings.runtime.appearancePublication, index: bindings.frameIndex, sampleCounters: bindings.job.countersEnabled };
+    }),
     width: result.frame.domain.width,
     height: result.frame.domain.height,
     textureBanks
@@ -483,6 +488,9 @@ function lowerVisibility(plan: FrameProgram, graph: FrameGraph, bind: SceneBind,
       }
     );
   }
+  owners.visibilityCounters.addToGraph(graph, result.frame.domain, {
+    visibility: result.frame.visibilityKey, counters: result.counters
+  }, "visibility-key", bind("visibility-counter-sampling", bindings => ({ enabled: bindings.job.countersEnabled })));
   return { result, cameraBuffer, builtHzb };
 }
 

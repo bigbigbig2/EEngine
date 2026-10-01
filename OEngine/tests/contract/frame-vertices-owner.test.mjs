@@ -26,7 +26,7 @@ function fixture(filtered = true) {
 test('selected vertices borrow the sole arena, await async preparation and reuse allocations without arena double accounting',async()=>{
   const f=fixture(),owner=new FrameGeometryVertices(f.device,f.accounting),arenaBytes=f.arenaOwner.allocatedBytes;
   assert.throws(()=>owner.prepare(f.input),/completed scene preparation/);await owner.ready;const p=owner.prepare(f.input);
-  assert.equal(p.byteLength,112);assert.equal(f.accounting.snapshot().totalBytes,arenaBytes+112);const count=f.buffers.length;
+  assert.equal(p.byteLength,112+9*128);assert.equal(f.accounting.snapshot().totalBytes,arenaBytes+112+9*128);const count=f.buffers.length;
   for(let i=0;i<3;i++)owner.encode(f.encoder,p);assert.equal(f.buffers.length,count);assert.equal(f.commands.filter(c=>c[0]==='indirect').length,3);
   assert.equal(f.commands.filter(c=>c[0]==='group'&&c[1]===1).length,3);
   owner.release(p);assert.equal(f.accounting.snapshot().totalBytes,arenaBytes);assert.equal(f.input.arena.buffer.destroyed,0);
@@ -39,7 +39,7 @@ test('vertex byte/dispatch/capability failure and binding exceptions never leak 
   f.device.createBindGroup=()=>{throw new Error('binding failed');};assert.throws(()=>other.prepare(f.input),/binding failed/);
   assert.equal(other.allocatedBytes,0);assert.equal(f.accounting.snapshot().totalBytes,f.arenaOwner.allocatedBytes);
   assert.ok(f.buffers.slice(1).every(b=>b.destroyed===1));f.device.createBindGroup=make;
-  const p=other.prepare(f.input);assert.equal(p.rasterSettings,p.filteredRasterSettings);assert.equal(p.byteLength,96);
+  const p=other.prepare(f.input);assert.equal(p.rasterSettings,p.filteredRasterSettings);assert.equal(p.byteLength,96+9*128);
   f.loss({});await new Promise(resolve=>setImmediate(resolve));other.release(p);assert.equal(f.accounting.snapshot().totalBytes,0);
   f.device.limits.maxBindingsPerBindGroup=16;assert.throws(()=>new FrameGeometryVertices(f.device),/eleven storage/);owner.destroy();other.destroy();
 });

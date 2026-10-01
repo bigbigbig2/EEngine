@@ -24,6 +24,7 @@ import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
 import { FrameProgramCache, type FrameProgram } from "../program/FrameProgram.js";
 import { assertFrameProgramBindings, type SceneFrameBindings, type EmptyFrameBindings } from "../program/FrameProgramBindings.js";
+import { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
 import { lowerFrameProgram, type FrameProgramOwners } from "../program/FrameProgramLowering.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
 import { TemporalFabric } from "../TemporalFabric.js";
@@ -285,6 +286,7 @@ export class Renderer {
   private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
   private _appearanceCache!: AppearanceCachePass;
+  private readonly _visibilityCounters = new VisibilityCounterPass();
   private _sparseLighting!: SparseLightingPass;
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
@@ -1262,6 +1264,7 @@ export class Renderer {
       visibility: this._visibilityFeature,
       temporalFacts: this._temporalFacts,
       appearanceCache: this._appearanceCache,
+      visibilityCounters: this._visibilityCounters,
       sparseLighting: this._sparseLighting,
       radiometry: this._gpuRadiometry,
       bloom: this._bloom,
@@ -1436,7 +1439,6 @@ export class Renderer {
         : null;
       const vsmGeneration = this._vsmGeneration.begin({
         deviceEpoch: this.deviceEpoch,
-        frameIndex,
         scene,
         sceneRevision: runtime.shadingPublication.revision,
         casterRevision: this._vsmCasterPublicationRevision,
@@ -1501,6 +1503,7 @@ export class Renderer {
       const graphBindings: SceneFrameBindings = {
         kind: "scene",
         deviceEpoch: this.deviceEpoch,
+        frameIndex,
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
          fsr3: this._fsr3, temporalFacts: this._temporalFacts, radiometry: this._gpuRadiometry,
@@ -1556,7 +1559,8 @@ export class Renderer {
           "geometryMeshletWorksProduced", "geometryRasterTriangles", "geometryPaddedVertices",
           "meshletQueueAttempted", "meshletQueueWritten", "meshletQueueConsumed",
           "meshletQueueOverflow", "meshletQueueInvalid", "meshletRasterTriangles",
-          "queueOverflowMask"
+          "queueOverflowMask", "geometryVisiblePixels", "shadedPixels", "emptyVisibilityPixels", "invalidVisibilityKeys",
+          "appearanceTasksAttempted", "appearanceTasksOverflow", "appearanceTasksWritten"
         ]);
         this._profiler.encodeGpuCounterReadback(command);
       }

@@ -4,7 +4,7 @@ import { writeGpuBuffer } from "./GpuQueueEvidence.js";
 import { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 
 const CACHE_WGSL = /* wgsl */ `
-struct Settings { pages: u32, samples: u32, stride: u32, max_age: u32, frame: u32, reserved: vec3u }
+struct Settings { pages: u32, samples: u32, stride: u32, max_age: u32, frame: u32, reserved0: u32, reserved1: u32, reserved2: u32 }
 @group(0) @binding(0) var<uniform> settings: Settings;
 @group(0) @binding(1) var<storage, read_write> cells: array<atomic<u32>>;
 @group(0) @binding(2) var<storage, read_write> control: array<atomic<u32>>;

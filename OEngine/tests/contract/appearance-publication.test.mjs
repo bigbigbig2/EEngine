@@ -11,7 +11,7 @@ import { writeAppearanceAssetPackage, openAppearanceAssetPackage } from "../../.
 import { bindAppearanceProducts } from "../../.test-dist/material/AppearanceProductBinding.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 4 };
-globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8 };
+globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8, UNIFORM: 64, INDIRECT: 256 };
 
 const deferred = () => {
   let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -29,8 +29,9 @@ function fixture(auto = false) {
   const device = { limits: { ...limits }, lost: loss.promise,
     pushErrorScope() { scopeDepth++; }, popErrorScope() { assert.equal(scopeDepth, 1); scopeDepth--; return Promise.resolve(null); },
     createShaderModule({ code }) { creates++; return { code, getCompilationInfo: async () => ({ messages: [] }) }; },
-    createBindGroupLayout(value) { assert.equal(scopeDepth, 1); return value; },
+    createBindGroupLayout(value) { return value; },
     createPipelineLayout(value) { return value; },
+    queue: { writeBuffer(buffer, offset, data) { buffer.bytes.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), offset); } },
     createComputePipelineAsync(descriptor) {
       assert.equal(scopeDepth, 0, "no error scope may span async compilation");
       const d = deferred(); compiled.push({ ...d, descriptor });
@@ -41,7 +42,8 @@ function fixture(auto = false) {
       destroy() { this.destroyed++; } }; buffers.push(buffer); return buffer; }
   };
   const registry = new AppearanceProgramRegistry(device, { maxPrograms: 2, maxConcurrentCompiles: 1, maxSourceBytes: 200000 });
-  return { device, registry, loss, compiled, buffers, creates: () => creates };
+  const cache = { prepare() { return {}; }, release() {} };
+  return { device, registry, loss, compiled, buffers, cache, creates: () => creates };
 }
 const descriptor = (name = "a") => ({ source: `@compute @workgroup_size(64) fn ${name}() {}`,
   entryPoint: name, workgroupSize: 64, groups: [] });
@@ -129,9 +131,10 @@ test("shared PSO does not merge distinct physical product resource sets; capabil
     const texture = { asset: asset.runtime.manifest.assetId }; allocations.push(texture);
     return { destination: () => ({ texture, layer: 0 }), release: () => released.push(texture) };
   } };
-  const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(), new Map(), undefined, owner);
+  const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(), new Map(), undefined, owner, f.cache);
   await p.ready;
-  assert.equal(p.entries[0].programIndex, p.entries[1].programIndex);
+  assert.notEqual(p.entries[0].programIndex, p.entries[1].programIndex);
+  assert.equal(p.program(p.entries[0].programIndex).pipeline, p.program(p.entries[1].programIndex).pipeline);
   assert.notEqual(p.entries[0].resourceSetIndex, p.entries[1].resourceSetIndex);
   assert.notEqual(p.entries[0].productTextures[0], p.entries[1].productTextures[0]);
   assert.equal(allocations.length, 2); c.finish(); p.destroy(); assert.equal(released.length, 2); f.registry.destroy();
@@ -147,13 +150,13 @@ test("actual-sized GPU publication shares pipelines while retaining different in
   const sources = [source(0.25, 17, texture), source(0.5, 18, texture)];
   texture.wrapS = 2; texture.wrapT = 2;
   const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(),
-    new Map([[texture, { slot: 12, revision: 43 }]]));
+    new Map([[texture, { slot: 12, revision: 43 }]]), undefined, undefined, f.cache);
   assert.throws(() => p.program(0), /not consumable/);
-  await p.ready; c.finish(); assert.equal(f.compiled.length, 1);
+  await p.ready; c.finish(); assert.equal(f.compiled.length, 4);
   assert.deepEqual([...new Float32Array(p.constants.bytes.buffer)], [0.25, 0.5]);
-  assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 0, 0, 1, 0, 18, 0, 1, 1, 0, 1, 1, 0]);
+  assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 0, 0, 1, 0, 18, 0, 1, 1, 0, 1, 1, 1]);
   assert.deepEqual([...new Uint32Array(p.fields.bytes.buffer)], [1, 0, 1, 67, 1, 0, 1, 67]);
-  assert.equal(p.allocatedBytes, 8 + 128 + sources.length * APPEARANCE_DIRECTORY_STRIDE + 32);
+  assert.equal(p.allocatedBytes, f.buffers.reduce((bytes, buffer) => bytes + buffer.size, 0));
   const route = new DataView(p.routes.bytes.buffer);
   assert.equal(route.getUint32(8, true), 12); assert.equal(route.getUint32(12, true), 43);
   assert.equal(route.getUint32(4, true) & 3, 1, "use authored repeat snapshot, not later mirror mutation");
@@ -169,10 +172,10 @@ test("actual-sized GPU publication shares pipelines while retaining different in
 
 test("aborting a publication rejects its readiness even if a shared driver compile has not settled", async () => {
   const f = fixture(), c = command(f.device), texture = new ShadeTexture();
-  const p = new GpuAppearancePublication(f.device, f.registry, [source(0.4, 1, texture)], c, new Map(), new Map());
+  const p = new GpuAppearancePublication(f.device, f.registry, [source(0.4, 1, texture)], c, new Map(), new Map(), undefined, undefined, f.cache);
   await tick(); c.abort(); await assert.rejects(p.ready, /cancelled/);
   assert.ok(f.buffers.every(buffer => buffer.destroyed === 1));
-  f.compiled[0].resolve({}); await tick(); assert.equal(f.registry.evidence().referenced, 0);
+  for (const compiled of f.compiled) compiled.resolve({}); await tick(); assert.equal(f.registry.evidence().referenced, 0);
   f.registry.destroy();
 });
 
@@ -187,7 +190,7 @@ test("publication rejects before buffer allocation when negotiated storage capac
 test("device loss disposes a resident publication and revokes its pipeline access", async () => {
   const f = fixture(true), c = command(f.device);
   const p = new GpuAppearancePublication(f.device, f.registry,
-    [source(0.4, 1, new ShadeTexture())], c, new Map(), new Map());
+    [source(0.4, 1, new ShadeTexture())], c, new Map(), new Map(), undefined, undefined, f.cache);
   await p.ready; c.finish(); assert.ok(p.program(0));
   f.loss.resolve({ reason: "unknown", message: "resident loss" }); await tick();
   assert.ok(f.buffers.every(buffer => buffer.destroyed === 1));

@@ -101,14 +101,10 @@ export const BENCHMARK_FEATURE_SET_EVIDENCE = {
     ]
   },
   "triangle-setup-candidate-cache": {
-    status: "supported",
-    requiredGpuCounters: [
-      "setupAttempted",
-      "setupWritten",
-      "setupVisiblePixelHits",
-      "setupVisiblePixelFallbacks",
-      "setupOverflow"
-    ]
+    status: "unsupported",
+    requiredGpuCounters: [],
+    blockerTaskId: "SURFACE-REBUILD-03",
+    reason: "旧 triangle setup cache producer 已从唯一 Surface 生产路径移除；新的 Appearance/geometry 主链尚未提供等价证据 producer"
   },
   "clustered-lighting": {
     status: "supported",
@@ -217,6 +213,9 @@ export type BenchmarkFeatureSetName = keyof typeof BENCHMARK_FEATURE_SET_EVIDENC
 
 /** Frozen producer truth for Result Schema v3. */
 export const BENCHMARK_GPU_COUNTER_EVIDENCE = {
+  appearanceTasksAttempted: supported("Appearance GPU demand finalize/control[3]"),
+  appearanceTasksOverflow: supported("Appearance GPU demand/control[1]"),
+  appearanceTasksWritten: supported("Appearance GPU demand finalize/control[2]"),
   surfaceVisiblePixels: supported("Surface/work/visible"),
   surfaceMaterialSamples: supported("Surface/work/material"),
   surfaceLightingSamples: supported("Surface/work/lighting"),

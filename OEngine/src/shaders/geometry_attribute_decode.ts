@@ -22,19 +22,6 @@ fn sparse_virtual_bank_word(bank: u32, word: u32) -> u32 {
   return 0u;
 }
 
-/** Shared frame-attribute lane contract: normal, tangent, uv0/uv1 and color
- * occupy eight vec4s per selected vertex; joints/weights are the final two
- * lanes. Consumers never infer these offsets from a work slot. */
-export const FRAME_RESIDENT_ATTRIBUTE_WGSL = /* wgsl */ `
-fn frame_attribute_base(vertex: u32) -> u32 { return vertex * 8u; }
-fn frame_resident_normal(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec3f { return (*attributes)[frame_attribute_base(vertex)].xyz; }
-fn frame_resident_tangent(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec4f { return (*attributes)[frame_attribute_base(vertex) + 1u]; }
-fn frame_resident_uv0(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec2f { return (*attributes)[frame_attribute_base(vertex) + 2u].xy; }
-fn frame_resident_uv1(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec2f { return (*attributes)[frame_attribute_base(vertex) + 2u].zw; }
-fn frame_resident_color(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec4f { return (*attributes)[frame_attribute_base(vertex) + 3u]; }
-fn frame_resident_joints(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec4u { return bitcast<vec4u>((*attributes)[frame_attribute_base(vertex) + 4u]); }
-fn frame_resident_weights(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec4f { return (*attributes)[frame_attribute_base(vertex) + 5u]; }
-`;
 fn sparse_virtual_u8(bank: u32, byte_offset: u32) -> u32 {
   return (sparse_virtual_bank_word(bank, byte_offset >> 2u) >> ((byte_offset & 3u) * 8u)) & 0xffu;
 }

@@ -121,13 +121,15 @@ export class VisibilityCounterPass {
     graph: FrameGraph,
     size: { width: number; height: number },
     inputs: { visibility: ResourceId; counters: ResourceId },
-    contract: VisibilityCounterContract = "visibility-key"
+    contract: VisibilityCounterContract = "visibility-key",
+    sampling: Readonly<{ enabled: boolean }> = { enabled: true }
   ): ResourceId {
     const dispatch = visibilityCounterDispatchSize(size.width, size.height);
     const builder = graph.add(
       `R0 visibility pixel counters/${contract}`,
       { dispatch, contract },
       (data, resources, context) => {
+        if (!sampling.enabled) return;
         const command = requireCommandContext(context.encoder);
         const pass = command.constructComputePass({
           label: "R0 visibility pixel counters",

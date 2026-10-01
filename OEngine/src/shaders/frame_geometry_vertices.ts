@@ -187,7 +187,7 @@ fn frame_vertices_build(@builtin(workgroup_id) group: vec3u, @builtin(local_invo
   if lane < source_counts.x {
     let at = vertex_base + lane;
     frame_clips[at] = source_clip_matrix * vec4f(frame_vertex_position(lane), 1.0);
-    let base = at * 4u;
+    let base = at * 8u;
     frame_attributes[base] = frame_vertex_normal(lane);
     frame_attributes[base + 1u] = frame_vertex_tangent(lane);
     frame_attributes[base + 2u] = frame_vertex_uv(lane);

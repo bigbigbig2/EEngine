@@ -60,9 +60,15 @@ S0–S7 保留为需求标签，不再代表“完成一个、验证一个、提
 | S4 独立稀疏照明 | 独立 diffuse/specular/coat 率、cluster-local tasks、强制刷新、灯光/阴影/能量完整语义 | 新 SparseLightingPass 已成为 HDR producer，diffuse 使用 2×2 footprint、specular/coat 保持全率；真实 cluster light/VSM/信号历史与能量完整语义仍未验收 |
 | S5 历史与重建 | 分信号历史/曝光/footprint/重建/合成，reactive 与真实 provider demand fields | Temporal Facts、FSR3 reactive、radiometry、bloom 和 presentation 已重新接线；独立照明 history、identity/footprint 重建与真实 provider demand 仍待完成 |
 | S6 生命周期与删除 | scene/product/device/resize/cut/residency/GPU退休，全依赖清理与最终审计 | 旧 Surface 生产入口、Probe/sample/Resolve、全屏 closure 和 TriangleSetup 已删除；Appearance/lighting owner 的完整 resize/cut/residency/retirement 审计仍待统一验收 |
-| S7 最终验收 | Chrome、画质视频、真实两 coverage 组、独立基准、全成本 P50/P95 | 尚未运行；没有编译、浏览器、画质或性能达标声明 |
+| S7 最终验收 | Chrome、画质视频、真实两 coverage 组、独立基准、全成本 P50/P95 | 第三步诊断已运行编译、针对性测试、组件 Chrome 与两 coverage 性能采集；完整架构、画质、生命周期和独立基准尚未通过，继续新链返工 |
 
-截至本版修订，已提交 HEAD 为 `ff46b7b`，包含 `e241771` 的 GPU Appearance demand/字段发布和本版 SparseLighting/HDR/Temporal 主链接线。已有真实组件与源码资产直接复用，不要求把其测试再跑一遍才能继续。旧 Surface 生产源码和 Renderer/FrameProgram 旧接线已从工作树删除；当前仍有真实 resident 属性/形变、缓存页内容、cluster-local light/shadow 语义、独立照明 history/reconstruction 及最终生命周期审计缺口。按执行规则，typecheck、build、测试、GPU oracle、浏览器和性能验证全部留到第三步。
+第三步已开始诊断与返工，不能把之前两个提交中的“接线”视为算法完整交付。旧 Surface 生产源码和 Renderer/FrameProgram 旧接线已经删除；真实 resident 属性/形变、稳定地址、缓存去重和页内容消费、cluster-local light/shadow、独立信号 history/reconstruction 及完整生命周期仍存在源码缺口。统一验收尚未完成，不提升 R01–R24 或来源采用状态。
+
+2026-10-01 本轮修正异步 PSO 就绪、uniform 对齐、纹理 usage、绑定资源集、字段输出 slot、帧绑定与内存计费，并用静态尺寸分条带保证任务池容量小于可见像素时仍同帧完整供给。计数器记录 attempted/written/overflow。此前只写入 84,650 个任务而漏掉大量可见像素的采集无效，不能作性能收益。
+
+已运行：OEngine typecheck/build/build:test、7 个 targeted 文件共 31 项、示例性能指标 10 项通过；有界面硬件 Chrome 的 Appearance demand 诊断检查 5,569,725 个标量通过，含超过任务池容量、两材质 RGB/alpha/normal、空帧与非法/背景像素清除；几何组件 18 case、9,670 覆盖像素通过。几何容量 miss case 没有有效插值，说明同帧几何供给仍未完成，不能把该组件通过当成 R18 通过。
+
+当前诊断采集位于 `.local/validation/surface-step3-final-diagnostic/suite.json`：Chrome 154.0.8037.92，1280×720，每次预热 60 帧、采集 120 帧，低/高与高/低两批顺序。32.85% coverage：GPU pass 合计 P50/P95 分别 9.306/9.896、10.879/11.534 ms；80.39%：13.304/14.615、13.500/15.073 ms。四次 attempted=written=visible、overflow=0，validation/uncaptured/device loss 均为零。高覆盖下字段发布约 3.54–3.60 ms、program 0 求值约 2.75–2.88 ms，是当前主要成本。仍逐像素求值、写 13 层全屏字段；没有真实缓存复用与完整照明，不能作为最终净收益或同画质比较。完整 browser/lifecycle/连续画质矩阵、独立旧 revision、R01–R24 和正式 evidence/claims 未运行。
 
 后续进度只报告：旧生产依赖实际删除情况、最终主链哪些算法/消费者已写入、哪些真实缺口仍在；统一验证开始后报告实际结果。组件测试数、阶段状态、来源 adopted 或文档数量不换算为总体完成百分比。
 
