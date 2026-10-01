@@ -54,15 +54,15 @@ S0–S7 保留为需求标签，不再代表“完成一个、验证一个、提
 | 范围标签 | 最终完整交付 | 当前事实 |
 | --- | --- | --- |
 | S0 设计与来源 | 最终 owner/dataflow、来源 profile 和完整要求追踪 | 设计入口已建立；具体新增算法仍需来源核读 |
-| S1 材质编译与产品 | typed IR、活性/采样/依赖、有限程序、静态/动态产品、实时输入与 coverage 消费 | 动态参数、字段版本、MASK/透明 authored graph 已接入发布；最终 GPU 字段消费仍待第一步收口 |
+| S1 材质编译与产品 | typed IR、活性/采样/依赖、有限程序、静态/动态产品、实时输入与 coverage 消费 | 动态参数、字段版本、MASK/透明 authored graph 已接入发布；GPU demand 会从 VisibilityKey 解析材质目录并生成有限程序任务，真实几何 UV/顶点属性与 coverage 语义仍待统一验收收口 |
 | S2 几何共享与稳定地址 | resident 属性、共享变换/形变、winner coefficients、稳定 source/LOD/seam 地址 | 共享变换、clip/winner、resident 属性 ABI、形变与稳定地址类型已写入；真实属性解码和 Surface 消费仍待收口 |
-| S3 Appearance 缓存与新 Surface | GPU demand/dedup/page allocation/update/eviction/versioning，新统一消费与同帧完整覆盖 | 页 ABI、GPU cache owner、版本同步与编译字段 integration 已写入；需求任务/页内容消费仍待第一步收口 |
-| S4 独立稀疏照明 | 独立 diffuse/specular/coat 率、cluster-local tasks、强制刷新、灯光/阴影/能量完整语义 | 未进入最终生产链 |
-| S5 历史与重建 | 分信号历史/曝光/footprint/重建/合成，reactive 与真实 provider demand fields | 未进入最终生产链 |
-| S6 生命周期与删除 | scene/product/device/resize/cut/residency/GPU退休，全依赖清理与最终审计 | 旧 Surface 生产入口、Probe/sample/Resolve、全屏 closure 和 TriangleSetup 已删除；最终整链生命周期仍未完成 |
-| S7 最终验收 | Chrome、画质视频、真实两 coverage 组、独立基准、全成本 P50/P95 | 未运行最终新主链验收，无性能达标声明 |
+| S3 Appearance 缓存与新 Surface | GPU demand/dedup/page allocation/update/eviction/versioning，新统一消费与同帧完整覆盖 | GPU demand、容量受限 indirect 任务、有限程序消费和字段数组发布已接入；缓存页的真实字段内容消费、GPU 去重/预约以及几何属性/同帧 miss 覆盖仍需验收返工 |
+| S4 独立稀疏照明 | 独立 diffuse/specular/coat 率、cluster-local tasks、强制刷新、灯光/阴影/能量完整语义 | 新 SparseLightingPass 已成为 HDR producer，diffuse 使用 2×2 footprint、specular/coat 保持全率；真实 cluster light/VSM/信号历史与能量完整语义仍未验收 |
+| S5 历史与重建 | 分信号历史/曝光/footprint/重建/合成，reactive 与真实 provider demand fields | Temporal Facts、FSR3 reactive、radiometry、bloom 和 presentation 已重新接线；独立照明 history、identity/footprint 重建与真实 provider demand 仍待完成 |
+| S6 生命周期与删除 | scene/product/device/resize/cut/residency/GPU退休，全依赖清理与最终审计 | 旧 Surface 生产入口、Probe/sample/Resolve、全屏 closure 和 TriangleSetup 已删除；Appearance/lighting owner 的完整 resize/cut/residency/retirement 审计仍待统一验收 |
+| S7 最终验收 | Chrome、画质视频、真实两 coverage 组、独立基准、全成本 P50/P95 | 尚未运行；没有编译、浏览器、画质或性能达标声明 |
 
-截至本版修订，已提交 HEAD 为 `2d227b6`，最新共享顶点/HZB 接线在工作树中尚未提交。已有真实组件与源码资产直接复用，不要求把其测试再跑一遍才能继续。旧 Surface 生产源码和 Renderer/FrameProgram 旧接线已从工作树删除；新 Appearance cache 与几何 ABI 已接入，第一步仍有真实属性解码、GPU demand/内容消费和同帧完整覆盖缺口。
+截至本版修订，已提交 HEAD 为 `7b8d9f9`，包含 `e241771` 的 GPU Appearance demand/字段发布和本版 SparseLighting/HDR/Temporal 主链接线。已有真实组件与源码资产直接复用，不要求把其测试再跑一遍才能继续。旧 Surface 生产源码和 Renderer/FrameProgram 旧接线已从工作树删除；当前仍有真实 resident 属性/形变、缓存页内容、cluster-local light/shadow 语义、独立照明 history/reconstruction 及最终生命周期审计缺口。按执行规则，typecheck、build、测试、GPU oracle、浏览器和性能验证全部留到第三步。
 
 后续进度只报告：旧生产依赖实际删除情况、最终主链哪些算法/消费者已写入、哪些真实缺口仍在；统一验证开始后报告实际结果。组件测试数、阶段状态、来源 adopted 或文档数量不换算为总体完成百分比。
 
