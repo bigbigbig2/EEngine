@@ -7,7 +7,7 @@ owner: frame-runtime
 
 ## 当前生产链
 
-核对：2026-10-02，基线 `e7296be9`。`RendererCore` 是 composition root，`FrameCoordinator` 是唯一 frame command context/submit owner。当前 FrameProgramLowering 连接 GPU Scene/hierarchy/MeshletWork/Visibility → AppearanceCachePass fields → TemporalFacts → SparseLighting → Sky/Aerial → FSR3/Radiometry/Bloom/Present。HZB、cluster、lit-consumer XeGTAO 和 directional VSM 使用同一 FrameGraph；空场景沿用同一个帧入口和 submit owner。
+核对：2026-10-02，基线 `e7296be9`。`RendererCore` 是 composition root，`FrameCoordinator` 是唯一 frame command context/submit owner。Phase 1 已移除 AppearanceCachePass/SparseLightingPass 的创建和消费接线，FrameProgramLowering 正在切换到唯一 SurfaceWorkRuntime；HZB、cluster、lit-consumer XeGTAO 和 directional VSM 继续使用同一 FrameGraph；空场景沿用同一个帧入口和 submit owner。
 
 旧 SurfaceProbe/Work Builder/sample workers/Resolve 与 SurfaceMaterialPass 不再是生产路径。当前 Appearance/SparseLighting 接线不表示 SurfaceWork V3 已实现。
 
@@ -29,4 +29,4 @@ Environment 发布完整 LUT generation，abort 不提升未提交状态；FSR3 
 
 SSSR、Hybrid GI、VT、Transparency/Media 是后续模块。Surface 专项验收按原文 §8–§11，其他主要模块完成后再做完整 Renderer 系统验收。
 
-入口：`render/pipeline/RendererCore.ts`、`FrameCoordinator.ts`、`program/FrameProgram.ts`、`FrameProgramBindings.ts`、`FrameProgramLowering.ts`、`framegraph/FrameGraph.ts`、当前 `surface/AppearanceCachePass.ts` 和 `SparseLightingPass.ts`。过去 VSM/Temporal 组件检查见[ledger](../porting/next-renderer.md)，不转授新主链验收。
+入口：`render/pipeline/RendererCore.ts`、`FrameCoordinator.ts`、`program/FrameProgram.ts`、`FrameProgramBindings.ts`、`FrameProgramLowering.ts`、`framegraph/FrameGraph.ts` 与待实现的 `surface/SurfaceWorkRuntime.ts`。过去 VSM/Temporal 组件检查见[ledger](../porting/next-renderer.md)，不转授新主链验收。

@@ -7,23 +7,18 @@ owner: shading
 
 ## 当前源码事实
 
-核对日期：2026-10-02；源码基线 `e7296be9cebbc3bcc1b6b738d682c928548d72d5`。本页描述当前实现，目标见[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，执行见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。本次仅更新文档，不作运行或性能通过声明。
+核对日期：2026-10-02；源码基线 `e7296be9cebbc3bcc1b6b738d682c928548d72d5`。本页描述当前实现，目标见[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，执行见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。Phase 1 已切断旧 Surface owner；Phase 2–7 尚未完成，本页不作运行或性能通过声明。
 
-当前生产链是：
+当前 Surface 生产链处于 Phase 1 与 Phase 2 之间的破坏式切换窗口：
 
 ```text
 VisibilityKey / Depth / MeshletWork / shared frame geometry
-  → AppearanceCachePass
-      WinnerPrimitiveInterpolation
-      GpuAppearancePublication demand/finalize/scatter/geometry/program/field publication
-  → TemporalFactsPass
-  → SparseLightingPass
-      prepare_surface / reset_packets / classify / finalize_packets
-      evaluate_packets / reconstruct
+  → （旧 Appearance/SparseLighting owner 已删除）
+  → SurfaceWorkRuntime / SurfaceGeometryPass（Phase 2 待实现）
   → HDR / Sky / Aerial / FSR3 / Radiometry / Bloom / Present
 ```
 
-旧 SurfaceMaterialPass、Probe、SurfaceSampleAbi、sample worker/result/Resolve 协调器已删除。它们不是当前 consumer，也不作为新主链的 fallback。
+旧 SurfaceMaterialPass、Probe、SurfaceSampleAbi、sample worker/result/Resolve 协调器以及旧 Appearance/SparseLighting owner 已删除；不保留 fallback 或兼容桥。
 
 ### Appearance
 
@@ -55,7 +50,7 @@ skin/morph/previous deformation、Product 跨 LOD/source/seam 对应、nonlocal/
 
 ## Owner 与入口
 
-- shading：`render/surface/AppearanceCachePass.ts`、`SparseLightingPass.ts`、`WinnerPrimitiveInterpolation.ts`、`shaders/appearance_*.ts`、`surface_sparse_lighting.ts` 的实际求值/消费边界。
+- shading：`render/surface/` 下的新 SurfaceWorkRuntime、GeometryRecord、cache、signal packet 和 reconstruct owner；`WinnerPrimitiveInterpolation.ts` 与 appearance publication 作为保留的数学/资源资产。
 - materials-textures：AppearanceGraphCompiler、GpuMaterialStore、TextureResidency、AppearanceStaticResidency、AppearanceProgramRegistry 和 publication 生命周期。
 - visibility/geometry：winner/depth 和共享 frame geometry；frame-runtime：FrameProgram/Lowering/FrameGraph/submit。
 - temporal：TemporalFacts/TemporalFabric/FSR3 的基础事实与事务；signal owner 管理专用 confidence/history。

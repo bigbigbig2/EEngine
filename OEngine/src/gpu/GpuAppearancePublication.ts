@@ -17,9 +17,7 @@ import { appearanceCachePlan, appearanceCacheIntegration, type AppearanceCachePl
 import { APPEARANCE_FIELD_NAMES, APPEARANCE_SURFACE_CHANNELS, APPEARANCE_SURFACE_LAYER_COUNT, APPEARANCE_PACKED_SLOT_RECORD_COUNT } from "./GpuAppearanceCacheAbi.js";
 import type { GpuAppearanceCache, PreparedAppearanceCache } from "./GpuAppearanceCache.js";
 import { GPU_VISIBILITY_KEY_WGSL, GPU_VISIBILITY_KEY_EMPTY, GPU_VISIBILITY_KEY_INVALID } from "./GpuVisibilityKeyAbi.js";
-import { GPU_MESHLET_RASTER_WORK_WGSL, GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE } from "./GpuMeshletRasterWorkAbi.js";
-import { appearanceGeometryInputsWgsl } from "../shaders/appearance_geometry_inputs.js";
-import type { GpuSparseShadingAssetHeapBindings } from "./GpuAssetStore.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL } from "./GpuMeshletRasterWorkAbi.js";
 import { appearanceInputLayout, appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
 import { appearanceCoverageKernel, COVERAGE_DIRECTORY_STRIDE } from "../shaders/appearance_coverage.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
@@ -226,12 +224,9 @@ export class GpuAppearancePublication {
   readonly coverageDirectory: GPUBuffer;
   readonly allocatedBytes: number;
   readonly ready: Promise<void>;
-  get demandCounters(): GPUBuffer { return this.frameControl; }
   private readonly leases: readonly AppearanceProgramLease[];
   private readonly cacheStageLeases: AppearanceProgramLease[][] = [];
   private readonly coordinateLeases: AppearanceProgramLease[] = [];
-  private coordinatePipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] = [];
-  private cacheStagePipelines: readonly (readonly Awaited<AppearanceProgramLease["ready"]>[])[] = [];
   private readonly staticLeases: AppearanceStaticLease[] = [];
   private readonly buffers: GPUBuffer[] = [];
   private constantValues!: Float32Array<ArrayBuffer>;
@@ -239,34 +234,6 @@ export class GpuAppearancePublication {
   private fieldWords!: Uint32Array<ArrayBuffer>;
   private fieldDependencies: readonly (readonly number[])[] = [];
   private readonly accountingHandles: ResourceHandle[] = [];
-  private readonly frameBuffers: GPUBuffer[] = [];
-  private readonly demandLayout: GPUBindGroupLayout;
-  private readonly resolveLayout: GPUBindGroupLayout;
-  private readonly scatterLayout: GPUBindGroupLayout;
-  private scatterPipeline!: GPUComputePipeline;
-  private readonly geometryLayouts: readonly GPUBindGroupLayout[];
-  private geometryPipelines!: readonly GPUComputePipeline[];
-  private demandPipeline!: GPUComputePipeline;
-  private demandFinalizePipeline!: GPUComputePipeline;
-  private resolvePipeline!: GPUComputePipeline;
-  private readonly frameTasks: GPUBuffer;
-  private readonly frameOrderedTasks: GPUBuffer;
-  private readonly frameTaskMetadata: GPUBuffer;
-  private readonly frameCacheRequests: GPUBuffer;
-  private readonly frameInputs: GPUBuffer;
-  private readonly frameOutputs: GPUBuffer;
-  private readonly framePrograms: GPUBuffer;
-  private readonly framePixels: GPUBuffer;
-  private readonly frameControl: GPUBuffer;
-  private readonly frameIndirect: GPUBuffer;
-  private readonly frameSettings: GPUBuffer;
-  private readonly frameMetadata: GPUBuffer;
-  private readonly frameFieldSlots: GPUBuffer;
-  private readonly materialLookup: GPUBuffer;
-  private readonly maxFrameTasks: number;
-  private readonly maxFrameInputs: number;
-  private readonly maxFrameOutputs: number;
-  private readonly maxFramePixels: number;
   private pipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] | null = null;
   private readonly cancelReadiness: (reason: Error) => void;
   private unwatchRegistry: (() => void) | null = null;
@@ -450,19 +417,9 @@ export class GpuAppearancePublication {
       const directoryData = sources.length === 0 ? new Uint32Array(directoryWords) : directory;
       const fieldData = new Uint32Array(Math.max(fields.length, APPEARANCE_FIELD_RECORD_STRIDE / 4)); fieldData.set(fields);
       const inputData = new Float32Array(Math.max(runtimeInputs.length, 4)); inputData.set(runtimeInputs);
-      this.maxFrameInputs = Math.max(1, ...entries.map(entry => entry.kernel.inputVectorCount));
-      this.maxFrameOutputs = Math.max(1, ...entries.map(entry => entry.kernel.lowered.outputCount));
-      if (this.maxFrameInputs > APPEARANCE_FRAME_MAX_INPUT_VECTORS || this.maxFrameOutputs > APPEARANCE_FRAME_MAX_OUTPUTS) {
-        throw new RangeError("Appearance program exceeds the finite frame input/output profile");
-      }
       const maximum = Math.min(Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize));
       for (const data of [constantData, routeData, directoryData, fieldData, inputData]) if (data.byteLength > maximum) {
         throw new RangeError(`Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`);
-      }
-      const demandSource = APPEARANCE_DEMAND_WGSL;
-      if (device.limits.maxStorageBuffersPerShaderStage < 15 || device.limits.maxBindingsPerBindGroup < 18 ||
-        device.limits.maxComputeInvocationsPerWorkgroup < 64 || device.limits.maxComputeWorkgroupSizeY < 8) {
-        throw new RangeError("Appearance source input production requires fifteen storage buffers and 8x8 demand workgroups");
       }
       // Publication byte admission precedes every shader/layout/pipeline/buffer creation.
       for (const descriptor of descriptors) registry.preflight(descriptor);
@@ -496,10 +453,7 @@ export class GpuAppearancePublication {
       this.directory = this.upload(device, command, "directory", directoryData);
       this.fields = this.upload(device, command, "fields", fieldData);
       this.runtimeInputs = this.upload(device, command, "runtime-inputs", inputData);
-      const maxMaterialSlot = Math.max(0, ...sources.map(source => source.materialSlot));
-      const materialLookupData = new Uint32Array(maxMaterialSlot + 1); materialLookupData.fill(0xffffffff);
-      sources.forEach((source, index) => { materialLookupData[source.materialSlot] = index; });
-      this.materialLookup = this.upload(device, command, "material-lookup", materialLookupData);
+       const maxMaterialSlot = Math.max(0, ...sources.map(source => source.materialSlot));
       const coverageDirectoryData = new Uint32Array((maxMaterialSlot + 1) * COVERAGE_DIRECTORY_STRIDE / 4);
       if (coverageDirectoryData.byteLength > maximum) throw new RangeError("Coverage directory exceeds negotiated storage limit");
       entries.forEach(entry => coverageDirectoryData.set([entry.coverage.constantBase, entry.coverage.routeBase, entry.coverage.inputBase, entry.coverage.rasterProgram], entry.materialSlot * 4));
@@ -508,117 +462,20 @@ export class GpuAppearancePublication {
       this.cache = cacheOwner.prepare(descriptors.map((_descriptor, index) => entries.find(entry => entry.programIndex === index)!.cachePlan));
       this.constantValues = constantData; this.inputValues = inputData; this.fieldWords = fieldData;
       this.fieldDependencies = fieldDependencies;
-      this.allocatedBytes = constantData.byteLength + routeData.byteLength + directoryData.byteLength + fieldData.byteLength + inputData.byteLength;
-      this.entries = Object.freeze(entries);
-      this.leases = Object.freeze(leaseList);
-      const demandModule = device.createShaderModule({ label: "Appearance GPU demand", code: demandSource });
-      const resolveModule = device.createShaderModule({ label: "Appearance field publication", code: APPEARANCE_RESOLVE_WGSL });
-      const scatterModule = device.createShaderModule({ label: "Appearance task scatter", code: APPEARANCE_SCATTER_WGSL });
-      this.demandLayout = device.createBindGroupLayout({ label: "Appearance demand layout", entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        ...[2, 3, 4].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" as GPUBufferBindingType } })),
-        ...[5, 6, 7, 8, 9, 10].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" as GPUBufferBindingType } })),
-        { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } }
-      ] });
-      this.scatterLayout = device.createBindGroupLayout({ entries: [
-        ...Array.from({ length: 8 }, (_, binding) => ({ binding, visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: (binding < 3 ? "read-only-storage" : "storage") as GPUBufferBindingType } })),
-        { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } }
-      ] });
-      this.resolveLayout = device.createBindGroupLayout({ label: "Appearance field resolve layout", entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-        { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float", viewDimension: "2d-array" } },
-        { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 32 } },
-        { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
-      ] });
-      const demandPipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.demandLayout] });
-      const resolvePipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [this.resolveLayout] });
-      const demandPipeline = device.createComputePipelineAsync({ label: "Appearance/demand", layout: demandPipelineLayout, compute: { module: demandModule, entryPoint: "demand" } });
-      const finalizePipeline = device.createComputePipelineAsync({ label: "Appearance/demand-finalize", layout: demandPipelineLayout, compute: { module: demandModule, entryPoint: "finalize" } });
-      const resolvePipeline = device.createComputePipelineAsync({ label: "Appearance/field-resolve", layout: resolvePipelineLayout, compute: { module: resolveModule, entryPoint: "resolve" } });
-      const scatterPipeline = device.createComputePipelineAsync({ label: "Appearance/scatter", layout: device.createPipelineLayout({ bindGroupLayouts: [this.scatterLayout] }), compute: { module: scatterModule, entryPoint: "scatter" } });
-      this.geometryLayouts = [false, true].map(product => device.createBindGroupLayout({
-        label: `Appearance geometry inputs/${Number(product)}`, entries: [
-          { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 64 } },
-          { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-          ...Array.from({ length: product ? 15 : 10 }, (_, i) => ({ binding: i + 2,
-            visibility: GPUShaderStage.COMPUTE, buffer: { type: (i === 2 ? "storage" : "read-only-storage") as GPUBufferBindingType } })),
-          { binding: 18, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }
-        ] }));
-      const geometryPipelines = this.geometryLayouts.map((layout, index) => device.createComputePipelineAsync({
-        label: `Appearance geometry inputs/${index}`, layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-        compute: { module: device.createShaderModule({ code: appearanceGeometryInputsWgsl(entries, index === 1) }), entryPoint: "geometry_inputs" }
-      }));
-
-      const makeFrame = (label: string, size: number, usage: GPUBufferUsageFlags): GPUBuffer => {
-        if (size > Number(device.limits.maxBufferSize) || size > Number(device.limits.maxStorageBufferBindingSize)) throw new RangeError(`Appearance frame buffer '${label}' exceeds negotiated limits`);
-        const buffer = device.createBuffer({ label, size: Math.max(4, size), usage }); this.frameBuffers.push(buffer);
-        if (accounting) this.accountingHandles.push(accounting.created({
-          kind: "buffer", category: "work-cache", owner: "GpuAppearancePublication", label, bytes: Math.max(4, size)
-        }));
-        return buffer;
-      };
-      const storageLimit = Number(device.limits.maxStorageBufferBindingSize);
-      this.maxFrameTasks = Math.min(APPEARANCE_FRAME_MAX_TASKS,
-        Math.floor(storageLimit / (this.maxFrameInputs * 16)),
-        Math.floor(storageLimit / (this.maxFrameOutputs * 4)));
-      this.maxFramePixels = Math.min(APPEARANCE_FRAME_MAX_PIXELS, Math.floor(storageLimit / 4));
-      if (this.maxFrameTasks < 1024 || this.maxFramePixels < 1024) throw new RangeError("Appearance frame demand budget is below the negotiated storage limit");
-      this.frameTasks = makeFrame("Appearance frame tasks", this.maxFrameTasks * 16, GPUBufferUsage.STORAGE);
-      this.frameOrderedTasks = makeFrame("Appearance ordered tasks", this.maxFrameTasks * 16, GPUBufferUsage.STORAGE);
-      this.frameTaskMetadata = makeFrame("Appearance ordered task metadata", this.maxFrameTasks * 16, GPUBufferUsage.STORAGE);
-      const cachedFields = Math.max(0, ...entries.map(entry => entry.cachePlan.fields.filter(field => field.cells > 0).length));
-      this.frameCacheRequests = makeFrame("Appearance cache field requests", this.maxFrameTasks * cachedFields * 4, GPUBufferUsage.STORAGE);
-      this.frameInputs = makeFrame("Appearance frame inputs", this.maxFrameTasks * this.maxFrameInputs * 16, GPUBufferUsage.STORAGE);
-      this.frameOutputs = makeFrame("Appearance frame outputs", this.maxFrameTasks * this.maxFrameOutputs * 4, GPUBufferUsage.STORAGE);
-      this.framePrograms = makeFrame("Appearance frame program ids", this.maxFrameTasks * 4, GPUBufferUsage.STORAGE);
-      this.framePixels = makeFrame("Appearance frame pixel tasks", this.maxFramePixels * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-      this.frameControl = makeFrame("Appearance frame control", (4 + descriptors.length) * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC);
-      this.frameIndirect = makeFrame("Appearance frame indirect", 16 + descriptors.length * 32, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST);
-      this.frameSettings = makeFrame("Appearance frame settings", 48, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-      this.frameMetadata = makeFrame("Appearance frame metadata", Math.max(16, (descriptors.length + this.maxFrameTasks) * 16), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-      this.frameFieldSlots = makeFrame("Appearance packed output slots", Math.max(16, descriptors.length * APPEARANCE_PACKED_SLOT_RECORD_COUNT * 16), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
-      const meta = new Uint32Array(Math.max(4, descriptors.length * 4));
-      const fieldSlots = new Uint32Array(Math.max(4, descriptors.length * APPEARANCE_PACKED_SLOT_RECORD_COUNT * 4));
-      fieldSlots.fill(0xffffffff);
-      for (const [index, descriptor] of descriptors.entries()) {
-        const entry = entries.find(candidate => candidate.programIndex === index)!;
-        const inputCount = entry.program.inputs.length;
-        meta.set([inputCount, entry.kernel.inputVectorCount, 0, (inputCount & 0xffff) | (entry.kernel.inputVectorCount << 16)], index * 4);
-        APPEARANCE_FIELD_NAMES.forEach((name, field) => {
-          const slots = entry.kernel.lowered.outputSlots[name];
-          const [layer, channel] = APPEARANCE_SURFACE_CHANNELS[field]!;
-          if (slots) fieldSlots.set(slots, field>=13
-            ? (index*APPEARANCE_PACKED_SLOT_RECORD_COUNT+APPEARANCE_SURFACE_LAYER_COUNT)*4+field-13
-            : (index * APPEARANCE_PACKED_SLOT_RECORD_COUNT + layer) * 4 + channel);
-        });
-      }
-      device.queue.writeBuffer(this.frameMetadata, 0, meta);
-      device.queue.writeBuffer(this.frameFieldSlots, 0, fieldSlots);
-      this.allocatedBytes = [...this.buffers, ...this.frameBuffers].reduce((bytes, buffer) => bytes + buffer.size, 0);
+       this.entries = Object.freeze(entries);
+       this.leases = Object.freeze(leaseList);
+       this.allocatedBytes = this.buffers.reduce((bytes, buffer) => bytes + buffer.size, 0);
       let cancel!: (reason: Error) => void;
       const cancellation = new Promise<never>((_resolve, reject) => { cancel = reject; });
       this.cancelReadiness = cancel;
-      this.ready = Promise.race([cancellation, Promise.all([
-        Promise.all(leaseList.map(lease => lease.ready)), demandPipeline, finalizePipeline, resolvePipeline, scatterPipeline,
-        Promise.all(this.cacheStageLeases.map(leases => Promise.all(leases.map(lease => lease.ready)))), Promise.all(geometryPipelines),
-        Promise.all(this.coordinateLeases.map(lease => lease.ready))
-      ]).then(([pipelines, demand, finalize, resolve, scatter, cachePipelines, geometry, coordinates]) => {
-        if (this.state !== "staging") throw new Error("Appearance publication cancelled before program readiness");
-        this.pipelines = Object.freeze(pipelines);
-        this.demandPipeline = demand;
-        this.demandFinalizePipeline = finalize;
-        this.resolvePipeline = resolve;
-        this.scatterPipeline = scatter;
-        this.geometryPipelines = geometry;
-        this.coordinatePipelines = coordinates;
-        this.cacheStagePipelines = cachePipelines;
-        this.state = "ready";
+       this.ready = Promise.race([cancellation, Promise.all([
+         Promise.all(leaseList.map(lease => lease.ready)),
+         Promise.all(this.cacheStageLeases.map(leases => Promise.all(leases.map(lease => lease.ready)))),
+         Promise.all(this.coordinateLeases.map(lease => lease.ready))
+       ]).then(([pipelines]) => {
+         if (this.state !== "staging") throw new Error("Appearance publication cancelled before program readiness");
+         this.pipelines = Object.freeze(pipelines);
+         this.state = "ready";
       })]);
       void this.ready.catch(() => undefined);
       command.onBeforeFinish.addOne(() => {
@@ -633,7 +490,6 @@ export class GpuAppearancePublication {
       for (const leases of this.cacheStageLeases) for (const lease of leases) lease.release();
       for (const lease of this.staticLeases) lease.release();
       for (const buffer of this.buffers) buffer.destroy();
-      for (const buffer of this.frameBuffers) buffer.destroy();
       if (this.cache) this.cacheOwner?.release(this.cache);
       for (const handle of this.accountingHandles) accounting?.destroyed(handle);
       throw error;
@@ -704,10 +560,7 @@ export class GpuAppearancePublication {
     return this.entries.some(entry => entry.coverage.viewDependent && entry.material.transparency_mode === ShadeTransparencyMode.AlphaTested);
   }
 
-  /** Build visible Appearance demand directly on the GPU and run every finite
-   * material program against the compact task stream. The stream is indirect;
-   * overflow is counted in the same control buffer and field layers are
-   * published only after all program consumers finish. */
+  /*
   encodeDemand(command: ShadeGPUCommandContext, input: {
     readonly visibility: GPUTextureView;
     readonly meshletWork: GPUBuffer;
@@ -866,6 +719,7 @@ export class GpuAppearancePublication {
       resolvePass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(rowCount / 8)); resolvePass.end();
       }
   }
+  */
 
   evidence(): Readonly<{ allocatedBytes: number; residentBytes: number; retiringBytes: number; stagingBytes: number }> {
     const bytes = this.state === "destroyed" ? 0 : this.allocatedBytes;
@@ -900,7 +754,6 @@ export class GpuAppearancePublication {
     this.cancelReadiness(new Error("Appearance publication cancelled or destroyed"));
     this.pipelines = null;
     for (const buffer of this.buffers) buffer.destroy();
-    for (const buffer of this.frameBuffers) buffer.destroy();
     if (this.cache) this.cacheOwner?.release(this.cache);
     for (const handle of this.accountingHandles) this.accounting?.destroyed(handle);
     for (const lease of this.leases) lease.release();

@@ -19,13 +19,13 @@ currentSlice:
     Phase 0 已固定三组历史 revision、GTX 1650 Ti/1080p 目标、Dungeon 资源 fingerprint、
     feature set、覆盖率区间、预热/采集/P50/P95 口径，配置见
     validation/profiles/surface-work-v3-phase0-baseline.yaml。源码基线 e7296be9 已删除旧
-    SurfaceMaterialPass/Probe/sample 主链，已接入 AppearanceCachePass 与 SparseLightingPass，
+    SurfaceMaterialPass/Probe/sample 主链；Phase 1 已切断 AppearanceCachePass/SparseLightingPass 旧 owner、独立 geometry inputs 与旧 FrameProgram 接线，
     但仍需将全有效像素 demand/geometry inputs 改为 SurfaceWork 和 miss-only 工作，
     由唯一 GeometryRecord producer 替代两套几何恢复，将 reconstruct 降为 packet/history
     廉价合成，完成真实 FrameGraph 边、独立 signal 失效和生命周期。原文 §11 的 16 项
     不因文档切换提升完成。skin/morph 与 previous deformation、Product 跨 LOD/source/seam、
     nonlocal/provider、屏外 VSM caster 和透明 composition 缺口继续保留。
-    接下来进入 Phase 1 的旧执行模型切断。实现、adoption、连续画质和四版本同条件性能均未验收，
+    Phase 1 已完成，Phase 2 为下一步。实现、adoption、连续画质和四版本同条件性能均未验收，
     不恢复旧链。
 
 nextModules:

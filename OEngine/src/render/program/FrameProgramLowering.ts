@@ -4,13 +4,11 @@ import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.
 import { resolveTextureView } from "../RenderTargetViews.js";
 import type { VisibilityFeature, PackedVisibilityOutputs } from "../features/VisibilityFeature.js";
 import type { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
-import type { AppearanceCachePass } from "../surface/AppearanceCachePass.js";
 import type { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
 import type { RenderDebugViewResources } from "../passes/RenderDebugViewPass.js";
 import { RenderDebugView as RenderDebugViewValue } from "../../debug/RenderDebugView.js";
 import type { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
 import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
-import type { SparseLightingPass } from "../surface/SparseLightingPass.js";
 import type { BloomPass } from "../passes/BloomPass.js";
 import type { LightClusterPass } from "../passes/LightClusterPass.js";
 import type { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
@@ -34,8 +32,6 @@ export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
   visibilityCounters: VisibilityCounterPass;
   temporalFacts: TemporalFactsPass;
-  appearanceCache: AppearanceCachePass;
-  sparseLighting: SparseLightingPass;
   radiometry: GpuRadiometryPass;
   bloom: BloomPass;
   present: SurfacePresentPass;
@@ -220,23 +216,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
           return resource;
         })
       )) : undefined;
-  const appearanceFields = owners.appearanceCache.addToGraph(graph, {
-    visibility: result.frame.visibilityKey,
-    meshletWork: result.frame.meshletWork.records,
-    geometry: result.frame.frameGeometry,
-    attributes: result.frame.frameAttributes,
-    frameInstances: result.frame.frameInstances, vertexPayload, camera: cameraBuffer, productMetadata: virtualMetadata, productBanks: virtualBanks,
-    counters: result.counters,
-    frame: bind("appearance-frame", bindings => {
-      if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
-      return { publication: bindings.runtime.appearancePublication, index: bindings.frameIndex, sampleCounters: bindings.job.countersEnabled,
-        arena: bindings.job.prepared.workSet.frameGeometry,
-        filtered: bindings.job.prepared.currentHzbLateRecheck !== null, source: bindings.job.assets.sparseShading };
-    }),
-    width: result.frame.domain.width,
-    height: result.frame.domain.height,
-    textureBanks
-  });
   if (vsmAllocation !== null && vsmOwnerBinding !== null && vsmFrameBinding !== null) {
     const geometryRecords = graph.import_resource("vsm-geometry-records", { kind: "imported", label: "VSM geometry records" }, bind("vsm-geometry-records", bindings => bindings.job.assets.geometryRecords));
     const meshletRecords = graph.import_resource("vsm-meshlet-records", { kind: "imported", label: "VSM meshlet records" }, bind("vsm-meshlet-records", bindings => bindings.job.assets.meshletRecords));
@@ -377,19 +356,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     dfg: graph.import_resource("Lighting/DFG", { kind: "imported" },
       bind("lighting-dfg", bindings => bindings.environment!.ibl.views.dfg))
   };
-  const sparseLighting = owners.sparseLighting.addToGraph(graph, {
-    fields: appearanceFields.fields, visibility: result.frame.visibilityKey,
-    geometry: appearanceFields.geometry, attributes: result.frame.frameAttributes,
-    vertexPayload, productMetadata: virtualMetadata, productBanks: virtualBanks,
-    frameInstances: result.frame.frameInstances, meshletWork: result.frame.meshletWork.records,
-    camera: cameraBuffer, previousCamera, previousIdentity, facts, preExposure: gpuPreviousExposure, counters: result.counters,
-    clusters, lightRecords, shadow: shadowContract, scalarAo, environment: signalEnvironment,
-    frame: bind("lighting-frame", bindings => ({ arena: bindings.job.prepared.workSet.frameGeometry,
-      filtered: bindings.job.prepared.currentHzbLateRecheck !== null, source: bindings.job.assets.sparseShading, index: bindings.frameIndex,
-      lightRevision: bindings.view.environment.lights.publicationRevision,
-      environmentRevision: bindings.lightingEnvironmentRevision, sampleCounters: bindings.job.countersEnabled })),
-    width: result.frame.domain.width, height: result.frame.domain.height
-  }, (name, resolve) => bind(`sparse-lighting/${name}`, bindings => resolve(bindings.sparseLighting)));
   const atmosphereEnvironment = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
     "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
     bind("physical-environment-transmittance", bindings => bindings.environment!.luts.views.transmittance)
@@ -403,8 +369,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     bind("physical-environment-higher-order-scattering", bindings => bindings.environment!.luts.views.higherOrderScattering)
   );
   const environmentRadiance = !plan.stages.includes("physical-sky") || atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || owners.sky === null
-    ? sparseLighting.radiance
-    : owners.sky.addToGraph(graph, { hdr: sparseLighting.radiance, depth: result.frame.depth, camera: cameraBuffer,
+    ? surfaceWork.radiance
+    : owners.sky.addToGraph(graph, { hdr: surfaceWork.radiance, depth: result.frame.depth, camera: cameraBuffer,
         transmittance: atmosphereEnvironment, scattering: skyRadiance, higherOrder: higherOrderScattering,
         environment: physicalEnvironmentSun!, preExposure: gpuPreviousExposure });
   const aerialRadiance = !plan.stages.includes("aerial") || atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || physicalEnvironmentSun === undefined || owners.aerial === null
@@ -414,7 +380,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
         higherOrder: higherOrderScattering, preExposure: gpuPreviousExposure,
         width: result.frame.domain.width, height: result.frame.domain.height });
   const reconstructedRadiance = initial.fsr3.addToGraph(graph, {
-    color: aerialRadiance, depth: result.frame.depth, motion: facts.motion, reactiveMask: sparseLighting.reactiveMask,
+    color: aerialRadiance, depth: result.frame.depth, motion: facts.motion, reactiveMask: surfaceWork.reactiveMask,
     validityMask: facts.mask, preExposure: gpuPreviousExposure, priorExposure: gpuPriorExposure,
     width: result.frame.domain.width, height: result.frame.domain.height,
     outputWidth: plan.request.outputWidth, outputHeight: plan.request.outputHeight, enabled: plan.request.fsr3Enabled

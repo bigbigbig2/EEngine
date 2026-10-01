@@ -1,6 +1,6 @@
 # SurfaceWork Runtime V3 直接重构执行计划
 
-更新：2026-10-02。状态：方向与执行计划已切换；Phase 0 已完成基线冻结，Phase 1–7 实现和最终验收未完成。
+更新：2026-10-02。状态：Phase 0、Phase 1 已完成；Phase 2–7 实现和最终验收未完成。
 
 唯一目标依据是用户指定的 [EEngine 第三版最终重构设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。该文件按原文纳入，本文只把其 §4–§11 转成工程执行顺序，不另设快路径优先、旧 Signal-Rate 回退或新的性能百分比门槛。整体保留边界见 [整体架构](../next-design/eengine-next-overall-architecture-final-2026.md)，当前切片见 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。
 
@@ -58,11 +58,11 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 此时整理基线身份和采集配置；权威配置见 [`surface-work-v3-phase0-baseline.yaml`](../../validation/profiles/surface-work-v3-phase0-baseline.yaml)，记录见 [`Phase 0 基线`](../performance/2026-10-02-surface-work-runtime-v3-phase0-baseline.md)。正式四版本采样在 Phase 7 集中进行，使用独立 checkout/validation 宿主，不在生产工程恢复旧 Renderer。旧交互式数字和跨设备结果不能代替同条件比较。Phase 0 没有运行 GPU/browser 采样，也没有产生性能 claim。
 
-### Phase 1：删除旧 Surface 执行模型
+### Phase 1：删除旧 Surface 执行模型（已完成）
 
 核对旧 Pass/Probe/sample queue/generic worker/full-screen closure 已删除的事实；删除仍实际存在且被新链替代的 Appearance pixel-task machinery、独立几何 producer 和旧消费接线。同步处理 FrameProgram/Lowering、SurfaceProducts、ABI/counters 和仅服务被删除实现的 fixture。
 
-保留最终需要的数学、资源 owner 和 GPU 产品；不建立 adapter、空 provider、旧 consumer 或兼容测试桥。源码删除属于后续实施，本次方向整理不执行代码删除。
+保留最终需要的数学、资源 owner 和 GPU 产品；不建立 adapter、空 provider、旧 consumer 或兼容测试桥。已删除旧 Surface pass、独立 geometry input shader 与旧 FrameProgram owner 接线，并停止 publication 创建旧 frame task/result/geometry work buffer；Phase 1 未运行编译、测试或 GPU/browser 验证。
 
 ### Phase 2：统一 SurfaceWork 与 GeometryRecord
 

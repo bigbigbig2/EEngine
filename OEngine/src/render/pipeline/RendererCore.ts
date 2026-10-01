@@ -17,8 +17,6 @@ import { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
 import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
-import { AppearanceCachePass } from "../surface/AppearanceCachePass.js";
-import { SparseLightingPass } from "../surface/SparseLightingPass.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
@@ -285,9 +283,7 @@ export class Renderer {
   private _physicalSky: PhysicalSkyPass | null = null;
   private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
-  private _appearanceCache!: AppearanceCachePass;
   private readonly _visibilityCounters = new VisibilityCounterPass();
-  private _sparseLighting!: SparseLightingPass;
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
   private _temporalFacts!: TemporalFactsPass;
@@ -1211,8 +1207,6 @@ export class Renderer {
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
-    this._appearanceCache = await AppearanceCachePass.create(this._graphics);
-    this._sparseLighting = await SparseLightingPass.create(this._graphics);
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
     this._bloom = new BloomPass(device);
@@ -1263,9 +1257,7 @@ export class Renderer {
     return {
       visibility: this._visibilityFeature,
       temporalFacts: this._temporalFacts,
-      appearanceCache: this._appearanceCache,
       visibilityCounters: this._visibilityCounters,
-      sparseLighting: this._sparseLighting,
       radiometry: this._gpuRadiometry,
       bloom: this._bloom,
       debug: this._renderDebugViewPass,
@@ -1459,8 +1451,6 @@ export class Renderer {
       const diffuseHistory = this._temporal.histories.state("lighting-diffuse");
       const specularHistory = this._temporal.histories.state("lighting-specular");
       const coatHistory = this._temporal.histories.state("lighting-coat");
-      this._sparseLighting.prepareFrame(width, height, diffuseHistory.readIndex, diffuseHistory.writeIndex,
-        diffuseHistory.readValid && specularHistory.readValid && coatHistory.readValid && !vsmGeneration.temporalInvalidate);
       this._fsr3.prepareFrame(command, {
         renderWidth: width, renderHeight: height,
         outputWidth: this._output_resolution.x, outputHeight: this._output_resolution.y,
@@ -1514,7 +1504,6 @@ export class Renderer {
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
         fsr3: this._fsr3, temporalFacts: this._temporalFacts, radiometry: this._gpuRadiometry,
-        sparseLighting: this._sparseLighting,
         lightingEnvironmentRevision: scene.lights.environment !== undefined
           ? (environment.lights.authoredIbl.publicationRevision | 0x80000000) >>> 0
           : environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0,
@@ -1587,7 +1576,6 @@ export class Renderer {
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       this._fsr3.commit(command.gpuDone);
       this._temporalFacts.commit(command.gpuDone);
-      this._sparseLighting.commit(command.gpuDone);
       this._gpuRadiometry.commit(command.gpuDone);
       this._temporal.commit(frameIndex);
       temporalActive = false;
@@ -1610,7 +1598,6 @@ export class Renderer {
       activeHzb?.invalidate("explicit");
       this._fsr3.invalidate();
       this._temporalFacts.abort();
-      this._sparseLighting.abort();
       this._gpuRadiometry.abort();
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         try { this._environmentRuntime?.abort(environmentGeneration); }
@@ -1693,8 +1680,6 @@ export class Renderer {
     this._aerialPerspective?.destroy();
     this._fsr3?.destroy();
       this._present?.destroy();
-      this._sparseLighting?.destroy();
-      this._appearanceCache?.destroy();
       this._temporalFacts?.destroy();
     this._gpuRadiometry?.destroy();
     this._bloom?.destroy();
