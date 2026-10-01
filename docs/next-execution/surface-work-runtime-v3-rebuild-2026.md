@@ -82,9 +82,9 @@ DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRec
 
 已新增 `SurfaceLightingWorkPass`，独立发布 diffuse/specular/coat/IBL packet buffers、packet counters 与 radiance/reactive 输出，并只读取 GeometryRecord 和材质字段。旧 `prepare_surface` 已删除；Standard/Coated PBR、cluster、VSM、AO、physical sky/authored IBL 的完整数学语义及局部 full-rate 例外仍待接通，Phase 4 未完成，未运行编译、测试或 GPU/browser 验证。
 
-### Phase 5：廉价 reconstruct
+### Phase 5：廉价 reconstruct（实现中）
 
-只读取 packet/history result，按 sample mask 选择，合成 diffuse/specular/coat/emissive，应用 AO/energy/pre-exposure，输出 HDR/reactive。重建不得成为隐藏的第二个材质、几何或完整 PBR consumer。
+已新增 `SurfaceReconstructionPass`，只读取四类 packet、GeometryRecord 和 reactive 输入，按 tile 映射在全分辨率合成 HDR/reactive；未重新解码 Geometry Product 或执行材质 graph。AO、energy conservation、pre-exposure、真实 history reject/age 与 emissive 仍待接通，Phase 5 未完成，未运行编译、测试或 GPU/browser 验证。
 
 ### Phase 6：全链与生命周期
 
