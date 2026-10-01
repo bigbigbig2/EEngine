@@ -5,6 +5,7 @@ import {
   GPU_UV_FORMAT
 } from "../gpu/GpuGeometryAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { GPU_FRAME_INSTANCE_WGSL } from "../gpu/GpuFrameInstanceAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL } from "../gpu/GpuTextureRefAbi.js";
@@ -51,6 +52,7 @@ export function meshletBucketVisibilityWgsl(
 ${primitiveIndexEnable}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
+${GPU_FRAME_INSTANCE_WGSL}
 ${GPU_GEOMETRY_RECORD_WGSL}
 ${GPU_GEOMETRY_VERTEX_DECODE_WGSL}
 ${GPU_MESHLET_RECORD_WGSL}
@@ -88,7 +90,7 @@ ${shadingBinVarying}
 ${fragmentOutputDeclaration}
 
 @group(0) @binding(0) var<uniform> meshlet_camera: CommandEncoder;
-@group(0) @binding(1) var<storage, read> meshlet_instances: array<OEngineInstanceRecord>;
+@group(0) @binding(1) var<storage, read> meshlet_instances: array<OEngineFrameInstanceRecord>;
 @group(0) @binding(2) var<storage, read> meshlet_records: array<GpuMeshletRecord>;
 @group(0) @binding(3) var<storage, read> meshlet_vertices: array<u32>;
 @group(0) @binding(4) var<storage, read> meshlet_triangles: array<u32>;
@@ -167,13 +169,13 @@ fn raster_meshlet_bucket(
   let work_index = select(bucket_state.base + instance_index, instance_index,
     meshlet_bucket.indirect_first_instance != 0u);
   let work = meshlet_work.elements[work_index];
-  let instance = meshlet_instances[work.instance_slot];
+  let frame_instance = meshlet_instances[work.instance_slot];
+  let instance = frame_instance.source;
   let geometry = meshlet_geometries[work.geometry_slot];
   let meshlet = meshlet_records[work.meshlet_slot];
   let triangle = vertex_index / 3u;
   let input_corner = vertex_index % 3u;
-  let matrix = oengine_instance_current_object_to_world(instance);
-  let determinant = dot(matrix[0].xyz, cross(matrix[1].xyz, matrix[2].xyz));
+  let determinant = frame_instance.normal_x.w;
   let corner = select(input_corner, 3u - input_corner,
     determinant < 0.0 && input_corner != 0u);
   let valid = triangle < meshlet.triangle_count;
@@ -186,7 +188,7 @@ fn raster_meshlet_bucket(
   let uv2 = meshlet_read_uv(geometry, 2u, source_vertex);
   var output: OEngineMeshletBucketVertexOutput;
   output.position = select(vec4f(2.0, 2.0, 2.0, 1.0),
-    meshlet_camera.view_projection_matrix * matrix * vec4f(local_position, 1.0), valid);
+    frame_instance.object_to_clip * vec4f(local_position, 1.0), valid);
   output.instance_slot = work.instance_slot;
   output.meshlet_slot = work.meshlet_slot;
 ${triangleAssignment}
@@ -295,6 +297,7 @@ export const MESHLET_BUCKET_VISIBILITY_PRIMITIVE_INDEX_SINGLE_WGSL =
 export const VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL = /* wgsl */ `
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
+${GPU_FRAME_INSTANCE_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -315,7 +318,7 @@ struct OEngineProductBucketOutput {
 };
 
 @group(0) @binding(0) var<uniform> product_camera: CommandEncoder;
-@group(0) @binding(1) var<storage, read> product_instances: array<OEngineInstanceRecord>;
+@group(0) @binding(1) var<storage, read> product_instances: array<OEngineFrameInstanceRecord>;
 @group(0) @binding(2) var<storage, read> product_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(3) var<storage, read> product_heap_raster: array<u32>;
 @group(0) @binding(4) var<storage, read> product_bank_raster_0: array<u32>;
@@ -427,7 +430,8 @@ fn raster_virtual_meshlet(@builtin(vertex_index) vertex_index: u32,
   let work = product_work.elements[safe_work];
   let local_meshlet = work.meshlet_slot & 127u;
   let group_id = work.meshlet_slot >> 7u;
-  let instance = product_instances[work.instance_slot];
+  let frame_instance = product_instances[work.instance_slot];
+  let instance = frame_instance.source;
   let asset = oengine_geometry_product_resolve_asset_v1(&product_heap_raster,
     work.geometry_slot, oengine_instance_geometry_generation(instance));
   let group = oengine_virtual_group_v1(&product_heap_raster, asset, group_id);
@@ -462,9 +466,8 @@ fn raster_virtual_meshlet(@builtin(vertex_index) vertex_index: u32,
       }
     }
   }
-  let matrix = oengine_instance_current_object_to_world(instance);
   output.position = select(vec4f(2.0, 2.0, 2.0, 1.0),
-    product_camera.view_projection_matrix * matrix * vec4f(position, 1.0), valid);
+    frame_instance.object_to_clip * vec4f(position, 1.0), valid);
   output.instance_slot = work.instance_slot;
   output.meshlet_slot = work.meshlet_slot;
   output.triangle = triangle;

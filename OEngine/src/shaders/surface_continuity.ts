@@ -14,7 +14,7 @@ fn surface_triangle(work: OEngineMeshletRasterWork, primitive: u32) -> SurfaceTr
   var result: SurfaceTriangle;
   ${virtualGeometry ? `
   let asset = oengine_geometry_product_resolve_asset_v1(&virtual_product_metadata,
-    work.geometry_slot, oengine_instance_geometry_generation(instance_records[work.instance_slot]));
+    work.geometry_slot, oengine_instance_geometry_generation(surface_instance_record(work.instance_slot)));
   let group = oengine_virtual_group_v1(&virtual_product_metadata, asset, work.meshlet_slot >> 7u);
   let location = oengine_geometry_product_lookup_page_heap_v1(&virtual_product_metadata, asset, group.page_id);
   if !asset.valid || !group.valid || !location.valid || (group.flags & ${SURFACE_METADATA_GROUP_FLAG}u) == 0u {

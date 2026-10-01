@@ -636,7 +636,7 @@ export class GpuRenderWorld {
       publication.onDestroyed(() => this.appearancePublications.delete(publication));
       preparation.ready = preparation.publication.ready;
     }
-    await preparation.ready;
+    await Promise.all([preparation.ready, this.graphics.frame_instances.ready]);
   }
 
   /** Registers an ordinary Scene adapter in the same GPU Render World owner. */

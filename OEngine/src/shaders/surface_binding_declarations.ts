@@ -16,7 +16,7 @@ export function bindingDeclaration(binding: Readonly<SurfacePhysicalBinding>): s
     case "pre-exposure": return `${prefix} var<uniform> radiometry_pre_exposure: RadiometryPreExposure;`;
     case "radiance-output": return `${prefix} var output_hdr: texture_storage_2d<rgba16float, write>;`;
     case "visibility-depth": return `${prefix} var visibility_depth: texture_depth_2d;`;
-    case "instance-records": return `${prefix} var<storage, read> instance_records: array<OEngineInstanceRecord>;`;
+    case "instance-records": return `${prefix} var<storage, read> instance_records: array<OEngineFrameInstanceRecord>;`;
     case "geometry-metadata": return `${prefix} var<storage, read> asset_metadata_heap: array<u32>;`;
     case "vertex-payload": return `${prefix} var<storage, read> vertex_payload_heap: array<u32>;`;
     case "virtual-product-metadata": return `${prefix} var<storage, read> virtual_product_metadata: array<u32>;`;

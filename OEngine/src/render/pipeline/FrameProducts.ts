@@ -35,6 +35,8 @@ export interface VisibilityFrame {
   readonly shadingBinId: ResourceId | null;
   readonly depth: ResourceId;
   readonly meshletWork: MeshletWorkFrame;
+  /** GPU-selected current clip/normal transforms; Scene remains authoritative. */
+  readonly frameInstances: ResourceId;
   readonly triangleSetup: TriangleSetupFrame;
   readonly domain: TextureDomain<"internal-full">;
 }
@@ -273,6 +275,7 @@ export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   requireResourceId(input.visibilityKey, "VisibilityFrame.visibilityKey");
   requireResourceId(input.shadingBinId, "VisibilityFrame.shadingBinId");
   requireResourceId(input.depth, "VisibilityFrame.depth");
+  requireResourceId(input.frameInstances, "VisibilityFrame.frameInstances");
   if (input.domain.domain !== "internal-full") {
     throw new Error("VisibilityFrame must be produced at internal-full resolution");
   }

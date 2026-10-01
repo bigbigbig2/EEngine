@@ -1,5 +1,6 @@
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { SURFACE_FRAME_INSTANCE_WGSL } from "../gpu/GpuFrameInstanceAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL, GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js";
@@ -37,9 +38,9 @@ fn sparse_texture_route_valid(material_slot:u32,slot:u32,texture_ref:u32)->bool 
     ? "if work_item.instance_slot >= arrayLength(&instance_records) { surface_identity_error(); }"
     : `if work_item.instance_slot >= arrayLength(&instance_records) ||
       work_item.geometry_slot >= shading_view.geometry_count ||
-      instance_records[work_item.instance_slot].geometry_record_index != work_item.geometry_slot ||
+      surface_instance_record(work_item.instance_slot).geometry_record_index != work_item.geometry_slot ||
       asset_metadata_heap[shading_view.geometry_generation_word_base+work_item.geometry_slot] !=
-        oengine_instance_geometry_generation(instance_records[work_item.instance_slot]) {
+        oengine_instance_geometry_generation(surface_instance_record(work_item.instance_slot)) {
       surface_identity_error();
     }`;
   const evaluation = /* wgsl */ `
@@ -199,7 +200,7 @@ fn shade_closure(@builtin(global_invocation_id) id:vec3u,@builtin(local_invocati
     // pixel normal to retain view/geometry dependence across the certified cell.
     let geometric=normalize(cross(setup.p1.xyz-setup.p0.xyz,setup.p2.xyz-setup.p0.xyz));
     let local_normal=normalize(sparse_normal_ref(setup.ref0)*bary.weights.x+sparse_normal_ref(setup.ref1)*bary.weights.y+sparse_normal_ref(setup.ref2)*bary.weights.z);
-    surface.geometric_normal=geometric; surface.shading_normal=sparse_world_normal(setup.model,local_normal,geometric);
+    surface.geometric_normal=geometric; surface.shading_normal=surface_world_normal(item.instance_slot,local_normal,geometric);
     ${hasLit ? "if (surface.flags&OENGINE_SURFACE_FLAG_UNLIT)==0u { linear=sparse_direct(surface,pixel); sample_add(SAMPLE_COUNTER_lighting,1u); }" : ""}
   } else { linear=vec3f(1.0,0.0,1.0); }
   textureStore(output_hdr,vec2i(pixel),vec4f(oengine_linear_rec709_to_rec2020(linear)*radiometry_pre_exposure.value,surface.alpha));
@@ -208,6 +209,7 @@ fn shade_closure(@builtin(global_invocation_id) id:vec3u,@builtin(local_invocati
 `;
   return ["requires unrestricted_pointer_parameters;", surfaceSampleWgsl(true),
     GPU_VISIBILITY_KEY_WGSL,GPU_MESHLET_RASTER_WORK_WGSL,GPU_INSTANCE_RECORD_WGSL,
+    SURFACE_FRAME_INSTANCE_WGSL,
     GPU_SHADING_MATERIAL_WGSL,GPU_SPARSE_SHADING_VIEW_WGSL,GPU_SHADING_SURFACE_LITE_WGSL,
     surfaceType,names,"var<private> surface_identity_failed:bool=false;",
     "fn sparse_identity_error(){surface_identity_failed=true;}",

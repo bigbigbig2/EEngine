@@ -1,4 +1,5 @@
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { SURFACE_FRAME_INSTANCE_WGSL } from "../gpu/GpuFrameInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL, GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL } from "../gpu/GpuShadingMaterialAbi.js";
 import { GPU_SPARSE_SHADING_VIEW_WGSL } from "../gpu/GpuSparseShadingFrameAbi.js";
@@ -13,6 +14,7 @@ requires unrestricted_pointer_parameters;
 ${GPU_VISIBILITY_KEY_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
+${SURFACE_FRAME_INSTANCE_WGSL}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_SPARSE_SHADING_VIEW_WGSL}
 ${SURFACE_SIGNAL_WGSL}
@@ -21,7 +23,7 @@ struct ProbeBudget { color: f32, parameter: f32, normal: f32, depth: f32, uv: f3
 @group(0) @binding(1) var probe_depth: texture_depth_2d;
 @group(0) @binding(2) var<storage, read> probe_work: OEngineMeshletWorkQueueRead;
 @group(0) @binding(3) var<storage, read> material_records: array<OEngineShadingMaterialRecord>;
-@group(0) @binding(4) var<storage, read> instance_records: array<OEngineInstanceRecord>;
+@group(0) @binding(4) var<storage, read> instance_records: array<OEngineFrameInstanceRecord>;
 @group(0) @binding(5) var<uniform> shading_view: OEngineSparseShadingView;
 @group(0) @binding(6) var<storage, read> asset_metadata_heap: array<u32>;
 @group(0) @binding(7) var<storage, read> vertex_payload_heap: array<u32>;
@@ -57,7 +59,7 @@ fn probe_fact(pixel: vec2u) -> ProbeFact {
   if work.instance_slot >= arrayLength(&instance_records) ||
     work.material_slot_or_range >= arrayLength(&material_records) { return result; }
   let material = material_records[work.material_slot_or_range];
-  let published_instance = instance_records[work.instance_slot];
+  let published_instance = surface_instance_record(work.instance_slot);
   if (published_instance.flags & 1u) == 0u ||
     published_instance.geometry_record_index != work.geometry_slot ||
     ((work.packed_raster_flags >> 8u) & 63u) != material.texture_binding_set_id * 16u + material.program_id ||
@@ -74,7 +76,7 @@ fn probe_fact(pixel: vec2u) -> ProbeFact {
   if !triangle.valid || metadata.x == 0u || metadata.y != 0u ||
     !all(triangle.uv_span >= vec4f(0.0)) || !all(triangle.uv_span <= vec4f(65504.0)) { return result; }
   probe_failed = false;
-  let instance = instance_records[work.instance_slot];
+  let instance = surface_instance_record(work.instance_slot);
   let model = sparse_affine(instance);
   let scale = vec3f(length(model[0].xyz), length(model[1].xyz), length(model[2].xyz));
   if any(scale <= vec3f(1e-8)) || any(abs(scale - vec3f(scale.x)) > vec3f(1e-6)) ||
@@ -85,17 +87,21 @@ fn probe_fact(pixel: vec2u) -> ProbeFact {
   let ref0 = triangle.ref0; let ref1 = triangle.ref1; let ref2 = triangle.ref2;
   if probe_failed || !ref0.valid || !ref1.valid || !ref2.valid { return result; }
   atomicAdd(&probe_counters[15u], 1u);
-  let p0 = model * vec4f(sparse_position_ref(ref0), 1.0);
-  let p1 = model * vec4f(sparse_position_ref(ref1), 1.0);
-  let p2 = model * vec4f(sparse_position_ref(ref2), 1.0);
-  let clip0 = shading_view.current_view_projection * p0;
-  let clip1 = shading_view.current_view_projection * p1;
-  let clip2 = shading_view.current_view_projection * p2;
+  let l0 = vec4f(sparse_position_ref(ref0), 1.0);
+  let l1 = vec4f(sparse_position_ref(ref1), 1.0);
+  let l2 = vec4f(sparse_position_ref(ref2), 1.0);
+  let p0 = model * l0;
+  let p1 = model * l1;
+  let p2 = model * l2;
+  let object_to_clip = surface_object_to_clip(work.instance_slot);
+  let clip0 = object_to_clip * l0;
+  let clip1 = object_to_clip * l1;
+  let clip2 = object_to_clip * l2;
   if min(clip0.w, min(clip1.w, clip2.w)) <= 1e-6 || min(clip0.z, min(clip1.z, clip2.z)) < 0.0 { return result; }
   let bary = sparse_barycentric(vec2f(pixel) + vec2f(0.5), clip0, clip1, clip2);
   let face = cross(p1.xyz - p0.xyz, p2.xyz - p0.xyz);
   if !bary.valid || dot(face, face) <= 1e-16 { return result; }
-  result.normal = sparse_world_normal(model, sparse_normal_ref(ref0) * bary.weights.x +
+  result.normal = surface_world_normal(work.instance_slot, sparse_normal_ref(ref0) * bary.weights.x +
     sparse_normal_ref(ref1) * bary.weights.y + sparse_normal_ref(ref2) * bary.weights.z, normalize(face));
   ${lighting ? `result.position = p0.xyz * bary.weights.x + p1.xyz * bary.weights.y + p2.xyz * bary.weights.z;
   result.view_direction = normalize(shading_view.camera_position.xyz - result.position);` : ""}

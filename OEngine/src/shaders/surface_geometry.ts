@@ -30,7 +30,7 @@ fn sparse_virtual_u16(bank: u32, byte_offset: u32) -> u32 {
 }
 fn sparse_virtual_triangle_vertex(work: OEngineMeshletRasterWork, primitive: u32, corner: u32) -> u32 {
   let asset = oengine_geometry_product_resolve_asset_v1(&virtual_product_metadata,
-    work.geometry_slot, oengine_instance_geometry_generation(instance_records[work.instance_slot]));
+    work.geometry_slot, oengine_instance_geometry_generation(surface_instance_record(work.instance_slot)));
   let group = oengine_virtual_group_v1(&virtual_product_metadata, asset, work.meshlet_slot >> 7u);
   let location = oengine_geometry_product_lookup_page_heap_v1(&virtual_product_metadata, asset, group.page_id);
   if (!asset.valid || !group.valid || !location.valid) { return 0u; }
@@ -45,7 +45,7 @@ fn sparse_virtual_triangle_vertex(work: OEngineMeshletRasterWork, primitive: u32
 }
 fn sparse_virtual_vertex_ref(work: OEngineMeshletRasterWork, vertex: u32) -> SparseVertexRef {
   let asset = oengine_geometry_product_resolve_asset_v1(&virtual_product_metadata,
-    work.geometry_slot, oengine_instance_geometry_generation(instance_records[work.instance_slot]));
+    work.geometry_slot, oengine_instance_geometry_generation(surface_instance_record(work.instance_slot)));
   let group = oengine_virtual_group_v1(&virtual_product_metadata, asset, work.meshlet_slot >> 7u);
   let location = oengine_geometry_product_lookup_page_heap_v1(&virtual_product_metadata, asset, group.page_id);
   var result = SparseVertexRef(vertex, 0u, false, 0u, 0u, 0u, 0u, 0u,
@@ -301,12 +301,5 @@ fn sparse_barycentric(pixel: vec2f, c0: vec4f, c1: vec4f, c2: vec4f) -> SparseBa
   result.valid=true; return result;
 }
 fn sparse_affine(instance: OEngineInstanceRecord) -> mat4x4f { return oengine_instance_current_object_to_world(instance); }
-fn sparse_world_normal(model: mat4x4f, local: vec3f, geometric: vec3f) -> vec3f {
-  let x = model[0].xyz; let y = model[1].xyz; let z = model[2].xyz;
-  let cofactors = mat3x3f(cross(y, z), cross(z, x), cross(x, y));
-  let determinant = dot(x, cofactors[0]);
-  if abs(determinant) < 1e-8 { return geometric; }
-  return normalize((cofactors * local) * sign(determinant));
-}
 `;
 }

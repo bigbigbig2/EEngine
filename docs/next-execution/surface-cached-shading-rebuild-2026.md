@@ -56,6 +56,16 @@ S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态
 
 **仍未完成**：当前mutable material编辑仍需要显式resyncScene；尚未接通frame动态输入版本/demand/cache消费者，自定义masked/transparent coverage仍需新Visibility消费者；旧Surface仍持有source-bank输入，不能将IR采样裁剪当成生产显存/带宽收益。S1保持active，R04–R07/R10不提升完成，S2–S7继续全部实施。未运行新主链Chrome整帧、视频画质与两coverage性能验收，原因是新Surface/Lighting尚未切入；未缩小最终范围。
 
+### S2 进行中：共享实例变换生产接通，2026-10-01
+
+`FrameInstanceTransforms` 已接入真实 `PackedVisibilityPass` / `VisibilityWorkSet`：GPU 从实际 MeshletWork 选出唯一 instance，indirect 生产当前 clip matrix 和 normal cofactors；ordinary/Product Raster 与 Surface 同读288 B frame record，替换原instance binding而不增加 storage slot。完整176 B Scene身份/motion保留为snapshot；Temporal/culling/HZB继续读取权威Scene，late HZB按原需求子集复用。需求选择本身也按GPU written count间接启动，不按预留capacity扫满。Scene发布等待异步PSO，资源按原frame encoder编码；累计256 MiB owner budget、limits、物理bytes、allocation rollback、camera rebind、GPU完成退休与device loss已接通。
+
+独立Native/D3D12诊断使用实际owner→实际ordinary hardware raster→实际Surface setup/normal helper，10帧、3,533覆盖像素通过；源176 B snapshot逐byte相等，镜像/非均匀/剪切、camera/instance变化、重复需求、空帧、zero generation、invalid与count clamp通过。generation使用明确u32 lane，`0x7fffffff`位模式保持测试通过，不通过float NaN payload保存identity。clip最大误差5.96046448e-8，法线与独立double Gaussian逆转置solve最大7.17062618e-8，插值2.09740457e-7。奇异实例的需求/snapshot测试通过，本fixture没有覆盖其光栅/法线fallback；不泛化数值覆盖。API errors/device loss零，原生Dawn adapter/cache诊断仍在。
+
+本地**有界面Chrome154.0.8037.92**硬件适配器对10组实际shader/async PSO（含MASK、Product、ordinary/Product Probe/worker/closure）通过，API errors/device loss零；16-storage Product+scalar-AO profile覆盖。原VSM+scalar-AO组合需17 bindings，本轮没有宣称其支持。Native可选完整consumer PSO编译在ordinary Probe处异常退出，原因未定位，不报通过；真实Chrome完整编译另有通过报告。Product generic worker冷编译约38–42秒仍是旧generic consumer的负担。
+
+build（含typecheck）、build:test与61项focused tests通过，来源/本地接线映射见porting账本。**S2/R02/R03/R08仍未完成**：resident属性、共享顶点/形变、winner coefficients主链消费、稳定source domain/LOD mapping继续必做；旧Probe/workgroup Setup/material/closure仍是唯一过渡消费者，S3切换时删除，没有生产A/B。此次仅完成共享实例transform模块，未运行新缓存/稀疏照明Showcase整帧、视频与两coverage性能验收，不宣称性能目标达标。
+
 ### S2 进行中：获胜 primitive 的紧凑插值组件，2026-10-01
 
 已实现具名本地 `HomogeneousWinnerInterpolation`：三个共同尺度的齐次余子式行（48 B/primitive），不逐顶点除 W；保留一像素投影差分，将当前值和两个 footprint 轴的有效性分开。`WinnerPrimitiveInterpolation` 消费共享 clip 几何和 Visibility，GPU bounded dictionary 去重、reservation、indirect finalize、一次系数生产；后续 shader 通过实际 dictionary/coefficients 消费结果。容量/冲突失败在同一共享几何上直接算系数，不使用旧 Setup、不等 CPU。弱 CAS 重试有界，空槽重试耗尽不继续 probe，避免同 key 重复插入；dispatch 边界发布，不跨组自旋。观察性原子按 shader profile 编译裁剪；唯一需求 reservation 仍保留。异步 PSO、limits/bytes preflight、稳定帧资源复用、abort/调用者完成后 release/device-loss 与资源账本已接通。

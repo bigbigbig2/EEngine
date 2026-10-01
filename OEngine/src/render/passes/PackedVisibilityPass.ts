@@ -52,6 +52,8 @@ import {
   type PreparedMeshletWorkCandidate
 } from "../MeshletWorkCandidate.js";
 import { MeshletBucketRaster } from "../MeshletBucketRaster.js";
+import type { FrameInstanceTransforms, PreparedFrameInstances } from "../FrameInstanceTransforms.js";
+import { GPU_INSTANCE_RECORD_STRIDE } from "../../gpu/GpuInstanceAbi.js";
 import {
   LargeTriangleSetupCache,
   type PreparedLargeTriangleSetup
@@ -120,6 +122,7 @@ export interface PackedVisibilityInputs {
   readonly counters: ResourceId;
   readonly previousHzb?: ResourceId;
   readonly meshletWorkRecords: ResourceId;
+  readonly frameInstances: ResourceId;
   readonly setupRecords?: ResourceId;
   readonly depth: ResourceId;
 }
@@ -216,6 +219,7 @@ export class PackedVisibilityPass {
   private readonly virtualMeshletCandidate: VirtualGeometryMeshletWorkCandidate;
   private readonly meshletBucketRaster: MeshletBucketRaster;
   private readonly largeTriangleSetup: LargeTriangleSetupCache;
+  private readonly instanceTransforms: FrameInstanceTransforms;
   private readonly hierarchyPrepared = new Map<GpuRenderWorldRuntime, VisibilityWorkSet>();
   private currentHzbLateRecheck: CurrentHzbLateRecheckGpu | null = null;
   private readonly currentHzbPrepared = new Map<GpuRenderWorldRuntime, PreparedCurrentHzbLateRecheck>();
@@ -229,6 +233,7 @@ export class PackedVisibilityPass {
     hierarchyGenerator?: PackedVisibilityHierarchyGenerator,
     meshletCandidate?: PackedVisibilityMeshletCandidate
   ) {
+    this.instanceTransforms = graphics.frame_instances;
     this.hierarchyGenerator = hierarchyGenerator ??
       new HierarchicalWorkGenerator(
         graphics.device,
@@ -283,6 +288,7 @@ export class PackedVisibilityPass {
     if (inputs.previousHzb !== undefined) builder.read(inputs.previousHzb);
     const depth = builder.write(inputs.depth);
     const meshletWorkRecords = builder.write(inputs.meshletWorkRecords);
+    const frameInstances = builder.write(inputs.frameInstances);
     const setupRecords = inputs.setupRecords === undefined
       ? null
       : builder.write(inputs.setupRecords);
@@ -306,6 +312,7 @@ export class PackedVisibilityPass {
       visibilityKey: output.visibilityKey,
       shadingBinId: output.shadingBinId,
       depth,
+      frameInstances,
       meshletWork: meshletWorkFrame({
         records: meshletWorkRecords,
         capacity: requireMeshletWork(job.prepared.workSet).capacity,
@@ -349,6 +356,7 @@ export class PackedVisibilityPass {
           camera: requireBuffer(resources.get(inputs.camera), "camera"),
           assets: data.assets,
           scene: data.scene,
+          frameInstances: workSet.frameInstances.records,
           runtime: data.runtime,
           visibilityKey: resolveTextureView(resources.get(inputs.visibilityKey)),
           shadingBinId: inputs.shadingBinId === null
@@ -368,6 +376,7 @@ export class PackedVisibilityPass {
     builder.read(inputs.camera);
     builder.read(inputs.currentHzb);
     builder.read(inputs.sourceMeshletWork);
+    builder.read(inputs.sourceFrame.frameInstances);
     const counters = builder.write(inputs.counters);
     const meshletWorkRecords = builder.write(inputs.filteredMeshletWork);
     builder.write(inputs.filteredDrawIndirect);
@@ -387,6 +396,7 @@ export class PackedVisibilityPass {
         generation: "queue-header"
       }),
       triangleSetup: source.triangleSetup,
+      frameInstances: source.frameInstances,
       domain: source.domain
     });
     return Object.freeze({
@@ -412,6 +422,9 @@ export class PackedVisibilityPass {
 
   destroy(): void {
     this.debugBindings.clear();
+    for (const work of this.hierarchyPrepared.values()) {
+      this.instanceTransforms.release(work.frameInstances);
+    }
     this.hierarchyPrepared.clear();
     this.currentHzbPrepared.clear();
     this.currentHzbLateRecheck?.destroy();
@@ -468,6 +481,7 @@ export class PackedVisibilityPass {
     } else {
       this.meshletCandidate.encode(command, meshletWork);
     }
+    this.instanceTransforms.encode(command.gpu_encoder, workSet.frameInstances);
     if (workSet.largeTriangleSetup !== null) {
       this.largeTriangleSetup.encode(
         command.gpu_encoder,
@@ -481,6 +495,7 @@ export class PackedVisibilityPass {
         camera,
         assets: job.assets,
         scene: job.scene,
+        frameInstances: workSet.frameInstances.records,
         runtime: job.runtime,
         visibilityKey,
         shadingBinId,
@@ -567,6 +582,7 @@ export class PackedVisibilityPass {
     });
     const existing = this.hierarchyPrepared.get(job.runtime);
     if (existing !== undefined && sameVisibilityWorkSetKey(existing.key, key)) {
+      this.instanceTransforms.rebind(existing.frameInstances, camera);
       this.hierarchyGenerator.rebind(existing.hierarchy, {
         counterBuffer: bindings.counters,
         countersEnabled: bindings.countersEnabled,
@@ -621,6 +637,7 @@ export class PackedVisibilityPass {
     });
     let meshletWorkCandidate: PreparedMeshletWorkCandidate | null = null;
     let largeTriangleSetup: PreparedLargeTriangleSetup | null = null;
+    let frameInstances: PreparedFrameInstances | null = null;
     try {
       if (job.virtualGeometry !== undefined) {
         meshletWorkCandidate = this.virtualMeshletCandidate.prepare({
@@ -646,6 +663,11 @@ export class PackedVisibilityPass {
           compactionPath: key.meshletWorkCompactionPath
         });
       }
+      frameInstances = this.instanceTransforms.prepare({
+        camera, source: job.scene.instances, work: meshletWorkCandidate.queue,
+        workCapacity: meshletWorkCandidate.capacity,
+        instanceCapacity: Math.floor(job.scene.instances.size / GPU_INSTANCE_RECORD_STRIDE)
+      });
       if (key.triangleSetupEnabled) {
         largeTriangleSetup = this.largeTriangleSetup.prepare({
           camera,
@@ -660,6 +682,7 @@ export class PackedVisibilityPass {
         });
       }
     } catch (error) {
+      if (frameInstances !== null) this.instanceTransforms.release(frameInstances);
       if (largeTriangleSetup !== null) this.largeTriangleSetup.release(largeTriangleSetup);
       if (meshletWorkCandidate !== null) {
         if (meshletWorkCandidate.productMode) {
@@ -674,6 +697,7 @@ export class PackedVisibilityPass {
     const next = visibilityWorkSet({
       key,
       hierarchy: prepared,
+      frameInstances,
       meshletWorkCandidate,
       largeTriangleSetup,
       setupRecords: largeTriangleSetup?.records ?? null,
@@ -739,6 +763,7 @@ export class PackedVisibilityPass {
   ): void {
     command.destroyAfterGpuDone({
       destroy: () => {
+        this.instanceTransforms.release(workSet.frameInstances);
         if (workSet.largeTriangleSetup !== null) {
           this.largeTriangleSetup.release(workSet.largeTriangleSetup);
         }

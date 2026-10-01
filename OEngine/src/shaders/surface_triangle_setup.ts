@@ -21,13 +21,17 @@ fn surface_setup_direct(item:OEngineMeshletRasterWork,primitive:u32)->SurfaceTri
   setup.ref0=sparse_vertex_ref_for_work(item,geometry_base,vertices.x);
   setup.ref1=sparse_vertex_ref_for_work(item,geometry_base,vertices.y);
   setup.ref2=sparse_vertex_ref_for_work(item,geometry_base,vertices.z);
-  setup.model=sparse_affine(instance_records[item.instance_slot]);
-  setup.p0=setup.model*vec4f(sparse_position_ref(setup.ref0),1.0);
-  setup.p1=setup.model*vec4f(sparse_position_ref(setup.ref1),1.0);
-  setup.p2=setup.model*vec4f(sparse_position_ref(setup.ref2),1.0);
-  setup.c0=shading_view.current_view_projection*setup.p0;
-  setup.c1=shading_view.current_view_projection*setup.p1;
-  setup.c2=shading_view.current_view_projection*setup.p2;
+  setup.model=sparse_affine(surface_instance_record(item.instance_slot));
+  let l0=vec4f(sparse_position_ref(setup.ref0),1.0);
+  let l1=vec4f(sparse_position_ref(setup.ref1),1.0);
+  let l2=vec4f(sparse_position_ref(setup.ref2),1.0);
+  setup.p0=setup.model*l0;
+  setup.p1=setup.model*l1;
+  setup.p2=setup.model*l2;
+  let object_to_clip=surface_object_to_clip(item.instance_slot);
+  setup.c0=object_to_clip*l0;
+  setup.c1=object_to_clip*l1;
+  setup.c2=object_to_clip*l2;
   setup.valid=!surface_identity_failed;
   sample_add(SAMPLE_COUNTER_setupBuilds,1u);
   return setup;
@@ -69,7 +73,7 @@ fn surface_setup_for_work(item:OEngineMeshletRasterWork,primitive:u32)->SurfaceT
 /** Names retained for the canonical material math, with only triangle invariants shared. */
 export const SURFACE_TRIANGLE_SETUP_LOCAL_WGSL = /* wgsl */ `
   let setup=surface_setup_for_work(work,primitive);
-  let instance=instance_records[work.instance_slot];
+  let instance=surface_instance_record(work.instance_slot);
   let ref0=setup.ref0; let ref1=setup.ref1; let ref2=setup.ref2; let model=setup.model;
   let p0=setup.p0; let p1=setup.p1; let p2=setup.p2;
   let c0=setup.c0; let c1=setup.c1; let c2=setup.c2;

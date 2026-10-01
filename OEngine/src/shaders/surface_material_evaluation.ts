@@ -54,8 +54,8 @@ fn sparse_sampler_${slot}(material: OEngineShadingMaterialRecord) -> u32 { retur
 
 /** Canonical triangle invariants; callers may supply a demand-driven setup consumer. */
 const SPARSE_DIRECT_TRIANGLE_SETUP_WGSL = /* wgsl */ `
-  let instance=instance_records[work.instance_slot];let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices_for_work(work,meshlet_base,primitive);let ref0=sparse_vertex_ref_for_work(work,geometry_base,vertices.x);let ref1=sparse_vertex_ref_for_work(work,geometry_base,vertices.y);let ref2=sparse_vertex_ref_for_work(work,geometry_base,vertices.z);let model=sparse_affine(instance);
-  let p0=model*vec4f(sparse_position_ref(ref0),1.0);let p1=model*vec4f(sparse_position_ref(ref1),1.0);let p2=model*vec4f(sparse_position_ref(ref2),1.0);let c0=shading_view.current_view_projection*p0;let c1=shading_view.current_view_projection*p1;let c2=shading_view.current_view_projection*p2;
+  let instance=surface_instance_record(work.instance_slot);let geometry_base=sparse_geometry_base(work.geometry_slot);let meshlet_base=sparse_meshlet_base(work.meshlet_slot);let vertices=sparse_meshlet_vertices_for_work(work,meshlet_base,primitive);let ref0=sparse_vertex_ref_for_work(work,geometry_base,vertices.x);let ref1=sparse_vertex_ref_for_work(work,geometry_base,vertices.y);let ref2=sparse_vertex_ref_for_work(work,geometry_base,vertices.z);let model=sparse_affine(instance);
+  let l0=vec4f(sparse_position_ref(ref0),1.0);let l1=vec4f(sparse_position_ref(ref1),1.0);let l2=vec4f(sparse_position_ref(ref2),1.0);let p0=model*l0;let p1=model*l1;let p2=model*l2;let object_to_clip=surface_object_to_clip(work.instance_slot);let c0=object_to_clip*l0;let c1=object_to_clip*l1;let c2=object_to_clip*l2;
 `;
 
 export function materialEvaluationWgsl(descriptor: Readonly<SurfaceKernelProfile>,
@@ -229,7 +229,7 @@ ${triangleSetup}let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);le
   return /* wgsl */ `
 fn sparse_evaluate_geometry(pixel:vec2u,work:OEngineMeshletRasterWork,primitive:u32,material_slot:u32,material:OEngineShadingMaterialRecord)->OEngineSparseSurface{
 ${triangleSetup}let bary=sparse_barycentric(vec2f(pixel)+vec2f(0.5),c0,c1,c2);
-  let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;let local_normal=normalize(sparse_normal_ref(ref0)*bary.weights.x+sparse_normal_ref(ref1)*bary.weights.y+sparse_normal_ref(ref2)*bary.weights.z);let geometric=normalize(cross(p1.xyz-p0.xyz,p2.xyz-p0.xyz));var normal=sparse_world_normal(model,local_normal,geometric);
+  let position=p0.xyz*bary.weights.x+p1.xyz*bary.weights.y+p2.xyz*bary.weights.z;let local_normal=normalize(sparse_normal_ref(ref0)*bary.weights.x+sparse_normal_ref(ref1)*bary.weights.y+sparse_normal_ref(ref2)*bary.weights.z);let geometric=normalize(cross(p1.xyz-p0.xyz,p2.xyz-p0.xyz));var normal=surface_world_normal(work.instance_slot,local_normal,geometric);
   var color=vec3f(1.0);${s.authoredVertexColor !== "never" ? "if sparse_has_color_ref(ref0) { color=sparse_color_ref(ref0)*bary.weights.x+sparse_color_ref(ref1)*bary.weights.y+sparse_color_ref(ref2)*bary.weights.z; }" : ""}
   let gradient_valid=bary.valid;
   let vertex_normal=normal;

@@ -39,6 +39,19 @@
 
 本地对应为 `GpuWinnerInterpolationAbi`、`winner_interpolation::winner_build_coefficients/winner_interpolate`、`winner_primitive_work::winner_reset/winner_request/winner_finalize/winner_build`、`WinnerPrimitiveInterpolation` 和 `winnerPrimitiveConsumerWgsl::winner_interpolate_key`。独立 double Gaussian solve、真实 hardware raster basis（近/侧裁剪、负/零 W、非均匀变换）、shifted solve 梯度、collision/full/overflow/zero-work 与连续帧组件对照已通过26个case/frame和19,874覆盖像素；owner preflight/复用/回滚/失效 tests通过。控制/间接发布使用单一caller encoder；独立indirect buffer避免同pass writable-storage/indirect usage冲突，末端bind envelope为8个storage buffers。GPU clip transform producer当前是独立fixture，未接真实geometry residency/Scene；尚无新Surface主链消费，采用状态保持 `not adopted`，不升级性能/画质声明。原生Dawn诊断与fixture误差预算见[宿主记录](../../validation/labs/surface-geometry/README.md)。
 
+### S2 共享实例变换：本地集成
+
+`FrameInstanceTransforms` 将现有 Scene affine ABI 的 object-to-world、camera projection 和逆转置余子式从各消费者移至一个 GPU producer。此项为本地绑定/生命周期与确定性线性代数集成，不声明新增完整上游效果或已完成 S2。
+
+| 输入/阶段 | 本地产物/消费 | 不变量与边界 |
+| --- | --- | --- |
+| 当前 MeshletWork → dense marker atomicExchange → compact instance slots | `frame_instance_select/finalize`，GPU indirect build | 每实例一次；distinct slots 不超过 Scene buffer capacity，零 generation/越界不发布；没有 CPU visible control |
+| Scene snapshot + current camera → clip matrix / normal cofactors | `frame_instance_build`，288 B frame record | 完整保留 176 B Scene identity/motion；法线最终插值后 normalize，determinant 保留镜像符号 |
+| 同一 frame record → ordinary/Product raster 与 Surface | `PackedVisibilityPass` → `MeshletBucketRaster` / `VisibilityFrame` → `FrameProgramLowering` | 替换消费者原 instance binding，不新增第17个 Surface storage；Temporal/culling/HZB仍用权威Scene；late recheck复用原需求的子集 |
+| prepare/abort/retire/device epoch | GraphicsContext device owner、VisibilityWorkSet allocation | 场景发布等待异步 PSO；统一 caller encoder，无独立submit；物理字节全计入，旧GPU完成后退休 |
+
+这不替代 resident attribute decode、共享顶点形变、winner coefficients 的真实生产接通和稳定 LOD 地址；这些仍须继续实施。
+
 ## 2026-09-30 Surface 最终设计：Signal-Rate Surface（阶段四已完成，正式验收待执行）
 
 最终设计见 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，实现顺序见 [四阶段重构](../next-execution/surface-sample-driven-shading-rebuild-2026.md)。这两份文件替代前期候选排序，确定先减少 ordinary PBR 的重样本，再按残余瓶颈做局部优化。阶段四已完成旧 owner/陈旧合同清理、生命周期复核和模块级集中验证；**最终设计不等于采用完成**，R02/R03/R20/R23 的上游采用状态与正式画质/性能 claims 不因本地接线自动改变。

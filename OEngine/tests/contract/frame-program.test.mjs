@@ -112,6 +112,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     physicalEnvironment: false, capabilityProfile: "7" };
   const plan = buildFrameProgram(request);
   const resource = {};
+  let surfaceInstances, temporalInstances, producedFrameInstances;
   const runtime = { virtualGeometry: null, activeShadingSummary: { binRefCounts: Array(64).fill(0) },
     materialResources: { materialRecords: resource, textureRouteRecords: resource, surfaceResidencyVersions: resource,
       bindingSets: [{ id: 0,
@@ -122,7 +123,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   runtime.activeShadingSummary.binRefCounts[0] = 1;
   const job = { runtime, width: 640, height: 360, assets: { sparseShading: {
     assetMetadataHeap: resource, vertexPayloadHeap: resource } }, scene: { instances: resource },
-    prepared: { workSet: { meshletWorkCandidate: { queue: resource } }, currentHzbLateRecheck: null } };
+    prepared: { workSet: { meshletWorkCandidate: { queue: resource }, frameInstances: { records: resource } }, currentHzbLateRecheck: null } };
   const hzb = { getCurrentTexture() { throw new Error("feature-off HZB was accessed"); } };
   const fsr3 = {
     assertPreparedFrame() {},
@@ -141,6 +142,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const temporalFacts = {
     assertPreparedFrame() {},
     addToGraph(graph, input) {
+      temporalInstances = input.instances;
       const pass = graph.add("test/Temporal Facts", {}, () => {});
       for (const value of [input.visibility, input.depth, input.textureRoutes, input.textureResidencyVersions,
         input.meshletWork, input.instances, input.materials,
@@ -169,9 +171,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       pass.read(input.meshletWorkRecords);
       const depth = pass.write(input.depth);
       const meshletWork = pass.write(input.meshletWorkRecords);
+      producedFrameInstances = pass.write(input.frameInstances);
       const visibilityKey = pass.create("test/VisibilityKey", { kind: "transient_texture",
         width: 640, height: 360, format: "r32uint", domain: "internal-full", usage: 7 });
-      return { counters: pass.write(input.counters), frame: { visibilityKey, depth, meshletWork: { records: meshletWork },
+      return { counters: pass.write(input.counters), frame: { visibilityKey, depth, frameInstances: producedFrameInstances, meshletWork: { records: meshletWork },
         domain: { width: 640, height: 360 } } };
     }, addCurrentHzbLateRecheckToGraph(graph, _job, input) {
       const pass = graph.add("test/Late HZB recheck", {}, () => {});
@@ -184,7 +187,9 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
         meshletWork: { records }, domain: input.sourceFrame.domain } };
     } },
     surface: { addToGraph(graph, input) {
+      surfaceInstances = input.instances;
       const pass = graph.add("test/Surface", {}, () => {});
+      pass.read(input.instances);
       pass.read(input.visibilityKey); pass.read(input.meshletWork); pass.read(input.depth);
       const create = (name, format) => pass.create(name, { kind: "transient_texture",
         width: 640, height: 360, format, domain: "internal-full", usage: 7 });
@@ -247,6 +252,8 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
     hzb: aliasedHzb, view: { ...historyBindings.view, hierarchical_z_buffer: aliasedHzb } }),
   /aliases current/);
   const compiled = lowerFrameProgram(plan, bindings, owners);
+  assert.equal(surfaceInstances, producedFrameInstances);
+  assert.notEqual(surfaceInstances, temporalInstances);
   const dump = compiled.dump();
   assert.deepEqual(dump.executablePassOrder.map(id => dump.passes[id].name),
     ["test/Visibility", "test/Surface", "test/Temporal Facts", "test/FSR3",

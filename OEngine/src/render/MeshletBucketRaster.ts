@@ -135,6 +135,7 @@ export interface MeshletBucketRasterInputs {
   readonly camera: GPUBuffer;
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
+  readonly frameInstances: GPUBuffer;
   readonly runtime: GpuRenderWorldRuntime;
   readonly visibilityKey: GPUTextureView;
   readonly shadingBinId: GPUTextureView | null;
@@ -225,7 +226,7 @@ export class MeshletBucketRaster {
       layout: MESHLET_BUCKET_RASTER_GROUP,
       entries: [
         { buffer: inputs.camera },
-        { buffer: inputs.scene.instances },
+        { buffer: inputs.frameInstances },
         { buffer: inputs.assets.meshletRecords },
         { buffer: inputs.assets.meshletVertexIndices },
         { buffer: inputs.assets.meshletTriangleIndices },
@@ -308,7 +309,7 @@ export class MeshletBucketRaster {
         layout: VIRTUAL_GEOMETRY_RASTER_GROUP,
         entries: [
           { buffer: inputs.camera },
-          { buffer: inputs.scene.instances },
+          { buffer: inputs.frameInstances },
           { buffer: workQueue },
           { buffer: inputs.virtualGeometry.metadata },
           ...inputs.prepared.productBanks.slice(0, 4).map((buffer) => ({ buffer })),

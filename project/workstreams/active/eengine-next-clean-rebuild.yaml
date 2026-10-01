@@ -11,7 +11,7 @@ currentSlice:
   id: surface-cached-shading-material-foundations
   title: Surface 缓存重构：材质发布与共享几何依赖
   status: active
-  goal: 继续接通 S1 的 live dynamic/coverage 消费和 S2 的真实 residency 属性、共享帧几何与稳定 LOD 地址；获胜 primitive 系数组件已通过独立 GPU 对照，但新 Surface/Lighting 主链尚未切入，S1/S2 不标完成，S3–S7 保持完整范围。
+  goal: 继续完成 S1 的 live dynamic/coverage 与 S2 的 residency 属性、共享顶点和稳定 LOD 地址；GPU selected-instance 变换已供 ordinary/Product Raster 与 Surface 共用，winner coefficients 仍待真实几何接通；新 Appearance/cache/Lighting 主链尚未切入，S1/S2 不标完成，S3–S7 保持完整范围。
 
 nextModules:
   - id: sssr

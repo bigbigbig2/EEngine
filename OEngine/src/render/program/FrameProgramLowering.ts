@@ -348,7 +348,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     meshletWork: result.frame.meshletWork.records,
     materialRecords,
     depth: result.frame.depth,
-    instances,
+    instances: result.frame.frameInstances,
     geometryMetadata,
     vertexPayload,
     virtualMetadata,
@@ -424,9 +424,13 @@ function lowerVisibility(plan: FrameProgram, graph: FrameGraph, bind: SceneBind,
         bind("previous-hzb", bindings => bindings.hzb.getPreviousTexture())
       )
     : undefined;
+  const frameInstances = graph.import_resource(
+    "frame-instances", { kind: "imported", label: "GPU-selected frame instance transforms" },
+    bind("frame-instances", bindings => bindings.job.prepared.workSet.frameInstances.records)
+  );
   let result = owners.visibility.addToGraph(
     graph, bind("visibility-job", bindings => bindings.job),
-    { camera: cameraBuffer, counters, meshletWorkRecords: work, previousHzb, depth }
+    { camera: cameraBuffer, counters, meshletWorkRecords: work, frameInstances, previousHzb, depth }
   );
   const hzbCurrent = plan.stages.includes("hzb") ? graph.import_resource(
     "current-hzb", { kind: "imported", label: "current HZB" },

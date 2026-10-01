@@ -36,6 +36,7 @@ import { GpuRenderWorld } from "./GpuRenderWorld.js";
 import { GpuMaterialStore } from "./GpuMaterialStore.js";
 import { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
 import { AppearanceStaticResidency } from "./AppearanceStaticResidency.js";
+import { FrameInstanceTransforms } from "../render/FrameInstanceTransforms.js";
 import {
   TextureResidency,
   TEXTURE_RESIDENCY_MAX_SIZE
@@ -95,6 +96,7 @@ export class GraphicsContext {
   private materialStoreValue: GpuMaterialStore | undefined;
   private appearanceProgramsValue: AppearanceProgramRegistry | undefined;
   private appearanceStaticValue: AppearanceStaticResidency | undefined;
+  private frameInstancesValue: FrameInstanceTransforms | undefined;
   private textureResidencyValue: TextureResidency | undefined;
   private assetCodecServiceValue: AssetCodecService | undefined;
   private readonly textureMaxResolution: number;
@@ -271,6 +273,11 @@ export class GraphicsContext {
     return this.appearanceStaticValue;
   }
 
+  get frame_instances(): FrameInstanceTransforms {
+    this.frameInstancesValue ??= new FrameInstanceTransforms(this.device, this.resource_accounting);
+    return this.frameInstancesValue;
+  }
+
   get material_store_if_created(): GpuMaterialStore | undefined {
     return this.materialStoreValue;
   }
@@ -341,6 +348,7 @@ export class GraphicsContext {
       (this.renderWorldValue?.evidence().flatWorkBytes ?? 0) +
       (this.renderWorldValue?.appearanceMemoryEvidence().allocatedBytes ?? 0) +
       (this.appearanceStaticValue?.evidence().allocatedBytes ?? 0) +
+      (this.frameInstancesValue?.allocatedBytes ?? 0) +
       (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.textureResidencyValue?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
@@ -392,7 +400,7 @@ export class GraphicsContext {
       (scene?.reclaimableBytes ?? 0) +
       buffers.cachedBytes +
       textures.cachedBytes;
-    const transientPoolBytes = buffers.allocatedBytes + textures.allocatedBytes;
+    const transientPoolBytes = buffers.allocatedBytes + textures.allocatedBytes + (this.frameInstancesValue?.allocatedBytes ?? 0);
     const fragmentationBytes = Math.max(
       0,
       longLivedAllocatedBytes - residentLogicalBytes - retiringBytes
@@ -410,6 +418,7 @@ export class GraphicsContext {
       owners: Object.freeze({
         appearance: Object.freeze({ ...appearance }),
         staticAppearance: Object.freeze({ ...staticAppearance }),
+        frameInstances: Object.freeze({ allocatedBytes: this.frameInstancesValue?.allocatedBytes ?? 0 }),
         assets: Object.freeze({
           allocatedBytes: assets?.allocatedBytes ?? 0,
           residentBytes: assets?.residentBytes ?? 0,
@@ -448,6 +457,8 @@ export class GraphicsContext {
     unregisterGpuQueueProfiler(this.device, this.profiler);
     this.renderWorldValue?.destroy();
     this.renderWorldValue = undefined;
+    this.frameInstancesValue?.destroy();
+    this.frameInstancesValue = undefined;
     this.appearanceProgramsValue?.destroy();
     this.appearanceProgramsValue = undefined;
     this.appearanceStaticValue?.destroy();

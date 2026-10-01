@@ -2,6 +2,7 @@ import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import type { PreparedHierarchyWork } from "./HierarchicalWorkGenerator.js";
 import type { PreparedMeshletWorkCandidate } from "./MeshletWorkCandidate.js";
 import type { PreparedLargeTriangleSetup } from "./LargeTriangleSetupCache.js";
+import type { PreparedFrameInstances } from "./FrameInstanceTransforms.js";
 
 export interface VisibilityWorkSetKey {
   readonly runtime: GpuRenderWorldRuntime;
@@ -26,6 +27,7 @@ export interface VisibilityWorkSetKey {
 export interface VisibilityWorkSet {
   readonly key: VisibilityWorkSetKey;
   readonly hierarchy: PreparedHierarchyWork;
+  readonly frameInstances: PreparedFrameInstances;
   /** Step-4 normal MeshletWork producer; nullable only during allocation rollback. */
   readonly meshletWorkCandidate: PreparedMeshletWorkCandidate | null;
   /** OptionalOptimization owner, absent with exact zero feature-off cost. */

@@ -364,6 +364,8 @@ test("RenderWorld async Appearance pipeline failure aborts without publishing a 
 });
 
 function installAppearanceDevice(graphics, failure) {
+  graphics.frame_instances = { ready: failure ? Promise.reject(failure) : Promise.resolve() };
+  void graphics.frame_instances.ready.catch(() => undefined);
   Object.assign(graphics.device, { limits: {
     maxBindGroups: 4, maxBindingsPerBindGroup: 1000, maxComputeWorkgroupSizeX: 256,
     maxComputeInvocationsPerWorkgroup: 256, maxBufferSize: 1e8, maxStorageBufferBindingSize: 1e8,
