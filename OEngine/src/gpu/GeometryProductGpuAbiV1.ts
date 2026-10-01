@@ -1,6 +1,6 @@
 import type { GeometryPageLocationV1 } from "./VirtualGeometryResidency.js";
 
-export const GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 = 1;
+export const GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 = 2;
 export const GEOMETRY_PAGE_LOCATION_STRIDE = 16;
 export const GEOMETRY_PAGE_LOCATION_NON_RESIDENT = 0xffffffff;
 export const GEOMETRY_PAGE_LOCATION_RESIDENT = 1;
@@ -44,16 +44,17 @@ export function encodeGeometryProductGpuLocationV1(location: GeometryPageLocatio
   const bytes = new Uint8Array(GEOMETRY_PAGE_LOCATION_STRIDE); const view = new DataView(bytes.buffer);
   if (location === undefined) { view.setUint32(0, GEOMETRY_PAGE_LOCATION_NON_RESIDENT, true); view.setUint32(4, GEOMETRY_PAGE_LOCATION_NON_RESIDENT, true); return bytes; }
   if (!Number.isInteger(location.bankIndex) || location.bankIndex < 0 || location.bankIndex >= GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 || !Number.isInteger(location.slotIndex) || location.slotIndex < 0 || location.slotIndex >= GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 || !Number.isInteger(location.productGeneration) || location.productGeneration <= 0 || location.productGeneration === 0xffffffff || (location.flags & ~3) !== 0 || (location.flags & GEOMETRY_PAGE_LOCATION_RESIDENT) === 0) throw new RangeError("invalid GeometryPageLocationV1");
-  view.setUint32(0, location.bankIndex, true); view.setUint32(4, location.slotIndex, true); view.setUint32(8, location.productGeneration, true); view.setUint32(12, location.flags, true); return bytes;
+  if (!Number.isInteger(location.residentBankIndex) || location.residentBankIndex < 0 || location.residentBankIndex >= GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 || !Number.isInteger(location.residentSlotIndex) || location.residentSlotIndex < 0 || location.residentSlotIndex >= GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1) throw new RangeError("invalid Product resident directory location");
+  view.setUint32(0, location.bankIndex, true); view.setUint32(4, (location.slotIndex | ((location.residentBankIndex * GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 + location.residentSlotIndex + 1) << 16)) >>> 0, true); view.setUint32(8, location.productGeneration, true); view.setUint32(12, location.flags, true); return bytes;
 }
 
 export function validateGeometryProductGpuLocationV1(bytes: Uint8Array, expectedGeneration: number): GeometryProductGpuLocationValidationV1 {
   if (bytes.byteLength < GEOMETRY_PAGE_LOCATION_STRIDE) throw new RangeError("GeometryPageLocationV1 record is truncated");
   if (!Number.isInteger(expectedGeneration) || expectedGeneration <= 0 || expectedGeneration === 0xffffffff) throw new RangeError("expected generation is invalid");
-  const view = new DataView(bytes.buffer, bytes.byteOffset, GEOMETRY_PAGE_LOCATION_STRIDE), bankIndex = view.getUint32(0, true), slotIndex = view.getUint32(4, true), productGeneration = view.getUint32(8, true), flags = view.getUint32(12, true);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, GEOMETRY_PAGE_LOCATION_STRIDE), bankIndex = view.getUint32(0, true), packedSlot = view.getUint32(4, true), slotIndex = packedSlot & 0xffff, directorySlot = (packedSlot >>> 16) - 1, productGeneration = view.getUint32(8, true), flags = view.getUint32(12, true);
   const resident = (flags & GEOMETRY_PAGE_LOCATION_RESIDENT) !== 0;
   const validFlags = (flags & ~(GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED)) === 0;
-  const valid = resident && validFlags && bankIndex < GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 && slotIndex < GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 && productGeneration === expectedGeneration;
+  const valid = resident && validFlags && bankIndex < GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 && slotIndex < GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 && directorySlot >= 0 && directorySlot < GEOMETRY_PRODUCT_GPU_SLOTS_PER_BANK_V1 * GEOMETRY_PRODUCT_GPU_BANK_COUNT_MAX_V1 && productGeneration === expectedGeneration;
   return Object.freeze({ valid, resident, bankIndex, slotIndex, productGeneration, flags, byteOffset: valid ? slotIndex * GEOMETRY_PRODUCT_GPU_PAGE_BYTES_V1 : 0 });
 }
 
@@ -108,7 +109,7 @@ struct OEngineGeometryProductTableRecordV1 { product_generation: u32, flags: u32
 struct OEngineGeometryProductAssetReferenceV1 { product_table_slot: u32, product_generation: u32, asset_record_index: u32, flags: u32 };
 struct OEngineGeometryProductAssetLookupV1 { valid: bool, product_table_slot: u32, product_generation: u32, asset_record_index: u32 };
 struct OEngineGeometryProductResolvedAssetV1 { valid: bool, product_table_slot: u32, product_generation: u32, asset_word_offset: u32, root_word_offset: u32, root_count: u32, hierarchy_word_offset: u32, hierarchy_count: u32, group_word_offset: u32, group_count: u32, page_begin: u32, page_location_word_offset: u32, page_count: u32, vertex_format_word_offset: u32, vertex_format_count: u32 };
-struct OEngineGeometryPageLookupV1 { valid: bool, bank_index: u32, byte_offset: u32, flags: u32 };
+struct OEngineGeometryPageLookupV1 { valid: bool, bank_index: u32, byte_offset: u32, flags: u32, resident_bank: u32, resident_word: u32 };
 fn oengine_geometry_product_invalid_asset_v1() -> OEngineGeometryProductResolvedAssetV1 { return OEngineGeometryProductResolvedAssetV1(false, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u, 0u); }
 fn oengine_geometry_product_record_range_v1(section_begin: u32, section_end: u32, record_begin: u32, record_count: u32, stride_words: u32) -> bool {
   if (stride_words == 0u || section_begin > section_end) { return false; }
@@ -132,7 +133,7 @@ fn oengine_geometry_product_resolve_asset_v1(heap: ptr<storage, array<u32>, read
   if (!oengine_geometry_product_contained_v1(asset_root_begin, asset_root_count, root_begin, root_count) || !oengine_geometry_product_contained_v1(asset_hierarchy_begin, asset_hierarchy_count, hierarchy_begin, hierarchy_count) || !oengine_geometry_product_contained_v1(asset_group_begin, asset_group_count, group_begin, group_count)) { return oengine_geometry_product_invalid_asset_v1(); }
   return OEngineGeometryProductResolvedAssetV1(true, product_slot, generation, asset, root_words + asset_root_begin, asset_root_count, hierarchy_words + asset_hierarchy_begin * 12u, asset_hierarchy_count, group_words + asset_group_begin * 4u, asset_group_count, page_begin, location_words + page_begin * 4u, page_count, vertex_format_words + format_begin * 4u, format_count);
 }
-fn oengine_geometry_product_lookup_page_heap_v1(heap: ptr<storage, array<u32>, read>, asset: OEngineGeometryProductResolvedAssetV1, page_id: u32) -> OEngineGeometryPageLookupV1 { if (!asset.valid || page_id >= asset.page_count) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u); } let at = asset.page_location_word_offset + page_id * 4u; if (at > arrayLength(heap) || arrayLength(heap) - at < 4u) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u); } let bank = (*heap)[at]; let slot = (*heap)[at + 1u]; let generation = (*heap)[at + 2u]; let flags = (*heap)[at + 3u]; let valid = (flags & OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1) != 0u && (flags & ~(OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1 | OENGINE_GEOMETRY_PAGE_LOCATION_PINNED_V1)) == 0u && bank < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 && slot < OENGINE_GEOMETRY_SLOTS_PER_BANK_V1 && generation == asset.product_generation; return OEngineGeometryPageLookupV1(valid, bank, select(0u, slot << OENGINE_GEOMETRY_PAGE_SHIFT_V1, valid), flags); }
+fn oengine_geometry_product_lookup_page_heap_v1(heap: ptr<storage, array<u32>, read>, asset: OEngineGeometryProductResolvedAssetV1, page_id: u32) -> OEngineGeometryPageLookupV1 { if (!asset.valid || page_id >= asset.page_count) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u); } let at = asset.page_location_word_offset + page_id * 4u; if (at > arrayLength(heap) || arrayLength(heap) - at < 4u) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u); } let bank = (*heap)[at]; let packed_slot = (*heap)[at + 1u]; let slot = packed_slot & 0xffffu; let resident = (packed_slot >> 16u) - 1u; let generation = (*heap)[at + 2u]; let flags = (*heap)[at + 3u]; let valid = (flags & OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1) != 0u && (flags & ~(OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1 | OENGINE_GEOMETRY_PAGE_LOCATION_PINNED_V1)) == 0u && bank < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 && slot < OENGINE_GEOMETRY_SLOTS_PER_BANK_V1 && generation == asset.product_generation && (packed_slot >> 16u) > 0u && resident < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 * OENGINE_GEOMETRY_SLOTS_PER_BANK_V1; return OEngineGeometryPageLookupV1(valid, bank, select(0u, slot << OENGINE_GEOMETRY_PAGE_SHIFT_V1, valid), flags, resident / OENGINE_GEOMETRY_SLOTS_PER_BANK_V1, (resident % OENGINE_GEOMETRY_SLOTS_PER_BANK_V1) << (OENGINE_GEOMETRY_PAGE_SHIFT_V1 - 2u)); }
 fn oengine_geometry_product_lookup_asset_v1(products: ptr<storage, array<OEngineGeometryProductTableRecordV1>, read>, refs: ptr<storage, array<OEngineGeometryProductAssetReferenceV1>, read>, geometry_slot: u32, expected_generation: u32) -> OEngineGeometryProductAssetLookupV1 {
   if (geometry_slot >= arrayLength(refs)) { return OEngineGeometryProductAssetLookupV1(false, 0u, 0u, 0u); }
   let reference = (*refs)[geometry_slot]; if (reference.flags != 0u || reference.product_generation != expected_generation || reference.product_table_slot >= arrayLength(products)) { return OEngineGeometryProductAssetLookupV1(false, 0u, 0u, 0u); }
@@ -143,12 +144,15 @@ fn oengine_geometry_product_lookup_page_v1(
   locations: ptr<storage, array<OEngineGeometryPageLocationV1>, read>,
   page_id: u32, page_count: u32, expected_generation: u32
 ) -> OEngineGeometryPageLookupV1 {
-  if (page_id >= page_count) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u); }
+  if (page_id >= page_count) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u); }
   let location = (*locations)[page_id];
+  let raw_slot = location.slot_index & 0xffffu;
+  let resident_plus_one = location.slot_index >> 16u;
+  let resident = resident_plus_one - 1u;
   let valid_flags = (location.flags & ~(OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1 | OENGINE_GEOMETRY_PAGE_LOCATION_PINNED_V1)) == 0u;
-  let valid = valid_flags && (location.flags & OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1) != 0u && location.bank_index < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 && location.slot_index < OENGINE_GEOMETRY_SLOTS_PER_BANK_V1 && location.product_generation == expected_generation;
-  if (!valid) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u); }
-  return OEngineGeometryPageLookupV1(true, location.bank_index, location.slot_index << OENGINE_GEOMETRY_PAGE_SHIFT_V1, location.flags);
+  let valid = valid_flags && (location.flags & OENGINE_GEOMETRY_PAGE_LOCATION_RESIDENT_V1) != 0u && location.bank_index < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 && raw_slot < OENGINE_GEOMETRY_SLOTS_PER_BANK_V1 && location.product_generation == expected_generation && resident_plus_one != 0u && resident < OENGINE_GEOMETRY_BANK_COUNT_MAX_V1 * OENGINE_GEOMETRY_SLOTS_PER_BANK_V1;
+  if (!valid) { return OEngineGeometryPageLookupV1(false, 0u, 0u, 0u, 0u, 0u); }
+  return OEngineGeometryPageLookupV1(true, location.bank_index, raw_slot << OENGINE_GEOMETRY_PAGE_SHIFT_V1, location.flags, resident / OENGINE_GEOMETRY_SLOTS_PER_BANK_V1, (resident % OENGINE_GEOMETRY_SLOTS_PER_BANK_V1) << (OENGINE_GEOMETRY_PAGE_SHIFT_V1 - 2u));
 }
 `;
 

@@ -3,6 +3,7 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js"
 import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL, GPU_SHADING_TEXTURE_ROUTES_PER_MATERIAL } from "../gpu/GpuShadingMaterialAbi.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
+import { GPU_MESHLET_RECORD_SCHEMA } from "../gpu/GpuGeometryAbi.js";
 
 /**
  * Local Temporal Facts integration, not part of the pinned FSR3 algorithm.
@@ -21,6 +22,7 @@ struct TemporalFactsConstants {
   height: u32,
   previous_valid: u32,
   _pad: u32,
+  source: vec4u,
 };
 // Mask A bits: 0 instance-set, 1 geometry/LOD, 2 material/residency,
 // 3 transform publication, 4 invalid motion, 5 emissive, 6 alpha-mask.
@@ -38,6 +40,8 @@ struct TemporalFactsConstants {
 @group(0) @binding(12) var output_identity: texture_storage_2d<rgba32uint, write>;
 @group(0) @binding(13) var<storage, read> texture_routes: array<OEngineShadingTextureRoute>;
 @group(0) @binding(14) var<storage, read> texture_residency: array<u32>;
+@group(0) @binding(15) var<storage, read> asset_metadata: array<u32>;
+@group(0) @binding(16) var<storage, read> vertex_payload: array<u32>;
 
 // Stable instance slot is exact within one Scene allocation. The other lanes
 // are 32-bit local change detectors, not exact cross-frame object identifiers.
@@ -49,6 +53,14 @@ fn geometry_signature(instance: OEngineInstanceRecord,
   var signature = hash_step(2166136261u, instance.instance_set_generation);
   signature = hash_step(signature, oengine_instance_geometry_generation(instance));
   signature = hash_step(signature, work.geometry_slot);
+  if !oengine_instance_virtual_geometry(instance) {
+    let at=facts.source.x+work.meshlet_slot*${GPU_MESHLET_RECORD_SCHEMA.stride/4}u;
+    let map=asset_metadata[at+${GPU_MESHLET_RECORD_SCHEMA.offsets.surface_primitive_word_offset!/4}u];
+    return hash_step(signature,vertex_payload[facts.source.y+map+primitive]);
+  }
+  // Product currently has no source-correspondence section. Its logical
+  // group/triangle and LOD remain a distinct representation identity until
+  // the cooker publishes an explicit source map; physical slots never enter.
   signature = hash_step(signature, work.meshlet_slot);
   signature = hash_step(signature, primitive);
   return hash_step(signature, work.packed_profile_lod);

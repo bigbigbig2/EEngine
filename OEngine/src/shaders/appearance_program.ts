@@ -118,7 +118,7 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph, outputBits
       [name, Object.freeze(slots.map(slot => Object.freeze(slot)))]))) });
 }
 
-function operationWgsl(op: AppearanceOp, args: readonly string[]): string {
+export function operationWgsl(op: AppearanceOp, args: readonly string[]): string {
   const [a, b, c] = args;
   switch (op) {
     case "add": return `(${a} + ${b})`;

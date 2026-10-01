@@ -122,6 +122,7 @@ export interface PackedVisibilityInputs {
   readonly meshletWorkRecords: ResourceId;
   readonly frameInstances: ResourceId;
   readonly frameGeometry: ResourceId;
+  readonly frameAttributes: ResourceId;
   readonly depth: ResourceId;
 }
 
@@ -287,6 +288,7 @@ export class PackedVisibilityPass {
     const meshletWorkRecords = builder.write(inputs.meshletWorkRecords);
     const frameInstances = builder.write(inputs.frameInstances);
     const frameGeometry = builder.write(inputs.frameGeometry);
+    const frameAttributes = builder.write(inputs.frameAttributes);
     const counters = builder.write(inputs.counters);
     output.visibilityKey = builder.create(
       "Packed VisibilityKey",
@@ -309,6 +311,7 @@ export class PackedVisibilityPass {
       depth,
       frameInstances,
       frameGeometry,
+      frameAttributes,
       meshletWork: meshletWorkFrame({
         records: meshletWorkRecords,
         capacity: requireMeshletWork(job.prepared.workSet).capacity,
@@ -357,7 +360,7 @@ export class PackedVisibilityPass {
             : resolveTextureView(resources.get(inputs.shadingBinId)),
           depth: resolveDepthAttachmentView(resources.get(inputs.depth)),
           virtualGeometry: data.virtualGeometry ?? null
-        }, data.prepared.currentHzbLateRecheck!.queue, data.prepared.currentHzbLateRecheck!.drawIndirect);
+        }, data.prepared.currentHzbLateRecheck!.queue);
         const debug = this.requireDebugBindings(data.runtime);
         this.debugBindings.set(data.runtime, Object.freeze({
           ...debug,
@@ -371,6 +374,7 @@ export class PackedVisibilityPass {
     builder.read(inputs.sourceMeshletWork);
     builder.read(inputs.sourceFrame.frameInstances);
     builder.read(inputs.sourceFrame.frameGeometry);
+    builder.read(inputs.sourceFrame.frameAttributes);
     const frameGeometry = builder.write(inputs.sourceFrame.frameGeometry);
     const counters = builder.write(inputs.counters);
     const meshletWorkRecords = builder.write(inputs.filteredMeshletWork);
@@ -392,6 +396,7 @@ export class PackedVisibilityPass {
       }),
       frameInstances: source.frameInstances,
       frameGeometry,
+      frameAttributes: source.frameAttributes,
       domain: source.domain
     });
     return Object.freeze({
@@ -407,7 +412,7 @@ export class PackedVisibilityPass {
     if (late !== undefined) {
       this.currentHzbPrepared.delete(runtime);
       const owner = this.currentHzbLateRecheck;
-      command.destroyAfterGpuDone({ destroy: () => owner?.release(late) });
+      command.destroyAfterGpuDone({ destroy: () => { this.graphics.raster_partitions.release(late.queue); owner?.release(late); } });
     }
     const workSet = this.hierarchyPrepared.get(runtime);
     this.debugBindings.delete(runtime);
@@ -419,12 +424,13 @@ export class PackedVisibilityPass {
   destroy(): void {
     this.debugBindings.clear();
     for (const work of this.hierarchyPrepared.values()) {
+      if (work.meshletWorkCandidate) this.graphics.raster_partitions.release(work.meshletWorkCandidate.queue);
       this.instanceTransforms.release(work.frameInstances);
       this.vertexTransforms.release(work.frameVertices);
       this.geometryArena.release(work.frameGeometry);
     }
     this.hierarchyPrepared.clear();
-    for (const late of this.currentHzbPrepared.values()) this.currentHzbLateRecheck?.release(late);
+    for (const late of this.currentHzbPrepared.values()) { this.graphics.raster_partitions.release(late.queue); this.currentHzbLateRecheck?.release(late); }
     this.currentHzbPrepared.clear();
     this.currentHzbLateRecheck = null;
     this.hierarchyGenerator.destroy();
@@ -661,11 +667,13 @@ export class PackedVisibilityPass {
       frameVertices = this.vertexTransforms.prepare({ arena: frameGeometry, instances: frameInstances,
         work: meshletWorkCandidate.queue, assets: job.assets,
         product: meshletWorkCandidate.productBindings, productBanks: meshletWorkCandidate.productBanks });
+      this.meshletBucketRaster.prepare(job.runtime, meshletWorkCandidate, job.assets);
     } catch (error) {
       if (frameVertices !== null) this.vertexTransforms.release(frameVertices);
       if (frameGeometry !== null) this.geometryArena.release(frameGeometry);
       if (frameInstances !== null) this.instanceTransforms.release(frameInstances);
       if (meshletWorkCandidate !== null) {
+        this.graphics.raster_partitions.release(meshletWorkCandidate.queue);
         if (meshletWorkCandidate.productMode) {
           this.virtualMeshletCandidate.release(meshletWorkCandidate);
         } else {
@@ -687,6 +695,7 @@ export class PackedVisibilityPass {
     try {
       currentHzbLateRecheck = this.prepareCurrentHzbLateRecheck(job, next, camera, counters, command);
     } catch (error) {
+      this.graphics.raster_partitions.release(meshletWorkCandidate!.queue);
       this.vertexTransforms.release(next.frameVertices);
       this.geometryArena.release(next.frameGeometry);
       this.instanceTransforms.release(next.frameInstances);
@@ -719,7 +728,7 @@ export class PackedVisibilityPass {
       if (previous !== undefined) {
         this.currentHzbPrepared.delete(job.runtime);
         const owner = this.currentHzbLateRecheck;
-        command.destroyAfterGpuDone({ destroy: () => owner?.release(previous) });
+        command.destroyAfterGpuDone({ destroy: () => { this.graphics.raster_partitions.release(previous.queue); owner?.release(previous); } });
       }
       return null;
     }
@@ -742,10 +751,12 @@ export class PackedVisibilityPass {
     const previous = this.currentHzbPrepared.get(job.runtime);
     if (previous !== undefined && this.currentHzbLateRecheck.matches(previous, input)) return previous;
     const prepared = this.currentHzbLateRecheck.prepare(input);
+    try { this.meshletBucketRaster.prepare(job.runtime, work, job.assets, prepared.queue); }
+    catch (error) { this.currentHzbLateRecheck.release(prepared); throw error; }
     this.currentHzbPrepared.set(job.runtime, prepared);
     if (previous !== undefined) {
       const owner = this.currentHzbLateRecheck;
-      command.destroyAfterGpuDone({ destroy: () => owner.release(previous) });
+      command.destroyAfterGpuDone({ destroy: () => { this.graphics.raster_partitions.release(previous.queue); owner.release(previous); } });
     }
     return prepared;
   }
@@ -760,6 +771,7 @@ export class PackedVisibilityPass {
         this.vertexTransforms.release(workSet.frameVertices);
         this.geometryArena.release(workSet.frameGeometry);
         if (workSet.meshletWorkCandidate !== null) {
+          this.graphics.raster_partitions.release(workSet.meshletWorkCandidate.queue);
           if (workSet.meshletWorkCandidate.productMode) {
             this.virtualMeshletCandidate.release(workSet.meshletWorkCandidate);
           } else {

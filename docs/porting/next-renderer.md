@@ -700,3 +700,66 @@ The local page-table ABI now allocates 32 bytes per entry across disjoint mip pl
 | `Assets/Scripts/ObjectSpaceShadingPipeline.cs`：阶段顺序、history/frame 生命周期 | 同一 frame encoder；publication 定义 scene/resource epoch，resize/cut 不清跨帧 Appearance，销毁/退休由实际 GPU owner 管理 |
 
 算法差异明确：Unity donor 的固定 spatial shadel/八种 occupancy size、Htex halfedge 插值和 RT/GI 不被同名简化替代。本地按编译字段的完整**已过滤输入签名**保存实际宽度 scalar/vec3；不同 UV/梯度不被未验证地量化为同一 texel，不对非线性图结果再做双线性插值。常量/便宜源程序和离线静态页不进入动态样本缓存；昂贵 view/nonlocal 项按目标执行。它保留字段版本、完整输入输出、过滤条件、需求/去重、分配/更新/淘汰/同帧 miss 全覆盖，实际净收益与移动相机命中率仍需第三步证明，不能宣称继承 donor 性能或完成上游移植。
+
+## Surface 第三步返工：ClusterLocalSignalPackets（2026-10-01）
+
+本轮沿用已核读固定来源：Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887`，Apache-2.0，`ComputeShaderTile.hlsl::ComputeSurfaceDataFromGBufferAllSamplesCPS/RequiresPerPixelShading/ComputeShaderTileCS`；DOOM VRCS 原始技术演讲的 primary/duplicate、tile remap、compact lists 和 cluster locality 阶段；Filament `41f996de8fcc2d6b60b73159aa1bc44a05a40700`，Apache-2.0 的已有 BRDF、DFG 和环境卷积映射。VRCS 演讲是研究资料，不作为可复制源码许可。本地解码复用 Nyx `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b` / MIT 的现有 Product 数学，以及本地 Geometry ABI 和 HomogeneousWinnerInterpolation。
+
+| 完整来源阶段 / 本地决定 | 本地真实入口与分支 | 差异与当前状态 |
+| --- | --- | --- |
+| CPS surface/depth/normal 判定；VRCS tile primary/duplicate 和 cluster 局部性 | `surface_sparse_lighting.ts::prepare_surface/classify`，真实 winner/属性/实例生成 guide；每 16×16 tile 的 64 lanes 独立处理 2×2 diffuse/specular/coat 分区；normal、局部平面残差、视向、真实字段、cluster 与阴影条件拒绝共享 | 具名本地 **ClusterLocalSignalPackets**，不是完整 CPS/VRCS 移植。没有找到涵盖本地 VisibilityKey、Product、材质编译、Temporal 和 WebGPU dispatch 全链的单一 donor；误差容限仍待连续画质校准 |
+| VRCS compact lists 与完整输出覆盖；CPS full/零灯分支 | `reset_packets/classify/finalize_packets/evaluate_packets/reconstruct`，tile 内 compact，global 一次预约连续 packets，GPU indirect；每 target 的三信号 reference 指向当前 primary、有效历史或无需求；不能复用时同帧真实求值 | 固定 pixel capacity 是准确上界；无本帧 CPU work control，无跨 workgroup 自旋，无旧 full-rate worker。所有必要 direct/IBL 消费在唯一新程序内 |
+| Filament BRDF/DFG/irradiance 数学与现有完整 provider 产品 | `evaluate_packets` 消费真实 light lists、directional VSM、physical-sky diffuse/specular/DFG 和 AO。diffuse 保存 direct 入射项和独立环境 irradiance，`reconstruct` 逐 target 乘高频底色、AO、金属度与能量项 | 不以固定光/固定视角替代 provider。当前 VSM profile 仍只有 directional；point/spot 阴影和未发布 GI/reflection provider 不宣称完成。真实 authored 环境接线仍待完成 |
+| 已有 TemporalFabric 的唯一历史 authority；本地有界年龄决策 | `previous_reference` 检查 identity、相关信号依赖、位置/法线/视向、mask/motion、shadow content revision 和年龄；年龄来自原始求值，reprojection 不重置；新显露/失效/到龄转 current packet | guide/signature/signals 物理资源由 SparseLightingPass 拥有；TemporalFabric 管角色、有效性与 cut。未预曝光 HDR 信号按 RGB 共享二进制指数存储，最后使用实际 GPU P 转显示工作空间 |
+| 本地 ABI/编译器集成，不新增复杂 donor | `appearance_geometry_inputs.ts` 把 GPU reservation 与真实属性输入拆成阶段；源目录容量 miss 复用同源 ordinary/Product 解码。`appearanceCoordinatePreparation` 对坐标 DAG 的中心/X/Y 展开，纹理驱动 UV 在有限材质资源 profile 内真实采样 | 未恢复 Probe/旧 Setup；shared/frame/source 三者使用相同数学。输出逻辑字段与版本不变，物理字段打包为六 RGBA 层。坐标采样、容量 miss 和 mixed ordinary/Product 当前只完成代码写入 |
+
+状态为**实现返工中、未采用验证**。本轮尚未运行新的编译、数值、覆盖、生命周期、浏览器、连续画质或两覆盖率性能验证；先前诊断结果不证明本轮代码。signal 历史与 guide 的物理字节、字段发布、分类和 miss 全成本都须纳入最终比较，不能用 primary 数量下降代替净收益。resident 属性、实际形变、稳定 source/LOD/seam 地址以及剩余 provider 仍不标完成。
+
+### 同轮新增本地集成事实（尚未验证）
+
+- 普通 Geometry 驻留使用 `GeometryResidentAttributes::prepareGeometryResidentAttributes`，复用 GeometryAssetPackage 的权威 position/normal/tangent/multi-UV/color decoder。`GpuAssetStore::buildResidencyPlan` 在同一资产事务写入 96 B/vertex 展开记录，Geometry ABI v7 的 word offset 指向实际 vertex payload；帧生产与 miss 消费共读。展开 bytes 进入实际上传/显存准入、增长、abort 与 GPU 退休，不被记为免费源数据。Product 的持久驻留属性准备仍未完成。
+- View 域输入在发布边界按具名 GPU 语义解析，由 `appearance_geometry_inputs.ts` 读取本帧真实 camera/instance/geometry，为 center/X/Y 生成 view direction、camera/world/view position 和 normal/tangent。不能再用 CPU 材质常量冒充当前 target 的 view 值；一般 nonlocal provider 输入仍待实际供给。
+- Diffuse 的 direct 入射项与环境 irradiance 是同一 diffuse reference 管理的两个独立 RGB plane；高频底色、金属度、AO、DFG 能量及环境 coat 衰减在最终 target 合成。空间位置判定使用局部表面平面残差，避免固定欧氏间距阈值使正常 FOV 下的所有相邻像素被拒绝。仍未确立画质误差界。
+- Counter schema v28 发布 packet 总量及各 lobe current primaries，分 lobe 观测仅采样帧统计，不参与 work control。新代码、字节布局和算法结果均尚未运行验收。
+
+- 实际 light-list 发布的生命周期继续由 GPUDatabase/GPULightCollection 权威边界处理：CPU 行输入在 abort 时恢复待编码记录，row upload 先取同 index 的最后 authored 值再发布，避免多 invocation 写同一 GPU 行；lookup/header 重试与 GPU version 的成功提交分开。增长旧 buffer 按 `command.gpuDone` 退休，等待期间进入实际 GPU memory usage。此项是本地事务/绑定集成；本轮尚未运行生命周期验收。
+
+### 继续返工的生产接线（2026-10-01，尚未验证）
+
+| 来源/集成范围 | 实际生产者与消费者 | 尚未完成的边界 |
+| --- | --- | --- |
+| 本地确定性 source index 地址映射，不是 chart/参数化算法 | `SurfacePrimitiveMapping::prepareSurfacePrimitiveMapping` 以三角形有向源顶点 tuple 建立无 hash 碰撞的 ID 目录；Geometry ABI v8 的 Meshlet word offset 随 AssetStore 同事务写入；`TemporalFactsPass/temporal_facts::geometry_signature` 读取真实映射 | cyclic corner rotation、meshlet 重排与保持原三角形的 LOD 可对应；反向绕序、seam 顶点与无 source correspondence 的简化三角形获得不同地址。Product source map、跨拓扑 source 坐标投影与 Cook 序列化仍未完成；Temporal signature 本身仍是 change detector，不冒称精确完整身份 |
+| 已有 `environment_ibl::oct_encode/oct_decode` 数学，本地 guide ABI/绑定集成 | SparseLighting guide 改为两层 rgba32float：位置/带 sign 的深度及两个 f32 oct 法线。current roughness 来自当前字段，previous view 从上一帧真实 camera/position 重建；`FrameProgramLowering` 绑定 previous camera | 原信号未预曝光编码、年龄与独立签名继续保留。物理历史由 224 B/pixel 降至 160 B/pixel；这是布局字节变化，尚无数值/画质或 GPU 收益通过结论 |
+| 沿用 Filament `41f996de8fcc2d6b60b73159aa1bc44a05a40700` / Apache-2.0，`CubemapIBL.cpp` 的已有 GGX/DFV/convolution 映射；不重新简化 provider | `GpuAuthoredEnvironment::record` 消费 Loader 的实际 octahedral radiance，线性 source mip → 既有 `PHYSICAL_SKY_PREFILTER_WGSL` 完整 GGX/PDF/source LOD → 既有 diffuse cosine convolution/DFG；`GraphicsContext.initialize` 异步预建四 PSO；LightCollection/frame graph 选择真实 authored IBL | authored oct 图明确覆盖 IBL，physical sky/aerial 保留其已有作用。只采用已有完整数学，上传/格式/source mip/资源事务为本地集成；NPOT mip 使用确定性面积 box 积分。资源无私有 submit，pending 可同帧消费，abort 不提升 source/revision，成功提交后等待 gpuDone 退休。尚未验收格式、连续编辑、abort/device/scene 与 cold generation 成本 |
+| GPUDatabase 本地事务补齐 | grow abort 根据当前 live CPU pages 重建旧 buffer 的 lookup/slot；去掉对已删除页的恢复，新页重标待分配，重传 lookup/header 与待编码行 | 同 encoder 多次 update、grow+删除/新增/abort 的最终生命周期检查未运行 |
+
+以上均为代码写入，继续保持第三步返工 active；不提升 R01–R24、adoption 或性能完成状态。
+
+Directional VSM 的真实 PCF 接收点比较没有删除或换成 page-version 相等。`classify` 的一个 invocation 拥有一个 aligned 2×2 quad；相同 receiver pair 的判断在 diffuse/specular 及法线相同的 coat 间按完整 pair/lobe 缓存，拒绝结果也保存。它仅消除同一 invocation 内的重复数学/atlas 查询，保持原接受条件；未证明分类总成本已足够低或最终阴影 query 减量目标已达到。
+### Product resident attributes：页级本地集成，2026-10-01
+
+继续复用已固定的 Nyx decoded Product V3 顶点格式和现有 `geometry_source_decode.ts` / `meshlet_bucket_visibility.ts` 的 Float32 position、oct snorm16 normal/tangent、binary16 UV 与 unorm8 color 解码数学；这次是驻留、ABI 和生命周期集成，不宣称新的简化/参数化算法移植。映射：`VirtualGeometryResidency` 页完成 → `GeometryProductResidentAttributes` CPU 一次展开 → 同一 `GeometryProductSlotPool` 的有界目录/属性 slots → frame geometry、Raster 容量 miss 与 Surface 直接 miss 共读。原压缩/打包页和展开页均计入原物理预算，随同一页完成 GPU retirement 后一起释放；无新增 binding 或 submit。正在实现，未编译或数值/GPU/性能验收；Product LOD source correspondence 与形变仍为独立未完成项。
+### Product 属性消费者与普通几何 Cook 地址：继续返工，2026-10-01
+
+- Product 页完成时保留原 V3 transport bytes，另将实际 normal/tangent/sign/UV0/UV1/color/position 一次展开为 96 B resident records。目录与数据打包在同一共享 slot pool 中，目录尾部空域复用给属性，完整每页 slot footprint 在分配前确定；GPU ABI 版本 2 的 16 B page-location 中，slot lane 低 16 位为 raw slot，高 16 位为 resident directory 的 fixed-bank linear slot 加一。CPU pack/validate 与 typed/raw WGSL lookup 同步；source bank、resident bank 可以不同。
+- `frameGeometrySourceWgsl` → frame vertex producer / `surfaceGeometrySourceReaderWgsl` → Appearance / SparseLighting 已读取 resident 属性；Product Raster position miss 与 UV 读取同一属性。删除 Product hot attribute unpack helpers。原 transport 页继续承载 hierarchy/header/triangle/VSM 必要信息，没有声称其已释放；原始与展开成本共同受四 bank 总容量限制。
+- `GeometryPageScheduler` 的生产 sink 提供实际 raw+directory+attributes 上传成本；未完成的物理预约保留 verified completion；成功驻留后丢弃 scheduler 的 CPU page 引用。resident/retiring bytes 和 eviction budget 按完整 slots 计算；一页全部 slots 在 GPU completion 后一起释放，device loss/destroy 一起撤销。
+- 普通几何的 exact oriented source-index correspondence 改由 `GeometryCooker` 生成必需 `SurfacePrimitiveIds` section，普通资产 schema 3 / cooker v3.0.0，`GpuAssetStore` 只上传已烘焙目录并接 Temporal 消费，不在 residency 重新推导跨 LOD identity。原拓扑、cyclic rotation、seam 与逆绕序边界保持；缺少真实对应的简化三角形用独立 namespace identity。此项没有完成 Product cooker correspondence、非精确投影或参数化。
+- 删除未调用的 `SurfaceAddressMap`、将 work-slot 当长期地址的 `GpuSurfaceAddressAbi` 注入，以及 stride/struct 不一致且没有 producer/consumer 的形变 ABI 占位文件。真实 skin/morph 生产仍未完成，删除占位不计完成度。
+- Authored IBL 的 raw/source mip resources 改为 filtering scratch，成功提交并完成 GPU work 后释放；输出、scratch 和 retiring generation 均计入 256 MiB 累计 texture budget，分配前拒绝超额。销毁与 delayed callback 通过 allocation ownership 避免重复退休。DFG 仍为每份 environment allocation，尚未改为 device 共享。
+
+以上都是源码集成与清理，当前树未运行 typecheck/build、数值、GPU、browser 或 benchmark；不得借用旧诊断声明通过，R01–R24 与最终性能采用状态不提升。
+
+### 编译 Coverage、光栅工作分组与法线有效性：本地集成，2026-10-02
+
+本批复用已有 `AppearanceGraphCompiler::selectAppearanceProductProgram` 的活性图裁剪、`appearanceResidentKernel` 的完整有限程序采样与坐标 DAG、GPU count/prefix/scatter 调度，以及已固定来源的普通/Product 解码和 VSM atlas 投影数学。此次改变是编译阶段、绑定、索引分组与发布协议的本地集成，不宣称新的 Coverage/阴影算法移植或上游采用完成。
+
+| 原有阶段 / 本地约束 | 本批生产映射 | 状态与边界 |
+| --- | --- | --- |
+| 编译标量 alpha 根；源采样、静态产品、动态参数及坐标 DAG 不缩成固定 texel | `GpuAppearancePublication` 发布独立 Coverage directory，常量/routes/inputs 与 Surface 共用发布权威；`appearance_coverage::appearance_fragment_alpha` 在 fragment 展开 center/X/Y 和实际属性、world/view 输入；主光栅与 VSM 共读 | 仅 MASK 建立 Alpha 光栅程序；opaque 共用 program 0。view-dependent coverage 每帧刷新 VSM，参数/cutoff 编辑在本帧光栅前更新并推进 shadow revision。尚未验证数值、derivative uniformity、动态编辑与画质 |
+| 既有 GPU count/prefix/scatter，有限程序调度，无 CPU 可见工作控制 | `RasterWorkPartitions` 的 begin/count/prefix/scatter，64 lanes，按 program × 四尺寸 × sidedness 生成原 work 索引与 16 B drawIndirect；`MeshletBucketRaster` 只消费所属分组 | 原 MeshletWork、frame geometry directory 与 VisibilityKey 不重排；indices 上界为已准入源容量，累计 owner budget 64 MiB，buffer/dispatch/绑定 limits 在分配前检查，同一 encoder/submit。资源计费包含退休版本；生命周期未验收 |
+| 原 VSM page clear、页投影与真实 resident 属性 | `vsmAtlasRasterWgsl` 用 instance_index 选 caster，vertex_index 只选该 meshlet 的三角形/角点；普通/Product 的镜像绕序与 sided PSO 共用 compiled Coverage，fragment 限制写入目标 physical page | 解决旧 caster/triangle 索引混用的源码问题；有限 PSO 在 scene preparation 异步准备。屏外 caster 供给与无 caster dirty page 完成发布仍待收口，不能标 VSM 全范围完成 |
+| 已有联合法线/粗糙度过滤的有效方向输入输出 | `GpuAppearanceCacheAbi` 发布独立 base/coat normal validity，两位打包在第六 rgba16f 层的空 lane；`GpuAppearancePublication` 第七 slot-map record 指向独立 scalar 输出；`surface_sparse_lighting::prepare_surface` 与信号签名消费有效位 | 物理字段仍六层，逻辑字段增至十五；无有效过滤方向时使用实际几何法线并保留过滤粗糙度。完整过滤负例、CSE/alias 与数值结果尚未验证 |
+| 发布事务与资源共享，本地生命周期胶水 | `CoverageRasterBindings` 缓存 publication 级 texture views/samplers/bindgroups；主光栅和 VSM 同资源组；Renderer 在 instance patch 后、shadow generation 判定前同步 Coverage | 无新私有 submit，无旧 sample/closure/Resolve 恢复。scene rollback、GPU retirement、device loss、resize/cut 全矩阵仍待最终验收 |
+
+当前工作树本批没有运行 typecheck、build、targeted tests、GPU oracle、浏览器或 benchmark，按 Surface 连续重构规则推迟到完整目标生产链实现后集中执行。现有部分测试 fixture 已随 ABI 修改，但未运行，其他旧 fixture 尚待统一调整。透明完整材质/照明链、skin/morph 与 previous 形变、Product source-domain/跨 LOD/seam、一般 nonlocal GPU provider 仍未完成；R01–R24、来源采用状态和性能目标均不提升。

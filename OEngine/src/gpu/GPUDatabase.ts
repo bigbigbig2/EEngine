@@ -1082,6 +1082,8 @@ export class GPUDatabase {
   private pageLookup: Uint32Array;
   private dirtyLookupStart = Number.POSITIVE_INFINITY;
   private dirtyLookupEnd = -1;
+  private readonly retiringBuffers=new Set<GPUBuffer>();
+  private readonly uploadTransactions=new WeakMap<ShadeGPUCommandContext,Map<GPUTypedTable,Uint8Array[]>>();
   private dataStartOffsetWords: number;
   private slotAllocator: FixedSlotAllocator;
   private readonly growthTransactions = new WeakMap<
@@ -1089,10 +1091,7 @@ export class GPUDatabase {
     {
       originalBuffer: GPUBuffer;
       originalAllocator: FixedSlotAllocator;
-      originalLookup: Uint32Array;
       originalPageSlots: Map<GPUDatabasePage, number>;
-      dirtyLookupStart: number;
-      dirtyLookupEnd: number;
       createdBuffers: GPUBuffer[];
       retiredBuffers: GPUBuffer[];
     }
@@ -1169,10 +1168,49 @@ export class GPUDatabase {
   }
 
   get gpu_memory_usage(): number {
-    return this.buffer.size;
+    let bytes=this.buffer.size;
+    for(const buffer of this.retiringBuffers) bytes+=buffer.size;
+    return bytes;
   }
 
   update(command: ShadeGPUCommandContext): void {
+    // CPU tables remain authoritative on abort. Retain encoded row bytes until
+    // submission and republish their lookup/header state when encoding fails.
+    const pending=this.tables.map(table=>({ table,
+      rows:new Uint8Array(table.element_upload_buffer.data,0,table.element_upload_buffer.position).slice(),
+      versions:[...table.pages.values()].map(page=>[page,page.cpu_version] as const) }));
+    let transaction=this.uploadTransactions.get(command);
+    if(!transaction) {
+      transaction=new Map(); this.uploadTransactions.set(command,transaction);
+      const staged=transaction;
+      command.onAborted.addOne(()=>{
+      this.dirtyLookupStart=0; this.dirtyLookupEnd=this.pageLookup.length-1;
+      for(const [table,chunks] of staged) {
+        const upload=table.element_upload_buffer;
+        const newer=new Uint8Array(upload.data,0,upload.position).slice();
+        const encodedBytes=chunks.reduce((sum,rows)=>sum+rows.byteLength,0);
+        upload.ensureCapacity(encodedBytes+newer.byteLength);
+        const restored=new Uint8Array(upload.data);
+        let offset=0;
+        for(const rows of chunks) { restored.set(rows,offset); offset+=rows.byteLength; }
+        restored.set(newer,offset); upload.position=offset+newer.byteLength;
+        for(const page of table.pages.values()) {
+          table.cpu_dirty_pages.set(page.index,true);
+          table.header_dirty_pages.set(page.index,true);
+        }
+      }
+      this.uploadTransactions.delete(command);
+      });
+      command.onFinished.addOne(()=>this.uploadTransactions.delete(command));
+    }
+    for(const {table,rows} of pending) {
+      let chunks=transaction.get(table);
+      if(!chunks) { chunks=[]; transaction.set(table,chunks); }
+      if(rows.byteLength) chunks.push(rows);
+    }
+    command.onFinished.addOne(()=>{
+      for(const {versions} of pending) for(const [page,version] of versions) page.gpu_version=version;
+    });
     for (const table of this.tables) {
       const dirtyPages = table.cpu_dirty_pages;
       for (
@@ -1196,11 +1234,6 @@ export class GPUDatabase {
     }
     for (const table of this.tables) {
       this.uploadDirtyHeaders(command, table);
-    }
-    for (const table of this.tables) {
-      for (const page of table.pages.values()) {
-        page.gpu_version = page.cpu_version;
-      }
     }
   }
 
@@ -1287,6 +1320,8 @@ export class GPUDatabase {
 
   destroy(): void {
     this.buffer.destroy();
+    for(const buffer of this.retiringBuffers) buffer.destroy();
+    this.retiringBuffers.clear();
     this.pageBufferPool.clear();
     this.device = null as unknown as GPUDevice;
   }
@@ -1316,30 +1351,43 @@ export class GPUDatabase {
       transaction = {
         originalBuffer: this.buffer,
         originalAllocator: this.slotAllocator,
-        originalLookup: this.pageLookup.slice(),
         originalPageSlots,
-        dirtyLookupStart: this.dirtyLookupStart,
-        dirtyLookupEnd: this.dirtyLookupEnd,
         createdBuffers: [],
         retiredBuffers: []
       };
       this.growthTransactions.set(command, transaction);
       const activeTransaction = transaction;
       command.onFinished.addOne(() => {
-        for (const buffer of activeTransaction.retiredBuffers) {
-          buffer.destroy();
-        }
+        const buffers=[...new Set(activeTransaction.retiredBuffers)];
+        for(const buffer of buffers) this.retiringBuffers.add(buffer);
+        const release=()=>{ for(const buffer of buffers) {
+          if(this.retiringBuffers.delete(buffer)) buffer.destroy();
+        } };
+        void command.gpuDone.then(release,release);
         this.growthTransactions.delete(command);
       });
       command.onAborted.addOne(() => {
         this.buffer = activeTransaction.originalBuffer;
         this.slotAllocator = activeTransaction.originalAllocator;
-        this.pageLookup.set(activeTransaction.originalLookup);
-        this.dirtyLookupStart = activeTransaction.dirtyLookupStart;
-        this.dirtyLookupEnd = activeTransaction.dirtyLookupEnd;
-        for (const [page, slot] of activeTransaction.originalPageSlots) {
-          page.slot_offset = slot;
+        // CPU edits after grow survive abort. Rebuild locations from the live
+        // page objects rather than restoring references to removed pages or
+        // leaving newly allocated pages pointing into the discarded buffer.
+        const livePages=new Set<GPUDatabasePage>();
+        this.pageLookup.fill(GPU_DATABASE_INVALID_PAGE);
+        for(const table of this.tables) for(const page of table.pages.values()) {
+          livePages.add(page);
+          page.slot_offset=activeTransaction.originalPageSlots.get(page) ?? -1;
+          if(page.slot_offset>=0) this.pageLookup[table.descriptor.page_lookup_address+page.index]=
+            page.slot_offset+this.dataStartOffsetWords;
+          else page.gpu_version=0;
+          table.cpu_dirty_pages.set(page.index,true);
+          table.header_dirty_pages.set(page.index,true);
         }
+        for(const [page,slot] of activeTransaction.originalPageSlots) {
+          if(slot>=0 && !livePages.has(page)) this.slotAllocator.free(slot);
+        }
+        this.dirtyLookupStart=0;
+        this.dirtyLookupEnd=this.pageLookup.length-1;
         for (const buffer of activeTransaction.createdBuffers) {
           buffer.destroy();
         }
@@ -1523,7 +1571,24 @@ export class GPUDatabase {
     const uploadRecordBytes =
       descriptor.packed_element_size_bytes +
       GPU_DATABASE_WORD_BYTES;
-    const recordCount = uploadBytes / uploadRecordBytes;
+    const queuedCount = uploadBytes / uploadRecordBytes;
+    const latest=new Map<number,number>();
+    for(let i=0;i<queuedCount;i++) {
+      upload.position=i*uploadRecordBytes;
+      latest.set(upload.readUint32(),i);
+    }
+    upload.position=uploadBytes;
+    const recordCount=latest.size;
+    let uploadData=upload.data;
+    if(recordCount!==queuedCount) {
+      const compact=new Uint8Array(recordCount*uploadRecordBytes);
+      let target=0;
+      for(const row of latest.values()) {
+        compact.set(new Uint8Array(upload.data,row*uploadRecordBytes,uploadRecordBytes),target);
+        target+=uploadRecordBytes;
+      }
+      uploadData=compact.buffer;
+    }
     const recordsPerBatch = Math.max(
       1,
       Math.floor(
@@ -1552,7 +1617,7 @@ export class GPUDatabase {
         }
       );
       const uploadBuffer = command.allocateTransientBufferAndLoad(
-        upload.data,
+        uploadData,
         GPUBufferUsage.STORAGE,
         sourceByteOffset,
         batchBytes

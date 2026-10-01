@@ -1,5 +1,6 @@
 import { MeshoptClusterizer } from "meshoptimizer/clusterizer";
 import { MeshoptSimplifier } from "meshoptimizer/simplifier";
+import { prepareSurfacePrimitiveMapping } from "./SurfacePrimitiveMapping.js";
 
 import {
   GEOMETRY_ASSET_SCHEMA_VERSION,
@@ -169,6 +170,8 @@ export async function cookGeometryAssetPackage(
     expandBoundsForPositionQuantization(state.records, hierarchy?.clusters ?? [], source.bounds.box);
   }
   const built = finalizeMeshlets(state);
+  const surfaceMapping = prepareSurfacePrimitiveMapping({ indices: source.indices, meshlets: built.records,
+    meshletVertexIndices: built.vertices, meshletTriangleIndices: built.triangles });
   const bvh8Nodes = hierarchy === null ? Object.freeze([]) : buildGeometryBvh8(hierarchy.clusters);
   const payload = recipe.hierarchyMode === "single-level"
     ? null
@@ -258,6 +261,14 @@ export async function cookGeometryAssetPackage(
       data: built.triangles,
       elementStride: 1,
       elementCount: built.triangles.length,
+      alignment: 16
+    },
+    {
+      type: GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds,
+      required: true,
+      data: surfaceMapping.words,
+      elementStride: 4,
+      elementCount: surfaceMapping.words.length,
       alignment: 16
     }
   ];
@@ -1704,6 +1715,7 @@ function geometryChunkId(sectionType: number): string {
     case GEOMETRY_SECTION_TYPES.MeshletRecords: return "meshlet-records";
     case GEOMETRY_SECTION_TYPES.MeshletVertexIndices: return "meshlet-vertex-indices";
     case GEOMETRY_SECTION_TYPES.MeshletTriangleIndices: return "meshlet-triangle-indices";
+    case GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds: return "surface-primitive-identities";
     case GEOMETRY_SECTION_TYPES.ClusterRecords: return "cluster-records";
     case GEOMETRY_SECTION_TYPES.ClusterChildren: return "cluster-children";
     case GEOMETRY_SECTION_TYPES.Bvh8Nodes: return "bvh8-nodes";

@@ -3,6 +3,7 @@
  */
 
 import { GPUTextureManager } from "./GPUTextureManager.js";
+import { prepareAuthoredEnvironmentPipelines } from "./GpuAuthoredEnvironment.js";
 import { GPUSamplerCache } from "./GPUSamplerCache.js";
 import { STATIC_GRAPHICS_ENGINE_ASSETS } from "../render/STATIC_GRAPHICS_ENGINE_ASSETS.js";
 import {
@@ -38,6 +39,7 @@ import { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
 import { AppearanceStaticResidency } from "./AppearanceStaticResidency.js";
 import { FrameInstanceTransforms } from "../render/FrameInstanceTransforms.js";
 import { FrameGeometryVertices } from "../render/FrameGeometryVertices.js";
+import { RasterWorkPartitions } from "../render/RasterWorkPartitions.js";
 import { FrameGeometryArena } from "../render/FrameGeometryArena.js";
 import { GpuAppearanceCache } from "./GpuAppearanceCache.js";
 import { CurrentHzbLateRecheckGpu } from "../render/CurrentHzbLateRecheck.js";
@@ -102,6 +104,7 @@ export class GraphicsContext {
   private appearanceStaticValue: AppearanceStaticResidency | undefined;
   private frameInstancesValue: FrameInstanceTransforms | undefined;
   private frameVerticesValue: FrameGeometryVertices | undefined;
+  private rasterPartitionsValue: RasterWorkPartitions | undefined;
   private frameGeometryArenaValue: FrameGeometryArena | undefined;
   private appearanceCacheValue: GpuAppearanceCache | undefined;
   private currentHzbRecheckValue: CurrentHzbLateRecheckGpu | undefined;
@@ -290,6 +293,11 @@ export class GraphicsContext {
     this.frameVerticesValue ??= new FrameGeometryVertices(this.device, this.resource_accounting);
     return this.frameVerticesValue;
   }
+
+  get raster_partitions(): RasterWorkPartitions {
+    this.rasterPartitionsValue ??= new RasterWorkPartitions(this.device, this.resource_accounting);
+    return this.rasterPartitionsValue;
+  }
   get frame_geometry_arena(): FrameGeometryArena {
     this.frameGeometryArenaValue ??= new FrameGeometryArena(this.device, this.resource_accounting);
     return this.frameGeometryArenaValue;
@@ -333,6 +341,7 @@ export class GraphicsContext {
 
   async initialize(): Promise<void> {
     await STATIC_GRAPHICS_ENGINE_ASSETS.init();
+    await prepareAuthoredEnvironmentPipelines(this);
   }
 
   encodeFrameMaintenance(
@@ -375,6 +384,7 @@ export class GraphicsContext {
       (this.appearanceStaticValue?.evidence().allocatedBytes ?? 0) +
       (this.frameInstancesValue?.allocatedBytes ?? 0) +
       (this.frameVerticesValue?.allocatedBytes ?? 0) +
+      (this.rasterPartitionsValue?.allocatedBytes ?? 0) +
       (this.frameGeometryArenaValue?.allocatedBytes ?? 0) +
       (this.currentHzbRecheckValue?.allocatedBytes ?? 0) +
       (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
@@ -429,6 +439,7 @@ export class GraphicsContext {
       buffers.cachedBytes +
       textures.cachedBytes;
     const transientPoolBytes = buffers.allocatedBytes + textures.allocatedBytes + (this.frameInstancesValue?.allocatedBytes ?? 0) +
+      (this.rasterPartitionsValue?.allocatedBytes ?? 0) +
       (this.frameVerticesValue?.allocatedBytes ?? 0) + (this.frameGeometryArenaValue?.allocatedBytes ?? 0) +
       (this.currentHzbRecheckValue?.allocatedBytes ?? 0);
     const fragmentationBytes = Math.max(
@@ -450,6 +461,7 @@ export class GraphicsContext {
         staticAppearance: Object.freeze({ ...staticAppearance }),
         frameInstances: Object.freeze({ allocatedBytes: this.frameInstancesValue?.allocatedBytes ?? 0 }),
         frameVertices: Object.freeze({ allocatedBytes: this.frameVerticesValue?.allocatedBytes ?? 0 }),
+        rasterPartitions: Object.freeze({ allocatedBytes: this.rasterPartitionsValue?.allocatedBytes ?? 0 }),
         frameGeometry: Object.freeze({ allocatedBytes: this.frameGeometryArenaValue?.allocatedBytes ?? 0 }),
         currentHzbRecheck: Object.freeze({ allocatedBytes: this.currentHzbRecheckValue?.allocatedBytes ?? 0 }),
         appearanceCache: Object.freeze({ allocatedBytes: this.appearanceCacheValue?.allocatedBytes ?? 0 }),
@@ -494,6 +506,7 @@ export class GraphicsContext {
     this.frameInstancesValue?.destroy();
     this.frameInstancesValue = undefined;
     this.frameVerticesValue?.destroy(); this.frameVerticesValue = undefined;
+    this.rasterPartitionsValue?.destroy(); this.rasterPartitionsValue = undefined;
     this.currentHzbRecheckValue?.destroy(); this.currentHzbRecheckValue = undefined;
     this.appearanceCacheValue?.destroy(); this.appearanceCacheValue = undefined;
     this.frameGeometryArenaValue?.destroy(); this.frameGeometryArenaValue = undefined;

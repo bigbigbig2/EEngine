@@ -16,7 +16,7 @@ export interface PreparedFrameGeometryArena {
   readonly work: GpuStorageRange;
   readonly control: GpuStorageRange;
 }
-interface State { readonly metadata: GPUBuffer; readonly handle?: ResourceHandle; metadataPublished: boolean; }
+interface State { readonly metadata: GPUBuffer; readonly handle?: ResourceHandle; metadataPublished: boolean; readonly released: Set<() => void>; }
 
 /** Sole physical owner. Borrowers never destroy subrange storage. Immutable
  * metadata is copied once per committed asset/workset publication, with the
@@ -51,7 +51,7 @@ export class FrameGeometryArena {
       const p = Object.freeze({ buffer, layout, budget: Object.freeze({ ...budget }), sourceDirectory: range(layout.sourceDirectory),
         filteredDirectory: range(layout.filteredDirectory), clips: range(layout.clips), triangles: range(layout.triangles),
         dictionary: range(layout.dictionary), coefficients: range(layout.coefficients), work: range(layout.work), control: range(layout.control) });
-      this.states.set(p, { metadata, handle, metadataPublished: false }); return p;
+      this.states.set(p, { metadata, handle, metadataPublished: false, released: new Set() }); return p;
     } catch (error) {
       buffer.destroy(); if (handle) this.accounting?.destroyed(handle); throw error;
     }
@@ -65,9 +65,16 @@ export class FrameGeometryArena {
     return () => { if (this.states.get(p) === s) s.metadataPublished = true; };
   }
   metadataPublished(p: PreparedFrameGeometryArena): boolean { return this.require(p).metadataPublished; }
+  /** Borrowers retire alongside the arena after its final GPU consumer. */
+  onReleased(p: PreparedFrameGeometryArena, callback: () => void): () => void {
+    const callbacks = this.require(p).released;
+    callbacks.add(callback); return () => { callbacks.delete(callback); };
+  }
   release(p: PreparedFrameGeometryArena): void {
     if (this.destroyed) return;
-    const s = this.require(p); this.states.delete(p); p.buffer.destroy();
+    const s = this.require(p); this.states.delete(p);
+    for (const callback of s.released) callback();
+    p.buffer.destroy();
     if (s.handle) this.accounting?.destroyed(s.handle);
   }
   destroy(): void {

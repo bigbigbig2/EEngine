@@ -842,6 +842,13 @@ function omitWgslFunction(source: string, name: string): string {
   throw new Error(`Production direct-lighting WGSL function '${name}' is unterminated`);
 }
 
+/** Mathematical library for the final signal packet consumer. No legacy
+ * GBuffer, fullscreen entry point or legacy pass is part of this product. */
+export function productionSurfaceLightMathWgsl(vsm: boolean): string {
+  return omitWgslFunction(createProductionSparseDirectLightingWgsl(vsm, "vsm"),
+    "shade_standard_material_direct");
+}
+
 export const LIGHTING_DIRECT_WGSL = /* wgsl */ `
 ${LIGHTING_DIRECT_CORE_WGSL}
 

@@ -64,7 +64,7 @@ export function appearanceCachePlan(program: CompiledAppearanceGraph, inputVecto
  * atomicMin over a task index; collisions keep one owner and direct-evaluate
  * the rest. No CAS spin, partially published identity or GPU/CPU control. */
 export function appearanceCacheIntegration(plan: AppearanceCachePlan): AppearanceKernelIntegration {
-  const { fields, inputVectors, outputCount } = plan;
+  const { fields } = plan;
   const cached = fields.filter(field => field.cells > 0);
   const declarations = /* wgsl */ `
 struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: vec4f }
@@ -72,7 +72,7 @@ struct AppearanceCacheSettings { task_capacity: u32, bucket: u32, frame: u32, ma
 @group(0) @binding(0) var<storage, read> appearance_constants: array<f32>;
 @group(0) @binding(1) var<storage, read> appearance_routes: array<AppearanceRoute>;
 @group(0) @binding(2) var<storage, read> appearance_tasks: array<vec4u>;
-@group(0) @binding(3) var<storage, read> appearance_inputs: array<vec4f>;
+@group(0) @binding(3) var<storage, read_write> appearance_inputs: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> appearance_outputs: array<f32>;
 @group(0) @binding(5) var<uniform> cache_settings: AppearanceCacheSettings;
 @group(0) @binding(6) var<storage, read_write> appearance_cache: array<atomic<u32>>;
@@ -88,10 +88,10 @@ var<private> appearance_missing: u32;
 fn appearance_constant(index: u32) -> f32 { return appearance_constants[appearance_task.x + index]; }
 fn appearance_input(index: u32, channel: u32) -> f32 { return appearance_inputs[appearance_task.z + index][channel]; }
 fn appearance_flat_task(group: vec3u, lane: u32) -> u32 {
-  return (group.y * appearance_buckets[cache_settings.bucket].w + group.x) * 64u + lane;
+  return (group.y * appearance_buckets[2u + cache_settings.bucket * 2u].w + group.x) * 64u + lane;
 }
-fn appearance_task_index(local: u32) -> u32 { return appearance_buckets[cache_settings.bucket].y + local; }
-fn appearance_task_count() -> u32 { return appearance_buckets[cache_settings.bucket].x; }
+fn appearance_task_index(local: u32) -> u32 { return appearance_buckets[2u + cache_settings.bucket * 2u].y + local; }
+fn appearance_task_count() -> u32 { return appearance_buckets[2u + cache_settings.bucket * 2u].x; }
 fn appearance_word(task: u32, word: u32) -> u32 {
   return bitcast<u32>(appearance_inputs[appearance_tasks[task].z + word / 4u][word & 3u]);
 }
@@ -127,7 +127,6 @@ fn ${name}(@builtin(workgroup_id) group: vec3u, @builtin(local_invocation_index)
   let local = appearance_flat_task(group, lane);
   if local >= appearance_task_count() { return; }
   let task = appearance_task_index(local);
-  if appearance_task_program[task] != cache_settings.bucket { return; }
   appearance_task = appearance_tasks[task];
   ${body}
 }
@@ -212,19 +211,8 @@ ${field.outputs.map((output, index) => `    appearance_outputs[appearance_task.w
 `).join("\n"));
   const visibility = GPUShaderStage.COMPUTE;
   const buffer = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEntry => ({ binding, visibility, buffer: { type } });
-  const main = /* wgsl */ `
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  if id.x >= cache_settings.task_capacity { return; }
-  if appearance_task_program[id.x] != cache_settings.bucket { return; }
-  appearance_task = appearance_tasks[id.x];
-  appearance_missing = 0xffffffffu;
-  let value = appearance_evaluate();
-${Array.from({ length: outputCount }, (_, index) => `  appearance_outputs[appearance_task.w + ${index}u] = value[${index}];`).join("\n")}
-}
-`;
-  return Object.freeze({ declarations, outputBits: plan.outputBits,
-    entrySource: main + (cached.length ? reset + request + nominate + publish + evaluate + consume : evaluate),
+  return Object.freeze({ declarations, outputBits: plan.outputBits, entryPoint: "cache_evaluate",
+    entrySource: cached.length ? reset + request + nominate + publish + evaluate + consume : evaluate,
     groups: [[...Array.from({ length: 12 }, (_, binding) => buffer(binding,
-      binding === 5 ? "uniform" : [4, 6, 7].includes(binding) ? "storage" : "read-only-storage"))]] });
+      binding === 5 ? "uniform" : [3, 4, 6, 7].includes(binding) ? "storage" : "read-only-storage"))]] });
 }

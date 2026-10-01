@@ -1,6 +1,7 @@
 import { TemporalHistoryRegistry, type TemporalHistoryDescriptor, type TemporalHistoryRevision } from "./TemporalHistoryRegistry.js";
 import { TemporalJitterController, resolveFrameJitter } from "./TemporalJitterController.js";
 import type { PreExposureContract } from "./RadiometryContract.js";
+import { SPARSE_LIGHTING_HISTORY_NAMES } from "../gpu/GpuSparseLightingAbi.js";
 
 export interface TemporalFabricFrame {
   readonly frameIndex: number;
@@ -32,7 +33,10 @@ export class TemporalFabric {
     { name: "color", semantic: "fsr3-upscaled-radiance", resolutionDomain: "output-full", format: "rgba16float",
       bufferCount: 2, preExposure: "working-linear-rescale", lightingDependent: false },
     { name: "identity", semantic: "temporal-surface-identity", resolutionDomain: "internal-full", format: "rgba32uint",
-      bufferCount: 2, preExposure: "none", lightingDependent: false }
+      bufferCount: 2, preExposure: "none", lightingDependent: false },
+    ...SPARSE_LIGHTING_HISTORY_NAMES.map(name => ({ name, semantic: `${name}-unexposed-radiance`,
+      resolutionDomain: "internal-full" as const, format: "rgba16float", bufferCount: 2,
+      preExposure: "none" as const, lightingDependent: false }))
   ]) { this.histories = new TemporalHistoryRegistry(descriptors); }
 
   begin(frame: TemporalFabricFrame): readonly [number, number] {
@@ -50,7 +54,7 @@ export class TemporalFabric {
     };
     // Only physically persistent writers are registered. Surface depth/motion
     // are same-frame transient facts, not phantom ping-pong histories.
-    const activeNames = frame.temporalEnabled ? ["color", "identity"] : [];
+    const activeNames = frame.temporalEnabled ? ["color", "identity", ...SPARSE_LIGHTING_HISTORY_NAMES] : [];
     this.histories.beginFrame(frame.frameIndex, revision, activeNames, frame.preExposure);
     this.activeFrame = frame.frameIndex;
     return resolveFrameJitter(frame.temporalEnabled, frame.nssEnabled,

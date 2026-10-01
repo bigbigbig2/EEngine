@@ -185,15 +185,17 @@ export class GeometryPageStreamingRuntimeV1 {
       }
     }
     this.#scheduler.tick(nowMs);
-    const uploadedBytes = this.#scheduler.drainUploadBudget({
-      uploadPage: (page) => {
+    const pageResidency = (page: import("../assets/geometry-product/GeometryProductV1.js").GeometryPageProductV1) => {
         const residency = [...this.#residencies.values()].find((candidate) =>
           candidate.descriptor.revision === page.revision &&
           sameBytes(candidate.descriptor.productId, page.productId)
         );
         if (residency === undefined) throw new Error("Geometry page completion targets an unregistered Product");
-        residency.uploadPage(page);
-      }
+        return residency;
+    };
+    const uploadedBytes = this.#scheduler.drainUploadBudget({
+      uploadCost: page => pageResidency(page).uploadCost(page),
+      uploadPage: page => pageResidency(page).tryUploadPage(page)
     });
     this.#lastPoll = Object.freeze({
       completedFrame,

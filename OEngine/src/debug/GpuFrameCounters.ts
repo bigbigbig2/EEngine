@@ -8,8 +8,8 @@ import type {
   ResourceHandle as AccountingResourceHandle
 } from "./profiling/ResourceAccounting.js";
 
-export const GPU_COUNTER_SCHEMA_VERSION = 26;
-export const GPU_COUNTER_BYTE_SIZE = 752;
+export const GPU_COUNTER_SCHEMA_VERSION = 28;
+export const GPU_COUNTER_BYTE_SIZE = 768;
 
 /** Stable schema holes; indices are never silently reused across ABI revisions. */
 export const GPU_COUNTER_RESERVED_INDICES = Object.freeze([
@@ -189,7 +189,11 @@ export const GPU_COUNTER_FIELDS = [
   { name: "surfaceUvRejected", index: 184, semantic: "Surface/uv GPU producer count; sampled frames only" },
   { name: "appearanceTasksAttempted", index: 185, semantic: "GPU Appearance demand reservation attempts; sampled frames only" },
   { name: "appearanceTasksOverflow", index: 186, semantic: "GPU Appearance tasks rejected by frame capacity; sampled frames only" },
-  { name: "appearanceTasksWritten", index: 187, semantic: "GPU Appearance task records published within capacity; sampled frames only" }
+  { name: "appearanceTasksWritten", index: 187, semantic: "GPU Appearance task records published within capacity; sampled frames only" },
+  { name: "lightingPrimaryPackets", index: 188, semantic: "GPU compact primary lighting packets, with independent diffuse/specular/coat masks; sampled frames only" },
+  { name: "lightingDiffusePrimaries", index: 189, semantic: "current-frame diffuse incident-light primaries, excluding temporal references" },
+  { name: "lightingSpecularPrimaries", index: 190, semantic: "current-frame specular primaries, excluding temporal references" },
+  { name: "lightingCoatPrimaries", index: 191, semantic: "current-frame coat primaries, excluding temporal references" }
 ] as const;
 
 export type GpuCounterFieldName = (typeof GPU_COUNTER_FIELDS)[number]["name"];

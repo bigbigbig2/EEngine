@@ -11,7 +11,7 @@ currentSlice:
   id: surface-cached-shading-direct-rebuild
   title: Surface 最终主链直接重建：先删旧链，完整实现后统一验收
   status: active
-  goal: 当前按第三步进行诊断与新链返工。旧Surface生产链已删除，新Appearance/HDR/Temporal接线已写入；诊断发现真实属性与稳定地址、缓存页去重及内容消费、真实cluster/VSM/provider、独立信号历史重建仍缺失，之前两步不等于算法完成。本地Chrome两coverage采集与编译和针对性检查已经运行，已修复GPU合法性、输出字段与任务漏供给；继续连续完成上述最终算法，不恢复旧consumer或临时桥。完整生命周期、连续画质、独立旧revision全成本收益及R01–R24尚未验收，最终性能未通过。
+  goal: 第三步新链返工持续进行。普通与Product真实resident属性、普通Cook有向源三角形目录、GPU Appearance需求分组与缓存字段消费、独立照明packets和未预曝光历史重建、真实cluster/VSM/IBL/AO、编译MASK覆盖及主光栅与VSM工作分组已写入；实现状态不等于验收通过。仍需skin/morph与previous形变、Product跨LOD/source/seam对应、完整透明链、nonlocal/provider输入、屏外VSM caster与生命周期收口。此前Chrome诊断仅对应旧树，当前返工代码未重新编译或测试；完整生命周期、连续画质、两coverage独立基准、R01–R24及性能目标均未通过。先继续完成最终代码，不恢复旧链。
 
 nextModules:
   - id: sssr

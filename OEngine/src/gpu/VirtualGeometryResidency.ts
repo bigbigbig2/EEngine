@@ -13,7 +13,8 @@ import {
   type GeometryPageProductV1,
   type GeometryProductRevisionSourceV1
 } from "../assets/geometry-product/GeometryProductV1.js";
-import { GEOMETRY_PAGE_LOCATION_NON_RESIDENT, GEOMETRY_PAGE_LOCATION_PINNED, GEOMETRY_PAGE_LOCATION_RESIDENT, GEOMETRY_PAGE_LOCATION_STRIDE, GEOMETRY_PRODUCT_METADATA_HEAP_HEADER_BYTES_V1, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1, packGeometryProductAssetReferenceV1, packGeometryProductMetadataHeapHeaderV1, packGeometryProductTableRecordV1 } from "./GeometryProductGpuAbiV1.js";
+import { GEOMETRY_PAGE_LOCATION_NON_RESIDENT, GEOMETRY_PAGE_LOCATION_PINNED, GEOMETRY_PAGE_LOCATION_RESIDENT, GEOMETRY_PAGE_LOCATION_STRIDE, GEOMETRY_PRODUCT_METADATA_HEAP_HEADER_BYTES_V1, GEOMETRY_PRODUCT_TABLE_FLAG_ACTIVE_V1, packGeometryProductAssetReferenceV1, packGeometryProductMetadataHeapHeaderV1, packGeometryProductTableRecordV1, encodeGeometryProductGpuLocationV1 } from "./GeometryProductGpuAbiV1.js";
+import { prepareProductResidentAttributes, type ProductResidentPage } from "./GeometryProductResidentAttributes.js";
 import { geometryProductGpuBudgetEvidence, reserveGeometryProductMetadataBytes } from "./GeometryProductGpuBudget.js";
 import { GeometryProductSlotPool } from "./GeometryProductSlotPool.js";
 import {
@@ -28,6 +29,8 @@ export interface GeometryPageLocationV1 {
   readonly slotIndex: number;
   readonly productGeneration: number;
   readonly flags: number;
+  readonly residentBankIndex: number;
+  readonly residentSlotIndex: number;
 }
 
 export interface VirtualGeometryResidencyEvidenceV1 {
@@ -111,6 +114,8 @@ export class VirtualGeometryResidency {
   readonly #pageLocations = new Map<number, GeometryPageLocationV1>();
   readonly #retiringLocations = new Map<number, GeometryPageLocationV1>();
   readonly #slotOwners = new Map<string, number>();
+  readonly #pageSlots = new Map<number, readonly { readonly bankIndex: number; readonly slotIndex: number }[]>();
+  readonly #preparedPages = new WeakMap<GeometryPageProductV1, ProductResidentPage>();
   readonly #pageLastUsed = new Map<number, number>();
   readonly #pageHistory = new Map<number, PageEvictionHistory>();
   readonly #pageImportance = new Map<number, number>();
@@ -218,13 +223,10 @@ export class VirtualGeometryResidency {
         if (page.productId.length !== 32 || !sameBytes(page.productId, this.#descriptor.productId) || page.revision !== this.#descriptor.revision || page.pageId !== pageId || page.bytes.byteLength !== OEGPACK_V3_PAGE_BYTES || !sameBytes(page.decodedHash128, expected.decodedHash128)) throw new Error(`page ${pageId} returned an invalid Product key, identity or size`);
         const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", page.bytes.slice(0)));
         if (!sameBytes(digest.subarray(0, 16), page.decodedPageHash128)) throw new Error(`page ${pageId} integrity hash mismatch`);
-        this.device.queue.writeBuffer(this.#banks[bankIndex]!, slotIndex * OEGPACK_V3_PAGE_BYTES, new Uint8Array(page.bytes));
-        const location = Object.freeze({ bankIndex, slotIndex, productGeneration: this.#productGeneration, flags: GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED });
+        const location = this.#writeResidentPage(page, slot, GEOMETRY_PAGE_LOCATION_RESIDENT | GEOMETRY_PAGE_LOCATION_PINNED);
         this.#pageLocations.set(pageId, location);
-        this.#slotOwners.set(slotKey(bankIndex, slotIndex), pageId);
         this.#pageLastUsed.set(pageId, 0);
         this.#onResident(pageId);
-        this.#uploadedBytes += OEGPACK_V3_PAGE_BYTES;
       } catch (error) { if (!this.#slotOwners.has(slotKey(bankIndex, slotIndex))) this.#slotPool.release(bankIndex, slotIndex); this.#failedPages++; throw error; }
     }
     const groupView = new DataView(this.#descriptor.groupDirectory.buffer, this.#descriptor.groupDirectory.byteOffset, this.#descriptor.groupDirectory.byteLength);
@@ -330,14 +332,27 @@ export class VirtualGeometryResidency {
     const selected: number[] = [];
     let bytes = 0;
     for (const [pageId] of candidates) {
-      if (bytes + OEGPACK_V3_PAGE_BYTES > maxBytes) break;
+      const pageBytes = this.#pageSlots.get(pageId)!.length * OEGPACK_V3_PAGE_BYTES;
+      if (bytes + pageBytes > maxBytes) continue;
       selected.push(pageId);
-      bytes += OEGPACK_V3_PAGE_BYTES;
+      bytes += pageBytes;
     }
     return Object.freeze(selected);
   }
   groupAddress(groupId: number): (GeometryPageLocationV1 & { readonly byteOffset: number }) | undefined { if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed"); return this.#groupLocations.get(groupId); }
   /** Scheduler upload sink. The page was hash-verified before this synchronous publication. */
+  uploadCost(page: GeometryPageProductV1): number {
+    if (this.#pageLocations.has(page.pageId)) return 0;
+    return this.#prepareResidentPage(page).uploadBytes;
+  }
+  /** Capacity pressure leaves a verified completion queued; it never publishes
+   * only the raw page or silently loses the associated attribute demand. */
+  tryUploadPage(page: GeometryPageProductV1): boolean {
+    if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
+    if (this.#pageLocations.has(page.pageId)) return true;
+    if (this.#retiringLocations.has(page.pageId) || this.#slotPool!.availableSlots < this.#prepareResidentPage(page).slotCount) return false;
+    this.uploadPage(page); return true;
+  }
   uploadPage(page: GeometryPageProductV1): void {
     if (this.#destroyed) throw new Error("VirtualGeometryResidency is destroyed");
     this.#assertPageId(page.pageId);
@@ -348,10 +363,11 @@ export class VirtualGeometryResidency {
     if (this.#retiringLocations.has(page.pageId)) throw new Error("Geometry Product page is retiring and cannot be re-uploaded yet");
     const slot = this.#acquireSlot();
     if (!slot) throw new Error("Geometry Product shared resident heap is full; page must remain queued");
-    try { this.device.queue.writeBuffer(this.#banks[slot.bankIndex]!, slot.slotIndex * OEGPACK_V3_PAGE_BYTES, new Uint8Array(page.bytes)); }
+    let location: GeometryPageLocationV1;
+    try { location = this.#writeResidentPage(page, slot, GEOMETRY_PAGE_LOCATION_RESIDENT); }
     catch (error) { this.#slotPool!.release(slot.bankIndex, slot.slotIndex); throw error; }
-    const location = Object.freeze({ bankIndex: slot.bankIndex, slotIndex: slot.slotIndex, productGeneration: this.#productGeneration, flags: GEOMETRY_PAGE_LOCATION_RESIDENT });
-    this.#pageLocations.set(page.pageId, location); this.#slotOwners.set(slotKey(slot.bankIndex, slot.slotIndex), page.pageId); this.#uploadedBytes += OEGPACK_V3_PAGE_BYTES;
+    this.#pageLocations.set(page.pageId, location);
+    this.#preparedPages.delete(page);
     this.#pageLastUsed.set(page.pageId, 0);
     this.#onResident(page.pageId);
     this.#publishPageLocation(page.pageId, location); this.#publishGroupsForPage(page.pageId, location);
@@ -362,8 +378,22 @@ export class VirtualGeometryResidency {
     this.#pageLocations.delete(pageId); this.#retiringLocations.set(pageId, location); this.#pageLastUsed.delete(pageId); this.#publishPageLocation(pageId, undefined);
     for (const [groupId, group] of this.#groupLocations) if (group.bankIndex === location.bankIndex && group.slotIndex === location.slotIndex) this.#groupLocations.delete(groupId);
   }
-  completeRetirePage(pageId: number): void { this.#assertPageId(pageId); const location = this.#retiringLocations.get(pageId); if (!location) return; this.#retiringLocations.delete(pageId); this.#slotOwners.delete(slotKey(location.bankIndex, location.slotIndex)); this.#slotPool!.release(location.bankIndex, location.slotIndex); const history = this.#history(pageId); this.#lifetimeFrames += Math.max(0, this.#frameClock - history.residentSince); history.lastEvicted = this.#frameClock; history.rerequestNoted = false; this.#evictedPages++; }
-  writePageLocation(location: GeometryPageLocationV1, target = new ArrayBuffer(GEOMETRY_PAGE_LOCATION_STRIDE)): ArrayBuffer { const view = new DataView(target); view.setUint32(0, location.flags & GEOMETRY_PAGE_LOCATION_RESIDENT ? location.bankIndex : GEOMETRY_PAGE_LOCATION_NON_RESIDENT, true); view.setUint32(4, location.flags & GEOMETRY_PAGE_LOCATION_RESIDENT ? location.slotIndex : GEOMETRY_PAGE_LOCATION_NON_RESIDENT, true); view.setUint32(8, location.flags & GEOMETRY_PAGE_LOCATION_RESIDENT ? location.productGeneration : 0, true); view.setUint32(12, location.flags, true); return target; }
+  completeRetirePage(pageId: number): void {
+    this.#assertPageId(pageId);
+    if (!this.#retiringLocations.has(pageId)) return;
+    this.#retiringLocations.delete(pageId);
+    for (const slot of this.#pageSlots.get(pageId)!) {
+      this.#slotOwners.delete(slotKey(slot.bankIndex, slot.slotIndex));
+      this.#slotPool!.release(slot.bankIndex, slot.slotIndex);
+    }
+    this.#pageSlots.delete(pageId);
+    const history = this.#history(pageId);
+    this.#lifetimeFrames += Math.max(0, this.#frameClock - history.residentSince);
+    history.lastEvicted = this.#frameClock; history.rerequestNoted = false; this.#evictedPages++;
+  }
+  writePageLocation(location: GeometryPageLocationV1, target = new ArrayBuffer(GEOMETRY_PAGE_LOCATION_STRIDE)): ArrayBuffer {
+    new Uint8Array(target).set(encodeGeometryProductGpuLocationV1(location)); return target;
+  }
   evidence(): VirtualGeometryResidencyEvidenceV1 {
     const pinnedPages = [...this.#pageLocations.values()].filter(location => (location.flags & GEOMETRY_PAGE_LOCATION_PINNED) !== 0).length;
     const global = geometryProductGpuBudgetEvidence(this.device);
@@ -380,8 +410,8 @@ export class VirtualGeometryResidency {
       residentPages: this.#pageLocations.size,
       pinnedPages,
       retiringPages: this.#retiringLocations.size,
-      residentBytes: this.#pageLocations.size * OEGPACK_V3_PAGE_BYTES,
-      retiringBytes: this.#retiringLocations.size * OEGPACK_V3_PAGE_BYTES,
+      residentBytes: this.#pagePhysicalBytes(this.#pageLocations),
+      retiringBytes: this.#pagePhysicalBytes(this.#retiringLocations),
       evictedPages: this.#evictedPages,
       uploadedBytes: this.#uploadedBytes,
       metadataBytes: this.#metadataLayout.byteLength,
@@ -402,6 +432,60 @@ export class VirtualGeometryResidency {
       invalidGeneration: 0,
       failedPages: this.#failedPages
     });
+  }
+  #pagePhysicalBytes(pages: ReadonlyMap<number, GeometryPageLocationV1>): number {
+    let bytes = 0;
+    for (const pageId of pages.keys()) bytes += this.#pageSlots.get(pageId)!.length * OEGPACK_V3_PAGE_BYTES;
+    return bytes;
+  }
+  #prepareResidentPage(page: GeometryPageProductV1): ProductResidentPage {
+    let value = this.#preparedPages.get(page);
+    if (!value) { value = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes, false); this.#preparedPages.set(page, value); }
+    return value;
+  }
+  /** Build all resident references before publishing the raw page location.
+   * Extra slots share the original bounded pool and the original page lifetime;
+   * failure returns every extra reservation and leaves raw-slot rollback to its
+   * caller. There is no independently visible attribute allocation. */
+  #writeResidentPage(page: GeometryPageProductV1, raw: { bankIndex: number; slotIndex: number }, flags: number): GeometryPageLocationV1 {
+    const plan = this.#prepareResidentPage(page);
+    if (this.#slotPool!.availableSlots < plan.slotCount - 1) throw new RangeError("Product resident attribute reservation exceeds the remaining physical heap");
+    const extras: { bankIndex: number; slotIndex: number }[] = [];
+    const allocate = () => {
+      const slot = this.#slotPool!.allocate();
+      if (!slot) throw new RangeError("Product resident attributes exceed the shared physical heap budget");
+      extras.push(slot); return slot;
+    };
+    try {
+      // Decode only after the full physical capacity check. A queued completion
+      // keeps a small layout plan, never an expanded CPU copy of its vertices.
+      const prepared = prepareProductResidentAttributes(this.#descriptor, page.pageId, page.bytes);
+      const root = allocate();
+      const directory = new Uint32Array(prepared.directoryWords);
+      for (const group of prepared.groups) directory[group.offset / 16] = group.descriptorBase;
+      const groupDescriptors = new Map(prepared.groups.map(group => [group.offset, group.descriptorBase]));
+      let current = root;
+      let cursor = Math.ceil(directory.byteLength / 16) * 16;
+      for (const meshlet of prepared.meshlets) {
+        if (cursor + meshlet.values.byteLength > OEGPACK_V3_PAGE_BYTES) { current = allocate(); cursor = 0; }
+        const slot = current;
+        const word = (slot.slotIndex * OEGPACK_V3_PAGE_BYTES + cursor) / 4;
+        directory[groupDescriptors.get(meshlet.groupOffset)! + meshlet.localMeshlet] = ((slot.bankIndex << 30) | word) >>> 0;
+        this.device.queue.writeBuffer(this.#banks[slot.bankIndex]!, word * 4, meshlet.values);
+        cursor += meshlet.values.byteLength;
+      }
+      this.device.queue.writeBuffer(this.#banks[root.bankIndex]!, root.slotIndex * OEGPACK_V3_PAGE_BYTES, directory);
+      this.device.queue.writeBuffer(this.#banks[raw.bankIndex]!, raw.slotIndex * OEGPACK_V3_PAGE_BYTES, new Uint8Array(page.bytes));
+      const slots = Object.freeze([raw, ...extras]);
+      this.#pageSlots.set(page.pageId, slots);
+      for (const slot of slots) this.#slotOwners.set(slotKey(slot.bankIndex, slot.slotIndex), page.pageId);
+      this.#uploadedBytes += page.bytes.byteLength + directory.byteLength + prepared.meshlets.reduce((sum, meshlet) => sum + meshlet.values.byteLength, 0);
+      return Object.freeze({ ...raw, residentBankIndex: root.bankIndex, residentSlotIndex: root.slotIndex,
+        productGeneration: this.#productGeneration, flags });
+    } catch (error) {
+      for (const slot of extras) this.#slotPool!.release(slot.bankIndex, slot.slotIndex);
+      throw error;
+    }
   }
   #history(pageId: number): PageEvictionHistory {
     let history = this.#pageHistory.get(pageId);
@@ -454,7 +538,7 @@ export class VirtualGeometryResidency {
   #publishGroupsForPage(pageId: number, location: GeometryPageLocationV1): void { const groupView = new DataView(this.#descriptor.groupDirectory.buffer, this.#descriptor.groupDirectory.byteOffset, this.#descriptor.groupDirectory.byteLength); for (let groupId = 0; groupId < this.#descriptor.groupDirectory.byteLength / 16; groupId++) if (groupView.getUint32(groupId * 16, true) === pageId) this.#groupLocations.set(groupId, Object.freeze({ ...location, byteOffset: location.slotIndex * OEGPACK_V3_PAGE_BYTES + groupView.getUint32(groupId * 16 + 4, true) })); }
   #writeProductRecord(flags: number): void { const descriptor = this.#descriptor; const record = packGeometryProductTableRecordV1({ productGeneration: this.#productGeneration, flags, assetBegin: 0, assetCount: descriptor.assetRecords.byteLength / 128, rootBegin: 0, rootCount: descriptor.rootNodeIds.length, hierarchyBegin: 0, hierarchyCount: descriptor.hierarchyNodes.byteLength / 48, groupBegin: 0, groupCount: descriptor.groupDirectory.byteLength / 16, pageBegin: 0, pageCount: descriptor.pageRecords.byteLength / 32, vertexFormatBegin: 0, vertexFormatCount: descriptor.vertexFormats.byteLength / 16 }); this.device.queue.writeBuffer(this.#metadata, this.#metadataLayout.productRecord, record); }
   destroy(): void { if (this.#destroyed) return; this.#destroyed = true; this.#destroyGpuResources(); this.#source.release(); }
-  #destroyGpuResources(): void { for (const key of this.#slotOwners.keys()) { const [bank, slot] = key.split(":").map(Number); this.#slotPool!.release(bank!, slot!); } this.#slotPool?.releaseOwner(); this.#slotPool = undefined; this.#metadata.destroy(); for (const release of this.#releaseReservations.splice(0)) release(); this.#banks.length = 0; this.#pageLocations.clear(); this.#retiringLocations.clear(); this.#groupLocations.clear(); this.#slotOwners.clear(); this.#pageLastUsed.clear(); this.#pageHistory.clear(); }
+  #destroyGpuResources(): void { for (const key of this.#slotOwners.keys()) { const [bank, slot] = key.split(":").map(Number); this.#slotPool!.release(bank!, slot!); } this.#slotPool?.releaseOwner(); this.#slotPool = undefined; this.#metadata.destroy(); for (const release of this.#releaseReservations.splice(0)) release(); this.#banks.length = 0; this.#pageLocations.clear(); this.#retiringLocations.clear(); this.#groupLocations.clear(); this.#slotOwners.clear(); this.#pageSlots.clear(); this.#pageLastUsed.clear(); this.#pageHistory.clear(); }
   #assertPageId(pageId: number): void { const pageCount = this.#descriptor.pageRecords.byteLength / 32; if (!Number.isSafeInteger(pageId) || pageId < 0 || pageId >= pageCount) throw new RangeError("Geometry Product pageId is outside the descriptor"); }
 }
 

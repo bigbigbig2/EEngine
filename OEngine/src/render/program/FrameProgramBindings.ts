@@ -7,6 +7,7 @@ import type { PackedVisibilityJob } from "../features/VisibilityFeature.js";
 import type { Fsr3UpscalerRuntime } from "../passes/fsr3/Fsr3UpscalerRuntime.js";
 import type { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
 import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
+import type { SparseLightingPass } from "../surface/SparseLightingPass.js";
 import type { PhysicalEnvironmentRuntime } from "../environment/PhysicalEnvironmentRuntime.js";
 import type { PreExposureContract } from "../RadiometryContract.js";
 import type { FrameProgram } from "./FrameProgram.js";
@@ -30,6 +31,8 @@ export type SceneFrameBindings = Readonly<{
   fsr3: Fsr3UpscalerRuntime;
   temporalFacts: TemporalFactsPass;
   radiometry: GpuRadiometryPass;
+  sparseLighting: SparseLightingPass;
+  lightingEnvironmentRevision: number;
   environment: PhysicalEnvironmentRuntime | null;
   /** Persistent VSM owner; null is valid for the explicit shadow-disabled profile. */
   vsm: VsmResources | null;

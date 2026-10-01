@@ -3,6 +3,7 @@ import { PHYSICAL_SKY_DFG_WGSL, PHYSICAL_SKY_MIP_WGSL,
   PHYSICAL_SKY_PREFILTER_WGSL, PHYSICAL_SKY_RADIANCE_WGSL
 } from "../../shaders/physical_sky_ibl.js";
 import type { PhysicalEnvironmentSnapshot } from "./PhysicalEnvironmentState.js";
+import { ENVIRONMENT_PREFILTER_WGSL, ENVIRONMENT_DIFFUSE_SAMPLE_COUNT } from "../../shaders/environment_prefilter.js";
 
 const SKY_RESOLUTION = 128;
 const SKY_MIP_COUNT = 8;
@@ -13,6 +14,8 @@ type SkySet = {
   readonly source: GPUTexture;
   readonly filtered: GPUTexture;
   readonly specular: GPUTextureView;
+  readonly diffuseTexture: GPUTexture;
+  readonly diffuse: GPUTextureView;
   readonly temporary: GPUBuffer[];
 };
 
@@ -22,6 +25,7 @@ export class PhysicalSkyIblResources {
   private readonly mipPipeline: GPUComputePipeline;
   private readonly prefilterPipeline: GPUComputePipeline;
   private readonly dfgPipeline: GPUComputePipeline;
+  private readonly diffusePipeline: GPUComputePipeline;
   private readonly dfgTexture: GPUTexture;
   private readonly dfgView: GPUTextureView;
   private active: SkySet | null = null;
@@ -45,16 +49,17 @@ export class PhysicalSkyIblResources {
     this.mipPipeline = pipeline("PhysicalSkyIBL/source mips", PHYSICAL_SKY_MIP_WGSL, "downsample");
     this.prefilterPipeline = pipeline("PhysicalSkyIBL/GGX prefilter", PHYSICAL_SKY_PREFILTER_WGSL, "prefilter");
     this.dfgPipeline = pipeline("PhysicalSkyIBL/DFG", PHYSICAL_SKY_DFG_WGSL, "dfg");
+    this.diffusePipeline = pipeline("PhysicalSkyIBL/diffuse convolution", ENVIRONMENT_PREFILTER_WGSL, "convolve_diffuse");
     this.dfgTexture = device.createTexture({ label: "PhysicalSkyIBL/DFG",
       size: [DFG_RESOLUTION, DFG_RESOLUTION], format: "rgba16float",
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
     this.dfgView = this.dfgTexture.createView();
   }
 
-  get views(): Readonly<{ specular: GPUTextureView; dfg: GPUTextureView }> {
+  get views(): Readonly<{ specular: GPUTextureView; diffuse: GPUTextureView; dfg: GPUTextureView }> {
     const selected = this.pending ?? this.active;
     if (selected === null) throw new Error("Physical sky IBL has no recorded generation");
-    return Object.freeze({ specular: selected.specular, dfg: this.dfgView });
+    return Object.freeze({ specular: selected.specular, diffuse: selected.diffuse, dfg: this.dfgView });
   }
 
   record(
@@ -93,6 +98,11 @@ export class PhysicalSkyIblResources {
       luts.higherOrderScattering, lutSampler,
       set.source.createView({ baseMipLevel: 0, mipLevelCount: 1 })
     ], SKY_RESOLUTION);
+    const diffuseParams = uniform("PhysicalSkyIBL/diffuse parameters",
+      new Uint32Array([0, ENVIRONMENT_DIFFUSE_SAMPLE_COUNT, SKY_RESOLUTION, 0]));
+    dispatch("PhysicalSkyIBL/diffuse convolution", this.diffusePipeline, [
+      { buffer: diffuseParams }, set.source.createView({ baseMipLevel: 0, mipLevelCount: 1 }), set.diffuse
+    ], 32);
     for (let mip = 1; mip < SKY_MIP_COUNT; mip++) {
       dispatch(`PhysicalSkyIBL/source mip ${mip}`, this.mipPipeline, [
         // Bind a disjoint source subresource. Sampling an all-mips view while
@@ -164,11 +174,15 @@ export class PhysicalSkyIblResources {
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
     const source = make("PhysicalSkyIBL/source radiance");
     const filtered = make("PhysicalSkyIBL/prefiltered specular");
-    return { source, filtered, specular: filtered.createView(), temporary: [] };
+    const diffuseTexture = this.device.createTexture({ label: "PhysicalSkyIBL/diffuse irradiance",
+      size: [32, 32], format: "rgba16float",
+      usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
+    return { source, filtered, specular: filtered.createView(), diffuseTexture,
+      diffuse: diffuseTexture.createView(), temporary: [] };
   }
 
   private destroySet(set: SkySet): void {
-    set.source.destroy(); set.filtered.destroy();
+    set.source.destroy(); set.filtered.destroy(); set.diffuseTexture.destroy();
     set.temporary.forEach((buffer) => buffer.destroy());
     set.temporary.length = 0;
   }

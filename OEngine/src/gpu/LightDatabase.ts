@@ -23,16 +23,7 @@ import {
   GPUDatabaseDefinition,
   type GPUTypedTable
 } from "./GPUDatabase.js";
-import { EnvironmentPrefilterPass } from "./EnvironmentPrefilterPass.js";
-import {
-  GPUTextureContext,
-  textureMipLevelCount
-} from "./GPUTextureContext.js";
-import {
-  requireShadeImage,
-  uploadShadeImage
-} from "./GPUTextureUpload.js";
-import type { ShadeTexture } from "../texture/ShadeTexture.js";
+import { GpuAuthoredEnvironment } from "./GpuAuthoredEnvironment.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import {
   assertDirectionalLightCapacity,
@@ -657,13 +648,11 @@ export class GPULightCollection {
   readonly source: SceneLights;
   readonly database: GPUDatabase;
 
-  private readonly device: GPUDevice;
-  private readonly graphics: GraphicsContext;
-  private readonly environmentTexture: GPUTextureContext;
-  private readonly diffuseIrradianceTexture: GPUTextureContext;
-  private environmentSource: ShadeTexture | undefined;
-  private environmentPrefilter: EnvironmentPrefilterPass | null = null;
+  readonly authoredIbl: GpuAuthoredEnvironment;
   private lastSourceVersion = -1;
+  private lightingRevision = 0;
+  private readonly publishingCommands=new WeakSet<ShadeGPUCommandContext>();
+  get publicationRevision(): number { return this.lightingRevision; }
   private previousPointCount = 0;
   private previousSpotCount = 0;
   private previousDirectionalCount = 0;
@@ -673,50 +662,16 @@ export class GPULightCollection {
     if (device === null) {
       throw new Error("GPULightCollection: GraphicsContext has no device");
     }
-    this.device = device;
-    this.graphics = graphics;
     this.source = source;
     this.database = new GPUDatabase({
       device,
       definition: LIGHT_DATABASE_DEFINITION
     });
-    this.environmentTexture = new GPUTextureContext(device, {
-      label: "FX-03 specular environment",
-      size: [1, 1, 1],
-      format: "rgba16float",
-      usage:
-        GPUTextureUsage.TEXTURE_BINDING |
-        GPUTextureUsage.COPY_DST |
-        GPUTextureUsage.STORAGE_BINDING
-    });
-    this.diffuseIrradianceTexture = new GPUTextureContext(device, {
-      label: "FX-03 diffuse irradiance",
-      size: [32, 32, 1],
-      format: "rgba16float",
-      usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
-    });
+    this.authoredIbl = new GpuAuthoredEnvironment(graphics);
   }
 
-  get buffer_data(): GPUBuffer {
-    return this.database.buffer;
-  }
-
-  get environment(): GPUTextureContext {
-    return this.environmentTexture;
-  }
-
-  /** Cosine-convolved irradiance integral; consumers apply diffuse BRDF 1/PI. */
-  get diffuseIrradiance(): GPUTextureContext {
-    return this.diffuseIrradianceTexture;
-  }
-
-  get gpu_memory_usage(): number {
-    return (
-      this.environmentTexture.gpu_memory_usage +
-      this.diffuseIrradianceTexture.gpu_memory_usage +
-      this.database.gpu_memory_usage
-    );
-  }
+  get buffer_data(): GPUBuffer { return this.database.buffer; }
+  get gpu_memory_usage(): number { return this.authoredIbl.allocatedBytes + this.database.gpu_memory_usage; }
 
   get pointLights(): GPUTypedTable<PointLightRecord> {
     return this.database.get("light_point") as GPUTypedTable<PointLightRecord>;
@@ -754,7 +709,8 @@ export class GPULightCollection {
     command: ShadeGPUCommandContext,
     sceneChanged = false
   ): boolean {
-    const environmentChanged = this.updateEnvironment(command);
+    const environmentChanged = this.source.environment === undefined ? false :
+      this.authoredIbl.record(command, this.source.environment);
     if (!sceneChanged && this.lastSourceVersion === this.source.version) {
       return environmentChanged;
     }
@@ -762,54 +718,21 @@ export class GPULightCollection {
     return true;
   }
 
-  /** Next direct-light consumer needs records, not the unused IBL prefilter. */
-  updateDirectRecords(command: ShadeGPUCommandContext): boolean {
-    if (this.lastSourceVersion === this.source.version) return false;
-    this.build(command);
-    return true;
-  }
-
-  private updateEnvironment(command: ShadeGPUCommandContext): boolean {
-    const source = this.source.environment;
-    if (this.environmentSource === source) return false;
-    this.environmentSource = source;
-
-    const image = requireShadeImage(source);
-    const environment = this.environmentTexture;
-    environment.resize(image.width, image.height, 1);
-    environment.descriptor.mipLevelCount = textureMipLevelCount(
-      image.width,
-      image.height
-    );
-    environment.allocate();
-
-    if (
-      typeof ImageBitmap !== "undefined" &&
-      image.source instanceof ImageBitmap &&
-      (environment.descriptor.usage & GPUTextureUsage.RENDER_ATTACHMENT) === 0
-    ) {
-      environment.descriptor.usage |= GPUTextureUsage.RENDER_ATTACHMENT;
-      environment.allocate(false);
-    }
-    uploadShadeImage(image, environment.gpu_texture, this.device.queue);
-
-    this.diffuseIrradianceTexture.allocate();
-    this.obtainEnvironmentPrefilter().encode(
-      command,
-      environment,
-      this.diffuseIrradianceTexture
-    );
-    return true;
-  }
-
-  private obtainEnvironmentPrefilter(): EnvironmentPrefilterPass {
-    if (this.environmentPrefilter === null) {
-      this.environmentPrefilter = new EnvironmentPrefilterPass(this.graphics);
-    }
-    return this.environmentPrefilter;
-  }
-
   build(command: ShadeGPUCommandContext): void {
+    const previousRevision = this.lightingRevision;
+    const previousSourceVersion=this.lastSourceVersion;
+    const previousCounts=[this.previousPointCount,this.previousSpotCount,this.previousDirectionalCount] as const;
+    this.lightingRevision = (this.lightingRevision + 1) >>> 0;
+    if(!this.publishingCommands.has(command)) {
+      this.publishingCommands.add(command);
+      command.onAborted.addOne(() => {
+        this.lightingRevision = previousRevision;
+        this.lastSourceVersion=previousSourceVersion;
+        [this.previousPointCount,this.previousSpotCount,this.previousDirectionalCount]=previousCounts;
+        this.publishingCommands.delete(command);
+      });
+      command.onFinished.addOne(()=>this.publishingCommands.delete(command));
+    }
     const pointTable = this.pointLights;
     const spotTable = this.spotLights;
     const directionalTable = this.directionalLights;
@@ -868,19 +791,6 @@ export class GPULightCollection {
 
   destroy(): void {
     this.database.destroy();
-    this.environmentTexture.destroy();
-    this.diffuseIrradianceTexture.destroy();
-  }
-
-  get environmentEvidence(): {
-    specularAllocatedBytes: number;
-    diffuseAllocatedBytes: number;
-    specularMipLevelCount: number;
-  } {
-    return {
-      specularAllocatedBytes: this.environmentTexture.gpu_memory_usage,
-      diffuseAllocatedBytes: this.diffuseIrradianceTexture.gpu_memory_usage,
-      specularMipLevelCount: this.environmentTexture.mipLevelCount
-    };
+    this.authoredIbl.destroy();
   }
 }

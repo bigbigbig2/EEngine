@@ -32,6 +32,7 @@ export interface VisibilityFrame {
   readonly frameInstances: ResourceId;
   /** Shared clip vertices and source/final directory namespaces. */
   readonly frameGeometry: ResourceId;
+  readonly frameAttributes: ResourceId;
   readonly domain: TextureDomain<"internal-full">;
 }
 
@@ -263,6 +264,7 @@ export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   requireResourceId(input.depth, "VisibilityFrame.depth");
   requireResourceId(input.frameInstances, "VisibilityFrame.frameInstances");
   requireResourceId(input.frameGeometry, "VisibilityFrame.frameGeometry");
+  requireResourceId(input.frameAttributes, "VisibilityFrame.frameAttributes");
   if (input.domain.domain !== "internal-full") {
     throw new Error("VisibilityFrame must be produced at internal-full resolution");
   }

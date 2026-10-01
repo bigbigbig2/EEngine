@@ -15,7 +15,10 @@ export type GeometryPageOperationStateV1 = "absent" | "queued" | "producing-or-r
 export type GeometryPageSchedulerCameraStateV1 = "stable" | "moving" | "cut";
 
 export interface GeometryPageUploadSinkV1 {
-  uploadPage(page: GeometryPageProductV1): void;
+  /** Includes any resident expansion recorded by this upload, beyond transport bytes. */
+  uploadCost?(page: GeometryPageProductV1): number;
+  /** False means bounded physical capacity is busy; keep the verified page queued. */
+  uploadPage(page: GeometryPageProductV1): boolean | void;
 }
 
 export interface GeometryPageSchedulerPressureV1 {
@@ -273,8 +276,11 @@ export class GeometryPageSchedulerV1 {
       .sort((a, b) => priority(b.demand) + b.age - priority(a.demand) - a.age);
     for (const operation of ready) {
       const page = operation.page!;
-      if (page.bytes.byteLength > remaining) { this.#uploadBudgetExhausted++; continue; }
-      sink.uploadPage(page); operation.state = "resident"; this.#resident++; this.#uploadedBytes += page.bytes.byteLength; uploaded += page.bytes.byteLength; remaining -= page.bytes.byteLength;
+      const cost = sink.uploadCost?.(page) ?? page.bytes.byteLength;
+      if (cost > remaining) { this.#uploadBudgetExhausted++; continue; }
+      if (sink.uploadPage(page) === false) { this.#uploadBudgetExhausted++; continue; }
+      operation.state = "resident"; operation.page = undefined;
+      this.#resident++; this.#uploadedBytes += cost; uploaded += cost; remaining -= cost;
     }
     return uploaded;
   }

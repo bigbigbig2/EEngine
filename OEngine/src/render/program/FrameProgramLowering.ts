@@ -202,24 +202,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       );
     }
   }
-  const appearanceFields = owners.appearanceCache.addToGraph(graph, {
-    visibility: result.frame.visibilityKey,
-    meshletWork: result.frame.meshletWork.records,
-    counters: result.counters,
-    frame: bind("appearance-frame", bindings => {
-      if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
-      return { publication: bindings.runtime.appearancePublication, index: bindings.frameIndex, sampleCounters: bindings.job.countersEnabled };
-    }),
-    width: result.frame.domain.width,
-    height: result.frame.domain.height,
-    textureBanks
-  });
-  const sparseLighting = owners.sparseLighting.addToGraph(graph, {
-    fields: appearanceFields.fields,
-    depth: result.frame.depth,
-    width: result.frame.domain.width,
-    height: result.frame.domain.height
-  });
   const virtualMetadata = plan.request.virtualGeometry
     ? graph.import_resource(
         "virtual-geometry-metadata", { kind: "imported", label: "virtual geometry metadata" },
@@ -238,6 +220,23 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
           return resource;
         })
       )) : undefined;
+  const appearanceFields = owners.appearanceCache.addToGraph(graph, {
+    visibility: result.frame.visibilityKey,
+    meshletWork: result.frame.meshletWork.records,
+    geometry: result.frame.frameGeometry,
+    attributes: result.frame.frameAttributes,
+    frameInstances: result.frame.frameInstances, vertexPayload, camera: cameraBuffer, productMetadata: virtualMetadata, productBanks: virtualBanks,
+    counters: result.counters,
+    frame: bind("appearance-frame", bindings => {
+      if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
+      return { publication: bindings.runtime.appearancePublication, index: bindings.frameIndex, sampleCounters: bindings.job.countersEnabled,
+        arena: bindings.job.prepared.workSet.frameGeometry,
+        filtered: bindings.job.prepared.currentHzbLateRecheck !== null, source: bindings.job.assets.sparseShading };
+    }),
+    width: result.frame.domain.width,
+    height: result.frame.domain.height,
+    textureBanks
+  });
   if (vsmAllocation !== null && vsmOwnerBinding !== null && vsmFrameBinding !== null) {
     const geometryRecords = graph.import_resource("vsm-geometry-records", { kind: "imported", label: "VSM geometry records" }, bind("vsm-geometry-records", bindings => bindings.job.assets.geometryRecords));
     const meshletRecords = graph.import_resource("vsm-meshlet-records", { kind: "imported", label: "VSM meshlet records" }, bind("vsm-meshlet-records", bindings => bindings.job.assets.meshletRecords));
@@ -255,6 +254,9 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     });
     const atlas = owners.vsmAtlasRaster.addToGraph(graph, {
       caster,
+      publication: bind("vsm-raster-publication", bindings => ({ runtime: bindings.runtime })),
+      camera: cameraBuffer,
+      frameInstances: result.frame.frameInstances,
       resources: vsmOwnerBinding,
       frame: vsmFrameBinding,
       generation: vsmFrameBinding.generation,
@@ -269,7 +271,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       vertexData: vertexStreamData,
       geometries: geometryRecords,
       materials: materialRecords,
-      textureBanks,
       productHeap: virtualMetadata,
       productBanks: virtualBanks
     });
@@ -350,6 +351,45 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       bind(`radiometry/${name}`, bindings => resolve(bindings.radiometry)));
   const gpuPreviousExposure = owners.radiometry.importPreviousExposure(graph, bindRadiometry);
   const gpuPriorExposure = owners.radiometry.importPriorExposure(graph, bindRadiometry);
+  const previousCamera = graph.import_resource("previous-camera", { kind: "imported", label: "previous camera" },
+    bind("previous-camera", bindings => bindings.view.gpu_previous_camera_state.buffer));
+  const facts = owners.temporalFacts.addToGraph(graph, {
+    width: result.frame.domain.width, height: result.frame.domain.height,
+    visibility: result.frame.visibilityKey, depth: result.frame.depth, meshletWork: result.frame.meshletWork.records,
+    instances, materials: materialRecords, textureRoutes, textureResidencyVersions, currentCamera: cameraBuffer, previousCamera,
+    assetMetadata: geometryMetadata, vertexPayload,
+    sourceBindings: bind("temporal-facts/source", bindings => bindings.job.assets.sparseShading)
+  }, (name, resolve) => bind(`temporal-facts/${name}`, bindings => resolve(bindings.temporalFacts)));
+  const previousIdentity = graph.import_resource("Lighting/previous Temporal identity", { kind: "imported" },
+    bind("lighting-previous-identity", bindings => bindings.temporalFacts.history("read")));
+  const signalEnvironment = plan.request.authoredEnvironment ? {
+    diffuse: graph.import_resource("Lighting/authored diffuse irradiance", { kind: "imported" },
+      bind("lighting-authored-diffuse", bindings => bindings.view.environment.lights.authoredIbl.views.diffuse)),
+    specular: graph.import_resource("Lighting/authored filtered specular", { kind: "imported" },
+      bind("lighting-authored-specular", bindings => bindings.view.environment.lights.authoredIbl.views.specular)),
+    dfg: graph.import_resource("Lighting/authored DFG", { kind: "imported" },
+      bind("lighting-authored-dfg", bindings => bindings.view.environment.lights.authoredIbl.views.dfg))
+  } : !plan.request.physicalEnvironment ? undefined : {
+    diffuse: graph.import_resource("Lighting/sky diffuse irradiance", { kind: "imported" },
+      bind("lighting-sky-diffuse", bindings => bindings.environment!.ibl.views.diffuse)),
+    specular: graph.import_resource("Lighting/sky filtered specular", { kind: "imported" },
+      bind("lighting-sky-specular", bindings => bindings.environment!.ibl.views.specular)),
+    dfg: graph.import_resource("Lighting/DFG", { kind: "imported" },
+      bind("lighting-dfg", bindings => bindings.environment!.ibl.views.dfg))
+  };
+  const sparseLighting = owners.sparseLighting.addToGraph(graph, {
+    fields: appearanceFields.fields, visibility: result.frame.visibilityKey,
+    geometry: appearanceFields.geometry, attributes: result.frame.frameAttributes,
+    vertexPayload, productMetadata: virtualMetadata, productBanks: virtualBanks,
+    frameInstances: result.frame.frameInstances, meshletWork: result.frame.meshletWork.records,
+    camera: cameraBuffer, previousCamera, previousIdentity, facts, preExposure: gpuPreviousExposure, counters: result.counters,
+    clusters, lightRecords, shadow: shadowContract, scalarAo, environment: signalEnvironment,
+    frame: bind("lighting-frame", bindings => ({ arena: bindings.job.prepared.workSet.frameGeometry,
+      filtered: bindings.job.prepared.currentHzbLateRecheck !== null, source: bindings.job.assets.sparseShading, index: bindings.frameIndex,
+      lightRevision: bindings.view.environment.lights.publicationRevision,
+      environmentRevision: bindings.lightingEnvironmentRevision, sampleCounters: bindings.job.countersEnabled })),
+    width: result.frame.domain.width, height: result.frame.domain.height
+  }, (name, resolve) => bind(`sparse-lighting/${name}`, bindings => resolve(bindings.sparseLighting)));
   const atmosphereEnvironment = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
     "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
     bind("physical-environment-transmittance", bindings => bindings.environment!.luts.views.transmittance)
@@ -373,15 +413,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
         environment: physicalEnvironmentSun, transmittance: atmosphereEnvironment, scattering: skyRadiance,
         higherOrder: higherOrderScattering, preExposure: gpuPreviousExposure,
         width: result.frame.domain.width, height: result.frame.domain.height });
-  const previousCamera = graph.import_resource("previous-camera", { kind: "imported", label: "previous camera" },
-    bind("previous-camera", bindings => bindings.view.gpu_previous_camera_state.buffer));
-  const facts = owners.temporalFacts.addToGraph(graph, {
-    width: result.frame.domain.width, height: result.frame.domain.height,
-    visibility: result.frame.visibilityKey, depth: result.frame.depth, meshletWork: result.frame.meshletWork.records,
-    instances, materials: materialRecords, textureRoutes, textureResidencyVersions, currentCamera: cameraBuffer, previousCamera
-  }, (name, resolve) => bind(`temporal-facts/${name}`, bindings => resolve(bindings.temporalFacts)));
   const reconstructedRadiance = initial.fsr3.addToGraph(graph, {
-    color: aerialRadiance, depth: result.frame.depth, motion: facts.motion, reactiveMask: facts.mask,
+    color: aerialRadiance, depth: result.frame.depth, motion: facts.motion, reactiveMask: sparseLighting.reactiveMask,
     validityMask: facts.mask, preExposure: gpuPreviousExposure, priorExposure: gpuPriorExposure,
     width: result.frame.domain.width, height: result.frame.domain.height,
     outputWidth: plan.request.outputWidth, outputHeight: plan.request.outputHeight, enabled: plan.request.fsr3Enabled
@@ -445,9 +478,13 @@ function lowerVisibility(plan: FrameProgram, graph: FrameGraph, bind: SceneBind,
     "frame-geometry", { kind: "imported", label: "GPU-selected shared frame geometry" },
     bind("frame-geometry", bindings => bindings.job.prepared.workSet.frameGeometry.buffer)
   );
+  const frameAttributes = graph.import_resource(
+    "frame-attributes", { kind: "imported", label: "current shared frame attributes" },
+    bind("frame-attributes", bindings => bindings.job.prepared.workSet.frameVertices.attributes)
+  );
   let result = owners.visibility.addToGraph(
     graph, bind("visibility-job", bindings => bindings.job),
-    { camera: cameraBuffer, counters, meshletWorkRecords: work, frameInstances, frameGeometry, previousHzb, depth }
+    { camera: cameraBuffer, counters, meshletWorkRecords: work, frameInstances, frameGeometry, frameAttributes, previousHzb, depth }
   );
   const hzbCurrent = plan.stages.includes("hzb") ? graph.import_resource(
     "current-hzb", { kind: "imported", label: "current HZB" },

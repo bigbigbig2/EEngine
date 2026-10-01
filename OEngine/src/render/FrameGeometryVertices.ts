@@ -6,6 +6,7 @@ import { gpuStorageRange, requireDisjointStorageRanges } from "../gpu/GpuStorage
 import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import { writeGpuBuffer } from "../gpu/GpuQueueEvidence.js";
 import { GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE, GPU_MESHLET_RASTER_WORK_RECORD_STRIDE } from "../gpu/GpuMeshletRasterWorkAbi.js";
+import { GPU_FRAME_ATTRIBUTE_STRIDE } from "../gpu/GpuFrameGeometryAttributesAbi.js";
 import { frameGeometryVerticesWgsl, FRAME_VERTEX_SETTINGS_SIZE, FRAME_VERTEX_CONTROL_SIZE, FRAME_VERTEX_WORKGROUP_SIZE } from "../shaders/frame_geometry_vertices.js";
 
 export interface PreparedFrameVertices { readonly control: GPUBuffer; readonly rasterSettings: GPUBuffer;
@@ -27,17 +28,17 @@ export class FrameGeometryVertices {
   private pipelines: readonly (readonly GPUComputePipeline[])[] | null = null;
   private destroyed = false;
   constructor(private readonly device: GPUDevice, private readonly accounting?: ResourceAccounting, observe = false,
-    private readonly maxBytes = 129 * 1024 * 1024) {
+    private readonly maxBytes = 97 * 1024 * 1024) {
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new RangeError("Invalid frame vertex owner budget");
     const l = device.limits;
-    if (l.maxStorageBuffersPerShaderStage < 12 || l.maxBindingsPerBindGroup < 18 || l.maxBindGroups < 2 ||
+    if (l.maxStorageBuffersPerShaderStage < 15 || l.maxBindingsPerBindGroup < 18 || l.maxBindGroups < 2 ||
       l.maxComputeInvocationsPerWorkgroup < FRAME_VERTEX_WORKGROUP_SIZE || l.maxComputeWorkgroupSizeX < FRAME_VERTEX_WORKGROUP_SIZE) {
-      throw new RangeError("Frame vertices require eleven storage bindings and 128 lanes");
+      throw new RangeError("Frame vertices require fifteen storage bindings for mixed ordinary/Product geometry and 128 lanes");
     }
     const entry = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEntry => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type } });
     const uniform: GPUBindGroupLayoutEntry = { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: FRAME_VERTEX_SETTINGS_SIZE } };
     this.layouts = [false, true].map(product => device.createBindGroupLayout({ label: `Geometry frame vertices/${product ? "Product" : "ordinary"}`, entries: [uniform,
-      ...[1, 2, ...(product ? [8, 9, 10, 11, 12] : [3, 4, 5, 6, 7])].map(binding => entry(binding, "read-only-storage")),
+      ...[1, 2, 3, 7, ...(product ? [8, 9, 10, 11, 12] : [])].map(binding => entry(binding, "read-only-storage")),
       ...[13, 14, 15, 16, 17].map(binding => entry(binding, "storage"))] }));
     this.publicationLayout = device.createBindGroupLayout({ entries: [uniform, entry(2, "read-only-storage"), entry(13, "storage"), entry(16, "storage")] });
     this.indirectLayout = device.createBindGroupLayout({ entries: [entry(0, "storage")] });
@@ -56,16 +57,16 @@ export class FrameGeometryVertices {
     readonly assets: GpuAssetBindings; readonly product?: GeometryProductGpuBindingsV1; readonly productBanks?: readonly GPUBuffer[];
   }): PreparedFrameVertices {
     this.requireReady(); const { arena, instances, work, assets } = input, product = input.product !== undefined, l = this.device.limits;
-    const attributeBytes = arena.budget.vertexCapacity * 128;
+    const attributeBytes = arena.budget.vertexCapacity * GPU_FRAME_ATTRIBUTE_STRIDE;
     if (attributeBytes > l.maxBufferSize || attributeBytes > l.maxStorageBufferBindingSize ||
       arena.budget.workCapacity > l.maxComputeWorkgroupsPerDimension ** 2 || work.size < GPU_MESHLET_WORK_QUEUE_HEADER_STRIDE + arena.budget.workCapacity * GPU_MESHLET_RASTER_WORK_RECORD_STRIDE ||
       (product && input.productBanks?.length !== 4) || this.allocatedBytes + FRAME_VERTEX_SETTINGS_SIZE + FRAME_VERTEX_CONTROL_SIZE + 32 +
         ((arena.budget.filteredWorkCapacity ?? 0) > 0 ? 16 : 0) + attributeBytes > this.maxBytes) {
       throw new RangeError("Frame vertices input capacity, Product banks or cumulative budget is invalid");
     }
-    for (const [name, b] of [["instances", instances.records], ["work", work], ...(product ? [["Product metadata", input.product!.metadata],
-      ...input.productBanks!.map(b => ["Product bank", b])] : [["geometries", assets.geometryRecords], ["meshlets", assets.meshletRecords],
-      ["meshlet vertices", assets.meshletVertexIndices], ["triangles", assets.meshletTriangleIndices], ["positions", assets.vertexStreamData]])] as [string, GPUBuffer][]) {
+    for (const [name, b] of [["instances", instances.records], ["work", work],
+      ["asset metadata", assets.sparseShading.assetMetadataHeap], ["vertex payload", assets.sparseShading.vertexPayloadHeap],
+      ...(product ? [["Product metadata", input.product!.metadata], ...input.productBanks!.map(b => ["Product bank", b])] : [])] as [string, GPUBuffer][]) {
       gpuStorageRange(b, l, 4, `Frame vertex ${name}`);
     }
     requireDisjointStorageRanges([], [arena.sourceDirectory, arena.clips, arena.triangles]);
@@ -79,7 +80,7 @@ export class FrameGeometryVertices {
       const settings = make("Geometry frame vertex settings", FRAME_VERTEX_SETTINGS_SIZE, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
       const control = make("Geometry frame vertex control", FRAME_VERTEX_CONTROL_SIZE, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
       const indirect = make("Geometry frame vertex indirect", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC);
-      const attributes = make("Geometry frame resident attributes", arena.budget.vertexCapacity * 128, GPUBufferUsage.STORAGE);
+      const attributes = make("Geometry frame attributes", attributeBytes, GPUBufferUsage.STORAGE);
       const rasterSettings = make("Geometry frame raster addressing", 16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
       const filteredRasterSettings = (arena.budget.filteredWorkCapacity ?? 0) > 0
         ? make("Geometry filtered frame raster addressing", 16, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST) : rasterSettings;
@@ -87,15 +88,17 @@ export class FrameGeometryVertices {
       writeGpuBuffer(this.device.queue, "Geometry/frame-raster-addressing", rasterSettings, 0, addressing(arena.sourceDirectory.offset));
       if (filteredRasterSettings !== rasterSettings) writeGpuBuffer(this.device.queue, "Geometry/filtered-raster-addressing", filteredRasterSettings, 0, addressing(arena.filteredDirectory.offset));
       writeGpuBuffer(this.device.queue, "Geometry/frame-vertex-settings", settings, 0, new Uint32Array([
-        arena.budget.workCapacity, arena.budget.vertexCapacity, arena.budget.triangleCapacity, l.maxComputeWorkgroupsPerDimension, 0, 0, 0, 0]));
+        arena.budget.workCapacity, arena.budget.vertexCapacity, arena.budget.triangleCapacity, l.maxComputeWorkgroupsPerDimension, 0, 0, 0, 0,
+        assets.sparseShading.geometryWordBase, assets.sparseShading.meshletWordBase, assets.sparseShading.meshletVertexWordBase,
+        assets.sparseShading.meshletTriangleWordBase, assets.sparseShading.vertexDataWordBase, 0, 0, 0]));
       const outputs = [{ binding: 13, resource: arena.sourceDirectory }, { binding: 14, resource: arena.clips },
         { binding: 15, resource: arena.triangles }, { binding: 16, resource: { buffer: control } },
         { binding: 17, resource: { buffer: attributes } }];
       const group = this.device.createBindGroup({ layout: this.layouts[product ? 1 : 0]!, entries: [
         { binding: 0, resource: { buffer: settings } }, { binding: 1, resource: { buffer: instances.records } }, { binding: 2, resource: { buffer: work } },
-        ...(product ? [input.product!.metadata, ...input.productBanks!].map((buffer, i) => ({ binding: i + 8, resource: { buffer } })) :
-          [assets.geometryRecords, assets.meshletRecords, assets.meshletVertexIndices, assets.meshletTriangleIndices, assets.vertexStreamData]
-            .map((buffer, i) => ({ binding: i + 3, resource: { buffer } }))), ...outputs] });
+        { binding: 3, resource: { buffer: assets.sparseShading.assetMetadataHeap } },
+        { binding: 7, resource: { buffer: assets.sparseShading.vertexPayloadHeap } },
+        ...(product ? [input.product!.metadata, ...input.productBanks!].map((buffer, i) => ({ binding: i + 8, resource: { buffer } })) : []), ...outputs] });
       const publicationGroup = this.device.createBindGroup({ layout: this.publicationLayout, entries: [{ binding: 0, resource: { buffer: settings } },
         { binding: 2, resource: { buffer: work } }, outputs[0]!, outputs[3]!] });
       const indirectGroup = this.device.createBindGroup({ layout: this.indirectLayout, entries: [{ binding: 0, resource: { buffer: indirect } }] });

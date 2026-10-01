@@ -8,8 +8,8 @@ import {
   type RuntimeAssetValidationIssue
 } from "./RuntimeAssetPackage.js";
 
-export const GEOMETRY_ASSET_SCHEMA_VERSION = 2;
-export const GEOMETRY_COOKER_VERSION = "oengine-geometry-cooker-v2.1.0";
+export const GEOMETRY_ASSET_SCHEMA_VERSION = 3;
+export const GEOMETRY_COOKER_VERSION = "oengine-geometry-cooker-v3.0.0";
 export const GEOMETRY_DIRECTORY_RECORD_STRIDE = 192;
 export const GEOMETRY_MESHLET_RECORD_STRIDE = 112;
 export const GEOMETRY_CLUSTER_RECORD_STRIDE = 128;
@@ -26,6 +26,7 @@ export const GEOMETRY_SECTION_TYPES = Object.freeze({
   MeshletRecords: 0x2000,
   MeshletVertexIndices: 0x2001,
   MeshletTriangleIndices: 0x2002,
+  SurfacePrimitiveIds: 0x2003,
   ClusterRecords: 0x3000,
   ClusterChildren: 0x3001,
   Bvh8Nodes: 0x4000,
@@ -282,6 +283,8 @@ export interface GeometryAssetPackage {
   readonly meshlets: readonly GeometryMeshletRecord[];
   readonly meshletVertexIndices: Uint32Array;
   readonly meshletTriangleIndices: Uint8Array;
+  /** Cooked oriented source triangle identity, flattened in meshlet order. */
+  readonly surfacePrimitiveIds: Uint32Array;
   readonly clusters: readonly GeometryClusterRecord[];
   readonly clusterChildren: Uint32Array;
   readonly bvh8Nodes: readonly GeometryBvh8Node[];
@@ -344,6 +347,7 @@ export async function openGeometryAssetPackage(
     1,
     error
   );
+  const surfaceSection = requiredSection(pkg, GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds, 4, error);
   const clusterSection = pkg.section(GEOMETRY_SECTION_TYPES.ClusterRecords);
   const clusterChildrenSection = pkg.section(GEOMETRY_SECTION_TYPES.ClusterChildren);
   const bvhSection = pkg.section(GEOMETRY_SECTION_TYPES.Bvh8Nodes);
@@ -407,7 +411,7 @@ export async function openGeometryAssetPackage(
     directorySection === undefined ||
     meshletSection === undefined ||
     vertexSection === undefined ||
-    triangleSection === undefined
+    triangleSection === undefined || surfaceSection === undefined
   ) {
     throw new GeometryAssetPackageError(freezeReport(issues));
   }
@@ -461,6 +465,8 @@ export async function openGeometryAssetPackage(
     vertexSection.elementCount
   );
   const meshletTriangleIndices = triangleSection.bytes;
+  const surfacePrimitiveIds = new Uint32Array(surfaceSection.bytes.buffer, surfaceSection.bytes.byteOffset,
+    surfaceSection.elementCount);
   const clusters = clusterSection === undefined
     ? []
     : new Array<GeometryClusterRecord>(clusterSection.elementCount);
@@ -545,6 +551,11 @@ export async function openGeometryAssetPackage(
     issues
   );
   validateMaterials(directory, materialRanges, meshlets, clusters, issues);
+  const surfaceCount = meshlets.reduce((sum, meshlet) => sum + meshlet.triangleCount, 0);
+  if (surfacePrimitiveIds.length !== surfaceCount || surfacePrimitiveIds.some(id => id >= directory.sourceTriangleCount + surfaceCount)) {
+    error("geometry-surface-address-range", "Cooked Surface identities must cover every meshlet triangle in the source/representation namespace",
+      GEOMETRY_SECTION_TYPES.SurfacePrimitiveIds);
+  }
   validateMeshletPositionBounds(
     vertexStreamDescriptors,
     vertexStreamData,
@@ -563,6 +574,7 @@ export async function openGeometryAssetPackage(
     meshlets: frozenMeshlets,
     meshletVertexIndices,
     meshletTriangleIndices,
+    surfacePrimitiveIds,
     clusters: Object.freeze(clusters),
     clusterChildren,
     bvh8Nodes: Object.freeze(bvh8Nodes),
@@ -2380,7 +2392,8 @@ export function decodeGeometryColor(
   asset: Pick<GeometryAssetPackage, "vertexStreamDescriptors" | "vertexStreamData">,
   vertex: number
 ): Float32Array | null {
-  return decodeDirectGeometryAttribute(asset, "color", vertex, 4);
+  const descriptor=asset.vertexStreamDescriptors.find(stream=>stream.semantic==="color");
+  return decodeDirectGeometryAttribute(asset, "color", vertex, descriptor?.componentCount===3?3:4);
 }
 
 function decodeDirectGeometryAttribute(

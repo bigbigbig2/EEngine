@@ -1170,7 +1170,7 @@ export class Renderer {
       this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
       this._vsmAllocatePages = new VsmAllocatePagesPass(device);
       this._vsmCasterRecords = new VsmCasterRecordPass(device);
-      this._vsmAtlasRaster = new VsmAtlasRasterPass(device);
+      this._vsmAtlasRaster = new VsmAtlasRasterPass(this._graphics);
       this._vsmInvalidation = new VsmInvalidationPass();
     }
     device.lost.then(info => {
@@ -1211,8 +1211,8 @@ export class Renderer {
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
-    this._appearanceCache = new AppearanceCachePass(this._graphics.appearance_cache);
-    this._sparseLighting = new SparseLightingPass(device);
+    this._appearanceCache = await AppearanceCachePass.create(this._graphics);
+    this._sparseLighting = await SparseLightingPass.create(this._graphics);
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
     this._bloom = new BloomPass(device);
@@ -1379,7 +1379,7 @@ export class Renderer {
       const hasLit = runtime.activeShadingSummary.binRefCounts
         .some((count, classId) => count > 0 && (classId & 15) >= 4);
       if (hasLit) {
-        environment.lights.updateDirectRecords(command);
+        environment.lights.update(command);
       }
       finishScenePrepare();
       const finishViewPrepare = this._profiler.beginCpuSection("view-prepare");
@@ -1390,7 +1390,9 @@ export class Renderer {
       view.setViewportSize(width, height);
       view.setUpscaleRatio(this._output_resolution.x / width, this._output_resolution.y / height);
       const patchResult = this._graphics.render_world.encodePendingPatch(scene, command);
-      if (patchResult !== null && patchResult.dirtyInstanceCount > 0) {
+      const appearance = runtime.appearancePublication!;
+      const coverageChanged = appearance.syncRuntime(command);
+      if (coverageChanged || appearance.viewDependentCoverage || patchResult !== null && patchResult.dirtyInstanceCount > 0) {
         const previousCasterRevision = this._vsmCasterPublicationRevision;
         this._vsmCasterPublicationRevision = previousCasterRevision >= 0xfffffffe
           ? 1 : previousCasterRevision + 1;
@@ -1454,6 +1456,11 @@ export class Renderer {
         colorHistory.readValid, timeDeltaSeconds);
       this._temporalFacts.prepareFrame(width, height, identityHistory.readIndex,
         identityHistory.writeIndex, identityHistory.readValid);
+      const diffuseHistory = this._temporal.histories.state("lighting-diffuse");
+      const specularHistory = this._temporal.histories.state("lighting-specular");
+      const coatHistory = this._temporal.histories.state("lighting-coat");
+      this._sparseLighting.prepareFrame(width, height, diffuseHistory.readIndex, diffuseHistory.writeIndex,
+        diffuseHistory.readValid && specularHistory.readValid && coatHistory.readValid && !vsmGeneration.temporalInvalidate);
       this._fsr3.prepareFrame(command, {
         renderWidth: width, renderHeight: height,
         outputWidth: this._output_resolution.x, outputHeight: this._output_resolution.y,
@@ -1506,7 +1513,11 @@ export class Renderer {
         frameIndex,
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
-         fsr3: this._fsr3, temporalFacts: this._temporalFacts, radiometry: this._gpuRadiometry,
+        fsr3: this._fsr3, temporalFacts: this._temporalFacts, radiometry: this._gpuRadiometry,
+        sparseLighting: this._sparseLighting,
+        lightingEnvironmentRevision: scene.lights.environment !== undefined
+          ? (environment.lights.authoredIbl.publicationRevision | 0x80000000) >>> 0
+          : environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0,
         environment: this._environmentRuntime,
         vsm: this._vsm,
         vsmFrame: vsmEnabled
@@ -1530,6 +1541,7 @@ export class Renderer {
         shadowProfile: vsmEnabled
           ? this._vsm!.profile : hasLit ? "shadow-disabled" : "off",
         physicalEnvironment: this._environmentRuntime !== null,
+        authoredEnvironment: hasLit && scene.lights.environment !== undefined,
         fsr3Enabled: this.fsr3_enabled,
         bloomEnabled: this.bloom_enabled,
         debugView: this._render_debug_view
@@ -1560,17 +1572,22 @@ export class Renderer {
           "meshletQueueAttempted", "meshletQueueWritten", "meshletQueueConsumed",
           "meshletQueueOverflow", "meshletQueueInvalid", "meshletRasterTriangles",
           "queueOverflowMask", "geometryVisiblePixels", "shadedPixels", "emptyVisibilityPixels", "invalidVisibilityKeys",
-          "appearanceTasksAttempted", "appearanceTasksOverflow", "appearanceTasksWritten"
+          "appearanceTasksAttempted", "appearanceTasksOverflow", "appearanceTasksWritten", "lightingPrimaryPackets",
+          "lightingDiffusePrimaries", "lightingSpecularPrimaries", "lightingCoatPrimaries"
         ]);
         this._profiler.encodeGpuCounterReadback(command);
       }
       this._temporal.markProduced("color");
       this._temporal.markProduced("identity");
+      this._temporal.markProduced("lighting-diffuse");
+      this._temporal.markProduced("lighting-specular");
+      this._temporal.markProduced("lighting-coat");
       view.finish_frame(command, frameIndex);
       command.onFinished.addOne(() => this._previousViewMatrices.set(view, currentViewMatrix));
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       this._fsr3.commit(command.gpuDone);
       this._temporalFacts.commit(command.gpuDone);
+      this._sparseLighting.commit(command.gpuDone);
       this._gpuRadiometry.commit(command.gpuDone);
       this._temporal.commit(frameIndex);
       temporalActive = false;
@@ -1593,6 +1610,7 @@ export class Renderer {
       activeHzb?.invalidate("explicit");
       this._fsr3.invalidate();
       this._temporalFacts.abort();
+      this._sparseLighting.abort();
       this._gpuRadiometry.abort();
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         try { this._environmentRuntime?.abort(environmentGeneration); }
@@ -1676,6 +1694,7 @@ export class Renderer {
     this._fsr3?.destroy();
       this._present?.destroy();
       this._sparseLighting?.destroy();
+      this._appearanceCache?.destroy();
       this._temporalFacts?.destroy();
     this._gpuRadiometry?.destroy();
     this._bloom?.destroy();

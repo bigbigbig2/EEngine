@@ -4,6 +4,7 @@ import { FRAME_GEOMETRY_MESHLET_STRIDE, WINNER_COEFFICIENT_STRIDE, WINNER_CONTRO
   WINNER_DICTIONARY_STRIDE, WINNER_INDIRECT_STRIDE } from "../../gpu/GpuWinnerInterpolationAbi.js";
 import { WINNER_SETTINGS_SIZE, WINNER_WORKGROUP_SIZE, winnerPrimitiveWorkWgsl } from "../../shaders/winner_primitive_work.js";
 import { gpuStorageRange, requireDisjointStorageRanges, type GpuStorageInput, type GpuStorageRange } from "../../gpu/GpuStorageRange.js";
+import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 
 export interface SharedClipGeometry {
   /** GPU-produced header + one directory entry per MeshletWork slot. */
@@ -40,13 +41,13 @@ export interface WinnerInterpolationBudget {
 interface State {
   readonly allocation: WinnerInterpolationAllocation;
   readonly work: GpuStorageRange;
-  readonly group: GPUBindGroup;
+  group: GPUBindGroup;
   readonly indirectGroup: GPUBindGroup;
   readonly indirect: GPUBuffer;
   readonly buffers: readonly GPUBuffer[];
   readonly handles: readonly ResourceHandle[];
-  readonly width: number;
-  readonly height: number;
+  width: number;
+  height: number;
 }
 const ENTRIES = ["winner_reset", "winner_request", "winner_finalize", "winner_build"] as const;
 
@@ -197,6 +198,23 @@ export class WinnerPrimitiveInterpolation {
       else pass.dispatchWorkgroupsIndirect(state.indirect, 0);
       pass.end();
     }
+  }
+
+  /** Rebind an extent/view without reallocating borrowed arena ranges. The
+   * upload is ordered in the frame encoder, after previous submitted users. */
+  rebind(command: ShadeGPUCommandContext, allocation: WinnerInterpolationAllocation, visibility: GPUTextureView,
+    width: number, height: number): void {
+    const state = this.require(allocation), geometry = allocation.geometry;
+    if (width < 1 || height < 1 || width > this.device.limits.maxTextureDimension2D || height > this.device.limits.maxTextureDimension2D) {
+      throw new RangeError("Winner rebind extent exceeds negotiated limits");
+    }
+    command.writeBuffer(allocation.settings, 0, new Uint32Array([width, height]).buffer, 0, 8);
+    state.width = width; state.height = height;
+    state.group = this.device.createBindGroup({ layout: this.layout, entries: [
+      { binding: 0, resource: { buffer: allocation.settings } }, { binding: 1, resource: visibility },
+      ...[geometry.directory, geometry.clips, geometry.triangles, allocation.dictionary, state.work, allocation.coefficients, allocation.control]
+        .map((range, i) => ({ binding: i + 2, resource: range }))
+    ] });
   }
 
   /** Call only after the allocation's final encoded consumer has completed (or

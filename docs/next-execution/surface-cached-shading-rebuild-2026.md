@@ -72,6 +72,14 @@ S0–S7 保留为需求标签，不再代表“完成一个、验证一个、提
 
 后续进度只报告：旧生产依赖实际删除情况、最终主链哪些算法/消费者已写入、哪些真实缺口仍在；统一验证开始后报告实际结果。组件测试数、阶段状态、来源 adopted 或文档数量不换算为总体完成百分比。
 
+### 2026-10-02 返工提交事实
+
+本批源码已写入普通与 Product 的真实 resident 属性及 miss 消费、普通 Geometry schema 3 的 Cook 有向源三角形目录、GPU Appearance demand 分组与缓存字段内容消费、独立 diffuse/specular/coat packets 和未预曝光历史重建、真实 cluster/VSM/IBL/AO 消费，以及 authored IBL 资源事务。MASK 的裁剪 Alpha 程序同时接主光栅与 VSM，工作按有限程序/尺寸/单双面 GPU 分组；动态参数/cutoff 与 view-dependent Coverage 接阴影失效。字段发布保留 base/coat 过滤法线有效位，物理仍六层 rgba16f。细节与来源差异见 [迁移映射](../porting/next-renderer.md)。这些属于代码实现事实，尚未证明算法正确或性能达标。
+
+仍未完成：真实 skin/morph 和 current/previous 形变生产、Product 稳定 source-domain/跨 LOD/seam 对应、完整透明材质与照明生产链、一般 nonlocal/provider GPU 输入、屏外 VSM caster 及无 caster dirty page 发布、全链生命周期收口和最终 fixture 整理。不能据本次提交将第一/第二步或 R01–R24 标为完成。
+
+上面的 Chrome/编译/性能诊断只描述此前树。当前返工树未运行 typecheck、build、targeted tests、数值/GPU oracle、browser 或 benchmark；依据连续重构规则，先补完最终生产代码，再集中验收。本次提交不改变独立旧 revision 基准及两 coverage 性能门槛。
+
 ## 4. 最终 R01–R24 审计
 
 以下条目在最终统一验收时逐项确认，不要求每写一个模块就补证据或提升状态。S1–S7 是范围标签，不是实施门禁。最终证据必须指出真实生产 producer、consumer 和覆盖范围；文件存在、组件测试通过或 manifest 标记不能替代整链事实。

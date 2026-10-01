@@ -8,7 +8,7 @@
  * resident tables.
  */
 
-export const GPU_GEOMETRY_ABI_VERSION = 5;
+export const GPU_GEOMETRY_ABI_VERSION = 8;
 export const GPU_FALLBACK_RECORD_INDEX = 0;
 export const GPU_GEOMETRY_RECORD_STRIDE = 240;
 export const GPU_CLUSTER_RECORD_STRIDE = 128;
@@ -79,8 +79,8 @@ const GEOMETRY_FIELDS: readonly GpuAbiField[] = [
   { name: "color_stride", kind: "u32", byteOffset: 216 },
   { name: "color_format", kind: "u32", byteOffset: 220 },
   { name: "color_normalized", kind: "u32", byteOffset: 224 },
-  { name: "_pad0", kind: "u32", byteOffset: 228 },
-  { name: "_pad1", kind: "u32", byteOffset: 232 },
+  { name: "color_components", kind: "u32", byteOffset: 228 },
+  { name: "resident_attribute_word_offset", kind: "u32", byteOffset: 232 },
   { name: "_pad2", kind: "u32", byteOffset: 236 }
 ];
 
@@ -112,7 +112,7 @@ const MESHLET_FIELDS: readonly GpuAbiField[] = [
   { name: "material_range_index", kind: "u32", byteOffset: 16 },
   { name: "material_id", kind: "u32", byteOffset: 20 },
   { name: "flags", kind: "u32", byteOffset: 24 },
-  { name: "_pad0", kind: "u32", byteOffset: 28 },
+  { name: "surface_primitive_word_offset", kind: "u32", byteOffset: 28 },
   { name: "bounds_min", kind: "vec4f", byteOffset: 32 },
   { name: "bounds_max", kind: "vec4f", byteOffset: 48 },
   { name: "bounds_sphere", kind: "vec4f", byteOffset: 64 },
@@ -246,6 +246,8 @@ export interface GpuGeometryRecordCpu {
   readonly colorStride?: number;
   readonly colorFormat?: number;
   readonly colorNormalized?: number;
+  readonly colorComponents?: number;
+  readonly residentAttributeWordOffset?: number;
 }
 
 export interface GpuClusterRecordCpu {
@@ -273,6 +275,7 @@ export interface GpuMeshletRecordCpu {
   readonly materialRangeIndex: number;
   readonly materialId: number;
   readonly flags: number;
+  readonly surfacePrimitiveWordOffset?: number;
   readonly boundsMin: ArrayLike<number>;
   readonly boundsMax: ArrayLike<number>;
   readonly boundsSphere: ArrayLike<number>;
@@ -331,7 +334,9 @@ export function packGpuGeometryRecord(record: GpuGeometryRecordCpu): Uint8Array 
     record.colorByteOffset ?? 0,
     record.colorStride ?? 0,
     record.colorFormat ?? 0,
-    record.colorNormalized ?? 0
+    record.colorNormalized ?? 0,
+    record.colorComponents ?? 3,
+    record.residentAttributeWordOffset ?? 0
   ];
   for (let index = 0; index < values.length; index++) {
     view.setUint32(48 + index * 4, checkedU32(values[index]!, "GeometryRecord"), true);
@@ -385,7 +390,8 @@ export function packGpuMeshletRecords(
       record.triangleCount,
       record.materialRangeIndex,
       record.materialId,
-      record.flags
+      record.flags,
+      record.surfacePrimitiveWordOffset ?? 0
     ];
     for (let field = 0; field < integers.length; field++) {
       view.setUint32(base + field * 4, checkedU32(integers[field]!, "MeshletRecord"), true);

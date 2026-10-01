@@ -21,7 +21,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const limits = { maxBindGroups: 4, maxBindingsPerBindGroup: 1000,
   maxComputeWorkgroupSizeX: 256, maxComputeInvocationsPerWorkgroup: 256,
   maxBufferSize: 1e8, maxStorageBufferBindingSize: 1e8, maxUniformBufferBindingSize: 65536,
-  maxStorageBuffersPerShaderStage: 8, maxUniformBuffersPerShaderStage: 12,
+  maxStorageBuffersPerShaderStage: 16, maxUniformBuffersPerShaderStage: 12,
   maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 16, maxStorageTexturesPerShaderStage: 4 };
 function fixture(auto = false) {
   const loss = deferred(), compiled = [], buffers = [];
@@ -78,7 +78,7 @@ test("invalid resource profiles reject before any GPU object is created", () => 
   assert.throws(() => f.registry.acquire({ ...descriptor(), workgroupSize: 512 }), /negotiated profile/);
   assert.throws(() => f.registry.acquire({ ...descriptor(), groups: [[
     { binding: 0, visibility: 4, buffer: { type: "storage", minBindingSize: 1e9 } }]] }), /byte limit/);
-  assert.throws(() => f.registry.acquire({ ...descriptor(), groups: [Array.from({ length: 9 }, (_, binding) =>
+  assert.throws(() => f.registry.acquire({ ...descriptor(), groups: [Array.from({ length: 17 }, (_, binding) =>
     ({ binding, visibility: 4, buffer: { type: "storage" } }))] }), /storage buffers/);
   assert.equal(f.creates(), 0); f.registry.destroy();
 });
@@ -152,7 +152,7 @@ test("actual-sized GPU publication shares pipelines while retaining different in
   const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(),
     new Map([[texture, { slot: 12, revision: 43 }]]), undefined, undefined, f.cache);
   assert.throws(() => p.program(0), /not consumable/);
-  await p.ready; c.finish(); assert.equal(f.compiled.length, 4);
+  await p.ready; c.finish(); assert.equal(f.compiled.length, 5);
   assert.deepEqual([...new Float32Array(p.constants.bytes.buffer)], [0.25, 0.5]);
   assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 0, 0, 1, 0, 18, 0, 1, 1, 0, 1, 1, 1]);
   assert.deepEqual([...new Uint32Array(p.fields.bytes.buffer)], [1, 0, 1, 67, 1, 0, 1, 67]);

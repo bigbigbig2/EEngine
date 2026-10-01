@@ -3,6 +3,7 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { TEMPORAL_FACTS_WGSL } from "../../shaders/temporal_facts.js";
+import type { GpuSparseShadingAssetHeapBindings } from "../../gpu/GpuAssetStore.js";
 
 type IdentityPair = readonly [GPUTexture, GPUTexture];
 export type TemporalFactsGraphBinder = <T extends object>(
@@ -40,7 +41,7 @@ export class TemporalFactsPass {
     if (device.limits.maxStorageTexturesPerShaderStage < 3) {
       throw new RangeError("Temporal Facts requires three storage textures in its isolated pass");
     }
-    this.constants = device.createBuffer({ label: "Temporal Facts/frame constants", size: 16,
+    this.constants = device.createBuffer({ label: "Temporal Facts/frame constants", size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
@@ -56,7 +57,7 @@ export class TemporalFactsPass {
         storageTexture: { access: "write-only", format: "rgba8unorm" } },
       { binding: 12, visibility: GPUShaderStage.COMPUTE,
         storageTexture: { access: "write-only", format: "rgba32uint" } },
-      ...[13, 14].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
+      ...[13, 14, 15, 16].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "read-only-storage" as const } }))
     ] });
     this.pipeline = device.createComputePipeline({ label: "Temporal Facts/resolve",
@@ -117,6 +118,8 @@ export class TemporalFactsPass {
     meshletWork: ResourceId; instances: ResourceId; materials: ResourceId;
     textureRoutes: ResourceId; textureResidencyVersions: ResourceId;
     currentCamera: ResourceId; previousCamera: ResourceId;
+    assetMetadata: ResourceId; vertexPayload: ResourceId;
+    sourceBindings: GpuSparseShadingAssetHeapBindings;
   }, bind: TemporalFactsGraphBinder): TemporalFactProducts {
     const previous = graph.import_resource("Temporal Facts/previous identity",
       { kind: "imported", label: "Temporal Facts previous identity", domain: "internal-full" },
@@ -127,7 +130,8 @@ export class TemporalFactsPass {
     const node = graph.add("Temporal Facts/resolve identity and reactive", input,
       (data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
-        const constants = new Uint32Array([data.width, data.height, Number(this.readValid), 0]);
+        const constants = new Uint32Array([data.width, data.height, Number(this.readValid), 0,
+          data.sourceBindings.meshletWordBase, data.sourceBindings.vertexDataWordBase, 0, 0]);
         command.writeBuffer(this.constants, 0, constants.buffer, 0, constants.byteLength);
         const ids = [data.visibility, data.depth, previous,
           data.meshletWork, data.instances, data.materials, data.currentCamera,
@@ -141,6 +145,8 @@ export class TemporalFactsPass {
         entries.push({ binding: 12, resource: resolveTextureView(resources.get(identity)) });
         entries.push({ binding: 13, resource: { buffer: resources.get(data.textureRoutes) as GPUBuffer } });
         entries.push({ binding: 14, resource: { buffer: resources.get(data.textureResidencyVersions) as GPUBuffer } });
+        entries.push({ binding: 15, resource: { buffer: resources.get(data.assetMetadata) as GPUBuffer } });
+        entries.push({ binding: 16, resource: { buffer: resources.get(data.vertexPayload) as GPUBuffer } });
         const group = this.device.createBindGroup({ layout: this.layout, entries });
         const pass = command.beginComputePass({ label: "Temporal Facts/resolve" });
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
@@ -149,7 +155,7 @@ export class TemporalFactsPass {
       });
     for (const id of [input.visibility, input.depth,
       input.meshletWork, input.instances, input.materials, input.textureRoutes, input.textureResidencyVersions,
-      input.currentCamera, input.previousCamera, previous]) node.read(id);
+      input.currentCamera, input.previousCamera, input.assetMetadata, input.vertexPayload, previous]) node.read(id);
     const motion = node.create("Temporal Facts/motion", {
       kind: "transient_texture", width: input.width, height: input.height,
       format: "rg16float", domain: "internal-full",

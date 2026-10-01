@@ -59,6 +59,7 @@ export type FrameProgramRequest = FrameProgramBase & (
       aoProfile?: FrameAoProfile;
       shadowProfile?: FrameVsmProfile;
       physicalEnvironment: boolean;
+      authoredEnvironment?: boolean;
       /** Perf-host diagnostic: keep the semantic reconstruction edge but bypass FSR3 passes. */
       fsr3Enabled?: boolean;
       /** Perf-host diagnostic: keep the semantic bloom edge but bypass Bloom passes. */
@@ -288,7 +289,7 @@ function structuralKey(request: FrameProgramRequest): string {
     request.previousHzb, request.currentHzbLateRecheck,
     request.activeSets, request.textureBankMask ?? 0x1ff,
     request.hasLit, request.aoProfile ?? "off", request.shadowProfile ?? "off",
-    request.physicalEnvironment, request.fsr3Enabled !== false, request.bloomEnabled !== false,
+    request.physicalEnvironment, request.authoredEnvironment === true, request.fsr3Enabled !== false, request.bloomEnabled !== false,
     request.debugView ?? RenderDebugViewValue.None
   ]);
 }
@@ -404,7 +405,7 @@ function createProgram(request: FrameProgramRequest, key: string): FrameProgram 
       ...(buildHzb ? ["hzb"] : []),
       ...(request.shadowProfile !== undefined && request.shadowProfile !== "off" &&
         request.shadowProfile !== "shadow-disabled" ? ["vsm"] : []),
-      ...(request.physicalEnvironment ? ["environment"] : [])
+      ...(request.physicalEnvironment || request.authoredEnvironment ? ["environment"] : [])
     ]), directLighting, buildHzb });
 }
 

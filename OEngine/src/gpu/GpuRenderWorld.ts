@@ -28,6 +28,7 @@ import type { Scene } from "../scene/Scene.js";
 import type { Mesh } from "../scene/Mesh.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
 import { prepareMeshletRasterPipelines } from "../render/MeshletBucketRaster.js";
+import { prepareVsmAtlasRasterPipelines } from "../render/vsm/VsmAtlasRasterPass.js";
 import type { SceneResidencyManifest } from "./GpuSceneResidencyManifest.js";
 import {
   composeGpuPackedMaterialBindings,
@@ -641,9 +642,9 @@ export class GpuRenderWorld {
     const runtime = this.stagedRuntimes.get(handle);
     if (!runtime) throw new Error("Scene pipeline preparation requires its staged runtime");
     await Promise.all([preparation.ready, this.graphics.frame_instances.ready, this.graphics.frame_vertices.ready,
-      this.graphics.appearance_cache.ready,
+      this.graphics.raster_partitions.ready,
       ...(runtime.virtualGeometry ? [this.graphics.current_hzb_recheck.ready] : []),
-      prepareMeshletRasterPipelines(this.graphics, runtime)]);
+      prepareMeshletRasterPipelines(this.graphics, runtime), prepareVsmAtlasRasterPipelines(this.graphics, runtime)]);
   }
 
   /** Registers an ordinary Scene adapter in the same GPU Render World owner. */

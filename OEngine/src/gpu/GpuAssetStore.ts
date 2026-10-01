@@ -14,6 +14,8 @@ import {
   type GeometryBvh8Node
 } from "../assets/GeometryAssetPackage.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
+import { prepareGeometryResidentAttributes } from "./GeometryResidentAttributes.js";
+import { GPU_FRAME_ATTRIBUTE_STRIDE } from "./GpuFrameGeometryAttributesAbi.js";
 import {
   RuntimeAssetResidencyState,
   type RuntimeAssetResidencyReservation,
@@ -430,11 +432,11 @@ export class GpuAssetStore {
         handles.push(handle);
       }
       const batchUploadBytes = plans.reduce(
-        (sum, plan) => sum + plan.residencyReservation.uploadBytes,
+        (sum, plan) => sum + plan.segments.reduce((bytes,segment)=>bytes+segment.bytes.byteLength,0),
         0
       );
       const batchResidentBytes = plans.reduce(
-        (sum, plan) => sum + plan.residencyReservation.residentBytes,
+        (sum, plan) => sum + plan.residentBytes,
         0
       );
       const sparseShadingLayout = this.sparseShadingHeapLayout();
@@ -740,6 +742,18 @@ export class GpuAssetStore {
       ? 0
       : countOf(b.materialRanges);
     const vertexDataBegin = b.vertexStreamData.cursorBytes;
+    const residentAttributeByteOffset=Math.ceil((vertexDataBegin+asset.vertexStreamData.byteLength)/16)*16;
+    const residentAttributeBytes=asset.directory.vertexCount*GPU_FRAME_ATTRIBUTE_STRIDE;
+    if (residentAttributeBytes>Math.min(this.maxUploadBytes,this.maxResidentBytes,
+      Number(this.device.limits.maxBufferSize),Number(this.device.limits.maxStorageBufferBindingSize))) {
+      throw new RangeError("Geometry resident attributes exceed negotiated residency limits");
+    }
+    const residentAttributes=prepareGeometryResidentAttributes(asset);
+    let surfaceCursor = 0;
+    const surfaceMeshletOffsets = asset.meshlets.map(meshlet => {
+      const offset = surfaceCursor; surfaceCursor += meshlet.triangleCount; return offset;
+    });
+    const surfaceMappingByteOffset=residentAttributeByteOffset+residentAttributes.byteLength;
     const indexBegin = countOf(b.indices);
     const meshletVertexBegin = countOf(b.meshletVertexIndices);
     const meshletTriangleBegin = b.meshletTriangleIndices.cursorBytes;
@@ -792,7 +806,7 @@ export class GpuAssetStore {
       (descriptor) => descriptor.semantic === "color"
     );
 
-    const meshletRecords: GpuMeshletRecordCpu[] = asset.meshlets.map((meshlet) => ({
+    const meshletRecords: GpuMeshletRecordCpu[] = asset.meshlets.map((meshlet, meshletIndex) => ({
       vertexOffset: checkedAdd(meshletVertexBegin, meshlet.vertexOffset, "Meshlet vertex range"),
       vertexCount: meshlet.vertexCount,
       triangleByteOffset: checkedAdd(
@@ -806,6 +820,7 @@ export class GpuAssetStore {
         : checkedAdd(materialBegin, meshlet.materialRangeIndex, "Meshlet material range"),
       materialId: meshlet.materialId,
       flags: meshlet.flags,
+      surfacePrimitiveWordOffset: surfaceMappingByteOffset/4+surfaceMeshletOffsets[meshletIndex]!,
       boundsMin: meshlet.boundsBox.subarray(0, 3),
       boundsMax: meshlet.boundsBox.subarray(3, 6),
       boundsSphere: [
@@ -946,9 +961,11 @@ export class GpuAssetStore {
       tangentFormat: tangent === undefined ? 0 : encodeGeometryVertexDataType(tangent.dataType),
       tangentNormalized: tangent?.normalized ? 1 : 0,
       colorByteOffset: directByteOffset(color, vertexDataBegin, "Color stream offset"),
+      residentAttributeWordOffset: residentAttributeByteOffset/4,
       colorStride: color?.elementStride ?? 0,
       colorFormat: color === undefined ? 0 : encodeGeometryVertexDataType(color.dataType),
-      colorNormalized: color?.normalized ? 1 : 0
+      colorNormalized: color?.normalized ? 1 : 0,
+      colorComponents: color?.componentCount ?? 0
     });
 
     const segments: UploadSegment[] = [];
@@ -988,6 +1005,8 @@ export class GpuAssetStore {
     );
     append(b.vertexStreamData, asset.vertexStreamData, undefined,
       GEOMETRY_SECTION_TYPES.VertexStreamData);
+    append(b.vertexStreamData,residentAttributes,residentAttributeByteOffset,null);
+    append(b.vertexStreamData,bytesOf(asset.surfacePrimitiveIds),surfaceMappingByteOffset,null);
     append(b.indices, bytesOf(asset.indices), undefined, GEOMETRY_SECTION_TYPES.IndexData);
     append(b.meshletVertexIndices, bytesOf(asset.meshletVertexIndices), undefined,
       GEOMETRY_SECTION_TYPES.MeshletVertexIndices);

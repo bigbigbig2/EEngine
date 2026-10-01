@@ -41,10 +41,19 @@ export const PHYSICAL_SKY_MIP_WGSL = /* wgsl */ `
 fn downsample(@builtin(global_invocation_id) id: vec3u) {
   let size=textureDimensions(output_image);
   if any(id.xy>=size) { return; }
-  let base=vec2i(id.xy*2u);
-  let value=textureLoad(source,base,0)+textureLoad(source,base+vec2i(1,0),0)+
-    textureLoad(source,base+vec2i(0,1),0)+textureLoad(source,base+vec2i(1,1),0);
-  textureStore(output_image,id.xy,value*0.25);
+  // Exact box integration also includes the last source row/column for NPOT
+  // authored maps. Power-of-two dimensions reduce to the same four taps.
+  let ratio=vec2f(textureDimensions(source))/vec2f(size);
+  let low=vec2f(id.xy)*ratio; let high=vec2f(id.xy+vec2u(1u))*ratio;
+  var value=vec4f(0.0);
+  for(var y=i32(floor(low.y));y<i32(ceil(high.y));y++) {
+    let wy=max(0.0,min(high.y,f32(y+1))-max(low.y,f32(y)));
+    for(var x=i32(floor(low.x));x<i32(ceil(high.x));x++) {
+      let wx=max(0.0,min(high.x,f32(x+1))-max(low.x,f32(x)));
+      value+=textureLoad(source,vec2i(x,y),0)*(wx*wy);
+    }
+  }
+  textureStore(output_image,id.xy,value/(ratio.x*ratio.y));
 }
 `;
 
