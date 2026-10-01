@@ -18,6 +18,7 @@ import type { VsmGenerationState } from "../vsm/VsmGeneration.js";
 export type SceneFrameBindings = Readonly<{
   kind: "scene";
   deviceEpoch: number;
+  frameIndex: number;
   job: PackedVisibilityJob;
   camera: PerspectiveCamera;
   view: GPUViewContext;

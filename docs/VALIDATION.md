@@ -2,6 +2,8 @@
 
 这是开发节奏说明，不是逐批许可规则。当前工程处于破坏式重建，先让功能原理和唯一生产链真正连通。
 
+**当前 Surface 的用户指定覆盖规则（2026-10-01）**：缓存、稀疏照明和重建整体实现完成后才统一跑验证。开发中不跑 typecheck/build、targeted tests、组件 GPU oracle、browser、benchmark 或 verify；不要求 S1/S2 或某个 owner 先闭合、测试通过才能继续。直接删除旧 Surface 路径，允许中间缺图和未编译，禁止为了验证接回旧 consumer。后续用户明确要求的诊断按该次指令执行。最终编译失败、数学/覆盖/生命周期错误和性能不达标均在新主链修复。范围、顺序和验收项目见 [Surface 执行计划](next-execution/surface-cached-shading-rebuild-2026.md)。下面的通用检查时点适用于其他模块，不覆盖本条。
+
 | 时点 | 做什么 | 结果如何使用 |
 | --- | --- | --- |
 | 日常编码 | `vibe context <path>` 导航；按需要 typecheck、build 或一个 targeted test | 调试信息，不改变能否继续开发 |

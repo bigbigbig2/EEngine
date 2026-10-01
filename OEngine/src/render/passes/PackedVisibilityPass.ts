@@ -36,7 +36,6 @@ import {
   resolveTextureView
 } from "../RenderTargetViews.js";
 import {
-  triangleSetupFrame,
   meshletWorkFrame,
   textureDomain,
   visibilityFrame,
@@ -54,10 +53,9 @@ import {
 import { MeshletBucketRaster } from "../MeshletBucketRaster.js";
 import type { FrameInstanceTransforms, PreparedFrameInstances } from "../FrameInstanceTransforms.js";
 import { GPU_INSTANCE_RECORD_STRIDE } from "../../gpu/GpuInstanceAbi.js";
-import {
-  LargeTriangleSetupCache,
-  type PreparedLargeTriangleSetup
-} from "../LargeTriangleSetupCache.js";
+import type { FrameGeometryVertices, PreparedFrameVertices } from "../FrameGeometryVertices.js";
+import type { FrameGeometryArena, PreparedFrameGeometryArena } from "../FrameGeometryArena.js";
+import type { FrameGeometryArenaBudget } from "../../gpu/GpuFrameGeometryArenaAbi.js";
 import {
   sameVisibilityWorkSetKey,
   visibilityWorkSet,
@@ -81,6 +79,8 @@ export interface PackedVisibilityPrepareJob {
   readonly virtualGeometry?: GeometryProductGpuBindingsV1;
   readonly sseThreshold: number;
   readonly geometryWorkBudget?: GeometryWorkBudget;
+  /** Independent frame geometry capacities, never workCapacity times 128. */
+  readonly frameGeometryBudget?: Omit<FrameGeometryArenaBudget, "workCapacity" | "filteredWorkCapacity">;
   readonly coneEnabled: boolean;
   /** Positive test pressure override; omitted uses the proven triangle capacity upper bound. */
   readonly meshletWorkCandidateCapacity?: number;
@@ -90,9 +90,6 @@ export interface PackedVisibilityPrepareJob {
   readonly primitiveIndexPath?: "auto" | "portable";
   /** Publication-selected visibility ABI; single MRT is used for direct/none. */
   readonly executionMode?: GpuShadingExecutionMode | "none";
-  /** Evidence-gated TriangleSetup candidate cache; false keeps fallback-only Surface reconstruction. */
-  readonly triangleSetupEnabled?: boolean;
-  readonly triangleSetupThresholdPixels?: number;
   readonly previousHzb: Readonly<{
     view: GPUTextureView;
     width: number;
@@ -105,7 +102,8 @@ export interface PackedVisibilityPrepareJob {
   readonly streamingRuntime?: GeometryPageStreamingRuntimeV1;
   /** Monotonic frame identity required when streamingRuntime is supplied. */
   readonly demandFrameIndex?: number;
-  /** Optional same-frame Product MeshletWork filter. Null/off allocates no GPU owner. */
+  /** Optional same-frame Product filter. Null/off allocates no work buffers;
+   * finite Product PSOs are prepared at Scene publication for later toggles. */
   readonly currentHzbLateRecheck?: Readonly<{
     readonly width: number;
     readonly height: number;
@@ -123,7 +121,7 @@ export interface PackedVisibilityInputs {
   readonly previousHzb?: ResourceId;
   readonly meshletWorkRecords: ResourceId;
   readonly frameInstances: ResourceId;
-  readonly setupRecords?: ResourceId;
+  readonly frameGeometry: ResourceId;
   readonly depth: ResourceId;
 }
 
@@ -218,8 +216,9 @@ export class PackedVisibilityPass {
   private readonly meshletCandidate: PackedVisibilityMeshletCandidate;
   private readonly virtualMeshletCandidate: VirtualGeometryMeshletWorkCandidate;
   private readonly meshletBucketRaster: MeshletBucketRaster;
-  private readonly largeTriangleSetup: LargeTriangleSetupCache;
   private readonly instanceTransforms: FrameInstanceTransforms;
+  private readonly vertexTransforms: FrameGeometryVertices;
+  private readonly geometryArena: FrameGeometryArena;
   private readonly hierarchyPrepared = new Map<GpuRenderWorldRuntime, VisibilityWorkSet>();
   private currentHzbLateRecheck: CurrentHzbLateRecheckGpu | null = null;
   private readonly currentHzbPrepared = new Map<GpuRenderWorldRuntime, PreparedCurrentHzbLateRecheck>();
@@ -234,6 +233,8 @@ export class PackedVisibilityPass {
     meshletCandidate?: PackedVisibilityMeshletCandidate
   ) {
     this.instanceTransforms = graphics.frame_instances;
+    this.vertexTransforms = graphics.frame_vertices;
+    this.geometryArena = graphics.frame_geometry_arena;
     this.hierarchyGenerator = hierarchyGenerator ??
       new HierarchicalWorkGenerator(
         graphics.device,
@@ -246,10 +247,6 @@ export class PackedVisibilityPass {
     );
     this.virtualMeshletCandidate = new VirtualGeometryMeshletWorkCandidate(graphics.device);
     this.meshletBucketRaster = new MeshletBucketRaster(graphics);
-    this.largeTriangleSetup = new LargeTriangleSetupCache(
-      graphics.device,
-      graphics.resource_accounting
-    );
   }
 
   addToGraph(
@@ -289,9 +286,7 @@ export class PackedVisibilityPass {
     const depth = builder.write(inputs.depth);
     const meshletWorkRecords = builder.write(inputs.meshletWorkRecords);
     const frameInstances = builder.write(inputs.frameInstances);
-    const setupRecords = inputs.setupRecords === undefined
-      ? null
-      : builder.write(inputs.setupRecords);
+    const frameGeometry = builder.write(inputs.frameGeometry);
     const counters = builder.write(inputs.counters);
     output.visibilityKey = builder.create(
       "Packed VisibilityKey",
@@ -313,15 +308,12 @@ export class PackedVisibilityPass {
       shadingBinId: output.shadingBinId,
       depth,
       frameInstances,
+      frameGeometry,
       meshletWork: meshletWorkFrame({
         records: meshletWorkRecords,
         capacity: requireMeshletWork(job.prepared.workSet).capacity,
         partition: 0,
         generation: "queue-header"
-      }),
-      triangleSetup: triangleSetupFrame({
-        records: setupRecords,
-        capacity: job.prepared.workSet.setupCapacity
       }),
       domain: textureDomain("internal-full", job.width, job.height, 1)
     });
@@ -357,6 +349,7 @@ export class PackedVisibilityPass {
           assets: data.assets,
           scene: data.scene,
           frameInstances: workSet.frameInstances.records,
+          frameVertices: workSet.frameVertices,
           runtime: data.runtime,
           visibilityKey: resolveTextureView(resources.get(inputs.visibilityKey)),
           shadingBinId: inputs.shadingBinId === null
@@ -377,6 +370,8 @@ export class PackedVisibilityPass {
     builder.read(inputs.currentHzb);
     builder.read(inputs.sourceMeshletWork);
     builder.read(inputs.sourceFrame.frameInstances);
+    builder.read(inputs.sourceFrame.frameGeometry);
+    const frameGeometry = builder.write(inputs.sourceFrame.frameGeometry);
     const counters = builder.write(inputs.counters);
     const meshletWorkRecords = builder.write(inputs.filteredMeshletWork);
     builder.write(inputs.filteredDrawIndirect);
@@ -395,8 +390,8 @@ export class PackedVisibilityPass {
         partition: 0,
         generation: "queue-header"
       }),
-      triangleSetup: source.triangleSetup,
       frameInstances: source.frameInstances,
+      frameGeometry,
       domain: source.domain
     });
     return Object.freeze({
@@ -411,7 +406,8 @@ export class PackedVisibilityPass {
     const late = this.currentHzbPrepared.get(runtime);
     if (late !== undefined) {
       this.currentHzbPrepared.delete(runtime);
-      command.destroyAfterGpuDone({ destroy: () => this.currentHzbLateRecheck?.release(late) });
+      const owner = this.currentHzbLateRecheck;
+      command.destroyAfterGpuDone({ destroy: () => owner?.release(late) });
     }
     const workSet = this.hierarchyPrepared.get(runtime);
     this.debugBindings.delete(runtime);
@@ -424,15 +420,16 @@ export class PackedVisibilityPass {
     this.debugBindings.clear();
     for (const work of this.hierarchyPrepared.values()) {
       this.instanceTransforms.release(work.frameInstances);
+      this.vertexTransforms.release(work.frameVertices);
+      this.geometryArena.release(work.frameGeometry);
     }
     this.hierarchyPrepared.clear();
+    for (const late of this.currentHzbPrepared.values()) this.currentHzbLateRecheck?.release(late);
     this.currentHzbPrepared.clear();
-    this.currentHzbLateRecheck?.destroy();
     this.currentHzbLateRecheck = null;
     this.hierarchyGenerator.destroy();
     this.meshletCandidate.destroy();
     this.virtualMeshletCandidate.destroy();
-    this.largeTriangleSetup.destroy();
   }
 
   private encodeHierarchy(
@@ -482,20 +479,17 @@ export class PackedVisibilityPass {
       this.meshletCandidate.encode(command, meshletWork);
     }
     this.instanceTransforms.encode(command.gpu_encoder, workSet.frameInstances);
-    if (workSet.largeTriangleSetup !== null) {
-      this.largeTriangleSetup.encode(
-        command.gpu_encoder,
-        workSet.largeTriangleSetup,
-        job.width,
-        job.height
-      );
+    if (!this.geometryArena.metadataPublished(workSet.frameGeometry)) {
+      command.onFinished.addOne(this.geometryArena.encodeMetadataPublication(command.gpu_encoder, workSet.frameGeometry));
     }
+    this.vertexTransforms.encode(command.gpu_encoder, workSet.frameVertices);
     this.meshletBucketRaster.encodeRaster(command.gpu_encoder, {
         prepared: meshletWork,
         camera,
         assets: job.assets,
         scene: job.scene,
         frameInstances: workSet.frameInstances.records,
+        frameVertices: workSet.frameVertices,
         runtime: job.runtime,
         visibilityKey,
         shadingBinId,
@@ -534,7 +528,6 @@ export class PackedVisibilityPass {
         )
       }
     );
-    const triangleSetupEnabled = job.triangleSetupEnabled ?? false;
     const geometryWorkBudget = normalizeGeometryWorkBudget(
       job.geometryWorkBudget ?? DEFAULT_GEOMETRY_WORK_BUDGET
     );
@@ -566,13 +559,14 @@ export class PackedVisibilityPass {
       virtualProductBankCount: job.virtualGeometry?.banks.length ?? 0,
       meshletWorkCandidateCapacity,
       meshletWorkCompactionPath: job.meshletWorkCompactionPath ?? "auto",
-      triangleSetupEnabled,
-      triangleSetupThresholdPixels: triangleSetupEnabled
-        ? normalizeTriangleSetupThreshold(job.triangleSetupThresholdPixels)
-        : 0,
-      triangleSetupMaxBytes: triangleSetupEnabled
-        ? geometryWorkBudget.maxSetupBytes
-        : 0
+      frameGeometryBudget: Object.freeze({
+        vertexCapacity: 1 << 20, triangleCapacity: 1 << 20,
+        dictionaryCapacity: 1 << 18, coefficientCapacity: 1 << 17,
+        probeLimit: 16, maxBytes: 128 * 1024 * 1024,
+        ...job.frameGeometryBudget,
+        workCapacity: meshletWorkCandidateCapacity,
+        filteredWorkCapacity: job.virtualGeometry !== undefined && job.currentHzbLateRecheck != null ? meshletWorkCandidateCapacity : 0
+      })
     });
     const bindings = visibilityBindingSet({
       camera,
@@ -600,13 +594,6 @@ export class PackedVisibilityPass {
             countersEnabled: bindings.countersEnabled
           });
         }
-      }
-      if (existing.largeTriangleSetup !== null) {
-        this.largeTriangleSetup.rebind(existing.largeTriangleSetup, {
-          camera: bindings.camera,
-          counters: bindings.counters,
-          countersEnabled: bindings.countersEnabled
-        });
       }
       return Object.freeze({
         workSet: existing,
@@ -636,8 +623,9 @@ export class PackedVisibilityPass {
       traversalWorkCapacity: key.traversalCapacity
     });
     let meshletWorkCandidate: PreparedMeshletWorkCandidate | null = null;
-    let largeTriangleSetup: PreparedLargeTriangleSetup | null = null;
     let frameInstances: PreparedFrameInstances | null = null;
+    let frameGeometry: PreparedFrameGeometryArena | null = null;
+    let frameVertices: PreparedFrameVertices | null = null;
     try {
       if (job.virtualGeometry !== undefined) {
         meshletWorkCandidate = this.virtualMeshletCandidate.prepare({
@@ -668,22 +656,15 @@ export class PackedVisibilityPass {
         workCapacity: meshletWorkCandidate.capacity,
         instanceCapacity: Math.floor(job.scene.instances.size / GPU_INSTANCE_RECORD_STRIDE)
       });
-      if (key.triangleSetupEnabled) {
-        largeTriangleSetup = this.largeTriangleSetup.prepare({
-          camera,
-          counters,
-          countersEnabled: job.countersEnabled,
-          work: meshletWorkCandidate.queue,
-          workCapacity: meshletWorkCandidate.capacity,
-          thresholdPixels: key.triangleSetupThresholdPixels,
-          maxBytes: key.triangleSetupMaxBytes,
-          assets: job.assets,
-          scene: job.scene
-        });
-      }
+      frameGeometry = this.geometryArena.prepare(job.assets.sparseShading.assetMetadataHeap,
+        job.assets.sparseShading.assetMetadataBytes, key.frameGeometryBudget);
+      frameVertices = this.vertexTransforms.prepare({ arena: frameGeometry, instances: frameInstances,
+        work: meshletWorkCandidate.queue, assets: job.assets,
+        product: meshletWorkCandidate.productBindings, productBanks: meshletWorkCandidate.productBanks });
     } catch (error) {
+      if (frameVertices !== null) this.vertexTransforms.release(frameVertices);
+      if (frameGeometry !== null) this.geometryArena.release(frameGeometry);
       if (frameInstances !== null) this.instanceTransforms.release(frameInstances);
-      if (largeTriangleSetup !== null) this.largeTriangleSetup.release(largeTriangleSetup);
       if (meshletWorkCandidate !== null) {
         if (meshletWorkCandidate.productMode) {
           this.virtualMeshletCandidate.release(meshletWorkCandidate);
@@ -698,17 +679,28 @@ export class PackedVisibilityPass {
       key,
       hierarchy: prepared,
       frameInstances,
-      meshletWorkCandidate,
-      largeTriangleSetup,
-      setupRecords: largeTriangleSetup?.records ?? null,
-      setupCapacity: largeTriangleSetup?.capacity ?? 0
+      frameGeometry,
+      frameVertices,
+      meshletWorkCandidate
     });
+    let currentHzbLateRecheck: PreparedCurrentHzbLateRecheck | null;
+    try {
+      currentHzbLateRecheck = this.prepareCurrentHzbLateRecheck(job, next, camera, counters, command);
+    } catch (error) {
+      this.vertexTransforms.release(next.frameVertices);
+      this.geometryArena.release(next.frameGeometry);
+      this.instanceTransforms.release(next.frameInstances);
+      if (meshletWorkCandidate!.productMode) this.virtualMeshletCandidate.release(meshletWorkCandidate!);
+      else this.meshletCandidate.release(meshletWorkCandidate!);
+      this.hierarchyGenerator.release(prepared);
+      throw error;
+    }
     this.hierarchyPrepared.set(job.runtime, next);
     if (existing !== undefined) this.retirePrepared(existing, command);
     return Object.freeze({
       workSet: next,
       bindings,
-      currentHzbLateRecheck: this.prepareCurrentHzbLateRecheck(job, next, camera, counters, command)
+      currentHzbLateRecheck
     });
   }
 
@@ -726,16 +718,16 @@ export class PackedVisibilityPass {
       const previous = this.currentHzbPrepared.get(job.runtime);
       if (previous !== undefined) {
         this.currentHzbPrepared.delete(job.runtime);
-        command.destroyAfterGpuDone({ destroy: () => this.currentHzbLateRecheck?.release(previous) });
+        const owner = this.currentHzbLateRecheck;
+        command.destroyAfterGpuDone({ destroy: () => owner?.release(previous) });
       }
       return null;
     }
-    this.currentHzbLateRecheck ??= new CurrentHzbLateRecheckGpu(
-      this.graphics.device,
-      this.graphics.resource_accounting
-    );
+    this.currentHzbLateRecheck ??= this.graphics.current_hzb_recheck;
     const input: CurrentHzbLateRecheckGpuPrepareInput = {
       sourceQueue: work.queue,
+      sourceGeometry: workSet.frameGeometry.sourceDirectory,
+      filteredGeometry: workSet.frameGeometry.filteredDirectory,
       capacity: work.capacity,
       camera,
       instances: job.scene.instances,
@@ -752,7 +744,8 @@ export class PackedVisibilityPass {
     const prepared = this.currentHzbLateRecheck.prepare(input);
     this.currentHzbPrepared.set(job.runtime, prepared);
     if (previous !== undefined) {
-      command.destroyAfterGpuDone({ destroy: () => this.currentHzbLateRecheck?.release(previous) });
+      const owner = this.currentHzbLateRecheck;
+      command.destroyAfterGpuDone({ destroy: () => owner.release(previous) });
     }
     return prepared;
   }
@@ -764,9 +757,8 @@ export class PackedVisibilityPass {
     command.destroyAfterGpuDone({
       destroy: () => {
         this.instanceTransforms.release(workSet.frameInstances);
-        if (workSet.largeTriangleSetup !== null) {
-          this.largeTriangleSetup.release(workSet.largeTriangleSetup);
-        }
+        this.vertexTransforms.release(workSet.frameVertices);
+        this.geometryArena.release(workSet.frameGeometry);
         if (workSet.meshletWorkCandidate !== null) {
           if (workSet.meshletWorkCandidate.productMode) {
             this.virtualMeshletCandidate.release(workSet.meshletWorkCandidate);
@@ -859,14 +851,6 @@ function requireCommand(value: unknown): ShadeGPUCommandContext {
     return value as ShadeGPUCommandContext;
   }
   throw new Error("PackedVisibilityPass requires ShadeGPUCommandContext");
-}
-
-function normalizeTriangleSetupThreshold(value: number | undefined): number {
-  if (value === undefined) return 32;
-  if (!Number.isFinite(value) || value < 0) {
-    throw new RangeError("Packed Visibility TriangleSetup threshold must be finite and non-negative");
-  }
-  return Math.min(0xffffffff, Math.floor(value));
 }
 
 function normalizeMeshletCandidateCapacity(

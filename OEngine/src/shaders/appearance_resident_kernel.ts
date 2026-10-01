@@ -23,6 +23,15 @@ export interface AppearanceSampleResourceProfile {
   readonly sampler: number;
 }
 
+/** Final owners replace task scheduling and storage declarations while sharing
+ * the compiler and exact resident sampling semantics. */
+export interface AppearanceKernelIntegration {
+  readonly groups: readonly (readonly GPUBindGroupLayoutEntry[])[];
+  readonly declarations: string;
+  readonly entrySource: string;
+  readonly outputBits: Readonly<Record<string, number>>;
+}
+
 /**
  * Deterministic resource/ABI integration of the compiled numeric program.
  * Tasks of one topology may reference different material constant/route offsets;
@@ -32,7 +41,8 @@ export interface AppearanceSampleResourceProfile {
  * RGB/sRGB RGB and independently linear alpha. Do not decode these samples twice.
  */
 export function appearanceResidentKernel(program: CompiledAppearanceGraph,
-  resources: readonly AppearanceSampleResourceProfile[], productResources: readonly (number | null)[] = []): AppearanceResidentKernel {
+  resources: readonly AppearanceSampleResourceProfile[], productResources: readonly (number | null)[] = [],
+  integration?: AppearanceKernelIntegration): AppearanceResidentKernel {
   if (resources.length !== program.samples.length || resources.some(resource =>
     !Number.isInteger(resource.bank) || resource.bank < 0 || resource.bank >= 9 ||
     !Number.isInteger(resource.sampler) || resource.sampler < 0 || resource.sampler >= 6)) {
@@ -48,7 +58,7 @@ export function appearanceResidentKernel(program: CompiledAppearanceGraph,
   }
   const bankMask = resources.reduce((mask, resource) => mask | (1 << resource.bank), 0) & GPU_TEXTURE_BANK_ALL_MASK;
   const samplerMask = resources.reduce((mask, resource) => mask | (1 << resource.sampler), 0);
-  const lowered = lowerAppearanceWgsl(program);
+  const lowered = lowerAppearanceWgsl(program, integration?.outputBits);
   const visibility = GPUShaderStage.COMPUTE;
   const group: GPUBindGroupLayoutEntry[] = [
     { binding: 0, visibility, buffer: { type: "read-only-storage", minBindingSize: 4 } },
@@ -121,7 +131,7 @@ fn appearance_product_sample_${index}(uv: vec2f) -> vec4f {
     (uv - route.uv.xy) * route.uv.zw, i32(route.identity.x), dx, dy);
 }`);
   });
-  const source = `
+  const regularDeclarations = `
 struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: vec4f }
 @group(0) @binding(0) var<storage, read> appearance_constants: array<f32>;
 @group(0) @binding(1) var<storage, read> appearance_routes: array<AppearanceRoute>;
@@ -132,10 +142,8 @@ struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: 
 var<private> appearance_task: vec4u;
 fn appearance_constant(index: u32) -> f32 { return appearance_constants[appearance_task.x + index]; }
 fn appearance_input(index: u32, channel: u32) -> f32 { return appearance_inputs[appearance_task.z + index][channel]; }
-${sampling}
-${productDeclarations.join("\n")}
-${productFunctions.join("\n")}
-${lowered.source}
+`;
+  const regularEntry = `
 @compute @workgroup_size(${APPEARANCE_WORKGROUP_SIZE})
 fn main(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= appearance_dispatch.x { return; }
@@ -145,7 +153,16 @@ ${Array.from({ length: lowered.outputCount }, (_, index) =>
     `  appearance_outputs[appearance_task.w + ${index}u] = value[${index}];`).join("\n")}
 }
 `;
-  const groups = productBindings.size > 0 ? [group, textures, productGroup] : textures.length === 0 ? [group] : [group, textures];
+  const source = `
+${integration?.declarations ?? regularDeclarations}
+${sampling}
+${productDeclarations.join("\n")}
+${productFunctions.join("\n")}
+${lowered.source}
+${integration?.entrySource ?? regularEntry}
+`;
+  const ownerGroups = integration?.groups ?? [group];
+  const groups = productBindings.size > 0 ? [...ownerGroups, textures, productGroup] : textures.length === 0 ? [...ownerGroups] : [...ownerGroups, textures];
   return Object.freeze({ descriptor: Object.freeze({ source, entryPoint: "main", workgroupSize: APPEARANCE_WORKGROUP_SIZE,
     groups: Object.freeze(groups) }), lowered,
     inputVectorCount: program.inputs.length + (program.samples.length + productRoute) * 2, bankMask,

@@ -2,7 +2,7 @@ import { GEOMETRY_VERTEX_DATA_TYPE_CODE } from "../assets/GeometryAssetPackage.j
 import { GPU_NORMAL_FORMAT, GPU_POSITION_FORMAT, GPU_UV_FORMAT } from "../gpu/GpuGeometryAbi.js";
 import { GPU_MESHLET_DECODE_PROFILE } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
-export function geometryWgsl(virtualGeometry: boolean, virtualBankCount = 4): string {
+export function geometryAttributeDecodeWgsl(virtualGeometry: boolean, virtualBankCount = 4): string {
   if (virtualGeometry && (!Number.isInteger(virtualBankCount) ||
       virtualBankCount < 1 || virtualBankCount > 4)) {
     throw new RangeError("Surface virtual geometry needs 1 to 4 physical banks");
@@ -21,6 +21,20 @@ fn sparse_virtual_bank_word(bank: u32, word: u32) -> u32 {
   ${bankWords}
   return 0u;
 }
+
+/** Shared frame-attribute lane contract: normal, tangent, uv0/uv1 and color
+ * occupy eight vec4s per selected vertex; joints/weights are the final two
+ * lanes. Consumers never infer these offsets from a work slot. */
+export const FRAME_RESIDENT_ATTRIBUTE_WGSL = /* wgsl */ `
+fn frame_attribute_base(vertex: u32) -> u32 { return vertex * 8u; }
+fn frame_resident_normal(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec3f { return (*attributes)[frame_attribute_base(vertex)].xyz; }
+fn frame_resident_tangent(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec4f { return (*attributes)[frame_attribute_base(vertex) + 1u]; }
+fn frame_resident_uv0(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec2f { return (*attributes)[frame_attribute_base(vertex) + 2u].xy; }
+fn frame_resident_uv1(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec2f { return (*attributes)[frame_attribute_base(vertex) + 2u].zw; }
+fn frame_resident_color(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec4f { return (*attributes)[frame_attribute_base(vertex) + 3u]; }
+fn frame_resident_joints(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec4u { return bitcast<vec4u>((*attributes)[frame_attribute_base(vertex) + 4u]); }
+fn frame_resident_weights(attributes: ptr<storage, array<vec4f>, read>, vertex: u32) -> vec4f { return (*attributes)[frame_attribute_base(vertex) + 5u]; }
+`;
 fn sparse_virtual_u8(bank: u32, byte_offset: u32) -> u32 {
   return (sparse_virtual_bank_word(bank, byte_offset >> 2u) >> ((byte_offset & 3u) * 8u)) & 0xffu;
 }
@@ -272,34 +286,5 @@ fn sparse_fallback_tangent(normal: vec3f) -> vec3f {
 fn sparse_color(geometry_base: u32, vertex: u32) -> vec3f { return sparse_stream(geometry_base, 53u, vertex, vec4f(1.0)).xyz; }
 ${virtualAttributeWgsl}
 
-struct SparseBarycentric { weights: vec3f, ddx: vec3f, ddy: vec3f, valid: bool, }
-fn sparse_projected_pixel(value: vec4f) -> vec2f {
-  let ndc = value.xy / value.w;
-  return vec2f(
-    (ndc.x * 0.5 + 0.5) * f32(shading_view.width),
-    (0.5 - ndc.y * 0.5) * f32(shading_view.height)
-  );
-}
-fn sparse_barycentric(pixel: vec2f, c0: vec4f, c1: vec4f, c2: vec4f) -> SparseBarycentric {
-  var result = SparseBarycentric(vec3f(1.0, 0.0, 0.0), vec3f(0.0), vec3f(0.0), false);
-  if any(abs(vec3f(c0.w, c1.w, c2.w)) < vec3f(1e-8)) { return result; }
-  let p0 = sparse_projected_pixel(c0); let p1 = sparse_projected_pixel(c1); let p2 = sparse_projected_pixel(c2);
-  let d = (p1.y-p2.y)*(p0.x-p2.x)+(p2.x-p1.x)*(p0.y-p2.y);
-  if abs(d) < 1e-8 { return result; }
-  let l0=((p1.y-p2.y)*(pixel.x-p2.x)+(p2.x-p1.x)*(pixel.y-p2.y))/d;
-  let l1=((p2.y-p0.y)*(pixel.x-p2.x)+(p0.x-p2.x)*(pixel.y-p2.y))/d;
-  let s=vec3f(l0,l1,1.0-l0-l1); let sx=vec3f(p1.y-p2.y,p2.y-p0.y,p0.y-p1.y)/d; let sy=vec3f(p2.x-p1.x,p0.x-p2.x,p1.x-p0.x)/d;
-  let rw=1.0/vec3f(c0.w,c1.w,c2.w); let w=s*rw; let wx=sx*rw; let wy=sy*rw; let sum=dot(w,vec3f(1.0));
-  if abs(sum) < 1e-8 { return result; }
-  let ix=dot(wx,vec3f(1.0)); let iy=dot(wy,vec3f(1.0));
-  // The Forge CalcFullBary: finite one-pixel projected differences match the
-  // raster texture footprint better than the infinitesimal quotient derivative.
-  if abs(sum+ix) < 1e-8 || abs(sum+iy) < 1e-8 { return result; }
-  result.weights=w/sum;
-  result.ddx=(w+wx)/(sum+ix)-result.weights;
-  result.ddy=(w+wy)/(sum+iy)-result.weights;
-  result.valid=true; return result;
-}
-fn sparse_affine(instance: OEngineInstanceRecord) -> mat4x4f { return oengine_instance_current_object_to_world(instance); }
 `;
 }

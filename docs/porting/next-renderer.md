@@ -23,6 +23,22 @@
 - **构建与局部回归**：OEngine typecheck/build、examples build:examples、单线程及 pthread WASM 构建、Native cooker 构建通过；56 项 contract/oracle/scheduler 测试通过，另有 Native/WASM 同 GLB 对照与 validation overflow-source 检查通过。examples 构建仍有已有的 large.glb 缺失及大 chunk 警告。
 - **未完成验证及成本**：前轮 Chrome 插件缺少 `scripts/browser-client.mjs`；本轮按用户要求不启动浏览器，Showcase 近距离/旋转截图与整帧视觉验收由用户手动完成。Dawn GPU oracle 不替代浏览器整链画面验证。位置从 6 B 增加到 12 B/vertex，最终 stride 按 4 B 对齐；关闭 previous-HZB 可能增加 work。本轮不作性能提升或完整 Nyx runtime parity 声明。
 
+## 2026-10-01 S2：真实选中顶点与最终目录接线
+
+此项复用现有固定 Nyx `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b` / MIT 的 `VBufferMesh.slang::GetClipPosition/BuildVertexOutput` 与当前普通 Geometry ABI 解码。绑定、变换提升、目录重排和生命周期属本地集成，不宣称完整 Nyx Mesh Shader/primitive culling、resident 属性或形变移植。winner 继续下面具名本地 `HomogeneousWinnerInterpolation` profile；未新增同名近似算法。
+
+| 固定来源/既有输入与阶段 | 本地 producer → consumer | 保留的条件/边界 |
+| --- | --- | --- |
+| 普通 `GpuGeometryAbi` position decoder；meshlet vertex/index ranges | `frame_geometry_vertices.ts::frame_vertex_load_source/frame_vertex_position/frame_triangle_corner` → arena clips/packed triangles → `meshlet_bucket_visibility.ts` | 每选中 meshlet-local 顶点一次；普通压缩/offset decoder 原样复用；原始三角形顺序，Raster保留镜像corner交换 |
+| Nyx Float32 Product页、group/meshlet/header/profile；generation-tagged地址 | 同名Product producer helpers → Product Raster、winner shader | 沿用原页/代际/format准入与Float32 xyz，不恢复已废弃U16路径；不宣称Nyx完整剔除/LOD接缝对齐 |
+| 已选中实例 clip matrix | `FrameInstanceTransforms` → `FrameGeometryVertices` → ordinary/Product Raster | GPU actual written count → 2D indirect；128 lanes、一次workgroupBarrier，thread-0 helper可以return但所有entry lanes先到barrier；bounded CAS32次，顶点/三角形预算独立 |
+| 当前已有保守 Product HZB判据与原work queue | `current_hzb_late_recheck.ts` reservation → filtered queue与同slot geometry directory → filtered Raster/winner | 不打包原index进LOD/profile/flags；dispatch按GPU实际written count；indirect write/read不同scope；目录generation不匹配时写零，Raster同shader源解码保覆盖 |
+| arena不可变metadata与owner生命周期 | `PackedVisibilityPass` → 唯一frame encoder/FrameGraph → Raster，GraphicsContext内存账本 | submit才commit，abort重试；全帧资源复用；新增/退休重叠计累计bytes；production draw不编译PSO，Scene发布先await异步vertex/HZB及有限Raster族 |
+
+真实Native与安装的有界面Chrome154.0.8037.92各执行18组、9,670覆盖像素：ordinary/Product的源position在build后改写而Raster/winner输出不变，证明真实共享clip消费；保守HZB淘汰与最终slot重排、stale目录、独立容量miss、空帧、镜像/非均匀/剪切、motion/camera、65,537项二维网格通过。clip最大误差5.96046448e-8、Gaussian权重1.58964244e-7、footprint2.17837548e-7；诊断API errors/device loss零、各case释放后owner accounting零。Chrome另13族真实PSO编译通过，包括MASK与16-storage Product/scalar-AO旧consumer。Native仍输出其他adapter/cache blob诊断。
+
+**边界**：CPU合同覆盖生产PackedVisibility编排和rollback，独立GPU宿主消费真实owners/shaders，但尚未运行Showcase整帧或新Surface生产winner；预算miss时Raster仍覆盖，而winner缺几何返回invalid，下一模块必须补足同帧几何供给。共享的是meshlet-local clip/triangles，尚非resident属性/形变/跨meshlet唯一vertex或稳定source/LOD地址。旧FrameInstance+Surface Native宿主加新绑定后两次异常退出；fresh pending记录定位到`frame/shear-raster`。单独shear及关闭并行Chrome后的串行10帧/3,533像素均通过，snapshot逐byte一致，normal误差7.17062618e-8，API errors/device loss零；失败发生时存在其他GPU编译工作，但未建立因果，不把串行成功冒称已修复Native/driver根因。保留失败日志，最终GPU采集串行。S2保持未完成，未提升上游采用或性能/画质状态。
+
 ## 2026-10-01 S2：HomogeneousWinnerInterpolation 来源 profile
 
 固定完整实现：[The Forge VisibilityBufferShadingUtilities.h.fsl](https://github.com/ConfettiFX/The-Forge/blob/cd5046893faba2dc7869243873bf01f02a6f0df9/Common_3/Renderer/VisibilityBuffer2/Shaders/FSL/VisibilityBufferShadingUtilities.h.fsl)，revision `cd5046893faba2dc7869243873bf01f02a6f0df9`，Apache-2.0；本轮核读全部文件及根 LICENSE。参考 [DAIS](https://cg.ivd.kit.edu/publications/2015/dais/DAIS.pdf) §3–6、Appendix A 和 [Visibility Buffer](https://jcgt.org/published/0002/02/04/paper.pdf) §2–4：前者将属性分子与齐次分母的线性系数按 triangle 保存，后者确认逐像素重新变换/插值的代价与微三角形的收益限制。未运行 donor 工程或其 benchmark。
@@ -671,3 +687,16 @@ This is marked local integration. The E7 Timberdoodle mapping and its `not adopt
 ### R07 E9 module checks (2026-09-28)
 
 The local page-table ABI now allocates 32 bytes per entry across disjoint mip planes. `VsmCasterRecordPass` uses the entry's mip for page overlap; `VsmAtlasRasterPass` clears GPU-selected dirty slots before raster and keeps dirty pages uncommitted on caster overflow. CPU oracles cover indexing, profile limits, allocation reuse/eviction/overflow and device epoch; Chrome WebGPU compiled the seven VSM modules, validated ordinary/Product/clear render pipelines, read back a dirty slot cleared to zero while its clean neighbor stayed at one, and observed sampling visibility 1/1/0/1 for missing/dirty/occluded-clean/stale pages. These checks do not establish complete off-camera caster coverage or a full production GPU producer-to-consumer capture. The Surface sampling fallback and overflow-mask diagnostic slots are reserved rather than measured. R07 remains **not adopted**; source mapping, WGSL/CPU checks and real production GPU evidence must all be present before promotion.
+# Surface 第一步：DependencySamplePages 本地缓存 profile（2026-10-01）
+
+新动态 Appearance 缓存采用具名本地 `DependencySamplePages`，状态为实现中/未采用验证。审读完整源码来源为 [WeakKnight/real-time-seamless-object-space-shading](https://github.com/WeakKnight/real-time-seamless-object-space-shading/tree/473a59bbcdd30e3366cc567d66a5a97353620d48)，固定 revision `473a59bbcdd30e3366cc567d66a5a97353620d48`，Apache-2.0 (`License`)；完整源码的本地副本已与该 revision 的 raw 文件逐字节比对。论文为 *Real-Time Seamless Object Space Shading*，技术文章为 NVIDIA Texture Space Shading。不是 Unity/RT/GI/Htex 完整移植。
+
+| 来源完整阶段/入口 | 本地对应阶段与决策 |
+| --- | --- |
+| `ObjectSpaceShading/Assets/Shaders/Resources/ShadelMemoryProcessing.compute`：页需求、占用、allocation、remap、历史有效性 | Appearance cache 的 request/elect/publish/update/consume 独立 dispatch；固定预算物理页。没有跨 workgroup 等待，失效版本禁止旧内容被消费 |
+| `Resources/RenderTaskProcessing.compute`：占用到连续任务、count 与 indirect args | GPU bucket count/prefix/scatter → 实际数量二维 indirect，按程序 topology 与真实 resource set 调度，不逐材质扫描全屏 |
+| `VirtualRenderTexture.cginc`：地址、mip/footprint、seam 与有效内容查询 | 本地完整依赖签名包含 source domain、数值输入、所有相关源采样坐标/显式 footprint；hash 只选物理 set，完整签名比较确认命中 |
+| `ShadelAllocator.cginc`：有界物理容量、free/occupied 索引 | 固定四路 set 的竞争用独立候选 election；内容在下一 dispatch 发布，当前帧被引用的已提交内容不淘汰；年龄淘汰，miss 走同一编译字段程序直接求值 |
+| `Assets/Scripts/ObjectSpaceShadingPipeline.cs`：阶段顺序、history/frame 生命周期 | 同一 frame encoder；publication 定义 scene/resource epoch，resize/cut 不清跨帧 Appearance，销毁/退休由实际 GPU owner 管理 |
+
+算法差异明确：Unity donor 的固定 spatial shadel/八种 occupancy size、Htex halfedge 插值和 RT/GI 不被同名简化替代。本地按编译字段的完整**已过滤输入签名**保存实际宽度 scalar/vec3；不同 UV/梯度不被未验证地量化为同一 texel，不对非线性图结果再做双线性插值。常量/便宜源程序和离线静态页不进入动态样本缓存；昂贵 view/nonlocal 项按目标执行。它保留字段版本、完整输入输出、过滤条件、需求/去重、分配/更新/淘汰/同帧 miss 全覆盖，实际净收益与移动相机命中率仍需第三步证明，不能宣称继承 donor 性能或完成上游移植。

@@ -13,11 +13,11 @@ import { RenderTargets } from "../RenderTargets.js";
 import { GPUViewKey, ViewManager } from "../ViewManager.js";
 import { GPUCameraStateManager } from "../GPUCameraState.js";
 import { VisibilityFeature, type PackedVisibilityJob } from "../features/VisibilityFeature.js";
-import { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
 import { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
 import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
+import { AppearanceCachePass } from "../surface/AppearanceCachePass.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
@@ -276,7 +276,6 @@ export class Renderer {
   private _cameraStates!: GPUCameraStateManager;
   private _views!: ViewManager;
   private _visibilityFeature!: VisibilityFeature;
-  private _surfaceMaterial!: SurfaceMaterialPass;
   private _xeGtaoPreparation!: XeGtaoPreparationPass;
   private _xeGtaoMain!: XeGtaoMainPass;
   private _xeGtaoDenoise!: XeGtaoDenoisePass;
@@ -284,6 +283,7 @@ export class Renderer {
   private _physicalSky: PhysicalSkyPass | null = null;
   private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
+  private _appearanceCache!: AppearanceCachePass;
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
   private _temporalFacts!: TemporalFactsPass;
@@ -1203,11 +1203,11 @@ export class Renderer {
         // The SDR configure in resize is the fallback on unsupported devices.
       }
     }
-    this._surfaceMaterial = new SurfaceMaterialPass(device, config.surfaceShadingBudget, this._profiler, () => this.perf_gpu_counters_enabled);
     this._xeGtaoPreparation = new XeGtaoPreparationPass(device);
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
+    this._appearanceCache = new AppearanceCachePass(this._graphics.appearance_cache);
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
     this._bloom = new BloomPass(device);
@@ -1257,8 +1257,8 @@ export class Renderer {
   private frameProgramOwners(): FrameProgramOwners {
     return {
       visibility: this._visibilityFeature,
-      surface: this._surfaceMaterial,
       temporalFacts: this._temporalFacts,
+      appearanceCache: this._appearanceCache,
       radiometry: this._gpuRadiometry,
       bloom: this._bloom,
       debug: this._renderDebugViewPass,
@@ -1432,6 +1432,7 @@ export class Renderer {
         : null;
       const vsmGeneration = this._vsmGeneration.begin({
         deviceEpoch: this.deviceEpoch,
+        frameIndex,
         scene,
         sceneRevision: runtime.shadingPublication.revision,
         casterRevision: this._vsmCasterPublicationRevision,
@@ -1660,7 +1661,6 @@ export class Renderer {
     this._destroyed = true;
     this._deviceLost = true;
     this._visibilityFeature?.destroy();
-    this._surfaceMaterial?.destroy();
     this._xeGtaoMain?.destroy();
     this._xeGtaoPreparation?.destroy();
     this._physicalSky?.destroy();

@@ -129,7 +129,6 @@ export class GpuDrivenPanel {
     const queueLines = buildQueueSummaries(focused).map((queue) =>
       `${queue.label}: current ${queue.current ?? "unsupported"} / capacity ${queue.capacity ?? "unsupported"} / peak ${queue.peak ?? "unsupported"} / overflow ${queue.overflow ?? "unsupported"}`
     );
-    queueLines.push(triangleSetupHitRatio(focused[0]));
     queueLines.push(geometryAmplificationSummary(focused[0]));
     queueLines.push(shadingSummary(focused[0]));
     this.queues.textContent = queueLines.join("\n");
@@ -167,12 +166,4 @@ function geometryAmplificationSummary(frame: ProfileFrame | undefined): string {
     ? paddedVertices / (rasterVertices + paddedVertices)
     : 0;
   return `Geometry amplification: ${queueBytes} queue B · ${bytesPerMeshlet.toFixed(1)} B/meshlet · ${(paddingRatio * 100).toFixed(1)}% padding`;
-}
-
-function triangleSetupHitRatio(frame: ProfileFrame | undefined): string {
-  const hits = read(frame, "gpu.counter.setupVisiblePixelHits").value;
-  const fallbacks = read(frame, "gpu.counter.setupVisiblePixelFallbacks").value;
-  if (hits === null || fallbacks === null) return "TriangleSetup visible hit ratio: unsupported";
-  const samples = hits + fallbacks;
-  return `TriangleSetup visible hit ratio: ${samples > 0 ? `${((hits / samples) * 100).toFixed(1)}%` : "0.0%"} (${hits} hit / ${fallbacks} fallback)`;
 }

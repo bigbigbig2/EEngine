@@ -90,12 +90,6 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
   const coverage = material.transparency_mode === ShadeTransparencyMode.AlphaTested
     ? "masked" : material.transparency_mode === ShadeTransparencyMode.Transparent
       ? "transparent" : "opaque";
-  if (coverage === "transparent" && (coatFactor > 0 || specularFactor !== 1 ||
-      ior !== 1.5 || specularColor.some((value) => value !== 1) ||
-      material.texture_specular !== undefined || material.texture_specular_color !== undefined)) {
-    throw new Error(`Material '${material.name}' needs the independent transparent closure provider`);
-  }
-
   // The graph is a finite set of typed texture leaves and factor nodes. Constant
   // zero coat removes its leaves; unlit removes all lighting-only leaves.
   const leaves: readonly [MaterialTextureRole, ShadeTexture | undefined, number,
@@ -114,13 +108,13 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.specular_uv_offset, material.specular_uv_scale, material.specular_uv_rotation, MATERIAL_FEATURE.SpecularTexture],
     ["specularColor", material.is_unlit ? undefined : material.texture_specular_color, material.specular_color_uv_set,
       material.specular_color_uv_offset, material.specular_color_uv_scale, material.specular_color_uv_rotation, MATERIAL_FEATURE.SpecularColorTexture],
-    ["coat", coatFactor > 0 ? material.texture_clearcoat : undefined, material.clearcoat_uv_set,
+    ["coat", material.texture_clearcoat, material.clearcoat_uv_set,
       material.clearcoat_uv_offset, material.clearcoat_uv_scale, material.clearcoat_uv_rotation, MATERIAL_FEATURE.CoatTexture],
-    ["coatRoughness", coatFactor > 0 ? material.texture_clearcoat_roughness : undefined,
+    ["coatRoughness", material.texture_clearcoat_roughness,
       material.clearcoat_roughness_uv_set, material.clearcoat_roughness_uv_offset,
       material.clearcoat_roughness_uv_scale, material.clearcoat_roughness_uv_rotation,
       MATERIAL_FEATURE.CoatRoughnessTexture],
-    ["coatNormal", coatFactor > 0 ? material.texture_clearcoat_normal : undefined,
+    ["coatNormal", material.texture_clearcoat_normal,
       material.clearcoat_normal_uv_set, material.clearcoat_normal_uv_offset,
       material.clearcoat_normal_uv_scale, material.clearcoat_normal_uv_rotation,
       MATERIAL_FEATURE.CoatNormalTexture]
@@ -146,7 +140,6 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       equivalentSample: equal < 0 ? samples.length : samples[equal]!.equivalentSample }));
   }
   const definition = material.appearance_definition;
-  if (definition?.graph != null && coverage !== "opaque") throw new Error("Authored Appearance coverage needs the new Visibility consumer");
   const expected: Readonly<Record<string, number>> = material.is_unlit ? { baseColor: 3, alpha: 1 } : {
     baseColor: 3, alpha: 1, metallic: 1, roughness: 1, occlusion: 1, emissive: 3, normalTS: 3,
     ior: 1, specularWeight: 1, specularColor: 3, coatWeight: 1, coatRoughness: 1, coatNormalTS: 3 };

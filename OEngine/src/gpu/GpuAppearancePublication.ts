@@ -10,12 +10,18 @@ import { decodeGpuTextureRef, GPU_TEXTURE_REF_INVALID } from "./GpuTextureRefAbi
 import { encodeSamplerClass, GPU_MATERIAL_VISIBILITY_SAMPLER } from "./GpuMaterialVisibilityAbi.js";
 import { AppearanceStaticResidency, appearanceStaticTextureKey, type AppearanceStaticLease } from "./AppearanceStaticResidency.js";
 import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js";
+import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
+import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
+import { appearanceCachePlan, appearanceCacheIntegration } from "../shaders/appearance_cache.js";
+import { APPEARANCE_FIELD_COUNT } from "./GpuAppearanceCacheAbi.js";
+import type { GpuAppearanceCache, PreparedAppearanceCache } from "./GpuAppearanceCache.js";
 
 export const APPEARANCE_DIRECTORY_STRIDE = 32;
 /** u32 version, scalar output base, width, dependency mask. */
 export const APPEARANCE_FIELD_RECORD_STRIDE = 16;
 
 export interface AppearancePublicationSource {
+  readonly material: StandardShadeMaterial;
   readonly materialSlot: number;
   readonly textureBindingSetId: number;
   readonly program: CompiledAppearanceGraph;
@@ -24,6 +30,8 @@ export interface AppearancePublicationSource {
 }
 
 export interface AppearancePublishedEntry {
+  readonly material: StandardShadeMaterial;
+  readonly inputBase: number;
   readonly materialSlot: number;
   readonly textureBindingSetId: number;
   readonly constantBase: number;
@@ -43,6 +51,10 @@ export class GpuAppearancePublication {
   readonly constants: GPUBuffer;
   readonly routes: GPUBuffer;
   readonly fields: GPUBuffer;
+  /** Numeric dynamic inputs, one vec4 per compiled named input. Geometry and
+   * surface inputs are supplied by the shared geometry consumer, not this table. */
+  readonly runtimeInputs: GPUBuffer;
+  readonly cache!: PreparedAppearanceCache;
   /** Eight u32s: material, PSO, constants, routes, resources, field base, field count, reserved. */
   readonly directory: GPUBuffer;
   readonly allocatedBytes: number;
@@ -50,6 +62,10 @@ export class GpuAppearancePublication {
   private readonly leases: readonly AppearanceProgramLease[];
   private readonly staticLeases: AppearanceStaticLease[] = [];
   private readonly buffers: GPUBuffer[] = [];
+  private constantValues!: Float32Array<ArrayBuffer>;
+  private inputValues!: Float32Array<ArrayBuffer>;
+  private fieldWords!: Uint32Array<ArrayBuffer>;
+  private fieldDependencies: readonly (readonly number[])[] = [];
   private readonly accountingHandles: ResourceHandle[] = [];
   private pipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] | null = null;
   private readonly cancelReadiness: (reason: Error) => void;
@@ -62,7 +78,8 @@ export class GpuAppearancePublication {
     sources: readonly AppearancePublicationSource[], command: ShadeGPUCommandContext,
     mipRanges: ReadonlyMap<ShadeTexture, readonly [number, number]>,
     texturePublications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>,
-    private readonly accounting?: ResourceAccounting, staticResidency?: AppearanceStaticResidency) {
+    private readonly accounting?: ResourceAccounting, staticResidency?: AppearanceStaticResidency,
+    private readonly cacheOwner?: GpuAppearanceCache) {
     if (command.device !== device || command.closed) throw new Error("Appearance requires an open command on its GPUDevice");
     const entries: AppearancePublishedEntry[] = [];
     const leaseList: AppearanceProgramLease[] = [];
@@ -70,6 +87,8 @@ export class GpuAppearancePublication {
     const leaseIndices = new Map<string, number>();
     const resourceSets = new Map<string, number>();
     const constants: number[] = [];
+    const runtimeInputs: number[] = [];
+    const fieldDependencies: number[][] = [];
     const fields: number[] = [];
     const routes: ArrayBuffer[] = [];
     const directoryWords = APPEARANCE_DIRECTORY_STRIDE / 4;
@@ -112,7 +131,10 @@ export class GpuAppearancePublication {
           assets.set(read.asset.runtime.manifest.assetId, read.asset);
           return binding;
         });
-        const candidate = appearanceResidentKernel(source.program, resources, productResources);
+        const cachePlan = appearanceCachePlan(source.program, source.program.inputs.length + (source.program.samples.length +
+          (source.program.productReads ?? []).filter(read => read.field.constant === undefined).length) * 2, 64);
+        const candidate = appearanceResidentKernel(source.program, resources, productResources,
+          appearanceCacheIntegration(cachePlan));
         const kernelKey = candidate.lowered.templateKey + ":resident-linear:" + JSON.stringify([resources, productResources]);
         // Metadata (output names and parameter provenance) belongs to each
         // material program even when its WGSL topology shares the same PSO.
@@ -127,16 +149,41 @@ export class GpuAppearancePublication {
           leaseIndices.set(kernelKey, programIndex);
         }
         const constantBase = constants.length;
+        const inputBase = runtimeInputs.length / 4;
+        for (const input of source.program.inputs) {
+          const value = input.domain === "surface" || input.domain === "geometry" ? undefined : source.material.appearance_inputs.get(input.name);
+          if (input.domain !== "surface" && input.domain !== "geometry" && value?.length !== input.width) {
+            throw new RangeError(`Appearance input '${input.name}' requires ${input.width} live components`);
+          }
+          runtimeInputs.push(...Array.from({ length: 4 }, (_, channel) => value?.[channel] ?? 0));
+        }
         const fieldBase = fields.length / (APPEARANCE_FIELD_RECORD_STRIDE / 4);
         for (const [name, outputs] of Object.entries(kernel.lowered.outputSlots)) {
           const version = source.fieldVersions === undefined ? 1 : source.fieldVersions.get(name)?.version;
           if (version === undefined || !Number.isInteger(version) || version < 1 || version > 0xffffffff) throw new RangeError("Appearance output field requires a nonzero u32 version");
           const dependency = source.program.outputs[name]!.reduce((mask, ref) => mask | source.program.instructions[ref]!.dependency, 0);
           fields.push(version, outputs[0]!, outputs.length, dependency);
+          const live = new Set<number>(), pending = [...source.program.outputs[name]!];
+          const numeric = new Set<number>();
+          while (pending.length) {
+            const ref = pending.pop()!;
+            if (live.has(ref)) continue;
+            live.add(ref); const instruction = source.program.instructions[ref]!;
+            if (instruction.kind === "parameter") {
+              for (const slot of kernel.lowered.parameterSlots[instruction.parameter!] ?? []) numeric.add(constantBase + slot.slot);
+            }
+            if (instruction.kind === "input") {
+              const index = source.program.inputs.findIndex(input => input.name === instruction.input);
+              const input = source.program.inputs[index]!;
+              if (input.domain !== "geometry" && input.domain !== "surface") numeric.add(-1 - (inputBase + index) * 4 - instruction.channel!);
+            }
+            pending.push(...instruction.args);
+          }
+          fieldDependencies.push([...numeric]);
         }
         // Values must come from this instance even when its topology reuses a kernel.
         constants.push(...candidate.lowered.constants);
-        entries.push(Object.freeze({ materialSlot: source.materialSlot, textureBindingSetId: source.textureBindingSetId,
+        entries.push(Object.freeze({ material: source.material, inputBase, materialSlot: source.materialSlot, textureBindingSetId: source.textureBindingSetId,
           constantBase, routeBase, programIndex, resourceSetIndex, kernel, program: source.program, productTextures, fieldBase }));
         directory.set([source.materialSlot, programIndex, constantBase, routeBase, resourceSetIndex, fieldBase,
           Object.keys(kernel.lowered.outputSlots).length, 0], index * directoryWords);
@@ -147,8 +194,9 @@ export class GpuAppearancePublication {
       routes.forEach((route, index) => routeData.set(new Uint8Array(route), index * APPEARANCE_ROUTE_STRIDE));
       const directoryData = sources.length === 0 ? new Uint32Array(directoryWords) : directory;
       const fieldData = new Uint32Array(Math.max(fields.length, APPEARANCE_FIELD_RECORD_STRIDE / 4)); fieldData.set(fields);
+      const inputData = new Float32Array(Math.max(runtimeInputs.length, 4)); inputData.set(runtimeInputs);
       const maximum = Math.min(Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize));
-      for (const data of [constantData, routeData, directoryData, fieldData]) if (data.byteLength > maximum) {
+      for (const data of [constantData, routeData, directoryData, fieldData, inputData]) if (data.byteLength > maximum) {
         throw new RangeError(`Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`);
       }
       // Publication byte admission precedes every shader/layout/pipeline/buffer creation.
@@ -165,7 +213,14 @@ export class GpuAppearancePublication {
       this.routes = this.upload(device, command, "routes", routeData);
       this.directory = this.upload(device, command, "directory", directoryData);
       this.fields = this.upload(device, command, "fields", fieldData);
-      this.allocatedBytes = constantData.byteLength + routeData.byteLength + directoryData.byteLength + fieldData.byteLength;
+      this.runtimeInputs = this.upload(device, command, "runtime-inputs", inputData);
+      if (!cacheOwner) throw new Error("Appearance publication requires the shared cache owner");
+      const maxInputs = Math.max(0, ...sources.map(source => source.program.inputs.length +
+        (source.program.samples.length + (source.program.productReads ?? []).filter(read => read.field.constant === undefined).length) * 2));
+      this.cache = cacheOwner.prepare(maxInputs, 4, APPEARANCE_FIELD_COUNT);
+      this.constantValues = constantData; this.inputValues = inputData; this.fieldWords = fieldData;
+      this.fieldDependencies = fieldDependencies;
+      this.allocatedBytes = constantData.byteLength + routeData.byteLength + directoryData.byteLength + fieldData.byteLength + inputData.byteLength;
       this.entries = Object.freeze(entries);
       this.leases = Object.freeze(leaseList);
       let cancel!: (reason: Error) => void;
@@ -187,6 +242,7 @@ export class GpuAppearancePublication {
       for (const lease of leaseList) lease.release();
       for (const lease of this.staticLeases) lease.release();
       for (const buffer of this.buffers) buffer.destroy();
+      if (this.cache) this.cacheOwner?.release(this.cache);
       for (const handle of this.accountingHandles) accounting?.destroyed(handle);
       throw error;
     }
@@ -197,6 +253,47 @@ export class GpuAppearancePublication {
     const value = this.pipelines?.[index];
     if (value === undefined) throw new RangeError("Appearance program index is outside this publication");
     return value;
+  }
+
+  /** Encode edits into the main frame transaction. Only affected field versions
+   * advance; abort leaves CPU authority unchanged so the upload is retried. */
+  syncRuntime(command: ShadeGPUCommandContext): void {
+    if (command.device !== this.device || command.closed || (this.state !== "ready" && this.state !== "resident")) throw new Error("Appearance edits require an open resident frame");
+    const constants = this.constantValues.slice(), inputs = this.inputValues.slice();
+    const parameters = new Map<StandardShadeMaterial, ReadonlyMap<string, number>>();
+    for (const entry of this.entries) {
+      let values = parameters.get(entry.material);
+      if (!values) { values = standardAppearanceParameters(entry.material); parameters.set(entry.material, values); }
+      for (const [name, slots] of Object.entries(entry.kernel.lowered.parameterSlots)) {
+        const authored = entry.material.appearance_inputs.get(name);
+        for (const slot of slots) {
+          const value = authored?.[slot.channel] ?? values.get(name) ?? constants[entry.constantBase + slot.slot]!;
+          if (!Number.isFinite(Math.fround(value))) throw new RangeError(`Appearance parameter '${name}' is not finite f32`);
+          constants[entry.constantBase + slot.slot] = value;
+        }
+      }
+      entry.program.inputs.forEach((input, index) => {
+        if (input.domain === "surface" || input.domain === "geometry") return;
+        const value = entry.material.appearance_inputs.get(input.name);
+        if (value?.length !== input.width) throw new RangeError(`Appearance input '${input.name}' width changed`);
+        inputs.set(value, (entry.inputBase + index) * 4);
+      });
+    }
+    const changed = new Set<number>();
+    for (let i = 0; i < constants.length; i++) if (!Object.is(constants[i], this.constantValues[i])) changed.add(i);
+    for (let i = 0; i < inputs.length; i++) if (!Object.is(inputs[i], this.inputValues[i])) changed.add(-1 - i);
+    if (changed.size === 0) return;
+    const fields = this.fieldWords.slice();
+    this.fieldDependencies.forEach((dependencies, field) => {
+      if (!dependencies.some(ref => changed.has(ref))) return;
+      const word = field * 4;
+      if (fields[word] === 0xffffffff) throw new RangeError("Appearance field version exhausted; republish the scene");
+      fields[word] = fields[word]! + 1;
+    });
+    for (const [buffer, data] of [[this.constants, constants], [this.runtimeInputs, inputs], [this.fields, fields]] as const) {
+      command.writeBuffer(buffer, 0, data.buffer, data.byteOffset, data.byteLength);
+    }
+    command.onFinished.addOne(() => { this.constantValues = constants; this.inputValues = inputs; this.fieldWords = fields; });
   }
 
   evidence(): Readonly<{ allocatedBytes: number; residentBytes: number; retiringBytes: number; stagingBytes: number }> {
@@ -232,6 +329,7 @@ export class GpuAppearancePublication {
     this.cancelReadiness(new Error("Appearance publication cancelled or destroyed"));
     this.pipelines = null;
     for (const buffer of this.buffers) buffer.destroy();
+    if (this.cache) this.cacheOwner?.release(this.cache);
     for (const handle of this.accountingHandles) this.accounting?.destroyed(handle);
     for (const lease of this.leases) lease.release();
     for (const lease of this.staticLeases) lease.release();

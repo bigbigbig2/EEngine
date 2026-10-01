@@ -123,7 +123,7 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   runtime.activeShadingSummary.binRefCounts[0] = 1;
   const job = { runtime, width: 640, height: 360, assets: { sparseShading: {
     assetMetadataHeap: resource, vertexPayloadHeap: resource } }, scene: { instances: resource },
-    prepared: { workSet: { meshletWorkCandidate: { queue: resource }, frameInstances: { records: resource } }, currentHzbLateRecheck: null } };
+    prepared: { workSet: { meshletWorkCandidate: { queue: resource }, frameInstances: { records: resource }, frameGeometry: { buffer: resource } }, currentHzbLateRecheck: null } };
   const hzb = { getCurrentTexture() { throw new Error("feature-off HZB was accessed"); } };
   const fsr3 = {
     assertPreparedFrame() {},
@@ -172,9 +172,10 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       const depth = pass.write(input.depth);
       const meshletWork = pass.write(input.meshletWorkRecords);
       producedFrameInstances = pass.write(input.frameInstances);
+      const frameGeometry = pass.write(input.frameGeometry);
       const visibilityKey = pass.create("test/VisibilityKey", { kind: "transient_texture",
         width: 640, height: 360, format: "r32uint", domain: "internal-full", usage: 7 });
-      return { counters: pass.write(input.counters), frame: { visibilityKey, depth, frameInstances: producedFrameInstances, meshletWork: { records: meshletWork },
+      return { counters: pass.write(input.counters), frame: { visibilityKey, depth, frameInstances: producedFrameInstances, frameGeometry, meshletWork: { records: meshletWork },
         domain: { width: 640, height: 360 } } };
     }, addCurrentHzbLateRecheckToGraph(graph, _job, input) {
       const pass = graph.add("test/Late HZB recheck", {}, () => {});

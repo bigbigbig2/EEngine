@@ -4,6 +4,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
+import { FRAME_GEOMETRY_WGSL } from "../gpu/GpuWinnerInterpolationAbi.js";
 
 /**
  * Phase I GPU producer/consumer contract. The caller supplies conservative
@@ -126,6 +127,7 @@ ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
+${FRAME_GEOMETRY_WGSL}
 
 ${HZB_FOOTPRINT_WGSL}
 struct OEngineCurrentHzbMeshletSettings {
@@ -134,7 +136,8 @@ struct OEngineCurrentHzbMeshletSettings {
   capacity: u32,
   epsilon: f32,
   counters_enabled: u32,
-  reserved: vec2u,
+  max_workgroups: u32,
+  reserved: u32,
 };
 
 struct OEngineCurrentHzbDrawIndirect {
@@ -157,6 +160,11 @@ struct OEngineCurrentHzbDrawIndirect {
 @group(0) @binding(10) var<uniform> current_settings: OEngineCurrentHzbMeshletSettings;
 @group(0) @binding(11) var<storage, read_write> current_draw: OEngineCurrentHzbDrawIndirect;
 @group(0) @binding(12) var<storage, read_write> current_counters: array<atomic<u32>>;
+// Shared arena ranges must both use Storage usage in this dispatch. The input
+// directory is logically read-only; the binding ranges are disjoint.
+@group(0) @binding(13) var<storage, read_write> current_source_geometry: FrameGeometryDirectory;
+@group(0) @binding(14) var<storage, read_write> current_filtered_geometry: FrameGeometryDirectory;
+@group(1) @binding(0) var<storage, read_write> current_filter_dispatch: vec4u;
 
 fn current_group_header(bank: u32, location: OEngineGeometryPageLookupV1,
   group: OEngineVirtualGroupV1) -> OEngineVirtualGroupHeaderV1 {
@@ -243,13 +251,22 @@ fn prepare_current_hzb_meshlet_recheck() {
   atomicStore(&current_draw.instance_count, 0u);
   current_draw.first_vertex = 0u;
   current_draw.first_instance = 0u;
+  current_filtered_geometry.work_count = 0u;
+  current_filtered_geometry.generation = current_source.header.generation;
+  current_filtered_geometry.vertex_count = current_source_geometry.vertex_count;
+  current_filtered_geometry.triangle_count = current_source_geometry.triangle_count;
+  let groups = (min(current_source.header.written_count, min(current_source.header.capacity, current_settings.capacity)) + 63u) / 64u;
+  let x = min(groups, current_settings.max_workgroups);
+  current_filter_dispatch = vec4u(x, select((groups + max(x, 1u) - 1u) / max(x, 1u), 1u, groups == 0u), 1u, 0u);
 }
 
 @compute @workgroup_size(64)
 fn filter_current_hzb_meshlet_recheck(@builtin(global_invocation_id) id: vec3u) {
   let source_count = min(current_source.header.written_count, current_source.header.capacity);
-  if id.x >= source_count || id.x >= current_settings.capacity { return; }
-  let work = current_source.elements[id.x];
+  let x_groups = min((min(source_count, current_settings.capacity) + 63u) / 64u, current_settings.max_workgroups);
+  let index = id.y * x_groups * 64u + id.x;
+  if index >= source_count || index >= current_settings.capacity { return; }
+  let work = current_source.elements[index];
   let source_fail_open = current_source.header.generation == 0u ||
     current_source.header.overflow_count != 0u || current_source.header.invalid_count != 0u;
   if !source_fail_open && current_meshlet_occluded(work) {
@@ -259,7 +276,16 @@ fn filter_current_hzb_meshlet_recheck(@builtin(global_invocation_id) id: vec3u) 
     return;
   }
   let slot = current_reserve();
-  if slot != 0xffffffffu { current_output.elements[slot] = work; }
+  if slot != 0xffffffffu {
+    current_output.elements[slot] = work;
+    var geometry = FrameGeometryMeshlet(0u, 0u, 0u, 0u);
+    if current_source_geometry.generation == current_source.header.generation && index < current_source_geometry.work_count {
+      geometry = current_source_geometry.meshlets[index];
+    }
+    // Namespace is remapped with the queue reservation, never by packing an
+    // original index into the profile/LOD/flags ABI. Clips/triangles are reused.
+    current_filtered_geometry.meshlets[slot] = geometry;
+  }
 }
 
 @compute @workgroup_size(1)
@@ -269,5 +295,6 @@ fn finalize_current_hzb_meshlet_recheck() {
   // Invalid/stale/overflowed input is copied without rejection above. Publishing
   // the copied count is the fail-open path; zeroing it would drop all geometry.
   atomicStore(&current_draw.instance_count, written);
+  current_filtered_geometry.work_count = written;
 }
 `;

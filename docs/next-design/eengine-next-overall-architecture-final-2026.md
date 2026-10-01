@@ -5,6 +5,7 @@
 > 目标：极致性能、现代 3A 画质、WebGPU-first、GPU-driven、长期可演进  
 > 文档职责：只冻结未来不希望频繁推翻的**整体架构、核心事实层、模块边界、执行原则与性能约束**。VSM、SSSR、GI、VT、Surface Closure、Transparency、Volumetric 等模块内部的数据格式和算法细节，在对应模块进入开发阶段后继续设计。  
 > 重要说明：本设计不把当前已有文档当作既定约束。现有源码只作为工程事实与已有资产，用来判断哪些路径已经证明值得保留，哪些结构应尽早重构。
+> Surface 执行覆盖（2026-10-01）：当前采用[缓存 Surface 最终设计](./surface-cached-shading-final-2026.md)与[直接重建执行计划](../next-execution/surface-cached-shading-rebuild-2026.md)。按用户要求先删旧路径、允许中间未编译/缺图，连续完成最终目标后统一验证；本页旧 Surface v2 和逐阶段迁移描述不再约束这个范围。
 
 ---
 
@@ -773,7 +774,7 @@ XeGTAO 本身可从 depth 生成法线，先闭合 `Depth → XeGTAO → fused S
 
 ## 9. 从当前工程迁移：不重写 Geometry，先把后半段边界改对
 
-> 执行口径（2026-09-27）：下文提到的 A/B benchmark 仅指**同一新架构内的物理 topology/算法比较**，不要求维护旧/新两条可运行生产 Renderer。旧路径在新消费者接通时直接切断；模块完成后才做轻量代码检查，系统画质和正式性能比较留到整体集成。具体顺序见[架构层执行计划](../next-execution/eengine-next-architecture-layer-plan-2026.md)。
+> 执行口径（2026-10-01）：下文阶段描述是此前总体迁移背景。当前 Surface 已被[直接重建执行计划](../next-execution/surface-cached-shading-rebuild-2026.md)覆盖：删除旧路径在先，不等待新 consumer；允许实施中未编译、缺图，不逐阶段闭合或测试；最终缓存、稀疏照明、重建和真实生产接线全部实现后统一验收。旧版本比较只在最终使用固定 revision 的独立 checkout/宿主，不保留旧/新生产桥。其他模块的边界仍见[架构层执行计划](../next-execution/eengine-next-architecture-layer-plan-2026.md)。
 
 这次架构重定不应该表现为创建一个全新的 EEngine-v3。正确方式是保持当前 Geometry/Visibility 作为稳定生产输入，在它后面逐步替换 Frame/Surface/Temporal；同一新架构内的物理方案在真实消费者连通后比较，正式性能 benchmark 留待最终集成。
 

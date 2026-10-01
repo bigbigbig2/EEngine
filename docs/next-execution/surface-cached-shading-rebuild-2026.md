@@ -1,30 +1,121 @@
-# Surface 缓存与稀疏照明重构执行计划
+# Surface 最终主链直接重建执行计划
 
-日期：2026-10-01。目标：[最终设计](../next-design/surface-cached-shading-final-2026.md)的全部要求。起点：`09b220f9348700c53035d283bc4f03bc5d19764b` 的旧 Surface 生产链。用户允许分阶段提交；阶段完成不能代替整个重构完成。
+日期：2026-10-01。执行方式：按用户要求先删除旧路径，连续完成最终架构，全部实现后统一验证。目标：[Surface 最终设计](../next-design/surface-cached-shading-final-2026.md)的全部要求。旧性能基准固定为 `09b220f9348700c53035d283bc4f03bc5d19764b`，只在最终独立 checkout/宿主比较。
 
-## 1. 执行规则
+本版替代此前“先完成 S1/S2 组件与验证、保留旧 Surface 消费、逐阶段切入”的推进方式。用户允许分批提交；提交次数、组件数和测试数不作为完成度。本文更新的是接下来怎么实施，旧代码尚未因本次文档修订被删除。
 
-- 每阶段交付最终主链需要的完整模块，不能把简单全率材质优化、空类或只通过源码字符串检查当成替代算法完成。
-- 新生产消费者接入时同时切断相应旧消费者，不建立 A/B 生产开关。基础数据模块可先接入发布，尚未替换的旧生产消费明确标记为过渡事实，不报告性能目标已完成。
-- 保留准确 glTF/Standard/Coated、采样、色域与 BRDF 数学；变更执行模型与变更算法行为分别登记。
-- 复杂算法先完成来源 profile 与逐阶段映射。没有完整 donor 的部分使用具名本地算法，不冒称完整上游移植。
-- 每大模块收口运行 typecheck、build、必要数值/容量/生命周期测试。真实编译失败必须修复。用户要求的最终专项 browser/画质/性能对比属于本目标，不能以其他 provider 尚未完成为由无限推迟；未来 GI/SSSR provider 的独立实现范围也不能被隐含声明已完成。
-- 提交只包含对应阶段的连贯改动、中文动机/范围/实际验证。之前未提交的性能工具单独收口；用户新增 `neighbourhood_city_modular_lowpoly.glb` 不混入提交。
+## 1. 用户指定的推进规则
 
-## 2. 阶段与切换
+1. **先删旧链。** 开工即撤下旧 Surface 调度、Graph 接线、Probe、sample Work/Result/Resolve、generic worker、大 Setup cache 与无条件全屏 closure-lighting。不是等新消费者接好、测试通过或浏览器出图后再删。
+2. **直接写最终架构。** geometry/address、编译材质、Appearance 缓存、独立稀疏照明、历史与重建、HDR/Temporal/Presentation 作为一个连续重构整体；可同时跨 owner 改生产者、消费者、资源和 ABI。不先交付一个全率新外壳再渐进加算法。
+3. **允许中间不完整。** 工作树可以暂时未编译、无完整画面或缺效果。不为这个状态接回旧链，不建兼容 adapter、临时 consumer、占位 shader、空 provider 或新旧开关，不为旧测试恢复旧输入和产物。
+4. **开发中不跑验证。** 不运行 typecheck/build、targeted tests、组件 GPU oracle、browser、benchmark 或 verify。不以小模块闭合、测试通过、证据、clean revision、claim 或文档逐批同步为继续实现条件。后续用户明确要求的诊断按该次指令执行。
+5. **完整实现后统一跑。** 新主链全部代码、必要分支、实际 provider 消费与生命周期接线完成后，统一执行编译、数值、完整覆盖/互斥、生命周期、浏览器、连续画质和性能验收；失败在新链修复，不回到旧链。真实编译失败必须修复，不能将未编译状态当成最终交付。
+6. **复用数学，不复用旧执行模型。** 准确材质采样、BRDF、插值、灯光/VSM/环境/曝光数学及最终需要的产品可以直接迁入新 owner；不得把整支旧 worker 或旧 Pass 包装成 fallback。
+7. **只实现最终必要机制。** 不做为过渡兼容服务的泛化层、双份权威状态、逐 pixel 静态校验和吞错降级。limits 在创建前协商，稳定输入在 cook/发布/任务边界保证。容量预约、动态身份/失效、有效内容发布、写域互斥及同帧完整覆盖属于最终算法，直接实现。
+8. **来源与事实保持准确。** 已审读可复用来源不重复调查；新的复杂算法仍先核读完整源码、固定 revision/许可证/阶段并写来源映射。数值/GPU 消费和采用状态统一在最终验证确认。未实现、未运行、未达标分别陈述，不用组件通过替代生产完成。
 
-| 阶段 | 完整交付 | 删除/接通边界 | 完成证据与当前状态 |
-| --- | --- | --- | --- |
-| S0 设计与来源 | 明确输出字段、算法 profile、owner、全部要求追踪、验证范围；设定 active workstream | 新设计替代旧 Surface 目标，旧实现事实留在历史执行记录 | 本文件与来源映射已提交`182fd51`；算法模块开工前继续补完整profile |
-| S1 材质编译与 Appearance 产品 | 有类型 IR；常量折叠、输出/通道活性、等价采样、静态/动态/几何/视向依赖；固定材质 lowering；静态数据/烘焙产品与动态程序 | 材质发布消费真正编译产物；旧十角色循环在新 consumer 切入时删除 | 独立数值对照、变更/快照、过滤非等价负例、真实 GPU 编译消费；未完成 |
-| S2 几何共享与稳定地址 | residency 属性准备；同帧 transform/shape 数据；winner-demand primitive coefficients；source domain/LOD mapping | raster 与 Surface 共用新几何数据；替换 workgroup 大 Setup；Loader 无长期 GPU owner | Native/WASM/Product、透视/近裁剪/非均匀变换/接缝/LOD 数值与真实 GPU 消费；未完成 |
-| S3 新 Surface 主链与 Appearance 缓存 | 有界需求去重、页表/更新/淘汰、跨帧版本；简单源页与动态缺失统一消费；精简程序与必要字段 | 删除 Probe/旧 SampleWork/SampleResult/Resolve 调度生产依赖；完整全率覆盖是新主链合法模式 | 零工作、容量、缺页/失效、覆盖互斥、multi-UV/normal/ORM/coat；未完成 |
-| S4 独立稀疏照明 | diffuse/specular/coat 分信号需求、cluster-local primary packets、当前变化强制刷新、正确灯表/阴影/环境/能量耦合 | 取消全屏完整 lighting 默认执行；删除旧 closure lighting | 光源/视向/阴影/cluster 边界、显露、精确参考与真实减量；未完成 |
-| S5 历史与重建 | 各信号历史身份/年龄/footprint、曝光、空间重建、高频合成、Temporal/FSR3 reactive；间接 provider 的需求/历史消费 | 新 HDR 唯一 producer；无默认大 closure GBuffer；独立 provider 缺失如实记录 | 连续 motion/cut/显露视频、noise、SSR 法线需求、HDR/曝光 oracle；未完成 |
-| S6 生命周期与逐条返工 | scene/product/device epoch、resize/cut/residency；旧 owner 删除；复核最终设计每条要求、清理陈旧测试/合同 | 唯一生产依赖图闭合；接口稳定后写正式 ABI/合同 | requirement audit、typecheck/build、真实 consumer/lifecycle；未完成 |
-| S7 测试与性能验收 | 独立本地 Chrome 宿主、两 coverage 组、材质/场景/变化矩阵、独立旧 revision 对照、全部成本/P50/P95/画质 | 清除未证实的完成声明；未达目标继续返工 | Surface 至少下降50%、GPU pass合计至少下降30%，P50/P95均检查；未完成 |
+这些规则覆盖本范围内根/近目录 AGENTS、总架构计划、VALIDATION 和旧模块文档的逐阶段检查时点；其他独立 Next 模块的范围不因此改变。单 production renderer、唯一 frame submit、无本帧 GPU→CPU→GPU work control 的架构边界继续成立。
 
-S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态烘焙、动态缓存、几何共享、稀疏照明、历史验证和重建均是必做项。允许同一模块内连续修改多个 owner；不为机械文件拆分制造阶段完成声明。
+## 2. 直接重建顺序
+
+剩余工作只按下面三个大步骤推进。前两步连续编码，可以跨 owner 交叉修改，不再将几何、材质、缓存、照明、重建和生命周期拆成独立推进步骤；各算法的详细要求仍由最终设计和 R01–R24 定义。步骤之间不要求出图、编译、测试、提交或生成证据；前两步始终处于同一个 `surface-cached-shading-direct-rebuild` currentSlice，第三步才进入统一验收。
+
+### 2.1 第一步：删除旧链并完成几何与 Appearance 数据体系
+
+这是当前下一步，覆盖旧链删除以及原 S1/S2/S3 中的数据生产、需求、缓存和实际消费。首先按[最终设计 §10](../next-design/surface-cached-shading-final-2026.md#10-一次性切换与删除范围)直接移除旧 Surface 调度及 `FrameProgramLowering/RendererCore` 接线、Probe、sample ABI/Work/Result/Resolve、generic worker、大 Setup、全屏 closure-lighting，以及关联配置、计数器、shader import 和无消费者资源。旧合同与诊断宿主可失效，不为其维护兼容桥。
+
+随后在同一大步骤内完成最终共享 resident 属性、变换/形变、winner 紧凑插值、稳定 source-domain/LOD/镜像/接缝/拓扑地址；复用已有编译器、静态产品、联合过滤、驻留与字段发布，补齐实时材质输入和 masked/transparent coverage，完整实现 GPU Appearance 需求去重、页表、分配、更新、失效、淘汰与新 Surface 字段消费。常量/简单源页、昂贵静态产品和动态缺失使用最终统一语义，几何和缓存容量 miss 在同一新协议内完整供给，不借旧 worker 求值。
+
+本步交付完整的几何/地址与 Appearance 生产、缓存和消费代码，直接作为第二步输入；不把“旧链删完”或某个组件写完单独当成一次阶段交付。保留最终需要的 GPU Scene、VG/Product/Visibility、FrameGraph、统一 submit 和准确数学，允许此时缺少完整照明和最终画面。
+
+### 2.2 第二步：完成稀疏照明、重建与最终生产接线
+
+这一大步骤完成原 S4/S5 和 S6 的整链实现与清理：直接消费第一步真实表面字段，实现 diffuse/specular/coat 独立采样率、cluster-local primary packets、显露/灯光/阴影/材质/视向强制刷新与有界年龄；同步写入各信号未预曝光历史、身份/footprint 验证、时域/空间重建、高频与能量合成，以及当前帧低可信补算。新 HDR 成为唯一 producer，只物化真实需求字段。
+
+在同一步内完成真实 light list/VSM/环境/AO 和实际 provider 的字段、需求、历史消费，接通 Temporal/FSR3 reactive、曝光与 Presentation；完成 scene/product/device、resize/cut/residency、GPU retirement 全链生命周期，并删除残余旧 owner、资源和合同依赖。跨 owner 同时修改，完整算法与最终接线一起写完；不把照明、重建、输出或生命周期再拆成逐项闭合步骤，也不引入空 provider、临时消费者和第二份 temporal authority。
+
+本步交付整个最终唯一生产链及必要生命周期代码。全率直接求值只承担无法复用、容量 miss、高频或强制刷新区域，使用同一新编译材质/信号程序和最终产品，不恢复旧 Probe→sample→closure→Resolve。实现期明确资源 producer/consumer、容量、发布和写域，稳定 ABI/正式合同与 current facts 在最终接线确定后集中整理。
+
+### 2.3 第三步：统一验证、性能验收与返工
+
+前两步完整目标代码及唯一最终帧图已经写入，旧生产入口和无消费者依赖已删除，才切 currentSlice 到最终验收。第一、第二步都不运行构建或测试，不要求为了第二步开工而先验证第一步。
+
+统一执行 typecheck/build 与真实 CPU/WGSL/有限 PSO 编译，随后集中做核心数值与过滤负例、容量/缺页/失效、完整覆盖/写域互斥、空工作/indirect/所有权及生命周期检查；旧测试和宿主按最终实现更新或删除。再运行本地有界面 Chrome 的 Showcase/受控资产、场景/材质/provider 组合、resize/cut/device loss、连续 motion/disocclusion 画质，以及两组真实覆盖率与独立旧 revision 的全成本性能比较。完整矩阵和门槛见 §4–§5。
+
+编译失败、数值/覆盖/生命周期错误、画质问题和性能未达标全部在新主链返工，重测受影响范围；完成 R01–R24 审计、来源采用状态和必要稳定合同整理。返工属于同一验收大步骤，不再建立旧链对照生产开关或拆回组件推进流程。
+
+最终用户交付必须写清已通过、未运行和未达到的项目。代码写完与验收通过分别记录；性能不达标继续重构，不能用样本计数代替净收益。
+
+## 3. 完整范围与当前事实
+
+S0–S7 保留为需求标签，不再代表“完成一个、验证一个、提交一个、再推进一个”的流程。
+
+| 范围标签 | 最终完整交付 | 当前事实 |
+| --- | --- | --- |
+| S0 设计与来源 | 最终 owner/dataflow、来源 profile 和完整要求追踪 | 设计入口已建立；具体新增算法仍需来源核读 |
+| S1 材质编译与产品 | typed IR、活性/采样/依赖、有限程序、静态/动态产品、实时输入与 coverage 消费 | 动态参数、字段版本、MASK/透明 authored graph 已接入发布；最终 GPU 字段消费仍待第一步收口 |
+| S2 几何共享与稳定地址 | resident 属性、共享变换/形变、winner coefficients、稳定 source/LOD/seam 地址 | 共享变换、clip/winner、resident 属性 ABI、形变与稳定地址类型已写入；真实属性解码和 Surface 消费仍待收口 |
+| S3 Appearance 缓存与新 Surface | GPU demand/dedup/page allocation/update/eviction/versioning，新统一消费与同帧完整覆盖 | 页 ABI、GPU cache owner、版本同步与编译字段 integration 已写入；需求任务/页内容消费仍待第一步收口 |
+| S4 独立稀疏照明 | 独立 diffuse/specular/coat 率、cluster-local tasks、强制刷新、灯光/阴影/能量完整语义 | 未进入最终生产链 |
+| S5 历史与重建 | 分信号历史/曝光/footprint/重建/合成，reactive 与真实 provider demand fields | 未进入最终生产链 |
+| S6 生命周期与删除 | scene/product/device/resize/cut/residency/GPU退休，全依赖清理与最终审计 | 旧 Surface 生产入口、Probe/sample/Resolve、全屏 closure 和 TriangleSetup 已删除；最终整链生命周期仍未完成 |
+| S7 最终验收 | Chrome、画质视频、真实两 coverage 组、独立基准、全成本 P50/P95 | 未运行最终新主链验收，无性能达标声明 |
+
+截至本版修订，已提交 HEAD 为 `2d227b6`，最新共享顶点/HZB 接线在工作树中尚未提交。已有真实组件与源码资产直接复用，不要求把其测试再跑一遍才能继续。旧 Surface 生产源码和 Renderer/FrameProgram 旧接线已从工作树删除；新 Appearance cache 与几何 ABI 已接入，第一步仍有真实属性解码、GPU demand/内容消费和同帧完整覆盖缺口。
+
+后续进度只报告：旧生产依赖实际删除情况、最终主链哪些算法/消费者已写入、哪些真实缺口仍在；统一验证开始后报告实际结果。组件测试数、阶段状态、来源 adopted 或文档数量不换算为总体完成百分比。
+
+## 4. 最终 R01–R24 审计
+
+以下条目在最终统一验收时逐项确认，不要求每写一个模块就补证据或提升状态。S1–S7 是范围标签，不是实施门禁。最终证据必须指出真实生产 producer、consumer 和覆盖范围；文件存在、组件测试通过或 manifest 标记不能替代整链事实。
+
+| ID / 最终设计 | 最终必须证明 | 范围标签 |
+| --- | --- | --- |
+| R01 / §1、§3 | 可靠全率 Visibility 与独立 material/lighting rates；同 FrameGraph/唯一 submit，无本帧 CPU 控制工作 | S2–S5 |
+| R02 / §4 | 静态驻留属性与同帧 transform 真正共用，显存/带宽/被遮挡准备成本可见 | S2 |
+| R03 / §4 | 可见 primitive 紧凑系数一次生产；透视、近裁剪、退化、非均匀变换正确 | S2 |
+| R04 / §5 | 编译 IR 有输入/输出和通道依赖；常量/死输入去除、采样合并；保留全部当前材质语义 | S1 |
+| R05 / §5 | 常量/源页、昂贵静态烘焙、动态缺失三种实际产品，不能只实现简单 glTF | S1、S3 |
+| R06 / §5 | 多 UV/顶点/动态图正确，非线性过滤合同和不能烘焙的负例 | S1–S3 |
+| R07 / §5 | 有限程序族/资源 profile，无运行时十角色通用循环；进入渲染前异步 PSO | S1、S3 |
+| R08 / §6 | 稳定 source Surface 地址、各 LOD 映射、镜像/接缝/拓扑新 identity；不把 work index 当历史 key | S2、S3 |
+| R09 / §6 | GPU demand 去重/有界分配/失效/淘汰/更新；camera与显露不错误清静态缓存 | S3、S6 |
+| R10 / §6 | 字段与过滤独立；tangent-space normal和variance/roughness耦合；ORM/normal/coat没有整材质禁用规则 | S1、S3–S5 |
+| R11 / §7 | direct diffuse与specular/coat按独立率执行，2×1/1×2/2×2真正在consumer减量 | S4 |
+| R12 / §7 | 当前显露/光源/阴影/材质/视向变化强制刷新；bounded age与轮换校验 | S4、S5 |
+| R13 / §7 | 连续primary执行、正确cluster灯集合与遮挡边界，不借代表灯表漏光 | S4 |
+| R14 / §7 | diffuse、specular、coat能量/视向耦合保留；独立间接需求及真实可用provider消费 | S4、S5 |
+| R15 / §8 | identity/变化/footprint验证、同域重建、低可信当前刷新、镜面漫反射分开 | S5 |
+| R16 / §8 | FSR3不掩盖稀疏着色缺陷；显露/reactive传递；未预曝光缓存与色域一次转换 | S5 |
+| R17 / §8 | 紧凑信号格式、真实消费者字段，无默认128-byte results或全屏完整closure | S3、S5 |
+| R18 / §9 | owner唯一、bounded commit/消费、溢出同帧完整覆盖且无非法页、无跨组自旋 | S2–S6 |
+| R19 / §9 | diagnostics编译裁剪，控制原子保留；发布检查不在每pixel重复 | S3–S6 |
+| R20 / §9 | resize/cut/scene/product/device loss按域失效，不误清Appearance；capability创建前协商 | S6 |
+| R21 / §10 | 起点直接删除旧文件/owner生产依赖，最终新HDR producer唯一，无兼容桥 | 先删除，最终审计 |
+| R22 / §11 | 固定来源/许可证/完整阶段映射；局部适配与本地算法不冒称完整移植 | 各阶段 |
+| R23 / §12 | 25–35%及80–90%真实coverage，静止/运动/显露/灯光/材质/LOD/residency组合 | S7 |
+| R24 / §12 | 净Surface与整帧P50/P95门槛；全成本、冷启动、缓存miss和所有慢帧；质量视频与负例 | S7 |
+
+R14 不允许把尚未实现的 GI/SSSR 写成已完成。最终接受时必须逐项确认本次实际 provider 边界：已经存在的直接光、物理环境、AO、VSM 全部纳入；计划中 provider 需要的新需求/字段/历史消费不能靠空接口冒充。若目标实现需要它们的新算法，就继续实施和验证，不缩小本目标。
+
+## 5. 最终验收目标与边界
+
+- 固定分辨率、场景/材质/功能/画质目标与设备条件。用实际 GPU visible coverage 校准 **25%–35%** 和 **80%–90%** 两组相机。
+- 包含静止、持续移动、绕视角、新显露、光源移动、材质修改、LOD/residency 变化；覆盖 Dungeon、复杂静态/动态材质、normal/ORM/coat、双面、低 roughness/移动高光、UV/LOD 接缝、阴影与灯集合边界。
+- 对每组分别要求全成本 **Surface P50/P95 至少下降 50%**，**GPU pass 合计 P50/P95 至少下降 30%**。这仍是必须实测的目标，不是已实现收益；实际时间线/吞吐与 CPU 编码另报。
+- 计入 geometry、需求/去重、页表/缓存、任务生成、直接求值、信号历史、重建、HDR 合成、所有慢帧、冷启动与物理显存；不只报告 shader primary 数。
+- 连续视频和静帧共同核对 ghosting/flicker、细节/高光、反射法线、接缝、曝光/色域和完整覆盖；局部/整图指标与目视共同判断，不伪造通用质量阈值。
+- 已存在直接光、环境、AO、VSM 的真实消费属于本次交付。GI/SSSR 不能由空接口宣称完成；最终方案所需的新需求/字段/历史接口必须有实际消费。若本目标确实需要新增 provider 算法，继续完整实施；不以未来独立模块为由无限推迟本次专项验收，也不静默缩小范围。
+- 性能工具和 Showcase capture 已在工作树，最终按新链统一修订；原诊断中的热降频、中断和未完整矩阵不作正式性能基准。用户新增 `neighbourhood_city_modular_lowpoly.glb` 不混入无关提交。
+- 中文提交按连贯意图组织，开发期可注明“未运行编译/测试，按用户要求在完整主链实现后统一验证”；不为了提交制造可运行旧桥或伪闭环。稳定合同、current facts 与证据最终集中整理。
+
+## 6. 历史组件记录（保留事实，不作为推进规则）
+
+以下是旧推进方式留下的实现和诊断记录。其“进行中”“本模块测试”“尚未接通”等描述仅对应记录时点，后续记录已覆盖其中一部分；不要求重复验证、恢复旧消费者或逐项补历史闭环。当前实施方式以 §1–§2 为准，当前概况以 §3 为准。
+
+<details>
+<summary>展开既有 S1/S2 组件与原 S0 记录</summary>
 
 ### S1 进行中：编译基础，2026-10-01
 
@@ -84,50 +175,24 @@ build（含typecheck）、build:test及18项focused tests通过。Native/D3D12�
 
 **S2仍未完成**：当前geometry vertex producer在Native/Chrome仍为fixture；真实resident属性/共享顶点与形变、late HZB原→最终work directory重排、winner系数在新Surface生产主链消费、稳定source/LOD地址继续必做。新布局尚未接入PackedVisibility生产调度；不能把组件GPU通过或避免第17个storage绑定等同于已消除Showcase瓶颈。S1–S7范围、两coverage画质/视频和50%/30%性能门槛均不缩减，当前无最终性能通过声明。
 
-## 3. 设计要求到证明的追踪
+### S2 进行中：真实共享顶点与 late HZB 最终目录，2026-10-01
 
-所有条目初始为未完成。对应证据必须指出生产 producer、consumer 和测试覆盖范围；文件存在或 manifest 声称 completed 都不能替代证明。
+`FrameGeometryVertices`已接入唯一`PackedVisibilityPass`生产路径：实际GPU MeshletWork → 共享instance transform → 每meshlet-local vertex一次position解码/clip变换与每triangle一次packed corners → ordinary/Product Raster。128 lanes，thread-0一次加载源metadata；32次有界CAS与独立vertex/triangle预算。triangle reservation失败可留下无引用vertex hole，计物理/写入成本，目录零不丢Raster覆盖；源解码仍是相同生产shader的容量miss分支，无旧新模式开关。默认独立容量为1,048,576 vertices/triangles、262,144 dictionary slots、131,072 coefficients，whole arena上限128 MiB及累计owner256 MiB，metadata/目录/alignment全部计；这些是当前显式资源预算，**没有获得Showcase性能选型验收**。
 
-| ID / 最终设计 | 必须证明 | 主要阶段 |
-| --- | --- | --- |
-| R01 / §1、§3 | 可靠全率 Visibility 与独立 material/lighting rates；同 FrameGraph/唯一 submit，无本帧 CPU 控制工作 | S2–S5 |
-| R02 / §4 | 静态驻留属性与同帧 transform 真正共用，显存/带宽/被遮挡准备成本可见 | S2 |
-| R03 / §4 | 可见 primitive 紧凑系数一次生产；透视、近裁剪、退化、非均匀变换正确 | S2 |
-| R04 / §5 | 编译 IR 有输入/输出和通道依赖；常量/死输入去除、采样合并；保留全部当前材质语义 | S1 |
-| R05 / §5 | 常量/源页、昂贵静态烘焙、动态缺失三种实际产品，不能只实现简单 glTF | S1、S3 |
-| R06 / §5 | 多 UV/顶点/动态图正确，非线性过滤合同和不能烘焙的负例 | S1–S3 |
-| R07 / §5 | 有限程序族/资源 profile，无运行时十角色通用循环；进入渲染前异步 PSO | S1、S3 |
-| R08 / §6 | 稳定 source Surface 地址、各 LOD 映射、镜像/接缝/拓扑新 identity；不把 work index 当历史 key | S2、S3 |
-| R09 / §6 | GPU demand 去重/有界分配/失效/淘汰/更新；camera与显露不错误清静态缓存 | S3、S6 |
-| R10 / §6 | 字段与过滤独立；tangent-space normal和variance/roughness耦合；ORM/normal/coat没有整材质禁用规则 | S1、S3–S5 |
-| R11 / §7 | direct diffuse与specular/coat按独立率执行，2×1/1×2/2×2真正在consumer减量 | S4 |
-| R12 / §7 | 当前显露/光源/阴影/材质/视向变化强制刷新；bounded age与轮换校验 | S4、S5 |
-| R13 / §7 | 连续primary执行、正确cluster灯集合与遮挡边界，不借代表灯表漏光 | S4 |
-| R14 / §7 | diffuse、specular、coat能量/视向耦合保留；独立间接需求及真实可用provider消费 | S4、S5 |
-| R15 / §8 | identity/变化/footprint验证、同域重建、低可信当前刷新、镜面漫反射分开 | S5 |
-| R16 / §8 | FSR3不掩盖稀疏着色缺陷；显露/reactive传递；未预曝光缓存与色域一次转换 | S5 |
-| R17 / §8 | 紧凑信号格式、真实消费者字段，无默认128-byte results或全屏完整closure | S3、S5 |
-| R18 / §9 | owner唯一、bounded commit/消费、溢出同帧完整覆盖且无非法页、无跨组自旋 | S2–S6 |
-| R19 / §9 | diagnostics编译裁剪，控制原子保留；发布检查不在每pixel重复 | S3–S6 |
-| R20 / §9 | resize/cut/scene/product/device loss按域失效，不误清Appearance；capability创建前协商 | S6 |
-| R21 / §10 | 所列旧文件/owner生产依赖全部删除，新HDR producer唯一 | S3–S6 |
-| R22 / §11 | 固定来源/许可证/完整阶段映射；局部适配与本地算法不冒称完整移植 | 各阶段 |
-| R23 / §12 | 25–35%及80–90%真实coverage，静止/运动/显露/灯光/材质/LOD/residency组合 | S7 |
-| R24 / §12 | 净Surface与整帧P50/P95门槛；全成本、冷启动、缓存miss和所有慢帧；质量视频与负例 | S7 |
+FrameGraph新增arena生产/消费版本；immutable metadata仅成功submit后commit，稳定帧零copy。Product late HZB按同一reservation将source目录重排至filtered slot，共用clips/triangles，不污染LOD/profile/flags；prepare GPU生成实际count二维indirect，filter消费时不再按预留capacity启动。vertex/HZB与Raster有限PSO族在Scene发布前异步准备，draw只取已准备descriptor。GraphicsContext包含arena/vertex/HZB物理bytes；准备失败rollback、旧workset保持、GPU完成退休、device loss合同已测试。
 
-R14 不允许把尚未实现的 GI/SSSR 写成已完成。最终接受时必须逐项确认本次实际 provider 边界：已经存在的直接光、物理环境、AO、VSM 全部纳入；计划中 provider 需要的新需求/字段/历史消费不能靠空接口冒充。若目标实现需要它们的新算法，就继续实施和验证，不缩小本目标。
+build（含typecheck）、build:test和9组79项targeted tests通过。真实Native与**本地有界面Chrome154.0.8037.92**各18组/9,670覆盖像素，ordinary/Product build后故意改写源position，实际Raster/winner输出保持一致；HZB正确淘汰并重排最终目录，65,537项二维padded网格、独立容量miss、stale目录、empty/zero generation、camera/motion/mirror/shear通过。clip误差5.96046448e-8、独立Gaussian权重1.58964244e-7、footprint2.17837548e-7；API errors/device loss零，各case释放后owner accounting零。Chrome另13族PSO编译通过，含MASK、16-storage Product/scalar-AO旧consumer，未声明17-storage VSM组合支持。
 
-## 4. 已知证据与未完成事项
+Native保留其他adapter/cache blob诊断；旧FrameInstance+Surface宿主接新bindings后并行GPU活动期间两次异常退出，fresh pending记录定位到shear帧。单独shear与关闭并行Chrome编译后的串行10帧/3,533覆盖像素均通过；snapshot逐byte相等，clip5.96046448e-8、normal7.17062618e-8、barycentric2.09740457e-7，API errors/device loss零。尚未确立并行负载与异常退出的因果，不宣称修复了Native/driver根因，失败日志保留，正式GPU采集串行。
 
-- 旧实现的本地诊断资料保存在 `.local/validation/`；它们包括热降频和中断运行，不能作为本重构的正式性能证据。
-- 工作树中已有 performance lab、runner/analyzer 和 Showcase capture 工具。收口时修正 README、温控条件比较、失败/取消/冷启动处理；异步预热诊断不是生产同步编译故障修复。
-- 原 Dungeon 是必须覆盖的真实内容；额外使用能分别暴露复杂材质、静态烘焙、动态参数、低roughness高光、双面/coat和接缝的受控资产。
-- geometry既有画质与VSM完整遮挡缺口不因新缓存自动消失，出现相关失败时按真实owner修复。
+**S1/S2/R02/R03/R08仍不提升完成**：resident属性、形变、稳定source-domain/LOD/seam身份、新Surface真实winnerconsumer继续必做。GPU诊断中容量miss虽然保住Raster覆盖，但winner缺clip目录返回invalid；完整同帧Surface几何供给尚未实现，不能误报完整overflow覆盖。S1动态输入/coverage/source bank释放与S3–S7全部保留；旧Probe/setup/material/closure仍待删除，无新缓存/稀疏lighting性能通过。Showcase整帧、两coverage P50/P95、画质视频未运行，原因是新Surface/Lighting切换尚未完成，不缩小最终目标。
 
-## 5. 阶段记录
+### 原 S0 记录
 
 ### S0：2026-10-01
 
 已建立最终要求追踪与一次性切换范围，重新检查当前HEAD/worktree和owners。补查MaterialX固定源码作为图编译/静态烘焙参考；已有Wicked/The Forge/OSS来源继续按最终profile审读。当前尚未移植完整缓存、稀疏照明或时域算法。
 
 本阶段不改生产代码，不运行build/browser/perf。设计结构检查不能证明运行时算法。后续状态按实际提交和测试结果更新。
+
+</details>

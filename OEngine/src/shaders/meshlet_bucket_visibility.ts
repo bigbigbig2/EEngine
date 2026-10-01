@@ -12,6 +12,7 @@ import { GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { VIRTUAL_GEOMETRY_PRODUCT_WGSL } from "./virtual_geometry_product.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
+import { frameGeometryRasterWgsl } from "./frame_geometry_raster.js";
 
 export const MESHLET_BUCKET_SETTINGS_STRIDE = 256;
 export const MESHLET_BUCKET_SETTINGS_SIZE = 16;
@@ -59,6 +60,7 @@ ${GPU_MESHLET_RECORD_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
+${frameGeometryRasterWgsl(20, 21)}
 
 override OENGINE_ACTIVE_TEXTURE_BINDING_SET: u32 = 0u;
 
@@ -180,15 +182,21 @@ fn raster_meshlet_bucket(
     determinant < 0.0 && input_corner != 0u);
   let valid = triangle < meshlet.triangle_count;
   let safe_triangle = min(triangle, max(meshlet.triangle_count, 1u) - 1u);
-  let local_vertex = meshlet_read_u8(meshlet.triangle_byte_offset + safe_triangle * 3u + corner);
+  let shared_meshlet = frame_raster_meshlet(work_index);
+  let cached_geometry = shared_meshlet.z != 0u;
+  var local_vertex: u32;
+  if cached_geometry { local_vertex = frame_raster_corner(shared_meshlet, safe_triangle, corner); }
+  else { local_vertex = meshlet_read_u8(meshlet.triangle_byte_offset + safe_triangle * 3u + corner); }
   let source_vertex = meshlet_vertices[meshlet.vertex_offset + local_vertex];
-  let local_position = oengine_geometry_position(&meshlet_vertex_data, geometry, source_vertex);
   let uv0 = meshlet_read_uv(geometry, 0u, source_vertex);
   let uv1 = meshlet_read_uv(geometry, 1u, source_vertex);
   let uv2 = meshlet_read_uv(geometry, 2u, source_vertex);
   var output: OEngineMeshletBucketVertexOutput;
-  output.position = select(vec4f(2.0, 2.0, 2.0, 1.0),
-    frame_instance.object_to_clip * vec4f(local_position, 1.0), valid);
+  output.position = vec4f(2.0, 2.0, 2.0, 1.0);
+  if valid {
+    if cached_geometry { output.position = frame_raster_clip(shared_meshlet, local_vertex); }
+    else { output.position = frame_instance.object_to_clip * vec4f(oengine_geometry_position(&meshlet_vertex_data, geometry, source_vertex), 1.0); }
+  }
   output.instance_slot = work.instance_slot;
   output.meshlet_slot = work.meshlet_slot;
 ${triangleAssignment}
@@ -301,6 +309,7 @@ ${GPU_FRAME_INSTANCE_WGSL}
 ${GPU_MESHLET_RASTER_WORK_WGSL}
 ${GPU_SHADING_MATERIAL_WGSL}
 ${GPU_VISIBILITY_KEY_WGSL}
+${frameGeometryRasterWgsl(18, 19)}
 ${VIRTUAL_GEOMETRY_PRODUCT_WGSL}
 ${GPU_TEXTURE_BANK_ALPHA_LOAD_WGSL}
 
@@ -446,6 +455,8 @@ fn raster_virtual_meshlet(@builtin(vertex_index) vertex_index: u32,
   var local_vertex = 0u;
   var valid = false;
   var position = vec3f(0.0);
+  let shared_meshlet = frame_raster_meshlet(safe_work);
+  let cached_geometry = shared_meshlet.z != 0u;
   if (asset.valid && group.valid && location.valid) {
     header = product_raster_group_header(location.bank_index, location, group);
     if (header.valid) {
@@ -459,15 +470,19 @@ fn raster_virtual_meshlet(@builtin(vertex_index) vertex_index: u32,
       }
       if (meshlet.valid && triangle < meshlet.triangle_count && format_valid) {
         let triangle_byte = location.byte_offset + group.offset_in_page + meshlet.triangle_byte_offset + triangle * 3u + corner;
-        local_vertex = (product_raster_bank_word(location.bank_index, triangle_byte >> 2u) >> ((triangle_byte & 3u) * 8u)) & 0xffu;
+        if cached_geometry { local_vertex = frame_raster_corner(shared_meshlet, triangle, corner); }
+        else { local_vertex = (product_raster_bank_word(location.bank_index, triangle_byte >> 2u) >> ((triangle_byte & 3u) * 8u)) & 0xffu; }
         valid = true;
-        position = product_raster_position(location.bank_index,
-          location.byte_offset + group.offset_in_page, meshlet, format_word0, format_word1, local_vertex);
+        if !cached_geometry {
+          position = product_raster_position(location.bank_index,
+            location.byte_offset + group.offset_in_page, meshlet, format_word0, format_word1, local_vertex);
+        }
       }
     }
   }
   output.position = select(vec4f(2.0, 2.0, 2.0, 1.0),
     frame_instance.object_to_clip * vec4f(position, 1.0), valid);
+  if valid && cached_geometry { output.position = frame_raster_clip(shared_meshlet, local_vertex); }
   output.instance_slot = work.instance_slot;
   output.meshlet_slot = work.meshlet_slot;
   output.triangle = triangle;

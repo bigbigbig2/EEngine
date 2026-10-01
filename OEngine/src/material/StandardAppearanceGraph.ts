@@ -39,9 +39,9 @@ export function lowerStandardAppearanceGraph(material: StandardShadeMaterial,
   const boundedFactor = (value: number, name: string): number => Math.min(Math.max(finite(value, name), 0), 1);
   const scaleField = (scale: number, value: AppearanceRef, name: string): AppearanceRef => {
     const f = finite(scale, name);
-    // These are physical fields: constant zero is independent of finite source
-    // values. This is not a generic IEEE algebra rule applied to arbitrary IR.
-    return f === 0 ? zero : multiply(g.parameter(name, f), value);
+    // Numeric edits are frame data, including zero -> nonzero. Texture absence
+    // still folds; a currently zero live parameter must not erase its input.
+    return multiply(g.parameter(name, f), value);
   };
 
   const base = leaf("base");
@@ -49,7 +49,7 @@ export function lowerStandardAppearanceGraph(material: StandardShadeMaterial,
   const colorFactors = [material.diffuse_color.r, material.diffuse_color.g, material.diffuse_color.b];
   const baseChannels = colorFactors.map((value, index) => {
     const constant = finite(value, `base color ${index}`);
-    return constant === 0 ? zero : multiply(multiply(g.parameter(`base color ${index}`, constant), channel(color, index)), channel(base, index));
+    return multiply(multiply(g.parameter(`base color ${index}`, constant), channel(color, index)), channel(base, index));
   });
   g.output("baseColor", g.combine(...baseChannels));
   g.output("alpha", scaleField(material.diffuse_color.a, channel(base, 3), "alpha"));
@@ -60,15 +60,14 @@ export function lowerStandardAppearanceGraph(material: StandardShadeMaterial,
   g.output("roughness", clamp(scaleField(boundedFactor(material.roughness_factor, "roughness"), channel(orm, 1), "roughness")));
   const ao = leaves.has("occlusion") ? leaf("occlusion") : orm;
   const strength = boundedFactor(material.ambient_factors.a, "occlusion strength");
-  g.output("occlusion", strength === 0 ? one : g.operation("mix", one, channel(ao, 0), g.parameter("occlusion strength", strength, { low: 0, high: 1 })));
+  g.output("occlusion", g.operation("mix", one, channel(ao, 0), g.parameter("occlusion strength", strength, { low: 0, high: 1 })));
   g.output("emissive", g.combine(...[material.emissive_factor.r, material.emissive_factor.g, material.emissive_factor.b]
     .map((value, index) => scaleField(value, channel(leaf("emissive"), index), `emissive ${index}`))));
   const mappedNormal = (role: "normal" | "coatNormal", scale: number): AppearanceRef => {
     if (!leaves.has(role)) return g.constant([0, 0, 1]);
     const normal = rgb(leaf(role));
     const signed = g.operation("subtract", multiply(normal, g.constant(2)), one);
-    const xy = finite(scale, `${role} scale`) === 0 ? g.constant([0, 0]) :
-      multiply(g.swizzle(signed, [0, 1]), factor(scale, `${role} scale`));
+    const xy = multiply(g.swizzle(signed, [0, 1]), factor(scale, `${role} scale`));
     return g.combine(xy, channel(signed, 2));
   };
   g.output("normalTS", mappedNormal("normal", material.normal_scale));
@@ -78,9 +77,7 @@ export function lowerStandardAppearanceGraph(material: StandardShadeMaterial,
     material.specular_color_factor.b].map((value, index) =>
       scaleField(value, channel(leaf("specularColor"), index), `specular color ${index}`))));
   g.output("coatWeight", scaleField(material.clearcoat_factor, channel(leaf("coat"), 0), "coat weight"));
-  g.output("coatRoughness", material.clearcoat_factor > 0
-    ? scaleField(material.clearcoat_roughness_factor, channel(leaf("coatRoughness"), 1), "coat roughness") : zero);
-  g.output("coatNormalTS", material.clearcoat_factor > 0
-    ? mappedNormal("coatNormal", material.clearcoat_normal_scale) : g.constant([0, 0, 1]));
+  g.output("coatRoughness", scaleField(material.clearcoat_roughness_factor, channel(leaf("coatRoughness"), 1), "coat roughness"));
+  g.output("coatNormalTS", mappedNormal("coatNormal", material.clearcoat_normal_scale));
   return g.build();
 }

@@ -1,8 +1,8 @@
 # EEngine Next：整体架构层执行计划（2026）
 
 > 设计依据：[整体架构 final](../next-design/eengine-next-overall-architecture-final-2026.md)。本文把整体边界变成可连续实施的切断顺序；具体 VSM 页表、Surface 物理打包、GI probe 格式等仍在各自模块设计时决定。
-> 当前状态：Frame Program、统一 Temporal Facts 与 Surface sample-driven 主链已接入唯一生产路径；Surface 阶段四已完成模块清理和集中验证。browser matrix、完整画质/lifecycle、GPU P50/P95 与正式 evidence 仍属于整体 Next Renderer 验收。
-> 执行原则：每次只保留一条 production renderer path；一个大模块内部连续实现，原理与消费者连通后才集中检查；最终系统验证在主要架构和 planned providers 完成后进行。
+> 当前状态（2026-10-01）：Frame Program、统一 Temporal Facts 和旧 Surface sample-driven 链已接入；当前正在按用户要求直接重建缓存 Surface、稀疏照明与重建。材质产品与共享几何已有部分基础，旧 Surface 仍待实际删除，最终新主链及性能未验收。当前范围以 [Surface 最终设计](../next-design/surface-cached-shading-final-2026.md)和[直接重建执行计划](./surface-cached-shading-rebuild-2026.md)为准。
+> 执行原则：只有一条 production renderer path。当前 Surface 先删除旧链，允许中间未编译和没有完整画面，整个目标实现后统一验证；本页其他模块的闭合检查要求不能要求 Surface 逐组件测试或借旧链维持运行。
 
 ## 0. 目标、范围和判断方法
 
@@ -12,6 +12,8 @@
 
 **实施检查与验收分开。** 日常对照设计、源码和当前 workstream 编码；针对真实疑点可以跑 typecheck、build 或单个 targeted test。模块完整连接后集中跑一次 typecheck、build、必要 targeted tests，修复明显问题，更新 workstream 并进入下一模块。整个 Next Renderer 完成后才做跨浏览器、生命周期、质量、性能与正式证据。文档暂时滞后、旧 claim 未 accepted 或最终验收尚未满足，不阻止继续实现。
 
+当前 Surface 覆盖上段检查节奏：开发推进不跑 typecheck/build、targeted tests、组件 GPU、browser、benchmark 或 verify，不以 S1/S2 收口为继续实施条件。先撤下旧 consumer 与调度，再连续完成全部缓存/稀疏照明/重建代码和接线，最后统一检查；后续用户明确要求的诊断按该次指令执行。最终专项验收不以其他独立 provider 尚未完成为由推迟，本次真实消费边界按 Surface 执行计划核对。
+
 ## 1. 当前工程位置与旧切片的准确含义
 
 | 当前源码位置 | 已有资产/实际问题 | 对新架构的处理 |
@@ -19,8 +21,8 @@
 | `OEngine/src/render/pipeline/RendererCore.ts` | `Renderer` 仍直接拥有 Graph 拼装、Surface、环境、FSR3、Present 和生命周期；`build` 相关方法从约 1400 行开始拼资源和 Pass | 收缩成 composition root；把语义需求规划、FrameGraph lowering 与各 owner 的 pass registration 分开，不建并行 Renderer |
 | `OEngine/src/framegraph/FrameGraph.ts`、`CompiledFrameGraphCache.ts` | 已有 compile、late-bound bindings、执行和缓存基础 | 保留物理资源依赖/生命周期层；不要把语义 feature 决策塞入 Graph |
 | `OEngine/src/gpu/GpuRenderWorld.ts`、`OEngine/src/render/features/VisibilityFeature.ts` | 已有 GPU Scene/Visibility 工作资产 | 保留生产主干；定义稳定 Visibility/Temporal facts，避免为了重写后半段重做 Geometry |
-| `OEngine/src/render/surface/SurfaceMaterialPass.ts` | 唯一 coordinator 注册 Probe、tile Work Builder、GPU finalize、有限 worker 与 Resolve；程序按 negotiated layout 缓存 | 维护 packed signal rate、容量和边界；不恢复旧 planner/dense owner |
-| `OEngine/src/render/surface/SurfaceSampleAbi.ts`、`SurfaceSignalPlan.ts` | 固定 tile state、record/result pool、二维 indirect 与 signal layout 的 CPU/WGSL 事实源 | 由设备 limits 在资源创建前收敛容量；overflow 以整 tile full-rate fallback 收口 |
+| `OEngine/src/render/surface/SurfaceMaterialPass.ts` | 当前仍注册旧 Probe、Work、sample workers、closure lighting 与 Resolve | 下一次实施先删除旧协调器及生产接线，直接按最终 Appearance/lighting/reconstruction 职责重建 |
+| `OEngine/src/render/surface/SurfaceSampleAbi.ts`、`SurfaceSignalPlan.ts` | 旧 tile/work/result 执行合同，不能代表新缓存和稀疏 lighting 完成 | 删除旧 sample ABI 与无消费者依赖；信号和容量语义按最终新链重写，不保留旧 tile fallback |
 | `OEngine/src/render/TemporalFabric.ts`、`TemporalGpuHistory.ts` | 已有事务和 color/depth/motion 生命周期 | 保留 begin/commit/abort 与 GPU 资源管理思想；重建跨消费者事实和各自 confidence |
 | `OEngine/src/render/passes/fsr3/` | FSR3 Upscaler 阶段存在且旧 Phase 3 已完成 | 作为 Temporal Reconstruction backend 接入新事实；旧完成记录不等于新 Motion/Reactive/Presentation 合同完成 |
 
@@ -126,6 +128,8 @@
 
 ## 4. 模块 B：Surface / Material / Lighting v2
 
+**当前执行覆盖**：下文 Surface v2 和后续 sample-driven 文档用于历史架构背景，不再规定本次 Surface 的开发顺序。当前按[缓存 Surface 最终设计](../next-design/surface-cached-shading-final-2026.md)与[直接重建计划](./surface-cached-shading-rebuild-2026.md)先删旧链、连续实现最终目标；不再先闭合简单 PBR、维护旧输入后逐阶段加入缓存和稀疏照明，也不执行下文的中间模块检查。
+
 本模块的逐来源、数据流与性能取舍见[独立设计](../next-design/surface-material-lighting-v2.md)；B0–B8 的单链迁移、旧职责切断和模块收口见[独立执行文档](./surface-material-lighting-v2.md)。以下保留架构层顺序摘要，具体实施以两份模块文档和当前源码为准。
 
 ### 4.1 先设计的核心，不写三选一总开关
@@ -220,6 +224,8 @@ Transparency/Hair/Transmission 不塞进 opaque Visibility 或 material class；
 
 **模块闭合检查**：核心 producer → consumer 真正连通，原理上的 pass/资源/队列受 owner 管理，旧生产调用被切走；然后集中运行 typecheck、build 和相关 targeted tests。未运行的浏览器、性能、claim 明确记录为未运行即可。修明显问题，更新 workstream 的 currentSlice/nextModules，再直接开始下一个模块。无需 clean revision 或 formal evidence 才能继续。
 
+当前 Surface 是上述规则的用户指定例外：所有编译和测试推迟到整个缓存 Surface、稀疏照明、重建与生产接线完成后；允许实施中没有可运行主链，先删旧依赖，不造测试桥。来源审读在算法开工前进行，真实数值/GPU消费与采用状态在最终验证时确认。当前 Surface 的专项质量/性能验收按其计划执行，其他 Next 模块的正式全链验收时点不改变。
+
 **全链验收**：计划的核心架构、Shadow/AO/Reflection/GI、Temporal/Presentation 与必要 Virtual Resource/Media 都进入唯一生产链后，集中运行独立 validation host：浏览器矩阵、resize、camera cut、device loss/recovery、不同场景/材质和 feature interactions、画质对照、GPU pass/CPU encode/submit、内存预算、P50/P95。此时再修跨模块问题、生成正式 evidence 并更新 claims。任何诊断记录不得伪称正式通过。
 
 ## 13. 上游实现、研究与移植节奏
@@ -230,6 +236,4 @@ Transparency/Hair/Transmission 不塞进 opaque Visibility 或 material class；
 
 ## 14. 下一次动手的具体起点
 
-workstream 已将 currentSlice 切到 `frame-program`。下一次代码实施先读取 `RendererCore.ts` 主帧构图、`FrameGraph.ts` 编译与 late binding、`VisibilityFeature.ts` 产物、`SurfaceMaterialPass.ts` 热路径和 `TemporalFabric.ts` 的生命周期；画出当前资源生产/消费表。再写最小 Frame Program 请求/结果和语义产品边界，以现有生产链的真实消费者完成首个 lowering。随着新路径接通，逐块删除 RendererCore 的旧手写拼图代码；不要建立第二个 Renderer，也不要为未实现的 VSM/SSR/GI 预造空 Pass。
-
-这一模块的首个大完成点是唯一生产 Renderer 完全由 Frame Program 选择 topology，并且仍有真实 Visibility→Surface→Presentation 输出；达到该点再做一次代码级集中检查，然后开始 Surface v2。
+workstream 的 currentSlice 为 `surface-cached-shading-direct-rebuild`。下一次实施直接撤下 `SurfaceMaterialPass` 旧调度、`FrameProgramLowering` 旧 Surface 接线、Probe/sample ABI/result/Resolve/closure-lighting 及关联配置、计数和无消费者资源；复用最终架构需要的材质产品与共享几何基础。然后跨 owner 连续完成最终 geometry/address、Appearance cache、分信号 lighting、history/reconstruction、HDR/Temporal/Presentation 和生命周期，不等待 S1/S2 或任何单个组件先出图、先闭合或先测试通过。具体顺序、完整范围和最终验收见[当前执行计划](./surface-cached-shading-rebuild-2026.md)。

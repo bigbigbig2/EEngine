@@ -64,6 +64,7 @@ export class FrameGeometryArena {
     encoder.copyBufferToBuffer(s.metadata, 0, p.buffer, 0, p.layout.metadataBytes);
     return () => { if (this.states.get(p) === s) s.metadataPublished = true; };
   }
+  metadataPublished(p: PreparedFrameGeometryArena): boolean { return this.require(p).metadataPublished; }
   release(p: PreparedFrameGeometryArena): void {
     if (this.destroyed) return;
     const s = this.require(p); this.states.delete(p); p.buffer.destroy();

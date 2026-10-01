@@ -27,6 +27,7 @@ import {
 import type { Scene } from "../scene/Scene.js";
 import type { Mesh } from "../scene/Mesh.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
+import { prepareMeshletRasterPipelines } from "../render/MeshletBucketRaster.js";
 import type { SceneResidencyManifest } from "./GpuSceneResidencyManifest.js";
 import {
   composeGpuPackedMaterialBindings,
@@ -447,6 +448,7 @@ export class GpuRenderWorld {
       command,
       sources: Object.freeze(associationPlan.sources.map((association, index) => Object.freeze({
         materialSlot: materialStage.associationSlots[index]!,
+        material: association.material,
         textureBindingSetId: association.textureBindingSetId,
         program: materialStage.appearancePrograms[index]!,
         fieldVersions: materialStage.appearanceFieldVersions[index]!,
@@ -630,13 +632,18 @@ export class GpuRenderWorld {
     if (preparation.ready === null) {
       preparation.publication = new GpuAppearancePublication(this.graphics.device, this.graphics.appearance_programs,
         preparation.sources, command, preparation.mipRanges, preparation.texturePublications,
-        this.graphics.resource_accounting, this.graphics.appearance_static);
+        this.graphics.resource_accounting, this.graphics.appearance_static, this.graphics.appearance_cache);
       const publication = preparation.publication;
       this.appearancePublications.add(publication);
       publication.onDestroyed(() => this.appearancePublications.delete(publication));
       preparation.ready = preparation.publication.ready;
     }
-    await Promise.all([preparation.ready, this.graphics.frame_instances.ready]);
+    const runtime = this.stagedRuntimes.get(handle);
+    if (!runtime) throw new Error("Scene pipeline preparation requires its staged runtime");
+    await Promise.all([preparation.ready, this.graphics.frame_instances.ready, this.graphics.frame_vertices.ready,
+      this.graphics.appearance_cache.ready,
+      ...(runtime.virtualGeometry ? [this.graphics.current_hzb_recheck.ready] : []),
+      prepareMeshletRasterPipelines(this.graphics, runtime)]);
   }
 
   /** Registers an ordinary Scene adapter in the same GPU Render World owner. */

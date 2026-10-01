@@ -1,6 +1,6 @@
 # 面向极致性能的 Surface 最终架构：稳定材质地址、稀疏照明与时域重建
 
-日期：2026-10-01。状态：用户已选定的重构目标，正在实施；尚未获得实现、性能或画质验收。用户允许一次性破坏式重构，不以开发工作量、旧 Surface 布局或兼容旧实现为约束。逐阶段执行与要求核对见 [执行计划](../next-execution/surface-cached-shading-rebuild-2026.md)。
+日期：2026-10-01。状态：用户已选定的重构目标，正在实施；尚未获得实现、性能或画质验收。执行方式已按用户要求改为先删除旧路径、连续实现最终主链、全部实现后统一验证。不以开发工作量、旧 Surface 布局、旧测试或中间可运行状态为约束。直接重建顺序与最终要求核对见 [执行计划](../next-execution/surface-cached-shading-rebuild-2026.md)。
 
 本文给出一套最终生产架构，不是先优化旧链、再逐步增加缓存的执行计划。实施时直接替换旧 Surface 主链，只有一条 production renderer。整体 GPU Scene、Visibility、资源 owner、FrameGraph 与唯一 submit 边界保留；旧 Surface 文档的具体 Probe、sample result 和执行组织由本方案重新决策。本文不自动改变当前源码事实、currentSlice 或来源采用状态。
 
@@ -21,6 +21,18 @@
 - 稀疏求值属于有画质误差约束的渲染算法。逐位数值等价不是本性能模式的承诺；材质模型、能量语义、接缝、遮挡与时域稳定性不能任意丢弃。
 
 “所有内容都经过同一个大 Atlas”“所有内容都走同一个大 PBR shader”“所有阶段都融合”均不采用。最终架构在不同域使用适合的数据和执行组织，控制协议共用，缓存物理表示与信号历史分别拥有。
+
+### 1.1 直接重建的实施约束
+
+本次首先移除旧 Surface 生产调度及其依赖，再从最终数据流连续实现 geometry/address → Appearance demand/update → 独立 lighting → history/reconstruction → HDR/Temporal/Presentation。可以跨 owner 同时修改 producer、consumer、资源和 ABI，不要求每个组件先通过测试或先借旧链出图。工作树暂时无法编译、没有完整画面或功能缺失是实施中的真实状态，不构造临时消费者、兼容层和占位结果掩盖它。
+
+剩余实施只划分三个大步骤：第一步删除旧链并完成几何与 Appearance 数据体系；第二步完成稀疏照明、重建、最终输出及全链生命周期；第三步统一验证、性能验收与返工。上述 dataflow 节点是算法依赖，不再各自作为推进步骤或交付关卡；详细执行见[执行计划 §2](../next-execution/surface-cached-shading-rebuild-2026.md#2-直接重建顺序)。
+
+既有 S1–S7 只用于标识最终工作范围和 R01–R24 的归属，不是阶段审批或逐阶段闭合协议。编译、数值 oracle、GPU 组件、浏览器、画质与性能测试统一放到整个目标实现及真实生产接线完成后；验收失败继续修改最终主链，不恢复旧执行模型。开发期间不为维持组件诊断宿主兼容而维护旧 ABI、增加绑定或保留旧 worker。
+
+删除旧执行组织时，准确的材质采样、插值、BRDF、光源、阴影和曝光数学可直接抽取到最终 owner。不得把旧完整 shader/Pass 包装成“新链 fallback”。缓存 miss、容量不足和不可信历史通过新专用程序的当前帧直接求值/强制刷新处理；这条完整覆盖路径是最终算法的一部分，使用同一新产品和编译语义。
+
+实现只承担最终 owner、真实资源和必要算法分支。稳定输入在 cook、发布和任务生成边界检查一次；热 consumer 依赖这些不变量，不反复校验静态字段，不吞掉失败并切旧链，不为假想扩展创建抽象层。GPU 动态身份、容量预约、有效内容发布和历史失效仍按算法执行，不能删掉它们后以性能为由接受错误覆盖。
 
 ## 2. 当前瓶颈与设计针对性
 
@@ -174,16 +186,21 @@ Shading 信号历史与 FSR3 的输出重建分工明确：前者解决稀疏着
 
 ## 10. 一次性切换与删除范围
 
-实施时删除并替换：
+**删除发生在新主链实现的起点，不等待新消费者、阶段测试或浏览器出图。** 以下是代码实施指令，本文修订本身没有删除这些当前源码。
 
-- 当前 `SurfaceProbePass` 和逐像素 `ProbeFact`/邻居风险判定生产依赖。
-- 当前 descriptor/compact/fallback 三类 sample dispatch 与其旧 sample ABI。
-- 当前 generic Surface worker 及逐像素通用角色遍历；保留准确的材质/BRDF数学并纳入新编译器。
-- 当前大 workgroup TriangleSetup cache，以跨 geometry/Surface 的新消费契约替代。
-- 当前128-byte sample result pool、屏幕邻居 Resolve 主机制，以及无条件全屏 closure-lighting 扫描。
-- 将 ORM、双面、normal-map、Coated 整体绑定 full-rate 的规则。
+| 当前入口/实现 | 直接处理 | 最终归属 |
+| --- | --- | --- |
+| `SurfaceMaterialPass.ts` 的旧 `addToGraph`、program 缓存和旧资源创建 | 整段移除，不增加新旧分支；该文件可按最终职责重写或删除 | 新 Surface composition 和有限程序准备 |
+| `FrameProgramLowering.ts` 的旧 Surface 参数与产物依赖、`RendererCore.ts` 的旧 Surface 初始化/销毁与绑定 | 同批撤下旧接线，不保留转接旧输入/输出的 adapter | 最终 geometry/Appearance/lighting/reconstruction 产品 |
+| `SurfaceProbePass.ts`、`SurfaceProbe.ts`、`surface_probe.ts` | 删除逐像素 ProbeFact、邻居风险和预算调度；移除配置、计数器等残余依赖 | 新需求和分信号率判定 |
+| `SurfaceSampleAbi.ts`、`surface_sample_work.ts`、`surface_sample_result.ts`、`surface_sample_resolve.ts` | 删除旧 descriptor/compact/fallback ABI、工作池、128-byte results 和 Resolve | 新有界 demand/task、字段缓存与信号结果 |
+| `surface_sample_worker.ts`、旧 generic material program | 删除完整旧 worker 和十角色运行循环；所需准确采样/BRDF数学直接迁入最终编译器/内核 | 有限 Appearance 与 BSDF 程序族 |
+| `surface_triangle_setup.ts` 的旧大 workgroup cache | 删除旧 Setup owner/缓存执行组织；所需插值数学直接迁入共享几何 | resident/frame geometry 与 winner coefficients |
+| 无条件全屏 closure-lighting 和 ORM/双面/normal-map/Coated 整体 full-rate 分类 | 删除默认执行与旧类别限制，不先调参优化 | 独立 diffuse/specular/coat 工作与重建 |
 
-重写 SurfaceMaterialPass 的生产职责和 FrameProgramLowering 依赖。保留现有 GPU Scene、VG hierarchy/residency、authoritative Visibility/depth、灯光/VSM/环境语义和独立 Temporal owner。旧新对照用固定 Git revision 的独立验证宿主，不留生产 A/B 开关。这里没有要求先把旧链优化好再开始替换。
+上述列表覆盖关联配置、计数 ABI、shader import、Graph 节点、无消费者资源、旧合同与测试期待。共享数学文件若有其他有效 owner 消费，只移除旧入口并保留所需数学；不得借共享文件名保留完整旧执行链。旧诊断宿主可以停止工作，最终统一更新或删除，不为维持它们先跑旧链回归。
+
+保留现有 GPU Scene、VG hierarchy/residency、authoritative Visibility/depth、灯光/VSM/环境语义和独立 Temporal owner；按最终数据流直接修改其连接，允许重写受影响的跨 owner 合同。旧新对照只在最终验收使用固定 Git revision 的独立 checkout/宿主，不将旧生产依赖带回当前树，也不增加生产 A/B 开关。新 HDR 唯一 producer 与必要输出接通前允许没有完整画面。
 
 ## 11. 来源与本地设计边界
 
@@ -207,6 +224,8 @@ Shading 信号历史与 FSR3 的输出重建分工明确：前者解决稀疏着
 完整算法实施前继续按根 AGENTS 核读选定来源的完整依赖、关键分支、过滤/容量/失效条件并写入 `docs/porting/next-renderer.md` 的逐项阶段映射。上述核读范围不是完整移植完成声明。本方案是具名本地组合设计；没有一个已核验 donor 完整覆盖 EEngine 的全部 geometry/material/cache/lighting/WebGPU 合同。
 
 ## 12. 最终验收，不用样本计数代替性能
+
+以下项目在整个缓存/稀疏照明/重建目标代码和生产接线完成后集中执行，不作为中间模块的继续实施条件。先修 typecheck/build 与真实 shader 编译失败，再执行数值、完整覆盖/互斥、生命周期、浏览器、连续画质与性能比较；发现失败就在新链返工并重测受影响范围。旧组件通过记录只是历史诊断，不能代替这些最终检查。
 
 两组相机由真实 GPU visible coverage 校准：25%–35%和80%–90%。锁定输出与内部分辨率、场景/材质、功能和测量相机。必须包含静止、持续移动、绕视角、新显露、光源移动、材质修改、LOD/residency变更；不能用静止缓存全命中代表全部收益。
 

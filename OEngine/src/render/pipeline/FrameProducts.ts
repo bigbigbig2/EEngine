@@ -13,13 +13,6 @@ export interface TextureDomain<D extends ResolutionDomain = ResolutionDomain> {
   readonly scale: number;
 }
 
-/** Optional bounded large-triangle setup cache consumed by Surface resolve. */
-export interface TriangleSetupFrame {
-  readonly records: ResourceId | null;
-  /** Zero when the evidence-gated TriangleSetup cache is disabled. */
-  readonly capacity: number;
-}
-
 /** Frame-local logical identity table consumed by VisibilityKey V2 users. */
 export interface MeshletWorkFrame {
   readonly records: ResourceId;
@@ -37,7 +30,8 @@ export interface VisibilityFrame {
   readonly meshletWork: MeshletWorkFrame;
   /** GPU-selected current clip/normal transforms; Scene remains authoritative. */
   readonly frameInstances: ResourceId;
-  readonly triangleSetup: TriangleSetupFrame;
+  /** Shared clip vertices and source/final directory namespaces. */
+  readonly frameGeometry: ResourceId;
   readonly domain: TextureDomain<"internal-full">;
 }
 
@@ -263,26 +257,18 @@ function requireResourceId(value: ResourceId | null, name: string): void {
   }
 }
 
-export function triangleSetupFrame(input: TriangleSetupFrame): TriangleSetupFrame {
-  requireResourceId(input.records, "TriangleSetupFrame.records");
-  if (!Number.isSafeInteger(input.capacity) || input.capacity < 0) {
-    throw new RangeError("TriangleSetupFrame.capacity must be a non-negative integer");
-  }
-  return Object.freeze({ ...input });
-}
-
 export function visibilityFrame(input: VisibilityFrame): VisibilityFrame {
   requireResourceId(input.visibilityKey, "VisibilityFrame.visibilityKey");
   requireResourceId(input.shadingBinId, "VisibilityFrame.shadingBinId");
   requireResourceId(input.depth, "VisibilityFrame.depth");
   requireResourceId(input.frameInstances, "VisibilityFrame.frameInstances");
+  requireResourceId(input.frameGeometry, "VisibilityFrame.frameGeometry");
   if (input.domain.domain !== "internal-full") {
     throw new Error("VisibilityFrame must be produced at internal-full resolution");
   }
   return Object.freeze({
     ...input,
     meshletWork: meshletWorkFrame(input.meshletWork),
-    triangleSetup: triangleSetupFrame(input.triangleSetup),
     domain: textureDomain(
       "internal-full",
       input.domain.width,

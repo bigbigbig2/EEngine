@@ -8,6 +8,7 @@ import { ShadeMaterial } from "./ShadeMaterial.js";
 import { LinearModifier } from "./LinearModifier.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { AppearanceMaterialDefinition } from "./AppearanceMaterialDefinition.js";
+import { AppearanceRuntimeInputs } from "./AppearanceRuntimeInputs.js";
 
 function refOrDeepEquals(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -21,6 +22,8 @@ export class StandardShadeMaterial extends ShadeMaterial {
   declare readonly isStandardShadeMaterial: boolean;
   /** Immutable graph/products; explicitly republish with resyncScene after changes. No GPU ownership. */
   appearance_definition: AppearanceMaterialDefinition | undefined;
+  /** Numeric frame inputs; GPU publication owns upload/versioning. */
+  readonly appearance_inputs = new AppearanceRuntimeInputs();
 
   texture_albedo: ShadeTexture | undefined = undefined;
   diffuse_color = new Color(1, 1, 1, 1);

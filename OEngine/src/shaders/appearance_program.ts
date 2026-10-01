@@ -20,7 +20,23 @@ export interface AppearanceWgslProgram {
  * the publication snapshot's transform, sampler and decode. Device baseline f32.
  * Scheduling and bounded asynchronous pipeline admission belong to the owner.
  */
-export function lowerAppearanceWgsl(program: CompiledAppearanceGraph): AppearanceWgslProgram {
+export function lowerAppearanceWgsl(program: CompiledAppearanceGraph, outputBits?: Readonly<Record<string, number>>): AppearanceWgslProgram {
+  // Field masks are lowered into straight-line guards, never interpreted nodes.
+  // One live source sample serves all missing roots that depend on it.
+  const masks = new Uint32Array(program.instructions.length);
+  if (outputBits) for (const [name, bit] of Object.entries(outputBits)) {
+    const pending = [...(program.outputs[name] ?? [])], visited = new Set<number>();
+    while (pending.length) {
+      const ref = pending.pop()!; if (visited.has(ref)) continue;
+      visited.add(ref); masks[ref] = masks[ref]! | bit;
+      pending.push(...program.instructions[ref]!.args);
+    }
+  }
+  const sampleMasks = new Map<number, number>(), productMasks = new Map<number, number>();
+  if (outputBits) program.instructions.forEach((instruction, id) => {
+    if (instruction.sample !== undefined) sampleMasks.set(instruction.sample, (sampleMasks.get(instruction.sample) ?? 0) | masks[id]!);
+    if (instruction.product !== undefined) productMasks.set(instruction.product, (productMasks.get(instruction.product) ?? 0) | masks[id]!);
+  });
   const constants: number[] = [];
   const inputSlots = new Map(program.inputs.map((input, index) => [input.name, index]));
   const lines: string[] = [];
@@ -53,7 +69,8 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph): Appearanc
           });
           lines.push(`  let product_${index} = vec4f(${fields.join(", ")});`);
         } else {
-          lines.push(`  let product_${index} = appearance_product_sample_${index}(vec2f(${expression(read.uv![0])}, ${expression(read.uv![1])}));`);
+          const call = `appearance_product_sample_${index}(vec2f(${expression(read.uv![0])}, ${expression(read.uv![1])}))`;
+          lines.push(outputBits ? `  var product_${index} = vec4f(0.0);\n  if (appearance_missing & ${productMasks.get(index)}u) != 0u { product_${index} = ${call}; }` : `  let product_${index} = ${call};`);
         }
         productSamples.add(index);
       }
@@ -66,7 +83,8 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph): Appearanc
       const sample = instruction.sample!;
       if (!sampled.has(sample)) {
         const uv = program.samples[sample]!.uv;
-        lines.push(`  let texture_${sample} = appearance_sample_${sample}(vec2f(${expression(uv[0])}, ${expression(uv[1])}));`);
+        const call = `appearance_sample_${sample}(vec2f(${expression(uv[0])}, ${expression(uv[1])}))`;
+        lines.push(outputBits ? `  var texture_${sample} = vec4f(0.0);\n  if (appearance_missing & ${sampleMasks.get(sample)}u) != 0u { texture_${sample} = ${call}; }` : `  let texture_${sample} = ${call};`);
         sampled.add(sample);
       }
       value = `texture_${sample}.${"rgba"[instruction.channel!]}`;
@@ -75,7 +93,7 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph): Appearanc
     }
     const name = `value_${variable++}`;
     expressions.push(name);
-    lines.push(`  let ${name}: f32 = ${value};`);
+    lines.push(outputBits ? `  var ${name}: f32 = 0.0;\n  if (appearance_missing & ${masks[id]}u) != 0u { ${name} = ${value}; }` : `  let ${name}: f32 = ${value};`);
   }
   const outputSlots: Record<string, readonly number[]> = Object.create(null);
   const results: string[] = [];

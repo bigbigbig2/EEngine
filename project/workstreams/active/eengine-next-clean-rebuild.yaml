@@ -5,13 +5,13 @@ domain: frame-runtime
 state: active
 owner: frame-runtime
 decision: ADR-0020
-goal: Complete the cached Surface final architecture, including material compilation, shared geometry, stable appearance demand, independent sparse lighting and temporal reconstruction, then prove quality and net performance on the single production path.
+goal: Delete the old Surface production path first, continuously rebuild the complete cached Surface architecture with shared geometry, compiled Appearance, independent sparse lighting and reconstruction, then validate quality and net performance only after the final path is implemented.
 
 currentSlice:
-  id: surface-cached-shading-material-foundations
-  title: Surface 缓存重构：材质发布与共享几何依赖
+  id: surface-cached-shading-direct-rebuild
+  title: Surface 最终主链直接重建：先删旧链，完整实现后统一验收
   status: active
-  goal: 继续完成 S1 live dynamic/coverage 与 S2 residency 属性、共享顶点和稳定 LOD 地址；共享实例transform已生产接通，单binding帧几何arena与winner借用range已通过Native/Chrome组件GPU消费，下一步接真实顶点producer及late HZB最终队列目录重排；winner/new Surface/cache/Lighting生产切换仍未完成，S1/S2不标完成，S3–S7保持完整范围。
+  goal: 剩余内容按三个大步骤推进；当前执行第一步，删除旧Surface生产链并完成共享几何/稳定地址、实时材质/coverage及Appearance需求/缓存/消费完整数据体系；第二步一次完成分信号稀疏照明、历史重建、真实provider、HDR/Temporal/Presentation与全链生命周期清理；第三步才统一编译、数值、生命周期、本地Chrome、连续画质与两coverage性能验收和新链返工。前两步连续编码，不将算法或owner再拆成独立推进/闭合步骤，允许中间未编译/无完整画面，不保留旧consumer或临时桥。已有材质产品/共享几何基础可复用，旧Surface仍待实际删除，最终性能未通过。
 
 nextModules:
   - id: sssr
@@ -25,22 +25,25 @@ nextModules:
 
 architectureRules:
   - Keep one production Renderer path and one frame submit owner.
+  - Delete the old Surface scheduler, sample ABI/results, Resolve and full-screen closure-lighting before building the final consumer; never reconnect them for intermediate tests or output.
+  - Allow incomplete intermediate code and output; do not introduce compatibility bridges, placeholder effects or per-component closure gates.
+  - During this Surface rebuild, defer all compilation and test runs until the complete target code and production wiring are implemented, unless the user explicitly requests a diagnostic.
   - Do not restore retired EnvironmentBackgroundPass, DirectionalLight world-sun ownership, CSM, old SSR/GTAO/SSGI/TAA, or a Legacy/Next dual path.
   - Do not introduce current-frame GPU-to-CPU-to-GPU visible/work control.
   - Pinned complex algorithms must preserve source stages, branches, dependencies and invariants; approximate implementations cannot claim upstream completion.
   - WebGPU capabilities and limits are negotiated before resource creation.
 
 deferredValidation:
-  policy: Deferred until the current large module or the whole Next Renderer is coherent.
-  moduleClose:
+  policy: For the current Surface rebuild, run compilation and validation only after the entire cached Surface, sparse lighting and reconstruction target is implemented on the single new production path; no intermediate module closure checks.
+  finalAcceptance:
     - typecheck
     - build
-    - focused targeted tests for the completed module
-  finalAcceptance:
+    - final shader compilation, CPU/WGSL numerical oracles and complete coverage/ownership checks
     - browser matrix and lifecycle cases
     - scene/material/feature interaction coverage
-    - visual quality comparison
-    - GPU performance benchmark with P50/P95
+    - static images and continuous motion/disocclusion visual quality comparison
+    - real local Chrome GPU benchmarks at 25-35% and 80-90% visible coverage
+    - Surface all-cost P50/P95 reduction of at least 50% and GPU pass-sum P50/P95 reduction of at least 30%
     - formal evidence and claim promotion
 
 links:

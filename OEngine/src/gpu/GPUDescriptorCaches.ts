@@ -480,6 +480,9 @@ export class RenderPipelineCache {
     DescriptorKey<CachedRenderPipelineDescriptor>,
     GPURenderPipeline
   >();
+  private readonly preparing = new HashMap<DescriptorKey<CachedRenderPipelineDescriptor>, Promise<GPURenderPipeline>>();
+  private preparationEpoch = 0;
+  private firstUsed = new WeakSet<GPURenderPipeline>();
 
   constructor(
     private readonly device: GPUDevice,
@@ -499,6 +502,7 @@ export class RenderPipelineCache {
     const cached = this.cache.get(key);
     if (cached !== undefined) {
       this.observer?.onPipelineCacheHit?.("render");
+      this.observeFirstUse(cached);
       return cached;
     }
     this.observer?.onPipelineCacheMiss?.("render");
@@ -509,17 +513,47 @@ export class RenderPipelineCache {
       Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started)
     );
     this.cache.set(key, pipeline);
-    this.observer?.onPipelineFirstUse?.("render");
+    this.observeFirstUse(pipeline);
     return pipeline;
   }
 
-  clear(): void {
-    this.cache.clear();
+  /** Scene publication warms the exact production descriptors asynchronously;
+   * concurrent equal descriptors share one compiler job. Clear revokes jobs. */
+  prepare(descriptor: CachedRenderPipelineDescriptor): Promise<GPURenderPipeline> {
+    const resolved = normalizeRenderPipelineDescriptor(descriptor), key = new DescriptorKey(resolved);
+    const cached = this.cache.get(key); if (cached) return Promise.resolve(cached);
+    const preparing = this.preparing.get(key); if (preparing) return preparing;
+    const epoch = this.preparationEpoch, started = typeof performance === "undefined" ? 0 : performance.now();
+    this.observer?.onPipelineCacheMiss?.("render");
+    const promise = this.device.createRenderPipelineAsync(this.nativeDescriptor(resolved)).then(pipeline => {
+      if (this.preparationEpoch !== epoch) throw new Error("Render pipeline preparation was revoked");
+      this.cache.set(key, pipeline);
+      this.observer?.onPipelineCreated?.("render", Math.max(0, (typeof performance === "undefined" ? 0 : performance.now()) - started));
+      return pipeline;
+    }).finally(() => { if (this.preparing.get(key) === promise) this.preparing.delete(key); });
+    this.preparing.set(key, promise); return promise;
   }
 
-  private create(
+  requirePrepared(descriptor: CachedRenderPipelineDescriptor): GPURenderPipeline {
+    const pipeline = this.cache.get(new DescriptorKey(normalizeRenderPipelineDescriptor(descriptor)));
+    if (!pipeline) throw new Error(`Render pipeline requires completed scene preparation: ${descriptor.label ?? ""}`);
+    this.observer?.onPipelineCacheHit?.("render"); this.observeFirstUse(pipeline); return pipeline;
+  }
+
+  clear(): void {
+    this.preparationEpoch++; this.preparing.clear();
+    this.cache.clear();
+    this.firstUsed = new WeakSet();
+  }
+
+  private observeFirstUse(pipeline: GPURenderPipeline): void {
+    if (this.firstUsed.has(pipeline)) return;
+    this.firstUsed.add(pipeline); this.observer?.onPipelineFirstUse?.("render");
+  }
+
+  private nativeDescriptor(
     descriptor: CachedRenderPipelineDescriptor
-  ): GPURenderPipeline {
+  ): GPURenderPipelineDescriptor {
     const native: GPURenderPipelineDescriptor = {
       label: descriptor.label,
       layout: this.layouts.obtainPipelineLayout(descriptor.layout),
@@ -546,6 +580,11 @@ export class RenderPipelineCache {
         )
       };
     }
+    return native;
+  }
+
+  private create(descriptor: CachedRenderPipelineDescriptor): GPURenderPipeline {
+    const native = this.nativeDescriptor(descriptor);
     this.device.pushErrorScope("validation");
     this.device.pushErrorScope("internal");
     const pipeline = this.device.createRenderPipeline(native);

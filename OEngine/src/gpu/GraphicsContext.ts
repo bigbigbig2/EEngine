@@ -37,6 +37,10 @@ import { GpuMaterialStore } from "./GpuMaterialStore.js";
 import { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
 import { AppearanceStaticResidency } from "./AppearanceStaticResidency.js";
 import { FrameInstanceTransforms } from "../render/FrameInstanceTransforms.js";
+import { FrameGeometryVertices } from "../render/FrameGeometryVertices.js";
+import { FrameGeometryArena } from "../render/FrameGeometryArena.js";
+import { GpuAppearanceCache } from "./GpuAppearanceCache.js";
+import { CurrentHzbLateRecheckGpu } from "../render/CurrentHzbLateRecheck.js";
 import {
   TextureResidency,
   TEXTURE_RESIDENCY_MAX_SIZE
@@ -97,6 +101,10 @@ export class GraphicsContext {
   private appearanceProgramsValue: AppearanceProgramRegistry | undefined;
   private appearanceStaticValue: AppearanceStaticResidency | undefined;
   private frameInstancesValue: FrameInstanceTransforms | undefined;
+  private frameVerticesValue: FrameGeometryVertices | undefined;
+  private frameGeometryArenaValue: FrameGeometryArena | undefined;
+  private appearanceCacheValue: GpuAppearanceCache | undefined;
+  private currentHzbRecheckValue: CurrentHzbLateRecheckGpu | undefined;
   private textureResidencyValue: TextureResidency | undefined;
   private assetCodecServiceValue: AssetCodecService | undefined;
   private readonly textureMaxResolution: number;
@@ -278,6 +286,23 @@ export class GraphicsContext {
     return this.frameInstancesValue;
   }
 
+  get frame_vertices(): FrameGeometryVertices {
+    this.frameVerticesValue ??= new FrameGeometryVertices(this.device, this.resource_accounting);
+    return this.frameVerticesValue;
+  }
+  get frame_geometry_arena(): FrameGeometryArena {
+    this.frameGeometryArenaValue ??= new FrameGeometryArena(this.device, this.resource_accounting);
+    return this.frameGeometryArenaValue;
+  }
+  get appearance_cache(): GpuAppearanceCache {
+    this.appearanceCacheValue ??= new GpuAppearanceCache(this.device, this.resource_accounting);
+    return this.appearanceCacheValue;
+  }
+  get current_hzb_recheck(): CurrentHzbLateRecheckGpu {
+    this.currentHzbRecheckValue ??= new CurrentHzbLateRecheckGpu(this.device, this.resource_accounting);
+    return this.currentHzbRecheckValue;
+  }
+
   get material_store_if_created(): GpuMaterialStore | undefined {
     return this.materialStoreValue;
   }
@@ -349,6 +374,9 @@ export class GraphicsContext {
       (this.renderWorldValue?.appearanceMemoryEvidence().allocatedBytes ?? 0) +
       (this.appearanceStaticValue?.evidence().allocatedBytes ?? 0) +
       (this.frameInstancesValue?.allocatedBytes ?? 0) +
+      (this.frameVerticesValue?.allocatedBytes ?? 0) +
+      (this.frameGeometryArenaValue?.allocatedBytes ?? 0) +
+      (this.currentHzbRecheckValue?.allocatedBytes ?? 0) +
       (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.textureResidencyValue?.evidence().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
@@ -400,7 +428,9 @@ export class GraphicsContext {
       (scene?.reclaimableBytes ?? 0) +
       buffers.cachedBytes +
       textures.cachedBytes;
-    const transientPoolBytes = buffers.allocatedBytes + textures.allocatedBytes + (this.frameInstancesValue?.allocatedBytes ?? 0);
+    const transientPoolBytes = buffers.allocatedBytes + textures.allocatedBytes + (this.frameInstancesValue?.allocatedBytes ?? 0) +
+      (this.frameVerticesValue?.allocatedBytes ?? 0) + (this.frameGeometryArenaValue?.allocatedBytes ?? 0) +
+      (this.currentHzbRecheckValue?.allocatedBytes ?? 0);
     const fragmentationBytes = Math.max(
       0,
       longLivedAllocatedBytes - residentLogicalBytes - retiringBytes
@@ -419,6 +449,10 @@ export class GraphicsContext {
         appearance: Object.freeze({ ...appearance }),
         staticAppearance: Object.freeze({ ...staticAppearance }),
         frameInstances: Object.freeze({ allocatedBytes: this.frameInstancesValue?.allocatedBytes ?? 0 }),
+        frameVertices: Object.freeze({ allocatedBytes: this.frameVerticesValue?.allocatedBytes ?? 0 }),
+        frameGeometry: Object.freeze({ allocatedBytes: this.frameGeometryArenaValue?.allocatedBytes ?? 0 }),
+        currentHzbRecheck: Object.freeze({ allocatedBytes: this.currentHzbRecheckValue?.allocatedBytes ?? 0 }),
+        appearanceCache: Object.freeze({ allocatedBytes: this.appearanceCacheValue?.allocatedBytes ?? 0 }),
         assets: Object.freeze({
           allocatedBytes: assets?.allocatedBytes ?? 0,
           residentBytes: assets?.residentBytes ?? 0,
@@ -459,6 +493,10 @@ export class GraphicsContext {
     this.renderWorldValue = undefined;
     this.frameInstancesValue?.destroy();
     this.frameInstancesValue = undefined;
+    this.frameVerticesValue?.destroy(); this.frameVerticesValue = undefined;
+    this.currentHzbRecheckValue?.destroy(); this.currentHzbRecheckValue = undefined;
+    this.appearanceCacheValue?.destroy(); this.appearanceCacheValue = undefined;
+    this.frameGeometryArenaValue?.destroy(); this.frameGeometryArenaValue = undefined;
     this.appearanceProgramsValue?.destroy();
     this.appearanceProgramsValue = undefined;
     this.appearanceStaticValue?.destroy();

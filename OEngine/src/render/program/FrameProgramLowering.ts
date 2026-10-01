@@ -3,8 +3,8 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import type { VisibilityFeature, PackedVisibilityOutputs } from "../features/VisibilityFeature.js";
-import type { SurfaceMaterialPass } from "../surface/SurfaceMaterialPass.js";
 import type { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
+import type { AppearanceCachePass } from "../surface/AppearanceCachePass.js";
 import type { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
 import type { RenderDebugViewResources } from "../passes/RenderDebugViewPass.js";
 import { RenderDebugView as RenderDebugViewValue } from "../../debug/RenderDebugView.js";
@@ -30,8 +30,8 @@ import type { FrameProgram, FrameProduct } from "./FrameProgram.js";
 
 export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
-  surface: SurfaceMaterialPass;
   temporalFacts: TemporalFactsPass;
+  appearanceCache: AppearanceCachePass;
   radiometry: GpuRadiometryPass;
   bloom: BloomPass;
   present: SurfacePresentPass;
@@ -108,6 +108,9 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     layout.slot(name, initial, resolve);
   const graph = new FrameGraph("Renderer/visibility-frame");
   const { result, cameraBuffer, builtHzb } = lowerVisibility(plan, graph, bind, owners);
+  const appearancePublication = initial.runtime.appearancePublication;
+  if (!appearancePublication) throw new Error("Appearance publication must be prepared before frame graph lowering");
+  owners.appearanceCache.addToGraph(graph, { visibility: result.frame.visibilityKey, publication: appearancePublication, frame: initial.frameIndex });
   assertTextureProduct(plan, graph, "visibility", result.frame.visibilityKey);
   let vsmOwnerBinding: NonNullable<SceneFrameBindings["vsm"]> | null = null;
   let vsmFrameBinding: NonNullable<SceneFrameBindings["vsmFrame"]> | null = null;
@@ -326,69 +329,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       bind(`radiometry/${name}`, bindings => resolve(bindings.radiometry)));
   const gpuPreviousExposure = owners.radiometry.importPreviousExposure(graph, bindRadiometry);
   const gpuPriorExposure = owners.radiometry.importPriorExposure(graph, bindRadiometry);
-  const surface = owners.surface.addToGraph(graph, {
-    width: result.frame.domain.width,
-    height: result.frame.domain.height,
-    frame: bind("surface-frame", bindings => ({
-      runtime: bindings.runtime,
-      assets: bindings.job.assets,
-      view: bindings.view,
-      frameIndex: bindings.view.frame_index,
-      outputWidth: plan.request.outputWidth,
-      outputHeight: plan.request.outputHeight,
-    preExposure: bindings.preExposure
-    })),
-    preExposureBuffer: gpuPreviousExposure,
-    activeSets,
-    textureBankMask: plan.request.textureBankMask ?? 0x1ff,
-    hasLit: plan.request.hasLit,
-    indirectVisibility: scalarAo,
-    virtualGeometry: plan.request.virtualGeometry,
-    visibilityKey: result.frame.visibilityKey,
-    meshletWork: result.frame.meshletWork.records,
-    materialRecords,
-    depth: result.frame.depth,
-    instances: result.frame.frameInstances,
-    geometryMetadata,
-    vertexPayload,
-    virtualMetadata,
-    virtualBanks,
-    textureRoutes,
-    textureResidencyVersions,
-    textureBanks,
-    lightRecords,
-    lightLookup: clusters?.lookup,
-    lightData: clusters?.data,
-    lightParams: clusters?.parameters,
-    physicalEnvironmentSun,
-    physicalEnvironmentTransmittance: !plan.request.physicalEnvironment ? undefined : graph.import_resource(
-      "physical-environment-sun-transmittance", { kind: "imported", label: "Physical Environment sun transmittance" },
-      bind("physical-environment-sun-transmittance", bindings => bindings.environment!.luts.views.transmittance)
-    ),
-    physicalSkyIrradiance: !plan.request.physicalEnvironment ? undefined : graph.import_resource(
-      "physical-environment-sky-irradiance", { kind: "imported", label: "Physical Environment sky irradiance" },
-      bind("physical-environment-sky-irradiance", bindings => bindings.environment!.luts.views.irradiance)
-    ),
-    physicalSkySpecular: !plan.request.physicalEnvironment ? undefined : graph.import_resource(
-      "physical-environment-sky-specular", { kind: "imported", label: "Physical sky filtered specular" },
-      bind("physical-environment-sky-specular", bindings => bindings.environment!.ibl.views.specular)
-    ),
-    physicalSkyDfg: !plan.request.physicalEnvironment ? undefined : graph.import_resource(
-      "physical-environment-sky-dfg", { kind: "imported", label: "Physical sky DFG" },
-      bind("physical-environment-sky-dfg", bindings => bindings.environment!.ibl.views.dfg)
-    ),
-    shadowVisibility: shadowContract !== null && vsmOwnerBinding !== null &&
-      vsmFrameBinding !== null
-      ? {
-          resources: vsmOwnerBinding,
-          frame: shadowContract,
-          vsmFrame: vsmFrameBinding
-        }
-      : undefined
-  });
-  assertTextureProduct(plan, graph, "surface-radiance", surface.radiance);
-  lowerPresentation(plan, initial, owners, graph, bind, cameraBuffer, result, surface,
-    instances, materialRecords, textureRoutes, textureResidencyVersions, physicalEnvironmentSun, gpuPreviousExposure, gpuPriorExposure, bindRadiometry);
+  // Cached Surface fields are registered here; final lighting/presentation follows in step two.
   return graph.compile();
 }
 
@@ -428,9 +369,13 @@ function lowerVisibility(plan: FrameProgram, graph: FrameGraph, bind: SceneBind,
     "frame-instances", { kind: "imported", label: "GPU-selected frame instance transforms" },
     bind("frame-instances", bindings => bindings.job.prepared.workSet.frameInstances.records)
   );
+  const frameGeometry = graph.import_resource(
+    "frame-geometry", { kind: "imported", label: "GPU-selected shared frame geometry" },
+    bind("frame-geometry", bindings => bindings.job.prepared.workSet.frameGeometry.buffer)
+  );
   let result = owners.visibility.addToGraph(
     graph, bind("visibility-job", bindings => bindings.job),
-    { camera: cameraBuffer, counters, meshletWorkRecords: work, frameInstances, previousHzb, depth }
+    { camera: cameraBuffer, counters, meshletWorkRecords: work, frameInstances, frameGeometry, previousHzb, depth }
   );
   const hzbCurrent = plan.stages.includes("hzb") ? graph.import_resource(
     "current-hzb", { kind: "imported", label: "current HZB" },
@@ -474,110 +419,4 @@ function lowerVisibility(plan: FrameProgram, graph: FrameGraph, bind: SceneBind,
   return { result, cameraBuffer, builtHzb };
 }
 
-/** Environment transport, FSR3 reconstruction, and Present consume the Surface products. */
-function lowerPresentation(
-  plan: FrameProgram, initial: SceneFrameBindings, owners: FrameProgramOwners,
-  graph: FrameGraph, bind: SceneBind, cameraBuffer: ResourceId,
-  result: PackedVisibilityOutputs, surface: ReturnType<SurfaceMaterialPass["addToGraph"]>,
-  instances: ResourceId, materialRecords: ResourceId,
-  textureRoutes: ResourceId, textureResidencyVersions: ResourceId,
-  physicalEnvironmentSun: ResourceId | undefined, gpuPreviousExposure: ResourceId,
-  gpuPriorExposure: ResourceId,
-  bindRadiometry: (name: string,
-    resolve: (runtime: import("../temporal/GpuRadiometryPass.js").GpuRadiometryPass) => GPUBuffer) => ResourceId
-): void {
-  if (plan.request.kind !== "scene") throw new Error("Presentation requires a scene Frame Program");
-  const atmosphereEnvironment = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
-    "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
-    bind("physical-environment-transmittance", bindings => bindings.environment!.luts.views.transmittance)
-  );
-  const skyRadiance = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
-    "physical-environment-sky-radiance", { kind: "imported", label: "Physical Environment sky radiance" },
-    bind("physical-environment-sky-radiance", bindings => bindings.environment!.luts.views.scattering)
-  );
-  const higherOrderScattering = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
-    "physical-environment-higher-order-scattering", { kind: "imported", label: "Physical Environment higher-order scattering" },
-    bind("physical-environment-higher-order-scattering", bindings => bindings.environment!.luts.views.higherOrderScattering)
-  );
-  const environmentRadiance = !plan.stages.includes("physical-sky") || atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || owners.sky === null
-    ? surface.radiance
-    : owners.sky.addToGraph(graph, {
-        hdr: surface.radiance, depth: result.frame.depth, camera: cameraBuffer,
-        transmittance: atmosphereEnvironment, scattering: skyRadiance,
-        higherOrder: higherOrderScattering, environment: physicalEnvironmentSun!,
-        preExposure: gpuPreviousExposure
-      });
-  if (plan.request.physicalEnvironment) assertTextureProduct(plan, graph, "sky-radiance", environmentRadiance);
-  const aerialRadiance = !plan.stages.includes("aerial") || atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || physicalEnvironmentSun === undefined || owners.aerial === null
-    ? environmentRadiance
-    : owners.aerial.addToGraph(graph, { scene: environmentRadiance, depth: result.frame.depth,
-        camera: cameraBuffer, environment: physicalEnvironmentSun,
-        transmittance: atmosphereEnvironment, scattering: skyRadiance,
-        higherOrder: higherOrderScattering, preExposure: gpuPreviousExposure,
-        width: result.frame.domain.width, height: result.frame.domain.height });
-  if (plan.request.physicalEnvironment) assertTextureProduct(plan, graph, "aerial-radiance", aerialRadiance);
-  const previousCamera = graph.import_resource(
-    "previous-camera", { kind: "imported", label: "previous camera" },
-    bind("previous-camera", bindings => bindings.view.gpu_previous_camera_state.buffer)
-  );
-  const facts = owners.temporalFacts.addToGraph(graph, {
-    width: result.frame.domain.width, height: result.frame.domain.height,
-    visibility: result.frame.visibilityKey, depth: result.frame.depth,
-    meshletWork: result.frame.meshletWork.records,
-    instances, materials: materialRecords, textureRoutes, textureResidencyVersions, currentCamera: cameraBuffer,
-    previousCamera
-  }, (name, resolve) => bind(`temporal-facts/${name}`,
-    bindings => resolve(bindings.temporalFacts)));
-  assertTextureProduct(plan, graph, "temporal-motion", facts.motion);
-  assertTextureProduct(plan, graph, "temporal-mask", facts.mask);
-  assertTextureProduct(plan, graph, "temporal-identity", facts.identity);
-  const reconstructedRadiance = initial.fsr3.addToGraph(graph, {
-    color: aerialRadiance, depth: result.frame.depth, motion: facts.motion,
-    reactiveMask: facts.mask, validityMask: facts.mask,
-    preExposure: gpuPreviousExposure, priorExposure: gpuPriorExposure,
-    width: result.frame.domain.width, height: result.frame.domain.height,
-    outputWidth: plan.request.outputWidth, outputHeight: plan.request.outputHeight,
-    enabled: plan.request.fsr3Enabled
-  }, (name, resolve) => bind(`fsr3/${name}`, bindings => resolve(bindings.fsr3)));
-  if (plan.request.fsr3Enabled !== false) {
-    assertTextureProduct(plan, graph, "reconstructed-color", reconstructedRadiance);
-  }
-  const radiometry = owners.radiometry.addToGraph(graph, {
-    scene: reconstructedRadiance, width: plan.request.outputWidth, height: plan.request.outputHeight,
-    previousExposure: gpuPreviousExposure,
-    priorExposure: gpuPriorExposure
-  }, bindRadiometry);
-  const bloom = owners.bloom.addToGraph(graph, {
-    scene: reconstructedRadiance, preExposure: gpuPreviousExposure,
-    width: plan.request.outputWidth, height: plan.request.outputHeight,
-    enabled: plan.request.bloomEnabled
-  });
-  if (plan.request.bloomEnabled !== false) {
-    assertTextureProduct(plan, graph, "bloom-hdr", bloom);
-  }
-  if (!plan.products.includes("adapted-exposure")) throw new Error("Frame Program omitted adapted exposure");
-  const swapchain = graph.import_resource(
-    "swapchain", { kind: "imported", label: "swapchain" },
-    bind("swapchain", bindings => bindings.swapchain)
-  );
-  const debugColor = plan.request.debugView !== undefined &&
-    plan.request.debugView !== RenderDebugViewValue.None
-    ? owners.debug.addToGraph(graph, plan.request.debugView, {
-        visibilityKey: result.frame.visibilityKey,
-        packedVisibility: result.debugResolve,
-        depth: result.frame.depth,
-        velocity: null, gPbr: null, gNormal: null, gAlbedo: null,
-        gEmissive: null, surfaceFlags: null, indirectDiffuse: null,
-        indirectSpecular: null, linearHdr: null,
-        screenSpaceReflectionHitMiss: null, screenSpaceReflectionResolve: null,
-        screenSpaceReflectionTemporal: null, screenSpaceReflectionHistoryConfidence: null
-      } satisfies RenderDebugViewResources,
-      plan.request.outputWidth, plan.request.outputHeight)
-    : null;
-  const displayInput = debugColor ?? bloom;
-  const displayColor = owners.present.addToGraph(
-    graph, displayInput, swapchain, radiometry.adaptedExposure, gpuPreviousExposure,
-    plan.request.outputWidth, plan.request.outputHeight, debugColor !== null
-  );
-  assertTextureProduct(plan, graph, "display-color", displayColor);
-}
+/** Step two installs the final HDR/Temporal/Presentation chain after Appearance data consumers are complete. */

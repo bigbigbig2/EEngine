@@ -2,6 +2,9 @@ import { FRAME_GEOMETRY_WGSL, WINNER_DICTIONARY_WGSL, WINNER_HASH_WGSL, WINNER_C
 import { FRAME_GEOMETRY_ARENA_HEADER_WORDS as ARENA } from "../gpu/GpuFrameGeometryArenaAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { WINNER_INTERPOLATION_WGSL } from "./winner_interpolation.js";
+import { GPU_SURFACE_ADDRESS_WGSL } from "../gpu/GpuSurfaceAddressAbi.js";
+import { GPU_INSTANCE_RECORD_WGSL } from "../gpu/GpuInstanceAbi.js";
+import { GPU_MESHLET_RASTER_WORK_WGSL } from "../gpu/GpuMeshletRasterWorkAbi.js";
 
 export const WINNER_SETTINGS_SIZE = 48;
 export const WINNER_WORKGROUP_SIZE = 64;
@@ -54,6 +57,9 @@ ${GPU_VISIBILITY_KEY_WGSL}
 ${FRAME_GEOMETRY_WGSL}
 ${WINNER_DICTIONARY_WGSL}
 ${WINNER_INTERPOLATION_WGSL}
+${GPU_SURFACE_ADDRESS_WGSL}
+${GPU_INSTANCE_RECORD_WGSL}
+${GPU_MESHLET_RASTER_WORK_WGSL}
 ${SETTINGS_WGSL}
 @group(0) @binding(0) var<uniform> winner_settings: WinnerSettings;
 @group(0) @binding(1) var winner_visibility: texture_2d<u32>;
@@ -135,6 +141,9 @@ export function winnerPrimitiveConsumerWgsl(group = 0): string {
 ${GPU_VISIBILITY_KEY_WGSL}
 ${FRAME_GEOMETRY_WGSL}
 ${WINNER_INTERPOLATION_WGSL}
+${GPU_SURFACE_ADDRESS_WGSL}
+${GPU_INSTANCE_RECORD_WGSL}
+${GPU_MESHLET_RASTER_WORK_WGSL}
 ${SETTINGS_WGSL}
 struct WinnerDictionaryReadEntry { key: u32, coefficient_slot: u32, }
 ${WINNER_HASH_WGSL}

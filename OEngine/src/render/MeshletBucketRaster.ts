@@ -22,6 +22,7 @@ import {
 import { PACKED_CAMERA_TYPE } from "../shaders/packed_camera.js";
 import type { PreparedMeshletWorkCandidate } from "./MeshletWorkCandidate.js";
 import type { GpuShadingExecutionMode } from "../gpu/GpuShadingExecutionMode.js";
+import type { PreparedFrameVertices } from "./FrameGeometryVertices.js";
 
 const MESHLET_BUCKET_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
   label: "ADR-0008 Meshlet bucket Hardware Visibility group0",
@@ -45,7 +46,9 @@ const MESHLET_BUCKET_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
         sampleType: "unfilterable-float" as GPUTextureSampleType,
         viewDimension: "2d-array" as GPUTextureViewDimension
       }
-    }))
+    })),
+    { binding: 20, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+    { binding: 21, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: 16 } }
   ]
 };
 
@@ -69,7 +72,9 @@ const VIRTUAL_GEOMETRY_RASTER_GROUP: GPUBindGroupLayoutDescriptor = {
         sampleType: "unfilterable-float" as GPUTextureSampleType,
         viewDimension: "2d-array" as GPUTextureViewDimension
       }
-    }))
+    })),
+    { binding: 18, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+    { binding: 19, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform", minBindingSize: 16 } }
   ]
 };
 
@@ -130,12 +135,41 @@ function bucketPipelines(
   ]);
 }
 
+function productPipeline(textureBindingSetId: number, includeShadingBinId: boolean, lateRecheck: boolean): CachedRenderPipelineDescriptor {
+  const code = includeShadingBinId ? VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL : VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL;
+  const module = { label: "S1 Product Meshlet bucket Visibility", code };
+  return {
+    label: lateRecheck ? "S1 Product Meshlet bucket Visibility/current-HZB final" : "S1 Product Meshlet bucket Visibility",
+    layout: { label: "S1 Product Meshlet bucket Visibility layout", bindGroupLayouts: [VIRTUAL_GEOMETRY_RASTER_GROUP] },
+    vertex: { module, entryPoint: "raster_virtual_meshlet" },
+    fragment: { module, entryPoint: "write_virtual_meshlet", constants: { OENGINE_ACTIVE_TEXTURE_BINDING_SET: textureBindingSetId },
+      targets: includeShadingBinId ? [{ format: "r32uint" }, { format: "r8uint" }] : [{ format: "r32uint" }] },
+    // The current Nyx Product coverage profile conservatively retains both
+    // faces; sharing geometry does not establish full donor culling parity.
+    primitive: { topology: "triangle-list", cullMode: "none", frontFace: "ccw" },
+    depthStencil: { format: "depth32float", depthWriteEnabled: true, depthCompare: lateRecheck ? "greater-equal" : "greater" }
+  };
+}
+
+/** Finite production PSOs, prepared before a Scene can enter rendering. */
+export async function prepareMeshletRasterPipelines(graphics: GraphicsContext, runtime: GpuRenderWorldRuntime): Promise<void> {
+  const jobs: Promise<GPURenderPipeline>[] = [];
+  for (const set of runtime.materialResources.bindingSets) for (const bins of [false, true]) {
+    if (runtime.virtualGeometry) for (const late of [false, true]) jobs.push(graphics.render_pipelines.prepare(productPipeline(set.id, bins, late)));
+    else for (const primitive of graphics.device.features.has("primitive-index") ? [false, true] : [false]) {
+      for (const descriptor of bucketPipelines(primitive, set.id, bins)) jobs.push(graphics.render_pipelines.prepare(descriptor));
+    }
+  }
+  await Promise.all(jobs);
+}
+
 export interface MeshletBucketRasterInputs {
   readonly prepared: PreparedMeshletWorkCandidate;
   readonly camera: GPUBuffer;
   readonly assets: GpuAssetBindings;
   readonly scene: GpuSceneBindings;
   readonly frameInstances: GPUBuffer;
+  readonly frameVertices: PreparedFrameVertices;
   readonly runtime: GpuRenderWorldRuntime;
   readonly visibilityKey: GPUTextureView;
   readonly shadingBinId: GPUTextureView | null;
@@ -193,7 +227,7 @@ export class MeshletBucketRaster {
         let pipelines = this.rasterPipelines.get(key);
         if (pipelines === undefined) {
           pipelines = bucketPipelines(primitiveIndex, bindingSet.id, includeShadingBinId).map(
-            (descriptor) => this.graphics.render_pipelines.obtain(descriptor)
+            (descriptor) => this.graphics.render_pipelines.requirePrepared(descriptor)
           );
           this.rasterPipelines.set(key, pipelines);
         }
@@ -236,7 +270,9 @@ export class MeshletBucketRaster {
         { buffer: inputs.prepared.bucketStates! },
         { buffer: inputs.prepared.bucketSettings!, size: MESHLET_BUCKET_SETTINGS_SIZE },
         { buffer: inputs.runtime.materialResources.materialRecords },
-        ...textureBanks
+        ...textureBanks,
+        { buffer: inputs.frameVertices.arena.buffer },
+        { buffer: inputs.frameVertices.rasterSettings }
       ]
     });
   }
@@ -261,47 +297,7 @@ export class MeshletBucketRaster {
       const pipelineKey = `${pipelineMode}:${bindingSet.id}:late${lateRecheck ? 1 : 0}`;
       let pipeline = this.virtualRasterPipelines.get(pipelineKey);
       if (pipeline === undefined) {
-        pipeline = this.graphics.render_pipelines.obtain({
-          label: lateRecheck
-            ? "S1 Product Meshlet bucket Visibility/current-HZB final"
-            : "S1 Product Meshlet bucket Visibility",
-          layout: {
-            label: "S1 Product Meshlet bucket Visibility layout",
-            bindGroupLayouts: [VIRTUAL_GEOMETRY_RASTER_GROUP]
-          },
-          vertex: {
-            module: {
-              label: "S1 Product Meshlet bucket Visibility",
-              code: inputs.shadingBinId === null
-                ? VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
-                : VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL
-            },
-            entryPoint: "raster_virtual_meshlet"
-          },
-          fragment: {
-            module: {
-              label: "S1 Product Meshlet bucket Visibility",
-              code: inputs.shadingBinId === null
-                ? VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL
-                : VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_SHADING_BIN_WGSL
-            },
-            entryPoint: "write_virtual_meshlet",
-            constants: { OENGINE_ACTIVE_TEXTURE_BINDING_SET: bindingSet.id },
-            targets: inputs.shadingBinId === null
-              ? [{ format: "r32uint" }]
-              : [{ format: "r32uint" }, { format: "r8uint" }]
-          },
-          // Mixed Product draws need conservative fixed-function coverage.
-          // Nyx also uses a two-sided PSO, but separately culls primitives in
-          // VBufferMesh using material sidedness and mirrored-instance state.
-          // This PSO setting alone does not establish that full Nyx behavior.
-          primitive: { topology: "triangle-list", cullMode: "none", frontFace: "ccw" },
-          depthStencil: {
-            format: "depth32float",
-            depthWriteEnabled: true,
-            depthCompare: lateRecheck ? "greater-equal" : "greater"
-          }
-      });
+        pipeline = this.graphics.render_pipelines.requirePrepared(productPipeline(bindingSet.id, inputs.shadingBinId !== null, lateRecheck));
         this.virtualRasterPipelines.set(pipelineKey, pipeline);
       }
       pipelines.set(bindingSet.id, pipeline);
@@ -314,7 +310,9 @@ export class MeshletBucketRaster {
           { buffer: inputs.virtualGeometry.metadata },
           ...inputs.prepared.productBanks.slice(0, 4).map((buffer) => ({ buffer })),
           { buffer: inputs.runtime.materialResources.materialRecords },
-          ...bindingSet.textureBanks
+          ...bindingSet.textureBanks,
+          { buffer: inputs.frameVertices.arena.buffer },
+          { buffer: lateRecheck ? inputs.frameVertices.filteredRasterSettings : inputs.frameVertices.rasterSettings }
         ]
       }));
     }

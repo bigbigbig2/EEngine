@@ -16,6 +16,7 @@ import { GPU_VISIBILITY_KEY_MAX_MESHLET_WORK_CAPACITY } from "../gpu/GpuVisibili
 import type { GeometryProductGpuBindingsV1 } from "../gpu/VirtualGeometryResidency.js";
 import { PACKED_CAMERA_TYPE } from "../shaders/packed_camera.js";
 import { CURRENT_HZB_MESHLET_WORK_LATE_RECHECK_WGSL } from "../shaders/current_hzb_late_recheck.js";
+import { gpuStorageRange, requireDisjointStorageRanges, type GpuStorageRange } from "../gpu/GpuStorageRange.js";
 
 /** Phase I bounded late-recheck hint ABI. The normal VisibilityKey ABI is unchanged. */
 export const CURRENT_HZB_LATE_RECHECK_ABI_VERSION = 1;
@@ -39,10 +40,14 @@ export interface PreparedCurrentHzbLateRecheck {
 }
 
 interface CurrentHzbGpuState {
+  readonly sourceGeometry: GpuStorageRange;
+  readonly filteredGeometry: GpuStorageRange;
   readonly sourceQueue: GPUBuffer;
   readonly queue: GPUBuffer;
   readonly drawIndirect: GPUBuffer;
   readonly settings: GPUBuffer;
+  readonly filterDispatch: GPUBuffer;
+  readonly dispatchGroup: GPUBindGroup;
   readonly instances: GPUBuffer;
   readonly metadata: GPUBuffer;
   readonly banks: readonly [GPUBuffer, GPUBuffer, GPUBuffer, GPUBuffer];
@@ -61,6 +66,8 @@ interface CurrentHzbGpuState {
 const CURRENT_HZB_GPU_STATE = new WeakMap<object, CurrentHzbGpuState>();
 
 export interface CurrentHzbLateRecheckGpuPrepareInput {
+  readonly sourceGeometry: GpuStorageRange;
+  readonly filteredGeometry: GpuStorageRange;
   readonly sourceQueue: GPUBuffer;
   readonly capacity: number;
   readonly camera: GPUBuffer;
@@ -76,19 +83,27 @@ export interface CurrentHzbLateRecheckGpuPrepareInput {
 
 /** GPU-only Product MeshletWork filter consumed by the same-frame final raster. */
 export class CurrentHzbLateRecheckGpu {
+  readonly ready: Promise<void>;
   private readonly layout: GPUBindGroupLayout;
-  private readonly pipelines: Readonly<{
+  private readonly dispatchLayout: GPUBindGroupLayout;
+  private pipelines: Readonly<{
     prepare: GPUComputePipeline;
     filter: GPUComputePipeline;
     finalize: GPUComputePipeline;
-  }>;
+  }> | null = null;
   private readonly prepared = new Set<PreparedCurrentHzbLateRecheck>();
   private destroyed = false;
 
   constructor(
     private readonly device: GPUDevice,
-    private readonly resourceAccounting?: ResourceAccounting
+    private readonly resourceAccounting?: ResourceAccounting,
+    private readonly maxBytes = 256 * 1024 * 1024
   ) {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new RangeError("Invalid HZB owner budget");
+    if (device.limits.maxStorageBuffersPerShaderStage < 12 || device.limits.maxBindingsPerBindGroup < 15 ||
+        device.limits.maxComputeInvocationsPerWorkgroup < 64 || device.limits.maxComputeWorkgroupSizeX < 64) {
+      throw new RangeError("Current HZB requires twelve storage bindings and 64 lanes");
+    }
     this.layout = device.createBindGroupLayout({
       label: "ADR-0018 current-HZB Product MeshletWork group0",
       entries: [
@@ -105,7 +120,9 @@ export class CurrentHzbLateRecheckGpu {
         { binding: 9, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float", viewDimension: "2d" } },
         { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: CURRENT_HZB_MESHLET_SETTINGS_BYTES } },
         { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
-        { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } }
+        { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: GPU_COUNTER_BYTE_SIZE } },
+        { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 32 } },
+        { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 32 } }
       ]
     });
     const module = device.createShaderModule({
@@ -116,20 +133,24 @@ export class CurrentHzbLateRecheckGpu {
       label: "ADR-0018 current-HZB Product MeshletWork layout",
       bindGroupLayouts: [this.layout]
     });
-    const pipeline = (entryPoint: string): GPUComputePipeline => device.createComputePipeline({
+    this.dispatchLayout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }] });
+    const beginLayout = device.createPipelineLayout({ bindGroupLayouts: [this.layout, this.dispatchLayout] });
+    const pipeline = (entryPoint: string): Promise<GPUComputePipeline> => device.createComputePipelineAsync({
       label: `ADR-0018 current-HZB Product MeshletWork/${entryPoint}`,
-      layout,
+      layout: entryPoint === "prepare_current_hzb_meshlet_recheck" ? beginLayout : layout,
       compute: { module, entryPoint }
     });
-    this.pipelines = Object.freeze({
-      prepare: pipeline("prepare_current_hzb_meshlet_recheck"),
-      filter: pipeline("filter_current_hzb_meshlet_recheck"),
-      finalize: pipeline("finalize_current_hzb_meshlet_recheck")
+    this.ready = Promise.all([pipeline("prepare_current_hzb_meshlet_recheck"), pipeline("filter_current_hzb_meshlet_recheck"),
+      pipeline("finalize_current_hzb_meshlet_recheck")]).then(([prepare, filter, finalize]) => {
+      if (this.destroyed) throw new Error("Current HZB recheck stopped during preparation");
+      this.pipelines = Object.freeze({ prepare: prepare!, filter: filter!, finalize: finalize! });
     });
+    void this.ready.catch(() => undefined); void device.lost.then(() => this.destroy());
   }
 
   prepare(input: CurrentHzbLateRecheckGpuPrepareInput): PreparedCurrentHzbLateRecheck {
     this.assertAlive();
+    if (!this.pipelines) throw new Error("Current HZB requires completed scene preparation");
     if (!Number.isSafeInteger(input.capacity) || input.capacity <= 0 ||
         input.capacity > CURRENT_HZB_MESHLET_WORK_MAX_CAPACITY) {
       throw new RangeError("Current HZB MeshletWork capacity is invalid");
@@ -142,19 +163,25 @@ export class CurrentHzbLateRecheckGpu {
     if (input.productBanks.length !== 4) {
       throw new Error("Current HZB Product recheck requires four bound page-bank slots");
     }
+    const sourceGeometry = gpuStorageRange(input.sourceGeometry, this.device.limits, 16 + input.capacity * 16, "HZB source geometry");
+    const filteredGeometry = gpuStorageRange(input.filteredGeometry, this.device.limits, 16 + input.capacity * 16, "HZB filtered geometry");
+    requireDisjointStorageRanges([], [sourceGeometry, filteredGeometry]);
     const queueBytes = gpuMeshletWorkQueueByteLength(input.capacity);
     const queueByteLimit = Math.min(
       Number(this.device.limits.maxBufferSize),
       Number(this.device.limits.maxStorageBufferBindingSize)
     );
-    if (queueBytes > queueByteLimit) {
+    if (queueBytes > queueByteLimit || this.allocatedBytes + queueBytes + 64 > this.maxBytes ||
+        Math.ceil(input.capacity / 64) > this.device.limits.maxComputeWorkgroupsPerDimension ** 2) {
       throw new RangeError(
         `Current HZB MeshletWork queue requires ${queueBytes} bytes but the negotiated limit is ${queueByteLimit}`
       );
     }
     const accounting: AccountingResourceHandle[] = [];
+    const buffers: GPUBuffer[] = [];
     const createBuffer = (descriptor: GPUBufferDescriptor): GPUBuffer => {
       const buffer = this.device.createBuffer(descriptor);
+      buffers.push(buffer);
       const handle = this.resourceAccounting?.created({
         kind: "buffer",
         category: "transient",
@@ -165,6 +192,7 @@ export class CurrentHzbLateRecheckGpu {
       if (handle !== undefined) accounting.push(handle);
       return buffer;
     };
+    try {
     const queue = createBuffer({
       label: "ADR-0018 current-HZB retained MeshletWork queue",
       size: queueBytes,
@@ -180,6 +208,8 @@ export class CurrentHzbLateRecheckGpu {
       size: CURRENT_HZB_MESHLET_SETTINGS_BYTES,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
     });
+    const filterDispatch = createBuffer({ size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT });
+    const dispatchGroup = this.device.createBindGroup({ layout: this.dispatchLayout, entries: [{ binding: 0, resource: { buffer: filterDispatch } }] });
     const bytes = new ArrayBuffer(CURRENT_HZB_MESHLET_SETTINGS_BYTES);
     const view = new DataView(bytes);
     view.setUint32(0, input.width, true);
@@ -188,6 +218,7 @@ export class CurrentHzbLateRecheckGpu {
     view.setUint32(12, input.capacity, true);
     view.setFloat32(16, 1e-6, true);
     view.setUint32(20, input.countersEnabled ? 1 : 0, true);
+    view.setUint32(24, this.device.limits.maxComputeWorkgroupsPerDimension, true);
     this.device.queue.writeBuffer(settings, 0, bytes);
     const prepared = Object.freeze({
       [PREPARED_CURRENT_HZB_RECHECK]: true as const,
@@ -202,10 +233,12 @@ export class CurrentHzbLateRecheckGpu {
       generationSource: "meshlet-work-header" as const
     });
     CURRENT_HZB_GPU_STATE.set(prepared, {
+      sourceGeometry, filteredGeometry,
       sourceQueue: input.sourceQueue,
       queue,
       drawIndirect,
       settings,
+      filterDispatch, dispatchGroup,
       instances: input.instances,
       metadata: input.virtualGeometry.metadata,
       banks: input.productBanks as [GPUBuffer, GPUBuffer, GPUBuffer, GPUBuffer],
@@ -222,16 +255,31 @@ export class CurrentHzbLateRecheckGpu {
     });
     this.prepared.add(prepared);
     return prepared;
+    } catch (error) {
+      for (const buffer of buffers) buffer.destroy();
+      for (const handle of accounting) this.resourceAccounting?.destroyed(handle);
+      throw error;
+    }
+  }
+
+  get allocatedBytes(): number {
+    let bytes = 0;
+    for (const p of this.prepared) { const s = CURRENT_HZB_GPU_STATE.get(p)!; bytes += s.queue.size + s.drawIndirect.size + s.settings.size + s.filterDispatch.size; }
+    return bytes;
   }
 
   matches(prepared: PreparedCurrentHzbLateRecheck, input: CurrentHzbLateRecheckGpuPrepareInput): boolean {
     const state = CURRENT_HZB_GPU_STATE.get(prepared);
-    return state !== undefined && !state.destroyed && state.sourceQueue === input.sourceQueue &&
+    return this.prepared.has(prepared) && state !== undefined && !state.destroyed && state.sourceQueue === input.sourceQueue &&
       state.camera === input.camera && state.instances === input.instances &&
       state.metadata === input.virtualGeometry.metadata && state.counters === input.counters &&
       state.capacity === input.capacity && state.width === input.width &&
       state.height === input.height && state.mipLevelCount === input.mipLevelCount &&
       state.countersEnabled === input.countersEnabled &&
+      [state.sourceGeometry, state.filteredGeometry].every((range, i) => {
+        const other = i === 0 ? input.sourceGeometry : input.filteredGeometry;
+        return range.buffer === other.buffer && range.offset === other.offset && range.size === other.size;
+      }) &&
       state.banks.every((bank, index) => bank === input.productBanks[index]);
   }
 
@@ -252,29 +300,30 @@ export class CurrentHzbLateRecheckGpu {
           { binding: 9, resource: currentHzb },
           { binding: 10, resource: { buffer: state.settings } },
           { binding: 11, resource: { buffer: state.drawIndirect } },
-          { binding: 12, resource: { buffer: state.counters } }
+          { binding: 12, resource: { buffer: state.counters } },
+          { binding: 13, resource: state.sourceGeometry }, { binding: 14, resource: state.filteredGeometry }
         ]
       });
       state.hzbGroups.set(currentHzb, group);
     }
-    const pass = encoder.beginComputePass({ label: "ADR-0018 current-HZB Product MeshletWork late recheck" });
-    pass.setBindGroup(0, group);
-    pass.setPipeline(this.pipelines.prepare);
-    pass.dispatchWorkgroups(1);
-    pass.setPipeline(this.pipelines.filter);
-    pass.dispatchWorkgroups(Math.ceil(state.capacity / 64));
-    pass.setPipeline(this.pipelines.finalize);
-    pass.dispatchWorkgroups(1);
-    pass.end();
+    for (const stage of ["prepare", "filter", "finalize"] as const) {
+      const pass = encoder.beginComputePass({ label: `Visibility/current-HZB/${stage}` });
+      pass.setBindGroup(0, group); pass.setPipeline(this.pipelines![stage]);
+      if (stage === "prepare") pass.setBindGroup(1, state.dispatchGroup);
+      if (stage === "filter") pass.dispatchWorkgroupsIndirect(state.filterDispatch, 0);
+      else pass.dispatchWorkgroups(1);
+      pass.end();
+    }
   }
 
   release(prepared: PreparedCurrentHzbLateRecheck): void {
     const state = CURRENT_HZB_GPU_STATE.get(prepared);
-    if (state === undefined || state.destroyed) return;
+    if (!this.prepared.has(prepared) || state === undefined || state.destroyed) return;
     state.destroyed = true;
     state.queue.destroy();
     state.drawIndirect.destroy();
     state.settings.destroy();
+    state.filterDispatch.destroy();
     for (const handle of state.accounting) this.resourceAccounting?.destroyed(handle);
     CURRENT_HZB_GPU_STATE.delete(prepared);
     this.prepared.delete(prepared);
@@ -289,7 +338,7 @@ export class CurrentHzbLateRecheckGpu {
   private requireState(prepared: PreparedCurrentHzbLateRecheck): CurrentHzbGpuState {
     this.assertAlive();
     const state = CURRENT_HZB_GPU_STATE.get(prepared);
-    if (state === undefined || state.destroyed) throw new Error("Current HZB late-recheck work is stale");
+    if (!this.prepared.has(prepared) || state === undefined || state.destroyed) throw new Error("Current HZB late-recheck work is stale or foreign");
     return state;
   }
 

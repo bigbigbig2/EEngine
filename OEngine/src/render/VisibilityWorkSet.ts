@@ -1,8 +1,10 @@
 import type { GpuRenderWorldRuntime } from "../gpu/GpuRenderWorld.js";
 import type { PreparedHierarchyWork } from "./HierarchicalWorkGenerator.js";
 import type { PreparedMeshletWorkCandidate } from "./MeshletWorkCandidate.js";
-import type { PreparedLargeTriangleSetup } from "./LargeTriangleSetupCache.js";
 import type { PreparedFrameInstances } from "./FrameInstanceTransforms.js";
+import type { PreparedFrameGeometryArena } from "./FrameGeometryArena.js";
+import type { PreparedFrameVertices } from "./FrameGeometryVertices.js";
+import type { FrameGeometryArenaBudget } from "../gpu/GpuFrameGeometryArenaAbi.js";
 
 export interface VisibilityWorkSetKey {
   readonly runtime: GpuRenderWorldRuntime;
@@ -18,9 +20,7 @@ export interface VisibilityWorkSetKey {
   readonly virtualProductBankCount: number;
   readonly meshletWorkCandidateCapacity: number;
   readonly meshletWorkCompactionPath: "auto" | "portable" | "subgroup";
-  readonly triangleSetupEnabled: boolean;
-  readonly triangleSetupThresholdPixels: number;
-  readonly triangleSetupMaxBytes: number;
+  readonly frameGeometryBudget: FrameGeometryArenaBudget;
 }
 
 /** Persistent GPU work resources. Camera/counter state is deliberately absent. */
@@ -28,19 +28,16 @@ export interface VisibilityWorkSet {
   readonly key: VisibilityWorkSetKey;
   readonly hierarchy: PreparedHierarchyWork;
   readonly frameInstances: PreparedFrameInstances;
+  readonly frameGeometry: PreparedFrameGeometryArena;
+  readonly frameVertices: PreparedFrameVertices;
   /** Step-4 normal MeshletWork producer; nullable only during allocation rollback. */
   readonly meshletWorkCandidate: PreparedMeshletWorkCandidate | null;
-  /** OptionalOptimization owner, absent with exact zero feature-off cost. */
-  readonly largeTriangleSetup: PreparedLargeTriangleSetup | null;
-  /** Null when TriangleSetup is disabled; no dedicated cache resource exists. */
-  readonly setupRecords: GPUBuffer | null;
-  readonly setupCapacity: number;
 }
 
 export function visibilityWorkSetKey(
   input: VisibilityWorkSetKey
 ): VisibilityWorkSetKey {
-  return Object.freeze({ ...input });
+  return Object.freeze({ ...input, frameGeometryBudget: Object.freeze({ ...input.frameGeometryBudget }) });
 }
 
 export function sameVisibilityWorkSetKey(
@@ -59,14 +56,16 @@ export function sameVisibilityWorkSetKey(
     left.virtualProductBankCount === right.virtualProductBankCount &&
     left.meshletWorkCandidateCapacity === right.meshletWorkCandidateCapacity &&
     left.meshletWorkCompactionPath === right.meshletWorkCompactionPath &&
-    left.triangleSetupEnabled === right.triangleSetupEnabled &&
-    left.triangleSetupThresholdPixels === right.triangleSetupThresholdPixels &&
-    left.triangleSetupMaxBytes === right.triangleSetupMaxBytes;
+    left.frameGeometryBudget.workCapacity === right.frameGeometryBudget.workCapacity &&
+    left.frameGeometryBudget.filteredWorkCapacity === right.frameGeometryBudget.filteredWorkCapacity &&
+    left.frameGeometryBudget.vertexCapacity === right.frameGeometryBudget.vertexCapacity &&
+    left.frameGeometryBudget.triangleCapacity === right.frameGeometryBudget.triangleCapacity &&
+    left.frameGeometryBudget.dictionaryCapacity === right.frameGeometryBudget.dictionaryCapacity &&
+    left.frameGeometryBudget.coefficientCapacity === right.frameGeometryBudget.coefficientCapacity &&
+    left.frameGeometryBudget.probeLimit === right.frameGeometryBudget.probeLimit &&
+    left.frameGeometryBudget.maxBytes === right.frameGeometryBudget.maxBytes;
 }
 
 export function visibilityWorkSet(input: VisibilityWorkSet): VisibilityWorkSet {
-  if (!Number.isSafeInteger(input.setupCapacity) || input.setupCapacity < 0) {
-    throw new RangeError("VisibilityWorkSet.setupCapacity must be a non-negative integer");
-  }
   return Object.freeze({ ...input, key: visibilityWorkSetKey(input.key) });
 }
