@@ -62,7 +62,7 @@ S0–S7 保留为需求标签，不再代表“完成一个、验证一个、提
 | S6 生命周期与删除 | scene/product/device/resize/cut/residency/GPU退休，全依赖清理与最终审计 | 旧 Surface 生产入口、Probe/sample/Resolve、全屏 closure 和 TriangleSetup 已删除；Appearance/lighting owner 的完整 resize/cut/residency/retirement 审计仍待统一验收 |
 | S7 最终验收 | Chrome、画质视频、真实两 coverage 组、独立基准、全成本 P50/P95 | 尚未运行；没有编译、浏览器、画质或性能达标声明 |
 
-截至本版修订，已提交 HEAD 为 `7b8d9f9`，包含 `e241771` 的 GPU Appearance demand/字段发布和本版 SparseLighting/HDR/Temporal 主链接线。已有真实组件与源码资产直接复用，不要求把其测试再跑一遍才能继续。旧 Surface 生产源码和 Renderer/FrameProgram 旧接线已从工作树删除；当前仍有真实 resident 属性/形变、缓存页内容、cluster-local light/shadow 语义、独立照明 history/reconstruction 及最终生命周期审计缺口。按执行规则，typecheck、build、测试、GPU oracle、浏览器和性能验证全部留到第三步。
+截至本版修订，已提交 HEAD 为 `ff46b7b`，包含 `e241771` 的 GPU Appearance demand/字段发布和本版 SparseLighting/HDR/Temporal 主链接线。已有真实组件与源码资产直接复用，不要求把其测试再跑一遍才能继续。旧 Surface 生产源码和 Renderer/FrameProgram 旧接线已从工作树删除；当前仍有真实 resident 属性/形变、缓存页内容、cluster-local light/shadow 语义、独立照明 history/reconstruction 及最终生命周期审计缺口。按执行规则，typecheck、build、测试、GPU oracle、浏览器和性能验证全部留到第三步。
 
 后续进度只报告：旧生产依赖实际删除情况、最终主链哪些算法/消费者已写入、哪些真实缺口仍在；统一验证开始后报告实际结果。组件测试数、阶段状态、来源 adopted 或文档数量不换算为总体完成百分比。
 
