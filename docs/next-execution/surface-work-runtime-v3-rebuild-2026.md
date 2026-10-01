@@ -74,7 +74,7 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 扩展现有 AppearanceGraphCompiler 输出 constant/static/stable-local/geometry/view/nonlocal、signal rate、full-rate requirement、texture variation 和可融合属性；不建立第二套材质系统。
 
-已新增 `SurfaceMaterialCachePass`，在 GeometryRecord 之前执行 stable key lookup，命中直接写字段纹理，miss 才进入 GeometryRecord 后的评估节点；当前 key 只覆盖部分 identity/version 字段，miss evaluator 仍是本地字段 kernel，尚未绑定每个 publication 的完整 AppearanceResidentKernel，也未覆盖完整 sampler/UV/footprint/variation key，因此 Phase 3 只有结构接线，算法仍在实现中。
+已新增 `SurfaceMaterialCachePass`，在 GeometryRecord 之前执行 stable key lookup，命中直接写字段纹理并生成 hit mask，miss 写入 bounded queue；当前 GeometryRecord 尚未消费 hit mask，仍按 record range 求值，只有后续 evaluator 按 hit mask 跳过命中记录。当前 key 只覆盖部分 identity/version 字段，miss evaluator 仍是本地字段 kernel，尚未绑定每个 publication 的完整 AppearanceResidentKernel，也未覆盖完整 sampler/UV/footprint/variation key，因此 Phase 3 只有结构接线，算法仍在实现中。
 
 ### Phase 4：分 signal lighting packets（实现中）
 

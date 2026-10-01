@@ -7,7 +7,7 @@
 
 本文不把设计文档中“计划实现”的内容当成已经完成，而是把当前代码、当前缺口和最终推进方案分开说明。
 
-实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 cache lookup → miss-only GeometryRecord → miss field evaluation → diffuse/specular/coat/IBL packets → packet reconstruct。该接线不提升本文后续 AAA 数学、完整材质 publication kernel、cluster/VSM/AO/IBL provider、signal history 和性能验收状态；这些仍以源码和 Phase 7 证据为准。
+实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 cache lookup → GeometryRecord（当前仍按 record range 求值）→ hit-mask-gated miss field evaluation → diffuse/specular/coat/IBL packets → packet reconstruct。该接线不提升本文后续 AAA 数学、完整材质 publication kernel、cluster/VSM/AO/IBL provider、signal history 和性能验收状态；这些仍以源码和 Phase 7 证据为准。
 
 ## 1. 最终判断
 
@@ -240,8 +240,8 @@ next-renderer-showcase 当前默认开启 renderScale 1、HZB、cone、XeGTAO、
 Visibility / TemporalFacts
 → SurfaceWork classify
 → cache lookup
-→ miss-only GeometryRecord
-→ miss field evaluation
+→ GeometryRecord（当前仍按 record range）
+→ hit-mask-gated miss field evaluation
 → diffuse/specular/coat/IBL packets
 → packet reconstruct
 → Sky / Aerial / FSR3 / Radiometry / Bloom / Present

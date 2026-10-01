@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | SurfaceWork implicit/uniform/mixed | `AGENTS.md`、`project/workstreams/active/eengine-next-clean-rebuild.yaml`、`docs/next-execution/surface-work-runtime-v3-rebuild-2026.md` | 目标与执行阶段一致，源码尚未实现 |
 | 唯一 SurfaceGeometryRecord | `docs/domains/shading.md`、`docs/domains/visibility.md` | `SurfaceGeometryPass` 已成为当前唯一结构入口；Product/skin/morph/previous deformation 覆盖仍不完整 |
-| cache lookup → miss-only compact | V3 原文、V3 执行计划、Shading domain | lookup 已前移并接入 miss 节点；完整 implicit/uniform/mixed 覆盖、publication kernel 和 key 语义仍未完成 |
+| cache lookup → miss-only compact | V3 原文、V3 执行计划、Shading domain | lookup 已前移并接入 hit mask/miss 节点，但 GeometryRecord 尚未消费 hit mask；完整 implicit/uniform/mixed 覆盖、publication kernel 和 key 语义仍未完成 |
 | diffuse/specular/coat/IBL packets | V3 原文、架构层计划、workstream rules | 独立 signal 与局部 full-rate 例外已统一 |
 | TemporalFacts 唯一基础 owner | `docs/domains/frame-runtime.md`、`docs/next-execution/temporal-radiometry-presentation.md` | 目标和当前边界一致，Surface 不拥有第二套基础 motion |
 | 廉价 reconstruct | V3 原文、V3 执行计划、Shading domain | 当前已是 packet-only 结构；signal history、AO/emissive/energy 合成仍未完成 |

@@ -16,7 +16,7 @@ owner: shading
 ```text
 VisibilityKey / Depth / MeshletWork / shared frame geometry
   → SurfaceWorkRuntime
-  → cache lookup → miss-only GeometryRecord → miss field evaluation
+  → cache lookup → GeometryRecord → hit-mask-gated miss field evaluation
   → diffuse / specular / coat / IBL packet work
   → packet reconstruct
   → HDR / Sky / Aerial / FSR3 / Radiometry / Bloom / Present
@@ -26,7 +26,7 @@ VisibilityKey / Depth / MeshletWork / shared frame geometry
 
 ### Appearance
 
-`SurfaceMaterialCachePass` 在 GeometryRecord 之前按当前已接入的 VisibilityKey、材质槽、字段版本和纹理驻留版本做 key 比较；命中直接写六层 fields，未命中压入有界 miss queue。GeometryRecord 读取 hit mask，随后只对 miss 执行字段评估并发布缓存值。sampler、UV set/transform、footprint 和 variation revision 尚未完整进入 key；字段评估仍是本地 fallback kernel，尚未绑定每个 publication 的完整 `AppearanceResidentKernel`，因此不能宣称材质图语义已完全保持。
+`SurfaceMaterialCachePass` 在 GeometryRecord 之前按当前已接入的 VisibilityKey、材质槽、字段版本和纹理驻留版本做 key 比较；命中直接写六层 fields，未命中压入有界 miss queue。当前 `SurfaceGeometryPass` 尚未读取 hit mask，仍按 record range 发布 GeometryRecord；hit mask 只在后续 miss evaluator 中生效，因此“命中绕过几何 heavy work”尚未实现。sampler、UV set/transform、footprint 和 variation revision 尚未完整进入 key；字段评估仍是本地 fallback kernel，尚未绑定每个 publication 的完整 `AppearanceResidentKernel`，因此不能宣称材质图语义已完全保持。
 
 AppearanceGraphCompiler 已支持 typed dependencies、等价采样合并、常量/无用通道处理和 product 分类，lowering 输出 WGSL 求值程序。GpuMaterialStore 发布字段版本，AppearanceProgramRegistry 持有程序 leases，AppearanceStaticResidency 管理静态产品与 completion 退役。当前 mutable material 编辑仍需要实际 republication/resync，不能宣称所有动态输入或 nonlocal providers 已完成。
 
@@ -44,7 +44,7 @@ SurfaceWork 的 packet/reconstruct owner 负责未来的 signal history 资源�
 | --- | --- |
 | implicit/uniform/mixed SurfaceWork，不全员 pixel task | 当前 tile/sample classifier 已建立固定前缀和 bounded sample 分区；mixed tile 的完整 mask 压缩与容量统计仍需验收 |
 | 唯一 SurfaceGeometryRecord | 已由 `SurfaceGeometryPass` 生产；skin/morph、Product 跨 LOD/source/seam 对应仍有缺口 |
-| lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，命中跳过 GeometryRecord 属性恢复；完整 publication kernel miss evaluation 未接通 |
+| lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，hit mask 已生成但尚未被 GeometryRecord 消费；完整 publication kernel miss evaluation 未接通 |
 | 独立 diffuse/specular/coat/IBL work | 四类 packet 已独立资源和 counters；cluster、VSM、AO、physical/authored IBL provider 尚未接线 |
 | 廉价 reconstruct | 已不重新解码 Geometry Product 或执行材质图；真实 signal history reject/age 尚未完成 |
 | FrameGraph 看到真实阶段 | lookup、GeometryRecord、miss evaluation、packet 和 reconstruct 均是独立 FrameGraph 节点 |
