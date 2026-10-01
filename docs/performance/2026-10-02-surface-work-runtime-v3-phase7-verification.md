@@ -13,7 +13,7 @@
 未通过或未完成：
 
 - 旧 `tests/contract/appearance-publication.test.mjs` 的 5 个用例仍假设已删除的 scalar coverage/task ABI；失败原因是测试与 V3 新 publication 边界不一致，不恢复旧实现。
-- `tests/contract/frame-program.test.mjs` 的 owner mock 没有新 SurfaceWork 绑定所需的真实 geometry/publication shape；该旧 fixture 不能证明新主链运行失败或通过。
+- `tests/contract/frame-program.test.mjs` 的 1 个 lowering 用例 owner mock 没有新 SurfaceWork 绑定所需的真实 frame-attributes shape；该旧 fixture 不能证明新主链运行失败或通过。
 - 未运行浏览器整帧、GPU shader oracle、连续画质、camera cut/resize/device loss 矩阵、NVIDIA 传感器采样和四版本 P50/P95 对比，因此没有性能结论。
 
-当前实现状态：Phase 1–6 的唯一 SurfaceWork 生产接线已提交；复杂材质 miss evaluation、完整 GeometryRecord 属性解码、cluster/VSM/AO/physical IBL 数学、history reject/age、pre-exposure/energy 和正式覆盖率仍需在新链继续完成。
+当前实现状态：唯一 SurfaceWork 生产接线、真实 GeometryRecord 属性发布、前置 cache lookup/miss queue、基础 GGX/Smith/Schlick packet lighting 和 TemporalFacts/pre-exposure reconstruct 已提交；publication 的完整 AppearanceResidentKernel、cluster/VSM/AO/physical IBL provider、signal history reject/age、Product/形变对应、浏览器画质和正式覆盖率/性能仍需继续完成。
