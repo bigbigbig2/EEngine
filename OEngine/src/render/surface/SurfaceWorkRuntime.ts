@@ -5,6 +5,7 @@ import { resolveTextureView } from "../RenderTargetViews.js";
 import { surfaceWorkLayout, writeSurfaceWorkHeader, SURFACE_WORK_HEADER_WGSL,
   SURFACE_TILE_DESCRIPTOR_STRIDE, SURFACE_SAMPLE_RECORD_STRIDE, type SurfaceWorkBudget, type SurfaceWorkLayout } from "../../gpu/GpuSurfaceWorkAbi.js";
 import { SurfaceGeometryPass, type SurfaceGeometryProducts } from "./SurfaceGeometryPass.js";
+import { SurfaceMaterialCachePass, type SurfaceMaterialProducts } from "./SurfaceMaterialCachePass.js";
 
 export interface SurfaceWorkFrame {
   readonly generation: number;
@@ -12,7 +13,7 @@ export interface SurfaceWorkFrame {
   readonly directoryOffset: number;
 }
 
-export interface SurfaceWorkProducts extends SurfaceGeometryProducts {
+export interface SurfaceWorkProducts extends SurfaceGeometryProducts, SurfaceMaterialProducts {
   readonly work: ResourceId;
   readonly radiance: ResourceId;
   readonly reactiveMask: ResourceId;
@@ -60,6 +61,7 @@ fn clear(@builtin(global_invocation_id) id: vec3u) { textureStore(output,vec2i(i
 
 export class SurfaceWorkRuntime {
   private readonly geometry: SurfaceGeometryPass;
+  private readonly material: SurfaceMaterialCachePass;
   private readonly classifyLayout: GPUBindGroupLayout;
   private readonly classifyPipeline: GPUComputePipeline;
   private readonly clearLayout: GPUBindGroupLayout;
@@ -73,6 +75,7 @@ export class SurfaceWorkRuntime {
     maxTiles: 262144, maxSamples: 262144, maxExceptions: 65536, maxGeometryRecords: 262144, maxBytes: 128 * 1024 * 1024
   }) {
     this.geometry = new SurfaceGeometryPass(device);
+    this.material = new SurfaceMaterialCachePass(device);
     this.settings = device.createBuffer({ label: "SurfaceWork/classify settings", size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.classifyLayout = device.createBindGroupLayout({ entries: [
@@ -95,7 +98,7 @@ export class SurfaceWorkRuntime {
     this.layout = surfaceWorkLayout(width, height, this.budget, this.device.limits); this.prepared = true;
   }
 
-  addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; width: number; height: number; frame: SurfaceWorkFrame }): SurfaceWorkProducts {
+  addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; fieldVersions: ResourceId; width: number; height: number; frame: SurfaceWorkFrame }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
     const layout = this.layout;
     let work!: ResourceId;
@@ -120,6 +123,9 @@ export class SurfaceWorkRuntime {
     const geometry = this.geometry.addToGraph(graph, { visibility: input.visibility, work, arena: input.arena, width: input.width,
       height: input.height, frameAt: input.frame.arenaHeaderOffset / 4, directoryAt: input.frame.directoryOffset / 4,
       sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset, geometryCapacity: layout.geometryCapacity, bind: () => undefined });
+    const recordCount = Math.ceil(input.width / 8) * Math.ceil(input.height / 8);
+    const material = this.material.addToGraph(graph, { geometry: geometry.records, width: input.width, height: input.height,
+      recordCount, fieldVersions: input.fieldVersions, frame: input.frame.generation });
     let radiance!: ResourceId;
     let reactiveMask!: ResourceId;
     const outputs = graph.add("SurfaceWork/cheap output initialization", { width: input.width, height: input.height }, (data, resources, context) => {
@@ -135,10 +141,10 @@ export class SurfaceWorkRuntime {
     reactiveMask = outputs.create("SurfaceWork/reactive", { kind: "transient_texture", width: input.width, height: input.height,
       format: "rgba8unorm", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
     outputs.write(radiance); outputs.write(reactiveMask);
-    return { work, records: geometry.records, count: geometry.count, radiance, reactiveMask };
+    return { work, records: geometry.records, count: geometry.count, ...material, radiance, reactiveMask };
   }
 
   commit(_gpuDone: Promise<void>): void { if (!this.prepared) throw new Error("SurfaceWork commit without prepare"); this.prepared = false; }
   abort(): void { this.prepared = false; }
-  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.geometry.destroy(); this.settings.destroy(); }
+  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.geometry.destroy(); this.material.destroy(); this.settings.destroy(); }
 }

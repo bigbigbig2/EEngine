@@ -70,11 +70,11 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 已加入 `GpuSurfaceWorkAbi.ts`、`SurfaceWorkRuntime.ts` 和 `SurfaceGeometryPass.ts`，建立固定前缀、分区容量和唯一 GeometryRecord FrameGraph 边；`WinnerPrimitiveInterpolation` 继续作为底层 arena 数学 owner。材质与 lighting consumers 尚未接通，Phase 2 仍未完成，未运行编译、测试或 GPU/browser 验证。
 
-### Phase 3：Appearance 改为 miss-only demand
+### Phase 3：Appearance 改为 miss-only demand（实现中）
 
 扩展现有 AppearanceGraphCompiler 输出 constant/static/stable-local/geometry/view/nonlocal、signal rate、full-rate requirement、texture variation 和可融合属性；不建立第二套材质系统。
 
-在 miss compaction 前 lookup stable field address；hit 只发布 field address/consume reference，不进入 geometry/material heavy worker；miss compact 后求值并发布。完整 key 包含 material/field/version、residency、sampler/wrap/filter、UV/transform、geometry/product domain、footprint、dynamic version 和必要 variation revision。stripe 只管理物理容量，不再定义逐像素逻辑任务。
+已新增 `SurfaceMaterialCachePass`，在 GeometryRecord 之后执行 stable key lookup，发布 hit mask、bounded miss queue、字段纹理和 counters；key 已包含 winner identity、geometry signature 与 publication field version。旧 pixel task/result pool 不再创建。材质编译程序的真实 miss evaluation、完整 texture/residency/footprint key 和 hit 绕过几何的前移仍待继续实现，Phase 3 未完成，未运行编译、测试或 GPU/browser 验证。
 
 ### Phase 4：分 signal lighting packets
 

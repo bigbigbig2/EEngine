@@ -344,6 +344,11 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   const surfaceWork = owners.surfaceWork.addToGraph(graph, {
     visibility: result.frame.visibilityKey,
     arena: result.frame.frameGeometry,
+    fieldVersions: graph.import_resource("surface-field-versions", { kind: "imported", label: "published surface field versions" },
+      bind("surface-field-versions", bindings => {
+        if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
+        return bindings.runtime.appearancePublication.fields;
+      })),
     width: result.frame.domain.width,
     height: result.frame.domain.height,
     frame: bind("surface-work-frame", bindings => ({
