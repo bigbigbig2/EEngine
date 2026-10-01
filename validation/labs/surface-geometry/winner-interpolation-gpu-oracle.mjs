@@ -5,8 +5,9 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import { WinnerPrimitiveInterpolation } from "../../../OEngine/.test-dist/render/surface/WinnerPrimitiveInterpolation.js";
+import { FrameGeometryArena } from "../../../OEngine/.test-dist/render/FrameGeometryArena.js";
 import { FRAME_GEOMETRY_WGSL } from "../../../OEngine/.test-dist/gpu/GpuWinnerInterpolationAbi.js";
-import { winnerPrimitiveConsumerWgsl } from "../../../OEngine/.test-dist/shaders/winner_primitive_work.js";
+import { winnerPrimitiveConsumerWgsl, winnerPrimitiveArenaConsumerWgsl } from "../../../OEngine/.test-dist/shaders/winner_primitive_work.js";
 import { WINNER_INTERPOLATION_WGSL } from "../../../OEngine/.test-dist/shaders/winner_interpolation.js";
 import { homogeneousInterpolationReference, transformPosition, winnerHash } from "../../../OEngine/tests/helpers/homogeneous-interpolation-reference.mjs";
 
@@ -15,11 +16,14 @@ const { create, globals } = createRequire(resolve(process.argv[2], "package.json
 const gpu = create(["backend=d3d12"]), adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
 assert.ok(adapter); assert.equal(adapter.info.isFallbackAdapter, false);
 const device = await adapter.requestDevice(), resources = [], errors = [];
+const arenaMode = process.argv.includes("--arena");
+const arenaOwner = new FrameGeometryArena(device);
+const binding = input => "buffer" in input ? input : { buffer: input };
 device.addEventListener("uncapturederror", event => errors.push(event.error.message));
 let disposing = false, lost;
 void device.lost.then(info => { if (!disposing) lost = { reason: info.reason, message: info.message }; });
 const artifacts = resolve(".local/validation/surface-geometry"); await mkdir(artifacts, { recursive: true });
-const summary = { evidenceRole: "diagnostic", component: "HomogeneousWinnerInterpolation", passed: false, cases: [],
+const summary = { evidenceRole: "diagnostic", component: arenaMode ? "FrameGeometryArena/SingleBindingWinner" : "HomogeneousWinnerInterpolation", passed: false, cases: [],
   adapter: { vendor: adapter.info.vendor, architecture: adapter.info.architecture, device: adapter.info.device, description: adapter.info.description } };
 const identity = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 function buffer(dataOrSize, usage = GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC) {
@@ -48,7 +52,7 @@ struct FramePrepare { matrix: mat4x4f, count: u32, work_count: u32, generation: 
 @group(0) @binding(2) var<storage, read> directories: array<FrameGeometryMeshlet>;
 @group(0) @binding(3) var<storage, read_write> clips: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> geometry: FrameGeometryDirectory;
-@group(0) @binding(5) var<storage, read> triangles: array<u32>;
+@group(0) @binding(5) var<storage, read_write> triangles: array<u32>;
 @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3u) {
   if id.x < settings.count { clips[id.x] = settings.matrix * source[id.x]; }
   if id.x < settings.work_count { geometry.meshlets[id.x] = directories[id.x]; }
@@ -65,6 +69,21 @@ struct Output { weights: vec4f, dx: vec4f, dy: vec4f, }
   let value = winner_interpolate_key(key, vec2f(id.xy) + vec2f(0.5));
   let cached = winner_coefficient_slot(key) != OENGINE_VISIBILITY_KEY_EMPTY;
   output[id.y * winner_settings.viewport.x + id.x] = Output(vec4f(value.weights, f32(value.flags)),
+    vec4f(value.dx, select(0.0, 1.0, cached)), vec4f(value.dy, 0.0));
+}`);
+const arenaConsumer = arenaMode && await compute(`${winnerPrimitiveArenaConsumerWgsl()}
+struct FrameView { viewport: vec2u, frame_at: u32, directory_at: u32, }
+struct Output { weights: vec4f, dx: vec4f, dy: vec4f, }
+@group(0) @binding(0) var<uniform> view: FrameView;
+@group(0) @binding(1) var<storage, read> asset_metadata_heap: array<u32>;
+@group(1) @binding(0) var visibility: texture_2d<u32>;
+@group(1) @binding(1) var<storage, read_write> output: array<Output>;
+@compute @workgroup_size(8, 8) fn main(@builtin(global_invocation_id) id: vec3u) {
+  if any(id.xy >= view.viewport) { return; }
+  let key = textureLoad(visibility, vec2i(id.xy), 0).x;
+  let value = winner_arena_interpolate_key(key, vec2f(id.xy) + vec2f(0.5), vec2f(view.viewport), view.frame_at, view.directory_at);
+  let cached = winner_arena_coefficient_slot(key, view.frame_at) != OENGINE_VISIBILITY_KEY_EMPTY;
+  output[id.y * view.viewport.x + id.x] = Output(vec4f(value.weights, f32(value.flags)),
     vec4f(value.dx, select(0.0, 1.0, cached)), vec4f(value.dy, 0.0));
 }`);
 const rasterModule = device.createShaderModule({ code: `
@@ -96,27 +115,42 @@ async function run(name, triangles, budget = { dictionaryCapacity: 64, coefficie
   const prepareSettings = new ArrayBuffer(80); new Float32Array(prepareSettings, 0, 16).set(matrix);
   new Uint32Array(prepareSettings, 64).set([positions.length / 4, workCount, options.generation ?? 1, 0]);
   const source = buffer(positions), dirs = buffer(directories), settings = buffer(new Uint8Array(prepareSettings), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
-  const geometry = { directory: buffer(16 + directories.byteLength), clips: buffer(positions.byteLength),
-    triangles: buffer(new Uint32Array(packedTriangles)) };
+  const metadataWords = new Uint32Array(Array.from({ length: 59 }, (_, i) => (0xabc00000 + i) >>> 0));
+  const arena = arenaMode && arenaOwner.prepare(buffer(metadataWords), metadataWords.byteLength,
+    { workCapacity: workCount, vertexCapacity: positions.length / 4, triangleCapacity: packedTriangles.length,
+      ...budget, maxBytes: 2 * 1024 * 1024 });
+  const geometry = arena ? { directory: arena.sourceDirectory, clips: arena.clips, triangles: arena.triangles } :
+    { directory: buffer(16 + directories.byteLength), clips: buffer(positions.byteLength), triangles: buffer(new Uint32Array(packedTriangles)) };
+  if (arena) device.queue.writeBuffer(arena.buffer, arena.triangles.offset, new Uint32Array(packedTriangles));
   const visibility = texture(width, height, "r32uint"), basis = texture(width, height, "rgba32float");
-  const allocation = owner.prepare({ geometry, visibility: visibility.createView(), width, height, budget });
+  const allocation = owner.prepare({ geometry, visibility: visibility.createView(), width, height, budget, storage: arena || undefined });
+  const arenaOutput = arena && buffer(width * height * 48), arenaOutputRead = arena && readback(width * height * 48);
+  const metadataRead = arena && readback(metadataWords.byteLength);
   const output = buffer(width * height * 48), outputRead = readback(output.size), controlRead = readback(allocation.control.size),
     dictionaryRead = readback(allocation.dictionary.size), coefficientRead = readback(allocation.coefficients.size), clipRead = readback(geometry.clips.size);
   const keyRow = Math.ceil(width * 4 / 256) * 256, basisRow = width * 16;
   const keyRead = readback(keyRow * height), basisRead = readback(basisRow * height);
   const prepareGroup = device.createBindGroup({ layout: preparePipeline.getBindGroupLayout(0), entries:
-    [settings, source, dirs, geometry.clips, geometry.directory, geometry.triangles].map((b, binding) => ({ binding, resource: { buffer: b } })) });
+    [settings, source, dirs, geometry.clips, geometry.directory, geometry.triangles].map((b, index) => ({ binding: index, resource: binding(b) })) });
   const rasterGroup = device.createBindGroup({ layout: raster.getBindGroupLayout(0), entries:
-    [geometry.clips, buffer(keys)].map((b, binding) => ({ binding, resource: { buffer: b } })) });
+    [geometry.clips, buffer(keys)].map((b, index) => ({ binding: index, resource: binding(b) })) });
   const consumerGroup = device.createBindGroup({ layout: consumer.getBindGroupLayout(0), entries:
     [allocation.settings, geometry.directory, geometry.clips, geometry.triangles, allocation.dictionary, allocation.coefficients]
-      .map((b, i) => ({ binding: [0, 2, 3, 4, 5, 7][i], resource: { buffer: b } })) });
+      .map((b, i) => ({ binding: [0, 2, 3, 4, 5, 7][i], resource: binding(b) })) });
   const consumerOutput = device.createBindGroup({ layout: consumer.getBindGroupLayout(1), entries: [
     { binding: 0, resource: visibility.createView() }, { binding: 1, resource: { buffer: output } } ] });
+  const arenaGroup = arena && device.createBindGroup({ layout: arenaConsumer.getBindGroupLayout(0), entries: [
+    { binding: 0, resource: { buffer: buffer(new Uint32Array([width, height, arena.layout.header.offset / 4, arena.sourceDirectory.offset / 4]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST) } },
+    { binding: 1, resource: { buffer: arena.buffer } }
+  ] });
+  const arenaOutputGroup = arena && device.createBindGroup({ layout: arenaConsumer.getBindGroupLayout(1), entries: [
+    { binding: 0, resource: visibility.createView() }, { binding: 1, resource: { buffer: arenaOutput } }
+  ] });
   let last;
-  device.pushErrorScope("validation");
   for (let frame = 0; frame < (options.frames ?? 1); frame++) {
+    device.pushErrorScope("validation");
     const encoder = device.createCommandEncoder({ label: name });
+    const commitMetadata = arena ? arenaOwner.encodeMetadataPublication(encoder, arena) : undefined;
     const prepare = encoder.beginComputePass(); prepare.setPipeline(preparePipeline); prepare.setBindGroup(0, prepareGroup);
     prepare.dispatchWorkgroups(Math.ceil(Math.max(workCount, positions.length / 4) / 64)); prepare.end();
     const pass = encoder.beginRenderPass({ colorAttachments: [
@@ -126,14 +160,27 @@ async function run(name, triangles, budget = { dictionaryCapacity: 64, coefficie
     pass.end(); owner.encode(encoder, allocation);
     const consume = encoder.beginComputePass(); consume.setPipeline(consumer); consume.setBindGroup(0, consumerGroup); consume.setBindGroup(1, consumerOutput);
     consume.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8)); consume.end();
+    if (arena) {
+      const consumeArena = encoder.beginComputePass(); consumeArena.setPipeline(arenaConsumer); consumeArena.setBindGroup(0, arenaGroup); consumeArena.setBindGroup(1, arenaOutputGroup);
+      consumeArena.dispatchWorkgroups(Math.ceil(width / 8), Math.ceil(height / 8)); consumeArena.end();
+      encoder.copyBufferToBuffer(arenaOutput, 0, arenaOutputRead, 0, arenaOutput.size);
+      encoder.copyBufferToBuffer(arena.buffer, 0, metadataRead, 0, metadataWords.byteLength);
+    }
     for (const [a, b] of [[output, outputRead], [allocation.control, controlRead], [allocation.dictionary, dictionaryRead],
-      [allocation.coefficients, coefficientRead], [geometry.clips, clipRead]]) encoder.copyBufferToBuffer(a, 0, b, 0, a.size);
+      [allocation.coefficients, coefficientRead], [geometry.clips, clipRead]]) { const r = binding(a); encoder.copyBufferToBuffer(r.buffer, r.offset ?? 0, b, 0, r.size ?? r.buffer.size); }
     encoder.copyTextureToBuffer({ texture: visibility }, { buffer: keyRead, bytesPerRow: keyRow }, [width, height]);
     encoder.copyTextureToBuffer({ texture: basis }, { buffer: basisRead, bytesPerRow: basisRow }, [width, height]);
     device.queue.submit([encoder.finish()]);
+    const frameError = await device.popErrorScope(); assert.equal(frameError, null, frameError?.message);
+    commitMetadata?.();
     const [values, counts, table, coefficients, clips, visibleKeys, hardware] = await Promise.all([
       mapped(outputRead, Float32Array), mapped(controlRead, Uint32Array), mapped(dictionaryRead, Uint32Array),
       mapped(coefficientRead, Float32Array), mapped(clipRead, Float32Array), mapped(keyRead, Uint32Array), mapped(basisRead, Float32Array)]);
+    if (arena) {
+      const actual = await mapped(arenaOutputRead, Float32Array);
+      assert.deepEqual(await mapped(metadataRead, Uint32Array), metadataWords, "geometry and winner writes must preserve immutable metadata");
+      for (let i = 0; i < actual.length; i++) assert.ok(Math.abs(actual[i] - values[i]) <= 0.000002, `${name} typed/one-binding parity at ${i}: ${actual[i]} ${values[i]}`);
+    }
     const expectedClips = triangles.map(t => t.clips.map(p => transformPosition(matrix, p.map(Math.fround))));
     const byKey = new Map(triangles.map((t, i) => [keys[i], i]));
     let pixels = 0, cached = 0, maxHardwareError = 0, maxSolveError = 0, maxGradientError = 0, maxSnappedHardwareError = 0;
@@ -183,11 +230,12 @@ async function run(name, triangles, budget = { dictionaryCapacity: 64, coefficie
     if (options.expectDirect) assert.ok(pixels > cached, "pressure must actually consume direct coefficients");
     if (options.expectedUnique !== undefined && pixels) assert.equal(counts[0], options.expectedUnique);
     last = { frame, pixels, cachedPixels: cached, uniquePrimitives: counts[0], requestFailures: counts[1], built: counts[2], invalid: counts[3],
-      maxHardwareError, maxSolveError, maxGradientError, maxSnappedHardwareError: snappedClips ? maxSnappedHardwareError : null, bytes: allocation.byteLength };
+      maxHardwareError, maxSolveError, maxGradientError, maxSnappedHardwareError: snappedClips ? maxSnappedHardwareError : null,
+      bytes: allocation.byteLength, arenaBytes: arena ? arena.layout.byteLength : 0 };
     summary.cases.push({ name, ...last });
   }
-  const scope = await device.popErrorScope(); assert.equal(scope, null, scope?.message); assert.deepEqual(errors, []); assert.equal(lost, undefined);
-  owner.release(allocation); return last;
+  assert.deepEqual(errors, []); assert.equal(lost, undefined);
+  owner.release(allocation); if (arena) arenaOwner.release(arena); return last;
 }
 
 async function mathCases() {
@@ -251,6 +299,6 @@ try {
 } catch (error) { summary.error = { name: error.name, message: error.message }; throw error; }
 finally {
   summary.uncapturedErrors = errors; summary.deviceLost = lost ?? null;
-  await writeFile(resolve(artifacts, "winner-interpolation-gpu-oracle.json"), JSON.stringify(summary, null, 2));
-  disposing = true; owner?.destroy(); for (const resource of resources) resource.destroy(); device.destroy();
+  await writeFile(resolve(artifacts, arenaMode ? "frame-geometry-arena-gpu-oracle.json" : "winner-interpolation-gpu-oracle.json"), JSON.stringify(summary, null, 2));
+  disposing = true; owner?.destroy(); arenaOwner.destroy(); for (const resource of resources) resource.destroy(); device.destroy();
 }

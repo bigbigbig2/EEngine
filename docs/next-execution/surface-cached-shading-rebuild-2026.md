@@ -74,6 +74,16 @@ build（含typecheck）、build:test与61项focused tests通过，来源/本地�
 
 build（含 typecheck）、build:test 和 6 项 focused tests 通过；API validation/uncaptured errors、device loss 为零。Dawn 仍有其他 adapter 初始化 `0x887A0020` 与 pipeline cached blob `0x8000FFFF` 原生诊断。**这不是 Chrome/整帧/性能通过；S2/R02/R03/R08 仍未完成**：真实 GPU Scene/ordinary/Product residency 的准备与物理字节、Raster/Surface 生产切换、活跃属性/法线切线及 source-domain/LOD mapping 尚未接完。测试中的共享 clip producer 是独立 fixture，不能替代生产 frame geometry owner。S1 的 live dynamics/coverage 与 S3–S7 全部保留；旧 Surface 帧消费者本轮未修改。
 
+### S2 进行中：单binding帧几何资源模块，2026-10-01
+
+`FrameGeometryArena`已实现一份raw Surface输入与多个disjoint producer ranges：immutable metadata prefix保留原word offsets，目录、clip、packed triangles、winner dictionary/coefficients/work/control在同buffer内按negotiated alignment布局。不开late HZB不分配第二目录；开启时独立给定filtered work capacity。顶点/三角形预算不由meshlet capacity×128盲算，whole binding limit、累计256 MiB owner budget和alignment gaps全计。metadata只在成功submit的publication后commit，abort仍可重试，稳定帧不重复copy。winner借用arena storage，只拥有64 B settings/indirect；总成本仍包含完整arena。
+
+真实Native GPU首先复现了**不相交range仍混用Storage(read-only)/Storage(read-write)的usage-scope失败**；binding aliasing并不是唯一规则。已改为producer各arena binding统一storage/read_write、range互斥，输入算法仍只读，无额外输入写/atomics；后续single-binding consumer独立scope只读整arena。`winnerPrimitiveArenaConsumerWgsl`实际读取字典/coefficients，并在容量/冲突miss从相同shared clips计算；没有引入旧Setup桥梁。
+
+build（含typecheck）、build:test及18项focused tests通过。Native/D3D12同26个case/frame、19,874覆盖像素，typed/single-binding输出逐值在2e-6组件容差内，含collision/full/overflow/zero-work与metadata逐u32保留；旧dedicated-storage组件诊断亦通过。安装的**有界面Chrome154.0.8037.92**硬件adapter真实执行arena/winner owner与单binding consumer：6帧、2,717覆盖像素，透视、近裁剪/W=0/负W、两种新建extent和未提交publication重试通过；权重最大误差2.4345836e-7，梯度1.9577069e-7；API errors/device loss零，release后owner accounting零。Native仍有其他adapter/cache blob诊断，未泛称干净浏览器环境。
+
+**S2仍未完成**：当前geometry vertex producer在Native/Chrome仍为fixture；真实resident属性/共享顶点与形变、late HZB原→最终work directory重排、winner系数在新Surface生产主链消费、稳定source/LOD地址继续必做。新布局尚未接入PackedVisibility生产调度；不能把组件GPU通过或避免第17个storage绑定等同于已消除Showcase瓶颈。S1–S7范围、两coverage画质/视频和50%/30%性能门槛均不缩减，当前无最终性能通过声明。
+
 ## 3. 设计要求到证明的追踪
 
 所有条目初始为未完成。对应证据必须指出生产 producer、consumer 和测试覆盖范围；文件存在或 manifest 声称 completed 都不能替代证明。

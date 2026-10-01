@@ -52,6 +52,21 @@
 
 这不替代 resident attribute decode、共享顶点形变、winner coefficients 的真实生产接通和稳定 LOD 地址；这些仍须继续实施。
 
+### S2 单 binding 帧几何 arena：本地资源集成
+
+此模块是现有 `HomogeneousWinnerInterpolation` profile 的资源布局与生命周期集成，数学、GPU demand/dedup、coefficients、容量 miss 的算法不变；没有新增 donor 移植完成声明。`GpuFrameGeometryArenaAbi` / `FrameGeometryArena` 保留原始 metadata prefix 的 word offsets，之后按实际 negotiated alignment 分配目录、clip、packed triangles、dictionary、coefficients、work/control。顶点和三角形预算明确独立给定，不用 `workCapacity × 128` 隐式制造容量；按 whole-buffer storage limit 与累计256 MiB owner budget预查，alignment gaps全计物理bytes。不开late HZB不分配第二目录；开启时为最终队列独立预留namespace，这只是布局，**尚未实现production HZB目录重排**。
+
+| 输入/阶段 | 本地 consumer/owner | 不变量与边界 |
+| --- | --- | --- |
+| 不可变asset metadata → arena prefix | `FrameGeometryArena.encodeMetadataPublication` | caller encoder一次copy；成功submit才commit，abort后重新copy；无独立submit，稳定帧零copy |
+| 同一arena的几何与winner typed ranges | `WinnerPrimitiveInterpolation.prepare/encode` | 所有range明确offset/size，写域互斥；borrowed storage只由arena owner计物理bytes/销毁；winner单独保留64 B settings/indirect，不能把这64 B冒称总成本 |
+| dictionary/coefficients或miss → pixel权重/有限一像素差分 | `winnerPrimitiveArenaConsumerWgsl::winner_arena_interpolate_key` | 在后续usage scope通过一份既有raw metadata binding消费；miss仍用同一shared clips，未恢复旧Setup；不增加第17个Surface storage输入 |
+| owner切换/retirement/loss | arena与winner allocation | 工作预算和物理owner累计预算分开；rollback和late retirement不会双销毁或复活借用资源 |
+
+规范核对为 [WebGPU §3.4.3 Resource Usages](https://gpuweb.github.io/gpuweb/#resource-usages)、[§8.2.1 Bind Group Creation](https://gpuweb.github.io/gpuweb/#bind-group-creation) 和 [§14.1 Bind Groups](https://gpuweb.github.io/gpuweb/#bind-groups)，2026-10-01 living spec。**不相交range只解决binding aliasing，不能规避whole-buffer usage scope规则。** 实测混用同一buffer的Storage(read-only)/Storage(read-write)即使range不相交也会拒绝整个encoder；修正为producer所有arena typed bindings统一storage/read_write且保持range不相交，输入在算法上仍不修改，不添加输入写入/原子；后续raw consumer独立scope统一read-only。与storage的多重usage exception一致。不得改回whole-arena read + dictionary write同dispatch的重叠绑定。
+
+GTX1650Ti/Dawn-D3D12 actual owner→hardware raster→typed及single-binding consumer：26个case/frame、19,874覆盖像素通过，含容量/冲突direct miss，两个消费者逐值在2e-6诊断容差内，metadata prefix逐u32未变。本地有界面Chrome154.0.8037.92硬件adapter：6帧、2,717覆盖像素，透视/近裁剪/W=0/负W、两个新建extent与abort后publication通过；API errors/device loss零，owner release后accounting零。以上均为组件diagnostic；Chrome几何输入为fixture，native变换producer也仍为fixture。**尚未接真实resident属性/共享顶点producer、HZB目录remap与新Surface主链，S2/R02/R03/R08仍未完成，无整帧性能/画质采用声明。** 原生Dawn其他adapter/cache blob诊断仍在。
+
 ## 2026-09-30 Surface 最终设计：Signal-Rate Surface（阶段四已完成，正式验收待执行）
 
 最终设计见 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，实现顺序见 [四阶段重构](../next-execution/surface-sample-driven-shading-rebuild-2026.md)。这两份文件替代前期候选排序，确定先减少 ordinary PBR 的重样本，再按残余瓶颈做局部优化。阶段四已完成旧 owner/陈旧合同清理、生命周期复核和模块级集中验证；**最终设计不等于采用完成**，R02/R03/R20/R23 的上游采用状态与正式画质/性能 claims 不因本地接线自动改变。

@@ -1,4 +1,5 @@
-import { FRAME_GEOMETRY_WGSL, WINNER_DICTIONARY_WGSL, WINNER_HASH_WGSL } from "../gpu/GpuWinnerInterpolationAbi.js";
+import { FRAME_GEOMETRY_WGSL, WINNER_DICTIONARY_WGSL, WINNER_HASH_WGSL, WINNER_COEFFICIENT_STRIDE, WINNER_DICTIONARY_STRIDE, FRAME_GEOMETRY_MESHLET_STRIDE } from "../gpu/GpuWinnerInterpolationAbi.js";
+import { FRAME_GEOMETRY_ARENA_HEADER_WORDS as ARENA } from "../gpu/GpuFrameGeometryArenaAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { WINNER_INTERPOLATION_WGSL } from "./winner_interpolation.js";
 
@@ -56,9 +57,12 @@ ${WINNER_INTERPOLATION_WGSL}
 ${SETTINGS_WGSL}
 @group(0) @binding(0) var<uniform> winner_settings: WinnerSettings;
 @group(0) @binding(1) var winner_visibility: texture_2d<u32>;
-@group(0) @binding(2) var<storage, read> winner_geometry: FrameGeometryDirectory;
-@group(0) @binding(3) var<storage, read> winner_clips: array<vec4f>;
-@group(0) @binding(4) var<storage, read> winner_triangles: array<u32>;
+// Inputs are not modified. A unified Storage usage is required when their
+// disjoint ranges share the output arena; read-only + writable usage conflicts
+// at whole-buffer scope even when binding ranges do not overlap.
+@group(0) @binding(2) var<storage, read_write> winner_geometry: FrameGeometryDirectory;
+@group(0) @binding(3) var<storage, read_write> winner_clips: array<vec4f>;
+@group(0) @binding(4) var<storage, read_write> winner_triangles: array<u32>;
 @group(0) @binding(5) var<storage, read_write> winner_dictionary: array<WinnerDictionaryEntry>;
 @group(0) @binding(6) var<storage, read_write> winner_work: array<u32>;
 @group(0) @binding(7) var<storage, read_write> winner_coefficients: array<WinnerCoefficients>;
@@ -151,6 +155,7 @@ fn winner_coefficient_slot(key: u32) -> u32 {
   }
   return OENGINE_VISIBILITY_KEY_EMPTY;
 }
+
 fn winner_interpolate_key(key: u32, pixel: vec2f) -> WinnerInterpolation {
   let slot = winner_coefficient_slot(key);
   var coeff: WinnerCoefficients;
@@ -160,6 +165,66 @@ fn winner_interpolate_key(key: u32, pixel: vec2f) -> WinnerInterpolation {
     coeff = winner_coefficients_for_key(key);
   }
   return winner_interpolate(coeff, pixel, vec2f(winner_settings.viewport));
+}
+`;
+}
+
+/** Final Surface resource profile: all shared geometry and winner products are
+ * read through the existing raw metadata binding. Producer stages use typed,
+ * disjoint ranges; this whole-arena read is exclusively a later usage scope.
+ * Header/directory offsets are supplied by the frame product, never identities. */
+export function winnerPrimitiveArenaConsumerWgsl(heap = "asset_metadata_heap", includeKeyAbi = true): string {
+  if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(heap)) throw new RangeError("Invalid frame arena WGSL heap identifier");
+  return /* wgsl */ `
+${includeKeyAbi ? GPU_VISIBILITY_KEY_WGSL : ""}
+${WINNER_INTERPOLATION_WGSL}
+${WINNER_HASH_WGSL}
+fn winner_arena_vec4(at: u32) -> vec4f {
+  return bitcast<vec4f>(vec4u(${heap}[at], ${heap}[at + 1u], ${heap}[at + 2u], ${heap}[at + 3u]));
+}
+fn winner_arena_coefficient_slot(key: u32, frame_at: u32) -> u32 {
+  if !oengine_visibility_key_is_valid(key) { return OENGINE_VISIBILITY_KEY_EMPTY; }
+  let dictionary = ${heap}[frame_at + ${ARENA.dictionary}u];
+  let capacity = ${heap}[frame_at + ${ARENA.dictionaryCapacity}u];
+  let hash = winner_hash(key);
+  for (var probe = 0u; probe < ${heap}[frame_at + ${ARENA.probeLimit}u]; probe++) {
+    let at = dictionary + ((hash + probe) & (capacity - 1u)) * ${WINNER_DICTIONARY_STRIDE / 4}u;
+    let other = ${heap}[at];
+    if other == OENGINE_VISIBILITY_KEY_EMPTY { break; }
+    if other == key { return ${heap}[at + 1u]; }
+  }
+  return OENGINE_VISIBILITY_KEY_EMPTY;
+}
+fn winner_arena_direct_coefficients(key: u32, frame_at: u32, directory_at: u32) -> WinnerCoefficients {
+  let decoded = oengine_visibility_key_decode(key);
+  if decoded.valid == 0u || ${heap}[directory_at + 1u] == 0u ||
+    decoded.meshlet_work_slot >= min(${heap}[directory_at], ${heap}[frame_at + ${ARENA.workCapacity}u]) {
+    return winner_empty_coefficients();
+  }
+  let at = directory_at + 4u + decoded.meshlet_work_slot * ${FRAME_GEOMETRY_MESHLET_STRIDE / 4}u;
+  let vertex_base = ${heap}[at]; let triangle_base = ${heap}[at + 1u];
+  let vertices = min(${heap}[directory_at + 2u], ${heap}[frame_at + ${ARENA.vertexCapacity}u]);
+  let triangles = min(${heap}[directory_at + 3u], ${heap}[frame_at + ${ARENA.triangleCapacity}u]);
+  if decoded.local_primitive >= ${heap}[at + 3u] || triangle_base >= triangles ||
+    decoded.local_primitive >= triangles - triangle_base { return winner_empty_coefficients(); }
+  let packed = ${heap}[${heap}[frame_at + ${ARENA.triangles}u] + triangle_base + decoded.local_primitive];
+  let corners = vec3u(packed & 255u, (packed >> 8u) & 255u, (packed >> 16u) & 255u);
+  if any(corners >= vec3u(${heap}[at + 2u])) || vertex_base >= vertices ||
+    any(corners >= vec3u(vertices - vertex_base)) { return winner_empty_coefficients(); }
+  let ids = (corners + vec3u(vertex_base)) * 4u + vec3u(${heap}[frame_at + ${ARENA.clips}u]);
+  return winner_build_coefficients(winner_arena_vec4(ids.x), winner_arena_vec4(ids.y), winner_arena_vec4(ids.z));
+}
+fn winner_arena_interpolate_key(key: u32, pixel: vec2f, viewport: vec2f,
+  frame_at: u32, directory_at: u32) -> WinnerInterpolation {
+  let slot = winner_arena_coefficient_slot(key, frame_at);
+  var coeff: WinnerCoefficients;
+  if slot < ${heap}[frame_at + ${ARENA.coefficientCapacity}u] {
+    let at = ${heap}[frame_at + ${ARENA.coefficients}u] + slot * ${WINNER_COEFFICIENT_STRIDE / 4}u;
+    coeff = WinnerCoefficients(winner_arena_vec4(at), winner_arena_vec4(at + 4u), winner_arena_vec4(at + 8u));
+  } else {
+    coeff = winner_arena_direct_coefficients(key, frame_at, directory_at);
+  }
+  return winner_interpolate(coeff, pixel, viewport);
 }
 `;
 }

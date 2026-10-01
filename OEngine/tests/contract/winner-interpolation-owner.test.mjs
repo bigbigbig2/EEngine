@@ -18,6 +18,7 @@ function fixture() {
     createBuffer(d) { const b = { ...d, destroyed: 0, destroy() { this.destroyed++; } }; buffers.push(b); return b; },
     createBindGroup: d => d };
   const geometry = { directory: { size: 32, usage: 128 }, clips: { size: 48, usage: 128 }, triangles: { size: 4, usage: 128 } };
+  device.limits.minStorageBufferOffsetAlignment = 256;
   const input = { geometry, visibility: {}, width: 32, height: 16, budget: { dictionaryCapacity: 16, coefficientCapacity: 8, probeLimit: 8, maxBytes: 1024 } };
   const encoder = { clearBuffer(b) { commands.push(["clear", b]); }, beginComputePass(d) {
     commands.push(["begin", d.label]); return { setPipeline(p) { commands.push(["pipeline", p.compute.entryPoint]); },
@@ -65,4 +66,42 @@ test("a binding failure rolls back all allocations and accounting", async () => 
   f.device.createBindGroup = () => { throw new Error("fixture binding failure"); };
   assert.throws(() => owner.prepare(f.input), /binding failure/);
   assert.equal(f.accounting.snapshot().totalBytes, 0); assert.ok(f.buffers.every(b => b.destroyed === 1)); owner.destroy();
+});
+
+function arenaInput(f) {
+  const buffer = { size: 4096, usage: 128 | 8, destroyed: 0, destroy() { this.destroyed++; } };
+  const range = (offset, size) => ({ buffer, offset, size });
+  return { ...f.input, geometry: { directory: range(0, 32), clips: range(256, 48), triangles: range(512, 4) },
+    storage: { dictionary: range(768, 128), coefficients: range(1024, 384), work: range(1536, 32), control: range(1792, 32) } };
+}
+test("typed arena ranges share storage without writable aliasing or duplicate physical accounting", async () => {
+  const f = fixture(), owner = await WinnerPrimitiveInterpolation.create(f.device, { accounting: f.accounting });
+  const input = arenaInput(f), a = owner.prepare(input);
+  assert.equal(a.byteLength, 64); assert.equal(a.workingByteLength, 640);
+  assert.equal(f.accounting.snapshot().totalBytes, 64); assert.equal(f.buffers.length, 2);
+  assert.throws(() => owner.prepare(input), /overlap/);
+  owner.encode(f.encoder, a);
+  const reset = f.commands.find(c => c[0] === "clear");
+  assert.equal(reset[1], input.storage.control.buffer);
+  owner.release(a);
+  assert.equal(input.storage.control.buffer.destroyed, 0); assert.equal(f.accounting.snapshot().totalBytes, 0);
+  const next = owner.prepare(input); owner.destroy(); owner.release(next);
+});
+test("misaligned, truncated, over-budget and aliased writable views fail before allocation", async () => {
+  const f = fixture(), owner = await WinnerPrimitiveInterpolation.create(f.device), input = arenaInput(f);
+  for (const coefficients of [{ ...input.storage.coefficients, offset: 1028 },
+    { ...input.storage.coefficients, offset: 768 }, { ...input.storage.coefficients, size: 380 },
+    { ...input.storage.coefficients, offset: 3840 }, { ...input.storage.coefficients, size: 2048 }]) {
+    assert.throws(() => owner.prepare({ ...input, storage: { ...input.storage, coefficients } }), RangeError);
+  }
+  assert.throws(() => owner.prepare({ ...input, storage: { ...input.storage, dictionary: { ...input.storage.dictionary, offset: 0 } } }), /overlap/);
+  assert.throws(() => owner.prepare({ ...input, geometry: { ...input.geometry, directory: input.geometry.directory.buffer } }), /overlap/);
+  assert.throws(() => owner.prepare({ ...input, geometry: { ...input.geometry, clips: { ...input.geometry.clips, offset: 0 } } }), /overlap/);
+  assert.equal(f.buffers.length, 0); owner.destroy();
+});
+test("winner cumulative physical owner budget includes allocations still awaiting retirement", async () => {
+  const f = fixture(), owner = await WinnerPrimitiveInterpolation.create(f.device, { maxBytes: 640 });
+  const a = owner.prepare(f.input);
+  assert.throws(() => owner.prepare(f.input), /byte or storage/);
+  owner.release(a); owner.prepare(f.input); owner.destroy();
 });

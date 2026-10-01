@@ -1,6 +1,6 @@
 # Shared Surface geometry diagnostic
 
-This host checks the actual `WinnerPrimitiveInterpolation` owner and its downstream shader library. It is component diagnostic evidence, not Chrome/Showcase, a complete S2 implementation, an adopted upstream port, AAA quality acceptance or a performance result.
+These hosts check the actual geometry/winner owners and their downstream shader libraries, including a headed Chrome component host. They are component diagnostic evidence, not Showcase, a complete S2 implementation, an adopted upstream port, AAA quality acceptance or a performance result.
 
 Run from the repository root after `npm run build:test` in `OEngine`:
 
@@ -34,3 +34,18 @@ The native host executes the actual owner, actual ordinary hardware raster shade
 The second host uses installed **headed Chrome 154.0.8037.92**, no GPU feature flags or software adapter, and creates actual asynchronous PSOs for ten affected shader families: frame preparation, ordinary opaque/MASK, Product raster, ordinary/Product Probe, worker and closure. It includes the 16-storage Product + scalar-AO profile; combined VSM + scalar-AO would require 17 and remains rejected by the preexisting limit contract, not claimed supported. API errors/device loss zero. This is PSO compilation evidence, not Showcase frames or performance. Product's generic worker compilation took 38–42 seconds across these batches; these cold preparation times are not GPU frame cost and remain a final finite-program replacement concern.
 
 An optional native `--compile-consumers` run exited with code 1 abruptly while creating the full ordinary Probe PSO; it produced no JavaScript/WebGPU validation error and did not complete. Its pending/failed attempt is retained locally (`frame-instance-native-compile-report.json`, run log); the cause is **unresolved**, not asserted to be browser incompatibility. Complete consumer compilation was verified separately in real Chrome. Neither diagnostic establishes full S2, shared resident attributes/vertices, stable LOD addresses, a new cache/lighting pipeline, or final performance/quality acceptance.
+
+## Single-binding frame geometry arena
+
+```powershell
+node validation/labs/surface-geometry/winner-interpolation-gpu-oracle.mjs .local/surface-gpu-oracle --arena
+node validation/labs/surface-geometry/frame-geometry-arena-chrome.mjs
+```
+
+`FrameGeometryArena` owns one buffer with an immutable metadata prefix and aligned typed regions. Its cumulative physical budget includes alignment and directory storage. Vertex/triangle budgets are explicit; a second directory is allocated only when a filtered work namespace is requested. The winner owner borrows storage and owns only settings/indirect (64 B); this is not the total geometry/winner cost. Publication copy commits only after submission, so abandoned transactions remain retryable and committed stable frames encode zero metadata copies.
+
+Binding aliasing and usage scopes are separate restrictions. The initial disjoint-range read-only/writable prototype failed with `Storage(read-write)|Storage(read-only)` in one synchronization scope. Producers now declare all arena views as storage/read_write, keep every range disjoint and leave input data logically read-only; the subsequent packed consumer binds the entire arena read-only in a separate scope. No blanket atomic-u32 vertex storage is needed. The corrected native owner executes the same 26 case/frames and 19,874 hardware pixels; typed and single-binding outputs agree within this diagnostic's 2e-6 per-value tolerance. Metadata is checked bit-for-bit after all GPU writes, including capacity misses. Existing separate-buffer diagnostics also pass after the internal range API migration.
+
+Installed **headed Chrome 154.0.8037.92**, hardware NVIDIA Turing adapter, no GPU feature flags: the actual arena/winner owners and single-binding shader execute six frames and 2,717 covered pixels. Gaussian weight error ≤2.4345836e-7, finite footprint error ≤1.9577069e-7 and hardware basis error ≤0.0001493693, under independent fixture budgets. The host uses two newly allocated extents (64×32 / 80×48), an abandoned metadata publication, original W=0/negative W and near clipping. This does not test production Renderer resize, HZB directory remapping, shared resident geometry or full loss/recovery. API errors/device loss zero; physical owner accounting is zero after release. Native adapter/cache-blob diagnostics persist. Reports are `frame-geometry-arena-gpu-oracle.json` and `frame-geometry-arena-chrome.json` under the ignored artifact directory.
+
+Focused layout/range/capacity/accounting/abort/loss tests are in `frame-geometry-arena.test.mjs` and `winner-interpolation-owner.test.mjs`. Real resident vertex production, original→filtered queue directory remapping, raster/Surface production consumption and full S1–S7 acceptance remain required; arena compilation is not an architectural performance result.
