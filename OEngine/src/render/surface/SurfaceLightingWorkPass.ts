@@ -25,14 +25,28 @@ struct Settings { width:u32, height:u32, record_count:u32, frame:u32 }
 @group(0) @binding(7) var<storage,read_write> counters:array<atomic<u32>>;
 @group(0) @binding(8) var output:texture_storage_2d<rgba16float,write>;
 @group(0) @binding(9) var reactive:texture_storage_2d<rgba8unorm,write>;
+const PI:f32=3.14159265359;
+fn saturate(v:f32)->f32{return clamp(v,0.0,1.0);}
+fn fresnel_schlick(cosine:f32,f0:vec3f)->vec3f{return f0+(vec3f(1.0)-f0)*pow(1.0-saturate(cosine),5.0);}
+fn distribution_ggx(no_h:f32,roughness:f32)->f32{let a=roughness*roughness;let a2=a*a;let d=no_h*no_h*(a2-1.0)+1.0;return a2/max(PI*d*d,1e-5);}
+fn visibility_smith(no_v:f32,no_l:f32,roughness:f32)->f32{let k=(roughness+1.0)*(roughness+1.0)/8.0;return (no_v/(no_v*(1.0-k)+k))*(no_l/(no_l*(1.0-k)+k));}
+fn evaluate_brdf(albedo:vec3f,normal:vec3f,view_dir:vec3f,roughness:f32,metallic:f32)->vec4f{
+  let no_v=saturate(dot(normal,view_dir)); let light_dir=normalize(vec3f(0.35,0.72,0.61)); let no_l=saturate(dot(normal,light_dir));
+  let half_dir=normalize(view_dir+light_dir); let no_h=saturate(dot(normal,half_dir)); let vo_h=saturate(dot(view_dir,half_dir));
+  let f0=mix(vec3f(0.04),albedo,metallic); let f=fresnel_schlick(vo_h,f0); let d=distribution_ggx(no_h,roughness); let v=visibility_smith(no_v,no_l,roughness);
+  let spec=f*(d*v); let kd=(vec3f(1.0)-f)*(1.0-metallic); let diffuse=kd*albedo/PI; let direct=(diffuse+spec)*no_l;
+  let energy=max(max(f.x,f.y),f.z); return vec4f(direct,energy);
+}
 @compute @workgroup_size(64)
 fn build(@builtin(global_invocation_id) id:vec3u) {
   let record=id.x; if record>=settings.record_count{return;}
-  let base=record*12u; let n=normalize(geometry[base+5u].xyz); let albedo=textureLoad(fields,vec2i(u32(geometry[base+3u].x),u32(geometry[base+3u].y)),0,0).xyz;
-  let diffuse_l=albedo*max(n.z,0.0); let spec=vec3f(pow(max(n.z,0.0),16.0)); let coat_l=vec3f(0.04)*pow(max(n.z,0.0),64.0); let env=albedo*0.08;
+  let base=record*12u; let pixel=vec2i(u32(geometry[base+3u].x),u32(geometry[base+3u].y)); let material=textureLoad(fields,pixel,0,0);
+  let albedo=clamp(material.xyz,vec3f(0.0),vec3f(1.0)); let roughness=clamp(textureLoad(fields,pixel,2,0).x,0.04,1.0); let normal=normalize(geometry[base+2u].xyz); let view_dir=normalize(geometry[base+6u].xyz);
+  let metallic=clamp(textureLoad(fields,pixel,1,0).x,0.0,1.0); let brdf=evaluate_brdf(albedo,normal,view_dir,roughness,metallic); let no_v=saturate(dot(normal,view_dir));
+  let diffuse_l=albedo*(1.0-metallic)*no_v*0.318309886; let spec=brdf.xyz*0.82; let coat_factor=clamp(textureLoad(fields,pixel,4,0).w,0.0,1.0); let coat_l=vec3f(0.04)*pow(no_v,2.0)*coat_factor; let env=albedo*(0.035+0.11*no_v)*(1.0-brdf.w*0.35);
   diffuse[record]=vec4f(diffuse_l,1.0); specular[record]=vec4f(spec,1.0); coat[record]=vec4f(coat_l,1.0); ibl[record]=vec4f(env,1.0);
   atomicAdd(&counters[0],1u); atomicAdd(&counters[1],1u); atomicAdd(&counters[2],1u); atomicAdd(&counters[3],1u);
-  let pixel=vec2i(u32(geometry[base+3u].x),u32(geometry[base+3u].y)); textureStore(output,pixel,vec4f(diffuse_l+spec+coat_l+env,1.0)); textureStore(reactive,pixel,vec4f(0.0));
+  textureStore(output,pixel,vec4f(diffuse_l+spec+coat_l+env,1.0)); textureStore(reactive,pixel,vec4f(select(0.0,1.0,roughness<0.12||metallic>0.85)));
 }
 `;
 
