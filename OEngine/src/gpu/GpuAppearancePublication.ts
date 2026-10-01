@@ -44,6 +44,7 @@ struct Settings { width: u32, height: u32, task_capacity: u32, max_inputs: u32, 
 fn demand(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= settings.width || id.y >= settings.height { return; }
   let pixel = id.y * settings.width + id.x;
+  if pixel >= arrayLength(&pixel_tasks) { return; }
   let key = textureLoad(visibility, vec2i(id.xy), 0).x;
   if key == ${GPU_VISIBILITY_KEY_EMPTY}u || key == ${GPU_VISIBILITY_KEY_INVALID}u { pixel_tasks[pixel] = 0xffffffffu; return; }
   let decoded = oengine_visibility_key_decode(key);
@@ -170,9 +171,10 @@ export class GpuAppearancePublication {
   private readonly frameMetadata: GPUBuffer;
   private readonly frameInputDomains: GPUBuffer;
   private readonly materialLookup: GPUBuffer;
-  private readonly maxFrameTasks = APPEARANCE_FRAME_MAX_TASKS;
+  private readonly maxFrameTasks: number;
   private readonly maxFrameInputs = APPEARANCE_FRAME_MAX_INPUT_VECTORS;
   private readonly maxFrameOutputs = APPEARANCE_FRAME_MAX_OUTPUTS;
+  private readonly maxFramePixels: number;
   private pipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] | null = null;
   private readonly cancelReadiness: (reason: Error) => void;
   private unwatchRegistry: (() => void) | null = null;
@@ -360,11 +362,16 @@ export class GpuAppearancePublication {
         if (size > Number(device.limits.maxBufferSize) || size > Number(device.limits.maxStorageBufferBindingSize)) throw new RangeError(`Appearance frame buffer '${label}' exceeds negotiated limits`);
         const buffer = device.createBuffer({ label, size: Math.max(4, size), usage }); this.frameBuffers.push(buffer); return buffer;
       };
+      const storageLimit = Number(device.limits.maxStorageBufferBindingSize);
+      this.maxFrameTasks = Math.min(APPEARANCE_FRAME_MAX_TASKS,
+        Math.floor(Math.max(0, storageLimit - 4 * 1024 * 1024) / (this.maxFrameInputs * 16)));
+      this.maxFramePixels = Math.min(APPEARANCE_FRAME_MAX_PIXELS, Math.floor(storageLimit / 4));
+      if (this.maxFrameTasks < 1024 || this.maxFramePixels < 1024) throw new RangeError("Appearance frame demand budget is below the negotiated storage limit");
       this.frameTasks = makeFrame("Appearance frame tasks", this.maxFrameTasks * 16, GPUBufferUsage.STORAGE);
       this.frameInputs = makeFrame("Appearance frame inputs", this.maxFrameTasks * this.maxFrameInputs * 16, GPUBufferUsage.STORAGE);
       this.frameOutputs = makeFrame("Appearance frame outputs", this.maxFrameTasks * this.maxFrameOutputs * 4, GPUBufferUsage.STORAGE);
       this.framePrograms = makeFrame("Appearance frame program ids", this.maxFrameTasks * 4, GPUBufferUsage.STORAGE);
-      this.framePixels = makeFrame("Appearance frame pixel tasks", APPEARANCE_FRAME_MAX_PIXELS * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+      this.framePixels = makeFrame("Appearance frame pixel tasks", this.maxFramePixels * 4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
       this.frameControl = makeFrame("Appearance frame control", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
       this.frameIndirect = makeFrame("Appearance frame indirect", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT);
       this.frameSettings = makeFrame("Appearance frame settings", 32, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
@@ -470,7 +477,7 @@ export class GpuAppearancePublication {
     if (command.device !== this.device || command.closed || (this.state !== "ready" && this.state !== "resident")) {
       throw new Error("Appearance demand requires an open resident frame");
     }
-    if (input.width < 1 || input.height < 1 || input.width * input.height > APPEARANCE_FRAME_MAX_PIXELS) {
+    if (input.width < 1 || input.height < 1 || input.width * input.height > this.maxFramePixels) {
       throw new RangeError("Appearance demand extent exceeds the negotiated frame pixel budget");
     }
     const demand = this.demandPipeline;
