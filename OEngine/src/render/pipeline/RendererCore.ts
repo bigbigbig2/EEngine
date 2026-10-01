@@ -18,6 +18,7 @@ import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { AppearanceCachePass } from "../surface/AppearanceCachePass.js";
+import { SparseLightingPass } from "../surface/SparseLightingPass.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
@@ -284,6 +285,7 @@ export class Renderer {
   private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
   private _appearanceCache!: AppearanceCachePass;
+  private _sparseLighting!: SparseLightingPass;
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
   private _temporalFacts!: TemporalFactsPass;
@@ -1208,6 +1210,7 @@ export class Renderer {
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
     this._appearanceCache = new AppearanceCachePass(this._graphics.appearance_cache);
+    this._sparseLighting = new SparseLightingPass(device);
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
     this._bloom = new BloomPass(device);
@@ -1259,6 +1262,7 @@ export class Renderer {
       visibility: this._visibilityFeature,
       temporalFacts: this._temporalFacts,
       appearanceCache: this._appearanceCache,
+      sparseLighting: this._sparseLighting,
       radiometry: this._gpuRadiometry,
       bloom: this._bloom,
       debug: this._renderDebugViewPass,
@@ -1667,6 +1671,7 @@ export class Renderer {
     this._aerialPerspective?.destroy();
     this._fsr3?.destroy();
       this._present?.destroy();
+      this._sparseLighting?.destroy();
       this._temporalFacts?.destroy();
     this._gpuRadiometry?.destroy();
     this._bloom?.destroy();

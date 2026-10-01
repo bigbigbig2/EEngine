@@ -10,6 +10,7 @@ import type { RenderDebugViewResources } from "../passes/RenderDebugViewPass.js"
 import { RenderDebugView as RenderDebugViewValue } from "../../debug/RenderDebugView.js";
 import type { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
 import type { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
+import type { SparseLightingPass } from "../surface/SparseLightingPass.js";
 import type { BloomPass } from "../passes/BloomPass.js";
 import type { LightClusterPass } from "../passes/LightClusterPass.js";
 import type { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
@@ -32,6 +33,7 @@ export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
   temporalFacts: TemporalFactsPass;
   appearanceCache: AppearanceCachePass;
+  sparseLighting: SparseLightingPass;
   radiometry: GpuRadiometryPass;
   bloom: BloomPass;
   present: SurfacePresentPass;
@@ -207,6 +209,12 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     height: result.frame.domain.height,
     textureBanks
   });
+  const sparseLighting = owners.sparseLighting.addToGraph(graph, {
+    fields: appearanceFields.fields,
+    depth: result.frame.depth,
+    width: result.frame.domain.width,
+    height: result.frame.domain.height
+  });
   const virtualMetadata = plan.request.virtualGeometry
     ? graph.import_resource(
         "virtual-geometry-metadata", { kind: "imported", label: "virtual geometry metadata" },
@@ -337,7 +345,58 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       bind(`radiometry/${name}`, bindings => resolve(bindings.radiometry)));
   const gpuPreviousExposure = owners.radiometry.importPreviousExposure(graph, bindRadiometry);
   const gpuPriorExposure = owners.radiometry.importPriorExposure(graph, bindRadiometry);
-  // Cached Surface fields are registered here; final lighting/presentation follows in step two.
+  const atmosphereEnvironment = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
+    "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
+    bind("physical-environment-transmittance", bindings => bindings.environment!.luts.views.transmittance)
+  );
+  const skyRadiance = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
+    "physical-environment-sky-radiance", { kind: "imported", label: "Physical Environment sky radiance" },
+    bind("physical-environment-sky-radiance", bindings => bindings.environment!.luts.views.scattering)
+  );
+  const higherOrderScattering = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
+    "physical-environment-higher-order-scattering", { kind: "imported", label: "Physical Environment higher-order scattering" },
+    bind("physical-environment-higher-order-scattering", bindings => bindings.environment!.luts.views.higherOrderScattering)
+  );
+  const environmentRadiance = !plan.stages.includes("physical-sky") || atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || owners.sky === null
+    ? sparseLighting.radiance
+    : owners.sky.addToGraph(graph, { hdr: sparseLighting.radiance, depth: result.frame.depth, camera: cameraBuffer,
+        transmittance: atmosphereEnvironment, scattering: skyRadiance, higherOrder: higherOrderScattering,
+        environment: physicalEnvironmentSun!, preExposure: gpuPreviousExposure });
+  const aerialRadiance = !plan.stages.includes("aerial") || atmosphereEnvironment === undefined || skyRadiance === undefined || higherOrderScattering === undefined || physicalEnvironmentSun === undefined || owners.aerial === null
+    ? environmentRadiance
+    : owners.aerial.addToGraph(graph, { scene: environmentRadiance, depth: result.frame.depth, camera: cameraBuffer,
+        environment: physicalEnvironmentSun, transmittance: atmosphereEnvironment, scattering: skyRadiance,
+        higherOrder: higherOrderScattering, preExposure: gpuPreviousExposure,
+        width: result.frame.domain.width, height: result.frame.domain.height });
+  const previousCamera = graph.import_resource("previous-camera", { kind: "imported", label: "previous camera" },
+    bind("previous-camera", bindings => bindings.view.gpu_previous_camera_state.buffer));
+  const facts = owners.temporalFacts.addToGraph(graph, {
+    width: result.frame.domain.width, height: result.frame.domain.height,
+    visibility: result.frame.visibilityKey, depth: result.frame.depth, meshletWork: result.frame.meshletWork.records,
+    instances, materials: materialRecords, textureRoutes, textureResidencyVersions, currentCamera: cameraBuffer, previousCamera
+  }, (name, resolve) => bind(`temporal-facts/${name}`, bindings => resolve(bindings.temporalFacts)));
+  const reconstructedRadiance = initial.fsr3.addToGraph(graph, {
+    color: aerialRadiance, depth: result.frame.depth, motion: facts.motion, reactiveMask: facts.mask,
+    validityMask: facts.mask, preExposure: gpuPreviousExposure, priorExposure: gpuPriorExposure,
+    width: result.frame.domain.width, height: result.frame.domain.height,
+    outputWidth: plan.request.outputWidth, outputHeight: plan.request.outputHeight, enabled: plan.request.fsr3Enabled
+  }, (name, resolve) => bind(`fsr3/${name}`, bindings => resolve(bindings.fsr3)));
+  const radiometry = owners.radiometry.addToGraph(graph, { scene: reconstructedRadiance,
+    width: plan.request.outputWidth, height: plan.request.outputHeight,
+    previousExposure: gpuPreviousExposure, priorExposure: gpuPriorExposure }, bindRadiometry);
+  const bloom = owners.bloom.addToGraph(graph, { scene: reconstructedRadiance, preExposure: gpuPreviousExposure,
+    width: plan.request.outputWidth, height: plan.request.outputHeight, enabled: plan.request.bloomEnabled });
+  const swapchain = graph.import_resource("swapchain", { kind: "imported", label: "swapchain" }, bind("swapchain", bindings => bindings.swapchain));
+  const debugColor = plan.request.debugView !== undefined && plan.request.debugView !== RenderDebugViewValue.None
+    ? owners.debug.addToGraph(graph, plan.request.debugView, {
+        visibilityKey: result.frame.visibilityKey, packedVisibility: result.debugResolve, depth: result.frame.depth,
+        velocity: facts.motion, gPbr: null, gNormal: null, gAlbedo: null, gEmissive: null, surfaceFlags: null,
+        indirectDiffuse: null, indirectSpecular: null, linearHdr: reconstructedRadiance,
+        screenSpaceReflectionHitMiss: null, screenSpaceReflectionResolve: null,
+        screenSpaceReflectionTemporal: null, screenSpaceReflectionHistoryConfidence: null
+      } satisfies RenderDebugViewResources, plan.request.outputWidth, plan.request.outputHeight) : null;
+  owners.present.addToGraph(graph, debugColor ?? bloom, swapchain, radiometry.adaptedExposure, gpuPreviousExposure,
+    plan.request.outputWidth, plan.request.outputHeight, debugColor !== null);
   return graph.compile();
 }
 
