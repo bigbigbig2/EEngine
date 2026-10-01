@@ -64,11 +64,11 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 保留最终需要的数学、资源 owner 和 GPU 产品；不建立 adapter、空 provider、旧 consumer 或兼容测试桥。已删除旧 Surface pass、独立 geometry input shader 与旧 FrameProgram owner 接线，并停止 publication 创建旧 frame task/result/geometry work buffer；Phase 1 未运行编译、测试或 GPU/browser 验证。
 
-### Phase 2：统一 SurfaceWork 与 GeometryRecord
+### Phase 2：统一 SurfaceWork 与 GeometryRecord（实现中）
 
 实现 SurfaceWorkHeader、TileDescriptor、SampleRecord、ExceptionRecord、CounterBlock 的固定前缀和分区；为 implicit/uniform/mixed work 明确覆盖、写域、容量与二维 indirect。
 
-由 SurfaceGeometryPass 唯一发布 position、geometric/shading normal basis、tangent/sign、UV、derivatives、view/depth/plane、winner/sharing identity 和 geometry signature。WinnerPrimitiveInterpolation 保留底层数学和 arena 生产职责；Appearance、Lighting 只消费 GeometryRecord。
+已加入 `GpuSurfaceWorkAbi.ts`、`SurfaceWorkRuntime.ts` 和 `SurfaceGeometryPass.ts`，建立固定前缀、分区容量和唯一 GeometryRecord FrameGraph 边；`WinnerPrimitiveInterpolation` 继续作为底层 arena 数学 owner。材质与 lighting consumers 尚未接通，Phase 2 仍未完成，未运行编译、测试或 GPU/browser 验证。
 
 ### Phase 3：Appearance 改为 miss-only demand
 

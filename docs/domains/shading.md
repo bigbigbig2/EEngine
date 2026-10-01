@@ -14,7 +14,7 @@ owner: shading
 ```text
 VisibilityKey / Depth / MeshletWork / shared frame geometry
   → （旧 Appearance/SparseLighting owner 已删除）
-  → SurfaceWorkRuntime / SurfaceGeometryPass（Phase 2 待实现）
+  → SurfaceWorkRuntime / SurfaceGeometryPass（Phase 2 实现中）
   → HDR / Sky / Aerial / FSR3 / Radiometry / Bloom / Present
 ```
 

@@ -8,6 +8,10 @@
 
 复杂算法与渲染效果实施前必须先搜完整 GitHub 源码及可核验论文/详细技术文章，优先跨语言忠实移植固定版本。每项 ledger 需写清源 entry point、完整阶段与关键条件、本地对应入口、WebGPU 必须差异、fallback、oracle/GPU 验证；找不到完整 donor 时记录检索范围与缺口，选择具名本地方案，不得以缩减算法冒充迁移完成。简单确定性工具、ABI 编解码、绑定、队列及资源生命周期接线不强制外部调研，但属本地集成，须与来源算法分别标识；不能将一个复杂效果拆分后按简单任务豁免。
 
+## 2026-10-02：SurfaceWork V3 ABI 与 GeometryRecord 本地接线
+
+`GpuSurfaceWorkAbi.ts` 的固定前缀、分区布局、容量校验和 `SurfaceWorkRuntime`/`SurfaceGeometryPass` 的 FrameGraph 绑定属于本地 ABI、资源生命周期与 WebGPU 接线，不声称来自外部 donor。唯一几何数学继续复用本账本已固定的 `HomogeneousWinnerInterpolation` profile：`WinnerPrimitiveInterpolation` 负责 dictionary/coefficient/arena producer，`SurfaceGeometryPass` 只通过 arena consumer 读取并发布 GeometryRecord。当前阶段只完成结构与真实 GPU producer 接线；材质 miss、属性解码、lighting packets、数值 oracle、整帧画质和性能 adoption 仍未完成。
+
 ## 2026-09-29：Virtual Geometry 正确性修复
 
 - **固定来源**：Nyx `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b`，MIT；本地只读 checkout 与原账本的七个源文件 hash 对齐。参考 `DAGCull.slang::ProcessNodeBatch/ProcessMeshletBatch`、`CullCommon.slang::TestForLod`、`VBufferMesh.slang::GetClipPosition/BuildVertexOutput`。

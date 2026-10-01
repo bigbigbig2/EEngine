@@ -17,6 +17,7 @@ import { XeGtaoPreparationPass } from "../ao/XeGtaoPreparationPass.js";
 import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
+import { SurfaceWorkRuntime } from "../surface/SurfaceWorkRuntime.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
@@ -283,6 +284,7 @@ export class Renderer {
   private _physicalSky: PhysicalSkyPass | null = null;
   private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
+  private _surfaceWork!: SurfaceWorkRuntime;
   private readonly _visibilityCounters = new VisibilityCounterPass();
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
@@ -1207,6 +1209,9 @@ export class Renderer {
     this._xeGtaoMain = new XeGtaoMainPass(device, "high");
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
+    this._surfaceWork = new SurfaceWorkRuntime(device, {
+      maxTiles: 262144, maxSamples: 262144, maxExceptions: 65536, maxGeometryRecords: 262144, maxBytes: 128 * 1024 * 1024
+    });
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
     this._bloom = new BloomPass(device);
@@ -1257,6 +1262,7 @@ export class Renderer {
     return {
       visibility: this._visibilityFeature,
       temporalFacts: this._temporalFacts,
+      surfaceWork: this._surfaceWork,
       visibilityCounters: this._visibilityCounters,
       radiometry: this._gpuRadiometry,
       bloom: this._bloom,
@@ -1448,6 +1454,7 @@ export class Renderer {
         colorHistory.readValid, timeDeltaSeconds);
       this._temporalFacts.prepareFrame(width, height, identityHistory.readIndex,
         identityHistory.writeIndex, identityHistory.readValid);
+      this._surfaceWork.prepareFrame(width, height);
       const diffuseHistory = this._temporal.histories.state("lighting-diffuse");
       const specularHistory = this._temporal.histories.state("lighting-specular");
       const coatHistory = this._temporal.histories.state("lighting-coat");
@@ -1576,6 +1583,7 @@ export class Renderer {
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       this._fsr3.commit(command.gpuDone);
       this._temporalFacts.commit(command.gpuDone);
+      this._surfaceWork.commit(command.gpuDone);
       this._gpuRadiometry.commit(command.gpuDone);
       this._temporal.commit(frameIndex);
       temporalActive = false;
@@ -1598,6 +1606,7 @@ export class Renderer {
       activeHzb?.invalidate("explicit");
       this._fsr3.invalidate();
       this._temporalFacts.abort();
+      this._surfaceWork.abort();
       this._gpuRadiometry.abort();
       if (environmentGeneration !== undefined && environmentGeneration !== null) {
         try { this._environmentRuntime?.abort(environmentGeneration); }
@@ -1681,6 +1690,7 @@ export class Renderer {
     this._fsr3?.destroy();
       this._present?.destroy();
       this._temporalFacts?.destroy();
+      this._surfaceWork?.destroy();
     this._gpuRadiometry?.destroy();
     this._bloom?.destroy();
     this._renderDebugViewPass?.destroy();

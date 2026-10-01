@@ -4,6 +4,7 @@ import { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.
 import { resolveTextureView } from "../RenderTargetViews.js";
 import type { VisibilityFeature, PackedVisibilityOutputs } from "../features/VisibilityFeature.js";
 import type { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
+import type { SurfaceWorkRuntime } from "../surface/SurfaceWorkRuntime.js";
 import type { RenderDebugViewPass } from "../passes/RenderDebugViewPass.js";
 import type { RenderDebugViewResources } from "../passes/RenderDebugViewPass.js";
 import { RenderDebugView as RenderDebugViewValue } from "../../debug/RenderDebugView.js";
@@ -32,6 +33,7 @@ export type FrameProgramOwners = Readonly<{
   visibility: VisibilityFeature;
   visibilityCounters: VisibilityCounterPass;
   temporalFacts: TemporalFactsPass;
+  surfaceWork: SurfaceWorkRuntime;
   radiometry: GpuRadiometryPass;
   bloom: BloomPass;
   present: SurfacePresentPass;
@@ -339,6 +341,19 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     assetMetadata: geometryMetadata, vertexPayload,
     sourceBindings: bind("temporal-facts/source", bindings => bindings.job.assets.sparseShading)
   }, (name, resolve) => bind(`temporal-facts/${name}`, bindings => resolve(bindings.temporalFacts)));
+  const surfaceWork = owners.surfaceWork.addToGraph(graph, {
+    visibility: result.frame.visibilityKey,
+    arena: result.frame.frameGeometry,
+    width: result.frame.domain.width,
+    height: result.frame.domain.height,
+    frame: bind("surface-work-frame", bindings => ({
+      generation: bindings.frameIndex,
+      arenaHeaderOffset: bindings.job.prepared.workSet.frameGeometry.layout.header.offset,
+      directoryOffset: bindings.job.prepared.currentHzbLateRecheck !== null
+        ? bindings.job.prepared.workSet.frameGeometry.layout.filteredDirectory.offset
+        : bindings.job.prepared.workSet.frameGeometry.layout.sourceDirectory.offset
+    }))
+  });
   const previousIdentity = graph.import_resource("Lighting/previous Temporal identity", { kind: "imported" },
     bind("lighting-previous-identity", bindings => bindings.temporalFacts.history("read")));
   const signalEnvironment = plan.request.authoredEnvironment ? {
