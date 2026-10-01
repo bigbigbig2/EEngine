@@ -1,6 +1,6 @@
 # SurfaceWork Runtime V3 直接重构执行计划
 
-更新：2026-10-02。状态：Phase 0、Phase 1 已完成；Phase 2–7 实现和最终验收未完成。
+更新：2026-10-02。状态：Phase 0–6 已完成结构接线；Phase 7 已完成 typecheck/build/shader-source audit，整帧 GPU/browser/画质/性能验收仍未完成。
 
 唯一目标依据是用户指定的 [EEngine 第三版最终重构设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。该文件按原文纳入，本文只把其 §4–§11 转成工程执行顺序，不另设快路径优先、旧 Signal-Rate 回退或新的性能百分比门槛。整体保留边界见 [整体架构](../next-design/eengine-next-overall-architecture-final-2026.md)，当前切片见 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。
 
@@ -94,9 +94,9 @@ SurfaceWorkRuntime 已纳入 RendererCore 的 prepare/commit/abort/destroy，rec
 
 Overflow 不发布不完整 work，记录 diagnostic/counter，由当前 tile/signal 的最终 bounded full-rate 分支完整覆盖；不交给旧 queue，不通过第二次 CPU 控制 submit 修补。
 
-### Phase 7：集中验证与残留清理
+### Phase 7：集中验证与残留清理（部分完成）
 
-完整目标代码和真实生产接线完成后，统一执行 typecheck、build、shader compilation、数值/GPU oracle、覆盖/写域、浏览器、连续画质、生命周期和同条件性能比较。失败继续在新链返工。剩余失去消费者的历史源码/fixture 在最终清理时删除，不以旧测试约束新 ABI。
+已执行 `npm run typecheck`、`npm run build`、`npm run build:test` 和 `npm run audit:shaders`，结果通过；旧 `appearance-publication` 合同测试仍按已删除的 coverage/task ABI 失败，不能作为新 ABI 的通过证据。整帧 shader validation、GPU oracle、浏览器、连续画质、生命周期故障矩阵和四版本同条件性能尚未完成，剩余历史 fixture/死代码待最终清理。
 
 后续 SSSR、GI、VT、Transparency/Media 保持独立模块；不能用它们未完成推迟本次 Surface 专项验收，也不能将其完整效果宣称为 Surface 已实现成果。
 

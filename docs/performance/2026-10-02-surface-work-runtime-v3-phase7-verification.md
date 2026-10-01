@@ -1,0 +1,19 @@
+# SurfaceWork Runtime V3 Phase 7 验证记录
+
+日期：2026-10-02。目标：GTX 1650 Ti、1080p、复杂场景。该记录只报告本轮实际执行，不提升性能或画质 claim。
+
+已通过：
+
+- `OEngine`: `npm run typecheck`
+- `OEngine`: `npm run build`
+- `OEngine`: `npm run build:test`
+- `OEngine`: `npm run audit:shaders`
+- `git diff --check`
+
+未通过或未完成：
+
+- 旧 `tests/contract/appearance-publication.test.mjs` 的 5 个用例仍假设已删除的 scalar coverage/task ABI；失败原因是测试与 V3 新 publication 边界不一致，不恢复旧实现。
+- `tests/contract/frame-program.test.mjs` 的 owner mock 没有新 SurfaceWork 绑定所需的真实 geometry/publication shape；该旧 fixture 不能证明新主链运行失败或通过。
+- 未运行浏览器整帧、GPU shader oracle、连续画质、camera cut/resize/device loss 矩阵、NVIDIA 传感器采样和四版本 P50/P95 对比，因此没有性能结论。
+
+当前实现状态：Phase 1–6 的唯一 SurfaceWork 生产接线已提交；复杂材质 miss evaluation、完整 GeometryRecord 属性解码、cluster/VSM/AO/physical IBL 数学、history reject/age、pre-exposure/energy 和正式覆盖率仍需在新链继续完成。

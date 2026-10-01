@@ -112,10 +112,11 @@ export class SurfaceWorkRuntime {
       const command = context.encoder as ShadeGPUCommandContext;
       const header = new Uint32Array(16); writeSurfaceWorkHeader(header, layout, data.width, data.height, data.frame.generation);
       header[4] = 0; header[5] = 0; header[6] = 0;
-      command.writeBuffer(this.settings, 0, new Uint32Array([data.width, data.height,
+      const settings = new Uint32Array([data.width, data.height,
         Math.ceil(data.width / 8), Math.ceil(data.height / 8), layout.tileOffset / 4,
-        layout.sampleOffset / 4, data.frame.generation >>> 0, layout.tileCapacity]).buffer);
-      command.writeBuffer(resources.get(work) as GPUBuffer, 0, header.buffer);
+        layout.sampleOffset / 4, data.frame.generation >>> 0, layout.tileCapacity]);
+      command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
+      command.writeBuffer(resources.get(work) as GPUBuffer, 0, header.buffer, 0, header.byteLength);
       const group = this.device.createBindGroup({ layout: this.classifyLayout, entries: [
         { binding: 0, resource: { buffer: this.settings } }, { binding: 1, resource: resolveTextureView(resources.get(data.visibility)) },
         { binding: 2, resource: { buffer: resources.get(work) as GPUBuffer } }

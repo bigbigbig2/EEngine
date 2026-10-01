@@ -26,7 +26,7 @@ const dfg = descriptor("AuthoredIBL/DFG", PHYSICAL_SKY_DFG_WGSL, "dfg", { entrie
   { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } }
 ] });
 export async function prepareAuthoredEnvironmentPipelines(graphics: GraphicsContext): Promise<void> {
-  await Promise.all([filter, diffuse, mip, dfg].map(value => graphics.compute_pipelines.prepare(value)));
+  [filter, diffuse, mip, dfg].forEach(value => graphics.compute_pipelines.obtain(value));
 }
 type AuthoredIblAllocation = { readonly texture: GPUTexture; readonly handle: ResourceHandle; readonly bytes: number };
 type AuthoredIblSet = { readonly source: ShadeTexture; readonly allocations: Set<AuthoredIblAllocation>;

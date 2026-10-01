@@ -85,8 +85,9 @@ export class SurfaceGeometryPass {
     let records!: ResourceId;
     const node = graph.add("Surface/GeometryRecord", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      command.writeBuffer(this.settings, 0, new Uint32Array([data.width, data.height,
-        Math.ceil(data.width / 8), data.frameAt, data.directoryAt, data.sampleOffset, data.geometryOffset, data.geometryCapacity]).buffer);
+      const settings = new Uint32Array([data.width, data.height,
+        Math.ceil(data.width / 8), data.frameAt, data.directoryAt, data.sampleOffset, data.geometryOffset, data.geometryCapacity]);
+      command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
       const group = this.device.createBindGroup({ layout: this.layout, entries: [
         { binding: 0, resource: { buffer: this.settings } },
         { binding: 1, resource: resolveTextureView(resources.get(data.visibility)) },

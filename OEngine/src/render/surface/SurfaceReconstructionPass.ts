@@ -40,7 +40,7 @@ export class SurfaceReconstructionPass {
   addToGraph(graph:FrameGraph,input:{diffuse:ResourceId;specular:ResourceId;coat:ResourceId;ibl:ResourceId;geometry:ResourceId;reactive:ResourceId;width:number;height:number;recordCount:number}):SurfaceReconstructionProducts{
     let radiance!:ResourceId,reactiveMask!:ResourceId;
     const node=graph.add("Surface/cheap full-resolution reconstruct",input,(data,resources,context)=>{
-      const command=context.encoder as ShadeGPUCommandContext; command.writeBuffer(this.settings,0,new Uint32Array([data.width,data.height,Math.ceil(data.width/8),data.recordCount]).buffer);
+      const command=context.encoder as ShadeGPUCommandContext; const settings=new Uint32Array([data.width,data.height,Math.ceil(data.width/8),data.recordCount]); command.writeBuffer(this.settings,0,settings.buffer,0,settings.byteLength);
       const group=this.device.createBindGroup({layout:this.layout,entries:[
         {binding:0,resource:{buffer:this.settings}},{binding:1,resource:{buffer:resources.get(data.diffuse) as GPUBuffer}},{binding:2,resource:{buffer:resources.get(data.specular) as GPUBuffer}},{binding:3,resource:{buffer:resources.get(data.coat) as GPUBuffer}},{binding:4,resource:{buffer:resources.get(data.ibl) as GPUBuffer}},{binding:5,resource:{buffer:resources.get(data.geometry) as GPUBuffer}},{binding:6,resource:resolveTextureView(resources.get(data.reactive))},{binding:7,resource:resolveTextureView(resources.get(radiance))},{binding:8,resource:resolveTextureView(resources.get(reactiveMask))}
       ]});

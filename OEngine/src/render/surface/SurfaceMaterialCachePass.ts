@@ -72,8 +72,9 @@ export class SurfaceMaterialCachePass {
     let fields!: ResourceId, missQueue!: ResourceId, hitMask!: ResourceId, counters!: ResourceId;
     const node = graph.add("Surface/Material cache lookup and miss compact", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      command.writeBuffer(this.settings, 0, new Uint32Array([data.width, data.height, data.recordCount, this.cacheCapacity, 1, data.recordCount, data.frame, 0]).buffer);
-      command.writeBuffer(resources.get(counters) as GPUBuffer, 0, new Uint32Array(4).buffer);
+      const settings = new Uint32Array([data.width, data.height, data.recordCount, this.cacheCapacity, 1, data.recordCount, data.frame, 0]);
+      command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
+      const zero = new Uint32Array(4); command.writeBuffer(resources.get(counters) as GPUBuffer, 0, zero.buffer, 0, zero.byteLength);
       const group = this.device.createBindGroup({ layout: this.layout, entries: [
         { binding: 0, resource: { buffer: this.settings } }, { binding: 1, resource: { buffer: resources.get(data.geometry) as GPUBuffer } },
         { binding: 2, resource: { buffer: resources.get(data.fieldVersions) as GPUBuffer } }, { binding: 3, resource: { buffer: this.cache } },
