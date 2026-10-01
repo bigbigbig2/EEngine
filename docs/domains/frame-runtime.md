@@ -5,30 +5,28 @@ owner: frame-runtime
 ---
 # Frame Runtime
 
-`RendererCore` is the sole composition root and `FrameCoordinator` is the sole submit owner. The production scene frame is GPU Scene publication → hierarchy/MeshletWork → VisibilityKey/depth → optional HZB/light cluster, lit-consumer XeGTAO and directional VSM → SurfaceProbe/tile Work Builder/finalize/sample workers/Resolve → Physical Sky/Aerial → FSR3 Upscaler → Present. Empty frames use the same Frame Program entry and submit owner.
+## 当前生产链
 
-`FrameProgram.ts` closes the finite product demand and caches a structural key. Scene keys contain internal/output extents, output format, device epoch, virtual geometry bank shape, HZB/late-recheck selection, active resident **sets**, direct-light demand, AO physical profile and physical-environment selection. The 64 material classes, bank masks, scene generations, camera motion, AO noise index, FSR3 ping-pong role and environment LUT generation are not graph keys. `FrameProgramBindings.ts` checks the current publication, descriptor and epoch shape before encoding; `FrameProgramLowering.ts` registers the actual resource edges in the existing FrameGraph. Same-shape publications late-bind physical resources. The High scalar AO profile closes only with a lit Surface consumer; off/unlit/empty programs have no XeGTAO stage.
+核对：2026-10-02，基线 `e7296be9`。`RendererCore` 是 composition root，`FrameCoordinator` 是唯一 frame command context/submit owner。当前 FrameProgramLowering 连接 GPU Scene/hierarchy/MeshletWork/Visibility → AppearanceCachePass fields → TemporalFacts → SparseLighting → Sky/Aerial → FSR3/Radiometry/Bloom/Present。HZB、cluster、lit-consumer XeGTAO 和 directional VSM 使用同一 FrameGraph；空场景沿用同一个帧入口和 submit owner。
 
-## Frame transaction and temporal lifetime
+旧 SurfaceProbe/Work Builder/sample workers/Resolve 与 SurfaceMaterialPass 不再是生产路径。当前 Appearance/SparseLighting 接线不表示 SurfaceWork V3 已实现。
 
-Module D temporal facts are produced by `render/temporal/TemporalFactsPass.ts` in
-the same Frame Program as Surface and FSR3. Its persistent identity textures are
-RGBA32Uint (instance slot, geometry/LOD signature, material signature and
-publication transform revision); motion and masks are transient internal-domain
-products. `TemporalFabric` owns only logical begin/commit/abort and read/write
-roles while FSR3 and Temporal Facts own their physical textures. Output color can
-survive an in-envelope internal resize; identity and FSR3 internal scratch are
-reset when their domain changes. GPU completion fences delay retirement.
+FrameProgram 关闭有限产品需求，FrameProgramBindings 在 encode 前检查当前 publication/descriptor/device shape，Lowering 注册实际资源边。拓扑与 GPU 资源/版本身份应区分；camera motion、history ping-pong 和局部 generation 不用于 CPU 选择本帧 work。新 Surface 的 work/GeometryRecord/cache/packet 真实阶段仍需显式接入 FrameGraph，不能继续藏在 Appearance 单回调中。
 
-Renderer applies jitter to the live View, updates scene/geometry/material and direct-light publications, prepares FSR3 constants and records environment LUT work on the current frame command context. Surface candidates and sample work are GPU-produced from current facts; moving cameras do not select another topology. Sample workers and immutable-result Resolve complete HDR, while Temporal Facts independently produces motion from depth/instances/current-previous camera before FSR3. FSR3 owns output-resolution color and accumulation histories plus internal luma; Present consumes its output-full image.
+## 帧事务与历史
 
-Temporal Fabric begins, commits or aborts with the submitted frame. Camera cuts, resize, scene/representation/environment revisions and device recovery invalidate their relevant histories. A new View seeds previous-camera data in the same encoder before Temporal Facts reads it. An aborted first frame repeats the seed; a successful submit advances previous-camera state. Environment generations are published as complete LUT sets and retired only after prior GPU work finishes, so consumers do not mix partial sky generations.
+TemporalFactsPass 从 depth、instance 和 current/previous camera 发布 motion/identity/masks，SparseLighting 读取基础 facts 并产生自己的 signal history/reactive，FSR3 使用这些真实产品。Surface 不拥有第二套基础 motion。
 
-The FrameGraph owns transient resource lifetime and compiled graph reuse. RenderTargets/View and other imported resources are checked per frame. No Surface or provider issues a private `queue.submit`, and no current-frame GPU readback controls visible work. Device loss constructs a fresh Renderer, resource owners and graph/pipeline caches from CPU scene truth; unsupported multi-shard restoration still requires application source replay.
+TemporalFabric 管理 begin/commit/abort 与读写角色，各 consumer 管理实际纹理。Camera cut、resize、scene/representation/environment 变化和 device recovery 根据真实依赖失效；GPU completion 延迟资源退役。FrameCoordinator 在创建新帧资源前限制最多两个已提交未完成帧，是 completion 背压，不是本帧 visible/work readback 控制。
 
-## Current limits and references
+Environment 发布完整 LUT generation，abort 不提升未提交状态；FSR3 仍保留选定 upscaler 算法阶段。Pre-exposure/working color space、motion/jitter 和 history 输入不能由新 Surface 重新定义。当前基础接线不证明完整形变、signal change/reactive、透明或全场景生命周期验收。
 
-Modules B/C and VSM connect Standard/Coated Surface, bounded GPU tile-level multi-pool overflow, filtered sky specular, XeGTAO High scalar, directional shadow visibility and FSR3 on the one production path. XeGTAO's scratch and final visibility are frame-local; its LUT and pipelines are device-local. SSSR, GI and other planned providers are subsequent modules. Module completion uses typecheck/build/focused tests; browser lifecycle, visual quality, GPU P50/P95, formal evidence and claims remain final Next Renderer acceptance.
+## 当前目标和验证边界
 
-The target architecture is [Next design](../next-design/eengine-next-overall-architecture-final-2026.md); the current sequence is [execution plan](../next-execution/eengine-next-architecture-layer-plan-2026.md). Primary entrypoints are `render/pipeline/RendererCore.ts`, `render/program/FrameProgram.ts`, `FrameProgramBindings.ts`, `FrameProgramLowering.ts`, `framegraph/FrameGraph.ts` and `render/surface/SurfaceMaterialPass.ts`.
-VSM E9 checked the current production graph: `RendererCore` publishes a device-epoch generation state, and the graph invalidation pass writes lifecycle facts before demand/allocation. GPU allocation and caster work drive Atlas clear/raster and Surface sampling without a second submit or current-frame CPU residency decision. Device loss rebuilds VSM resources and bindings from CPU scene truth. Focused page-table, profile, odd-extent and epoch tests passed; browser lifecycle combinations remain final acceptance.
+唯一 Surface 目标是[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，实施见[SurfaceWork V3](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。保留现有 frame/scene/visibility/resource owner，重构 SurfaceWork、唯一 GeometryRecord、cache lookup/miss、signal packets、history 和廉价 reconstruct。
+
+禁止 private frame submit、本帧 GPU→CPU→GPU control、旧/新双路径和临时 adapter。当前 Surface 开发中的编译/tests/GPU/browser/benchmark 推迟到完整目标与真实接线后；来源核读提前，formal evidence/claims 分别记录。本次仅文档核对，未运行 renderer 验证。
+
+SSSR、Hybrid GI、VT、Transparency/Media 是后续模块。Surface 专项验收按原文 §8–§11，其他主要模块完成后再做完整 Renderer 系统验收。
+
+入口：`render/pipeline/RendererCore.ts`、`FrameCoordinator.ts`、`program/FrameProgram.ts`、`FrameProgramBindings.ts`、`FrameProgramLowering.ts`、`framegraph/FrameGraph.ts`、当前 `surface/AppearanceCachePass.ts` 和 `SparseLightingPass.ts`。过去 VSM/Temporal 组件检查见[ledger](../porting/next-renderer.md)，不转授新主链验收。

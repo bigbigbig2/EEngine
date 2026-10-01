@@ -7,6 +7,8 @@ import { chromium } from "../../node_modules/playwright-core/index.mjs";
 import { surfaceProbeWgsl } from "../../../OEngine/.test-dist/shaders/surface_probe.js";
 import { surfaceSampleWorkerWgsl } from "../../../OEngine/.test-dist/shaders/surface_sample_worker.js";
 import { frameInstanceTransformsWgsl } from "../../../OEngine/.test-dist/shaders/frame_instance_transforms.js";
+import { frameGeometryVerticesWgsl } from "../../../OEngine/.test-dist/shaders/frame_geometry_vertices.js";
+import { CURRENT_HZB_MESHLET_WORK_LATE_RECHECK_WGSL } from "../../../OEngine/.test-dist/shaders/current_hzb_late_recheck.js";
 import { MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL, VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL } from "../../../OEngine/.test-dist/shaders/meshlet_bucket_visibility.js";
 import { compileSurfaceProgramLayout, planSurfaceClosureLightingBindings } from "../../../OEngine/.test-dist/render/surface/SurfaceKernelBindingPlan.js";
 const server = createServer((_req,res) => { res.writeHead(200,{"Content-Type":"text/html"});res.end("<!doctype html><title>EEngine GPU compile oracle</title><h1>Shared frame geometry: production shader validation</h1>"); });
@@ -26,6 +28,8 @@ try {
       limits:Object.fromEntries(["maxBindGroups","maxBindingsPerBindGroup","maxStorageBuffersPerShaderStage","maxStorageTexturesPerShaderStage","maxSampledTexturesPerShaderStage","maxSamplersPerShaderStage","maxUniformBuffersPerShaderStage"].map(k=>[k,oracleDevice.limits[k]]))};});
   report.adapter=adapter;if(adapter.isFallbackAdapter)throw new Error("Hardware adapter required");
   const tasks=[{label:"Frame-instance",code:frameInstanceTransformsWgsl(false),entries:["frame_instance_begin","frame_instance_select","frame_instance_finalize","frame_instance_build"]},
+    ...[false,true].map(product=>({label:`Frame-vertices-${product}`,code:frameGeometryVerticesWgsl(product),entries:["frame_vertices_begin","frame_vertices_build","frame_vertices_finalize"]})),
+    {label:"Product-HZB-remap",code:CURRENT_HZB_MESHLET_WORK_LATE_RECHECK_WGSL,entries:["prepare_current_hzb_meshlet_recheck","filter_current_hzb_meshlet_recheck","finalize_current_hzb_meshlet_recheck"]},
     {label:"Ordinary-raster",code:MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL,render:["raster_meshlet_bucket","write_meshlet_opaque"]},
     {label:"Ordinary-mask",code:MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL,render:["raster_meshlet_bucket","write_meshlet_mask"]},
     {label:"Product-raster",code:VIRTUAL_GEOMETRY_BUCKET_VISIBILITY_WGSL,render:["raster_virtual_meshlet","write_virtual_meshlet"]}];

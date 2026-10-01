@@ -28,7 +28,7 @@ GPU Scene previous state + Visibility depth/identity + Surface material facts
 | --- | --- | --- |
 | frame-runtime：`pipeline/RendererCore.ts`、`program/FrameProgram.ts`、`FrameProgramLowering.ts`、`FrameProgramBindings.ts`、`FrameCoordinator.ts` | 定义 temporal/radiometry/display 产品及拓扑选择；统一 begin/submit/commit/abort；late binding 本帧资源 | Renderer 手工插隐藏 post pass、第二条 Present 或独立 submit |
 | geometry/visibility：`GpuInstanceAbi.ts`、`GpuScene.ts` patch、`VisibilityFeature.ts`、`RenderTargets.ts` | 稳定 instance+generation、depth、previous mapping；给局部变化和非法 motion 提供事实 | frame-local work/primitive index 充当跨帧稳定身份 |
-| shading：`surface/SurfaceMaterialPass.ts`、`SurfaceProducts.ts`、`shaders/surface_material_kernel.ts`、`surface_execution.ts` | current-minus-previous motion、有效性/变化/opaque reactive 逐像素产出；HDR 写统一工作空间与 `P_t` | 只写 motion.xy 却假定 valid、coarse 代表点覆盖不同身份 |
+| shading：SurfaceWork V3 的唯一 GeometryRecord、signal packet 与 reconstruction owners | current-minus-previous motion 由 TemporalFacts 消费；Surface signal 产出有效性/变化/opaque reactive，HDR 写统一工作空间与 `P_t` | 只写 motion.xy 却假定 valid、coarse 代表点覆盖不同身份 |
 | environment：`PhysicalSkyPass.ts`、`AerialPerspectivePass.ts`、天空 LUT producer | 每个新辐射项转换至工作空间并乘 `P_t`；保留已预曝光输入 | 与 Surface 不同曝光域相加 |
 | temporal/presentation：`TemporalFabric.ts`、`TemporalHistoryRegistry.ts`、`passes/fsr3/*`、`RadiometryContract.ts`、`SurfacePresentPass.ts` | 共享生命周期、FSR3 adapter、GPU histogram、Bloom、grade、tone/display | 旧 `AutomaticExposurePass`、`ColorGradingPass`、`tonemap_*.ts` 未核源直接挂回生产 |
 
@@ -102,7 +102,7 @@ GPU Scene previous state + Visibility depth/identity + Surface material facts
 ### D4.1 工作色域迁移
 
 - 在材质纹理采样、glTF factors/emissive、灯光、physical sky LUT/IBL 的入口标当前色域并做一次明确的 linear Rec.2020 变换；不改 depth、normal、AO、motion。对直接光、IBL 与天空同色值的合成建立数值 oracle，避免 double conversion。中间 radiance/histories 的语义标 `working-linear/Rec.2020/pre-exposed`。
-- `SurfaceMaterialPass` 继续按 `P_t` 乘最终 scene radiance；`PhysicalSkyPass` 与 `AerialPerspectivePass` 对**新增**辐射同样乘 `P_t`，不要重复乘已有 HDR 输入。后续反射/透明/GI 用同一合同。
+- SurfaceWork V3 的 HDR writer 按既定 radiometry contract 乘 `P_t`；`PhysicalSkyPass` 与 `AerialPerspectivePass` 对**新增**辐射同样乘 `P_t`，不要重复乘已有 HDR 输入。后续反射/透明/GI 用同一合同。
 
 ### D4.2 替换 CPU multiplier 为 GPU P/E
 

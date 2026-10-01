@@ -83,9 +83,9 @@
 
 GTX1650Ti/Dawn-D3D12 actual owner→hardware raster→typed及single-binding consumer：26个case/frame、19,874覆盖像素通过，含容量/冲突direct miss，两个消费者逐值在2e-6诊断容差内，metadata prefix逐u32未变。本地有界面Chrome154.0.8037.92硬件adapter：6帧、2,717覆盖像素，透视/近裁剪/W=0/负W、两个新建extent与abort后publication通过；API errors/device loss零，owner release后accounting零。以上均为组件diagnostic；Chrome几何输入为fixture，native变换producer也仍为fixture。**尚未接真实resident属性/共享顶点producer、HZB目录remap与新Surface主链，S2/R02/R03/R08仍未完成，无整帧性能/画质采用声明。** 原生Dawn其他adapter/cache blob诊断仍在。
 
-## 2026-09-30 Surface 最终设计：Signal-Rate Surface（阶段四已完成，正式验收待执行）
+## 2026-09-30 Surface 历史设计：Signal-Rate Surface（已被 V3 取代）
 
-最终设计见 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，实现顺序见 [四阶段重构](../next-execution/surface-sample-driven-shading-rebuild-2026.md)。这两份文件替代前期候选排序，确定先减少 ordinary PBR 的重样本，再按残余瓶颈做局部优化。阶段四已完成旧 owner/陈旧合同清理、生命周期复核和模块级集中验证；**最终设计不等于采用完成**，R02/R03/R20/R23 的上游采用状态与正式画质/性能 claims 不因本地接线自动改变。
+该段历史方案现已由[用户指定第三版最终设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)和[SurfaceWork V3 执行计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)取代。这里保留 2026-09-30 的来源核对记录；**历史设计不等于采用完成**，R02/R03/R20/R23 的上游采用状态与正式画质/性能 claims 不因本地接线自动改变。
 
 ### 来源检索范围与核对记录
 
@@ -148,7 +148,7 @@ DACS 独立工程 `da514fe9f6b1a2c5a732b0b9f2e20c25227960e3` 的 license 未明�
 
 ## 2026-09-30 Surface 极致性能调查补充（历史调查，未实施）
 
-设计分析见 [Surface 着色性能](../next-design/surface-shading-performance-design-2026.md)，本地代码基线 `f4c2127a`。这次只修改设计/来源记录，不提升 R02/R03/R20/R23 的采用状态，不切换 currentSlice。旧账本关于 ShadingWork/classify/scatter 的阶段历史不作为当前事实；当前生产是 Dense + 七 lane exception，coarse 只覆盖受限静态 Unlit。
+设计分析见历史记录（原文件已移出活动树），本地代码基线 `f4c2127a`。当前方向已切换至[第三版最终设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，这次只修改设计/来源记录，不提升 R02/R03/R20/R23 的采用状态，不切换 currentSlice。旧账本关于 ShadingWork/classify/scatter 的阶段历史不作为当前事实。
 
 **检索与核对顺序**：先检查完整 GitHub 源文件/目录/许可证，再核对 DACS/对象空间着色/FastAtlas 作者资料及 Microsoft 的 DOOM VRCS 第一方说明。The Forge 的 pin 与 R02 相同；Wicked 此次新调查 pin 与 R23 原 pin 分立。未运行任何上游工程。
 
@@ -189,7 +189,7 @@ DACS 独立工程 `da514fe9f6b1a2c5a732b0b9f2e20c25227960e3` 的 license 未明�
 
 ## Surface 缓存与稀疏照明重构：2026-10-01 执行来源
 
-用户已选择 [最终设计](../next-design/surface-cached-shading-final-2026.md)，执行边界及完整要求见 [新执行计划](../next-execution/surface-cached-shading-rebuild-2026.md)。本节不把旧 Surface oracle 或已审读局部来源升级为新算法完成。
+用户已选择[第三版最终设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，执行边界及完整要求见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。本节不把旧 Surface oracle 或已审读局部来源升级为新算法完成。
 
 ### 材质图编译与烘焙
 
@@ -314,7 +314,7 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 
 ### R03 · Filament：沿用 PBR，参考图与照明组织
 
-**Module B 本地集成状态（2026-10-01）**：`SurfaceMaterialPass` 已切换为 Probe → tile Work Builder → GPU finalize → 有限 full/coarse worker → immutable result Resolve 的唯一生产主链；阶段三补充 packed signal-rate layout、有效覆盖和 key/depth/result 边界。Surface 不再发布 motion，TemporalFacts 独立生成 motion/identity；旧 frequency planner、Dense/seven exception lanes、旧 ABI 与旧 Resolve owner 已从生产源码切断。该实现是 EEngine 本地 WebGPU 调度/重建方案，不是 Intel CPS 或 Filament 整体 renderer 的完整 port。集中 typecheck/build、Surface 契约和 ABI checks 已通过；用户硬件 Chrome 的受控 GPU oracle 与 showcase 开发采样结果见 R20。正式跨设备浏览器 GPU 消费核对、完整材质画质矩阵和固定条件整帧性能对比仍缺。因此 R03、R20、R22、R23 均维持 `not adopted` / reference-only，不晋级来源状态。
+**Module B 历史快照（2026-10-01，已被 V3 切断）**：当时的本地工作树曾将 `SurfaceMaterialPass` 组织为 Probe → tile Work Builder → GPU finalize → 有限 full/coarse worker → immutable result Resolve，并补充 packed signal-rate layout、有效覆盖和 key/depth/result 边界。该执行模型随后随 V3 方向切换从生产源码删除；以下验证只证明当时的组件，不是当前生产路径。Surface 不再发布 motion、TemporalFacts 独立生成 motion/identity 等记录仍可作为迁移背景；它们不代表 V3 的最终 ABI。该实现是 EEngine 本地 WebGPU 调度/重建方案，不是 Intel CPS 或 Filament 整体 renderer 的完整 port。R03、R20、R22、R23 均维持 `not adopted` / reference-only，不晋级来源状态。
 
 - **Upstream / Revision**：[google/filament](https://github.com/google/filament/tree/41f996de8fcc2d6b60b73159aa1bc44a05a40700)，调查 pin `41f996de8fcc2d6b60b73159aa1bc44a05a40700`。现有 PBR 使用 [shading ledger](./shading.md) 的既有 pin，**不自动升级**。
 - **Source**：[FrameGraph.cpp](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/filament/src/fg/FrameGraph.cpp)；Module B 固定入口为 [`surface_brdf.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_brdf.fs)、[`surface_shading_lit.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_shading_lit.fs)、[`surface_shading_model_standard.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_shading_model_standard.fs)、[`surface_light_directional.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_light_directional.fs)、[`surface_light_punctual.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_light_punctual.fs)、[`surface_light_indirect.fs`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_light_indirect.fs)、[`CubemapIBL.cpp`](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/libs/ibl/src/CubemapIBL.cpp)；`libs/filamat/src/shaders/ShaderGenerator.cpp` 和 `filament/src/Froxelizer.cpp` 仅作材质变体/cluster 组织对照。上述具体文件已通过固定 URL 读取，未遍历或运行完整上游工程。
@@ -544,18 +544,18 @@ R02 的当前边界：[Surface Kernel Binding V1](../specs/surface-kernel-bindin
 - **Upstream / Revision**：[GameTechDev/DeferredCoarsePixelShading](https://github.com/GameTechDev/DeferredCoarsePixelShading/tree/63ad5c1adafbfcc2869a200f50a5ea11f28b4887)，`63ad5c1adafbfcc2869a200f50a5ea11f28b4887`；仓库 `licence.txt` 为 Apache-2.0，`ComputeShaderTile.hlsl` 文件头保留 Intel 2017 版权/许可文字。本地仅在 ignored `.local/references/` 核读，不把下载文件当设计权威。
 - **Source / entry points**：[ComputeShaderTile.hlsl](https://github.com/GameTechDev/DeferredCoarsePixelShading/blob/63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ComputeShaderTile.hlsl) 的 `ComputeSurfaceDataFromGBufferAllSamplesCPS`、`RequiresPerPixelShading`、`ComputeShaderTileCS`；`GBuffer.hlsl` 的 GBuffer surface 构造；`App.cpp` 的 host 调度。已读 shader 主链和 README，未运行 DX11 样例，也未逐项审完 host 状态生命周期。
 - **源决策与阶段**：每个 2×2 block **先**取四个 GBuffer surface，再以首样本的 view-space 深度导数乘 `CPS_RATE * sqrt(2)` 比较其余深度差、以各通道法线差阈值 `sqrt(1/2) * π/180` 判定 full-rate；tile min/max 深度与 frustum 建局部光表；首样本总是着色，有风险时余下三样本各自着色（或组共享列表延迟补做），否则将首结果 splat 到其余样本；无光/无效样本有显式清零分支。不能只移植 `RequiresPerPixelShading` 而宣称完整 CPS。
-- **本地映射 / 缺口**：上游的 GBuffer-first CPS 判据与 tile light-list 分支没有被冒称为 WebGPU port。当前本地采用具名的 **EEngine Signal-Rate Surface**：`SurfaceProbe` 在材质求值前发布 continuity/variation/risk，`SurfaceSampleAbi`/`SurfaceSignalPlan` 打包方向 signal rate，`SurfaceMaterialPass` 的 Work Builder/finalize/worker/Resolve 消费同一布局；full/coarse、mixed tail、overflow 和 key/depth/result 边界均在同一 FrameGraph 主链内。该路径保留 R20 所需的代表样本/覆盖不变量，但 producer、绑定和重建属于 EEngine 本地集成；R20 仍 **not adopted**。
+- **历史本地映射 / 缺口**：上游的 GBuffer-first CPS 判据与 tile light-list 分支没有被冒称为 WebGPU port。2026-09-30 的本地快照曾采用具名的 **EEngine Signal-Rate Surface**：`SurfaceProbe` 在材质求值前发布 continuity/variation/risk，`SurfaceSampleAbi`/`SurfaceSignalPlan` 打包方向 signal rate，`SurfaceMaterialPass` 的 Work Builder/finalize/worker/Resolve 消费同一布局。该路径已由 V3 切断；它只保留 R20 所需的代表样本/覆盖不变量作为历史研究，producer、绑定和重建不构成当前目标；R20 仍 **not adopted**。
 - **WebGPU 差异 / fallback**：上游是 DX11 flat MSAA UAV + group-shared 光表和 16-bit 坐标打包；本地只有 WebGPU 核心可用，VisibilityKey、GPU compact/indirect、LightCluster 与 radiance texture 需分别建立有界 ABI、overflow 与消费者。不能把 2×2 输出复制到不同 identity、alpha/遮挡揭露或高频区域；历史复用仍禁用至 Phase 3。
-- **本地 WebGPU 集成修正（2026-10-01）**：`surface_material_evaluation` 将十个 texture role 保持 flags/UV transform/sampler/LOD/gradient/route/default 语义后合并为一个有界采样调用；`SurfaceSampleAbi` 的 profile/mode uniform → `surface_sample_worker` 的 implicit/compact/fallback 解码 → 单一重求值调用，保留 tile 状态/coverage/result 边界和二维 indirect。`SurfaceMaterialPass` 在 pass 外准备上传与 bindings；Resolve 实际消费 depth；ShaderModuleCache 发布带 label 的编译诊断。上述是 EEngine 本地编译/绑定/调度集成，没有新增上游算法或改变 R20 源映射。
+- **历史 WebGPU 集成修正（2026-10-01）**：当时的 `surface_material_evaluation`、`SurfaceSampleAbi`、`surface_sample_worker`、`SurfaceMaterialPass` 和 Resolve 组成了一个本地编译/绑定/调度快照。该快照已随 V3 删除，不是当前入口，也没有新增上游算法或改变 R20 源映射。
 - **实际验证与缺口**：Surface signal/sample/投影梯度、容量 overflow、材质/Product ABI、Temporal 与 source-cleanup checks 已通过。用户硬件 Chrome 执行现有生产 GPU oracle，374 assertions 通过（full/quad/directional/mixed、各池 overflow、Coated/驻留/灯表/非法 key、奇数尾部/二维 indirect、独立 motion）；showcase 四组尺寸/相机采样取得有效 GPU timestamps，未出现 validation error 或 device loss。Node Dawn 复跑仍受宿主 `DXGI_ERROR_DRIVER_INTERNAL_ERROR` 阻断。完整跨设备 browser、normal/emissive/Coated 画质矩阵和固定条件 adaptive 对比仍缺；本地严格预算的 showcase 采样不证明减样本净收益，R20 继续 **not adopted**，不提升 adaptive performance claim。
 
 ### EEngine 本地条件 · 发布证明的单 texel unlit 纹理
 
 - **检索范围与 donor 缺口**：R20 的分类发生在四份已重建 GBuffer 之后，不能在昂贵材质求值之前证明纹理常量；R14 读取上一帧亮度和 motion，输出硬件 VRS image，不提供 WebGPU compute shading 的同帧材质发布证明。两份固定 revision 的完整源入口如上，均未实现本条件。因此它是 **EEngine 本地精确条件**，不是 R20/R14 的完整或部分算法移植，也未以同名效果冒充。
-- **本地入口、决策与依赖**：当前 Surface 入口为 `SurfaceMaterialPass`、`surface_sample_work.ts`、`surface_sample_worker.ts` 和 `SurfaceSignalPlan.ts`；材质/纹理 publication 通过 ABI v7、residency revision 和 variation 区间进入 Probe。常量/未知/高频信号按明确预算分别 coarse 或 full，不能以单 texel 证明普通 PBR 的普遍收益。
+- **历史入口、决策与依赖**：V3 切换前的 Surface 入口曾为 `SurfaceMaterialPass`、`surface_sample_work.ts`、`surface_sample_worker.ts` 和 `SurfaceSignalPlan.ts`；材质/纹理 publication 通过 ABI v7、residency revision 和 variation 区间进入 Probe。上述文件已从当前生产链删除，不能以该历史快照证明普通 PBR 的普遍收益。
 - **fallback / 差异 / 验证**：缺 publication、normal/ORM/emissive/Coated 风险、shadow/AO/sky/IBL 或边界不满足预算时保持同架构 full-rate；tile pool 不足时整 tile fallback。正式画质、跨设备全帧性能和动态纹理源变更矩阵仍开放。
 
-### EEngine 本地方案 · 独立 closure rate 与受限 sample 重建（2026-10-01，生产集成）
+### EEngine 本地历史方案 · 独立 closure rate 与受限 sample 重建（2026-10-01，已从生产链删除）
 
 本轮先重新核读 R20 固定 revision 的完整 `ComputeShaderTile.hlsl`，以及 Wicked `df44c3db4c4927492bc9c791eac715d98d7ed091`（MIT）的完整 `visibility_shadeCS.hlsl`、Forge `cd5046893faba2dc7869243873bf01f02a6f0df9`（Apache-2.0）的 `VisibilityBufferShadingUtilities.h.fsl`；GitHub 搜索上述三仓库的 material/shading/decoupled/reconstruction 未取得完整的前置材质分率 donor。DACS 作者方法页本轮请求遇到访问挑战，未读取其内容；DOOM VRCS 数据流沿用此前已核读并固定 SHA256 的演讲记录。CPS 为 GBuffer-first，Wicked 为逐像素完整 Surface，Forge 仅提供透视插值数学；没有任一来源完整覆盖本地 VG/publication/texture-risk/overflow/profile 的分率链，因此以下是具名本地方案，保持来源 `not adopted`。
 

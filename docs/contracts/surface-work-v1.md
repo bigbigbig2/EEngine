@@ -9,7 +9,7 @@ owners:
 version: 1
 consumers:
   - OEngine/src/render/pipeline/RendererCore.ts
-  - OEngine/src/render/surface/SurfaceMaterialPass.ts
+  - OEngine/src/render/surface/AppearanceCachePass.ts
   - OEngine/src/render/surface/SurfacePresentPass.ts
 invariants:
   - current visibility work is produced and indirectly consumed on the GPU without a CPU count readback
@@ -22,14 +22,14 @@ validation:
 ---
 # Surface / Work V1：Phase 2 实现边界
 
-本合同记录已退役的早期 Phase 2 结构，不再描述当前 sample-driven 主链。当前实现事实见 [Shading](../domains/shading.md) 与 [Surface 执行计划](../next-execution/surface-sample-driven-shading-rebuild-2026.md)。下文历史合同冻结当时的单链结构和有限 profile，不代表正式 GPU 画质或性能验收。[v2 目标合同](./render-product-work-history-v2.md) 的跨消费者规划和 Temporal 仍待后续阶段；旧 exactly-once evidence 不转授本合同。
+本合同记录已退役的早期 Phase 2 结构，不再描述当前或目标 SurfaceWork V3。当前实现事实见 [Shading](../domains/shading.md)，目标和执行见 [SurfaceWork V3](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 与[执行计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。下文只供历史追溯，不代表正式 GPU 画质或性能验收；旧 evidence 不转授新合同。
 
 ## 所有权与提取
 
 | 保留资产 | 当前 owner / 消费者 | 切断边界 |
 | --- | --- | --- |
 | 透视重建、投影梯度、材质采样、Filament-derived PBR | `surface_material_kernel.ts` → `surface_material_program.ts` | 删除旧 `sparse_shading_resolve.ts` 包装和 ResolvePass；数学不降级重写 |
-| 程序与物理绑定 | `SurfaceProducts.ts`、`SurfaceKernelBindingPlan.ts`、`SurfaceMaterialPass.ts` | 不消费旧 Sparse pipeline descriptor/cache/revision owner |
+| 程序与物理绑定 | 历史 `SurfaceProducts.ts`、`SurfaceKernelBindingPlan.ts`、`AppearanceCachePass.ts` | 不消费历史 Sparse pipeline descriptor/cache/revision owner；V3 稳定 ABI 尚未冻结 |
 | 场景发布记录与活跃类摘要 | `GpuShadingPublication.ts` 类型、`GpuRenderWorld.ts` 发布实现 | 删除旧 publication store/transaction 和 candidate coordinator；现有 GPU Scene 发布测试继续约束真实消费者 |
 | 普通资产 heap、240-byte view、材质/纹理/几何 generation | `GpuAssetStore`、`GpuSparseShadingFrameAbi`、Scene/Texture owners | 历史 Sparse 命名不代表旧链；新 Surface 仍直接消费，字节布局不变 |
 | FrameGraph、Visibility、LightCluster、frame domain | 各自现有 owner | 保留合法消费者；不把整个 FrameProducts 当作新 Product Planner |

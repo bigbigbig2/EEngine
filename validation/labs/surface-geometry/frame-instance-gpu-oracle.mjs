@@ -6,6 +6,8 @@ import { resolve } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 import "../../../OEngine/tests/webgpu-test-globals.mjs";
 import { FrameInstanceTransforms } from "../../../OEngine/.test-dist/render/FrameInstanceTransforms.js";
+import { FrameGeometryArena } from "../../../OEngine/.test-dist/render/FrameGeometryArena.js";
+import { FrameGeometryVertices } from "../../../OEngine/.test-dist/render/FrameGeometryVertices.js";
 import { GPU_INSTANCE_RECORD_WGSL, packGpuInstanceRecords } from "../../../OEngine/.test-dist/gpu/GpuInstanceAbi.js";
 import { SURFACE_FRAME_INSTANCE_WGSL } from "../../../OEngine/.test-dist/gpu/GpuFrameInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../../OEngine/.test-dist/gpu/GpuMeshletRasterWorkAbi.js";
@@ -25,13 +27,16 @@ const { create, globals } = createRequire(resolve(process.argv[2], "package.json
 const gpu = create(["backend=d3d12"]), adapter = await gpu.requestAdapter({ powerPreference: "high-performance" });
 assert.ok(adapter && !adapter.info.isFallbackAdapter);
 const device = await adapter.requestDevice({ requiredLimits: { maxStorageBuffersPerShaderStage: 16 } });
-const errors = [], resources = [], cases = []; let disposing = false, lost, owner;
+const errors = [], resources = [], cases = []; let disposing = false, lost, owner, vertexOwner, arenaOwner;
 // Native async PSO callbacks alone do not keep Node's event loop alive.
 const keepAlive = setInterval(() => {}, 1000);
 device.addEventListener("uncapturederror", e => errors.push(e.error.message));
 void device.lost.then(info => { if (!disposing) lost = { reason: info.reason, message: info.message }; });
 const artifacts = resolve(".local/validation/surface-geometry"); await mkdir(artifacts, { recursive: true });
-const reportPath=resolve(artifacts,process.argv.includes("--compile-consumers")?"frame-instance-native-compile-report.json":"frame-instance-gpu-report.json");
+const caseName=process.argv.includes("--case")?process.argv[process.argv.indexOf("--case")+1]:null;
+if(caseName!==null&&!/^[a-z0-9-]+$/.test(caseName))throw new Error("Invalid diagnostic case name");
+const reportPath=resolve(artifacts,process.argv.includes("--compile-consumers")?"frame-instance-native-compile-report.json":
+  caseName===null?"frame-instance-gpu-report.json":`frame-instance-${caseName}-native.json`);
 const report = { evidenceRole: "diagnostic", component: "SharedFrameInstanceTransforms", passed: false, cases,
   adapter: { vendor: adapter.info.vendor, architecture: adapter.info.architecture, device: adapter.info.device, description: adapter.info.description } };
 const I = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
@@ -81,6 +86,7 @@ function normalReference(matrix, local, geometric = [0,0,1]) {
   const n=a.map(row=>row[3]), len=Math.hypot(...n); return n.map(v=>v/len);
 }
 try {
+  report.pending="instance/vertex preparation";await writeFile(reportPath,JSON.stringify(report,null,2));
   owner = new FrameInstanceTransforms(device, undefined, true); await owner.ready;
   const localPositions = [[-0.7,-0.6,0.5,1],[0.7,-0.6,0.5,1],[0,0.7,0.5,1]];
   const matrices = [I, [-0.7,0,0,0, 0,1.3,0,0, 0,0,0.4,0, 0.12,0,0,1],
@@ -93,6 +99,12 @@ try {
   const meshlet = new Uint32Array(28); meshlet[1]=3; meshlet[3]=1;
   const metadata = buffer(new Uint32Array([...geo,...meshlet]));
   const positions = new Float32Array(localPositions.flatMap(p=>p.slice(0,3)));
+  const geometryBuffer=buffer(geo),meshletBuffer=buffer(meshlet),positionBuffer=buffer(positions),vertexIndices=buffer(new Uint32Array([0,1,2])),triangleIndices=buffer(new Uint32Array([0x020100]));
+  vertexOwner=new FrameGeometryVertices(device);arenaOwner=new FrameGeometryArena(device);await vertexOwner.ready;
+  const arena=arenaOwner.prepare(metadata,metadata.size,{workCapacity:192,vertexCapacity:512,triangleCapacity:256,
+    dictionaryCapacity:16,coefficientCapacity:8,probeLimit:8,maxBytes:32768});
+  const sharedVertices=vertexOwner.prepare({arena,instances:allocation,work,assets:{geometryRecords:geometryBuffer,meshletRecords:meshletBuffer,
+    vertexStreamData:positionBuffer,meshletVertexIndices:vertexIndices,meshletTriangleIndices:triangleIndices}});
   const payloadBytes = new Uint8Array(16+positions.byteLength); new Uint32Array(payloadBytes.buffer,0,4).set([0,1,2,0x020100]); payloadBytes.set(new Uint8Array(positions.buffer),16);
   const payload = buffer(payloadBytes);
   const viewBytes = new Uint8Array(240); new Uint32Array(viewBytes.buffer).set([width,height,1,1,1,1,0,1,0,60,0,0,3,4]);
@@ -134,6 +146,7 @@ ${SURFACE_TRIANGLE_SETUP_WGSL}
   }
   output[id.y*shading_view.width+id.x]=value;
 }`,"main");
+  report.pending="raster preparation";await writeFile(reportPath,JSON.stringify(report,null,2));
   const consumeGroup = group(consumer,[[0,allocation.records],[1,work],[2,metadata],[3,payload],[4,shadingView],[5,visible.createView()],[6,out]]);
   const rasterModule = await module(MESHLET_BUCKET_VISIBILITY_SINGLE_WGSL);
   const raster = await device.createRenderPipelineAsync({ layout:"auto",vertex:{module:rasterModule,entryPoint:"raster_meshlet_bucket"},
@@ -141,9 +154,10 @@ ${SURFACE_TRIANGLE_SETUP_WGSL}
     primitive:{topology:"triangle-list",cullMode:"back",frontFace:"ccw"},
     depthStencil:{format:"depth32float",depthWriteEnabled:true,depthCompare:"greater"} });
   const buckets = new Uint32Array(64*4); buckets[0]=1;
-  const rasterGroup = group(raster,[[1,allocation.records],[2,buffer(meshlet)],[3,buffer(new Uint32Array([0,1,2]))],
-    [4,buffer(new Uint32Array([0x020100]))],[5,buffer(positions)],[6,buffer(geo)],[7,work],[8,buffer(buckets)],
-    [9,buffer(new Uint32Array([0,0,0,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST)]]);
+  const rasterGroup = group(raster,[[1,allocation.records],[2,meshletBuffer],[3,vertexIndices],
+    [4,triangleIndices],[5,positionBuffer],[6,geometryBuffer],[7,work],[8,buffer(buckets)],
+    [9,buffer(new Uint32Array([0,0,0,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST)],
+    [20,arena.buffer],[21,sharedVertices.rasterSettings]]);
   let pixels=0,maxClipError=0,maxNormalError=0,maxBaryError=0;
   const inputs = [
     {name:"duplicate-nonuniform-mirrored-singular",slots:[0,0,1,2,3,2],generation:1,raster:true,camera:I},
@@ -157,16 +171,20 @@ ${SURFACE_TRIANGLE_SETUP_WGSL}
     {name:"instance-motion-change",slots:[0,0],generation:8,raster:true,camera:I,mutate:true},
     {name:"generation-all-bits",slots:[0,1,2],generation:0x7fffffff,raster:false,camera:I},
   ];
-  for(const input of inputs){
+  const selectedInputs=caseName===null?inputs:inputs.filter(input=>input.name===caseName);
+  assert.ok(selectedInputs.length,"Unknown diagnostic case");
+  for(const input of selectedInputs){
+    report.pending=`frame/${input.name}`;await writeFile(reportPath,JSON.stringify(report,null,2));
     if(input.mutate) { matrices[0]=[0.8,0.1,0,0,-0.1,0.7,0,0,0,0,1,0,-0.1,0.06,0,1]; device.queue.writeBuffer(source,0,sourceBytes(matrices)); }
     device.queue.writeBuffer(camera,0,cameraBytes(input.camera)); device.queue.writeBuffer(work,0,queueBytes(input.slots,input.generation,192,input.count));
     device.pushErrorScope("validation"); const encoder=device.createCommandEncoder(); owner.encode(encoder,allocation);
+    const commit=arenaOwner.encodeMetadataPublication(encoder,arena);vertexOwner.encode(encoder,sharedVertices);
     const pass=encoder.beginRenderPass({colorAttachments:[{view:visible.createView(),loadOp:"clear",storeOp:"store",clearValue:{r:0xffffffff,g:0,b:0,a:0}}],
       depthStencilAttachment:{view:depth.createView(),depthClearValue:0,depthLoadOp:"clear",depthStoreOp:"store"}});
     if(input.raster){pass.setPipeline(raster);pass.setBindGroup(0,rasterGroup);pass.draw(3,1);} pass.end();
     const cp=encoder.beginComputePass();cp.setPipeline(consumer);cp.setBindGroup(0,consumeGroup);cp.dispatchWorkgroups(width/8,height/8);cp.end();
     for(const [a,b] of [[allocation.records,recordsRead],[allocation.control,controlRead],[out,outRead]])encoder.copyBufferToBuffer(a,0,b,0,a.size);
-    encoder.copyTextureToBuffer({texture:visible},{buffer:keyRead,bytesPerRow:width*4},[width,height]); device.queue.submit([encoder.finish()]);
+    encoder.copyTextureToBuffer({texture:visible},{buffer:keyRead,bytesPerRow:width*4},[width,height]); device.queue.submit([encoder.finish()]);commit();
     const [records,control,values,keys]=await Promise.all([mapped(recordsRead,Uint8Array),mapped(controlRead,Uint32Array),mapped(outRead),mapped(keyRead,Uint32Array)]);
     assert.equal(await device.popErrorScope(),null); const valid=input.generation===0?[]:input.slots.filter(slot=>slot<5);
     const selected=new Set(valid); assert.equal(control[0],selected.size);assert.equal(control[1],input.generation===0?0:input.slots.length-valid.length);
@@ -199,6 +217,7 @@ ${SURFACE_TRIANGLE_SETUP_WGSL}
   const compiled=[];
   console.log(`GPU transform/raster/Surface cases passed: ${pixels} pixels`);
   Object.assign(report,{passed:true,coveredPixels:pixels,maxClipError,maxNormalError,maxBaryError,compiled,apiErrors:errors,deviceLost:lost??null});
+  delete report.pending;delete report.compilePending;
   await writeFile(reportPath,JSON.stringify(report,null,2));
   // Full native PSO compilation is optional; production compilation is also
   // checked in installed Chrome by frame-instance-chrome-compile.mjs.
@@ -221,5 +240,5 @@ ${SURFACE_TRIANGLE_SETUP_WGSL}
   assert.deepEqual(errors,[]);assert.equal(lost,undefined);
   Object.assign(report,{passed:true,coveredPixels:pixels,maxClipError,maxNormalError,maxBaryError,compiled,apiErrors:errors,deviceLost:lost??null});
 }catch(error){report.error=String(error.stack??error);throw error;}
-finally{await writeFile(reportPath,JSON.stringify(report,null,2));owner?.destroy();disposing=true;resources.forEach(r=>r.destroy());device.destroy();clearInterval(keepAlive);}
+finally{await writeFile(reportPath,JSON.stringify(report,null,2));vertexOwner?.destroy();arenaOwner?.destroy();owner?.destroy();disposing=true;resources.forEach(r=>r.destroy());device.destroy();clearInterval(keepAlive);}
 console.log(JSON.stringify(report,null,2));

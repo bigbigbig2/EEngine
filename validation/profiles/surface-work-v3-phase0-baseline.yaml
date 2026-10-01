@@ -1,0 +1,81 @@
+schemaVersion: 1
+id: surface-work-v3-phase0-baseline
+status: configured-not-sampled
+purpose: >-
+  Freeze the comparison identity and capture conditions for SurfaceWork Runtime V3.
+  This profile does not contain performance results or acceptance claims.
+target:
+  gpu: NVIDIA GeForce GTX 1650 Ti
+  outputResolution: [1920, 1080]
+  internalResolution: [1920, 1080]
+  renderScale: 1
+  deviceScaleFactor: 1
+  browser: Chrome stable, headed
+  adapterIdentity: record at runtime from Renderer adapter_info
+revisions:
+  baseline-2026-09-25:
+    short: 89f0a94
+    commit: 89f0a9412a0740ae67b0062b4337b8785f85400c
+  signal-rate-history-2026-09-30:
+    short: 15f12f7b
+    commit: 15f12f7b7a1735078eff968382ce4391efb371e8
+  current-v3-base-2026-10-02:
+    short: e7296be9
+    commit: e7296be9cebbc3bcc1b6b738d682c928548d72d5
+  final-v3:
+    short: null
+    commit: null
+scene:
+  path: examples/assets/three/rendering-lab/dungeon_warkarma.glb
+  sha256: cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1
+  sourceRole: complex authored scene; fixed for all four revisions
+camera:
+  mode: calibrated-fixed-distance
+  coverageBands:
+    low: [0.25, 0.35]
+    high: [0.80, 0.90]
+  autoRotate: false
+  lockDuringMeasurement: true
+  frameDeltaSeconds: 0.0166666666666667
+features:
+  hzb: true
+  coneVisibility: true
+  xeGTAO: true
+  fsr3: true
+  bloom: true
+  physicalEnvironment: true
+  vsm: false
+  temporalJitter: false
+  sseThreshold: 4
+capture:
+  warmupFrames: 60
+  sampleFrames: 120
+  batches: 2
+  order: alternating-forward-reverse
+  counters: true
+  timestampQuery: required
+  gpuSensor: nvidia-smi-if-available
+  sensorIntervalSeconds: 1
+  retainAllFrames: true
+  percentile: [p50, p95]
+  gpuCostDefinition: same-frame-pass-interval-sum-not-queue-wall-time
+  command: >-
+    node validation/tools/run-surface-performance.mjs --width 1920 --height 1080
+    --frames 120 --warmup 60 --batches 2 --coverage low,high
+comparison:
+  requireCleanRevision: true
+  requireEqualSourceAndAssetFingerprint: true
+  requireEqualCameraAndFeatureSet: true
+  revisions: [baseline-2026-09-25, signal-rate-history-2026-09-30, current-v3-base-2026-10-02, final-v3]
+  report:
+    - surface-all-stage-cost
+    - gpu-frame-p50-p95
+    - cpu-encode-cost
+    - material-hit-miss
+    - geometry-records
+    - signal-packets
+    - full-rate-exceptions
+    - ibl-direct-evaluations
+    - overflow-and-memory
+    - continuous-image-quality
+  noClaimsBeforePhase7: true

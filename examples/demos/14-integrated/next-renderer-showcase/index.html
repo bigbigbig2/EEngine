@@ -74,6 +74,18 @@
             </div>
           </details>
           <details>
+            <summary>固定条件性能采集</summary>
+            <div class="control-list">
+              <label class="debug-view-select"><span>像素占用</span><select id="benchmark-view"><option value="low">远景 25%–35%</option><option value="high">近景 80%–90%</option></select></label>
+              <label class="debug-view-select"><span>实验</span><select id="benchmark-profile"><option value="full">完整画面</option><option value="no-ao">关闭 AO</option><option value="no-fsr3">关闭 FSR3</option><option value="no-bloom">关闭 Bloom</option></select></label>
+              <p>准备阶段按 GPU 可见像素校准相机，等待驻留与覆盖稳定；锁定 1280×720 和 1/60s 时间步，采集连续 120 帧。效果关闭实验只用于定位。</p>
+              <button id="run-benchmark" type="button">运行固定采集</button>
+              <button id="cancel-benchmark" type="button">停止采集</button>
+              <button id="export-benchmark" type="button">导出完整性能记录</button>
+              <div id="benchmark-state" class="diagnostic-state">尚未采集</div>
+            </div>
+          </details>
+          <details>
             <summary>实时诊断</summary>
             <div class="control-list">
               <label class="switch-row"><span>GPU 采样</span><input id="toggle-profiler" type="checkbox" /><i></i></label>

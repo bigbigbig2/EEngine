@@ -279,7 +279,7 @@ virtual UV/mip → page table → fallback mip → atlas border → fixed PCF ta
 ### E7 实际收口
 
 - `vsm_sampling.ts` 已按 clipmap level、page-table generation、dirty/缺页回退、atlas border 和固定 PCF taps 实现采样。
-- `SurfaceMaterialPass` 的唯一 direct-light consumer 通过 `ShadowVisibilityFrame` 读取 VSM page table、depth atlas 和 sampling constants；Standard/Coated direct lobe 共用一次 visibility。
+- SurfaceWork V3 的 direct-light signal packet consumer 通过 `ShadowVisibilityFrame` 读取 VSM page table、depth atlas 和 sampling constants；Standard/Coated direct lobe 共用一次 visibility。
 - FrameGraph 使用同一 page-table/atlas resource ID 建立 allocation → raster → Surface sampling 依赖；没有 CPU readback、逐页 render pass 或额外 submit。
 - 历史 packed CSM shader 已删除，未建立 CSM/VSM 对照桥梁。
 - 已通过 `npm run typecheck`、`npm run build`、`npm run build:test` 和 `node --test tests/contract/frame-program.test.mjs`；真实浏览器 WGSL 编译、画质与性能检查延期到 E9/最终验收。

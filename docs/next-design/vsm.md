@@ -194,7 +194,7 @@ Visibility/depth/TemporalFacts
   -> VsmAtlasClearPass
   -> VsmAtlasRasterPass (fixed batch count)
   -> VsmCommitPageGenerationPass
-  -> SurfaceMaterialPass direct-light branch
+  -> SurfaceWork V3 direct-light signal packet consumer
   -> Sky/Aerial, FSR3, Present
 ```
 

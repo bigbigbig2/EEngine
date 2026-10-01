@@ -1,6 +1,6 @@
 # Module A 设计：Frame Program 与语义事实层
 
-> 状态：模块 A 已接入当前生产链（2026-09-27）；后续 Surface v2 仍按[最终架构](./eengine-next-overall-architecture-final-2026.md)继续。对应迁移记录见[模块 A 执行文档](../next-execution/frame-program-module-a.md)。第 2 节的“当前事实”表保留实施前的问题定位，实施后的事实以[Frame Runtime](../domains/frame-runtime.md)及源码为准；本状态不代表浏览器或性能验收。
+> 状态：模块 A 已接入当前生产链（2026-09-27）；后续 SurfaceWork V3 以用户指定的[第三版最终设计](./eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)为唯一目标。对应迁移记录见[模块 A 执行文档](../next-execution/frame-program-module-a.md)。第 2 节的“当前事实”表保留实施前的问题定位，实施后的事实以[Frame Runtime](../domains/frame-runtime.md)及源码为准；本状态不代表浏览器或性能验收。
 
 ## 1. 要解决的实际问题
 
@@ -8,7 +8,7 @@ EEngine 当前已经有 GPU Scene、GPU 工作生成、Visibility、Surface、�
 
 模块 A 的目标是：保留一条生产 Renderer、一条 GPU Scene→Visibility→Surface→Environment→FSR3→Present 路径及唯一 submit；将**静态/半静态 topology 与语义需求**编译为 Frame Program，再降低到现有 FrameGraph。当前帧真实 meshlet、Surface、页、射线等数量仍由 GPU 产生并消费。Frame Program 不读取 GPU counter 决定本帧工作，也不为未来模块创建空 Pass。
 
-本模块只重构边界和现有生产链。Surface v2 的材质类/采样/频率算法、Fuse 与字段物化策略、统一 Temporal Facts 的完整生产、VSM/SSSR/GI 的算法都属于后续模块。允许本模块期间暂时只运行 full-rate Surface，以维持相机运动下的时序正确性；Surface v2 再恢复更高效的 dense/binned/adaptive 组合。
+本模块只重构边界和现有生产链。SurfaceWork V3 的材质工作、GeometryRecord、miss-only cache、signal packet、重建与字段物化策略，统一 Temporal Facts 的完整生产，以及 VSM/SSSR/GI 的算法都属于后续模块。允许本模块期间暂时只运行 full-rate Surface，以维持相机运动下的时序正确性；SurfaceWork V3 在固定拓扑内恢复更高效的 implicit/uniform/mixed 组合。
 
 ### 1.1 成功的工程形态
 
@@ -101,13 +101,13 @@ Program 不复制 FrameGraph 的 per-resource DAG。它处理的是“为何需�
 | internal/output 尺寸、sample count、output format、resolution topology | swapchain 当前 texture view、history read/write A/B 物理对象 |
 | 可用 lane、Surface kernel/profile、真实 consumer field demand、Pass 资源形状 | HZB 当前/上一帧对象、environment LUT generation 与参数 revision |
 | 影响 buffer/texture descriptor 的容量、VG bank 数或 texture binding layout shape | 相同 layout 下的 scene/material Product generation、active object 数、GPU queue counter |
-| 当前 Surface v1 的 active execution-class 集合与 bank layout（仅当确实改变 Pass/pipeline/绑定数；Surface v2 将继续收敛） | 同一 class/layout 的材质 ID 与 texture 内容、FSR3 history 有效性 |
+| 当前 Surface 的 active execution-class 集合与 bank layout（仅当确实改变 Pass/pipeline/绑定数；SurfaceWork V3 将继续收敛） | 同一 class/layout 的材质 ID 与 texture 内容、FSR3 history 有效性 |
 
 FSR3 是第一处关键迁移：当前 `addToGraph` 把 read/write 索引和具体 history texture 固定到图中；应把 previous/current 每类 history、constants 和 default mask 的 import 改为注册期只固定**角色与 descriptor**，执行期从本帧绑定解析物理对象。仍在 `prepareFrame` 做资源尺寸/格式准备，Graph 使用当前资源而不是首次构图时的纹理。history 交换、invalidate、resize 不改变节点与边；尺寸/格式变化或设备替换才换结构图。所有 FSR3 原有阶段和输入依赖必须保留，模块 A 仅改变宿主绑定。
 
 Physical Environment 是第二处：`RendererCore` 当前直接导入 LUT views 并把 generation 写入 key。应将 Sun buffer、LUT view 的**语义角色**与每帧实际对象分开；生成或替换 LUT 后，同 layout 的图仍绑定新对象。正在被 GPU 使用的旧 LUT 继续按现有 fence/`gpuDone` 退役。若 LUT 形状/profile 真改变，则对应结构 key 改变。不能为了删 key 而让旧资源提前销毁。
 
-相机运动导致当前 `adaptiveShading` 从 true 变 false，会切换图结构。Module A 采用**保守全速率 Surface profile**作为唯一当前时序安全路径，去掉 camera move 对 topology 的影响；不为保住旧粗频节省而添加假 motion。后续 Surface v2 在固定 topology 中用 GPU lane/有效性决定 dense、binned 和频率工作。该暂时的性能代价明确记录，最终性能评估不以 Module A 的中间态代表 Next 目标。
+相机运动导致当前 `adaptiveShading` 从 true 变 false，会切换图结构。Module A 采用**保守全速率 Surface profile**作为唯一当前时序安全路径，去掉 camera move 对 topology 的影响；不为保住旧粗频节省而添加假 motion。后续 SurfaceWork V3 在固定 topology 中用 GPU work lane/有效性决定 implicit、uniform、mixed 和 bounded exception。该暂时的性能代价明确记录，最终性能评估不以 Module A 的中间态代表 Next 目标。
 
 `FrameGraphKey.ts` 的陈旧 `sparseShadingRevision` 类型不能与 Renderer 内数组 key 继续并存。实现应建立单一、版本化且顺序稳定的结构 key，记录 key 字段对应的实际 descriptor/pass 差异；无差异字段删除。保持 `CompiledFrameGraphCache` LRU 与 device-loss 清空语义；动态资源不允许被编译图闭包长期抓住。
 
@@ -143,22 +143,22 @@ Granite 的 `RenderGraph::bake/build_aliases` 与 Filament 的 `FrameGraph::comp
 | 用通用插件/脚本式 Planner 一次包揽所有算法 | 拒绝：Module A 只有有限现有 owner；普适注册系统会增加 CPU 间接层且无法证明真实消费者 |
 | 重写 FrameGraph 为 Granite/Filament 图 | 拒绝：本地依赖/裁剪/late binding 已存在；外部 Vulkan/native 执行与 WebGPU 不同 |
 | 保持 FSR3 index 与 LUT generation 在 key | 暂时正确但最终拒绝：避免错误捕获，却使稳定帧图反复编译；必须先完成 late binding 再删 key |
-| 为保留旧 adaptive 性能使相机移动换图 | Module A 拒绝：时序安全与结构身份混淆；先保守 full-rate，再由 Surface v2 在 GPU lane 内恢复性能 |
+| 为保留旧 adaptive 性能使相机移动换图 | Module A 拒绝：时序安全与结构身份混淆；先保守 full-rate，再由 SurfaceWork V3 在 GPU work lane 内恢复性能 |
 
 主要风险是：Pass 注册时捕获旧 GPU 对象、history A/B 读写别名、环境 LUT 提前回收、current Surface active-class layout 与 key 不一致、Graph culling 被副作用标记绕过、空场景/错误路径提交次数改变。执行文档针对每项给出源码切入点与小范围检查，不用逐批浏览器矩阵或伪 GPU workload 来“证明”模块完成。
 
-模块 A 完成须满足：唯一 Renderer 调用 Frame Program 的结构计划来 lower 当前真实链；Graph 中 Visibility→Surface→FSR3→Present 与可选环境边实际存在；Program key 不再含 history ping-pong、LUT generation 或相机运动；同尺寸/同 profile 跨帧绑定的是当帧真实资源；empty/feature-off 无无效工作；正常/abort/recovery 保持一个 submit owner。完成后集中 typecheck、build、必要 targeted tests，并更新 currentSlice，进入 Surface v2。正式浏览器、画质与性能证据留在最终集成。
+模块 A 完成须满足：唯一 Renderer 调用 Frame Program 的结构计划来 lower 当前真实链；Graph 中 Visibility→Surface→FSR3→Present 与可选环境边实际存在；Program key 不再含 history ping-pong、LUT generation 或相机运动；同尺寸/同 profile 跨帧绑定的是当帧真实资源；empty/feature-off 无无效工作；正常/abort/recovery 保持一个 submit owner。完成后集中 typecheck、build、必要 targeted tests，并更新 currentSlice，进入 SurfaceWork V3。正式浏览器、画质与性能证据留在最终集成。
 
 ## 9. A0 生产资源边清单（2026-09-27 源码核对）
 
-下表的 `ResourceId` 是 lowering 中的逻辑句柄或 Graph 导入名；数值 ID 随编译图分配，不能作为跨帧身份。尺寸均为当前内部分辨率 `I` 或输出分辨率 `O`。结构 key 记录形状和启用的 owner；右列所列当前对象均从本帧 binding 解析。依据为 `RendererCore.render/renderEmptyScene`、`FrameProgramLowering`、`PackedVisibilityPass`、`SurfaceMaterialPass`、`SurfaceSampleAbi`、`TemporalFactsPass`、`Fsr3UpscalerRuntime` 和 `AtmosphereLutResources` 的当前生产调用。
+下表的 `ResourceId` 是 lowering 中的逻辑句柄或 Graph 导入名；数值 ID 随编译图分配，不能作为跨帧身份。尺寸均为当前内部分辨率 `I` 或输出分辨率 `O`。结构 key 记录形状和启用的 owner；右列所列当前对象均从本帧 binding 解析。当前 Surface 目标以 [SurfaceWork V3](./eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 为准；当前源码事实见 `FrameProgramLowering`、`PackedVisibilityPass`、`AppearanceCachePass`、`TemporalFactsPass`、`SparseLightingPass`、`Fsr3UpscalerRuntime` 和 `AtmosphereLutResources`。
 
 | 产品/逻辑 ResourceId | 生产者 → 消费者 | 物理 owner；尺寸/格式 | key、绑定与失效/退役 |
 | --- | --- | --- | --- |
 | `meshlet-work`、`visibility-counters`、`camera` | Visibility prepare 的 GPU 工作队列 → Visibility raster；camera/counters 也供 late recheck | `PackedVisibilityPass` 的 prepared work set、`GpuRenderWorldRuntime.counterSink`、`GPUViewContext` buffers；格式为结构化 GPUBuffer（无 texture format），字节数由 prepared capacity/ABI 或固定 camera/counter ABI 决定 | Graph 形状只取 VG 与 late recheck 的实际启用；work 数量、队列容量与 scene 对象由当前 job 绑定；旧 prepared set 经 frame command 的 GPU 完成回调退役 |
 | `depth`、`Packed VisibilityKey` | Visibility raster → HZB、ShadingWork、Surface、Sky/Aerial、FSR3 | `RenderTargets.depth`：`I/depth32float`；Visibility transient：`I/r32uint`、背景 sentinel | `I` 与深度格式是结构；depth view 随帧/resize 换；VisibilityKey 每图执行 transient；camera cut 不改变图 |
 | `previous-hzb`、`current-hzb` | 上一已提交帧 HZB → Visibility；本帧 depth → HZB → light cluster/可选 late recheck | 每 View `HierarchicalZBuffer` 双纹理：`max(1,I/2)/rg16float` mip 链 | HZB 使用与 late recheck 启用状态进 key，read/write 物理索引不进 key；camera cut、resize、帧中断与 feature revision 使 history 无效；graph binding 每帧取 owner 当前/上一对象 |
-| `Surface tile states/records/results/indirect` | VisibilityKey、Probe candidates、材质/光照事实 → Work Builder → GPU finalize → 有限 worker/Resolve | `SurfaceSampleAbi` 与 `SurfaceMaterialPass` 的当前图 transient buffers/textures，容量由 `I` 与设备 limit 算出 | `I`、resident profile、texture bank mask 和 feature profile 影响结构；GPU counter 不进入 key 或 CPU 同帧决策；overflow 以整 tile fallback 收口 |
+| `SurfaceWork / GeometryRecord / packets / indirect` | VisibilityKey/Depth → implicit/uniform/mixed Work → 唯一 GeometryRecord → cache miss 与 signal packets | 当前 Appearance/SparseLighting 的内部资源仍在迁移；最终物理布局由 V3 Work/History owner 按 `I` 和设备 limit 选择 | GPU counter 不进入 key 或 CPU 同帧决策；每个 work/packet 有 bounded capacity、写域和最终 full-rate exception |
 | `Surface/radiance`、`Temporal/motion` | Surface full/coarse worker → Sky/Aerial；TemporalFacts → FSR3 | Surface 输出 `I/rgba16float` pre-exposed radiance 与不可变 coarse results；TemporalFacts 输出 `I/rg16float` motion、mask、identity | Surface 不再拥有 motion attachment；resize、camera cut、scene/material/product generation 由各 owner 的 history/revision 合同处理 |
 | `material-records`、`scene-instances`、`geometry-*`、`texture-routes`、`texture-set-*-bank-*`、`virtual-geometry-*` | 已发布 Scene/Product/Asset → Visibility、ShadingWork 与 Surface | `GpuRenderWorldRuntime`、`GpuAssetBindings`、当前 job；结构化 GPUBuffer 的字节数/stride 由各 publication ABI 和当前 capacity 指定（无 texture format）；每个 texture bank 是 `2d-array` view，物理 format 与 size class 从 `TextureBindingSet.bankDescriptors` 获取，原始 RGBA bank 为 `rgba8unorm`、256/512/1024/2048/4096 方形级，cooked bank 由 package segment 指定 | VG bank 数、被纹理 class 实际采样的 bank mask 进 key；同 layout 的 scene/material/texture generation 只换绑定；bank 物理尺寸/format 改变但 sampled-array layout 不变时只换当帧 view；publication 由 render world 事务管理，不能混合两个 generation |
 | `physical-environment-sun`、`physical-environment-*-transmittance/scattering/higher-order/irradiance` | 帧内 environment record/参数上传 → Surface direct、PhysicalSky、Aerial | `PhysicalEnvironmentRuntime.parameters`：64 B；`AtmosphereLutResources`：transmittance 256×64、scattering/higher-order 256×128×32、irradiance 64×16，均 `rgba16float`；multipleScattering 64×64 只供 LUT 内部构建 | 环境 owner 开关进 key；固定 Earth LUT profile 的 generation、Sun revision 不进 key；Graph import 每帧取 pending/active view；旧 LUT 在提交完成 promise 后退役，abort 丢弃 pending |

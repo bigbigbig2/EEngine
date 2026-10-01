@@ -1,13 +1,16 @@
 # OEngine
 
-OEngine 是面向桌面浏览器 WebGPU、中大型高几何密度场景的 GPU-first 渲染引擎核心。当前重点是 GPU-ready 资产、Packed Instances、层次工作生成、Hardware-first Visibility、单次材质解析以及统一的光照与时域管线。
+OEngine 是面向桌面浏览器 WebGPU、中大型高几何密度场景的 GPU-first 渲染引擎核心，目标是极致 GPU 性能与现代 AAA 画质。
+
+当前方向按用户指定的[第三版最终重构设计](docs/next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)统一：SurfaceWork Runtime、唯一 GeometryRecord、miss-only Appearance、独立 signal packets 和廉价重建。方向已确定，实现和性能验收尚未完成。
 
 ## 从这里开始
 
-- 开发或评审前先读 [AGENTS.md](./AGENTS.md)。
-- 按任务定位源码和权威文档时运行 `node tools/vibe.mjs context <path>`。
-- 产品、领域、合同、状态和验证入口见 [docs/README.md](./docs/README.md)。
-- 可运行浏览器示例见 [examples/README.md](./examples/README.md)。
-- 引擎包实现约束见 [OEngine/AGENTS.md](./OEngine/AGENTS.md)。
+- 协作和开发节奏：[AGENTS.md](AGENTS.md)。
+- 当前重构：[SurfaceWork V3 执行计划](docs/next-execution/surface-work-runtime-v3-rebuild-2026.md)。
+- 整体边界、源码现状、来源和验收：[docs/README.md](docs/README.md)。
+- 路径导航：`node tools/vibe.mjs context <path>`。
+- 浏览器示例：[examples/README.md](examples/README.md)。
+- 引擎包约束：[OEngine/AGENTS.md](OEngine/AGENTS.md)。
 
-历史阶段、旧方案和实施过程不在工作树建立 archive；需要时使用 Git 历史查询。
+旧 Surface 设计和执行记录使用 Git 历史追溯，不在活动文档树保留并行路线。

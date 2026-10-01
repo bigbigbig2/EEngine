@@ -1,5 +1,7 @@
 # Module C 设计：按需 Surface Fields 与 XeGTAO
 
+> 2026-10-02 方向说明：Surface 内部执行服从[第三版 SurfaceWork 设计](./eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。本文保留 XeGTAO 的语义、来源和 AO 合成边界；其中旧 SurfaceMaterialPass、Dense/Binned 和旧绑定描述是历史基线，实施接线改由 [SurfaceWork V3 执行计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md) 的 GeometryRecord、signal packet 与真实 consumer 决定。
+
 > 状态：2026-09-27 设计完成，C0–C6 已编码；High scalar AO 已连接生产 Graph 与 Surface 间接消费，真实 GPU 数值、画质与性能尚未核对，C7–C8 待实施。对应[执行文档](../next-execution/surface-fields-xegtao.md)、[整体架构](./eengine-next-overall-architecture-final-2026.md) §3、[架构层计划](../next-execution/eengine-next-architecture-layer-plan-2026.md) §5 和[来源账本 R05](../porting/next-renderer.md)。以下“当前事实”表记录 C0 前的源码基线；目标和成本假设不是已实现、已测量或已通过画质验收的事实。
 
 ## 1. 要解决的问题

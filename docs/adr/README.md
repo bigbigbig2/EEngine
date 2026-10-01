@@ -36,3 +36,4 @@ ADR 只保存跨模块、长期且仍有解释价值的决策。它不承担规�
 - [0018 · Web `large.glb` Virtual Geometry 生产与分片运行时（Proposed）](./0018-web-100m-virtual-geometry.md)
 - [0019 · EEngine Next 原渐进路线（已取代）](./0019-eengine-next-renderer.md)
 - [0020 · EEngine Next 单路径破坏式重建](./0020-clean-cut-renderer.md) — 当前目标；不代表已经切换或验证
+- [0021 · SurfaceWork Runtime V3](./0021-surface-work-runtime-v3.md) — 用户指定的 Surface/Appearance/Lighting 唯一目标；不代表实现或验收完成

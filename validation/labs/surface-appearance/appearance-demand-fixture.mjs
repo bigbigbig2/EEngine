@@ -7,6 +7,9 @@ import { AppearanceGraphBuilder } from '../../../OEngine/.test-dist/material/App
 import { compileAppearanceGraph } from '../../../OEngine/.test-dist/material/AppearanceGraphCompiler.js';
 import { StandardShadeMaterial } from '../../../OEngine/.test-dist/material/StandardShadeMaterial.js';
 import { APPEARANCE_FIELD_COUNT } from '../../../OEngine/.test-dist/gpu/GpuAppearanceCacheAbi.js';
+import { FrameGeometryArena } from '../../../OEngine/.test-dist/render/FrameGeometryArena.js';
+import { WinnerPrimitiveInterpolation } from '../../../OEngine/.test-dist/render/surface/WinnerPrimitiveInterpolation.js';
+import { GPU_FRAME_ATTRIBUTE_STRIDE, GPU_FRAME_ATTRIBUTE_VECTORS } from '../../../OEngine/.test-dist/gpu/GpuFrameGeometryAttributesAbi.js';
 
 function check(condition, message) { if (!condition) throw new Error(message); }
 function event() {
@@ -18,7 +21,7 @@ export async function runAppearanceDemandFixture(device) {
   const width = 515, height = 515, pixels = width * height;
   const resources = [], registry = new AppearanceProgramRegistry(device);
   const cache = new GpuAppearanceCache(device, undefined, { pages: 1, maxDemandTasks: 1024, maxBytes: 65536, maxAge: 120 });
-  let publication;
+  let publication, winnerOwner, arenaOwner;
   function makeBuffer(size, usage, label) {
     const buffer = device.createBuffer({ size, usage, label }); resources.push(buffer); return buffer;
   }
@@ -54,7 +57,7 @@ export async function runAppearanceDemandFixture(device) {
     const upload = command('Appearance diagnostic publication');
     publication = new GpuAppearancePublication(device, registry, colors.map((color, slot) => source(slot, color)),
       upload, new Map(), new Map(), undefined, undefined, cache);
-    await Promise.all([cache.ready, publication.ready]); await upload.finish();
+    await publication.ready; await upload.finish();
     // Ensure this fixture really crosses the production bounded task pool.
     const taskBuffer = publication.demandCounters;
     const work = makeBuffer(80, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, 'Appearance diagnostic meshlet work');
@@ -62,6 +65,28 @@ export async function runAppearanceDemandFixture(device) {
       0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1]));
     const visibility = device.createTexture({ size: [width, height], format: 'r32uint',
       usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST }); resources.push(visibility);
+    const visibilityView = visibility.createView();
+    const metadata = makeBuffer(4, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, 'Geometry source prefix');
+    arenaOwner = new FrameGeometryArena(device);
+    const arena = arenaOwner.prepare(metadata, 4, { workCapacity: 2, vertexCapacity: 6, triangleCapacity: 2,
+      dictionaryCapacity: 1, coefficientCapacity: 1, probeLimit: 1, maxBytes: 65536 });
+    device.queue.writeBuffer(arena.buffer, arena.sourceDirectory.offset, new Uint32Array([
+      2, 1, 6, 2, 0, 0, 3, 1, 3, 1, 3, 1
+    ]));
+    device.queue.writeBuffer(arena.buffer, arena.clips.offset, new Float32Array([
+      -1, 1, 0.5, 1, 3, 1, 0.5, 1, -1, -3, 0.5, 1,
+      -1, 1, 0.5, 1, 3, 1, 0.5, 1, -1, -3, 0.5, 1
+    ]));
+    device.queue.writeBuffer(arena.buffer, arena.triangles.offset, new Uint32Array([0x020100, 0x020100]));
+    const attributes = makeBuffer(6 * GPU_FRAME_ATTRIBUTE_STRIDE, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, 'Shared frame attributes');
+    const attributeValues = new Float32Array(6 * GPU_FRAME_ATTRIBUTE_VECTORS * 4);
+    for (let vertex = 0; vertex < 6; vertex++) attributeValues.set([1, 1, 1, 1], vertex * GPU_FRAME_ATTRIBUTE_VECTORS * 4 + 12);
+    device.queue.writeBuffer(attributes, 0, attributeValues);
+    winnerOwner = await WinnerPrimitiveInterpolation.create(device);
+    const winner = winnerOwner.prepare({ visibility: visibilityView, width, height,
+      geometry: { directory: arena.sourceDirectory, clips: arena.clips, triangles: arena.triangles },
+      storage: { dictionary: arena.dictionary, coefficients: arena.coefficients, work: arena.work, control: arena.control },
+      budget: { dictionaryCapacity: 1, coefficientCapacity: 1, probeLimit: 1, maxBytes: 65536 } });
     const fields = device.createTexture({ size: [width, height, APPEARANCE_FIELD_COUNT], format: 'rgba16float',
       usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC }); resources.push(fields);
     const rowBytes = Math.ceil(width * 8 / 256) * 256;
@@ -79,7 +104,10 @@ export async function runAppearanceDemandFixture(device) {
         kind === 'mixed-background-invalid' && pixel % 11 === 0 ? 0xfffffffe : pixel % 2;
       device.queue.writeTexture({ texture: visibility }, keys, { bytesPerRow: width * 4 }, [width, height]);
       const frame = command(`Appearance diagnostic ${kind}`);
-      publication.encodeDemand(frame, { visibility: visibility.createView(), meshletWork: work,
+      winnerOwner.encode(frame.gpu_encoder, winner);
+      publication.encodeDemand(frame, { visibility: visibilityView, meshletWork: work,
+        geometry: arena.buffer, attributes, frameHeaderWord: arena.layout.header.offset / 4,
+        frameDirectoryWord: arena.sourceDirectory.offset / 4,
         textureBanks: [], width, height, fields: view, frame: cases.length + 1 });
       frame.gpu_encoder.copyBufferToBuffer(taskBuffer, 0, counts, 0, 16);
       for (const [index, layer] of [0, 1, 6].entries()) frame.gpu_encoder.copyTextureToBuffer(
@@ -105,7 +133,7 @@ export async function runAppearanceDemandFixture(device) {
     }
     return { passed: true, cases, publicationBytes: publication.allocatedBytes };
   } finally {
-    publication?.destroy(); registry.destroy(); cache.destroy();
+    publication?.destroy(); winnerOwner?.destroy(); arenaOwner?.destroy(); registry.destroy(); cache.destroy();
     for (const resource of resources) resource.destroy();
   }
 }

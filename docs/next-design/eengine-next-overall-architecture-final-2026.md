@@ -5,7 +5,7 @@
 > 目标：极致性能、现代 3A 画质、WebGPU-first、GPU-driven、长期可演进  
 > 文档职责：只冻结未来不希望频繁推翻的**整体架构、核心事实层、模块边界、执行原则与性能约束**。VSM、SSSR、GI、VT、Surface Closure、Transparency、Volumetric 等模块内部的数据格式和算法细节，在对应模块进入开发阶段后继续设计。  
 > 重要说明：本设计不把当前已有文档当作既定约束。现有源码只作为工程事实与已有资产，用来判断哪些路径已经证明值得保留，哪些结构应尽早重构。
-> Surface 执行覆盖（2026-10-01）：当前采用[缓存 Surface 最终设计](./surface-cached-shading-final-2026.md)与[直接重建执行计划](../next-execution/surface-cached-shading-rebuild-2026.md)。按用户要求先删旧路径、允许中间未编译/缺图，连续完成最终目标后统一验证；本页旧 Surface v2 和逐阶段迁移描述不再约束这个范围。
+> 当前权威方向（2026-10-02）：Surface 以用户指定的[第三版最终设计](./eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)为唯一目标，实施见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。本页保留整体 owner 和其他模块边界；第三版原文优先于本页的 Surface 摘要。原文纳入不表示实现、adoption 或性能验收通过。
 
 ---
 
@@ -36,87 +36,33 @@ EEngine Next 不应该被定义成“WebGPU 版传统 Deferred Renderer”，也
 整体主架构建议稳定为下面这张图：
 
 ```text
-                               CPU / Publication Plane
+CPU / Publication
+  Asset / Scene Edit → GPU Scene + Material / Texture / Geometry Publication
+                         + Capability / Physical Profiles
+                                      ↓
+                                Frame Program
+                                      ↓
+GPU / Frame
+  Hierarchy / MeshletWork → Frame Geometry → Hardware Visibility / Depth
+                                      ↓
+                        PixelFacts + SurfaceAddress
+                                      ↓
+               SurfaceWork: implicit / uniform / mixed
+                                      ↓
+                   唯一 SurfaceGeometryRecord
+                                      ↓
+       Appearance lookup → miss-only evaluate / cache publish
+                                      ↓
+       diffuse / specular / coat / IBL packets + history
+             ↑ AO / cluster / VSM / Environment facts
+                                      ↓
+                    廉价 reconstruct → Opaque HDR
+                                      ↓
+      后续 Reflection / GI → Transparency / Media
+                                      ↓
+      TemporalFacts / FSR3 → Radiometry / Bloom / Present
 
-    Asset Cook / Scene Edit
-             │
-             ▼
-    Scene & Asset Publication ───────────────┐
-             │                               │
-             ▼                               ▼
-       GPU Scene Revision             Capability Profile
-   Geometry / Material /             Render Intent / Quality
-   Texture / Light Tables                    │
-             │                               │
-             └──────────────┬────────────────┘
-                            ▼
-                     Frame Program
-                semantic demand + topology
-                            │
-────────────────────────────┼──────────────────────────────────────── GPU / Frame Plane
-                            ▼
-                         GPU Scene
-                            │
-              ┌─────────────┼─────────────┐
-              │             │             │
-       Geometry Work   Shadow System   World Query
-              │             │             │
-       Raster Backend       │             │
-        ┌─────┴─────┐       │             │
-        │           │       │             │
-    HW Raster   SW Micro    │             │
-    baseline    optional    │             │
-        └─────┬─────┘       │             │
-              ▼             │             │
-       Visibility Facts     │             │
-              │             │             │
-              ▼             │             │
-     Surface Work Analysis  │             │
-              │             │             │
-      ┌───────┼────────┐    │             │
-      │       │        │    │             │
-    Dense   Binned  Sampling Policy       │
-      │       │     Full / Coarse /       │
-      │       │     Stochastic / Selective│
-      └───────┴────────┘    │             │
-              │             │             │
-              ▼             │             │
-       Surface Evaluation   │             │
-              │             │             │
-       ┌──────┴─────────┐   │             │
-       │                │   │             │
-  Fused Work      Requested Surface Fields│
-       │                │   │             │
-       └────────┬───────┘   │             │
-                ▼           ▼             │
-          Direct Lighting ← Shadow Visibility
-                │
-                ▼
-          Indirect Diffuse  ←────────── Radiance Field
-                │
-                ▼
-       Pre-Reflection Opaque HDR
-                │
-       Reflection Source Pyramid
-                │
-                ▼
-          Specular Indirect
-        ┌───────┼──────────────┐
-        │       │              │
-   Screen Hit  World Hit   Environment Fallback
-        │       │              │
-        └───────┴──────────────┘
-                │
-                ▼
-          Final Opaque HDR
-                │
-      Transparency / Media
-                │
-                ▼
-        Temporal Reconstruction
-                │
-                ▼
-     Exposure / Tone / Grade / HDR
+FrameCoordinator 拥有唯一 frame submit；FrameGraph 管理所有真实资源边。
 ```
 
 旁边还有三套不属于某一个效果、而是横跨整个 Renderer 的基础设施：
@@ -248,160 +194,60 @@ Reflection 可以先 Screen Query，失败后 World Query，再从 Radiance Fiel
 
 ---
 
-## 3. Surface / Material / Lighting：整体架构最关键的重新设计
+## 3. Surface / Material / Lighting：第三版 SurfaceWork Runtime
 
-本节冻结整体方向；选定的 Standard/Coated 来源、材质/纹理/光照合同、Dense/异常队列与 WebGPU 物理方案见[Module B 独立设计](./surface-material-lighting-v2.md)，逐步单链切换见[Module B 执行文档](../next-execution/surface-material-lighting-v2.md)。两份模块文档在本节框架内展开，不把当前过渡源码当作最终限制。
+本节服从用户指定的[第三版最终设计](./eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，具体顺序见[SurfaceWork V3 执行计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。当前第三版继续推进稳定材质地址、静态产品、Appearance cache、共享几何和分信号 lighting；不回退 9/30 sample-driven，也不另立普通融合 PBR 优先的生产目标。
 
-Visibility 之后是 EEngine 下一阶段最值得重做的地方。当前“全屏 classify → scatter → 最多 64 material/texture-set class → 每 class compute dispatch”的实现解决了第一版 WebGPU material binding 问题，但长期会把逻辑材质、纹理 residency 与 GPU execution class 绑死。新的 Surface 架构必须从根上把这几个维度拆开。
-
-### Surface execution 不是 Dense / Binned / Adaptive 三选一
-
-新的 Surface Work 应被设计成三个正交维度：
+### 工作单位与三种身份
 
 ```text
-                    Visibility Facts
-                           │
-                           ▼
-                 Surface Work Analysis
-                           │
-       ┌───────────────────┼───────────────────┐
-       │                   │                   │
- Work Scheduling      Sampling Policy      Execution Class
-       │                   │                   │
- Dense / Binned      Full / Coarse /      Standard PBR
-                    Stochastic / Selective Expensive PBR
-                                         Hair / Special...
-       └───────────────────┼───────────────────┘
-                           ▼
-                    Surface Evaluation
+VisibilityKey / Depth / MeshletWork
+  → PixelFacts + SurfaceAddress
+  → SurfaceWorkBuilder
+      implicit tile：不写逐像素 task
+      uniform tile：只写 tile descriptor
+      mixed tile：有限 sample / mask / exception
+  → 唯一 SurfaceGeometryRecord
+  → Appearance cache lookup → miss-only compact/evaluate/publish
+  → diffuse / specular / coat / IBL packets + temporal reuse
+  → 廉价 full-resolution reconstruct → HDR
 ```
 
-`Dense / Binned` 是工作调度方式；`Full / Coarse / Stochastic` 是采样策略；`Execution Class` 是 closure/成本/资源复杂度。它们不能再被写成三个互斥模式。
+Winner identity 标识当帧获胜几何，Sharing identity 决定某个 signal 的共享域，Cache identity 标识字段版本和真实输入 footprint；三者不互相替代。frame-local VisibilityKey 不作跨帧 cache key。纯 full-rate tile 不生成 64 条任务，uniform tile 不创建全 pixel-to-sample 映射，mixed tile 只写真实需求。
 
-Frame Program 不应该说“这一帧选 Binned Surface”。它只应该准备有限的物理 lane，例如：
+SurfaceWorkHeader、TileDescriptor、SampleRecord、ExceptionRecord 和 CounterBlock 使用固定前缀/分区，不建万能大结构或单一全球物理队列。所有 work、mask、packet、indirect 都有 producer、consumer、容量、互斥写域和 bounded overflow；本帧数量由 GPU 决定。
 
-```text
-Dense Fast Lane
-Expensive Surface Lane
-Special Closure Lane
-Coarse Sampling Lane
-```
+### 唯一 GeometryRecord 与前置 cache lookup
 
-GPU 根据当前 Visibility、材质复杂度、局部连续性和预算把 tile/sample 送进互斥的有界 work queue，再通过 indirect 执行。**简单区域默认不为分类付费，复杂区域才进入 compact lane。** 这是新架构最重要的性能原则之一。
+SurfaceGeometryPass 是唯一 Surface 几何恢复 producer，发布 position、geometric normal、shading normal basis、tangent/sign、UV/gradient、view/depth/plane、winner/sharing identity 和 geometry signature。FrameGeometryArena/Vertices/WinnerPrimitiveInterpolation 保留底层数学和共享资源，Appearance 与 SparseLighting 不再分别恢复三顶点、重心、normal/tangent/UV。
 
-也就是说，不再采用：
+cache lookup 必须位于 material miss compaction 前，命中项只写 field address/consume reference，不进入 geometry/material heavy worker；缺失项才进入 MaterialMissQueue、消费 GeometryRecord、求值并发布。lookup 地址/footprint 与重几何输入的依赖按原文细化，不以全像素 geometry inputs 或第二个 producer 消除实现难题。
 
-```text
-full-screen classify
-→ everyone scatter
-→ everybody waits for bin dispatch
-```
+完整 key 至少包含 material slot、field identity/version、residency generation、sampler/wrap/filter、UV set/transform、geometry/product domain、footprint、dynamic version 和必要 variation revision。Hash 只索引，完整比较才证明身份。
 
-而倾向：
+### 现有 Material/Appearance 编译与缓存分类
 
-```text
-cheap + coherent
-→ Dense Fast Lane
+保留 AppearanceGraphCompiler、GpuMaterialStore、TextureResidency、AppearanceProgramRegistry、AppearanceStaticResidency 和 GpuRenderWorld 生命周期，扩展现有 compiler，不建立第二套材质系统。
 
-expensive / divergent / special
-→ GPU compact → Binned Lane
+编译结果明确 constant、static product、stable local cache、geometry/view/nonlocal dependency、signal rate、full-rate requirement、texture variation requirement 和是否可以与 lighting 融合。constant/static product、stable local field cache、本帧 dynamic/view/nonlocal signal/history 分开；不为了命中率把第三类放入长期材质 cache。
 
-stable + reconstructable
-→ lower-frequency Sample Lane
-```
+Geometry representation、coverage/composition domain 与 Surface closure 是不同轴；Unlit/Standard/Coated 的完整数学和 authored base/normal/ORM/emissive/specular/IOR/coat 语义保留。纹理采样合并必须匹配真实 source/version/UV/transform/sampler/gradient/decode。程序身份由有限 shader/layout/capability/profile 决定，不按材质实例或每种纹理组合建立 PSO。
 
-Queue 数量必须固定且小，不能因为有很多 material 就创建很多 queue。WebGPU 可以用 `dispatchWorkgroupsIndirect` 驱动实际计数，但物理 dispatch slot 应保持有限和可 warmup。
+### 分信号 rate、packets 和 IBL
 
-### Material authoring 与 GPU execution class 必须分离
+按原文 §4.5 分别决定 BaseColor、Roughness、AO/ORM、NormalMap、Diffuse、Specular/IBL、Coat、Emissive 的 rate 和局部 full-rate exception。高频法线不连带强制低频颜色/漫反射全率；低 roughness、镜面/coat 风险不连带强制全部 signal 全率。轮廓、接缝、alpha 和无法证明的 footprint 按最终例外协议完整覆盖。
 
-Material 系统的长期形态应从“纹理组合 program”升级为 Surface Closure Compile：
+DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 消费统一 GeometryRecord、material field address、cluster/light/shadow/environment revision 和 history reference。Direct 共享必须兼容 tile/cluster/normal/shadow 条件，不跨 cluster 使用 light list，light/shadow 边界 full-rate。
 
-```text
-Material Authoring Graph / Standard Material
-                 │
-                 ▼
-        Surface Closure Compile
-                 │
-                 ▼
- Closure Family + Feature Mask + Params + Texture Handles
-                 │
-                 ▼
-            GPU Publication
-```
+IBL 不再完整嵌入每个有效像素的 PBR kernel：DFG 只对需要的 specular packet 求值，diffuse irradiance 按 tile/normal group 复用，prefiltered environment 按 roughness bucket/reflection direction 组织，base/specular/coat 不重复读相同环境信息。Environment revision 只失效相关 signal；AO 独立生产并只拒绝相关 signal，不清空所有材质 cache。
 
-大多数 glTF/Standard PBR 应落入少数热路径 family，feature mask 只控制 base/normal/ORM/emissive 等可选采样，不让每种纹理组合都变成新 PSO。只有会显著改变 BSDF/closure 结构、register pressure 或 composition domain 的能力才升级 execution class，例如 Standard PBR、Coated/Anisotropic、Subsurface/Skin、Hair、Generic Fallback。
+### Temporal、重建与真实产品
 
-UE5 Substrate 值得学习的是“authoring 表达 → closure → 根据复杂度和平台预算选择 lighting execution”，而不是复制它的 Slab/GBuffer 存储。EEngine 的目标是把 closure complexity 映射到有限 GPU lanes，并允许未来按平台预算简化 closure。
+TemporalFactsPass 是唯一 motion/identity/validity/reactive 基础 producer；Surface 不另写 motion。history 兼容条件完整沿用原文的 identity、field version、geometry signature、residency、environment/light/VSM revision、depth/plane/normal/view、reactive 和 age。
 
-还必须把三个容易混淆的轴彻底分开：
+reconstruct 只选择 packet/history result、依据 mask 合成 diffuse/specular/coat/emissive，应用 AO/energy/pre-exposure 并写 HDR/reactive。不得重新解码 Geometry Product、执行完整 Appearance graph、读取 normal/ORM 重做完整环境 BRDF。
 
-```text
-Geometry Representation
-  Triangle / Strand / Particle / Volume / ...
-
-Coverage / Composition Domain
-  Opaque / Masked / Transparent / Refractive / Stochastic / ...
-
-Surface Closure
-  Unlit / Standard PBR / Coat / Subsurface / Transmission / Hair BSDF / ...
-```
-
-Hair 不是简单“一个 Surface family”；它可能是 Strand representation + Hair coverage/composition + Hair closure。Transmission 也不是简单跟 Opaque PBR 并列，它会改变 composition path。这样未来透明、毛发、植被不会再次把材质系统和 raster path 搅在一起。
-
-### Fuse 与 Materialize 必须允许同帧并存，并且按字段决定
-
-上一版架构最需要修正的地方，是把 Fused Path 与 Materialized Surface 画成两个替代路径。真正合理的是：**一个 Surface Evaluation kernel 可以一边计算并融合某些 lighting，一边顺手物化被消费者要求的少量字段。**
-
-因此逻辑上不再定义“Surface Cache on/off”，而定义 `Surface Field Demand`：
-
-```text
-GTAO / XeGTAO
-  needs Depth + view-space Normal（可由 XeGTAO 从 Depth 自产）
-
-SSSR
-  needs Normal + Roughness + ReflectionSource
-
-Temporal Upscaler
-  needs Motion + Reactive
-
-GI
-  may need WorldPosition proxy / Normal / Diffuse response
-```
-
-然后 Frame Program 做 demand closure，Surface Compiler 决定：
-
-```text
-register-only values
-fused lighting values
-materialized sidecar fields
-```
-
-例如：
-
-```text
-Surface Evaluate
-     │
-     ├─ BSDF/closure in registers
-     ├─ Direct Lighting fused → Base Radiance
-     ├─ Normal → compact sidecar
-     └─ Roughness → compact sidecar
-```
-
-这里要防止另一个极端：逻辑 field demand 很细，并不意味着每个 field 都是一张 texture。必须存在一层：
-
-```text
-Semantic Field Demand
-          ↓
-Finite Physical Layout Selection
-```
-
-例如 `Normal + Roughness` 可以选择一个紧凑 layout；`Normal + Roughness + F0 + DiffuseColor` 可能选择另一个更完整 layout。物理 layout 数量必须少且可 benchmark，避免 feature 组合导致 PSO/layout 组合爆炸。
-
-所以新的 Surface Working Set 更准确的定义是：
-
-> **Demand-Materialized Surface Fields**：只物化当前消费者真正复用的语义字段，并映射到有限物理 layout；其余结果可以在寄存器内直接参与 fused execution。
-
-这既不是传统 GBuffer，也不是“永远从 Visibility 重算所有材质”。
+FrameGraph 必须显式看到 SurfaceWork、GeometryRecord、cache request/publish、packets、primary radiance、history/reactive 和 final HDR，不能把内部真实阶段藏在一个 Appearance 黑盒回调里。Logical Product 不等于一张全屏附件；SSSR/GI 实际需要的字段才选择有限表示，并沿用此 SurfaceWork/cache/signal 主链，不引入另一条全率旧链。
 
 ### Texture Architecture：Logical Handle 稳定，物理采样方式可演进
 
@@ -658,9 +504,9 @@ Shared Temporal Facts
 
 而不是 Renderer 算一个统一 `HistoryConfidence` 再让所有人消费。
 
-Motion 的 owner 也必须明确为跨 Geometry/Surface/Temporal 的事实，而不是“Surface shader 顺便写一张 motion texture”。Rigid transform 可以通过 current/previous transform + reconstructed local position 得到；skinned/deformed representation 需要提供 previous mapping；sky/background 有独立规则。Motion 必须与 dynamic resolution / jitter convention 有明确坐标合同，并且一旦某 representation 无法给出可靠 motion，就通过 local confidence/reactive 标注，而不是伪造零 motion。
+TemporalFactsPass 是唯一 motion、identity、validity 和 reactive 基础 producer，Surface 不发布第二套 motion。Rigid opaque 使用 depth/current world position、previous transform/camera 和统一 jitter 约定；skinned/deformed representation 需要可靠 previous mapping，sky/background 有独立规则。无法提供可靠 motion 时标注 invalid/reactive，不伪造可信零 motion。
 
-FSR3 只是 Temporal Reconstruction backend。未来可以存在 TAA、自研 upscaler 或其它 temporal backend，但它们不能重新定义 Motion/Reactive/Disocclusion 语义。当前工程里 production Surface 尚未真正发布 motion dependency，reactive/transparency mask 仍走默认，这恰好说明新 Temporal Contract 应优先闭环。
+FSR3 只是 Temporal Reconstruction backend。未来可以存在 TAA、自研 upscaler 或其它 temporal backend，但它们不能重新定义 Motion/Reactive/Disocclusion 语义。当前基础 motion/identity 已由 TemporalFacts 接入，第三版最终 signal reactive/history 及透明 composition 仍需按真实依赖完成；不能让 Surface 重新拥有基础 motion。
 
 ### Presentation 是物理渲染主链，不是最后补几个 postprocess
 
@@ -728,94 +574,40 @@ WebGPU FrameGraph 也要服从 API 现实：不模仿 Vulkan 做应用层无法�
 
 ---
 
-## 8. 性能与质量策略：极致性能不能靠单点技巧，而要靠“工作预算 + 可重建性”
+## 8. 性能与质量：以第三版原文的工作量和完整成本验收
 
-EEngine 的性能目标不能只定义成“GPU-driven”。真正需要的是每种昂贵 work 都可以量化、限额、降级并观测。
+首要目标是 GTX 1650 Ti、1080p 复杂场景。可见性、depth、必要 motion/identity 以及输出仍有全分辨率成本；最终重 Surface work 按原文转为共享 GeometryRecord、material cache miss 和各 signal work，不能只改 pass 名称或把等量像素写进另一套队列。
 
-建议所有高级 domain 都有独立 budget：
+原文 §8.1 的 24 项 counters 包括 visible pixels、tile 类型、geometry records、material hit/miss/evaluation、diffuse/specular/coat/IBL packets、exceptions、history、IBL/direct evaluation、AO/VSM rejects、overflow、bytes 和 dispatch。验收同时看分类/compact、cache、几何、求值、packet、重建的全部 GPU 成本、内存、CPU 成本和连续画质；计数下降不代替净性能。
 
-```text
-Geometry Detail Budget
-Surface Expensive-Closure Budget
-Coarse Shading Budget
-VSM Dirty-Page / Caster Budget
-Reflection Ray Budget
-GI Update Budget
-Volumetric Step Budget
-Temporal History Budget / Quality
-```
+按 §8.2 在远/近景、静止/运动、低/高频 normal/ORM、多材质、强 IBL、Direct+VSM、AO on/off、Product LOD/page miss、空场景/单 Product/device recovery 下，用独立 checkout 比较 `89f0a94`、`15f12f7b`、`e7296be9` 与完成后的固定 revision。固定分辨率、camera path、adapter、browser、features、warm-up 和热状态，记录 P50/P95；不得把温控降频或跨设备数据当代码收益。
 
-预算变化读取延迟 telemetry 和 P50/P95 趋势，不能在当前帧制造 GPU→CPU→GPU 同步。正式 benchmark 反而必须关掉自适应，固定 camera、分辨率、capability、feature profile 和热状态，避免“架构更快”其实只是系统偷偷降质量。
+成功条件和完成定义完整采用原文 §8.3、§11：真实少做重工作、稳定 hit、IBL 不等于全有效像素、full-rate 为可观测局部例外、无重复几何/完整 PBR 重建，并有正确画质/覆盖/历史/生命周期。尚未完成同条件比较前不承诺固定 FPS 或百分比，不沿用旧 Surface 计划的 50%/30% 数字。
 
-Surface Work Builder 的成功标准不应该是“分类率越高越好”，而是：分类/queue/scatter 的成本小于节省的昂贵 shading；简单 dense 区域不因为架构统一而多付代价。新的 Surface v2 必须同时测：
-
-```text
-classification cost
-queue reservation cost
-indirect dispatch cost
-material evaluation cost
-surface sidecar bandwidth
-reconstruction/temporal cost
-register pressure / occupancy
-```
-
-Fuse/Materialize 也不能靠理念判断。下面是需要由真实消费者和成本选择的两种物理形态，而非要求任何效果先实现两条空链：
-
-```text
-A: Visibility → Fused Surface + Direct Lighting → Radiance
-B: Visibility → Surface Fields → Lighting → Radiance
-```
-
-XeGTAO 本身可从 depth 生成法线，先闭合 `Depth → XeGTAO → fused Surface 间接光`，不以它为由写无人消费的材质法线 sidecar。SSSR/GI 真正跨 pass 要求 normal/roughness 等字段时，再比较重复材质求值与 Surface write/read 带宽，并允许同帧有限 fused/materialized 混合。最终 Frame Program 策略可先由固定 rule 驱动，积累 telemetry 后再升级成 profile-driven decision；不要第一版造复杂自动 cost model。详见[Module C 设计](./surface-fields-xegtao.md)。
-
-3A 画质同样必须被系统性约束。所有低频/temporal 技术都必须在 identity/disocclusion/change facts 下工作，不允许为了省性能简单 blur 或跨边界复用。所有 indirect/reflection source 必须有能量归属，避免 double counting。所有 quality downgrade 必须是可解释的 domain budget，而不是在 shader 内散落 magic threshold。
+AAA 不变量采用原文 §9。轮廓、normal/ORM、镜面/coat、UV/gradient、near clip/退化、镜像/非均匀缩放、颜色/能量、VSM/AO/environment、pre-exposure/jitter/motion/reactive 与 disocclusion/alpha coverage 都不能为减少样本而丢失。透明和多层覆盖保持独立 composition domain。
 
 ---
 
-## 9. 从当前工程迁移：不重写 Geometry，先把后半段边界改对
+## 9. 当前执行方向与后续模块
 
-> 执行口径（2026-10-01）：下文阶段描述是此前总体迁移背景。当前 Surface 已被[直接重建执行计划](../next-execution/surface-cached-shading-rebuild-2026.md)覆盖：删除旧路径在先，不等待新 consumer；允许实施中未编译、缺图，不逐阶段闭合或测试；最终缓存、稀疏照明、重建和真实生产接线全部实现后统一验收。旧版本比较只在最终使用固定 revision 的独立 checkout/宿主，不保留旧/新生产桥。其他模块的边界仍见[架构层执行计划](../next-execution/eengine-next-architecture-layer-plan-2026.md)。
+2026-10-02 采用的第三版原文是当前 Surface 唯一目标。实现按[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)的 Phase 0–7 连续推进：固定基线配置 → 删除被替代执行模型 → 统一 SurfaceWork/GeometryRecord → miss-only Appearance → signal packets → 廉价 reconstruct → 全链/生命周期 → 集中验证和残留清理。
 
-这次架构重定不应该表现为创建一个全新的 EEngine-v3。正确方式是保持当前 Geometry/Visibility 作为稳定生产输入，在它后面逐步替换 Frame/Surface/Temporal；同一新架构内的物理方案在真实消费者连通后比较，正式性能 benchmark 留待最终集成。
+旧 SurfaceMaterialPass/Probe/sample owner 在基线已删除；当前 AppearanceCachePass/SparseLightingPass 接线和组件基础不等于上述目标完成。开发中允许未编译/缺图，不为中间运行或旧测试保留 adapter/旧 consumer，不按组件设编译、测试、GPU 或证据门槛。完整目标及真实接线完成后统一检查，失败在新链返工。算法实施前仍固定完整来源和映射，adoption 与实现/验收分别记录。
 
-第一阶段只建立最顶层 ABI：`Frame Program`、`Visibility Fact`、`Temporal Facts`、`Surface Field Demand`。RendererCore 可以暂时继续调用当前 Pass，但 topology 不再由固定手写顺序定义，而是由一个很薄的 Frame Program Builder 产生。这个阶段不扩新效果，目标是把职责边界切开。
+RendererCore、FrameCoordinator、FrameGraph、GPU Scene/VG/Visibility、资源 owner、正确数学、Environment/VSM/AO/Temporal/FSR3/显示保留。新 Surface 完成后依次推进 SSSR、Hybrid GI、Virtual Resource/VT、Transparency/Media；它们通过真实产品和 signal 依赖接入，不另设 Renderer、不恢复退休效果、不制造本帧 CPU work 控制。
 
-第二阶段实现 Surface v2，只支持当前 Standard PBR。先证明几个关键点：简单区域可以走 Dense Fast Lane；昂贵/分化区域可以 GPU compact 到有限 Binned Lane；material execution class 不再绑定 material ID/texture binding set；pipeline/bind-group warmup 前移；Frame hot path 不再按 active material class 动态创建大量对象。
+### 冻结的方向
 
-第三阶段实现 `Fuse + Demand-Materialized Surface Fields` 的真实需求边界，并以 XeGTAO 完整 `depth → AO → indirect Lighting` 作为首个跨 owner consumer。XeGTAO 不强制材质法线 sidecar；分离式 Surface Fields→Lighting 的物理拓扑留到 SSSR/GI 有真实复用后比较。字段是否物化取决于重复 reconstruction/texture fetch 与 sidecar 带宽，而非先为 A/B 对比造空路径。这个阶段还不需要 SSSR/GI 全部上线；细节见[Module C 设计](./surface-fields-xegtao.md)。
-
-第四阶段补齐 Temporal/Radiometry/Presentation：authoritative motion、local change、reactive/transparency、pre-exposure、auto exposure、tone mapping、color grade、SDR/HDR profile。FSR3 作为一个 backend 重新接入新的 facts，而不是继续拥有自己独立的数据定义。
-
-第五阶段用 VSM 验证整个架构是否真正成立。VSM 是第一项同时跨 GPU Scene、Virtual Resource、Geometry Work、GPU-produced residency、Lighting 的大模块。如果 VSM 接入仍然需要 RendererCore 新增大量专用 if、资源旁路和 current-frame CPU 调度，说明整体边界还没设计正确。
-
-之后 SSSR/GI/VT/Transparency 都遵守同一规则：先声明消费/生产哪些语义事实，再设计内部算法。不能因为 donor code 使用传统 GBuffer 就把 EEngine 改回固定 GBuffer；不能因为某个 GI donor 使用硬件 RT 就把 WebGPU 主链围绕 RT 假设重构。
-
-### 这份整体架构现在冻结的决策
-
-下面这些是最终建议作为整体设计基线的内容；如果未来要推翻其中一条，必须有真实 GPU benchmark、质量证据或 WebGPU capability 变化，而不是因为局部实现不方便。
-
-1. GPU Scene revision / stable logical handle 是所有渲染域的事实源，帧内不回 CPU Scene 做 draw scheduling。
-2. CPU 负责 capability、publication、Frame Program 和 command submit；GPU 决定本帧动态 workload。
-3. Geometry 允许多 representation、多 raster backend；长期统一点是 Visibility Facts + Temporal Facts，不是同一种 meshlet。
-4. HW visibility 是当前 production baseline；software micro-raster 是 capability specialization，不改变 Visibility ABI。
-5. Shadow Visibility 是跨 Geometry/Virtual Resource/Lighting 的一等系统，不是 Lighting 内部普通 provider。
-6. World Query 与 Radiance Field 是独立长期语义层；screen-space、software world-space、cache backend 可以组合。
-7. Surface execution 拆成 Work Scheduling、Sampling Policy、Execution Class 三个正交维度；Dense/Binned/Adaptive 不再是整帧三选一。
-8. 简单/coherent Surface 默认走 Dense Fast Lane，只有昂贵/divergent work 才支付分类和 compact 成本。
-9. Material Evaluation 与 Lighting 逻辑解耦、物理可融合；不强制固定 GBuffer，也不强制永远重复 compute reconstruction。
-10. Surface 中间结果按 Semantic Field Demand 物化，并映射到少量 finite physical layouts；Fuse 与 Materialize 同帧可以共存。
-11. Coverage/Composition、Geometry Representation、Surface Closure 是三个独立轴，避免 Hair/Transmission/Transparency 再次混成 material class。
-12. Material 分类以 Closure/Execution Cost/Resource Demand 为中心，不让 material ID 或 texture binding set 成为长期 shader class。
-13. Texture 使用稳定 logical handle；resident array、wide profile、VT、future bindless 都只是 physical sampling lowering。
-14. Lighting 顺序和能量归属固定：Direct → Indirect Diffuse → Pre-Reflection HDR → Specular Indirect → Final Opaque；SSR/World/Environment 是 specular indirect 的不同来源，不简单相加。
-15. Virtual Resource 共享控制面，但至少区分 Streamed Residency 与 GPU-Produced Residency；VG 的 CPU 延迟流送不能直接推广到 VSM。
-16. Temporal 共享 Motion/Identity/Local Change/Reactive/Disocclusion 等事实；HistoryConfidence 由每个 consumer 自己计算，不做全局粗暴 invalidation。
-17. Frame Program 决定 topology、semantic demand、available lanes 和 fuse/materialize；GPU Work 决定本帧实际数量；FrameGraph 只负责依赖、资源生命周期和编码。
-18. Persistent history/atlas generation 与 FrameGraph topology 分离，通过 handle late-bind，避免 graph-key 组合爆炸。
-19. 新 WebGPU 能力只产生有限 physical specialization，不允许 experimental capability 成为核心语义 ABI 的前提。
-20. 所有高级效果必须拥有独立 GPU budget、fallback 和 telemetry；正式 benchmark 与动态质量模式严格分离。
-
-这 20 条如果保持稳定，后续 VSM、SSSR、GI、VT、植被、透明、体积、毛发即使内部实现多次变化，也不应该再要求推翻 Renderer 主架构。
+1. 用户指定第三版原文优先于旧 Surface v2/Signal-Rate/缓存候选和此前聊天建议。
+2. CPU 决定能力/有限拓扑，GPU 决定本帧 work；只有一个 frame submit。
+3. Winner、Sharing、Cache identity 分开，SurfaceGeometryRecord 只有一个 producer。
+4. cache lookup 在 material miss compact 前，hit 绕过 geometry/material heavy worker。
+5. implicit/uniform/mixed work 只存实际必要描述、mask 和 sample。
+6. diffuse/specular/coat/IBL 独立 packets 与局部例外，AO/environment/VSM 按依赖失效。
+7. TemporalFacts 是唯一基础 owner，signal confidence/history 属于对应 consumer。
+8. reconstruct 是结果选择和合成，不再运行完整几何/材质/PBR。
+9. FrameGraph 能看到真实阶段；容量、写域、overflow、退役和限额有权威边界。
+10. 保留完整 AAA 数学，四版本固定条件集中比较，不宣称未测性能。
 
 ---
 
@@ -823,7 +615,7 @@ XeGTAO 本身可从 depth 生成法线，先闭合 `Depth → XeGTAO → fused S
 
 本设计不是复制单一引擎，而是组合不同系统里与 WebGPU/EEngine 匹配的思想：Nanite / nanite-webgpu / Bevy Virtual Geometry 用来研究 GPU hierarchy、meshlet work、hybrid raster 与 virtualized geometry；Microsoft Visibility Buffer 与早期 Decoupled Sampling/Lazy Shading 用来研究 Visibility 和 Shading sample 解耦；UE5 Substrate 用来研究 material closure 与复杂度驱动 execution；UE5 Virtual Shadow Maps 用来研究 receiver-driven demand、page cache 与 invalidation；AMD FidelityFX SSSR 与 Intel XeGTAO 分别适合作为 screen-space reflection/AO 的算法 donor；RTXGI/DDGI、RTXGI v2 的 radiance cache 思路以及 Activision GI 适合研究 world-space radiance representation；Granite 适合学习 RenderGraph 的 lifetime、transient、history、alias 思想；WebGPU/WGSL 规范与 Chrome WebGPU 更新则决定哪些能力是 baseline、哪些只能做 specialization。
 
-当前设计深度到此只冻结**整体 Renderer 架构**。下一层最应该单独深入的是 `Surface / Material / Lighting v2`，因为它决定 Work Lanes、Closure Compile、Field Demand、Fuse/Materialize、Texture Sampling Class 和 Lighting energy contract 如何真正落地。VSM 内部 page table、caster work、atlas raster、cache invalidation；SSSR 的 ray format、denoise；GI 的 probe/brick/cache；VT page layout；Surface physical packing；最终 tone mapper等，都不应在本文件提前拍板。
+本页冻结**整体 Renderer 架构**；当前 Surface 内部已由用户指定的第三版原文和 SurfaceWork V3 执行计划确定。后续细化须落实 work/GeometryRecord/cache/signal/history 的真实合同，不能重新打开旧 Surface v2 执行路线。VSM 内部 page table、caster work、atlas raster、cache invalidation；SSSR 的 ray format、denoise；GI 的 probe/brick/cache；VT page layout；Surface physical packing；最终 tone mapper等，都不应在本文件提前拍板。
 
 按照当前文档规则，整体架构只需要：
 
@@ -832,7 +624,7 @@ docs/next-design/eengine-next-overall-architecture-final-2026.md
 docs/next-execution/eengine-next-architecture-layer-plan-2026.md
 ```
 
-开始 Surface v2 和 VSM 时分别增加对应的 `next-design/` 与 `next-execution/` 模块文档。模块内部不再继续拆很多 Markdown，而是在一份设计文档中逐层深入。
+SurfaceWork V3 与 VSM 的设计和执行入口分别位于对应的 `next-design/` 与 `next-execution/` 文档。模块内部不再继续拆很多 Markdown，而是在一份设计文档中逐层深入。
 
 ### 主要参考资料
 

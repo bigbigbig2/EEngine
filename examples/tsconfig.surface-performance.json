@@ -1,0 +1,1 @@
+{"extends":"./tsconfig.json","include":["demos/14-integrated/next-renderer-showcase/**/*.ts","../validation/labs/surface-performance/main.ts"]}

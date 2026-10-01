@@ -1,5 +1,7 @@
 # Module C 执行：按需 Surface Fields 与 XeGTAO
 
+> 2026-10-02 方向说明：本文保留 XeGTAO 的已完成来源核对、实现记录和 AO owner 边界；Surface 的执行入口、工作组织和重建必须服从 [SurfaceWork V3](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 与 [V3 计划](./surface-work-runtime-v3-rebuild-2026.md)。旧 SurfaceMaterialPass/Dense/Binned 接口不再是当前目标入口。
+
 > 状态：2026-09-27 C0–C8 工程实施与模块集中检查完成；选定 High scalar 已进入唯一 FrameGraph 生产链。真实 GPU 数值消费与画质尚未核对，R05 保持 `not adopted`。设计依据见[Module C 设计](../next-design/surface-fields-xegtao.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，固定来源与逐阶段对照见[Next 来源账本 R05](../porting/next-renderer.md)。本文是连续编码路线，不是每一小步的许可/验证门禁。
 
 当前实施记录：C0 核对固定源、host 调度及 MIT 许可证；C1 登记 `indirect-visibility` 需求与 Surface 字段语义；C2/C3 实现 reverse-Z 常量、独立 view normal 与五级 weighted depth；C4 实现 64×64 Hilbert LUT、High/Medium scalar MainPass、raw AO 与 packed edges；C5 实现 XeGTAO 对称 edge、leak、四邻/四对角权重、`DenoiseBlurBeta`、非末遍 beta/5、末遍 1.5 恢复与 `max(1,DenoisePasses)`，再用单 writer GPU pass 跨行打包四像素/`u32`，尾字节填 255；C6 以 lit consumer 请求 High scalar，连通 `Visibility depth → preparation → Main → Denoise → pack → Surface`，最宽 Surface 为 16 sampled/16 storage，Dense、Binned、overflow 共用同帧 buffer；`min(materialAO, Xe scalar)` 仅进入 sky/IBL 间接项。C7 清除旧 GTAO/SSGI shader、公开配置/产品模式及无真实消费者的旧 AO debug，记录字段的空间、producer/consumer、过滤与失效、有限候选布局；源码确认粗频规划器只接受同键 Unlit 块，受光像素始终 full rate，AO 私有 scratch/最终 buffer 同帧，LUT/pipeline 随 device epoch 重建。C8 对照上游 point sampler 返工奇数尺寸 Main mip 定位：scratch 保持 16×16 padded reduction，采样 footprint 则按上游真实 mip 的 `max(1, floor(viewport/2^level))`；另运行 typecheck、正式 build、test 构建、15 个 Frame Program/Surface/frequency contract tests，reverse-Z/奇数尺寸 weighted mip 与 split schedule、High/Medium horizon、donor gather/denoise 与跨行 pack 的局部 CPU oracle；修正原有 Surface contract test 的过时五字段假设，并核对 16 sampled/16 storage。Directional/bent、独立 AO history 均未实现。Surface 整体 WGSL 需要 `unrestricted_pointer_parameters`，Renderer 初始化已预检；现用 Naga WASI 不支持该扩展。此前 headless Chrome/Edge 未取得 WebGPU adapter，C8 未跑真实 GPU 输出/消费、browser 或 benchmark；R05 因此仍为 `not adopted`。
@@ -14,7 +16,7 @@ Module C 结束时，唯一生产链必须存在：`VisibilityKey + reverse-Z de
 
 ## 1. 开工前读图：owner、入口与实际边
 
-先运行 `node tools/vibe.mjs context OEngine/src/render/surface/SurfaceMaterialPass.ts`、`context OEngine/src/render/program/FrameProgram.ts`，沿真实源码确认当前调用；不把旧 `RenderSettings`、`gtao.ts` 或生成状态当生产证据。
+先运行 `node tools/vibe.mjs context OEngine/src/render/surface`、`context OEngine/src/render/program/FrameProgram.ts`，沿真实源码确认当前调用；Surface 接线服从 SurfaceWork V3，不把旧 Surface 名称、`RenderSettings`、`gtao.ts` 或生成状态当生产证据。
 
 | Owner / 当前入口 | C 的动作 | 禁止的误读 |
 | --- | --- | --- |
@@ -110,7 +112,7 @@ C1–C7 可在同一工作分支连续推进。算法 WGSL/CPU oracle 可在实�
 
 ## 9. C6：Surface 绑定与能量消费
 
-**修改入口**：`SurfaceProducts.ts`、`SurfaceKernelBindingPlan.ts`、`SurfaceMaterialPass.ts`、`surface_binding_declarations.ts`、`surface_execution.ts`、`surface_material_kernel.ts`、现有 Filament-derived `specular_ambient_occlusion.ts`。
+**修改入口**：SurfaceWork V3 的 Work/GeometryRecord/cache/signal owners，以及现有 Filament-derived `specular_ambient_occlusion.ts`；旧 SurfaceMaterialPass/绑定入口仅作为历史基线。
 
 1. 增 `indirect-visibility` 语义角色，按 `AO off/scalar/directional` 编译有限 Surface layout。最宽 `sampledTextures=16` 不得变 17；buffer 后端增一个 read-only storage binding 后 `storageBuffers=16`，仍受设备 admission 检查。布局签名和 Program key 包含 AO 物理 profile，不含 AO 数据版本、frameIndex 或 material generation。Dense、每条 Binned、overflow fallback 都绑定同一当前帧 AO 产品；中性关闭档无 AO 绑定。
 2. 在 `sparse_direct` 内把 `direct diffuse/specular`、PhysicalSun、sky diffuse、env specular/base coat/coat lobe、emissive 作为可辨内部语义项。`V = min(glTF materialAO, Xe scalar)` 是首版**本地**合成政策，保留 glTF occlusion strength；它只进入未含遮蔽的间接项。direct、Sun 和 emissive 的算式不乘 V。Material unlit 直接返回 emissive，AO 无意义。

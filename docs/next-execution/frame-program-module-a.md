@@ -1,6 +1,8 @@
 # Module A 执行：Frame Program 与语义事实层
 
-> 状态：模块 A 已按当前生产链完成（2026-09-27）；本文件保留迁移路线供后续追溯。实现事实见[Frame Runtime](../domains/frame-runtime.md)，目标与取舍见[模块 A 设计](../next-design/frame-program-module-a.md)。workstream 的 `currentSlice` 已推进到 Surface v2；浏览器矩阵和性能验收仍在最终阶段。
+> 2026-10-02 方向说明：本文保留 Frame Program 的历史迁移背景。Surface 当前目标和执行不再由本文中的旧 SurfaceMaterialPass/ShadingWork 入口规定，改以 [第三版 SurfaceWork 设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 和 [V3 执行计划](./surface-work-runtime-v3-rebuild-2026.md) 为准。
+
+> 状态：模块 A 已按当前生产链完成（2026-09-27）；本文件保留迁移路线供后续追溯。实现事实见[Frame Runtime](../domains/frame-runtime.md)，Surface 目标与取舍见[第三版最终设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。workstream 的 `currentSlice` 已切换到 SurfaceWork V3；浏览器矩阵和性能验收仍在最终阶段。
 
 ## 0. 执行纪律与边界
 
@@ -10,7 +12,7 @@ Module A 是**本地语义编排与 WebGPU 资源生命周期集成**，不是�
 
 ### 完成边界
 
-本模块交付的是 `Renderer → Frame Program → FrameGraph → GPU consumer → Present` 的**真实单链**，以及正确的 topology/cache/late binding。它不交付 Surface v2、AO、VSM、SSSR、GI、VT、新 Temporal backend 或正式性能声明。FSR3 原算法阶段仍完整运行，但它的历史纹理必须变成执行期绑定；这只是 host 改写，不是重新选 FSR3 算法。
+本模块交付的是 `Renderer → Frame Program → FrameGraph → GPU consumer → Present` 的**真实单链**，以及正确的 topology/cache/late binding。它不交付 SurfaceWork V3、AO、VSM、SSSR、GI、VT、新 Temporal backend 或正式性能声明。FSR3 原算法阶段仍完整运行，但它的历史纹理必须变成执行期绑定；这只是 host 改写，不是重新选 FSR3 算法。
 
 ## 1. 开工前的源码定位与风险图
 
@@ -39,7 +41,7 @@ A0 源码资源边与来源核查
   → A4 FSR3/Environment 等物理资源的执行期绑定
   → A5 空场景、feature-off、abort、resize 与 recovery 收敛
   → A6 删除旧构图和死 key；大模块集中检查
-  → Surface v2
+  → SurfaceWork V3
 ```
 
 这不是七个需要逐批验收的小模块。A0–A6 在同一 currentSlice 连续推进，编译/单项测试只用于定位真实技术问题。跨步骤的桥接必须短暂且不可作为第二条可运行生产 Renderer；每次新 owner 的 Graph 输出被当前 downstream 消费后，立即切走原 `RendererCore` 对应片段。
@@ -77,9 +79,9 @@ A0 源码资源边与来源核查
 
 实施时保持 `CompiledFrameGraphCache(8)` 的 LRU 行为；新 key 的 owner 与编译图缓存必须在同一个 device epoch 内一致，resize/format/capability 导致新图，device loss 直接清空旧图。每次命中图时断言当前绑定仍符合注册时的 descriptor/profile；不一致时以结构重编译或明确错误处理，不能静默复用。
 
-当前 `activeClasses`、texture bank mask 和 virtual bank 数可能确实改变 Graph 的 pass/binding 数，Module A 暂可把**规范化后的形状**放进 key。相同形状下的材质 ID、纹理内容或场景对象变动不能改变 key。Surface v2 再把 class/layout family 收敛为更少的稳定 kernel；Module A 不假装这项后续优化已经完成。
+当前 `activeClasses`、texture bank mask 和 virtual bank 数可能确实改变 Graph 的 pass/binding 数，Module A 暂可把**规范化后的形状**放进 key。相同形状下的材质 ID、纹理内容或场景对象变动不能改变 key。SurfaceWork V3 再把 class/layout family 收敛为稳定的 Work/GeometryRecord/cache/signal kernel；Module A 不假装这项后续优化已经完成。
 
-相机运动当前会关闭 `adaptiveShading`，造成不同图。Module A 先固定当前生产 profile 为 full-rate Surface，明确记录空间降频在此阶段暂停；配置字段不触发 camera-driven graph rebuild，也不回退到代表点常量 motion。Surface v2 负责在固定 topology 内恢复 dense/binned/adaptive。该过渡正确性选择不可被写成已达最终性能目标。
+相机运动当前会关闭 `adaptiveShading`，造成不同图。Module A 先固定当前生产 profile 为 full-rate Surface，明确记录空间降频在此阶段暂停；配置字段不触发 camera-driven graph rebuild，也不回退到代表点常量 motion。SurfaceWork V3 负责在固定 topology 内恢复 implicit/uniform/mixed 与 bounded exception。该过渡正确性选择不可被写成已达最终性能目标。
 
 ## 6. A3：把当前 Graph 注册迁到 Program lowering
 
@@ -87,7 +89,7 @@ A0 源码资源边与来源核查
 
 1. `RendererCore.render` 仍负责准备 runtime、streaming、scene patch、View、HZB、Visibility job、FSR3 frame constants、环境 publication 和 swapchain。它生成 `ProgramRequest` 与**当前帧** `FrameProgramBindings`，调用 Program cache/Graph encode。不能让 Program 直接调用 `queue.submit`。
 2. `FrameProgramLowering` 先接 Visibility 的 `prepare` 结果、depth、camera、counters、meshlet work；调用现有 `VisibilityFeature.addToGraph`，然后注册 HZB 及可选 current-HZB late recheck。晚期 recheck 的资源边由实际结果决定，不因未来 provider 增添空节点。
-3. 以 Visibility 结果注册 ShadingWork、材质/实例/几何/texture/light imports、当前 `SurfaceMaterialPass` 与必要 frequency resolve。Motion、radiance 要流向 FSR3/环境，不允许只生成一个 ResourceId 而无人读取。注册期的 `activeClasses` 结构形状须与 A2 key 完全一致。
+3. 以 Visibility 结果注册 SurfaceWork、材质/实例/几何/texture/light imports 和 V3 signal products。Motion、radiance 要流向 FSR3/环境，不允许只生成一个 ResourceId 而无人读取。SurfaceWork 的真实 work/GeometryRecord/cache/packet 边界由 V3 计划确定。
 4. PhysicalSky、Aerial 与 FSR3 只在闭包中确有消费者时注册；Present 是最终输出消费者。所有进口资源由对应 owner/typed binding 提供；不得为了降低 `RendererCore` 行数简单把原方法整块粘到一个超大 `FrameProgramLowering`。
 5. 每搬完一个 owner，即删除 `RendererCore.compileVisibilityGraph` 中该片手工排序/导入逻辑，让唯一 `render` 路径消费新 lowering。完成时 `RendererCore` 不再决定效果间顺序，只保留 owner 初始化、帧事务和 Program 调用。
 
@@ -138,7 +140,7 @@ A0 源码资源边与来源核查
 2. camera move、FSR3 A/B、同 layout 环境 LUT generation 变化仍命中结构 cache，实际绑定为当帧对象；尺寸/format/layout 变化则重编译。没有为了 cache hit 把错误 history、旧 LUT 或过期 scene 对象绑定给 Pass。
 3. FrameGraph dump 中产品生产者和消费者均可追到实际资源读写；feature-off 不保留无消费者节点或图外 GPU 工作。
 4. 正常/错误/resize/replacement/device recovery 的 owner 事务保持一致，当前帧仅由 `FrameCoordinator` 提交一次，不出现 GPU→CPU→GPU visible/work control。
-5. typecheck、build 和所选 targeted tests 通过；明显问题修复。来源账本仍把 R21 标为架构参考，不虚报 donor port。随后集中同步当前事实文档、更新 workstream 的 currentSlice/nextModules，并**直接进入 Surface v2**。
+5. typecheck、build 和所选 targeted tests 通过；明显问题修复。来源账本仍把 R21 标为架构参考，不虚报 donor port。随后集中同步当前事实文档、更新 workstream 的 currentSlice/nextModules，并**直接进入 SurfaceWork V3**。
 
 ### 暂缓到整体 Next Renderer 完成
 
@@ -156,4 +158,4 @@ A0 源码资源边与来源核查
 | A5 | `FrameCoordinator` 保持唯一 render-tick submit；Graph 编码异常走 abort，FSR3/Temporal/Environment 不推进，HZB 显式失效；新 View 首帧在当前相机上传后、Surface motion 消费前，以同一编码器初始化上一帧 GPU/CPU 相机状态，首帧中断则重试初始化。此后 View 的上一帧 CPU 相机镜像、每 View 帧计数与 Renderer 的上一已显示相机矩阵只在提交后推进，submit 抛错也释放 active frame。resize 重新选择 key 并重建 history，camera cut 仅失效 history，新 Renderer recovery 拥有空 cache。空场景不记录 Visibility/Surface/FSR3。产品上传和诊断 readback 是非本帧可见决策路径。 |
 | A6 | `RendererCore` 旧手写构图和并行 key 已切除；Surface motion 由真正 clear Pass 生产，空分配 Pass 删除；旧构图文本断言更新为 Program/Graph 边检查。已集中运行 typecheck、build 和相关合同测试；详细命令/结果以本次提交记录为准。 |
 
-**当前边界**：Module A 使用固定 full-rate Surface。旧 `spatial_shading_frequency_enabled` 仍被独立 browser diagnostic 引用，但对生产图无效；Surface v2 应恢复固定拓扑内的 GPU 频率计划并迁移该诊断。此遗留开关不作为模块 A 性能达标声明。模块级测试检查 CPU 语义、Graph 编译与绑定事务，未执行最终浏览器矩阵或 GPU P50/P95。
+**当前边界**：Module A 使用固定 full-rate Surface。旧 `spatial_shading_frequency_enabled` 仍被独立 browser diagnostic 引用，但对生产图无效；SurfaceWork V3 应恢复固定拓扑内的 GPU Work 分类与局部例外，并迁移该诊断。此遗留开关不作为模块 A 性能达标声明。模块级测试检查 CPU 语义、Graph 编译与绑定事务，未执行最终浏览器矩阵或 GPU P50/P95。

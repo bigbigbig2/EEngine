@@ -1,17 +1,32 @@
-﻿schemaVersion: 2
+schemaVersion: 2
 id: eengine-next-clean-rebuild
 title: EEngine Next single-path clean-cut renderer rebuild
 domain: frame-runtime
 state: active
 owner: frame-runtime
-decision: ADR-0020
-goal: Delete the old Surface production path first, continuously rebuild the complete cached Surface architecture with shared geometry, compiled Appearance, independent sparse lighting and reconstruction, then validate quality and net performance only after the final path is implemented.
+decision: ADR-0021
+goal: >-
+  Follow the user-selected V3 SurfaceWork Runtime design: implicit/uniform/mixed work,
+  one SurfaceGeometryRecord producer, early Appearance cache lookup and miss-only
+  evaluation, independent lighting signal packets, authoritative TemporalFacts and
+  cheap reconstruction on one production FrameGraph and frame submit.
 
 currentSlice:
-  id: surface-cached-shading-direct-rebuild
-  title: Surface 最终主链直接重建：先删旧链，完整实现后统一验收
+  id: surface-work-runtime-v3-refactor
+  title: SurfaceWork Runtime 第三版：统一几何、miss-only 材质与分信号重建
   status: active
-  goal: 第三步新链返工持续进行。普通与Product真实resident属性、普通Cook有向源三角形目录、GPU Appearance需求分组与缓存字段消费、独立照明packets和未预曝光历史重建、真实cluster/VSM/IBL/AO、编译MASK覆盖及主光栅与VSM工作分组已写入；实现状态不等于验收通过。仍需skin/morph与previous形变、Product跨LOD/source/seam对应、完整透明链、nonlocal/provider输入、屏外VSM caster与生命周期收口。此前Chrome诊断仅对应旧树，当前返工代码未重新编译或测试；完整生命周期、连续画质、两coverage独立基准、R01–R24及性能目标均未通过。先继续完成最终代码，不恢复旧链。
+  goal: >-
+    Phase 0 已固定三组历史 revision、GTX 1650 Ti/1080p 目标、Dungeon 资源 fingerprint、
+    feature set、覆盖率区间、预热/采集/P50/P95 口径，配置见
+    validation/profiles/surface-work-v3-phase0-baseline.yaml。源码基线 e7296be9 已删除旧
+    SurfaceMaterialPass/Probe/sample 主链，已接入 AppearanceCachePass 与 SparseLightingPass，
+    但仍需将全有效像素 demand/geometry inputs 改为 SurfaceWork 和 miss-only 工作，
+    由唯一 GeometryRecord producer 替代两套几何恢复，将 reconstruct 降为 packet/history
+    廉价合成，完成真实 FrameGraph 边、独立 signal 失效和生命周期。原文 §11 的 16 项
+    不因文档切换提升完成。skin/morph 与 previous deformation、Product 跨 LOD/source/seam、
+    nonlocal/provider、屏外 VSM caster 和透明 composition 缺口继续保留。
+    接下来进入 Phase 1 的旧执行模型切断。实现、adoption、连续画质和四版本同条件性能均未验收，
+    不恢复旧链。
 
 nextModules:
   - id: sssr
@@ -24,30 +39,42 @@ nextModules:
     title: Transparency, local media and presentation integration
 
 architectureRules:
-  - Keep one production Renderer path and one frame submit owner.
-  - Delete the old Surface scheduler, sample ABI/results, Resolve and full-screen closure-lighting before building the final consumer; never reconnect them for intermediate tests or output.
-  - Allow incomplete intermediate code and output; do not introduce compatibility bridges, placeholder effects or per-component closure gates.
-  - During this Surface rebuild, defer all compilation and test runs until the complete target code and production wiring are implemented, unless the user explicitly requests a diagnostic.
-  - Do not restore retired EnvironmentBackgroundPass, DirectionalLight world-sun ownership, CSM, old SSR/GTAO/SSGI/TAA, or a Legacy/Next dual path.
-  - Do not introduce current-frame GPU-to-CPU-to-GPU visible/work control.
-  - Pinned complex algorithms must preserve source stages, branches, dependencies and invariants; approximate implementations cannot claim upstream completion.
-  - WebGPU capabilities and limits are negotiated before resource creation.
+  - The user-selected V3 design is the sole Surface target; keep one production Renderer path and one frame submit owner.
+  - Keep GPU Scene, Visibility, resource owners and correct math; do not restore retired Surface or effect owners.
+  - Use implicit, uniform and mixed tile work; do not generate a pixel task for every full-rate pixel.
+  - SurfaceGeometryRecord has one producer; Appearance and Lighting do not reconstruct geometry independently.
+  - Cache lookup precedes material miss compaction; hits bypass geometry and material heavy workers.
+  - Keep constant/static, stable-local cache and dynamic/view/nonlocal signal work distinct; compare complete cache identities.
+  - Diffuse, specular, coat and IBL have independent work and local full-rate exceptions.
+  - TemporalFacts is the sole motion, identity, validity and reactive base producer.
+  - Reconstruction selects packet/history results and composes them; it does not execute full geometry, material or PBR again.
+  - Expose actual work, geometry, cache, packet, history and HDR dependencies in FrameGraph.
+  - Negotiate WebGPU limits before resource creation; every queue declares capacity, overflow, coverage and retirement.
+  - Delete replaced execution models without compatibility bridges or placeholder effects; incomplete intermediate code is allowed.
+  - Do not introduce current-frame GPU-to-CPU-to-GPU visible/work control, private submits or one universal physical queue.
+  - Cache pipelines, bind groups and samplers by publication/profile; do not create a PSO for each material instance or texture combination.
+  - Defer compilation, tests, GPU oracle, browser and benchmarks until the complete Surface target and wiring exist, unless explicitly requested.
+  - Pinned complex algorithms preserve source stages, branches and invariants; documentation alignment does not promote adoption or claims.
 
 deferredValidation:
-  policy: For the current Surface rebuild, run compilation and validation only after the entire cached Surface, sparse lighting and reconstruction target is implemented on the single new production path; no intermediate module closure checks.
+  policy: >-
+    Follow V3 design sections 8-11. Phase 0 fixes baseline identities and conditions;
+    Phase 1-6 is continuous implementation without intermediate validation gates;
+    Phase 7 performs unified acceptance and four-revision comparison in independent checkouts.
   finalAcceptance:
-    - typecheck
-    - build
-    - final shader compilation, CPU/WGSL numerical oracles and complete coverage/ownership checks
-    - browser matrix and lifecycle cases
-    - scene/material/feature interaction coverage
-    - static images and continuous motion/disocclusion visual quality comparison
-    - real local Chrome GPU benchmarks at 25-35% and 80-90% visible coverage
-    - Surface all-cost P50/P95 reduction of at least 50% and GPU pass-sum P50/P95 reduction of at least 30%
-    - formal evidence and claim promotion
+    - typecheck and build after the complete target and production wiring
+    - shader compilation, CPU/WGSL numerical oracles, complete coverage and write ownership
+    - browser and resize, camera cut, abort, device recovery and resource retirement
+    - far/near, static/moving, high-frequency normal/ORM, multi-material and strong IBL quality
+    - direct plus VSM, AO on/off, Product LOD/page miss, empty and single Product cases
+    - same-condition comparison of 89f0a94, 15f12f7b, e7296be9 and the pinned final revision
+    - GTX 1650 Ti 1080p complex scenes with fixed camera, features, browser, warm-up and thermal state
+    - all-cost Surface and GPU frame P50/P95 with hit/miss, geometry, signal, exception, IBL, overflow and memory counters
+    - V3 section 8.3 success criteria and all 16 section 11 completion items; no promised FPS or fixed percentage
+    - formal evidence and claim promotion only for actually validated scope
 
 links:
   design: docs/next-design/eengine-next-overall-architecture-final-2026.md
   execution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
-  currentDesign: docs/next-design/surface-cached-shading-final-2026.md
-  currentExecution: docs/next-execution/surface-cached-shading-rebuild-2026.md
+  currentDesign: docs/next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md
+  currentExecution: docs/next-execution/surface-work-runtime-v3-rebuild-2026.md

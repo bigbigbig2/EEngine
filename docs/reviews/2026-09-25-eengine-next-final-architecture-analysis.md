@@ -140,7 +140,7 @@ Tile-local scratch 只在同一 kernel/workgroup 的真实共享范围成立，�
 
 ### 5.2 必须纠正 roughness factor 的推断
 
-当前 [sparse_shading_resolve.ts](../../OEngine/src/shaders/sparse_shading_resolve.ts) 中有效粗糙度是材质 factor 与纹理通道相乘再钳制的结果：
+历史 `sparse_shading_resolve.ts` 中有效粗糙度是材质 factor 与纹理通道相乘再钳制的结果（该文件已删除）：
 
 ```text
 effective roughness = clamp(roughness factor × sampled roughness channel)
@@ -361,14 +361,14 @@ WebGPU 的生命周期复用不等于原生 API 的自由 heap aliasing；Barrie
 | [GpuRenderWorld](../../OEngine/src/gpu/GpuRenderWorld.ts)、GpuScene、Product Admission | 原子发布、Packed Instance、generation、GPU 消费 | 与程序编译/尺寸资源进一步解耦，不退回 CPU 可见列表 |
 | [HierarchicalWorkGenerator](../../OEngine/src/render/HierarchicalWorkGenerator.ts)、MeshletBucketRaster | 层次工作、间接执行、硬件光栅 | 提取公共工作协议，扩展辅助视图消费者 |
 | [GeometryPageStreamingRuntime](../../OEngine/src/gpu/GeometryPageStreamingRuntime.ts) | 延迟反馈、异步调度、发布检查 | 接入虚拟资源控制面与跨来源预算 |
-| [OpaqueShadingDemand](../../OEngine/src/render/pipeline/OpaqueShadingDemand.ts) | 消费者驱动的输出依赖 | Semantic Demand + 有界 Representation Planning |
+| 历史 `OpaqueShadingDemand` | 消费者驱动的输出依赖 | Semantic Demand + 有界 Representation Planning |
 | [FrameProducts](../../OEngine/src/render/pipeline/FrameProducts.ts) | 分辨率域、曝光、可选产品、能量语义 | 补精度/覆盖/时间/表示等价合同 |
-| [SparseShadingResolvePass](../../OEngine/src/render/passes/SparseShadingResolvePass.ts) | Sparse indirect + DirectSingleBin | Dense/Sparse/Coarse/Reuse 规划；程序与 revision 资源分离 |
-| [SparseShadingPublicationCoordinator](../../OEngine/src/render/pipeline/SparseShadingPublicationCoordinator.ts) | 不可变 revision、事务、失效安全 | 稳定程序缓存不因无关 Product append 重建 |
-| [ScreenSpaceReflectionsPass](../../OEngine/src/render/passes/ScreenSpaceReflectionsPass.ts) | HZB trace、History、baseline replacement | SSSR-style WorkStream + Specular Provider |
+| 历史 `SparseShadingResolvePass` | Sparse indirect + DirectSingleBin | Dense/Sparse/Coarse/Reuse 规划；程序与 revision 资源分离 |
+| 历史 `SparseShadingPublicationCoordinator` | 不可变 revision、事务、失效安全 | 稳定程序缓存不因无关 Product append 重建 |
+| 历史 `ScreenSpaceReflectionsPass` | HZB trace、History、baseline replacement | SSSR-style WorkStream + Specular Provider |
 | GIService / LongRangeDiffuseProvider | 接收点 provider 选择、能量一次应用 | Near/World/Infinite 的覆盖与更新合同 |
 | [TemporalHistoryRegistry](../../OEngine/src/render/TemporalHistoryRegistry.ts) | 提交感知生命周期和 pre-exposure 约定 | 依赖范围失效、稳定表面映射、频率变化支持 |
-| [MainRenderPipeline](../../OEngine/src/render/pipeline/MainRenderPipeline.ts) | 单一主管线与 composition root | 拆发布、产品编译、Provider、图 lowering、恢复与观测职责 |
+| 历史 `MainRenderPipeline` | 单一主管线与 composition root | 拆发布、产品编译、Provider、图 lowering、恢复与观测职责 |
 | [FrameGraph](../../OEngine/src/framegraph/FrameGraph.ts) | 依赖、裁剪、图缓存、资源复用 | 作为已选物理计划的执行层 |
 | [TextureResidency](../../OEngine/src/gpu/TextureResidency.ts) | 逻辑引用、mip 可用性、有界绑定 | 将 VT 作为数据面扩展，不把已有账本视为完整 VT |
 

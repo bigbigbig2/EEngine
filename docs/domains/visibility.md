@@ -5,16 +5,22 @@ owner: visibility
 ---
 # Visibility
 
-Visibility owns hierarchy traversal, bounded GPU MeshletWork generation, indirect raster, VisibilityKey/depth publication and HZB. The visible-work producer and consumer remain on the GPU; CPU readback is diagnostic or asynchronous scheduling feedback only. The optional current-HZB late recheck is a bounded hint queue. Invalid metadata or overflow fails open to the source work.
+## 当前源码事实
 
-The current `FrameProgramLowering` sends VisibilityKey/depth/MeshletWork directly to the Surface frequency planner and Dense/exception material pass. The former 64-class ShadingWork classifier/scatter and per-class indirect consumer are removed. The Visibility `ShadingBinId` attachment and ABI still have actual raster/diagnostic users; their existence does not create a second material path. Surface owns its own bounded exception queue and full-lane overflow fallback.
+核对：2026-10-02，基线 `e7296be9`。Visibility 拥有 GPU hierarchy traversal、bounded MeshletWork、indirect hardware raster、VisibilityKey/depth 和 HZB。普通与 Product 工作进入同一 GPU Scene。可见工作在 GPU 生产和消费，readback 只供诊断或延迟反馈，模块不拥有私有 frame submit。
 
-Each visibility queue states its ABI, capacity, producer, consumer and overflow behavior. Invalid identity must fail visibly, and zero work must leave a consumer-safe state. Visibility does not submit a private frame or use same-frame readback to control material work. Device recovery rebuilds queues and caches in the new device epoch.
+当前 FrameProgramLowering 将 VisibilityKey/depth/MeshletWork 与共享 frame geometry 送入 AppearanceCachePass，随后连接 TemporalFacts 和 SparseLighting。旧 frequency planner、Dense/exception MaterialPass、Probe/sample 链均不是当前生产 consumer；ShadingBinId 等遗留诊断 ABI 的存在不能证明第二条材质路径存在。
 
-Primary entrypoints are `render/features/VisibilityFeature.ts`, `render/program/FrameProgramLowering.ts`, `render/HierarchicalWorkGenerator.ts`, `render/MeshletBucketRaster.ts`, `render/passes/PackedVisibilityPass.ts` and `render/HierarchicalZBuffer.ts`. [ADR-0013](../adr/0013-sparse-shading-bin-pipeline.md) describes historical ownership; [ADR-0020](../adr/0020-clean-cut-renderer.md) and the current source determine the Next path. Browser evidence and claims remain deferred to final Next Renderer acceptance.
+选中工作经过 shared instance transforms、FrameGeometryVertices 和 FrameGeometryArena，为 raster/Appearance winner 消费准备 clips、triangle directory 和真实 attributes。Product late HZB 重排工作目录而共享底层几何存储。WinnerPrimitiveInterpolation 已在 Appearance 实际消费，不再是“仅 diagnostic、尚未接入”的状态。
 
-Selected frame geometry now follows MeshletWork → shared instance transforms → `FrameGeometryVertices` → Raster. The vertex owner decodes/transforms each selected meshlet-local vertex once, preserves original triangle corner order, and writes independent bounded clip/triangle regions in `FrameGeometryArena`. Ordinary mirrored corner selection stays in Raster. A zero directory entry uses the original accurate source decoder in that same shader, retaining visibility on reservation/capacity misses. This is not persistent resident attributes, deformation or cross-meshlet deduplication.
+当前 frame attributes 并不代表完成持久静态 resident packing、skin/morph 或跨 meshlet/LOD 的完整对应。Product 跨 LOD/source/seam、形变 previous mapping 和完整几何容量缺失下的 Surface 供给仍需结合最终新链核对；不能把旧 raster fixture 覆盖当成完整 Surface 验收。
 
-Product late HZB copies each source geometry directory entry into its reserved filtered work slot; clips/triangles are shared, and profile/LOD flags are not repurposed as indices. The filter dispatch follows actual GPU written count through a separate indirect producer/read scope, including a 2D grid. FrameGraph carries the shared arena write/read versions through both raster stages. Immutable metadata copies commit after the existing frame submission and stable frames omit them. Scene publication awaits asynchronous vertex/HZB PSOs and finite ordinary/Product Raster descriptors; the draw path requires those exact warmed descriptors.
+## 第三版目标边界
 
-Native and headed installed Chrome component diagnostics each execute 18 cases/9,670 covered pixels, including source-position mutation after preparation, conservative HZB remapping and 65,537-entry grids. Shared-owner bytes, preparation rollback, aborted publication, stable reuse and queue-order retirement have focused tests. The winner consumer is still diagnostic; current production Surface reconstructs from source geometry. A missing shared directory keeps Raster coverage but returns invalid winner interpolation, so complete new-Surface geometry supply remains required. The modified old native Surface diagnostic initially exits abruptly during the shear frame while Chrome also compiles; the isolated shear and serial ten-frame/3,533-pixel runs then pass with zero API errors/device loss. The abrupt-exit cause is not established; failed logs remain and final GPU runs must be serial. These facts do not establish final S2 or net performance.
+[用户指定原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)保留 Geometry/Visibility 和 frame geometry owners。Visibility 发布 winner/depth，SurfaceWork 入口解析 frame-local winner；SurfaceGeometryPass 唯一恢复 SurfaceGeometryRecord，Appearance/Lighting 不再各自解析 MeshletWork/三顶点/UV/normal。
+
+Winner、Sharing 和 Cache identity 分开，VisibilityKey 不作跨帧 cache 身份。能力/容量先协商，每个 queue/indirect 有 bounded overflow 和消费者安全空状态；Surface 最终例外不交回旧 queue，不以 CPU 第二次 submit 修补。
+
+入口：`render/passes/PackedVisibilityPass.ts`、`HierarchicalWorkGenerator.ts`、`MeshletBucketRaster.ts`、`HierarchicalZBuffer.ts`、`FrameGeometryArena.ts`、`FrameGeometryVertices.ts`、`program/FrameProgramLowering.ts`。
+
+历史 Native/Chrome 组件诊断保留在[ledger](../porting/next-renderer.md)与[geometry lab](../../validation/labs/surface-geometry/README.md)，其日期和范围不转授第三版完整性能/画质。当前重构执行和验收见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。
