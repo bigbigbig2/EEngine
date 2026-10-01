@@ -7,6 +7,8 @@ owner: shading
 
 ## 当前源码事实
 
+当前复核提交为 `11d906ab`；文中旧的 `84e77c3d` 只表示此前一次结构核对，不代表当前源码版本。
+
 核对日期：2026-10-02；源码基线 `84e77c3d`。本页描述当前实现，目标见[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，执行见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。结构主链已切换，完整 AAA 数学、整帧 history、浏览器画质和性能仍未验收，本页不作性能通过声明。
 
 当前 Surface 生产链为唯一 V3 路径，仍在算法收敛阶段：
@@ -24,7 +26,7 @@ VisibilityKey / Depth / MeshletWork / shared frame geometry
 
 ### Appearance
 
-`SurfaceMaterialCachePass` 在 GeometryRecord 之前按 VisibilityKey、材质槽、字段版本和纹理驻留版本做完整 key 比较；命中直接写六层 fields，未命中压入有界 miss queue。GeometryRecord 读取 hit mask，随后只对 miss 执行字段评估并发布缓存值。当前字段评估仍是本地 fallback kernel，尚未绑定每个 publication 的完整 `AppearanceResidentKernel`，因此不能宣称材质图语义已完全保持。
+`SurfaceMaterialCachePass` 在 GeometryRecord 之前按当前已接入的 VisibilityKey、材质槽、字段版本和纹理驻留版本做 key 比较；命中直接写六层 fields，未命中压入有界 miss queue。GeometryRecord 读取 hit mask，随后只对 miss 执行字段评估并发布缓存值。sampler、UV set/transform、footprint 和 variation revision 尚未完整进入 key；字段评估仍是本地 fallback kernel，尚未绑定每个 publication 的完整 `AppearanceResidentKernel`，因此不能宣称材质图语义已完全保持。
 
 AppearanceGraphCompiler 已支持 typed dependencies、等价采样合并、常量/无用通道处理和 product 分类，lowering 输出 WGSL 求值程序。GpuMaterialStore 发布字段版本，AppearanceProgramRegistry 持有程序 leases，AppearanceStaticResidency 管理静态产品与 completion 退役。当前 mutable material 编辑仍需要实际 republication/resync，不能宣称所有动态输入或 nonlocal providers 已完成。
 
@@ -34,7 +36,7 @@ FrameGeometryArena/Vertices 提供当帧共享 clips/triangles/attributes。`Sur
 
 `SurfaceLightingWorkPass` 现在按 GeometryRecord 和 fields 发布独立 diffuse/specular/coat/IBL packet，并使用 GGX、Smith visibility、Schlick Fresnel、金属度和能量分配计算。`SurfaceReconstructionPass` 只做 packet 映射、TemporalFacts 有效性判断、AO/reactive 传播和 pre-exposure 应用；真实跨帧 signal history、cluster/VSM/AO/IBL provider 资源仍待接入。
 
-SparseLighting 持有 guide、dependency signature 和四层 radiance 的双份 history。TemporalFacts 独立发布 motion/identity/validity 基础产品，FSR3 读取其 motion/mask 与 SparseLighting reactive；Surface 不另有 motion attachment。当前基础事实与最终 signal reactive 的完整合同仍待重构收敛。
+SurfaceWork 的 packet/reconstruct owner 负责未来的 signal history 资源；当前实现尚未接入完整 history read/reject/age。TemporalFacts 独立发布 motion/identity/validity 基础产品，FSR3 读取其 motion/mask 与 Surface reactive；Surface 不另有 motion attachment。当前基础事实与最终 signal reactive 的完整合同仍待重构收敛。
 
 ## 最终目标与现状差距
 

@@ -1,7 +1,8 @@
 # EEngine 第三版：极致 GPU 性能与 AAA 画质最终重构设计
 
 日期：2026-10-01  
-源码基线：master / e7296be9cebbc3bcc1b6b738d682c928548d72d5  
+设计基线：master / e7296be9cebbc3bcc1b6b738d682c928548d72d5（历史切断基线）
+当前源码核对：master / 11d906ab（2026-10-02）
 目标：基于当前第三版真实源码，完成一次破坏式 Surface 重构，解决 2026-09-25 报告中可见像素级几何、材质、直接光照和 IBL 的增长瓶颈，同时保留现代 AAA 的 PBR、normal、ORM、specular、clearcoat、IBL、VSM、AO、temporal 和 FSR3 质量。
 
 本文不把设计文档中“计划实现”的内容当成已经完成，而是把当前代码、当前缺口和最终推进方案分开说明。
@@ -12,7 +13,7 @@
 
 当前第三版是最终性能上限最高的方向，但当前提交还没有兑现这个上限。
 
-当前代码已经具备正确的 GPU-first 底座：
+截至历史切断基线，代码已经具备以下 GPU-first 底座；Surface owner 的当前状态以本文件的实现核对和执行计划为准：
 
 - 旧 Renderer 和旧 Surface 生产链已经切断；
 - GPU Scene、Meshlet hierarchy、VisibilityKey、HZB 和间接 raster 保留；
@@ -20,16 +21,16 @@
 - 材质图可以编译成 Appearance program；
 - TextureResidency、GpuMaterialStore、AppearanceStaticResidency 和 AppearanceProgramRegistry 已经有独立 owner；
 - FrameGeometryArena、FrameGeometryVertices 和 WinnerPrimitiveInterpolation 已经建立共享几何资源合同；
-- AppearanceCachePass 和 SparseLightingPass 已经接入唯一 FrameGraph；
+- 历史基线曾由 AppearanceCachePass 和 SparseLightingPass 承载 Surface 工作；这两个 owner 已从当前生产 import graph 中移除，不能再视为当前入口；
 - Direct light、IBL、AO、VSM、Temporal、FSR3、Bloom 和 Present 已经进入同一条 production submit。
 
-但当前实现仍有三个决定性瓶颈：
+当前实现仍有三个决定性瓶颈：
 
-1. Appearance demand 仍然从每个有效可见像素生成 task；
-2. Appearance geometry inputs 仍按 task 执行，task 数接近有效像素数；
-3. SparseLighting 仍然执行全分辨率 prepare_surface 和 reconstruct，并且拥有自己的几何恢复入口。
+1. classify 尚未实现 implicit/uniform/mixed 的完整覆盖和真实 work compaction；
+2. miss evaluator 和 cache key 尚未接入完整 publication 程序及 sampler/UV/footprint/variation 语义；
+3. lighting provider、signal history 和 Product/形变几何对应仍不完整，无法形成最终 AAA 的可复用 packet 成本。
 
-当前实际成本仍接近：
+历史基线的实际成本接近：
 
 ~~~text
 O(P) Appearance demand
@@ -61,7 +62,7 @@ G 是真正需要几何恢复的 Surface work 数量，M_miss 是材质 cache mi
 
 RendererCore 当前由 FrameCoordinator 拥有唯一 command context 和唯一 submit。FrameCoordinator 最多允许两个 in-flight frame，通过 GPU completion 做背压，不通过 CPU readback 控制 GPU work。这个边界应该保留。
 
-当前 prepare job 使用 executionMode = none，因此旧 ShadingBinId 路径不是默认 production 路径。当前实际主链由 FrameProgram 和 FrameProgramLowering 建立：
+当前 prepare job 使用 executionMode = none，因此旧 ShadingBinId 路径不是默认 production 路径。历史基线主链由 FrameProgram 和 FrameProgramLowering 建立；当前 Surface 接线见 2.7：
 
 ~~~text
 GPU Scene / Meshlet hierarchy
@@ -88,9 +89,11 @@ VisibilityKey 是 frame-local winner identity，适合当前帧访问 meshlet �
 - Sharing identity：哪些 Surface 可以共享某个 signal；
 - Cache identity：材质 field 与当前输入 footprint 是否仍然相同。
 
-### 2.3 AppearanceCachePass 和 GpuAppearancePublication
+### 2.3 历史基线：AppearanceCachePass 和 GpuAppearancePublication
 
-AppearanceCachePass 目前是一个外层 FrameGraph pass，在回调内部调用 WinnerPrimitiveInterpolation.encode 和 GpuAppearancePublication.encodeDemand，然后创建 full internal 的 Appearance fields。这使 FrameGraph 暂时看不到内部真实的 demand、scatter、geometry、program 和 resolve 边界。
+> 以下段落描述设计基线 `e7296be9` 的旧实现，用来解释本次重构的动机；它不是当前生产事实。当前生产 owner 是 `SurfaceWorkRuntime`，见 2.7 和执行计划。
+
+在该历史基线中，AppearanceCachePass 是一个外层 FrameGraph pass，在回调内部调用 WinnerPrimitiveInterpolation.encode 和 GpuAppearancePublication.encodeDemand，然后创建 full internal 的 Appearance fields。这使 FrameGraph 暂时看不到内部真实的 demand、scatter、geometry、program 和 resolve 边界。
 
 GpuAppearancePublication.encodeDemand 的实际流程是：
 
@@ -118,9 +121,11 @@ GpuAppearancePublication.encodeDemand 的实际流程是：
 
 所以当前 Appearance cache 只是把一部分昂贵字段缓存起来，还没有把命中的 Surface 从前面的 heavy work 中排除。
 
-### 2.4 SparseLightingPass
+### 2.4 历史基线：SparseLightingPass
 
-SparseLightingPass 当前有六个阶段：
+> 以下段落描述设计基线 `e7296be9` 的旧实现，用来解释重复几何恢复和全率工作的来源；当前生产链已删除该 owner。
+
+在该历史基线中，SparseLightingPass 有六个阶段：
 
 ~~~text
 prepare_surface
@@ -223,7 +228,26 @@ next-renderer-showcase 当前默认开启 renderScale 1、HZB、cone、XeGTAO、
 
 最终性能上限上，第三版高于中间版，因为它可以把静态材质、稳定字段和可复用输入移出每帧重计算。
 
-但当前代码仍处于真实供给和架构接通阶段。a0b3a9a6 明确按静态 extent 供给全部可见像素，避免任务池截断产生虚假的低 GPU 时间。因此当前 GPU 占用高并不意外，它说明最终版还没有完成 miss-only demand、一次几何准备和轻量 reconstruct。
+当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、cache lookup、`SurfaceGeometryPass`、miss evaluation、lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现仍未完成 implicit/uniform/mixed 覆盖、完整 publication kernel、完整 sampler/UV/footprint key、cluster/VSM/AO/IBL provider 和 signal history，因此不能把结构接线等同于最终性能或 AAA 验收。
+
+当前源码仍有可量化的未完成成本：classify 主要为 8×8 tile 写代表 sample，GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，lighting 仍是基础本地 BRDF，reconstruct 只实现 mask/pre-exposure 的简化合成。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
+
+### 2.7 当前生产接线（2026-10-02）
+
+源码入口为 `FrameProgramLowering → SurfaceWorkRuntime.addToGraph`，实际资源顺序为：
+
+~~~text
+Visibility / TemporalFacts
+→ SurfaceWork classify
+→ cache lookup
+→ miss-only GeometryRecord
+→ miss field evaluation
+→ diffuse/specular/coat/IBL packets
+→ packet reconstruct
+→ Sky / Aerial / FSR3 / Radiometry / Bloom / Present
+~~~
+
+这是当前唯一生产结构，不代表最终算法已完成。设计中的 implicit/uniform/mixed 覆盖、完整材质 publication、真实 light/cluster/VSM/AO/IBL provider、history reject/age、Product/形变对应和正式性能/画质验收仍是未完成项。
 
 ## 4. 最终架构：SurfaceWork Runtime
 
@@ -416,7 +440,7 @@ Normal full-rate 不代表 BaseColor、Diffuse、AO 和全部 IBL 必须 full-ra
 
 ### 4.6 Lighting packets
 
-SparseLightingPass 改造成三个逻辑 packet producer：
+历史 SparseLighting 的逻辑职责改由 `SurfaceLightingWorkPass` 和后续 packet/reconstruct owner 承担：
 
 ~~~text
 DiffuseLightingWork
@@ -530,7 +554,7 @@ OEngine/src/shaders/surface_reconstruct.ts
 
 ### 5.4 FrameGraph 接线
 
-AppearanceCachePass 应从一个内部黑盒 pass 改成真正的 SurfaceWork owner。FrameGraph 至少要看到：
+`SurfaceWorkRuntime` 已作为唯一 Surface owner 注册到 FrameGraph；最终完成仍必须保持以下可见边界：
 
 - Visibility、Depth、MeshletWork 读取；
 - SurfaceWork transient buffers；
@@ -702,17 +726,17 @@ surfaceDispatchCount
 
 ## 10. 当前第三版必须立即修正的三个问题
 
-### 10.1 Cache lookup 太晚
+### 10.1 Cache lookup 语义仍不完整
 
-当前 cache stages 在 task 和 geometry input 之后。必须前移到 material miss compaction 之前，否则命中项仍然支付 per-pixel demand 和几何准备。
+当前 lookup 已位于 `SurfaceGeometryPass` 之前，但 classify 仍只写代表 sample，且 key 尚未覆盖完整 sampler/UV/footprint/variation 语义。必须完成真实 implicit/uniform/mixed 覆盖和完整 key 比较，确保命中项不进入 geometry/material heavy worker。
 
-### 10.2 GeometryRecord 还不是唯一几何事实
+### 10.2 GeometryRecord 的覆盖仍不完整
 
-WinnerPrimitiveInterpolation 是共享 owner，但 Appearance geometry inputs 和 SparseLighting prepare_surface 仍是两个恢复入口。必须合并为一个 SurfaceGeometryPass。
+结构上已合并为一个 `SurfaceGeometryPass`，但 Product 跨 LOD/source/seam、skin/morph 和 previous deformation 对应仍不完整。必须在这个唯一 producer 内补齐这些输入，不能恢复第二套几何恢复入口。
 
-### 10.3 Reconstruct 仍然太重
+### 10.3 Reconstruct 的历史与合成语义仍不完整
 
-当前 reconstruct 仍然按全分辨率读取 guide、history、fields、DFG、AO 和 signal。它必须降为 packet/history 结果的廉价映射和合成。
+当前 reconstruct 已只读 packet、GeometryRecord、TemporalFacts mask 和 pre-exposure，但 signal history read/reject/age、AO/emissive/energy composition 仍未完成。必须补齐这些结果选择和合成语义，同时保持 reconstruct 不执行完整 PBR。
 
 ## 11. 完成定义
 

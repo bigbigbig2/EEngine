@@ -592,7 +592,7 @@ AAA 不变量采用原文 §9。轮廓、normal/ORM、镜面/coat、UV/gradient�
 
 2026-10-02 采用的第三版原文是当前 Surface 唯一目标。实现按[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)的 Phase 0–7 连续推进：固定基线配置 → 删除被替代执行模型 → 统一 SurfaceWork/GeometryRecord → miss-only Appearance → signal packets → 廉价 reconstruct → 全链/生命周期 → 集中验证和残留清理。
 
-旧 SurfaceMaterialPass/Probe/sample owner 在基线已删除；当前 AppearanceCachePass/SparseLightingPass 接线和组件基础不等于上述目标完成。开发中允许未编译/缺图，不为中间运行或旧测试保留 adapter/旧 consumer，不按组件设编译、测试、GPU 或证据门槛。完整目标及真实接线完成后统一检查，失败在新链返工。算法实施前仍固定完整来源和映射，adoption 与实现/验收分别记录。
+旧 SurfaceMaterialPass/Probe/sample owner 在基线已删除；当前生产接线是 `SurfaceWorkRuntime` 的 classify、lookup、GeometryRecord、miss evaluation、packet 和 reconstruct，但这些结构边仍不等于完整算法或目标完成。开发中允许未编译/缺图，不为中间运行或旧测试保留 adapter/旧 consumer，不按组件设编译、测试、GPU 或证据门槛。完整目标及真实接线完成后统一检查，失败在新链返工。算法实施前仍固定完整来源和映射，adoption 与实现/验收分别记录。
 
 RendererCore、FrameCoordinator、FrameGraph、GPU Scene/VG/Visibility、资源 owner、正确数学、Environment/VSM/AO/Temporal/FSR3/显示保留。新 Surface 完成后依次推进 SSSR、Hybrid GI、Virtual Resource/VT、Transparency/Media；它们通过真实产品和 signal 依赖接入，不另设 Renderer、不恢复退休效果、不制造本帧 CPU work 控制。
 

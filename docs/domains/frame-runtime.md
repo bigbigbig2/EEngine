@@ -7,7 +7,9 @@ owner: frame-runtime
 
 ## 当前生产链
 
-核对：2026-10-02，基线 `84e77c3d`。`RendererCore` 是 composition root，`FrameCoordinator` 是唯一 frame command context/submit owner。FrameProgramLowering 已切换到唯一 SurfaceWorkRuntime，SurfaceWork 的 lookup、GeometryRecord、miss evaluation、packet 和 reconstruct 都注册为独立 FrameGraph 节点；HZB、cluster、XeGTAO 和 directional VSM 继续使用同一 FrameGraph。
+当前复核提交为 `11d906ab`；文中旧的 `84e77c3d` 只表示此前一次结构核对，不代表当前源码版本。
+
+核对：2026-10-02，基线 `84e77c3d`。`RendererCore` 是 composition root，`FrameCoordinator` 是唯一 frame command context/submit owner。FrameProgramLowering 已切换到唯一 SurfaceWorkRuntime，SurfaceWork 的 classify、lookup、GeometryRecord、miss evaluation、packet 和 reconstruct 都注册为独立 FrameGraph 节点；HZB、cluster、XeGTAO 和 directional VSM 继续使用同一 FrameGraph。
 
 旧 SurfaceProbe/Work Builder/sample workers/Resolve 与 SurfaceMaterialPass 不再是生产路径。当前 V3 主链已经真实接线，但材质 publication kernel、完整 cluster/VSM/AO/IBL provider、signal history 和整帧验收仍未完成。
 

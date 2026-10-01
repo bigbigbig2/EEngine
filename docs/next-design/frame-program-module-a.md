@@ -151,7 +151,7 @@ Granite 的 `RenderGraph::bake/build_aliases` 与 Filament 的 `FrameGraph::comp
 
 ## 9. A0 生产资源边清单（2026-09-27 源码核对）
 
-下表的 `ResourceId` 是 lowering 中的逻辑句柄或 Graph 导入名；数值 ID 随编译图分配，不能作为跨帧身份。尺寸均为当前内部分辨率 `I` 或输出分辨率 `O`。结构 key 记录形状和启用的 owner；右列所列当前对象均从本帧 binding 解析。当前 Surface 目标以 [SurfaceWork V3](./eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 为准；当前源码事实见 `FrameProgramLowering`、`PackedVisibilityPass`、`AppearanceCachePass`、`TemporalFactsPass`、`SparseLightingPass`、`Fsr3UpscalerRuntime` 和 `AtmosphereLutResources`。
+下表的 `ResourceId` 是 lowering 中的逻辑句柄或 Graph 导入名；数值 ID 随编译图分配，不能作为跨帧身份。尺寸均为当前内部分辨率 `I` 或输出分辨率 `O`。结构 key 记录形状和启用的 owner；右列所列当前对象均从本帧 binding 解析。当前 Surface 目标以 [SurfaceWork V3](./eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 为准；当前源码事实见 `FrameProgramLowering`、`PackedVisibilityPass`、`SurfaceWorkRuntime`、`TemporalFactsPass`、`Fsr3UpscalerRuntime` 和 `AtmosphereLutResources`。`AppearanceCachePass` 与 `SparseLightingPass` 只在历史基线中保留。
 
 | 产品/逻辑 ResourceId | 生产者 → 消费者 | 物理 owner；尺寸/格式 | key、绑定与失效/退役 |
 | --- | --- | --- | --- |
