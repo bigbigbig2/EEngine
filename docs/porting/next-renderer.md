@@ -23,6 +23,22 @@
 - **构建与局部回归**：OEngine typecheck/build、examples build:examples、单线程及 pthread WASM 构建、Native cooker 构建通过；56 项 contract/oracle/scheduler 测试通过，另有 Native/WASM 同 GLB 对照与 validation overflow-source 检查通过。examples 构建仍有已有的 large.glb 缺失及大 chunk 警告。
 - **未完成验证及成本**：前轮 Chrome 插件缺少 `scripts/browser-client.mjs`；本轮按用户要求不启动浏览器，Showcase 近距离/旋转截图与整帧视觉验收由用户手动完成。Dawn GPU oracle 不替代浏览器整链画面验证。位置从 6 B 增加到 12 B/vertex，最终 stride 按 4 B 对齐；关闭 previous-HZB 可能增加 work。本轮不作性能提升或完整 Nyx runtime parity 声明。
 
+## 2026-10-01 S2：HomogeneousWinnerInterpolation 来源 profile
+
+固定完整实现：[The Forge VisibilityBufferShadingUtilities.h.fsl](https://github.com/ConfettiFX/The-Forge/blob/cd5046893faba2dc7869243873bf01f02a6f0df9/Common_3/Renderer/VisibilityBuffer2/Shaders/FSL/VisibilityBufferShadingUtilities.h.fsl)，revision `cd5046893faba2dc7869243873bf01f02a6f0df9`，Apache-2.0；本轮核读全部文件及根 LICENSE。参考 [DAIS](https://cg.ivd.kit.edu/publications/2015/dais/DAIS.pdf) §3–6、Appendix A 和 [Visibility Buffer](https://jcgt.org/published/0002/02/04/paper.pdf) §2–4：前者将属性分子与齐次分母的线性系数按 triangle 保存，后者确认逐像素重新变换/插值的代价与微三角形的收益限制。未运行 donor 工程或其 benchmark。
+
+选定具名本地 `HomogeneousWinnerInterpolation`，**不是完整 DAIS/The Forge 移植**。检索过固定 Forge utilities、关联 VisibilityBuffer2 和现有 Nyx/Wicked 来源；未取得完整覆盖本地 GPU winner 去重、共享帧几何、WebGPU 有界容量和 W=0 近裁剪的 donor。DAIS 的 geometry shader、第二次几何光栅和 fragment 自旋均不移植；不引入它的 uber-shader、MSAA linked list 或全算法完成声明。
+
+| 来源阶段/入口与输入输出 | 本地阶段与保留条件 | 本地变化/失败行为 |
+| --- | --- | --- |
+| Forge `CalcFullBary` / DAIS Appendix A：三个 clip 顶点、pixel、viewport → 透视权重、梯度 | 紧凑三行齐次余子式系数，消费时归一化分子；不逐顶点除 W | 使用共同尺度的 `(clip.x,clip.y,clip.w)`，允许 W=0/负 W 的原始顶点；这是本地数学扩展。零投影面积、非有限系数明确无效 |
+| Forge 最后的 projected derivative 修正 | 当前位置和 +1 pixel 的透视权重差，分别判断两个 footprint 轴 | 当前值与邻居 footprint 有效性分开；邻居落到投影奇点不丢弃合法当前像素，不把无效 footprint 当零梯度有效 |
+| Forge `InterpolateWithDeriv` / `Interpolate2DWithDeriv` | 后续活跃属性消费者用当前 representation 共享属性做权重点积，UV 梯度同样点积；本轮只完成供其使用的权重/梯度 | 属性消费者尚未实现；法线/切线变换在最终插值后归一化，不能先归一化各顶点；本模块不宣称已完成 residency 属性与 LOD 地址 |
+| DAIS §3.1 winner triangle memoization / §4 derivatives compute | Visibility 后 GPU 唯一 key 需求 → 有界 dictionary/work → 单次 primitive coefficients → GPU consumer | 有限 probe、有限弱 CAS 重试；不跨 workgroup 自旋。request/build/consume 的发布由 dispatch 边界保证；容量/冲突失败在同一新几何输入上直接计算，不访问旧 Setup |
+| DAIS §6 的 triangle/attribute 成本 | 48 B/获胜 primitive、8 B/dictionary slot、4 B/compact work，加控制数据；观察唯一需求/overflow | bytes 和全部生成成本纳入预算；微三角形可能走同一消费函数的直接模式。不预先声称净收益 |
+
+本地对应为 `GpuWinnerInterpolationAbi`、`winner_interpolation::winner_build_coefficients/winner_interpolate`、`winner_primitive_work::winner_reset/winner_request/winner_finalize/winner_build`、`WinnerPrimitiveInterpolation` 和 `winnerPrimitiveConsumerWgsl::winner_interpolate_key`。独立 double Gaussian solve、真实 hardware raster basis（近/侧裁剪、负/零 W、非均匀变换）、shifted solve 梯度、collision/full/overflow/zero-work 与连续帧组件对照已通过26个case/frame和19,874覆盖像素；owner preflight/复用/回滚/失效 tests通过。控制/间接发布使用单一caller encoder；独立indirect buffer避免同pass writable-storage/indirect usage冲突，末端bind envelope为8个storage buffers。GPU clip transform producer当前是独立fixture，未接真实geometry residency/Scene；尚无新Surface主链消费，采用状态保持 `not adopted`，不升级性能/画质声明。原生Dawn诊断与fixture误差预算见[宿主记录](../../validation/labs/surface-geometry/README.md)。
+
 ## 2026-09-30 Surface 最终设计：Signal-Rate Surface（阶段四已完成，正式验收待执行）
 
 最终设计见 [Surface 可见性驱动分频着色](../next-design/surface-sample-driven-shading-final-2026.md)，实现顺序见 [四阶段重构](../next-execution/surface-sample-driven-shading-rebuild-2026.md)。这两份文件替代前期候选排序，确定先减少 ordinary PBR 的重样本，再按残余瓶颈做局部优化。阶段四已完成旧 owner/陈旧合同清理、生命周期复核和模块级集中验证；**最终设计不等于采用完成**，R02/R03/R20/R23 的上游采用状态与正式画质/性能 claims 不因本地接线自动改变。

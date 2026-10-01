@@ -56,6 +56,14 @@ S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态
 
 **仍未完成**：当前mutable material编辑仍需要显式resyncScene；尚未接通frame动态输入版本/demand/cache消费者，自定义masked/transparent coverage仍需新Visibility消费者；旧Surface仍持有source-bank输入，不能将IR采样裁剪当成生产显存/带宽收益。S1保持active，R04–R07/R10不提升完成，S2–S7继续全部实施。未运行新主链Chrome整帧、视频画质与两coverage性能验收，原因是新Surface/Lighting尚未切入；未缩小最终范围。
 
+### S2 进行中：获胜 primitive 的紧凑插值组件，2026-10-01
+
+已实现具名本地 `HomogeneousWinnerInterpolation`：三个共同尺度的齐次余子式行（48 B/primitive），不逐顶点除 W；保留一像素投影差分，将当前值和两个 footprint 轴的有效性分开。`WinnerPrimitiveInterpolation` 消费共享 clip 几何和 Visibility，GPU bounded dictionary 去重、reservation、indirect finalize、一次系数生产；后续 shader 通过实际 dictionary/coefficients 消费结果。容量/冲突失败在同一共享几何上直接算系数，不使用旧 Setup、不等 CPU。弱 CAS 重试有界，空槽重试耗尽不继续 probe，避免同 key 重复插入；dispatch 边界发布，不跨组自旋。观察性原子按 shader profile 编译裁剪；唯一需求 reservation 仍保留。异步 PSO、limits/bytes preflight、稳定帧资源复用、abort/调用者完成后 release/device-loss 与资源账本已接通。
+
+独立 diagnostic 先 GPU 生产一次 clip 变换，真实 hardware raster 和 winner consumer 共读，再对独立 double Gaussian solve 与相邻像素 solve 比较。GTX 1650 Ti / D3D12 driver `32.0.15.8142` / Dawn Node `webgpu@0.6.1`：26 个 case/frame、19,874 个实际覆盖像素，通过透视、near/side clip、零/负 W、镜像非均匀变换、primitive 127、最终 winner-only、连续帧/空帧、dictionary collision/full、coefficient/probe overflow，以及投影邻居奇点、退化、NaN 和 1e-30–1e30 共同尺度。解析权重最大误差 `4.8837144e-7`，梯度 `1.9343742e-7`；hardware basis 最大差 `0.000162065` 在该 fixture 独立 `0.00025` 预算内。初始 hardware `0.00003` 预算失败已保留；未裁剪透视 fixture 的独立 1/256 pixel 顶点量化参考与 hardware 最大差 `1.5136974e-7`，定位了其 subpixel snapping 来源，未靠放宽解析 oracle 掩盖误差。
+
+build（含 typecheck）、build:test 和 6 项 focused tests 通过；API validation/uncaptured errors、device loss 为零。Dawn 仍有其他 adapter 初始化 `0x887A0020` 与 pipeline cached blob `0x8000FFFF` 原生诊断。**这不是 Chrome/整帧/性能通过；S2/R02/R03/R08 仍未完成**：真实 GPU Scene/ordinary/Product residency 的准备与物理字节、Raster/Surface 生产切换、活跃属性/法线切线及 source-domain/LOD mapping 尚未接完。测试中的共享 clip producer 是独立 fixture，不能替代生产 frame geometry owner。S1 的 live dynamics/coverage 与 S3–S7 全部保留；旧 Surface 帧消费者本轮未修改。
+
 ## 3. 设计要求到证明的追踪
 
 所有条目初始为未完成。对应证据必须指出生产 producer、consumer 和测试覆盖范围；文件存在或 manifest 声称 completed 都不能替代证明。

@@ -9,9 +9,9 @@ goal: Complete the cached Surface final architecture, including material compila
 
 currentSlice:
   id: surface-cached-shading-material-foundations
-  title: Surface 缓存重构 S1：材质图编译与 Appearance 产品
+  title: Surface 缓存重构：材质发布与共享几何依赖
   status: active
-  goal: 完整实现最终设计的材质表达图、输出与通道依赖、常量和等价采样优化、静态/动态产品及生产发布，随后直接替换几何和 Surface/Lighting 主链；不把简单全率优化当成整个重构。
+  goal: 继续接通 S1 的 live dynamic/coverage 消费和 S2 的真实 residency 属性、共享帧几何与稳定 LOD 地址；获胜 primitive 系数组件已通过独立 GPU 对照，但新 Surface/Lighting 主链尚未切入，S1/S2 不标完成，S3–S7 保持完整范围。
 
 nextModules:
   - id: sssr

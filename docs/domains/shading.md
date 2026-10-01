@@ -43,6 +43,12 @@ These are semantic candidates, not allocated attachments. The current physical p
 
 Finite future candidates are register-only reconstruction, a same-kernel `CompactNormalRoughness` sidecar after a real SSSR demand, and an alternate layout that reuses a measured free texture slot. None is activated for Module C.
 
+## Cached Surface winner interpolation component
+
+`WinnerPrimitiveInterpolation` now owns frame-local GPU winner demand, a bounded dictionary/compact work pool, 48-byte homogeneous coefficients and GPU indirect setup. `winnerPrimitiveConsumerWgsl` consumes published records or directly builds coefficients from the same shared clip geometry when the dictionary/coefficient budget misses. It never decodes original geometry, waits for a CPU work decision, or falls back to the old workgroup Setup. Current interpolation and the two one-pixel footprints have independent validity. Normal shader profiles omit observational atomics; control reservations remain. Explicit async pipelines and preflighted allocations are reused, accounted and destroyed on device loss. Indirect arguments have a separate producer binding scope to avoid simultaneous writable-storage/indirect use.
+
+The independent GPU diagnostic shares fixture-produced clip transforms between actual hardware raster and the actual winner consumer. It covers 26 case/frames, 19,874 covered pixels, clipping and zero/negative W, independent shifted double solves, collision/full/overflow, zero work and repeated frames. This is component evidence only: resident attributes, actual GPU Scene/Product frame geometry, active attributes, source-domain LOD mapping and the new Surface frame consumer are not connected. The old production Surface remains as described above; S2 and source adoption are incomplete. See [source mapping](../porting/next-renderer.md) and [diagnostic host](../../validation/labs/surface-geometry/README.md).
+
 ## Ownership and status
 
 Shading owns `render/surface/SurfaceMaterialPass.ts`, `SurfaceSampleAbi.ts`, `SurfaceProbePass.ts`, `SurfaceProducts.ts`, `SurfaceKernelBindingPlan.ts`, `shaders/surface_sample_work.ts`, `surface_sample_worker.ts`, `surface_sample_resolve.ts`, `surface_sample_result.ts`, `surface_triangle_setup.ts`, `SurfaceGpuCounters.ts` and the extracted geometry/material/lighting math. Visibility owns hit production; texture residency owns physical texture availability; Renderer composes them. Invalid identity writes an explicit Surface error, and multi-pool overflow is resolved per tile on the GPU without a same-frame CPU decision.
