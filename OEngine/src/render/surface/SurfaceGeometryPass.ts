@@ -2,7 +2,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
-import { SURFACE_GEOMETRY_RECORD_STRIDE, SURFACE_WORK_HEADER_WGSL } from "../../gpu/GpuSurfaceWorkAbi.js";
+import { SURFACE_GEOMETRY_RECORD_STRIDE, SURFACE_WORK_HEADER_WGSL, SURFACE_WORK_INDIRECT_OFFSET } from "../../gpu/GpuSurfaceWorkAbi.js";
 import { winnerPrimitiveArenaConsumerWgsl } from "../../shaders/winner_primitive_work.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_INSTANCE_RECORD_WGSL } from "../../gpu/GpuInstanceAbi.js";
@@ -40,6 +40,7 @@ export interface SurfaceGeometryInput {
   readonly sampleOffset: number;
   readonly recordCount: number;
   readonly geometryCapacity: number;
+  readonly counts: ResourceId;
 }
 
 const GEOMETRY_WGSL = /* wgsl */ `
@@ -68,6 +69,7 @@ struct Settings {
 @group(0) @binding(9) var<uniform> camera: CommandEncoder;
 @group(0) @binding(10) var<storage, read_write> records: array<vec4f>;
 @group(0) @binding(11) var<storage, read_write> record_count: array<atomic<u32>>;
+@group(0) @binding(12) var<storage, read> surface_counts: array<u32>;
 
 fn attribute_at(ids: vec3u, weights: vec3f, field: u32) -> vec4f {
   if surface_direct_source { return surface_source_attribute(ids, weights, field); }
@@ -88,8 +90,9 @@ fn hash_word(value: u32, seed: u32) -> u32 {
 @compute @workgroup_size(64)
 fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   let record = id.x;
-  if record >= settings.record_count || record >= settings.capacity { return; }
-  if record == 0u { atomicStore(&record_count[0], settings.record_count); }
+  let actual_count = min(settings.record_count, surface_counts[0u]);
+  if record >= actual_count || record >= settings.capacity { return; }
+  if record == 0u { atomicStore(&record_count[0], actual_count); }
   let sample_at = settings.sample_offset / 4u + record * 8u;
   let pixel = work[sample_at];
   let x = pixel % settings.width;
@@ -188,7 +191,8 @@ export class SurfaceGeometryPass {
       { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 256 } },
       { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
     ] });
     this.pipeline = device.createComputePipeline({ label: "Surface/GeometryRecord", layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: { module: device.createShaderModule({ label: "Surface Geometry Record", code: GEOMETRY_WGSL }), entryPoint: "resolve_geometry" } });
@@ -198,6 +202,7 @@ export class SurfaceGeometryPass {
     let records!: ResourceId;
     const node = graph.add("Surface/GeometryRecord", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
+      command.writeBuffer(resources.get(count) as GPUBuffer, 0, new Uint32Array(4).buffer, 0, 16);
       const settings = new Uint32Array([
         data.width, data.height, Math.ceil(data.width / 8), data.frameAt,
         data.directoryAt, data.sampleOffset, data.geometryOffset, data.geometryCapacity,
@@ -219,20 +224,22 @@ export class SurfaceGeometryPass {
         { binding: 8, resource: { buffer: resources.get(data.frameAttributes) as GPUBuffer } },
         { binding: 9, resource: { buffer: resources.get(data.camera) as GPUBuffer } },
         { binding: 10, resource: { buffer: resources.get(records) as GPUBuffer } },
-        { binding: 11, resource: { buffer: resources.get(count) as GPUBuffer } }
+        { binding: 11, resource: { buffer: resources.get(count) as GPUBuffer } },
+        { binding: 12, resource: { buffer: resources.get(data.counts) as GPUBuffer } }
       ] });
       const pass = command.beginComputePass({ label: "Surface/GeometryRecord" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil(data.recordCount / 64)); pass.end();
+      pass.dispatchWorkgroupsIndirect(resources.get(data.counts) as GPUBuffer, SURFACE_WORK_INDIRECT_OFFSET); pass.end();
     });
     for (const resource of [input.visibility, input.work, input.arena, input.meshletWork,
       input.sourceHeap, input.vertexPayload, input.frameInstances, input.frameAttributes, input.camera]) node.read(resource);
+    node.read(input.counts);
     records = node.create("Surface/GeometryRecord buffer", { kind: "transient_buffer",
       size: input.geometryOffset + input.geometryCapacity * SURFACE_GEOMETRY_RECORD_STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, domain: "internal-full" });
     node.write(records);
     const count = node.create("Surface/GeometryRecord count", { kind: "transient_buffer", size: 16,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, domain: "internal-full" });
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     node.write(count);
     return { records, count };
   }

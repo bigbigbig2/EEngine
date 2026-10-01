@@ -42,7 +42,7 @@ SurfaceWork 的 packet/reconstruct owner 负责未来的 signal history 资源�
 
 | 原文目标 | 当前差距 |
 | --- | --- |
-| implicit/uniform/mixed SurfaceWork，不全员 pixel task | 当前 tile/sample classifier 已建立固定前缀和 bounded sample 分区；mixed tile 的完整 mask 压缩与容量统计仍需验收 |
+| implicit/uniform/mixed SurfaceWork，不全员 pixel task | 64-lane tile classifier 已发布三类覆盖、bounded sample/exception、indirect count 和 sample map；Product/形变输入与数值/性能验收仍待完成 |
 | 唯一 SurfaceGeometryRecord | 已由 `SurfaceGeometryPass` 生产；skin/morph、Product 跨 LOD/source/seam 对应仍有缺口 |
 | lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，hit mask 已生成但尚未被 GeometryRecord 消费；完整 publication kernel miss evaluation 未接通 |
 | 独立 diffuse/specular/coat/IBL work | 四类 packet 已独立资源和 counters；cluster、VSM、AO、physical/authored IBL provider 尚未接线 |

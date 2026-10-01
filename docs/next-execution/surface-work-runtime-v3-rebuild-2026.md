@@ -8,7 +8,7 @@
 
 源码核对基线为 `11d906ab`（历史切断基线仍为 `e7296be9`）。旧 SurfaceMaterialPass/Probe/sample producer 已从生产链删除；当前 FrameProgramLowering 实际连接的是 Visibility/TemporalFacts → SurfaceWorkRuntime（classify、lookup、GeometryRecord、miss evaluation、独立 packet、reconstruct）→ Sky/Aerial/FSR3/显示。完整 cluster/VSM/AO/IBL provider 与 history 仍未完成。
 
-当前源码已切断全有效像素 Appearance demand、独立 geometry inputs 和旧 SparseLighting prepare_surface；SurfaceWork 已注册 tile/sample lookup、唯一 GeometryRecord、miss field evaluation、独立 packet 和 cheap reconstruct 的结构边。当前 classify 主要写每个 8×8 tile 的代表 sample，完整 implicit/uniform/mixed 覆盖、publication kernel、cluster/VSM/AO/IBL provider、signal history 和性能闭环仍未完成，不能据此宣称最终算法或性能已经完成。
+当前源码已切断全有效像素 Appearance demand、独立 geometry inputs 和旧 SparseLighting prepare_surface；SurfaceWork 已注册 tile/sample lookup、implicit/uniform/mixed classify、bounded sample/exception、唯一 GeometryRecord、miss field evaluation、独立 packet 和 cheap reconstruct 的结构边。GeometryRecord 尚未消费 hit mask，完整 publication kernel、完整 key、cluster/VSM/AO/IBL provider、signal history 和性能闭环仍未完成，不能据此宣称最终算法或性能已经完成。
 
 最终完成条件（不是当前源码事实）必须同时满足：
 
@@ -64,13 +64,13 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 保留最终需要的数学、资源 owner 和 GPU 产品；不建立 adapter、空 provider、旧 consumer 或兼容测试桥。已删除旧 Surface pass、独立 geometry input shader 与旧 FrameProgram owner 接线，并停止 publication 创建旧 frame task/result/geometry work buffer；Phase 1 未运行编译、测试或 GPU/browser 验证。
 
-### Phase 2：统一 SurfaceWork 与 GeometryRecord（结构完成，算法验收待做）
+### Phase 2：统一 SurfaceWork 与 GeometryRecord（实现完成，验收待做）
 
 实现 SurfaceWorkHeader、TileDescriptor、SampleRecord、ExceptionRecord、CounterBlock 的固定前缀和分区；为 implicit/uniform/mixed work 明确覆盖、写域、容量与二维 indirect。
 
-已加入 `GpuSurfaceWorkAbi.ts`、`SurfaceWorkRuntime.ts` 和 `SurfaceGeometryPass.ts`，建立固定前缀、分区容量和唯一 GeometryRecord FrameGraph 边。GeometryRecord 现读取 MeshletWork、FrameGeometry、FrameAttributes、FrameInstances、asset heap、vertex payload 和 camera，发布真实位置/法线/切线/UV/导数/身份/signature；但 classify 尚未实现完整 implicit/uniform/mixed 覆盖，Product/形变对应仍有缺口。Phase 2 的结构接线已完成，算法与正式验收未完成。
+已加入 `GpuSurfaceWorkAbi.ts`、`SurfaceWorkRuntime.ts` 和 `SurfaceGeometryPass.ts`，classify 现在以 64-lane workgroup 扫描每个 8×8 tile，发布 implicit/uniform/mixed 分类、bounded sample/exception、GPU sample counter、indirect args 和 per-pixel sample map；GeometryRecord 读取动态 sample count、MeshletWork、FrameGeometry、FrameAttributes、FrameInstances、asset heap、vertex payload 和 camera，发布真实位置/法线/切线/UV/导数/身份/signature。Product/形变对应仍有缺口，数值、容量、浏览器和性能验收尚未运行；Phase 2 实现完成，验收待 Phase 7。
 
-### Phase 3：Appearance 改为 miss-only demand（主链完成，publication kernel 待接通）
+### Phase 3：Appearance 改为 miss-only demand（结构接线完成，publication kernel 待接通）
 
 扩展现有 AppearanceGraphCompiler 输出 constant/static/stable-local/geometry/view/nonlocal、signal rate、full-rate requirement、texture variation 和可融合属性；不建立第二套材质系统。
 

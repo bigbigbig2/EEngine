@@ -9,6 +9,19 @@ export const SURFACE_COUNTER_BLOCK_STRIDE = 128;
 export const SURFACE_GEOMETRY_RECORD_STRIDE = 192;
 export const SURFACE_WORK_TILE_SIZE = 8;
 
+// SurfaceWork counter buffer layout. The first four words are atomics while
+// the indirect dispatch triplet starts at byte 16 and is written by finalize.
+export const SURFACE_WORK_COUNT_SAMPLE = 0;
+export const SURFACE_WORK_COUNT_EXCEPTION = 1;
+export const SURFACE_WORK_COUNT_OVERFLOW = 2;
+export const SURFACE_WORK_COUNT_VISIBLE = 3;
+export const SURFACE_WORK_COUNT_IMPLICIT = 4;
+export const SURFACE_WORK_COUNT_UNIFORM = 5;
+export const SURFACE_WORK_COUNT_MIXED = 6;
+export const SURFACE_WORK_COUNT_GEOMETRY = 7;
+export const SURFACE_WORK_INDIRECT_OFFSET = 32;
+export const SURFACE_WORK_COUNTER_BYTES = 64;
+
 export const SURFACE_WORK_OVERFLOW = Object.freeze({
   tile: 1,
   sample: 2,

@@ -17,12 +17,14 @@ struct Settings { width:u32, height:u32, tiles_x:u32, record_count:u32, pre_expo
 @group(0) @binding(7) var output:texture_storage_2d<rgba16float,write>;
 @group(0) @binding(8) var reactive:texture_storage_2d<rgba8unorm,write>;
 @group(0) @binding(9) var<storage,read> pre_exposure:array<f32>;
+@group(0) @binding(10) var sample_map:texture_2d<u32>;
 @compute @workgroup_size(8,8)
 fn reconstruct(@builtin(global_invocation_id) id:vec3u){
   if id.x>=settings.width||id.y>=settings.height{return;}
-  let tile=(id.y/8u)*settings.tiles_x+(id.x/8u); let record=min(tile,settings.record_count-1u); let facts=textureLoad(source_reactive,vec2i(id.xy),0);
-  let valid=facts.y>0.5 && facts.z<0.5; let color=diffuse[record].xyz+specular[record].xyz+coat[record].xyz+ibl[record].xyz;
-  let exposure=max(pre_exposure[0],1e-4); textureStore(output,vec2i(id.xy),vec4f(select(vec3f(0.0),color*exposure,valid),select(0.0,1.0,valid))); textureStore(reactive,vec2i(id.xy),vec4f(max(facts.x,select(0.0,0.35,!valid)),facts.yzw));
+  let record=textureLoad(sample_map,vec2i(id.xy),0).x; let facts=textureLoad(source_reactive,vec2i(id.xy),0);
+  let valid=record<settings.record_count && record!=0xffffffffu && facts.y>0.5 && facts.z<0.5;
+  var color=vec3f(0.0); if valid { color=diffuse[record].xyz+specular[record].xyz+coat[record].xyz+ibl[record].xyz; }
+  let exposure=max(pre_exposure[0],1e-4); textureStore(output,vec2i(id.xy),vec4f(color*exposure,select(0.0,1.0,valid))); textureStore(reactive,vec2i(id.xy),vec4f(max(facts.x,select(0.0,0.35,!valid)),facts.yzw));
 }
 `;
 
@@ -36,20 +38,21 @@ export class SurfaceReconstructionPass {
       {binding:6,visibility:GPUShaderStage.COMPUTE,texture:{sampleType:"float"}},
       {binding:7,visibility:GPUShaderStage.COMPUTE,storageTexture:{access:"write-only",format:"rgba16float"}},
       {binding:8,visibility:GPUShaderStage.COMPUTE,storageTexture:{access:"write-only",format:"rgba8unorm"}},
-      {binding:9,visibility:GPUShaderStage.COMPUTE,buffer:{type:"read-only-storage"}}
+      {binding:9,visibility:GPUShaderStage.COMPUTE,buffer:{type:"read-only-storage"}},
+      {binding:10,visibility:GPUShaderStage.COMPUTE,texture:{sampleType:"uint",viewDimension:"2d"}}
     ]});
     this.pipeline=device.createComputePipeline({label:"Surface/cheap reconstruct",layout:device.createPipelineLayout({bindGroupLayouts:[this.layout]}),compute:{module:device.createShaderModule({code:RECONSTRUCT_WGSL}),entryPoint:"reconstruct"}});
   }
-  addToGraph(graph:FrameGraph,input:{diffuse:ResourceId;specular:ResourceId;coat:ResourceId;ibl:ResourceId;geometry:ResourceId;reactive:ResourceId;preExposure:ResourceId;width:number;height:number;recordCount:number}):SurfaceReconstructionProducts{
+  addToGraph(graph:FrameGraph,input:{diffuse:ResourceId;specular:ResourceId;coat:ResourceId;ibl:ResourceId;geometry:ResourceId;reactive:ResourceId;preExposure:ResourceId;sampleMap:ResourceId;width:number;height:number;recordCount:number}):SurfaceReconstructionProducts{
     let radiance!:ResourceId,reactiveMask!:ResourceId;
     const node=graph.add("Surface/cheap full-resolution reconstruct",input,(data,resources,context)=>{
       const command=context.encoder as ShadeGPUCommandContext; const settings=new ArrayBuffer(32); const view=new DataView(settings); view.setUint32(0,data.width,true); view.setUint32(4,data.height,true); view.setUint32(8,Math.ceil(data.width/8),true); view.setUint32(12,data.recordCount,true); view.setFloat32(16,1,true); command.writeBuffer(this.settings,0,settings,0,settings.byteLength);
       const group=this.device.createBindGroup({layout:this.layout,entries:[
-        {binding:0,resource:{buffer:this.settings}},{binding:1,resource:{buffer:resources.get(data.diffuse) as GPUBuffer}},{binding:2,resource:{buffer:resources.get(data.specular) as GPUBuffer}},{binding:3,resource:{buffer:resources.get(data.coat) as GPUBuffer}},{binding:4,resource:{buffer:resources.get(data.ibl) as GPUBuffer}},{binding:5,resource:{buffer:resources.get(data.geometry) as GPUBuffer}},{binding:6,resource:resolveTextureView(resources.get(data.reactive))},{binding:7,resource:resolveTextureView(resources.get(radiance))},{binding:8,resource:resolveTextureView(resources.get(reactiveMask))},{binding:9,resource:{buffer:resources.get(data.preExposure) as GPUBuffer}}
+        {binding:0,resource:{buffer:this.settings}},{binding:1,resource:{buffer:resources.get(data.diffuse) as GPUBuffer}},{binding:2,resource:{buffer:resources.get(data.specular) as GPUBuffer}},{binding:3,resource:{buffer:resources.get(data.coat) as GPUBuffer}},{binding:4,resource:{buffer:resources.get(data.ibl) as GPUBuffer}},{binding:5,resource:{buffer:resources.get(data.geometry) as GPUBuffer}},{binding:6,resource:resolveTextureView(resources.get(data.reactive))},{binding:7,resource:resolveTextureView(resources.get(radiance))},{binding:8,resource:resolveTextureView(resources.get(reactiveMask))},{binding:9,resource:{buffer:resources.get(data.preExposure) as GPUBuffer}},{binding:10,resource:resolveTextureView(resources.get(data.sampleMap))}
       ]});
       const pass=command.beginComputePass({label:"Surface/reconstruct"}); pass.setPipeline(this.pipeline); pass.setBindGroup(0,group); pass.dispatchWorkgroups(Math.ceil(data.width/8),Math.ceil(data.height/8)); pass.end();
     });
-    for(const id of [input.diffuse,input.specular,input.coat,input.ibl,input.geometry,input.reactive,input.preExposure]) node.read(id);
+    for(const id of [input.diffuse,input.specular,input.coat,input.ibl,input.geometry,input.reactive,input.preExposure,input.sampleMap]) node.read(id);
     radiance=node.create("Surface/HDR reconstructed",{kind:"transient_texture",width:input.width,height:input.height,format:"rgba16float",usage:GPUTextureUsage.STORAGE_BINDING|GPUTextureUsage.TEXTURE_BINDING,domain:"internal-full"}); reactiveMask=node.create("Surface/reactive reconstructed",{kind:"transient_texture",width:input.width,height:input.height,format:"rgba8unorm",usage:GPUTextureUsage.STORAGE_BINDING|GPUTextureUsage.TEXTURE_BINDING,domain:"internal-full"}); node.write(radiance); node.write(reactiveMask);
     return {radiance,reactiveMask};
   }
