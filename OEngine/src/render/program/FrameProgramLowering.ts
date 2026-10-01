@@ -344,7 +344,15 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   const surfaceWork = owners.surfaceWork.addToGraph(graph, {
     visibility: result.frame.visibilityKey,
     arena: result.frame.frameGeometry,
+    meshletWork: result.frame.meshletWork.records,
+    sourceHeap: geometryMetadata,
+    vertexPayload,
+    frameInstances: result.frame.frameInstances,
+    frameAttributes: result.frame.frameAttributes,
+    camera: cameraBuffer,
     factsMask: facts.mask,
+    preExposure: gpuPreviousExposure,
+    residencyVersions: textureResidencyVersions,
     fieldVersions: graph.import_resource("surface-field-versions", { kind: "imported", label: "published surface field versions" },
       bind("surface-field-versions", bindings => {
         if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
@@ -357,7 +365,12 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       arenaHeaderOffset: bindings.job.prepared.workSet.frameGeometry.layout.header.offset,
       directoryOffset: bindings.job.prepared.currentHzbLateRecheck !== null
         ? bindings.job.prepared.workSet.frameGeometry.layout.filteredDirectory.offset
-        : bindings.job.prepared.workSet.frameGeometry.layout.sourceDirectory.offset
+        : bindings.job.prepared.workSet.frameGeometry.layout.sourceDirectory.offset,
+      sourceGeometry: bindings.job.assets.sparseShading.geometryWordBase,
+      sourceMeshlet: bindings.job.assets.sparseShading.meshletWordBase,
+      sourceMeshletVertices: bindings.job.assets.sparseShading.meshletVertexWordBase,
+      sourceMeshletTriangles: bindings.job.assets.sparseShading.meshletTriangleWordBase,
+      sourceVertexData: bindings.job.assets.sparseShading.vertexDataWordBase
     }))
   });
   const previousIdentity = graph.import_resource("Lighting/previous Temporal identity", { kind: "imported" },

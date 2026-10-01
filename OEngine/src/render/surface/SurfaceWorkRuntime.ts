@@ -54,13 +54,6 @@ fn classify(@builtin(global_invocation_id) id: vec3u) {
 }
 `;
 
-const CLEAR_WGSL = /* wgsl */ `
-@group(0) @binding(0) var output: texture_storage_2d<rgba16float,write>;
-@group(0) @binding(1) var reactive: texture_storage_2d<rgba8unorm,write>;
-@compute @workgroup_size(8,8)
-fn clear(@builtin(global_invocation_id) id: vec3u) { textureStore(output,vec2i(id.xy),vec4f(0.0)); textureStore(reactive,vec2i(id.xy),vec4f(0.0)); }
-`;
-
 export class SurfaceWorkRuntime {
   private readonly geometry: SurfaceGeometryPass;
   private readonly material: SurfaceMaterialCachePass;
@@ -68,8 +61,6 @@ export class SurfaceWorkRuntime {
   private readonly reconstruction: SurfaceReconstructionPass;
   private readonly classifyLayout: GPUBindGroupLayout;
   private readonly classifyPipeline: GPUComputePipeline;
-  private readonly clearLayout: GPUBindGroupLayout;
-  private readonly clearPipeline: GPUComputePipeline;
   private readonly settings: GPUBuffer;
   private prepared = false;
   private destroyed = false;
@@ -91,12 +82,6 @@ export class SurfaceWorkRuntime {
     ] });
     this.classifyPipeline = device.createComputePipeline({ label: "SurfaceWork/classify", layout: device.createPipelineLayout({ bindGroupLayouts: [this.classifyLayout] }),
       compute: { module: device.createShaderModule({ code: CLASSIFY_WGSL }), entryPoint: "classify" } });
-    this.clearLayout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba8unorm" } }
-    ] });
-    this.clearPipeline = device.createComputePipeline({ label: "SurfaceWork/clear outputs", layout: device.createPipelineLayout({ bindGroupLayouts: [this.clearLayout] }),
-      compute: { module: device.createShaderModule({ code: CLEAR_WGSL }), entryPoint: "clear" } });
   }
 
   prepareFrame(width: number, height: number): void {
@@ -104,7 +89,11 @@ export class SurfaceWorkRuntime {
     this.layout = surfaceWorkLayout(width, height, this.budget, this.device.limits); this.prepared = true;
   }
 
-  addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; fieldVersions: ResourceId; factsMask: ResourceId; width: number; height: number; frame: SurfaceWorkFrame }): SurfaceWorkProducts {
+  addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; meshletWork: ResourceId;
+    sourceHeap: ResourceId; vertexPayload: ResourceId; frameInstances: ResourceId; frameAttributes: ResourceId;
+    camera: ResourceId; fieldVersions: ResourceId; residencyVersions: ResourceId; factsMask: ResourceId; preExposure: ResourceId; width: number; height: number;
+    frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
+      sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
     const layout = this.layout;
     let work!: ResourceId;
@@ -127,32 +116,26 @@ export class SurfaceWorkRuntime {
     classify.read(input.visibility);
     work = classify.create("SurfaceWork frame partitions", { kind: "transient_buffer", size: layout.geometryOffset,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, domain: "internal-full" }); classify.write(work);
-    const geometry = this.geometry.addToGraph(graph, { visibility: input.visibility, work, arena: input.arena, width: input.width,
-      height: input.height, frameAt: input.frame.arenaHeaderOffset / 4, directoryAt: input.frame.directoryOffset / 4,
-      sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset, geometryCapacity: layout.geometryCapacity, bind: () => undefined });
     const recordCount = Math.ceil(input.width / 8) * Math.ceil(input.height / 8);
-    const material = this.material.addToGraph(graph, { geometry: geometry.records, width: input.width, height: input.height,
-      recordCount, fieldVersions: input.fieldVersions, frame: input.frame.generation });
+    const material = this.material.addLookupToGraph(graph, { visibility: input.visibility, work,
+      meshletWork: input.meshletWork, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions,
+      width: input.width, height: input.height, recordCount, sampleOffset: layout.sampleOffset, frame: input.frame.generation });
+    const geometry = this.geometry.addToGraph(graph, { visibility: input.visibility, work, arena: input.arena,
+      meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
+      frameInstances: input.frameInstances, frameAttributes: input.frameAttributes, camera: input.camera,
+      width: input.width,
+      height: input.height, frameAt: input.frame.arenaHeaderOffset / 4, directoryAt: input.frame.directoryOffset / 4,
+      sourceGeometry: input.frame.sourceGeometry, sourceMeshlet: input.frame.sourceMeshlet,
+      sourceMeshletVertices: input.frame.sourceMeshletVertices, sourceMeshletTriangles: input.frame.sourceMeshletTriangles,
+      sourceVertexData: input.frame.sourceVertexData,
+      sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset, geometryCapacity: layout.geometryCapacity });
+    this.material.addEvaluateToGraph(graph, { ...material, geometry: geometry.records, width: input.width, height: input.height,
+      recordCount, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions, frame: input.frame.generation });
     const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: material.fields,
       width: input.width, height: input.height, recordCount, frame: input.frame.generation });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
       coat: lighting.coatPackets, ibl: lighting.iblPackets, geometry: geometry.records, reactive: input.factsMask,
-      width: input.width, height: input.height, recordCount });
-    let radiance!: ResourceId;
-    let reactiveMask!: ResourceId;
-    const outputs = graph.add("SurfaceWork/cheap output initialization", { width: input.width, height: input.height }, (data, resources, context) => {
-      const command = context.encoder as ShadeGPUCommandContext;
-      const group = this.device.createBindGroup({ layout: this.clearLayout, entries: [
-        { binding: 0, resource: resolveTextureView(resources.get(radiance)) }, { binding: 1, resource: resolveTextureView(resources.get(reactiveMask)) }
-      ] });
-      const pass = command.beginComputePass({ label: "SurfaceWork/outputs" }); pass.setPipeline(this.clearPipeline); pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8)); pass.end();
-    });
-    radiance = outputs.create("SurfaceWork/radiance", { kind: "transient_texture", width: input.width, height: input.height,
-      format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
-    reactiveMask = outputs.create("SurfaceWork/reactive", { kind: "transient_texture", width: input.width, height: input.height,
-      format: "rgba8unorm", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
-    outputs.write(radiance); outputs.write(reactiveMask);
+      preExposure: input.preExposure, width: input.width, height: input.height, recordCount });
     return { work, records: geometry.records, count: geometry.count, ...material, ...lighting, ...reconstruction };
   }
 
