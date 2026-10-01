@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { compileCanonicalMaterial } from "../../.test-dist/material/CanonicalMaterial.js";
+import { updateAppearanceFieldVersions } from "../../.test-dist/material/AppearanceFieldIdentity.js";
 import { AppearanceProgramRegistry } from "../../.test-dist/gpu/AppearanceProgramRegistry.js";
 
 installWebGpuConstants();
@@ -1490,6 +1491,7 @@ function createPackedRegistryFixture() {
           },
           associationSlots: associations.map((_association, index) => 7 + index),
           appearancePrograms: associations.map(association => compileCanonicalMaterial(association.material).appearance),
+          appearanceFieldVersions: associations.map(association => updateAppearanceFieldVersions(compileCanonicalMaterial(association.material).appearance)),
           materialGeneration: 1,
           textureGeneration: 1,
           publicationRevision: 1

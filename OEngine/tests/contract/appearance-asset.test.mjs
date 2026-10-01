@@ -41,6 +41,7 @@ test("portable half-field asset round-trips NPOT mips, narrow formats, HDR/signe
     assert.equal(decodeFloat16(view.getUint16(0, true)), 0.25);
   }
   assert.deepEqual(new Uint8Array(await writeAppearanceAssetPackage(p, source)), new Uint8Array(bytes));
+  assert.deepEqual(new Uint8Array(await writeAppearanceAssetPackage(p, { ...source, contentHash: source.contentHash.toUpperCase() })), new Uint8Array(bytes));
 });
 
 test("asset packing rejects pre-quantization products and forged unquantized texels", async () => {
@@ -56,7 +57,7 @@ test("tampered payload checksum and authentic but inconsistent typed metadata ar
   new Uint8Array(corrupted)[offset] ^= 1;
   await assert.rejects(openAppearanceAssetPackage(corrupted), /checksum|hash/i);
   const metadata = JSON.parse(new TextDecoder().decode(a.runtime.chunks.get("appearance-metadata")));
-  metadata.fields.find(field => field.name === "r").width = 4;
+  metadata.fields.find(field => field.name === "r").format = "rgba16float";
   const revised = new TextEncoder().encode(JSON.stringify(metadata));
   const chunks = a.runtime.manifest.chunks.map(chunk => ({ ...chunk,
     data: chunk.id === "appearance-metadata" ? revised : a.runtime.chunks.get(chunk.id),
@@ -80,6 +81,13 @@ function uploadFixture(a) {
   return { device, command, destinations, copies, staging };
 }
 const budget = { maxUploadBytes: 4096, maxStagingBytes: 4096, maxResidentBytes: 4096 };
+
+test("an authentic manifest cannot alias a different Appearance assetId to the same physical contents", async () => {
+  const a = await asset(), { chunks: _chunks, schemaVersion: _schema, ...manifest } = a.runtime.manifest;
+  const chunks = a.runtime.manifest.chunks.map(chunk => ({ ...chunk, data: a.runtime.chunks.get(chunk.id) }));
+  const bytes = await writeRuntimeAssetPackageV2({ manifest: { ...manifest, assetId: "f".repeat(64) }, chunks });
+  await assert.rejects(openAppearanceAssetPackage(bytes), /assetId.*validated content/);
+});
 
 test("transactional asset upload pads rows, copies all mips/layers and commits only at submission", async () => {
   const a = await asset(), f = uploadFixture(a);

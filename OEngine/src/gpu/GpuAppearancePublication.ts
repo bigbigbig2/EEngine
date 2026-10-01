@@ -12,11 +12,14 @@ import { AppearanceStaticResidency, appearanceStaticTextureKey, type AppearanceS
 import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js";
 
 export const APPEARANCE_DIRECTORY_STRIDE = 32;
+/** u32 version, scalar output base, width, dependency mask. */
+export const APPEARANCE_FIELD_RECORD_STRIDE = 16;
 
 export interface AppearancePublicationSource {
   readonly materialSlot: number;
   readonly textureBindingSetId: number;
   readonly program: CompiledAppearanceGraph;
+  readonly fieldVersions?: ReadonlyMap<string, { readonly version: number }>;
   readonly textureRefs: ReadonlyMap<ShadeTexture, number>;
 }
 
@@ -31,6 +34,7 @@ export interface AppearancePublishedEntry {
   readonly kernel: AppearanceResidentKernel;
   readonly program: CompiledAppearanceGraph;
   readonly productTextures: readonly GPUTexture[];
+  readonly fieldBase: number;
 }
 
 /** Immutable, actual-sized scene publication. Owns buffers and program leases. */
@@ -38,7 +42,8 @@ export class GpuAppearancePublication {
   readonly entries: readonly AppearancePublishedEntry[];
   readonly constants: GPUBuffer;
   readonly routes: GPUBuffer;
-  /** Eight u32s per association: material, PSO, constants, routes, resource set, then reserved. */
+  readonly fields: GPUBuffer;
+  /** Eight u32s: material, PSO, constants, routes, resources, field base, field count, reserved. */
   readonly directory: GPUBuffer;
   readonly allocatedBytes: number;
   readonly ready: Promise<void>;
@@ -65,6 +70,7 @@ export class GpuAppearancePublication {
     const leaseIndices = new Map<string, number>();
     const resourceSets = new Map<string, number>();
     const constants: number[] = [];
+    const fields: number[] = [];
     const routes: ArrayBuffer[] = [];
     const directoryWords = APPEARANCE_DIRECTORY_STRIDE / 4;
     const directory = new Uint32Array(sources.length * directoryWords);
@@ -121,19 +127,28 @@ export class GpuAppearancePublication {
           leaseIndices.set(kernelKey, programIndex);
         }
         const constantBase = constants.length;
+        const fieldBase = fields.length / (APPEARANCE_FIELD_RECORD_STRIDE / 4);
+        for (const [name, outputs] of Object.entries(kernel.lowered.outputSlots)) {
+          const version = source.fieldVersions === undefined ? 1 : source.fieldVersions.get(name)?.version;
+          if (version === undefined || !Number.isInteger(version) || version < 1 || version > 0xffffffff) throw new RangeError("Appearance output field requires a nonzero u32 version");
+          const dependency = source.program.outputs[name]!.reduce((mask, ref) => mask | source.program.instructions[ref]!.dependency, 0);
+          fields.push(version, outputs[0]!, outputs.length, dependency);
+        }
         // Values must come from this instance even when its topology reuses a kernel.
         constants.push(...candidate.lowered.constants);
         entries.push(Object.freeze({ materialSlot: source.materialSlot, textureBindingSetId: source.textureBindingSetId,
-          constantBase, routeBase, programIndex, resourceSetIndex, kernel, program: source.program, productTextures }));
-        directory.set([source.materialSlot, programIndex, constantBase, routeBase, resourceSetIndex, 0, 0, 0], index * directoryWords);
+          constantBase, routeBase, programIndex, resourceSetIndex, kernel, program: source.program, productTextures, fieldBase }));
+        directory.set([source.materialSlot, programIndex, constantBase, routeBase, resourceSetIndex, fieldBase,
+          Object.keys(kernel.lowered.outputSlots).length, 0], index * directoryWords);
       }
       const constantData = new Float32Array(Math.max(constants.length, 1));
       constantData.set(constants);
       const routeData = new Uint8Array(Math.max(routes.length, 1) * APPEARANCE_ROUTE_STRIDE);
       routes.forEach((route, index) => routeData.set(new Uint8Array(route), index * APPEARANCE_ROUTE_STRIDE));
       const directoryData = sources.length === 0 ? new Uint32Array(directoryWords) : directory;
+      const fieldData = new Uint32Array(Math.max(fields.length, APPEARANCE_FIELD_RECORD_STRIDE / 4)); fieldData.set(fields);
       const maximum = Math.min(Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize));
-      for (const data of [constantData, routeData, directoryData]) if (data.byteLength > maximum) {
+      for (const data of [constantData, routeData, directoryData, fieldData]) if (data.byteLength > maximum) {
         throw new RangeError(`Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`);
       }
       // Publication byte admission precedes every shader/layout/pipeline/buffer creation.
@@ -149,7 +164,8 @@ export class GpuAppearancePublication {
       this.constants = this.upload(device, command, "constants", constantData);
       this.routes = this.upload(device, command, "routes", routeData);
       this.directory = this.upload(device, command, "directory", directoryData);
-      this.allocatedBytes = constantData.byteLength + routeData.byteLength + directoryData.byteLength;
+      this.fields = this.upload(device, command, "fields", fieldData);
+      this.allocatedBytes = constantData.byteLength + routeData.byteLength + directoryData.byteLength + fieldData.byteLength;
       this.entries = Object.freeze(entries);
       this.leases = Object.freeze(leaseList);
       let cancel!: (reason: Error) => void;

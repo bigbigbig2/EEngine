@@ -18,6 +18,7 @@ export interface AppearanceTextureBinding {
   /** Resource reference for publication; numeric/sampling state below is a snapshot. */
   readonly texture: ShadeTexture;
   readonly source: object;
+  readonly contentVersion: string | null;
   readonly decode: AppearanceDecode;
   readonly sampler: readonly number[];
   readonly offset: readonly [number, number];
@@ -32,7 +33,11 @@ export function snapshotAppearanceTexture(texture: ShadeTexture, decode: Appeara
   offset: readonly [number, number] = [0, 0], scale: readonly [number, number] = [1, 1],
   rotation = 0, range: AppearanceRange = APPEARANCE_FINITE_RANGE,
   fallback: readonly [number, number, number, number] = [1, 1, 1, 1]): AppearanceTextureBinding {
+  const rawVersion = texture.appearance_content_version;
+  if (rawVersion !== undefined && (typeof rawVersion !== "string" || rawVersion.length === 0)) throw new RangeError("Appearance raw content version must be nonempty");
   return Object.freeze({ texture, source: texture.runtime_asset_package_v2 ?? texture.image ?? texture,
+    contentVersion: texture.runtime_asset_package_v2 === undefined ? rawVersion === undefined ? null : `raw:${rawVersion}` :
+      `asset:${texture.runtime_asset_package_v2.runtime.manifest.assetId}`,
     decode, sampler: Object.freeze([texture.flags, texture.minFilter, texture.magFilter,
       texture.mipmapFilter, texture.wrapS, texture.wrapT, texture.wrapR, texture.dimensions,
       texture.mipmapGenerationFilter]),

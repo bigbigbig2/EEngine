@@ -159,6 +159,25 @@ test("material association preflight rejects invalid identity without reserving 
   store.destroy();
 });
 
+test("field versions commit once per material association and abort never advances changed fields", () => {
+  const device = createDevice(), store = new GpuMaterialStore(device), material = new StandardShadeMaterial();
+  const associations = [{ material, programId: 3, textureBindingSetId: 0 }, { material, programId: 3, textureBindingSetId: 0 }];
+  const refs = new Map([[material, new Map()]]);
+  const firstCommand = new FakeMaterialCommand(device), first = store.stage(associations, refs, firstCommand); firstCommand.finish();
+  assert.equal(first.appearanceFieldVersions[0], first.appearanceFieldVersions[1]);
+  assert.ok([...first.appearanceFieldVersions[0].values()].every(v => v.version === 1 && v.changed));
+  material.roughness_factor = 0.75;
+  const abortedCommand = new FakeMaterialCommand(device), aborted = store.stage(associations, refs, abortedCommand); abortedCommand.abort();
+  assert.equal(aborted.appearanceFieldVersions[0].get("roughness").version, 2);
+  const commitCommand = new FakeMaterialCommand(device), committed = store.stage(associations, refs, commitCommand); commitCommand.finish();
+  assert.equal(committed.appearanceFieldVersions[0].get("roughness").version, 2, "aborted revision must not enter committed state");
+  assert.equal(committed.appearanceFieldVersions[0].get("baseColor").version, 1);
+  assert.equal(committed.appearanceFieldVersions[0].get("normalTS").version, 1);
+  const repeatCommand = new FakeMaterialCommand(device), repeat = store.stage(associations, refs, repeatCommand); repeatCommand.abort();
+  assert.ok([...repeat.appearanceFieldVersions[0].values()].every(v => !v.changed));
+  store.destroy();
+});
+
 class Signal {
   listeners = [];
 

@@ -1,6 +1,7 @@
 import { APPEARANCE_DEPENDENCY as D, selectAppearanceProductProgram } from "./AppearanceGraphCompiler.js";
 import type { CompiledAppearanceGraph, AppearanceInstruction, CompiledAppearanceProductRead } from "./AppearanceGraphCompiler.js";
 import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js";
+import { appearanceFieldIdentity } from "./AppearanceFieldIdentity.js";
 
 export interface AppearanceProductBinding {
   /** Exact immutable source snapshot used to cook these fields. New publication needs new bindings. */
@@ -8,6 +9,8 @@ export interface AppearanceProductBinding {
   readonly asset: AppearanceAssetPackage;
   /** Plain fields can replace reusable internal roots, including roots below dynamic target expressions. */
   readonly roots?: Readonly<Record<string, readonly number[]>>;
+  /** Selected moment fields allow one stale lobe to fall back without dropping the other. */
+  readonly normalPairs?: readonly string[];
 }
 
 /**
@@ -37,6 +40,7 @@ export function bindAppearanceProducts(source: CompiledAppearanceGraph,
     validateRoots(roots);
     const field = binding.asset.fields.find(item => item.name === name);
     if (field === undefined) throw new RangeError(`Appearance product field '${name}' is missing`);
+    if (appearanceFieldIdentity(source, roots).key !== field.sourceIdentity.key) throw new RangeError("Appearance product source identity is stale or mismatched");
     let uv: readonly [number, number] | null = null;
     if (field.constant === undefined) {
       const domains = [...new Set(roots.flatMap(ref => source.instructions[ref]!.coordinateDomains))];
@@ -68,7 +72,9 @@ export function bindAppearanceProducts(source: CompiledAppearanceGraph,
     if (binding.source !== source) throw new RangeError("Appearance product binding belongs to a different source snapshot");
     if (binding.asset.kind === "coupled-vmf-moments") {
       if (binding.roots !== undefined) throw new RangeError("Appearance normal pairs reconnect their named lobe outputs");
+      if (binding.normalPairs?.some(name => !binding.asset.normalFilters.some(pair => pair.momentField === name))) throw new RangeError("Appearance normal pair selection is missing");
       for (const pair of binding.asset.normalFilters) {
+        if (binding.normalPairs !== undefined && !binding.normalPairs.includes(pair.momentField)) continue;
         const normal = source.outputs[pair.normalOutput], roughness = source.outputs[pair.roughnessOutput];
         const validityName = `${pair.normalOutput}Validity`;
         if (normal?.length !== 3 || roughness?.length !== 1 || overriddenOutputs.has(pair.normalOutput) ||

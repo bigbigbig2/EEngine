@@ -5,6 +5,7 @@ import type { AppearanceTextureBinding } from "./AppearanceGraph.js";
 import { encodeFloat16, decodeFloat16 } from "../core/Float16.js";
 import { prepareAppearanceBake } from "./AppearanceBakeProfile.js";
 import type { AppearanceNormalFilterContract } from "./AppearanceNormalFilter.js";
+import { appearanceFieldIdentity, type AppearanceFieldIdentity } from "./AppearanceFieldIdentity.js";
 
 export interface AppearanceSourceFootprint {
   readonly ddx: readonly [number, number];
@@ -34,6 +35,7 @@ export interface AppearanceCookedMip {
   readonly data: Float32Array;
 }
 export interface AppearanceCookedField {
+  readonly sourceIdentity: AppearanceFieldIdentity;
   readonly width: number;
   readonly constant?: readonly number[];
   readonly mips: readonly AppearanceCookedMip[];
@@ -83,7 +85,7 @@ export function cookAppearanceMipProduct(source: CompiledAppearanceGraph,
   for (const [name, refs] of outputEntries) {
     const constant = refs.every(ref => (program.instructions[ref]!.dependency & ~D.Material) === 0);
     if (!constant) allocatedBytes += dimensions.reduce((sum, size) => sum + size.width * size.height * refs.length * 4, 0);
-    fields[name] = { width: refs.length, constant: constant ? uniform[name] : undefined,
+    fields[name] = { width: refs.length, sourceIdentity: appearanceFieldIdentity(source, roots[name]!), constant: constant ? uniform[name] : undefined,
       mips: [] };
   }
   if (!Number.isSafeInteger(allocatedBytes) || allocatedBytes > options.byteBudget) {

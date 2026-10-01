@@ -50,6 +50,12 @@ S1–S5 的编号是实现依赖顺序，不是降低最终功能范围。静态
 
 发布内核直接消费产品group 2、显式gradient与坐标域映射；任务目录增加独立`resourceSetIndex`，相同PSO但不同物理资产不能合并dispatch。目录stride的单一事实为`APPEARANCE_DIRECTORY_STRIDE`（32 bytes）。build（含typecheck）、build:test与119项targeted tests通过；组件5组/4,864值通过，包括同PSO两材质、静态子图与动态图重连、保留源fallback、独立base/coat共享array不同layer、HDR零纹理常量及非单位域NPOT；最大误差分别为0、0、0.004868925、0、0.000976563，在各fixture显式预算内。原numeric/resident诊断也复跑通过。Dawn native adapter/cache诊断仍存在。**普通scene材质尚未发布author产品绑定，字段fingerprint/content-version与精确失效尚未完成，新Surface帧consumer仍未切入；S1、R04–R07/R10保持未完成。**没有Chrome、视频画质或性能通过声明。
 
+静态驻留模块已提交`eb71fe4`。随后接通了材质authoring和逐字段发布身份：`AppearanceFieldIdentity`对实际f32 DAG（含signed zero、参数、采样/decode/仿射UV和源content version）建立与无关root/物理instruction序号无关的精确key；包schema v3保留source key与scalar selectors，并在解析时验证content-addressed assetId。各字段有独立content hash，不以整包assetId代替字段版本。cook后重新编译的source可重连内部root，过期字段恢复真实source程序；base/coat按完整normal+roughness pair各自失效。
+
+`AppearanceMaterialDefinition`已接入CanonicalMaterial→GpuMaterialStore→RenderWorld→Appearance publication；固定输出width与live outputs在发布前检查/裁剪，author source纹理参加现有residency路由。字段版本只有commit后推进，abort不推进；GPU目录携带field base/count，16-byte记录含version/output base/width/dependency。真实D3D12组件新增材质stage及republication两组，合计7组/6,912个float值和19个GPU字段记录；baseColor版本1→2而alpha保持1，重连静态子图没有恢复源采样。该两组数值误差0，原normal/NPOT各fixture预算和原生Dawn诊断边界不变。build（含typecheck）、build:test及127项targeted tests通过，静态half资产3,328值和联合法线2,048值GPU诊断复跑通过。
+
+**仍未完成**：当前mutable material编辑仍需要显式resyncScene；尚未接通frame动态输入版本/demand/cache消费者，自定义masked/transparent coverage仍需新Visibility消费者；旧Surface仍持有source-bank输入，不能将IR采样裁剪当成生产显存/带宽收益。S1保持active，R04–R07/R10不提升完成，S2–S7继续全部实施。未运行新主链Chrome整帧、视频画质与两coverage性能验收，原因是新Surface/Lighting尚未切入；未缩小最终范围。
+
 ## 3. 设计要求到证明的追踪
 
 所有条目初始为未完成。对应证据必须指出生产 producer、consumer 和测试覆盖范围；文件存在或 manifest 声称 completed 都不能替代证明。

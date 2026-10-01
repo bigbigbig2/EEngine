@@ -137,7 +137,7 @@ export function compileAppearanceGraph(graph: AppearanceGraph,
         let source = sourceIds.get(binding.source);
         if (source === undefined) { source = sourceIds.size; sourceIds.set(binding.source, source); }
         const uv = channels[node.uv]! as [number, number];
-        const key = JSON.stringify([source, binding.decode, binding.sampler, binding.offset,
+        const key = JSON.stringify([source, binding.contentVersion, binding.decode, binding.sampler, binding.offset,
           binding.scale, binding.rotation, binding.range, binding.fallback, uv]);
         let sample = sampleIds.get(key);
         if (sample === undefined) {
@@ -346,6 +346,7 @@ function validateAndSort(graph: AppearanceGraph): number[] {
       }
       case "texture":
         if (node.width !== 4 || graph.nodes[node.uv]!.width !== 2 ||
+            (node.binding.contentVersion !== null && (typeof node.binding.contentVersion !== "string" || node.binding.contentVersion.length === 0)) ||
             !["srgb-rgb", "linear-rgb", "linear-alpha"].includes(node.binding.decode) ||
             node.binding.offset.length !== 2 || node.binding.scale.length !== 2 ||
             ![...node.binding.offset, ...node.binding.scale, node.binding.rotation].every(value => Number.isFinite(Math.fround(value))) ||

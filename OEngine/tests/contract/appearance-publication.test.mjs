@@ -151,8 +151,9 @@ test("actual-sized GPU publication shares pipelines while retaining different in
   assert.throws(() => p.program(0), /not consumable/);
   await p.ready; c.finish(); assert.equal(f.compiled.length, 1);
   assert.deepEqual([...new Float32Array(p.constants.bytes.buffer)], [0.25, 0.5]);
-  assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 0, 0, 0, 0, 18, 0, 1, 1, 0, 0, 0, 0]);
-  assert.equal(p.allocatedBytes, 8 + 128 + sources.length * APPEARANCE_DIRECTORY_STRIDE);
+  assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 0, 0, 1, 0, 18, 0, 1, 1, 0, 1, 1, 0]);
+  assert.deepEqual([...new Uint32Array(p.fields.bytes.buffer)], [1, 0, 1, 67, 1, 0, 1, 67]);
+  assert.equal(p.allocatedBytes, 8 + 128 + sources.length * APPEARANCE_DIRECTORY_STRIDE + 32);
   const route = new DataView(p.routes.bytes.buffer);
   assert.equal(route.getUint32(8, true), 12); assert.equal(route.getUint32(12, true), 43);
   assert.equal(route.getUint32(4, true) & 3, 1, "use authored repeat snapshot, not later mirror mutation");

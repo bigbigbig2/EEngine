@@ -3,6 +3,7 @@ import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js
 import { compileCanonicalMaterial } from "../material/CanonicalMaterial.js";
 import type { CanonicalMaterial } from "../material/CanonicalMaterial.js";
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
+import { updateAppearanceFieldVersions } from "../material/AppearanceFieldIdentity.js";
 import type { TextureSurfacePublication } from "./TextureVariation.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import {
@@ -56,6 +57,7 @@ export interface GpuMaterialStage {
   readonly associationSlots: readonly number[];
   /** Immutable publication products, aligned with slots; new Surface lowering consumes these. */
   readonly appearancePrograms: readonly CompiledAppearanceGraph[];
+  readonly appearanceFieldVersions: readonly ReadonlyMap<string, { readonly key: string; readonly version: number; readonly changed: boolean }>[];
   readonly materialGeneration: number;
   readonly textureGeneration: number;
   readonly publicationRevision: number;
@@ -95,6 +97,7 @@ const STAGE_RUNTIME = new WeakMap<object, {
  * so material-only deduplication is not a valid GPU identity.
  */
 export class GpuMaterialStore {
+  private readonly appearanceVersions = new WeakMap<StandardShadeMaterial, ReadonlyMap<string, { readonly key: string; readonly version: number }>>();
   private readonly materialRecords: GPUBuffer;
   private readonly textureRouteRecords: GPUBuffer;
   private readonly freeSlots: number[] = [];
@@ -133,6 +136,11 @@ export class GpuMaterialStore {
   ): GpuMaterialStage {
     this.assertStageCommand(command);
     const canonicalMaterials = this.preflight(associations, textureRefsByMaterial);
+    const versions = new Map<StandardShadeMaterial, ReturnType<typeof updateAppearanceFieldVersions>>();
+    associations.forEach((association, index) => {
+      if (!versions.has(association.material)) versions.set(association.material,
+        updateAppearanceFieldVersions(canonicalMaterials[index]!.appearance, this.appearanceVersions.get(association.material)));
+    });
     const generation = nextGeneration(this.committedGeneration);
     const slots = Object.freeze(associations.map(() => this.freeSlots.pop()!));
     const handle = Object.freeze({}) as GpuMaterialStageHandle;
@@ -255,6 +263,7 @@ export class GpuMaterialStore {
         if (publication.state !== "pending") return;
         publication.state = "resident";
         this.committedGeneration = generation;
+        for (const [material, fields] of versions) this.appearanceVersions.set(material, fields);
         if (this.pendingPublication === publication) this.pendingPublication = null;
       });
       return Object.freeze({
@@ -262,6 +271,7 @@ export class GpuMaterialStore {
         bindings: this.bindings(),
         associationSlots: slots,
         appearancePrograms: Object.freeze(canonicalMaterials.map(material => material.appearance)),
+        appearanceFieldVersions: Object.freeze(associations.map(association => versions.get(association.material)!)),
         materialGeneration: generation,
         textureGeneration: generation,
         publicationRevision: generation

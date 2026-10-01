@@ -15,6 +15,9 @@ import { cookAppearanceMipProduct, sampleAppearanceCookedField } from "../../../
 import { cookAppearanceNormalProduct } from "../../../OEngine/.test-dist/material/AppearanceNormalCooker.js";
 import { writeAppearanceAssetPackage, openAppearanceAssetPackage } from "../../../OEngine/.test-dist/assets/AppearanceAssetPackage.js";
 import { ShadeTexture } from "../../../OEngine/.test-dist/texture/ShadeTexture.js";
+import { StandardShadeMaterial } from "../../../OEngine/.test-dist/material/StandardShadeMaterial.js";
+import { AppearanceMaterialDefinition } from "../../../OEngine/.test-dist/material/AppearanceMaterialDefinition.js";
+import { GpuMaterialStore } from "../../../OEngine/.test-dist/gpu/GpuMaterialStore.js";
 
 const runtime = process.argv[2];
 if (!runtime) throw new Error("Usage: node validation/labs/surface-appearance/appearance-product-gpu-oracle.mjs <external webgpu runtime directory>");
@@ -23,6 +26,7 @@ const gpu = create(["backend=d3d12"]), adapter = await gpu.requestAdapter({ powe
 assert.ok(adapter); assert.equal(adapter.info.isFallbackAdapter, false);
 const device = await adapter.requestDevice(), registry = new AppearanceProgramRegistry(device);
 const residency = new AppearanceStaticResidency(device, registry), resources = [], errors = [];
+const materialStore = new GpuMaterialStore(device);
 device.addEventListener("uncapturederror", event => errors.push(event.error.message));
 let disposing = false, lost; device.lost.then(info => { if (!disposing) lost = { reason: info.reason, message: info.message }; });
 const artifacts = resolve(".local/validation/surface-appearance"); await mkdir(artifacts, { recursive: true });
@@ -35,7 +39,8 @@ const packageProduct = async product => openAppearanceAssetPackage(await writeAp
 const products = new Map();
 function source(targetGain, retained = false) {
   const g = new AppearanceGraphBuilder(), uv = g.input("uv", 2, "surface", undefined, "uv0");
-  const t = g.texture(snapshotAppearanceTexture(new ShadeTexture(), "linear-rgb"), uv);
+  const texture = new ShadeTexture(); texture.appearance_content_version = "diagnostic/shared-source-v1";
+  const t = g.texture(snapshotAppearanceTexture(texture, "linear-rgb"), uv);
   const value = g.operation("pow", g.operation("multiply", g.swizzle(t, [0]), g.parameter("sourceGain", 2)), g.constant(2));
   g.output("staticRoot", value);
   g.output("target", g.operation("multiply", g.operation("multiply", value, g.parameter("targetGain", targetGain)), g.input("time", 1, "dynamic")));
@@ -88,9 +93,33 @@ function buffer(data, usage = GPUBufferUsage.STORAGE) {
 }
 const sampler = device.createSampler({ addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge", minFilter: "linear", magFilter: "linear", mipmapFilter: "linear" });
 const dummy = device.createTexture({ size: [1, 1, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING }); resources.push(dummy);
-async function run(name, programs, tolerance) {
+const fieldModule = device.createShaderModule({ code: `
+@group(0) @binding(0) var<storage, read> fields: array<vec4u>;
+@group(0) @binding(1) var<storage, read> directory: array<vec4u>;
+@group(0) @binding(2) var<storage, read_write> results: array<vec4u>;
+@group(0) @binding(3) var<uniform> count: vec4u;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3u) {
+  if id.x >= count.x { return; }
+  let identity = directory[id.x * 2u]; let entry = directory[id.x * 2u + 1u];
+  for (var field = 0u; field < entry.z; field++) {
+    let value = fields[entry.y + field];
+    results[entry.y + field] = vec4u(identity.x, value.y, value.z, value.x);
+  }
+}` });
+const fieldLayout = device.createBindGroupLayout({ entries: [0, 1, 2, 3].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
+  buffer: { type: binding === 3 ? "uniform" : binding === 2 ? "storage" : "read-only-storage" } })) });
+const fieldPipeline = await device.createComputePipelineAsync({ layout: device.createPipelineLayout({ bindGroupLayouts: [fieldLayout] }),
+  compute: { module: fieldModule, entryPoint: "main" } });
+async function run(name, programs, tolerance, materials) {
   const encoder = device.createCommandEncoder({ label: name }), c = command(encoder);
-  const sources = programs.map((program, i) => ({ materialSlot: i + 5, program, textureBindingSetId: 0, textureRefs: new Map() }));
+  let stage;
+  if (materials) {
+    stage = materialStore.stage(materials.map(material => ({ material, programId: 0, textureBindingSetId: 0 })),
+      new Map(materials.map(material => [material, new Map()])), c);
+    programs = stage.appearancePrograms;
+  }
+  const sources = programs.map((program, i) => ({ materialSlot: stage?.associationSlots[i] ?? i + 5, program,
+    fieldVersions: stage?.appearanceFieldVersions[i], textureBindingSetId: 0, textureRefs: new Map() }));
   const publication = new GpuAppearancePublication(device, registry, sources, c, new Map(), new Map(), undefined, residency);
   try {
     await publication.ready;
@@ -128,7 +157,20 @@ async function run(name, programs, tolerance) {
     if (first.productTextures.length) pass.setBindGroup(2, device.createBindGroup({ layout: compiled.layouts[2], entries:
       [...first.productTextures.map((texture, binding) => ({ binding, resource: texture.createView({ dimension: "2d-array" }) })),
         { binding: first.productTextures.length, resource: sampler }] }));
-    pass.dispatchWorkgroups(4); pass.end(); encoder.copyBufferToBuffer(output, 0, readback, 0, output.size); c.finish(); await c.gpuDone;
+    pass.dispatchWorkgroups(4); pass.end(); encoder.copyBufferToBuffer(output, 0, readback, 0, output.size);
+    const fieldOutput = device.createBuffer({ size: publication.fields.size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+    const fieldReadback = device.createBuffer({ size: fieldOutput.size, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST });
+    resources.push(fieldOutput, fieldReadback);
+    const fieldCount = buffer(new Uint32Array([sources.length, 0, 0, 0]), GPUBufferUsage.UNIFORM);
+    const fieldsPass = encoder.beginComputePass(); fieldsPass.setPipeline(fieldPipeline);
+    fieldsPass.setBindGroup(0, device.createBindGroup({ layout: fieldLayout,
+      entries: [publication.fields, publication.directory, fieldOutput, fieldCount].map((buffer, binding) => ({ binding, resource: { buffer } })) }));
+    fieldsPass.dispatchWorkgroups(Math.ceil(sources.length / 64)); fieldsPass.end();
+    encoder.copyBufferToBuffer(fieldOutput, 0, fieldReadback, 0, fieldOutput.size); c.finish(); await c.gpuDone;
+    await fieldReadback.mapAsync(GPUMapMode.READ); const actualFields = new Uint32Array(fieldReadback.getMappedRange().slice(0)); fieldReadback.unmap();
+    const expectedFields = publication.entries.flatMap((entry, i) => Object.entries(entry.kernel.lowered.outputSlots)
+      .flatMap(([name, slots]) => [entry.materialSlot, slots[0], slots.length, sources[i].fieldVersions?.get(name).version ?? 1]));
+    assert.deepEqual([...actualFields], expectedFields, "GPU directory/field-version consumer must select each association's exact output versions");
     await readback.mapAsync(GPUMapMode.READ); const actual = new Float32Array(readback.getMappedRange().slice(0)); readback.unmap();
     let maximum = 0;
     expected.forEach((value, i) => { const error = Math.abs(actual[i] - value); maximum = Math.max(maximum, error);
@@ -136,6 +178,8 @@ async function run(name, programs, tolerance) {
     summary.cases.push({ name, values: expected.length, instances: programs.length, actualPsoCount: new Set(publication.entries.map(entry => entry.programIndex)).size,
       resourceSetCount: new Set(publication.entries.map(entry => entry.resourceSetIndex)).size, liveSourceSamples: first.program.samples.length,
       productTextures: first.productTextures.length, maxAbsoluteError: maximum, declaredFixtureTolerance: tolerance });
+    Object.assign(summary.cases.at(-1), { fieldRecords: expectedFields.length / 4,
+      sceneMaterialStage: !!stage, fieldVersions: stage ? stage.appearanceFieldVersions.map(fields => Object.fromEntries([...fields].map(([name, field]) => [name, field.version]))) : undefined });
   } catch (error) { if (!c.closed) c.abort(); throw error; } finally { publication.destroy(); }
 }
 device.pushErrorScope("validation");
@@ -145,6 +189,22 @@ try {
   await run("independent-base-coat-filtered-products", [normalBound], 0.01);
   await run("exact-hdr-constant-zero-textures", [constantBound], 0.000001);
   await run("nonunit-authored-domain-npot-mips", [domainBound], 0.001);
+  const sceneMaterial = new StandardShadeMaterial(); sceneMaterial.is_unlit = true;
+  const define = gain => {
+    const g = new AppearanceGraphBuilder(), uv = g.input("uv", 2, "surface", undefined, "uv0");
+    const texture = new ShadeTexture(); texture.appearance_content_version = "diagnostic/shared-source-v1";
+    const t = g.texture(snapshotAppearanceTexture(texture, "linear-rgb"), uv);
+    const field = g.operation("pow", g.operation("multiply", g.swizzle(t, [0]), g.parameter("sourceGain", 2)), g.constant(2));
+    const target = g.operation("multiply", g.operation("multiply", field, g.parameter("targetGain", gain)), g.input("time", 1, "dynamic"));
+    g.output("baseColor", g.combine(target, target, target)); g.output("alpha", g.constant(1));
+    return new AppearanceMaterialDefinition(g.build(), [plainAsset]);
+  };
+  sceneMaterial.appearance_definition = define(0.5);
+  await run("authored-scene-material-product-publication", [], 0.00001, [sceneMaterial]);
+  sceneMaterial.appearance_definition = define(0.75);
+  await run("authored-scene-material-exact-field-republication", [], 0.00001, [sceneMaterial]);
+  assert.equal(summary.cases.at(-1).fieldVersions[0].baseColor, 2);
+  assert.equal(summary.cases.at(-1).fieldVersions[0].alpha, 1);
   const scope = await device.popErrorScope(); assert.equal(scope, null, scope?.message); assert.deepEqual(errors, []); assert.equal(lost, undefined);
   Object.assign(summary, { passed: true, totalValues: summary.cases.reduce((n, c) => n + c.values, 0),
     qualityScope: "component fixture only; normal GPU interpolation error is measured, not a production quality default" });
@@ -153,5 +213,5 @@ try {
 finally {
   summary.uncapturedErrors = errors; summary.deviceLost = lost ?? null;
   await writeFile(resolve(artifacts, "product-gpu-oracle.json"), JSON.stringify(summary, null, 2));
-  disposing = true; registry.destroy(); residency.destroy(); for (const r of resources) r.destroy(); device.destroy();
+  disposing = true; registry.destroy(); residency.destroy(); materialStore.destroy(); for (const r of resources) r.destroy(); device.destroy();
 }

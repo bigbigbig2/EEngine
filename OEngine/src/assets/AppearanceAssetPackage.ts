@@ -3,9 +3,10 @@ import { openRuntimeAssetPackageV2, writeRuntimeAssetPackageV2,
 import type { AppearanceCookedProduct } from "../material/AppearanceMipCooker.js";
 import { encodeFloat16, decodeFloat16 } from "../core/Float16.js";
 import { APPEARANCE_NORMAL_FILTER_MODEL, type AppearanceNormalFilterContract } from "../material/AppearanceNormalFilter.js";
+import type { AppearanceFieldIdentity } from "../material/AppearanceFieldIdentity.js";
 
-export const APPEARANCE_ASSET_SCHEMA_VERSION = 2;
-export const APPEARANCE_COOKER_VERSION = "typed-half-fields-v2";
+export const APPEARANCE_ASSET_SCHEMA_VERSION = 3;
+export const APPEARANCE_COOKER_VERSION = "typed-half-fields-v3";
 const METADATA = "appearance-metadata", PROFILE = "portable-half-fields";
 
 export interface AppearanceAssetSource {
@@ -20,6 +21,9 @@ export interface AppearanceAssetMip {
   readonly payload: Uint8Array;
 }
 export interface AppearanceAssetField {
+  /** Validated exact field data/filter identity; unrelated fields do not change this hash. */
+  readonly contentKey: string;
+  readonly sourceIdentity: AppearanceFieldIdentity;
   readonly name: string;
   readonly width: number;
   readonly format: "r16float" | "rg16float" | "rgba16float" | null;
@@ -46,7 +50,7 @@ export async function writeAppearanceAssetPackage(product: AppearanceCookedProdu
       product.validation.maxBudgetRatio > 1) throw new RangeError("Appearance packing requires a validated half-field product");
   const chunks: RuntimeAssetChunkInputV2[] = [];
   const fields = Object.entries(product.fields).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([name, field], index) => {
-    if (field.constant !== undefined) return { name, width: field.width, format: null,
+    if (field.constant !== undefined) return { name, width: field.width, sourceIdentity: field.sourceIdentity, format: null,
       constantBits: field.constant.map(floatBits), mips: [] };
     const channels = field.width === 3 ? 4 : field.width;
     const format = channels === 1 ? "r16float" : channels === 2 ? "rg16float" : "rgba16float";
@@ -65,7 +69,7 @@ export async function writeAppearanceAssetPackage(product: AppearanceCookedProdu
         compression: format, decodedBytes: mip.data.byteLength, expectedResidentBytes: payload.byteLength, data: payload });
       return { width: mip.width, height: mip.height, chunkId };
     });
-    return { name, width: field.width, format, mips };
+    return { name, width: field.width, sourceIdentity: field.sourceIdentity, format, mips };
   });
   const metadata = { schemaVersion: APPEARANCE_ASSET_SCHEMA_VERSION, colorSpace: "scene-linear-rec709",
     kind: product.kind, normalFilters: product.normalFilters ?? [],
@@ -78,8 +82,8 @@ export async function writeAppearanceAssetPackage(product: AppearanceCookedProdu
   const recipeHash = await hash(new TextEncoder().encode(JSON.stringify({ cooker: APPEARANCE_COOKER_VERSION,
     kind: product.kind, normalFilters: product.normalFilters ?? [],
     filter: product.validation.filter, precision: product.storagePrecision, errorBudget: product.errorBudget })));
-  const payloadHashes = await Promise.all(chunks.map(chunk => hash(chunk.data as Uint8Array)));
-  const assetId = await hash(new TextEncoder().encode(JSON.stringify([source.contentHash, recipeHash, payloadHashes])));
+  const payloadHashes = await Promise.all([...chunks].sort((a, b) => a.id.localeCompare(b.id)).map(chunk => hash(chunk.data as Uint8Array)));
+  const assetId = await hash(new TextEncoder().encode(JSON.stringify([source.contentHash.toLowerCase(), recipeHash, payloadHashes])));
   const width = Math.max(1, ...fields.flatMap(field => field.mips.map(mip => mip.width)));
   const height = Math.max(1, ...fields.flatMap(field => field.mips.map(mip => mip.height)));
   const bytes = await writeRuntimeAssetPackageV2({ manifest: {
@@ -115,10 +119,19 @@ export async function openAppearanceAssetPackage(bytes: ArrayBuffer): Promise<Ap
   }
   const names = new Set<string>(), used = new Set<string>([METADATA]);
   let residentBytes = 0;
-  const fields: AppearanceAssetField[] = raw.fields.map((field: unknown) => {
+  const decodedFields: Omit<AppearanceAssetField, "contentKey">[] = raw.fields.map((field: unknown) => {
     if (!isRecord(field) || typeof field.name !== "string" || field.name.length === 0 || names.has(field.name) ||
         !integer(field.width, 1) || field.width > 4 || !Array.isArray(field.mips)) throw new RangeError("Invalid Appearance field");
     names.add(field.name);
+    const identity = field.sourceIdentity;
+    const rootCount = raw.kind === "coupled-vmf-moments" ? 4 : field.width;
+    if (!isRecord(identity) || typeof identity.key !== "string" || identity.key.length === 0 || identity.key.length > 1024 * 1024 ||
+        typeof identity.portable !== "boolean" || !Array.isArray(identity.components) || identity.components.length !== rootCount ||
+        !identity.components.every((value: unknown) => typeof value === "string" && value.length > 0 && value.length <= 1024 * 1024)) {
+      throw new RangeError("Invalid Appearance field source identity");
+    }
+    const sourceIdentity = Object.freeze({ key: identity.key, portable: identity.portable,
+      components: Object.freeze([...identity.components]) as readonly string[] });
     if (field.format === null) {
       if (field.mips.length !== 0 || !Array.isArray(field.constantBits) || field.constantBits.length !== field.width ||
           !field.constantBits.every((n: unknown) => integer(n, 0) && (n as number) <= 0xffffffff)) {
@@ -126,7 +139,7 @@ export async function openAppearanceAssetPackage(bytes: ArrayBuffer): Promise<Ap
       }
       const constant = field.constantBits.map(bitsFloat);
       if (!constant.every(Number.isFinite)) throw new RangeError("Nonfinite Appearance constant");
-      return Object.freeze({ name: field.name, width: field.width, format: null,
+      return Object.freeze({ name: field.name, width: field.width, sourceIdentity, format: null,
         constant: Object.freeze(constant), mips: Object.freeze([]) });
     }
     const channels = field.width === 3 ? 4 : field.width;
@@ -158,8 +171,15 @@ export async function openAppearanceAssetPackage(bytes: ArrayBuffer): Promise<Ap
       used.add(mip.chunkId); previous = { width: mip.width, height: mip.height }; residentBytes += bytes;
       return Object.freeze({ width: mip.width, height: mip.height, chunkId: mip.chunkId, payload });
     });
-    return Object.freeze({ name: field.name, width: field.width, format, mips: Object.freeze(mips) });
+    return Object.freeze({ name: field.name, width: field.width, sourceIdentity, format, mips: Object.freeze(mips) });
   });
+  const filter = raw.validation.filter;
+  const fields: AppearanceAssetField[] = await Promise.all(decodedFields.map(async field => Object.freeze({ ...field,
+    contentKey: await hash(new TextEncoder().encode(JSON.stringify(["appearance-filtered-field-v1", raw.kind,
+      raw.kind === "coupled-vmf-moments" ? APPEARANCE_NORMAL_FILTER_MODEL : null, raw.coordinateDomain, raw.domainMin, raw.domainMax,
+      filter, field.width, field.format, field.sourceIdentity.key, field.constant?.map(floatBits) ?? null,
+      field.mips.map(mip => [mip.width, mip.height, runtime.manifest.chunks.find(chunk => chunk.id === mip.chunkId)!.checksum])])) )
+  })));
   if (used.size !== runtime.chunks.size || runtime.manifest.variants[0]!.chunkIds.some(id => !used.has(id)) ||
       (fields.some(field => field.mips.length > 0) && (raw.coordinateDomain === null || raw.validation.probeCount === 0))) {
     throw new RangeError("Appearance chunks or variable field domain/validation are incomplete");
@@ -185,6 +205,9 @@ export async function openAppearanceAssetPackage(bytes: ArrayBuffer): Promise<Ap
       (raw.kind === "reevaluated-mip-fields" && momentFields.size !== 0)) {
     throw new RangeError("Appearance product kind does not match its normal filter fields");
   }
+  const expectedAssetId = await hash(new TextEncoder().encode(JSON.stringify([runtime.manifest.sourceProvenance.contentHash,
+    runtime.manifest.recipeHash, runtime.manifest.chunks.map(chunk => chunk.checksum)])));
+  if (runtime.manifest.assetId !== expectedAssetId) throw new RangeError("Appearance assetId does not identify its validated content");
   return Object.freeze({ runtime, kind: raw.kind, normalFilters: Object.freeze(normalFilters),
     fields: Object.freeze(fields), coordinateDomain: raw.coordinateDomain,
     domainMin: Object.freeze([...raw.domainMin]) as readonly [number, number],

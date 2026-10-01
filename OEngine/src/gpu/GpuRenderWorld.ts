@@ -449,6 +449,7 @@ export class GpuRenderWorld {
         materialSlot: materialStage.associationSlots[index]!,
         textureBindingSetId: association.textureBindingSetId,
         program: materialStage.appearancePrograms[index]!,
+        fieldVersions: materialStage.appearanceFieldVersions[index]!,
         textureRefs: textureStage.materialTextureRoutingRefs.get(association.material)!
       }))),
       mipRanges: textureStage.textureMipRanges,

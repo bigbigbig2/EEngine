@@ -6,6 +6,7 @@ import type { AppearanceBakeOptions, AppearanceCookedField, AppearanceCookedProd
 import { APPEARANCE_NORMAL_FILTER_MODEL, encodeAppearanceNormalMoment, decodeAppearanceNormalMoment,
   referenceAppearanceNormalMoment, type AppearanceNormalFilterContract } from "./AppearanceNormalFilter.js";
 import { encodeFloat16, decodeFloat16 } from "../core/Float16.js";
+import { appearanceFieldIdentity } from "./AppearanceFieldIdentity.js";
 
 export interface AppearanceNormalBakePair {
   readonly momentField: string;
@@ -90,8 +91,9 @@ export function cookAppearanceNormalProduct(source: CompiledAppearanceGraph,
         scratchOffset += destination.length;
         return { ...size, data: areaAverageBase(baseValues[i]!, options.width, options.height, size.width, size.height, destination) };
       }) };
-    const field: AppearanceCookedField = uniform[i] ? Object.freeze({ width: 3,
-      constant: Object.freeze(constants[i]!.map(Math.fround)), mips: Object.freeze([]) }) : Object.freeze({ width: 3,
+    const sourceIdentity = appearanceFieldIdentity(source, [...pair.normal, ...pair.roughness]);
+    const field: AppearanceCookedField = uniform[i] ? Object.freeze({ width: 3, sourceIdentity,
+      constant: Object.freeze(constants[i]!.map(Math.fround)), mips: Object.freeze([]) }) : Object.freeze({ width: 3, sourceIdentity,
       mips: Object.freeze(reference.mips.map(mip => Object.freeze({ width: mip.width, height: mip.height,
         data: Float32Array.from(mip.data, value => options.storagePrecision === "float16"
           ? decodeFloat16(encodeFloat16(value)) : Math.fround(value)) }))) });

@@ -4,6 +4,7 @@ import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { compileAppearanceGraph } from "./AppearanceGraphCompiler.js";
 import type { CompiledAppearanceGraph } from "./AppearanceGraphCompiler.js";
 import { lowerStandardAppearanceGraph } from "./StandardAppearanceGraph.js";
+import { resolveAppearanceMaterialProducts, type AppearanceProductResolution } from "./AppearanceMaterialDefinition.js";
 
 export const MATERIAL_CLOSURE_FAMILY = Object.freeze({
   Unlit: 0,
@@ -42,6 +43,7 @@ export interface CanonicalTextureSample {
 
 export interface CanonicalMaterial {
   readonly appearance: CompiledAppearanceGraph;
+  readonly appearanceResolution: AppearanceProductResolution;
   readonly family: 0 | 1 | 2;
   readonly coverage: "opaque" | "masked" | "transparent";
   readonly featureMask: number;
@@ -82,7 +84,7 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       material.texture_specular_color !== undefined)) {
     throw new RangeError(`Material '${material.name}' cannot combine unlit with a lit closure extension`);
   }
-  const family = material.is_unlit
+  let family: 0 | 1 | 2 = material.is_unlit
     ? MATERIAL_CLOSURE_FAMILY.Unlit
     : coatFactor > 0 ? MATERIAL_CLOSURE_FAMILY.Coated : MATERIAL_CLOSURE_FAMILY.Standard;
   const coverage = material.transparency_mode === ShadeTransparencyMode.AlphaTested
@@ -143,7 +145,27 @@ export function compileCanonicalMaterial(material: StandardShadeMaterial): Canon
       scale: Object.freeze([...scale]) as readonly [number, number], rotation,
       equivalentSample: equal < 0 ? samples.length : samples[equal]!.equivalentSample }));
   }
-  const appearance = compileAppearanceGraph(lowerStandardAppearanceGraph(material, samples));
-  return Object.freeze({ family, coverage, featureMask, samples: Object.freeze(samples), appearance,
+  const definition = material.appearance_definition;
+  if (definition?.graph != null && coverage !== "opaque") throw new Error("Authored Appearance coverage needs the new Visibility consumer");
+  const expected: Readonly<Record<string, number>> = material.is_unlit ? { baseColor: 3, alpha: 1 } : {
+    baseColor: 3, alpha: 1, metallic: 1, roughness: 1, occlusion: 1, emissive: 3, normalTS: 3,
+    ior: 1, specularWeight: 1, specularColor: 3, coatWeight: 1, coatRoughness: 1, coatNormalTS: 3 };
+  const graph = definition?.graph ?? lowerStandardAppearanceGraph(material, samples);
+  for (const [name, width] of Object.entries(expected)) if (graph.nodes[graph.outputs[name]!]?.width !== width) {
+    throw new RangeError(`Appearance '${material.name}' requires ${name} width ${width}`);
+  }
+  const source = compileAppearanceGraph(graph,
+    Object.fromEntries(Object.entries(expected).map(([name, width]) => [name, (1 << width) - 1])));
+  for (const [name, width] of Object.entries(expected)) if (source.outputs[name]?.length !== width) {
+    throw new RangeError(`Appearance '${material.name}' requires ${name} width ${width}`);
+  }
+  if (definition?.graph != null && !material.is_unlit) {
+    const coat = source.instructions[source.outputs.coatWeight![0]!]!;
+    family = (coat.kind === "constant" || coat.kind === "parameter") && coat.value === 0
+      ? MATERIAL_CLOSURE_FAMILY.Standard : MATERIAL_CLOSURE_FAMILY.Coated;
+  }
+  const appearanceResolution = resolveAppearanceMaterialProducts(source, definition?.products ?? []);
+  const appearance = appearanceResolution.program;
+  return Object.freeze({ family, coverage, featureMask, samples: Object.freeze(samples), appearance, appearanceResolution,
     ior, specularFactor, specularColor: Object.freeze(specularColor), coatFactor, coatRoughness, coatNormalScale });
 }

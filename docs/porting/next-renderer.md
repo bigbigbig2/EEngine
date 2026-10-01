@@ -194,6 +194,14 @@ Local validation：编译基础提交`23d0110`的`tests/oracle/appearance-graph.
 
 Build/typecheck and 119 targeted tests pass. A five-case D3D12 diagnostic consumes 4,864 values through real static residency/publication/PSOs, covering internal static roots with dynamic targets, retained source fallback, independent base/coat array layers, exact HDR constants and nonunit NPOT domains. Explicit fixture tolerances apply; native adapter/cache HRESULT diagnostics remain. Original 32,000-value numeric and 14,592-value resident diagnostics are rerun. No new production Surface consumer, final Chrome/video quality or performance evidence exists; adoption and requirement-completion states are unchanged.
 
+### Exact field provenance / material publication local integration
+
+`AppearanceFieldIdentity` canonicalizes the reachable scalar f32 DAG with parameter values, signed-zero bits, sampling/decode/UV semantics and immutable source content versions. It is exact deterministic serialization and publication glue, not a new shading algorithm. Cooked texture assets supply their content identity; raw portable products require an explicitly immutable source version, while unversioned raw images produce session-local identities. Raw pixel changes replace both image and ShadeTexture; in-place edits are not a supported residency publication contract.
+
+Schema v3 retains scalar selectors and full field source keys; each filtered field has an independent SHA-256 identity derived from validated source/data/filter/domain, so an unrelated field changing the enclosing assetId does not invalidate it. `AppearanceMaterialDefinition` uses the existing MaterialX reconnection reference and local bake profiles to reconnect exact internal roots after compilation, preserve live dynamic work and restore stale fields. Normal and roughness invalidate as one lobe; base/coat remain independent. Contracted output width/liveness and closure family are publication facts. `GpuMaterialStore` stages per-output versions atomically; `GpuAppearancePublication` encodes 16-byte output field records and directory base/count. No additional production submit or per-pixel validation is introduced.
+
+127 targeted tests and build/typecheck pass. Seven D3D12 component cases consume 6,912 float values plus 19 directory-selected GPU field records; two cases exercise actual scene material staging/republication (baseColor 1→2, alpha remains 1) and zero live source samples after static reconnection. Asset and normal GPU diagnostics are rerun. Existing native adapter/cache HRESULT diagnostics remain. Frame dynamic input invalidation, GPU demand/cache, custom masked coverage and the new Surface consumer are unfinished; mutable material edits currently require explicit resyncScene, and the old source-bank consumer retains input resources. No new source adoption, final Chrome/video-quality or performance claim is made.
+
 ## 1. 推荐总表
 
 | 用途 / owner | 优先来源 | 应迁移的范围 | 仍由本地完成的部分 |

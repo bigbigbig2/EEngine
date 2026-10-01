@@ -18,6 +18,23 @@ export type { SamplerData } from "./Sampler2D.js";
 
 export class ShadeTexture {
   label = "";
+  /**
+   * Globally unique immutable raw-source content key (hash or URI + version).
+   * Equal keys assert identical source data; a per-texture counter alone is insufficient.
+   * Assign before cook/upload. When bytes change, replace both the immutable raw
+   * image source and its ShadeTexture, then republish. Cooked sources
+   * use their assetId automatically. Unversioned images produce session-local products.
+   * This is CPU provenance, not a GPU residency generation or per-frame upload trigger.
+   */
+  private appearanceContentVersion: string | undefined;
+  get appearance_content_version(): string | undefined { return this.appearanceContentVersion; }
+  set appearance_content_version(value: string | undefined) {
+    if (value !== undefined && (typeof value !== "string" || value.length === 0)) throw new RangeError("Appearance content version must be nonempty");
+    if (this.appearanceContentVersion !== undefined && value !== this.appearanceContentVersion) {
+      throw new Error("Replace the immutable raw image and ShadeTexture for a new content version");
+    }
+    this.appearanceContentVersion = value;
+  }
 
   #image: ShadeImage | undefined;
   #runtimeAssetPackageV2: TextureAssetPackageV2 | undefined;
@@ -82,6 +99,7 @@ export class ShadeTexture {
 
   hash(): number {
     return hashMix(
+      this.appearance_content_version === undefined ? 0 : hashString(this.appearance_content_version),
       hashOptional(this.#image),
       this.#runtimeAssetPackageV2 === undefined
         ? 0
@@ -98,6 +116,7 @@ export class ShadeTexture {
 
   equals(other: ShadeTexture): boolean {
     return (
+      this.appearance_content_version === other.appearance_content_version &&
       this.#image === other.#image &&
       this.#runtimeAssetPackageV2 === other.#runtimeAssetPackageV2 &&
       this.flags === other.flags &&

@@ -39,6 +39,8 @@ node validation/labs/surface-appearance/appearance-product-gpu-oracle.mjs .local
 
 真实原图cook→产品绑定/裁剪→`AppearanceStaticResidency`→`GpuAppearancePublication`→实际PSO消费，5组/4,864值。静态内部root+动态target与保留源fallback误差0；base/coat独立过滤后共享array不同layer最大0.004868925（fixture预算0.01）；精确HDR常量0且无texture；非单位域NPOT最大0.000976563（fixture预算0.001）。Raw为`product-gpu-oracle.json`。发布目录以32-byte stride携带独立physical resource-set index，不将相同PSO误当相同texture set。API errors/device loss零，Dawn原生adapter/cache诊断仍在；不是Chrome结论。普通scene材质产品authoring、portable字段版本失效、新Surface主链、动态缓存与最终视频/性能仍未完成。
 
+第五宿主随后扩展到schema v3字段provenance与实际scene材质发布：7组/6,912个float值，另有19个字段record通过独立GPU消费者从生产directory/field buffers读取。CanonicalMaterial→GpuMaterialStore→Appearance publication→真实PSO链已覆盖，republication使baseColor版本1→2、alpha保持1；这两组源采样数0、数值误差0。Source版本、field identity、内层root重连、跨包字段稳定性、base/coat局部失效与abort/commit另有CPU tests。Raw portable源使用明确immutable版本；unversioned raw源为session-local，像素改变需要新image/texture再发布。该宿主仍不是新Surface整帧、动态cache或Chrome/视频/性能验收。
+
 联合法线第四个组件宿主：
 
 ```powershell

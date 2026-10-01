@@ -7,6 +7,7 @@ import { hashFloat, hashMix, hashOptional } from "../core/hashMix.js";
 import { ShadeMaterial } from "./ShadeMaterial.js";
 import { LinearModifier } from "./LinearModifier.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
+import type { AppearanceMaterialDefinition } from "./AppearanceMaterialDefinition.js";
 
 function refOrDeepEquals(a: unknown, b: unknown): boolean {
   if (a === b) return true;
@@ -18,6 +19,8 @@ function refOrDeepEquals(a: unknown, b: unknown): boolean {
 
 export class StandardShadeMaterial extends ShadeMaterial {
   declare readonly isStandardShadeMaterial: boolean;
+  /** Immutable graph/products; explicitly republish with resyncScene after changes. No GPU ownership. */
+  appearance_definition: AppearanceMaterialDefinition | undefined;
 
   texture_albedo: ShadeTexture | undefined = undefined;
   diffuse_color = new Color(1, 1, 1, 1);
@@ -103,12 +106,14 @@ export class StandardShadeMaterial extends ShadeMaterial {
           this.texture_clearcoat_roughness,
           this.texture_clearcoat_normal
         ];
-    return textures.filter((e): e is ShadeTexture => e !== undefined);
+    return [...new Set([...textures.filter((e): e is ShadeTexture => e !== undefined),
+      ...(this.appearance_definition?.graph?.nodes.flatMap(node => node.kind === "texture" ? [node.binding.texture] : []) ?? [])])];
   }
 
   override hash(): number {
     return hashMix(
       super.hash(),
+      hashOptional(this.appearance_definition),
       this.diffuse_color.hash(),
       hashFloat(this.roughness_factor),
       hashFloat(this.metallic_factor),
@@ -172,6 +177,7 @@ export class StandardShadeMaterial extends ShadeMaterial {
     if (!super.equals(other)) return false;
     if (!(other instanceof StandardShadeMaterial)) return false;
     return (
+      this.appearance_definition === other.appearance_definition &&
       this.roughness_factor === other.roughness_factor &&
       this.metallic_factor === other.metallic_factor &&
       this.transmission_factor === other.transmission_factor &&
