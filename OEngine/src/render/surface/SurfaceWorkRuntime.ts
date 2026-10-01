@@ -6,6 +6,7 @@ import { surfaceWorkLayout, writeSurfaceWorkHeader, SURFACE_WORK_HEADER_WGSL,
   SURFACE_TILE_DESCRIPTOR_STRIDE, SURFACE_SAMPLE_RECORD_STRIDE, type SurfaceWorkBudget, type SurfaceWorkLayout } from "../../gpu/GpuSurfaceWorkAbi.js";
 import { SurfaceGeometryPass, type SurfaceGeometryProducts } from "./SurfaceGeometryPass.js";
 import { SurfaceMaterialCachePass, type SurfaceMaterialProducts } from "./SurfaceMaterialCachePass.js";
+import { SurfaceLightingWorkPass } from "./SurfaceLightingWorkPass.js";
 
 export interface SurfaceWorkFrame {
   readonly generation: number;
@@ -62,6 +63,7 @@ fn clear(@builtin(global_invocation_id) id: vec3u) { textureStore(output,vec2i(i
 export class SurfaceWorkRuntime {
   private readonly geometry: SurfaceGeometryPass;
   private readonly material: SurfaceMaterialCachePass;
+  private readonly lighting: SurfaceLightingWorkPass;
   private readonly classifyLayout: GPUBindGroupLayout;
   private readonly classifyPipeline: GPUComputePipeline;
   private readonly clearLayout: GPUBindGroupLayout;
@@ -76,6 +78,7 @@ export class SurfaceWorkRuntime {
   }) {
     this.geometry = new SurfaceGeometryPass(device);
     this.material = new SurfaceMaterialCachePass(device);
+    this.lighting = new SurfaceLightingWorkPass(device);
     this.settings = device.createBuffer({ label: "SurfaceWork/classify settings", size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.classifyLayout = device.createBindGroupLayout({ entries: [
@@ -126,6 +129,8 @@ export class SurfaceWorkRuntime {
     const recordCount = Math.ceil(input.width / 8) * Math.ceil(input.height / 8);
     const material = this.material.addToGraph(graph, { geometry: geometry.records, width: input.width, height: input.height,
       recordCount, fieldVersions: input.fieldVersions, frame: input.frame.generation });
+    const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: material.fields,
+      width: input.width, height: input.height, recordCount, frame: input.frame.generation });
     let radiance!: ResourceId;
     let reactiveMask!: ResourceId;
     const outputs = graph.add("SurfaceWork/cheap output initialization", { width: input.width, height: input.height }, (data, resources, context) => {
@@ -141,10 +146,10 @@ export class SurfaceWorkRuntime {
     reactiveMask = outputs.create("SurfaceWork/reactive", { kind: "transient_texture", width: input.width, height: input.height,
       format: "rgba8unorm", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
     outputs.write(radiance); outputs.write(reactiveMask);
-    return { work, records: geometry.records, count: geometry.count, ...material, radiance, reactiveMask };
+    return { work, records: geometry.records, count: geometry.count, ...material, ...lighting };
   }
 
   commit(_gpuDone: Promise<void>): void { if (!this.prepared) throw new Error("SurfaceWork commit without prepare"); this.prepared = false; }
   abort(): void { this.prepared = false; }
-  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.geometry.destroy(); this.material.destroy(); this.settings.destroy(); }
+  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.settings.destroy(); }
 }

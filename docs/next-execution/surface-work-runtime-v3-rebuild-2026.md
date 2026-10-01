@@ -76,11 +76,11 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 已新增 `SurfaceMaterialCachePass`，在 GeometryRecord 之后执行 stable key lookup，发布 hit mask、bounded miss queue、字段纹理和 counters；key 已包含 winner identity、geometry signature 与 publication field version。旧 pixel task/result pool 不再创建。材质编译程序的真实 miss evaluation、完整 texture/residency/footprint key 和 hit 绕过几何的前移仍待继续实现，Phase 3 未完成，未运行编译、测试或 GPU/browser 验证。
 
-### Phase 4：分 signal lighting packets
+### Phase 4：分 signal lighting packets（实现中）
 
 DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRecord、material field address、cluster/light identity、shadow/environment revision 和 history reference。Direct、diffuse、specular、coat、IBL 分别可观测，不以单一 Surface rate 代替。
 
-删除 prepare_surface 重复恢复。完整保留 Standard/Coated PBR、cluster、VSM、AO、physical sky/authored IBL 的数学和能量语义；按原文 §4.5–§4.6 处理局部全率例外和 IBL 复用。
+已新增 `SurfaceLightingWorkPass`，独立发布 diffuse/specular/coat/IBL packet buffers、packet counters 与 radiance/reactive 输出，并只读取 GeometryRecord 和材质字段。旧 `prepare_surface` 已删除；Standard/Coated PBR、cluster、VSM、AO、physical sky/authored IBL 的完整数学语义及局部 full-rate 例外仍待接通，Phase 4 未完成，未运行编译、测试或 GPU/browser 验证。
 
 ### Phase 5：廉价 reconstruct
 
