@@ -351,6 +351,24 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     assetMetadata: geometryMetadata, vertexPayload,
     sourceBindings: bind("temporal-facts/source", bindings => bindings.job.assets.sparseShading)
   }, (name, resolve) => bind(`temporal-facts/${name}`, bindings => resolve(bindings.temporalFacts)));
+  const surfaceEnvironment = plan.request.authoredEnvironment ? {
+    diffuse: graph.import_resource("Lighting/authored diffuse irradiance", { kind: "imported" },
+      bind("lighting-authored-diffuse", bindings => bindings.view.environment.lights.authoredIbl.views.diffuse)),
+    specular: graph.import_resource("Lighting/authored filtered specular", { kind: "imported" },
+      bind("lighting-authored-specular", bindings => bindings.view.environment.lights.authoredIbl.views.specular)),
+    dfg: graph.import_resource("Lighting/authored DFG", { kind: "imported" },
+      bind("lighting-authored-dfg", bindings => bindings.view.environment.lights.authoredIbl.views.dfg))
+  } : !plan.request.physicalEnvironment ? undefined : {
+    diffuse: graph.import_resource("Lighting/sky diffuse irradiance", { kind: "imported" },
+      bind("lighting-sky-diffuse", bindings => bindings.environment!.ibl.views.diffuse)),
+    specular: graph.import_resource("Lighting/sky filtered specular", { kind: "imported" },
+      bind("lighting-sky-specular", bindings => bindings.environment!.ibl.views.specular)),
+    dfg: graph.import_resource("Lighting/DFG", { kind: "imported" },
+      bind("lighting-dfg", bindings => bindings.environment!.ibl.views.dfg))
+  };
+  if (lightRecords === undefined || clusters === undefined || surfaceEnvironment === undefined) {
+    throw new Error("SurfaceWork requires direct-light cluster and IBL providers");
+  }
   const surfaceWork = owners.surfaceWork.addToGraph(graph, {
     visibility: result.frame.visibilityKey,
     arena: result.frame.frameGeometry,
@@ -360,6 +378,16 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     frameInstances: result.frame.frameInstances,
     frameAttributes: result.frame.frameAttributes,
     camera: cameraBuffer,
+    lightRecords,
+    clusters,
+    shadow: shadowContract === null || shadowContract.virtualPageTable === null ||
+      shadowContract.physicalAtlasDepth === null || shadowContract.lightProjection === null ? null : {
+      virtualPageTable: shadowContract.virtualPageTable,
+      physicalAtlasDepth: shadowContract.physicalAtlasDepth,
+      lightProjection: shadowContract.lightProjection
+    },
+    scalarAo: scalarAo ?? null,
+    environment: surfaceEnvironment,
     factsMask: facts.mask,
     preExposure: gpuPreviousExposure,
     materialLookup: surfaceMaterialLookup,
@@ -387,23 +415,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       sourceVertexData: bindings.job.assets.sparseShading.vertexDataWordBase
     }))
   });
-  const previousIdentity = graph.import_resource("Lighting/previous Temporal identity", { kind: "imported" },
-    bind("lighting-previous-identity", bindings => bindings.temporalFacts.history("read")));
-  const signalEnvironment = plan.request.authoredEnvironment ? {
-    diffuse: graph.import_resource("Lighting/authored diffuse irradiance", { kind: "imported" },
-      bind("lighting-authored-diffuse", bindings => bindings.view.environment.lights.authoredIbl.views.diffuse)),
-    specular: graph.import_resource("Lighting/authored filtered specular", { kind: "imported" },
-      bind("lighting-authored-specular", bindings => bindings.view.environment.lights.authoredIbl.views.specular)),
-    dfg: graph.import_resource("Lighting/authored DFG", { kind: "imported" },
-      bind("lighting-authored-dfg", bindings => bindings.view.environment.lights.authoredIbl.views.dfg))
-  } : !plan.request.physicalEnvironment ? undefined : {
-    diffuse: graph.import_resource("Lighting/sky diffuse irradiance", { kind: "imported" },
-      bind("lighting-sky-diffuse", bindings => bindings.environment!.ibl.views.diffuse)),
-    specular: graph.import_resource("Lighting/sky filtered specular", { kind: "imported" },
-      bind("lighting-sky-specular", bindings => bindings.environment!.ibl.views.specular)),
-    dfg: graph.import_resource("Lighting/DFG", { kind: "imported" },
-      bind("lighting-dfg", bindings => bindings.environment!.ibl.views.dfg))
-  };
   const atmosphereEnvironment = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
     "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
     bind("physical-environment-transmittance", bindings => bindings.environment!.luts.views.transmittance)

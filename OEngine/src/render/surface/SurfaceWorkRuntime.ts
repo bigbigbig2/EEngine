@@ -7,6 +7,7 @@ import { surfaceWorkLayout, writeSurfaceWorkHeader, SURFACE_WORK_HEADER_WGSL,
 import { SurfaceGeometryPass, type SurfaceGeometryProducts } from "./SurfaceGeometryPass.js";
 import { SurfaceMaterialCachePass, type SurfaceMaterialProducts } from "./SurfaceMaterialCachePass.js";
 import { SurfaceLightingWorkPass } from "./SurfaceLightingWorkPass.js";
+import type { SurfaceLightingInput } from "./SurfaceLightingWorkPass.js";
 import { SurfaceReconstructionPass } from "./SurfaceReconstructionPass.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 
@@ -239,6 +240,9 @@ export class SurfaceWorkRuntime {
     sourceHeap: ResourceId; vertexPayload: ResourceId; frameInstances: ResourceId; frameAttributes: ResourceId;
     camera: ResourceId; fieldVersions: ResourceId; residencyVersions: ResourceId; materialLookup: ResourceId; surfaceIdentity: ResourceId;
     textureBanks: readonly (readonly ResourceId[])[]; publication: GpuAppearancePublication;
+    lightRecords: ResourceId; clusters: SurfaceLightingInput["clusters"];
+    shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
+    environment: SurfaceLightingInput["environment"];
     factsMask: ResourceId; preExposure: ResourceId; width: number; height: number;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
@@ -310,7 +314,9 @@ export class SurfaceWorkRuntime {
       publication: input.publication, textureBanks: input.textureBanks, work, sampleOffset: layout.sampleOffset });
     const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: material.fields,
       work, sampleOffset: layout.sampleOffset, width: input.width, height: input.height,
-      recordCount, frame: input.frame.generation, counts });
+      recordCount, frame: input.frame.generation, counts, camera: input.camera,
+      lightRecords: input.lightRecords, clusters: input.clusters, shadow: input.shadow,
+      scalarAo: input.scalarAo, environment: input.environment });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
       coat: lighting.coatPackets, ibl: lighting.iblPackets, geometry: geometry.records, reactive: input.factsMask,
       preExposure: input.preExposure, width: input.width, height: input.height, recordCount, sampleMap });

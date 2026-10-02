@@ -76,11 +76,11 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 `SurfaceMaterialCachePass` 在 GeometryRecord 之前执行 publication identity lookup，GPU 为每个 program 维护 bounded miss counter/indirect args；`GpuAppearancePublication.encodeSurfaceMissEvaluation` 复用已发布的 `AppearanceResidentKernel`、constants、routes、runtime inputs、resident texture/product bindings，按 miss program 求值并写回六层 fields 与稳定 cache。cache identity 已加入 geometry slot/meshlet/instance/primitive、material、field/residency version、publication field/route/variation hash；仍缺 sampler/UV transform 与真实 filtered footprint 的独立 identity。`SurfaceGeometryPass` 仍按 sample range 发布 GeometryRecord，hit mask 目前只门控 miss evaluator，因此命中尚未绕过几何 heavy worker；Product/形变/动态 view/nonlocal 语义与正式验收继续留待后续阶段。
 
-### Phase 4：分 signal lighting packets（实现中）
+### Phase 4：分 signal lighting packets（生产接线完成，统一验收待做）
 
 DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRecord、material field address、cluster/light identity、shadow/environment revision 和 history reference。Direct、diffuse、specular、coat、IBL 分别可观测，不以单一 Surface rate 代替。
 
-已新增 `SurfaceLightingWorkPass`，独立发布 diffuse/specular/coat/IBL packet buffers、packet counters 与 radiance/reactive 输出，并只读取 GeometryRecord 和材质字段；当前仅有基础本地 GGX/Smith/Schlick 与简化环境项。旧 `prepare_surface` 已删除；cluster/light list、VSM、AO、physical sky/authored IBL 资源和局部 full-rate 例外仍待接通，Phase 4 未完成。
+`SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Diffuse、specular、coat、IBL packet 仍保持独立写域，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。局部例外计数、信号 history、GeometryRecord hit 绕过和最终 GPU/画质验收仍待 Phase 5–7。
 
 ### Phase 5：廉价 reconstruct（实现中）
 
