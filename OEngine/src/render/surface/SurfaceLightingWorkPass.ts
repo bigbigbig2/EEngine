@@ -52,9 +52,9 @@ export interface SurfaceLightingInput {
  * deliberately omits its legacy fullscreen entry point and declarations;
  * this pass supplies the smaller packet-oriented binding surface below. */
 const DIRECT_MATH = createProductionSparseDirectLightingWgsl(true, "vsm")
-  .replaceAll("view.frame_index", "shading_view.frame_index")
-  .replaceAll("view.width", "shading_view.width")
-  .replaceAll("view.height", "shading_view.height");
+  .replace(/\bview\.frame_index\b/g, "shading_view.frame_index")
+  .replace(/\bview\.width\b/g, "shading_view.width")
+  .replace(/\bview\.height\b/g, "shading_view.height");
 
 const LIGHTING_WGSL = /* wgsl */ `
 ${DIRECT_MATH}
@@ -126,8 +126,8 @@ fn surface_material(pixel: vec2i) -> StandardMaterial {
   let specular_color = max(surface_field(fields, pixel, 9u).xyz, vec3f(1.0));
   let coat_factor = saturate(surface_field(fields, pixel, 10u).x);
   let coat_roughness = clamp(surface_field(fields, pixel, 11u).x, 0.04, 1.0);
-  let coat_normal = normalize(max(abs(surface_field(fields, pixel, 12u).xyz), vec3f(1e-4)) *
-    sign(surface_field(fields, pixel, 12u).xyz));
+  let coat_raw = surface_field(fields, pixel, 12u).xyz;
+  let coat_normal = select(vec3f(0.0, 0.0, 1.0), normalize(coat_raw), dot(coat_raw, coat_raw) > 1e-8);
   let f0 = mix(vec3f(0.04), albedo, metallic) * specular_weight * specular_color;
   return StandardMaterial(albedo * (1.0 - metallic), roughness, occlusion, f0, 1.0,
     vec3f(1.0), emissive, 1.0, coat_factor, coat_roughness, coat_normal);
