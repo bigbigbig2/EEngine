@@ -7,7 +7,7 @@
 
 本文不把设计文档中“计划实现”的内容当成已经完成，而是把当前代码、当前缺口和最终推进方案分开说明。
 
-实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 publication cache lookup → hit-mask-gated GeometryRecord（命中走持久化 geometry cache，未命中执行完整恢复）→ GPU-compacted miss-only `AppearanceResidentKernel` evaluation → 真实 clustered/VSM/AO/IBL 输入的 signal-mask gated diffuse/specular/coat/IBL packets → 双缓冲 signal/identity/age-history reconstruct。publication kernel、material/program lookup、field/route/variation identity、每-program indirect miss dispatch、生产 direct-light 数学、packet counters 和 history 生命周期已接入；geometry cache 已包含代表像素与当前实例 object-to-clip 签名，完整 sampler/UV/filtered footprint、材质 view/nonlocal 语义、Product/形变、environment/light/VSM revision reject 和 Phase 7 GPU/browser 性能验收仍未完成。
+实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 publication cache lookup → hit-mask-gated GeometryRecord（命中走持久化 geometry cache，未命中进入 GPU bounded miss queue 的 indirect resolve）→ GPU-compacted miss-only `AppearanceResidentKernel` evaluation → 真实 clustered/VSM/AO/IBL 输入的 signal-mask gated diffuse/specular/coat/IBL packets → 双缓冲 signal/identity/age-history reconstruct。publication kernel、material/program lookup、field/route/variation identity、每-program indirect miss dispatch、生产 direct-light 数学、packet counters、运行时 environment/light/VSM 全局 revision reject 和 history 生命周期已接入；完整 sampler/UV/filtered footprint、材质 view/nonlocal 语义、Product/形变、按 signal 选择性 revision invalidation 和 Phase 7 GPU/browser 性能验收仍未完成。
 
 ## 1. 最终判断
 
@@ -26,9 +26,9 @@
 
 当前实现仍有三个决定性瓶颈：
 
-1. GeometryRecord 命中已经由 hit mask 门控持久化 geometry cache，但当前仍按 bounded sample record dispatch，不是独立的 geometry miss queue；
+1. GeometryRecord 命中已经由 hit mask 门控持久化 geometry cache，miss 已进入独立的 bounded GPU queue 和 indirect resolve；
 2. geometry cache key 已包含代表像素、几何/实例 generation 和 object-to-clip 签名，完整 sampler/UV/filtered footprint、材质 view/nonlocal 与 Product/形变对应仍未完成；
-3. 完整 sampler/UV/filtered footprint identity、Product/形变几何对应、environment/light/VSM revision reject 和正式验收仍不完整，无法证明最终 AAA 的可复用 packet 成本。
+3. 完整 sampler/UV/filtered footprint identity、Product/形变几何对应、按 signal 的 environment/light/VSM revision invalidation 和正式验收仍不完整，无法证明最终 AAA 的可复用 packet 成本。
 
 历史基线的实际成本接近：
 
@@ -728,7 +728,7 @@ surfaceDispatchCount
 
 ### 10.1 Cache lookup 语义仍不完整
 
-当前 lookup 已位于 `SurfaceGeometryPass` 之前，classify 已发布真实 sample map，GeometryRecord 已消费 hit mask 并在命中时读取持久化 geometry cache；当前仍需把 geometry miss 从 bounded sample record 中进一步压缩，并补齐 sampler/UV/footprint/variation 与材质 view/nonlocal identity，确保命中项不进入 geometry/material heavy worker。
+当前 lookup 已位于 `SurfaceGeometryPass` 之前，classify 已发布真实 sample map，GeometryRecord 已消费 hit mask 并在命中时读取持久化 geometry cache；geometry miss 已通过独立 bounded queue 和 indirect resolve 压缩。仍需补齐 sampler/UV/footprint/variation 与材质 view/nonlocal identity，确保命中项不进入 geometry/material heavy worker。
 
 ### 10.2 GeometryRecord 的覆盖仍不完整
 
@@ -736,7 +736,7 @@ surfaceDispatchCount
 
 ### 10.3 Reconstruct 的历史与合成语义仍不完整
 
-当前 reconstruct 已只读 packet、TemporalFacts mask/identity、pre-exposure 和双缓冲 signal/identity/age history，并完成基础 emissive/AO/energy 合成；GeometryRecord 已从 reconstruct 绑定移除，environment/light/VSM revision reject、细分能量守恒对照和正式画质验收仍未完成。必须补齐这些结果选择和合成语义，同时保持 reconstruct 不执行完整 PBR。
+当前 reconstruct 已只读 packet、TemporalFacts mask/identity、pre-exposure 和双缓冲 signal/identity/age history，并完成基础 emissive/AO/energy 合成；GeometryRecord 已从 reconstruct 绑定移除，运行时全局 environment/light/VSM revision reject 已接入，按 signal 的选择性失效、细分能量守恒对照和正式画质验收仍未完成。必须补齐这些结果选择和合成语义，同时保持 reconstruct 不执行完整 PBR。
 
 ## 11. 完成定义
 

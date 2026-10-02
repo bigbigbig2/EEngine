@@ -17,6 +17,12 @@ export interface SurfaceWorkFrame {
   readonly directoryOffset: number;
 }
 
+export interface SurfaceSignalRevisions {
+  readonly environment: number;
+  readonly light: number;
+  readonly shadow: number;
+}
+
 export interface SurfaceWorkProducts extends SurfaceGeometryProducts, SurfaceMaterialProducts {
   readonly work: ResourceId;
   readonly sampleMap: ResourceId;
@@ -245,6 +251,7 @@ export class SurfaceWorkRuntime {
     shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
     environment: SurfaceLightingInput["environment"];
     factsMask: ResourceId; factsIdentity: ResourceId; preExposure: ResourceId; width: number; height: number;
+    revisions: SurfaceSignalRevisions;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
@@ -320,7 +327,8 @@ export class SurfaceWorkRuntime {
       scalarAo: input.scalarAo, environment: input.environment });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
       coat: lighting.coatPackets, ibl: lighting.iblPackets, reactive: input.factsMask,
-      identity: input.factsIdentity, preExposure: input.preExposure, width: input.width, height: input.height, recordCount, sampleMap });
+      identity: input.factsIdentity, preExposure: input.preExposure, revisions: input.revisions,
+      width: input.width, height: input.height, recordCount, sampleMap });
     return { work, counts, sampleMap, records: geometry.records, count: geometry.count, ...material, ...lighting, ...reconstruction };
   }
 

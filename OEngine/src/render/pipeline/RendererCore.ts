@@ -1517,6 +1517,7 @@ export class Renderer {
         lightingEnvironmentRevision: scene.lights.environment !== undefined
           ? (environment.lights.authoredIbl.publicationRevision | 0x80000000) >>> 0
           : environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0,
+        lightingLightRevision: environment.lights.publicationRevision,
         environment: this._environmentRuntime,
         vsm: this._vsm,
         vsmFrame: vsmEnabled

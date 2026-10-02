@@ -391,6 +391,11 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     factsMask: facts.mask,
     factsIdentity: facts.identity,
     preExposure: gpuPreviousExposure,
+    revisions: bind("surface-signal-revisions", bindings => ({
+      environment: bindings.lightingEnvironmentRevision,
+      light: bindings.lightingLightRevision,
+      shadow: bindings.vsmGeneration.generation
+    })),
     materialLookup: surfaceMaterialLookup,
     surfaceIdentity,
     textureBanks,

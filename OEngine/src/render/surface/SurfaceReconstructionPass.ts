@@ -58,6 +58,7 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
 
 type HistoryPair = readonly [GPUTexture, GPUTexture];
 type RetiredHistories = { signal: HistoryPair; identity: HistoryPair; age: HistoryPair; done: Promise<void> };
+type SurfaceHistoryRevisions = Readonly<{ environment: number; light: number; shadow: number }>;
 
 export class SurfaceReconstructionPass {
   private readonly layout: GPUBindGroupLayout;
@@ -70,6 +71,7 @@ export class SurfaceReconstructionPass {
   private readIndex: 0 | 1 = 0;
   private writeIndex: 0 | 1 = 1;
   private historyValid = false;
+  private historyRevisionKey: string | null = null;
   private prepared = false;
   private lastGpuDone: Promise<void> | null = null;
   private readonly retired: RetiredHistories[] = [];
@@ -138,6 +140,7 @@ export class SurfaceReconstructionPass {
   addToGraph(graph: FrameGraph, input: {
     diffuse: ResourceId; specular: ResourceId; coat: ResourceId; ibl: ResourceId;
     reactive: ResourceId; identity: ResourceId; preExposure: ResourceId; sampleMap: ResourceId;
+    revisions: SurfaceHistoryRevisions;
     width: number; height: number; recordCount: number
   }): SurfaceReconstructionProducts {
     if (!this.prepared || this.histories === null) throw new Error("Surface reconstruction frame is not prepared");
@@ -157,6 +160,12 @@ export class SurfaceReconstructionPass {
     const node = graph.add("Surface/cheap full-resolution reconstruct", { ...input, historyRead, historyWrite, identityRead, identityWrite, ageRead, ageWrite },
       (data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
+        // FrameGraph bindings are late-bound. Read revisions while encoding the
+        // frame so a light/environment/VSM update invalidates the next history
+        // use even when the graph recipe is reused.
+        const revisionKey = `${data.revisions.environment}:${data.revisions.light}:${data.revisions.shadow}`;
+        if (this.historyRevisionKey !== null && this.historyRevisionKey !== revisionKey) this.historyValid = false;
+        this.historyRevisionKey = revisionKey;
         const settings = new ArrayBuffer(32); const view = new DataView(settings);
         view.setUint32(0, data.width, true); view.setUint32(4, data.height, true);
         view.setUint32(8, data.recordCount, true); view.setUint32(12, this.historyValid ? 1 : 0, true);
