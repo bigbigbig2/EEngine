@@ -389,6 +389,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     scalarAo: scalarAo ?? null,
     environment: surfaceEnvironment,
     factsMask: facts.mask,
+    factsIdentity: facts.identity,
     preExposure: gpuPreviousExposure,
     materialLookup: surfaceMaterialLookup,
     surfaceIdentity,

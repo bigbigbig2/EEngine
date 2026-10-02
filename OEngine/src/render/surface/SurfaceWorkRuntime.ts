@@ -244,7 +244,7 @@ export class SurfaceWorkRuntime {
     lightRecords: ResourceId; clusters: SurfaceLightingInput["clusters"];
     shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
     environment: SurfaceLightingInput["environment"];
-    factsMask: ResourceId; preExposure: ResourceId; width: number; height: number;
+    factsMask: ResourceId; factsIdentity: ResourceId; preExposure: ResourceId; width: number; height: number;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
@@ -320,7 +320,7 @@ export class SurfaceWorkRuntime {
       scalarAo: input.scalarAo, environment: input.environment });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
       coat: lighting.coatPackets, ibl: lighting.iblPackets, geometry: geometry.records, reactive: input.factsMask,
-      preExposure: input.preExposure, width: input.width, height: input.height, recordCount, sampleMap });
+      identity: input.factsIdentity, preExposure: input.preExposure, width: input.width, height: input.height, recordCount, sampleMap });
     return { work, counts, sampleMap, records: geometry.records, count: geometry.count, ...material, ...lighting, ...reconstruction };
   }
 

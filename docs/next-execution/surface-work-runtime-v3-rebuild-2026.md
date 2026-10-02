@@ -6,9 +6,9 @@
 
 ## 1. 当前事实与三个必改点
 
-源码核对基线为当前工作树（历史切断基线仍为 `e7296be9`）。旧 SurfaceMaterialPass/Probe/sample producer 已从生产链删除；当前 FrameProgramLowering 实际连接的是 Visibility/TemporalFacts → SurfaceWorkRuntime（classify、publication lookup、hit-mask-gated GeometryRecord、publication miss evaluation、cluster/VSM/AO/IBL 输入、独立 packet、双缓冲 history reconstruct）→ Sky/Aerial/FSR3/显示。独立 geometry miss compaction、完整 identity/footprint 语义和 Phase 7 验收仍未完成。
+源码核对基线为当前工作树（历史切断基线仍为 `e7296be9`）。旧 SurfaceMaterialPass/Probe/sample producer 已从生产链删除；当前 FrameProgramLowering 实际连接的是 Visibility/TemporalFacts → SurfaceWorkRuntime（classify、publication lookup、hit-mask-gated GeometryRecord、publication miss evaluation、cluster/VSM/AO/IBL 输入、signal-mask packet、signal/identity/age history reconstruct）→ Sky/Aerial/FSR3/显示。独立 geometry miss compaction、完整 footprint 语义、environment/light/VSM revision reject 和 Phase 7 验收仍未完成。
 
-当前源码已切断全有效像素 Appearance demand、独立 geometry inputs 和旧 SparseLighting prepare_surface；SurfaceWork 已注册 tile/sample lookup、implicit/uniform/mixed classify、bounded sample/exception、唯一 GeometryRecord、命中 geometry cache、真实 publication miss evaluation、独立 packet、生产 clustered/VSM/AO/IBL provider 和 history reconstruct 的生产边。独立 geometry miss compaction、sampler/UV/filtered footprint key、完整 identity reject、局部例外计数和性能闭环仍未完成，不能据此宣称最终算法或性能已经完成。
+当前源码已切断全有效像素 Appearance demand、独立 geometry inputs 和旧 SparseLighting prepare_surface；SurfaceWork 已注册 tile/sample lookup、implicit/uniform/mixed classify、bounded sample/exception、唯一 GeometryRecord、命中 geometry cache、真实 publication miss evaluation、signal-mask 独立 packet/counter、生产 clustered/VSM/AO/IBL provider 和 signal/identity/age history reconstruct 的生产边。独立 geometry miss compaction、sampler/UV/filtered footprint key、environment/light/VSM revision reject 和性能闭环仍未完成，不能据此宣称最终算法或性能已经完成。
 
 最终完成条件（不是当前源码事实）必须同时满足：
 
@@ -80,15 +80,15 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRecord、material field address、cluster/light identity、shadow/environment revision 和 history reference。Direct、diffuse、specular、coat、IBL 分别可观测，不以单一 Surface rate 代替。
 
-`SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Diffuse、specular、coat、IBL packet 仍保持独立写域，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。局部例外计数、独立 geometry miss compaction、完整 view/footprint identity 和最终 GPU/画质验收仍待 Phase 7。
+`SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Kernel 先读取 sample signal mask，只执行被请求的 direct/IBL lobe，Diffuse、specular、coat、IBL 保持独立写域；lighting counter 覆盖 packet、direct/IBL evaluation、AO/VSM/full-rate/overflow/bytes/dispatch 诊断，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。独立 geometry miss compaction、完整 view/footprint identity、environment/light/VSM revision reject 和最终 GPU/画质验收仍待 Phase 7。
 
 ### Phase 5：廉价 reconstruct（生产接线完成，统一验收待做）
 
-`SurfaceReconstructionPass` 只读取四类 packet、GeometryRecord、TemporalFacts mask、pre-exposure 和双缓冲 signal history，按全分辨率映射合成 HDR/reactive；history validity、feedback、camera/identity reject 与 GPU completion 后交换由 SurfaceWork 生命周期管理。它不重新解码 Geometry Product 或执行材质 graph。更细的 signal age、能量守恒对照和连续画质仍待 Phase 7。
+`SurfaceReconstructionPass` 只读取四类 packet、GeometryRecord、TemporalFacts mask/identity、pre-exposure 和双缓冲 signal/identity/age history，按全分辨率映射合成 HDR/reactive；逐像素 identity 比较、8 帧 age 上限、camera cut reject 与 GPU completion 后交换由 SurfaceWork 生命周期管理。它不重新解码 Geometry Product 或执行材质 graph。environment/light/VSM revision reject、能量守恒对照和连续画质仍待 Phase 7。
 
 ### Phase 6：全链与生命周期（生产接线完成，统一验收待做）
 
-SurfaceWorkRuntime 已纳入 RendererCore 的 prepare/commit/abort/destroy；reconstruct 读取唯一 TemporalFacts reactive mask，history 在 GPU completion 后交换，resize 进入 retire 队列，仍沿用 FrameCoordinator 的单一 submit 与最多两个 in-flight 背压。Environment/VSM/AO 的 FrameGraph 依赖已显式注册；完整 identity/version/revision reject、camera cut/device recovery 和故障矩阵仍待 Phase 7。
+SurfaceWorkRuntime 已纳入 RendererCore 的 prepare/commit/abort/destroy；reconstruct 读取 TemporalFacts reactive mask 与 identity，signal/identity/age history 在 GPU completion 后交换，resize 进入 retire 队列，仍沿用 FrameCoordinator 的单一 submit 与最多两个 in-flight 背压。Environment/VSM/AO 的 FrameGraph 依赖已显式注册；完整 environment/light/VSM revision reject、camera cut/device recovery 和故障矩阵仍待 Phase 7。
 
 资源分类沿用原文 §7：publication、frame persistent、frame transient、output/history 各有 owner/accounting/retire point。创建前协商 buffer、workgroup、dispatch、binding、texture/storage limits；pipeline/bind group/sampler 在 publication/profile 阶段缓存，不按材质实例或纹理组合建立独立 PSO。
 
