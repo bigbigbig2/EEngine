@@ -13,8 +13,6 @@ export interface SurfaceLightingProducts {
   readonly specularPackets: ResourceId;
   readonly coatPackets: ResourceId;
   readonly iblPackets: ResourceId;
-  readonly radiance: ResourceId;
-  readonly reactiveMask: ResourceId;
   readonly counters: ResourceId;
 }
 
@@ -76,8 +74,6 @@ struct SurfaceSettings {
 @group(0) @binding(5) var<storage, read_write> coat: array<vec4f>;
 @group(0) @binding(6) var<storage, read_write> ibl: array<vec4f>;
 @group(0) @binding(7) var<storage, read_write> counters: array<atomic<u32>>;
-@group(0) @binding(8) var output: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(9) var reactive: texture_storage_2d<rgba8unorm, write>;
 @group(0) @binding(10) var<storage, read> surface_counts: array<u32>;
 @group(0) @binding(11) var<storage, read> work: array<u32>;
 @group(0) @binding(12) var<storage, read> scalar_ao: array<u32>;
@@ -220,8 +216,6 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   let position = geometry[base + 0u].xyz;
   if geometry[base + 1u].w < 0.5 {
     atomicAdd(&counters[13], 1u);
-    textureStore(output, pixel, vec4f(0.0));
-    textureStore(reactive, pixel, vec4f(1.0, 0.0, 1.0, 1.0));
     return;
   }
   let geometric_normal = normalize(geometry[base + 1u].xyz);
@@ -282,9 +276,6 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   ibl[record] = vec4f(environment, 1.0);
   atomicAdd(&counters[10], 4u * 16u);
   if (sample_flags & 2u) != 0u { atomicAdd(&counters[4], 1u); }
-  textureStore(output, pixel, vec4f(direct_diffuse + direct_specular + coat_direct + coat_ibl + environment, 1.0));
-  let reactive_value = select(0.0, 1.0, material.roughness < 0.12 || material.coatFactor > 0.5);
-  textureStore(reactive, pixel, vec4f(reactive_value, 0.0, 0.0, 1.0));
 }
 `;
 
@@ -308,8 +299,6 @@ export class SurfaceLightingWorkPass {
       { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float", viewDimension: "2d-array" } },
       ...[3, 4, 5, 6, 7].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "storage" as GPUBufferBindingType } })),
-      { binding: 8, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
-      { binding: 9, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba8unorm" } },
       { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -339,7 +328,7 @@ export class SurfaceLightingWorkPass {
 
   addToGraph(graph: FrameGraph, input: SurfaceLightingInput): SurfaceLightingProducts {
     let diffusePackets!: ResourceId, specularPackets!: ResourceId, coatPackets!: ResourceId;
-    let iblPackets!: ResourceId, counters!: ResourceId, radiance!: ResourceId, reactiveMask!: ResourceId;
+    let iblPackets!: ResourceId, counters!: ResourceId;
     let shadowConstantsId!: ResourceId, shadowPageTableId!: ResourceId, shadowAtlasId!: ResourceId;
     const node = graph.add("Surface/independent lighting packets", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
@@ -358,8 +347,7 @@ export class SurfaceLightingWorkPass {
         { binding: 2, resource: resolveTextureView(resources.get(data.fields)) },
         { binding: 3, resource: { buffer: buffer(diffusePackets) } }, { binding: 4, resource: { buffer: buffer(specularPackets) } },
         { binding: 5, resource: { buffer: buffer(coatPackets) } }, { binding: 6, resource: { buffer: buffer(iblPackets) } },
-        { binding: 7, resource: { buffer: buffer(counters) } }, { binding: 8, resource: resolveTextureView(resources.get(radiance)) },
-        { binding: 9, resource: resolveTextureView(resources.get(reactiveMask)) }, { binding: 10, resource: { buffer: buffer(data.counts) } },
+        { binding: 7, resource: { buffer: buffer(counters) } }, { binding: 10, resource: { buffer: buffer(data.counts) } },
         { binding: 11, resource: { buffer: buffer(data.work) } }, { binding: 12, resource: { buffer: buffer(data.scalarAo ?? data.counts) } },
         { binding: 13, resource: resolveTextureView(resources.get(data.environment.diffuse)) },
         { binding: 14, resource: resolveTextureView(resources.get(data.environment.specular)) },
@@ -415,10 +403,7 @@ export class SurfaceLightingWorkPass {
     iblPackets = node.create("Surface/IBL packets", { kind: "transient_buffer", size: bytes, usage: GPUBufferUsage.STORAGE, domain: "internal-full" });
     counters = node.create("Surface/lighting counters", { kind: "transient_buffer", size: SPARSE_LIGHTING_COUNTER_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     for (const id of [diffusePackets, specularPackets, coatPackets, iblPackets, counters]) node.write(id);
-    radiance = node.create("Surface/packet radiance", { kind: "transient_texture", width: input.width, height: input.height, format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
-    reactiveMask = node.create("Surface/packet reactive", { kind: "transient_texture", width: input.width, height: input.height, format: "rgba8unorm", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
-    node.write(radiance); node.write(reactiveMask);
-    return { diffusePackets, specularPackets, coatPackets, iblPackets, counters, radiance, reactiveMask };
+    return { diffusePackets, specularPackets, coatPackets, iblPackets, counters };
   }
 
   destroy(): void { this.settings.destroy(); this.viewBuffer.destroy(); }
