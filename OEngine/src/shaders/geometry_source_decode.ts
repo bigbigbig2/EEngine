@@ -57,10 +57,10 @@ fn frame_vertex_normal(vertex: u32) -> vec4f {
 fn frame_vertex_tangent(vertex: u32) -> vec4f {
   return frame_vertex_resident(vertex, 1u);
 }
-fn frame_vertex_uv(vertex: u32, set: u32) -> vec2f {
-  if set == 2u { return frame_vertex_resident(vertex, 4u).xy; }
+fn frame_vertex_uv(vertex: u32, uvSet: u32) -> vec2f {
+  if uvSet == 2u { return frame_vertex_resident(vertex, 4u).xy; }
   let uv = frame_vertex_resident(vertex, 2u);
-  return select(uv.xy, uv.zw, set == 1u);
+  return select(uv.xy, uv.zw, uvSet == 1u);
 }
 fn frame_vertex_color(vertex: u32) -> vec4f {
   return frame_vertex_resident(vertex, 3u);
@@ -122,11 +122,11 @@ fn frame_stream(vertex: u32, offset: u32, stride: u32, format: u32, normalized: 
   for (var channel = 0u; channel < components; channel++) { value[channel] = frame_component(at + channel * bytes, format, normalized != 0u); }
   return value;
 }
-fn frame_vertex_uv(vertex: u32, set: u32) -> vec2f {
+fn frame_vertex_uv(vertex: u32, uvSet: u32) -> vec2f {
   let index = meshlet_vertices[source_meshlet.vertex_offset + vertex];
   var offset = source_geometry.uv0_byte_offset; var stride = source_geometry.uv0_stride; var format = source_geometry.uv0_format;
-  if set == 1u { offset = source_geometry.uv1_byte_offset; stride = source_geometry.uv1_stride; format = source_geometry.uv1_format; }
-  if set == 2u { offset = source_geometry.uv2_byte_offset; stride = source_geometry.uv2_stride; format = source_geometry.uv2_format; }
+  if uvSet == 1u { offset = source_geometry.uv1_byte_offset; stride = source_geometry.uv1_stride; format = source_geometry.uv1_format; }
+  if uvSet == 2u { offset = source_geometry.uv2_byte_offset; stride = source_geometry.uv2_stride; format = source_geometry.uv2_format; }
   let byte = offset + index * stride;
   if format == ${GPU_UV_FORMAT.Float32x2}u { let at = byte >> 2u; return vec2f(bitcast<f32>(vertex_payload[at]), bitcast<f32>(vertex_payload[at + 1u])); }
   if format == ${GPU_UV_FORMAT.Float16x2}u { return unpack2x16float(vertex_payload[byte >> 2u]); }

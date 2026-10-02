@@ -1136,6 +1136,7 @@ export class Renderer {
     );
     const limits = {
       maxStorageBuffersPerShaderStage: minStorageBuffers,
+      maxStorageTexturesPerShaderStage: Number(adapter.limits.maxStorageTexturesPerShaderStage),
       ...(config.requiredLimits?.maxColorAttachmentBytesPerSample === undefined
         ? {} : { maxColorAttachmentBytesPerSample: config.requiredLimits.maxColorAttachmentBytesPerSample })
     };

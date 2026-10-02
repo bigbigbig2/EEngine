@@ -52,7 +52,6 @@ const GEOMETRY_CACHE_VALUE_STRIDE = 10;
 const GEOMETRY_MISS_INDIRECT_OFFSET = 8;
 
 const GEOMETRY_WGSL = /* wgsl */ `
-${GPU_VISIBILITY_KEY_WGSL}
 ${SURFACE_WORK_HEADER_WGSL}
 ${GPU_INSTANCE_RECORD_WGSL}
 ${GPU_FRAME_INSTANCE_WGSL}
@@ -146,7 +145,7 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   let pixel = work[sample_at];
   let x = pixel % settings.width;
   let y = pixel / settings.width;
-  let key = textureLoad(visibility, vec2i(x, y), 0).x;
+  let key = textureLoad(visibility, vec2i(i32(x), i32(y)), 0).x;
   let base = settings.geometry_offset / 16u + record * 12u;
   let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
   if decoded.valid == 0u {
@@ -235,13 +234,13 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   var ids = vec3u(0u, 1u, 2u);
   surface_direct_source = false;
   if arena[directory + 2u] != 0u {
-    interpolation = winner_arena_interpolate_key(key, vec2f(x, y) + vec2f(0.5),
-      vec2f(settings.width, settings.height), settings.frame_at, settings.directory_at);
+    interpolation = winner_arena_interpolate_key(key, vec2f(f32(x), f32(y)) + vec2f(0.5),
+      vec2f(f32(settings.width), f32(settings.height)), settings.frame_at, settings.directory_at);
     let packed = arena[arena[settings.frame_at + 7u] + arena[directory + 1u] + decoded.local_primitive];
     ids = vec3u(packed & 255u, (packed >> 8u) & 255u, (packed >> 16u) & 255u) + vec3u(arena[directory]);
   } else {
     interpolation = winner_interpolate(surface_source_coefficients(meshlet, decoded.local_primitive),
-      vec2f(x, y) + vec2f(0.5), vec2f(settings.width, settings.height));
+      vec2f(f32(x), f32(y)) + vec2f(0.5), vec2f(f32(settings.width), f32(settings.height)));
     ids = vec3u(0u, 1u, 2u);
   }
   if (interpolation.flags & 1u) == 0u {
@@ -361,7 +360,7 @@ export class SurfaceGeometryPass {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.settings = device.createBuffer({ label: "Surface Geometry settings", size: 80,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.finalizeSettings = device.createBuffer({ label: "Surface Geometry miss finalize settings", size: 16,
+    this.finalizeSettings = device.createBuffer({ label: "Surface Geometry miss finalize settings", size: 32,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ label: "Surface Geometry bindings", entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 80 } },
@@ -373,7 +372,7 @@ export class SurfaceGeometryPass {
       { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 256 } },
+      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: PACKED_CAMERA_TYPE.size } },
       { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -386,7 +385,7 @@ export class SurfaceGeometryPass {
     this.pipeline = device.createComputePipeline({ label: "Surface/GeometryRecord", layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: { module: device.createShaderModule({ label: "Surface Geometry Record", code: GEOMETRY_WGSL }), entryPoint: "resolve_geometry" } });
     this.finalizeLayout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 32 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
     ] });
     this.finalizePipeline = device.createComputePipeline({ label: "Surface/Geometry miss finalize",
@@ -395,7 +394,7 @@ export class SurfaceGeometryPass {
   }
 
   addToGraph(graph: FrameGraph, input: SurfaceGeometryInput): SurfaceGeometryProducts {
-    let records!: ResourceId, count!: ResourceId, missQueue!: ResourceId, missCounters!: ResourceId;
+    let records!: ResourceId, count!: ResourceId, missQueue!: ResourceId, missCounters!: ResourceId, dispatchIndirect!: ResourceId;
     const bindAndDispatch = (data: SurfaceGeometryInput & { mode: number }, resources: PassResources, context: FrameGraphContext): void => {
       const command = context.encoder as ShadeGPUCommandContext;
       const settings = new Uint32Array([
@@ -427,10 +426,14 @@ export class SurfaceGeometryPass {
         { binding: 16, resource: { buffer: resources.get(missQueue) as GPUBuffer } },
         { binding: 17, resource: { buffer: resources.get(missCounters) as GPUBuffer } }
       ] });
+      if (data.mode === 0) {
+        command.gpu_encoder.copyBufferToBuffer(resources.get(data.counts) as GPUBuffer, SURFACE_WORK_INDIRECT_OFFSET, resources.get(dispatchIndirect) as GPUBuffer, 0, 16);
+      } else {
+        command.gpu_encoder.copyBufferToBuffer(resources.get(missCounters) as GPUBuffer, GEOMETRY_MISS_INDIRECT_OFFSET, resources.get(dispatchIndirect) as GPUBuffer, 0, 16);
+      }
       const pass = command.beginComputePass({ label: "Surface/GeometryRecord" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
-      if (data.mode === 0) pass.dispatchWorkgroupsIndirect(resources.get(data.counts) as GPUBuffer, SURFACE_WORK_INDIRECT_OFFSET);
-      else pass.dispatchWorkgroupsIndirect(resources.get(missCounters) as GPUBuffer, GEOMETRY_MISS_INDIRECT_OFFSET);
+      pass.dispatchWorkgroupsIndirect(resources.get(dispatchIndirect) as GPUBuffer, 0);
       pass.end();
     };
     const classify = graph.add("Surface/GeometryRecord cache classify", { ...input, mode: 0 }, (data, resources, context) => {
@@ -455,6 +458,9 @@ export class SurfaceGeometryPass {
     missCounters = classify.create("Surface/GeometryRecord miss indirect", { kind: "transient_buffer", size: 32,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     classify.write(missCounters);
+    dispatchIndirect = classify.create("Surface/GeometryRecord dispatch indirect", { kind: "transient_buffer", size: 16,
+      usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST, domain: "internal-full" });
+    classify.write(dispatchIndirect);
     const finalize = graph.add("Surface/GeometryRecord miss finalize", { missCounters }, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       command.writeBuffer(this.finalizeSettings, 0, new Uint32Array([input.geometryCapacity, 0, 0, 0]).buffer, 0, 16);
@@ -466,13 +472,14 @@ export class SurfaceGeometryPass {
       pass.setPipeline(this.finalizePipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end();
     });
     finalize.read(missCounters); missCounters = finalize.write(missCounters);
-    const resolveMisses = graph.add("Surface/GeometryRecord miss resolve", { ...input, mode: 1, records, count, missQueue, missCounters }, (data, resources, context) => {
+    const resolveMisses = graph.add("Surface/GeometryRecord miss resolve", { ...input, mode: 1, records, count, missQueue, missCounters, dispatchIndirect }, (data, resources, context) => {
       bindAndDispatch(data, resources, context);
     });
     resolveMisses.dependsOn(finalize);
     for (const resource of [input.visibility, input.work, input.arena, input.meshletWork,
       input.sourceHeap, input.vertexPayload, input.frameInstances, input.frameAttributes, input.camera,
       input.materialHitMask, records, count, missQueue, missCounters]) resolveMisses.read(resource);
+    resolveMisses.read(dispatchIndirect); dispatchIndirect = resolveMisses.write(dispatchIndirect);
     records = resolveMisses.write(records);
     count = resolveMisses.write(count);
     return { records, count, missCounters };

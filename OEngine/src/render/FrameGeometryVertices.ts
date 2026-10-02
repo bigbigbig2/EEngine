@@ -45,7 +45,13 @@ export class FrameGeometryVertices {
     const beginLayout = device.createPipelineLayout({ bindGroupLayouts: [this.publicationLayout, this.indirectLayout] });
     const finalizeLayout = device.createPipelineLayout({ bindGroupLayouts: [this.publicationLayout] });
     this.ready = Promise.all([false, true].map(async (product, profile) => {
-      const module = device.createShaderModule({ label: `Geometry selected shared vertices/${product}`, code: frameGeometryVerticesWgsl(product, observe) });
+      const source = frameGeometryVerticesWgsl(product, observe);
+      const module = device.createShaderModule({ label: `Geometry selected shared vertices/${product}`, code: source });
+      const compilation = await module.getCompilationInfo();
+      const diagnostics = compilation.messages.filter(message => message.type === "error");
+      if (diagnostics.length !== 0) {
+        throw new Error(`Frame geometry WGSL compilation failed: ${diagnostics.map(message => `${message.lineNum}:${message.linePos} ${message.message} [${source.split("\n")[message.lineNum - 1]?.trim() ?? ""}]`).join(" | ")}`);
+      }
       const buildLayout = device.createPipelineLayout({ bindGroupLayouts: [this.layouts[profile]!] });
       return Promise.all(ENTRIES.map((entryPoint, i) => device.createComputePipelineAsync({ label: `Geometry/${entryPoint}/${product}`,
         layout: i === 0 ? beginLayout : i === 1 ? buildLayout : finalizeLayout, compute: { module, entryPoint } })));

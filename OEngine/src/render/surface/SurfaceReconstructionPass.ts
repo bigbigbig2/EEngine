@@ -18,7 +18,7 @@ struct Settings {
 @group(0) @binding(2) var<storage,read> specular:array<vec4f>;
 @group(0) @binding(3) var<storage,read> coat:array<vec4f>;
 @group(0) @binding(4) var<storage,read> ibl:array<vec4f>;
-@group(0) @binding(6) var<storage,read> source_reactive:texture_2d<f32>;
+@group(0) @binding(6) var source_reactive:texture_2d<f32>;
 @group(0) @binding(7) var output:texture_storage_2d<rgba16float,write>;
 @group(0) @binding(8) var reactive:texture_storage_2d<rgba8unorm,write>;
 @group(0) @binding(9) var<storage,read> pre_exposure:array<f32>;
@@ -246,7 +246,7 @@ export class SurfaceReconstructionPass {
       input.reactive, input.identity, input.preExposure, input.sampleMap, ...historyRead, identityRead, ageRead]) node.read(id);
     for (const id of historyWrite) node.write(id); node.write(identityWrite); node.write(ageWrite);
     radiance = node.create("Surface/HDR reconstructed", { kind: "transient_texture", width: input.width,
-      height: input.height, format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
+      height: input.height, format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT, domain: "internal-full" });
     reactiveMask = node.create("Surface/reactive reconstructed", { kind: "transient_texture", width: input.width,
       height: input.height, format: "rgba8unorm", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
     counters = node.create("Surface/reconstruct diagnostics", { kind: "transient_buffer", size: SURFACE_RECONSTRUCT_COUNTER_BYTES,

@@ -24,7 +24,7 @@ ${GPU_MESHLET_RECORD_WGSL}
 @group(0) @binding(6) var<uniform> settings: vec4u;
 @group(0) @binding(7) var<storage,read> meshlets: array<GpuMeshletRecord>;
 @group(1) @binding(0) var<storage,read_write> dispatch: array<u32>;
-fn partition(slot: u32) -> u32 {
+fn raster_partition(slot: u32) -> u32 {
   let record=work.elements[slot];
   let material=materials[record.material_slot_or_range].payload;
   if (material.flags & OENGINE_MATERIAL_VISIBILITY_VALID)==0u || material.alpha_mode==OENGINE_MATERIAL_ALPHA_BLEND { return 0xffffffffu; }
@@ -51,7 +51,7 @@ fn begin(@builtin(global_invocation_id) id: vec3u) {
 fn count(@builtin(global_invocation_id) id: vec3u) {
   let slot=id.x+id.y*settings.z*64u;
   if slot>=work.header.written_count { return; }
-  let key=partition(slot);
+  let key=raster_partition(slot);
   if key!=0xffffffffu { atomicAdd(&states[key*4u],1u); }
 }
 @compute @workgroup_size(1)
@@ -70,7 +70,7 @@ fn prefix() {
 fn scatter(@builtin(global_invocation_id) id: vec3u) {
   let slot=id.x+id.y*settings.z*64u;
   if slot>=work.header.written_count { return; }
-  let key=partition(slot);
+  let key=raster_partition(slot);
   if key==0xffffffffu { return; }
   let at=atomicLoad(&states[key*4u+1u])+atomicAdd(&states[key*4u+2u],1u);
   indices[at]=slot;

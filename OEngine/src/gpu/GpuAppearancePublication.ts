@@ -35,9 +35,9 @@ const APPEARANCE_CACHE_STORAGE_BUFFER_COUNT = 11;
 const SURFACE_SETTINGS_WGSL = `
 struct SurfaceSettings {
   width: u32, height: u32, record_count: u32, entry_index: u32,
-  cache_capacity: u32, field_version: u32, residency_version: u32, sample_offset: u32,
+  cache_capacity: u32, material_lookup_offset: u32, identity_offset: u32, sample_offset: u32,
   geometry_offset: u32, diagnostics_enabled: u32, view_revision: u32, nonlocal_revision: u32,
-  reserved1: u32, reserved2: u32, reserved3: u32, reserved4: u32
+  directory_offset: u32, runtime_input_offset: u32, material_lookup_count: u32, directory_count: u32
 };
 `;
 
@@ -80,23 +80,23 @@ function surfaceKernelIntegration(program: CompiledAppearanceGraph,
   const inputLayout = appearanceInputLayout(program);
   const inputDeclarations = program.inputs.map((input, index) => {
     const kind = appearanceGeometryInputKind(input, program);
-    const value = kind === 0 ? `surface_runtime_inputs[surface_directory[directory_base+7u]+${index}u]` : kind === 1 ? "geometry[base + 3u].xy" :
-      kind === 2 ? "geometry[base + 3u].zw" :
-      kind === 3 ? "geometry[base + 4u].xy" :
-      kind === 4 ? "geometry[base + 11u]" :
-      kind === 5 ? "geometry[base + 2u]" :
-      kind === 6 ? "geometry[base + 5u]" :
-      kind === 7 ? "geometry[base + 0u]" :
-      kind === 8 ? "geometry[base + 6u]" :
-      kind === 9 ? "geometry[base + 0u]" :
-      kind === 10 ? "geometry[base + 0u]" :
-      kind === 11 ? "geometry[base + 2u]" :
-      kind === 12 ? "geometry[base + 5u]" :
-      kind === 13 ? "geometry[base + 0u]" :
-      kind === 14 ? "geometry[base + 2u]" : "vec4f(0.0)";
+    const value = kind === 0 ? `surface_runtime_input(surface_metadata[surface_settings.directory_offset+directory_base+7u]+${index}u)` : kind === 1 ? "vec4f(surface_geometry[base + 3u].xy,0.0,0.0)" :
+      kind === 2 ? "vec4f(surface_geometry[base + 3u].zw,0.0,0.0)" :
+      kind === 3 ? "vec4f(surface_geometry[base + 4u].xy,0.0,0.0)" :
+      kind === 4 ? "surface_geometry[base + 11u]" :
+      kind === 5 ? "surface_geometry[base + 2u]" :
+      kind === 6 ? "surface_geometry[base + 5u]" :
+      kind === 7 ? "surface_geometry[base + 0u]" :
+      kind === 8 ? "surface_geometry[base + 6u]" :
+      kind === 9 ? "surface_geometry[base + 0u]" :
+      kind === 10 ? "surface_geometry[base + 0u]" :
+      kind === 11 ? "surface_geometry[base + 2u]" :
+      kind === 12 ? "surface_geometry[base + 5u]" :
+      kind === 13 ? "surface_geometry[base + 0u]" :
+      kind === 14 ? "surface_geometry[base + 2u]" : "vec4f(0.0)";
     const center = `appearance_inputs[${index}u]=${value};`;
-    const dx = kind === 1 ? "geometry[base + 7u].xy" : "vec2f(0.0)";
-    const dy = kind === 1 ? "geometry[base + 7u].zw" : "vec2f(0.0)";
+    const dx = kind === 1 ? "surface_geometry[base + 7u].xy" : "vec2f(0.0)";
+    const dy = kind === 1 ? "surface_geometry[base + 7u].zw" : "vec2f(0.0)";
     return `${center} appearance_inputs[${inputLayout.neighborBase + index * 2}u]=${value} + vec4f(${dx},0.0,0.0); appearance_inputs[${inputLayout.neighborBase + index * 2 + 1}u]=${value} + vec4f(${dy},0.0,0.0);`;
   }).join("\n  ");
   const layers = `${Array.from({ length: APPEARANCE_SURFACE_LAYER_COUNT }, (_, layer) => `var layer${layer}=vec4f(0.0);`).join("\n  ")}\n  var validityBits=0u;`;
@@ -116,17 +116,14 @@ struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: 
 @group(0) @binding(13) var<storage, read> surface_geometry: array<vec4f>;
 @group(0) @binding(14) var<storage, read> surface_misses: array<vec2u>;
 @group(0) @binding(15) var<storage, read> surface_hit_mask: array<u32>;
-@group(0) @binding(16) var<storage, read> surface_material_lookup: array<u32>;
-@group(0) @binding(17) var<storage, read> surface_directory: array<u32>;
+@group(0) @binding(16) var<storage, read> surface_metadata: array<u32>;
 @group(0) @binding(18) var surface_fields: texture_storage_2d_array<rgba16float, write>;
 @group(0) @binding(19) var<uniform> surface_settings: SurfaceSettings;
 @group(0) @binding(20) var<storage, read_write> surface_cache: array<u32>;
 @group(0) @binding(21) var<storage, read_write> surface_cache_values: array<vec4f>;
-@group(0) @binding(22) var<storage, read> surface_identity: array<vec4u>;
 @group(0) @binding(23) var<storage, read> surface_counters: array<u32>;
 @group(0) @binding(24) var<storage, read> surface_field_versions: array<u32>;
 @group(0) @binding(25) var<storage, read> surface_residency_versions: array<u32>;
-@group(0) @binding(26) var<storage, read> surface_runtime_inputs: array<vec4f>;
 @group(0) @binding(27) var<storage, read> surface_work: array<u32>;
 // detailed-only audit: entered, completed, fields published, skipped/rejected
 @group(0) @binding(28) var<storage, read_write> surface_audit: array<atomic<u32>>;
@@ -136,8 +133,9 @@ fn appearance_constant(index:u32)->f32 { return appearance_constants[appearance_
 fn appearance_input(index:u32,channel:u32)->f32 { return appearance_inputs[index][channel]; }
 fn surface_hash_word(value:u32, seed:u32)->u32 { var x=seed^value; x*=16777619u; x^=x>>13u; x*=2246822519u; return x; }
 fn surface_cache_hash(identity:u32, material:u32, field:u32, residency:u32, publication:u32, footprint:u32, view:u32, nonlocal:u32)->u32 { var x=identity; x=surface_hash_word(material,x); x=surface_hash_word(field,x); x=surface_hash_word(residency,x); x=surface_hash_word(publication,x); x=surface_hash_word(footprint,x); x=surface_hash_word(view,x); return surface_hash_word(nonlocal,x); }
-fn surface_geometry_identity(geometry_slot:u32, meshlet_slot:u32, instance_slot:u32, primitive:u32, material:u32)->u32 { var x=geometry_slot*16777619u^meshlet_slot*2246822519u^instance_slot*3266489917u^primitive*668265263u^material; x^=x>>16u; x*=0x7feb352du; return x^(x>>15u); }
+fn surface_geometry_identity(geometry_slot:u32, meshlet_slot:u32, instance_slot:u32, primitive:u32, material:u32)->u32 { var x=(geometry_slot*16777619u)^(meshlet_slot*2246822519u)^(instance_slot*3266489917u)^(primitive*668265263u)^material; x^=x>>16u; x*=0x7feb352du; return x^(x>>15u); }
 fn surface_audit_add(index:u32) { if surface_settings.diagnostics_enabled != 0u { atomicAdd(&surface_audit[index], 1u); } }
+fn surface_runtime_input(index:u32)->vec4f { let at=surface_settings.runtime_input_offset+index*4u; return vec4f(bitcast<f32>(surface_metadata[at]),bitcast<f32>(surface_metadata[at+1u]),bitcast<f32>(surface_metadata[at+2u]),bitcast<f32>(surface_metadata[at+3u])); }
 `;
   const entrySource = `
 @compute @workgroup_size(${APPEARANCE_WORKGROUP_SIZE})
@@ -150,11 +148,11 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
   if (surface_hit_mask[record]!=0u) { surface_audit_add(3u); return; }
   let base=surface_settings.geometry_offset+record*12u;
   let material=bitcast<u32>(surface_geometry[base+10u].y);
-  if (material>=arrayLength(&surface_material_lookup)) { surface_audit_add(3u); return; }
-  let entry=surface_material_lookup[material];
-  if (entry==0xffffffffu || surface_directory[entry*8u+1u]!=surface_settings.entry_index) { surface_audit_add(3u); return; }
+  if (material>=surface_settings.material_lookup_count) { surface_audit_add(3u); return; }
+  let entry=surface_metadata[surface_settings.material_lookup_offset+material];
+  if (entry==0xffffffffu || entry>=surface_settings.directory_count || surface_metadata[surface_settings.directory_offset+entry*8u+1u]!=surface_settings.entry_index) { surface_audit_add(3u); return; }
   let directory_base=entry*8u;
-  appearance_task=vec4u(surface_directory[directory_base+2u],surface_directory[directory_base+3u],0u,0u);
+  appearance_task=vec4u(surface_metadata[surface_settings.directory_offset+directory_base+2u],surface_metadata[surface_settings.directory_offset+directory_base+3u],0u,0u);
   ${inputDeclarations}
   appearance_prepare_coordinates();
   let value=appearance_evaluate();
@@ -162,7 +160,7 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
   ${writes}
   layer5.w=bitcast<f32>(validityBits);
   let pixel_word=surface_work[surface_settings.sample_offset/4u+record*8u];
-  let pixel=vec2i(pixel_word%surface_settings.width,pixel_word/surface_settings.width);
+  let pixel=vec2i(i32(pixel_word%surface_settings.width),i32(pixel_word/surface_settings.width));
   textureStore(surface_fields,pixel,0,layer0); textureStore(surface_fields,pixel,1,layer1);
   textureStore(surface_fields,pixel,2,layer2); textureStore(surface_fields,pixel,3,layer3);
   textureStore(surface_fields,pixel,4,layer4); textureStore(surface_fields,pixel,5,layer5);
@@ -173,8 +171,8 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
    let stable=surface_geometry_identity(geometrySlot,meshletSlot,instanceSlot,primitive,material);
    var field=2166136261u; for(var fieldAt=0u;fieldAt<arrayLength(&surface_field_versions);fieldAt+=4u){ field=(field^surface_field_versions[fieldAt])*16777619u; }
    var residency=2166136261u; for(var residencyAt=0u;residencyAt<arrayLength(&surface_residency_versions);residencyAt++){ residency=(residency^surface_residency_versions[residencyAt])*16777619u; }
-  let identityRecord=surface_identity[entry];
-  let footprint=surface_hash_word(pixel_word,2166136261u);
+  let identityRecord=vec4u(surface_metadata[surface_settings.identity_offset+entry*4u],surface_metadata[surface_settings.identity_offset+entry*4u+1u],surface_metadata[surface_settings.identity_offset+entry*4u+2u],surface_metadata[surface_settings.identity_offset+entry*4u+3u]);
+  var footprint=surface_hash_word(pixel_word,2166136261u);
   footprint=surface_hash_word(surface_work[surface_settings.sample_offset/4u+record*8u+2u],footprint);
   let hash=surface_cache_hash(stable,material,field,residency,identityRecord.x^identityRecord.y^identityRecord.z^identityRecord.w,footprint,surface_settings.view_revision,surface_settings.nonlocal_revision);
   let cell=hash&(surface_settings.cache_capacity-1u);
@@ -200,30 +198,21 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
   const fixed: GPUBindGroupLayoutEntry[] = [
     { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
     { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: APPEARANCE_ROUTE_STRIDE } },
-    { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } },
-    { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
-    { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
-    { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
-    { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
-    { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } },
     { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } },
     { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 8 } },
     { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
     { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
-    { binding: 17, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
     { binding: 18, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float", viewDimension: "2d-array" } },
     { binding: 19, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 64 } },
     { binding: 20, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: APPEARANCE_SURFACE_CACHE_KEY_WORDS * 4 } },
     { binding: 21, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
-    { binding: 22, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } }
-    ,{ binding: 23, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } }
-    ,{ binding: 24, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } }
-    ,{ binding: 25, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } }
-    ,{ binding: 26, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } }
-    ,{ binding: 27, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } }
-    ,{ binding: 28, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } }
+    { binding: 23, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } },
+    { binding: 24, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
+    { binding: 25, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
+    { binding: 27, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
+    { binding: 28, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } }
   ];
-  return { entryPoint: "surface_main", groups: [fixed], declarations, entrySource };
+  return { entryPoint: "surface_main", coordinateEntry: false, groups: [fixed], declarations, entrySource };
 }
 const APPEARANCE_DEMAND_WGSL = /* wgsl */ `
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -415,6 +404,16 @@ export class GpuAppearancePublication {
   /** Numeric dynamic inputs, one vec4 per compiled named input. Geometry and
    * surface inputs are supplied by the shared geometry consumer, not this table. */
   readonly runtimeInputs: GPUBuffer;
+  /** Packed metadata consumed by the Surface miss evaluator. */
+  readonly surfaceMetadata: GPUBuffer;
+  readonly surfaceMetadataOffsets: Readonly<{
+    readonly materialLookup: number;
+    readonly identity: number;
+    readonly directory: number;
+    readonly runtimeInputs: number;
+    readonly materialLookupCount: number;
+    readonly directoryCount: number;
+  }>;
   /** Material-slot lookup and stable publication identity consumed by SurfaceWork. */
   readonly materialLookup: GPUBuffer;
   readonly surfaceIdentity: GPUBuffer;
@@ -663,8 +662,21 @@ export class GpuAppearancePublication {
           (surfacePublicationRequiresFullIdentity(source.program)
             ? SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE : 0)) >>> 0;
       });
+      const surfaceMetadataOffsets = {
+        materialLookup: 0,
+        identity: materialLookupData.length,
+        directory: materialLookupData.length + identityData.length,
+        runtimeInputs: materialLookupData.length + identityData.length + directoryData.length,
+        materialLookupCount: materialLookupData.length,
+        directoryCount: directoryData.length / directoryWords
+      } as const;
+      const surfaceMetadataData = new Uint32Array(surfaceMetadataOffsets.runtimeInputs + inputData.length);
+      surfaceMetadataData.set(materialLookupData, surfaceMetadataOffsets.materialLookup);
+      surfaceMetadataData.set(identityData, surfaceMetadataOffsets.identity);
+      surfaceMetadataData.set(directoryData, surfaceMetadataOffsets.directory);
+      surfaceMetadataData.set(new Uint32Array(inputData.buffer, inputData.byteOffset, inputData.length), surfaceMetadataOffsets.runtimeInputs);
       const maximum = Math.min(Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize));
-      for (const data of [constantData, routeData, directoryData, fieldData, inputData, materialLookupData, identityData]) if (data.byteLength > maximum) {
+      for (const data of [constantData, routeData, directoryData, fieldData, inputData, materialLookupData, identityData, surfaceMetadataData]) if (data.byteLength > maximum) {
         throw new RangeError(`Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`);
       }
       // Publication byte admission precedes every shader/layout/pipeline/buffer creation.
@@ -701,6 +713,8 @@ export class GpuAppearancePublication {
       this.directory = this.upload(device, command, "directory", directoryData);
       this.fields = this.upload(device, command, "fields", fieldData);
       this.runtimeInputs = this.upload(device, command, "runtime-inputs", inputData);
+      this.surfaceMetadata = this.upload(device, command, "surface-metadata", surfaceMetadataData);
+      this.surfaceMetadataOffsets = Object.freeze(surfaceMetadataOffsets);
       this.materialLookup = this.upload(device, command, "surface-material-lookup", materialLookupData);
       this.surfaceIdentity = this.upload(device, command, "surface-publication-identity", identityData);
       const coverageDirectoryData = new Uint32Array((maxMaterialSlot + 1) * COVERAGE_DIRECTORY_STRIDE / 4);
@@ -845,36 +859,29 @@ export class GpuAppearancePublication {
     }
     const pipelines = this.surfacePipelines;
     if (!pipelines || pipelines.length !== this.surfaceProgramCount) throw new Error("Surface publication kernels are not ready");
-    const dummy = command.allocateTransientBuffer(GPUBufferUsage.STORAGE, 16);
-    const taskProgram = command.allocateTransientBuffer(GPUBufferUsage.STORAGE, 16);
-    const taskExtent = command.allocateTransientBuffer(GPUBufferUsage.STORAGE, 32);
-    const dispatch = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 16);
     const settings = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 64);
     for (let programIndex = 0; programIndex < pipelines.length; programIndex++) {
       const entry = this.entries.find(candidate => candidate.programIndex === programIndex);
       if (!entry) continue;
       command.writeBuffer(settings, 0, new Uint32Array([
         input.width, input.height, input.recordCount, programIndex,
-        input.cacheCapacity, 0, 0, input.sampleOffset, input.geometryOffset,
-        input.diagnosticsEnabled ? 1 : 0, input.viewRevision >>> 0, input.nonlocalRevision >>> 0, 0, 0, 0, 0
+        input.cacheCapacity, this.surfaceMetadataOffsets.materialLookup, this.surfaceMetadataOffsets.identity, input.sampleOffset, input.geometryOffset,
+        input.diagnosticsEnabled ? 1 : 0, input.viewRevision >>> 0, input.nonlocalRevision >>> 0,
+        this.surfaceMetadataOffsets.directory, this.surfaceMetadataOffsets.runtimeInputs,
+        this.surfaceMetadataOffsets.materialLookupCount, this.surfaceMetadataOffsets.directoryCount
       ]).buffer, 0, 64);
-      command.writeBuffer(dispatch, 0, new Uint32Array([0, programIndex, 0, 0]).buffer, 0, 16);
       const ready = pipelines[programIndex]!;
       const group0 = this.device.createBindGroup({ layout: ready.layouts[0]!, entries: [
         { binding: 0, resource: { buffer: this.constants } }, { binding: 1, resource: { buffer: this.routes } },
-        { binding: 2, resource: { buffer: dummy } }, { binding: 3, resource: { buffer: dummy } },
-        { binding: 4, resource: { buffer: dummy } }, { binding: 5, resource: { buffer: dispatch } },
-        { binding: 11, resource: { buffer: taskProgram } }, { binding: 12, resource: { buffer: taskExtent } },
         { binding: 13, resource: { buffer: input.geometry } }, { binding: 14, resource: { buffer: input.misses } },
-        { binding: 15, resource: { buffer: input.hitMask } }, { binding: 16, resource: { buffer: this.materialLookup } },
-        { binding: 17, resource: { buffer: this.directory } }, { binding: 18, resource: input.fields },
+        { binding: 15, resource: { buffer: input.hitMask } }, { binding: 16, resource: { buffer: this.surfaceMetadata } },
+        { binding: 18, resource: input.fields },
         { binding: 19, resource: { buffer: settings } }, { binding: 20, resource: { buffer: input.cache } },
-        { binding: 21, resource: { buffer: input.cacheValues } }, { binding: 22, resource: { buffer: this.surfaceIdentity } },
+        { binding: 21, resource: { buffer: input.cacheValues } },
         { binding: 23, resource: { buffer: input.counters } },
         { binding: 24, resource: { buffer: input.fieldVersions } },
         { binding: 25, resource: { buffer: input.residencyVersions } },
-        { binding: 26, resource: { buffer: this.runtimeInputs } }
-        ,{ binding: 27, resource: { buffer: input.work } }
+        { binding: 27, resource: { buffer: input.work } }
         ,{ binding: 28, resource: { buffer: input.audit } }
       ] });
       const groups: GPUBindGroup[] = [group0];

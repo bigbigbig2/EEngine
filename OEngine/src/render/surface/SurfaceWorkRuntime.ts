@@ -67,7 +67,7 @@ fn write_sample(slot: u32, pixel: u32, key: u32, tile: u32, lane: u32) {
   work[at + 5u] = tile | (lane << 16u);
   work[at + 6u] = slot;
   work[at + 7u] = 1u;
-  textureStore(sample_map, vec2i(pixel % settings.width, pixel / settings.width), vec4u(slot));
+  textureStore(sample_map, vec2i(i32(pixel % settings.width), i32(pixel / settings.width)), vec4u(slot));
 }
 
 @compute @workgroup_size(64)
@@ -89,10 +89,10 @@ fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid:
   let inside = px < settings.width && py < settings.height;
   let sample_x = min(px, settings.width - 1u);
   let sample_y = min(py, settings.height - 1u);
-  let key = select(0xffffffffu, textureLoad(visibility, vec2i(sample_x, sample_y), 0).x, inside);
+  let key = select(0xffffffffu, textureLoad(visibility, vec2i(i32(sample_x), i32(sample_y)), 0).x, inside);
   keys[lane] = key;
   valid[lane] = select(0u, 1u, key != 0xffffffffu && inside);
-  if inside { textureStore(sample_map, vec2i(px, py), vec4u(0xffffffffu)); }
+  if inside { textureStore(sample_map, vec2i(i32(px), i32(py)), vec4u(0xffffffffu)); }
   workgroupBarrier();
   if lane == 0u {
     var visible = 0u;
@@ -139,7 +139,7 @@ fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid:
       for (var i = 0u; i < 64u; i++) {
         let sx = tx * 8u + (i % 8u); let sy = ty * 8u + (i / 8u);
         if sx < settings.width && sy < settings.height {
-          textureStore(sample_map, vec2i(sx, sy), vec4u(slot));
+          textureStore(sample_map, vec2i(i32(sx), i32(sy)), vec4u(slot));
         }
       }
     } else {

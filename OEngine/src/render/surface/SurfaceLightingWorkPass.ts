@@ -7,6 +7,7 @@ import { APPEARANCE_SURFACE_READ_WGSL } from "../../gpu/GpuAppearanceCacheAbi.js
 import { SPARSE_LIGHTING_COUNTER_BYTES, SPARSE_LIGHTING_COUNTER_WORDS } from "../../gpu/GpuSparseLightingAbi.js";
 import { createProductionSparseDirectLightingWgsl } from "../../shaders/lighting_direct.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "../../shaders/environment_ibl.js";
+import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 
 export interface SurfaceLightingProducts {
   readonly diffusePackets: ResourceId;
@@ -63,6 +64,7 @@ const DIRECT_MATH = createProductionSparseDirectLightingWgsl(true, "vsm")
 const LIGHTING_WGSL = /* wgsl */ `
 ${DIRECT_MATH}
 ${OCTAHEDRAL_SAMPLE_WGSL}
+${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${APPEARANCE_SURFACE_READ_WGSL}
 
 struct SurfaceView { width: u32, height: u32, frame_index: u32, _pad: u32 };
@@ -328,7 +330,7 @@ export class SurfaceLightingWorkPass {
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 256 } }
     ] });
     this.shadowLayout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 128 } },
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 208 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "depth", viewDimension: "2d" } }
     ] });
@@ -340,6 +342,7 @@ export class SurfaceLightingWorkPass {
   addToGraph(graph: FrameGraph, input: SurfaceLightingInput): SurfaceLightingProducts {
     let diffusePackets!: ResourceId, specularPackets!: ResourceId, coatPackets!: ResourceId;
     let iblPackets!: ResourceId, counters!: ResourceId;
+    let dispatchIndirect!: ResourceId;
     let shadowConstantsId!: ResourceId, shadowPageTableId!: ResourceId, shadowAtlasId!: ResourceId;
     const node = graph.add("Surface/independent lighting packets", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
@@ -389,26 +392,30 @@ export class SurfaceLightingWorkPass {
       ] });
       if (shadow === null) {
         command.writeBuffer(shadowConstants, 0, new Uint32Array(32).buffer, 0, 128);
-        command.writeBuffer(pageTable, 0, new Uint32Array(4).buffer, 0, 16);
+        command.writeBuffer(pageTable, 0, new Uint32Array(8).buffer, 0, 32);
       }
+      command.gpu_encoder.copyBufferToBuffer(buffer(data.counts), SURFACE_WORK_INDIRECT_OFFSET, resources.get(dispatchIndirect) as GPUBuffer, 0, 16);
       const pass = command.beginComputePass({ label: "Surface/lighting packets" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, group0); pass.setBindGroup(1, group1);
       pass.setBindGroup(2, group2); pass.setBindGroup(3, group3);
-      pass.dispatchWorkgroupsIndirect(buffer(data.counts), SURFACE_WORK_INDIRECT_OFFSET); pass.end();
+      pass.dispatchWorkgroupsIndirect(resources.get(dispatchIndirect) as GPUBuffer, 0); pass.end();
     });
     node.read(input.geometry); node.read(input.fields); node.read(input.counts); node.read(input.work);
     node.read(input.lightRecords); node.read(input.clusters.parameters); node.read(input.clusters.lookup);
     node.read(input.clusters.data); node.read(input.clusters.activeLightList);
     if (input.shadow !== null) { shadowConstantsId = input.shadow.lightProjection; shadowPageTableId = input.shadow.virtualPageTable; shadowAtlasId = input.shadow.physicalAtlasDepth; node.read(input.shadow.virtualPageTable); node.read(input.shadow.physicalAtlasDepth); node.read(input.shadow.lightProjection); }
     else {
-      shadowConstantsId = node.create("Surface/VSM fallback constants", { kind: "transient_buffer", size: 128, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, domain: "internal-full" });
-      shadowPageTableId = node.create("Surface/VSM fallback page table", { kind: "transient_buffer", size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, domain: "internal-full" });
+      shadowConstantsId = node.create("Surface/VSM fallback constants", { kind: "transient_buffer", size: 208, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, domain: "internal-full" });
+      shadowPageTableId = node.create("Surface/VSM fallback page table", { kind: "transient_buffer", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, domain: "internal-full" });
       shadowAtlasId = node.create("Surface/VSM fallback atlas", { kind: "transient_texture", width: 1, height: 1, format: "depth32float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT, domain: "internal-full" });
       node.write(shadowConstantsId); node.write(shadowPageTableId); node.write(shadowAtlasId);
     }
     if (input.scalarAo !== null) node.read(input.scalarAo);
     node.read(input.environment.diffuse); node.read(input.environment.specular); node.read(input.environment.dfg);
     const bytes = Math.max(16, input.recordCount * 16);
+    dispatchIndirect = node.create("Surface/lighting dispatch indirect", { kind: "transient_buffer", size: 16,
+      usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST, domain: "internal-full" });
+    node.write(dispatchIndirect);
     diffusePackets = node.create("Surface/diffuse packets", { kind: "transient_buffer", size: bytes, usage: GPUBufferUsage.STORAGE, domain: "internal-full" });
     specularPackets = node.create("Surface/specular packets", { kind: "transient_buffer", size: bytes, usage: GPUBufferUsage.STORAGE, domain: "internal-full" });
     coatPackets = node.create("Surface/coat packets", { kind: "transient_buffer", size: bytes, usage: GPUBufferUsage.STORAGE, domain: "internal-full" });

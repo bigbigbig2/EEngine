@@ -227,6 +227,6 @@ function validateProfile(limits: GPUSupportedLimits, value: AppearanceProgramDes
     [textures, limits.maxSampledTexturesPerShaderStage, "textures"],
     [samplers, limits.maxSamplersPerShaderStage, "samplers"],
     [storageTextures, limits.maxStorageTexturesPerShaderStage, "storage textures"]] as const) {
-    if (used > maximum) throw new RangeError(`Appearance ${name} exceed negotiated device limit`);
+    if (used > maximum) throw new RangeError(`Appearance ${name} exceed negotiated device limit (${used}/${maximum})`);
   }
 }

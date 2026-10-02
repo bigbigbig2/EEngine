@@ -13,6 +13,7 @@ export function surfaceGeometryDecodeWgsl(product: boolean, heap: string, perInv
     .replaceAll("meshlet_vertices[source_meshlet.vertex_offset + vertex]",
       "vertex_payload[settings.source.z + source_meshlet.vertex_offset + vertex]")
     .replaceAll("meshlet_triangles[byte >> 2u]", "vertex_payload[settings.source.w + (byte >> 2u)]");
+  ordinary = ordinary.replaceAll("settings.source_payload.x + byte >> 2u", "settings.source_payload.x + (byte >> 2u)");
   ordinary = replaceFunction(ordinary, "frame_vertex_load_source", /* wgsl */ `
 fn frame_vertex_load_source(work: OEngineMeshletRasterWork) -> vec2u {
   source_geometry = surface_read_geometry(settings.source.x + work.geometry_slot * ${GPU_GEOMETRY_RECORD_SCHEMA.stride / 4}u);
@@ -35,10 +36,10 @@ fn frame_resident_attribute(vertex:u32,field:u32)->vec4f {
     ["color","vec4f","frame_resident_attribute(vertex,3u)"]
   ]) ordinary=replaceFunction(ordinary,`frame_vertex_${name}`,`fn frame_vertex_${name}(vertex:u32)->${type} { return ${expression}; }`);
   ordinary=replaceFunction(ordinary,"frame_vertex_uv",/* wgsl */ `
-fn frame_vertex_uv(vertex:u32,set:u32)->vec2f {
-  if set==2u { return frame_resident_attribute(vertex,4u).xy; }
+fn frame_vertex_uv(vertex:u32,uvSet:u32)->vec2f {
+  if uvSet==2u { return frame_resident_attribute(vertex,4u).xy; }
   let uv=frame_resident_attribute(vertex,2u);
-  return select(uv.xy,uv.zw,set==1u);
+  return select(uv.xy,uv.zw,uvSet==1u);
 }`);
   let productSource = product ? frameGeometrySourceWgsl(true, true)
     .replace(/^@group\(0\) @binding\((8|9|10|11|12)\).*\n/gm, "")
@@ -65,7 +66,7 @@ var<private> surface_direct_source: bool;
 ${selectCall("vertex_position", "vertex: u32", "vec3f")}
 ${selectCall("vertex_normal", "vertex: u32", "vec4f")}
 ${selectCall("vertex_tangent", "vertex: u32", "vec4f")}
-${selectCall("vertex_uv", "vertex: u32, set: u32", "vec2f")}
+${selectCall("vertex_uv", "vertex: u32, uvSet: u32", "vec2f")}
 ${selectCall("vertex_color", "vertex: u32", "vec4f")}
 ${selectCall("triangle_corner", "triangle: u32, corner: u32", "u32")}
 fn surface_source_load(work: OEngineMeshletRasterWork) -> vec2u {

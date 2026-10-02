@@ -55,10 +55,15 @@ export class RasterWorkPartitions {
     const beginLayout = device.createPipelineLayout({ bindGroupLayouts: [this.layout, this.dispatchLayout] });
     const mainLayout = device.createPipelineLayout({ bindGroupLayouts: [this.layout] });
     this.ready = Promise.all([false,true].map(caster => {
-      const module = device.createShaderModule({ label: `Raster work partitions/${caster ? "caster" : "visibility"}`, code: rasterPartitionWgsl(caster) });
-      return Promise.all(["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
+      const source = rasterPartitionWgsl(caster);
+      const module = device.createShaderModule({ label: `Raster work partitions/${caster ? "caster" : "visibility"}`, code: source });
+      const compilation = module.getCompilationInfo().then(info => {
+        const errors = info.messages.filter(message => message.type === "error");
+        if (errors.length !== 0) throw new Error(`Raster partition WGSL compilation failed: ${errors.map(message => `${message.lineNum}:${message.linePos} ${message.message} [${source.split("\n")[message.lineNum - 1]?.trim() ?? ""}]`).join(" | ")}`);
+      });
+      return compilation.then(() => Promise.all(["begin", "count", "prefix", "scatter"].map((entryPoint, index) =>
       device.createComputePipelineAsync({ label: `Raster partitions/${entryPoint}`, layout: index === 0 ? beginLayout : mainLayout,
-        compute: { module, entryPoint } })));
+        compute: { module, entryPoint } }))));
     })).then(pipelines => {
       if (this.destroyed) throw new Error("Raster partition owner stopped during preparation");
       this.pipelines = pipelines;
