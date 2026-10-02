@@ -23,6 +23,7 @@ export interface SurfaceDiagnosticsInput {
   readonly geometryCount: ResourceId;
   readonly geometryMissCounters: ResourceId;
   readonly lightingCounters: ResourceId;
+  readonly reconstructCounters: ResourceId;
   readonly width: number;
   readonly height: number;
   readonly frameId: number;
@@ -45,6 +46,7 @@ struct Settings { width:u32, height:u32, frame:u32, producer_base:u32, consumer_
 @group(0) @binding(5) var<storage,read> geometry_miss:array<u32>;
 @group(0) @binding(6) var<storage,read> lighting_counts:array<u32>;
 @group(0) @binding(7) var<storage,read_write> snapshot:array<u32>;
+@group(0) @binding(8) var<storage,read> reconstruct_counts:array<u32>;
 @compute @workgroup_size(1)
 fn snapshot_frame() {
   let tile_count = ((settings.width + 7u) / 8u) * ((settings.height + 7u) / 8u);
@@ -86,17 +88,19 @@ fn snapshot_frame() {
   snapshot[${COUNTER_BASE + C.specularEvaluations}u] = lighting_counts[1u];
   snapshot[${COUNTER_BASE + C.coatEvaluations}u] = lighting_counts[2u];
   snapshot[${COUNTER_BASE + C.iblEvaluations}u] = lighting_counts[3u];
-  // The production kernel writes all four packet planes for every accepted
-  // record, but it does not publish per-plane write counters. Keep these
-  // fields zero and flag them unknown instead of presenting signal-evaluation
-  // counts as packet-write measurements.
-  snapshot[${COUNTER_BASE + C.diffusePacketWrites}u] = 0u;
-  snapshot[${COUNTER_BASE + C.specularPacketWrites}u] = 0u;
-  snapshot[${COUNTER_BASE + C.coatPacketWrites}u] = 0u;
-  snapshot[${COUNTER_BASE + C.iblPacketWrites}u] = 0u;
+  let packet_writes = select(0u, lighting_counts[12u] - lighting_counts[13u], lighting_counts[12u] >= lighting_counts[13u]);
+  snapshot[${COUNTER_BASE + C.diffusePacketWrites}u] = packet_writes;
+  snapshot[${COUNTER_BASE + C.specularPacketWrites}u] = packet_writes;
+  snapshot[${COUNTER_BASE + C.coatPacketWrites}u] = packet_writes;
+  snapshot[${COUNTER_BASE + C.iblPacketWrites}u] = packet_writes;
+  snapshot[${COUNTER_BASE + C.reconstructOutputPixels}u] = reconstruct_counts[0u];
+  snapshot[${COUNTER_BASE + C.reconstructUncoveredPixels}u] = reconstruct_counts[1u];
+  snapshot[${COUNTER_BASE + C.historyReusePixels}u] = reconstruct_counts[2u];
+  snapshot[${COUNTER_BASE + C.historyRejectPixels}u] = reconstruct_counts[3u];
+  snapshot[${COUNTER_BASE + C.identityRejectPixels}u] = reconstruct_counts[4u];
   snapshot[${COUNTER_BASE + C.outputPixels}u] = settings.width * settings.height;
-  snapshot[${COUNTER_BASE + C.validPacketPixels}u] = lighting_counts[12u];
-  var diagnostic_flags = ${SURFACE_DIAGNOSTIC_FLAGS.incompleteProducerCounters | SURFACE_DIAGNOSTIC_FLAGS.lightingPacketWritesUnknown}u;
+  snapshot[${COUNTER_BASE + C.validPacketPixels}u] = packet_writes;
+  var diagnostic_flags = 0u;
   if surface_counts[14u] != 0u { diagnostic_flags = diagnostic_flags | ${SURFACE_DIAGNOSTIC_FLAGS.sampleOverflow}u; }
   if geometry_miss[1u] != 0u { diagnostic_flags = diagnostic_flags | ${SURFACE_DIAGNOSTIC_FLAGS.geometryOverflow}u; }
   if material_counts[1u] > material_counts[2u] { diagnostic_flags = diagnostic_flags | ${SURFACE_DIAGNOSTIC_FLAGS.materialOverflow}u; }
@@ -118,7 +122,7 @@ export class SurfaceDiagnosticsPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 32 } },
-      ...[1, 2, 3, 4, 5, 6, 7].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
+      ...[1, 2, 3, 4, 5, 6, 7, 8].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
         buffer: { type: binding === 7 ? "storage" as GPUBufferBindingType : "read-only-storage" as GPUBufferBindingType } }))
     ] });
     this.pipeline = device.createComputePipeline({ label: "Surface diagnostics snapshot",
@@ -143,14 +147,15 @@ export class SurfaceDiagnosticsPass {
         { binding: 4, resource: { buffer: resources.get(data.geometryCount) as GPUBuffer } },
         { binding: 5, resource: { buffer: resources.get(data.geometryMissCounters) as GPUBuffer } },
         { binding: 6, resource: { buffer: resources.get(data.lightingCounters) as GPUBuffer } },
-        { binding: 7, resource: { buffer: snapshot } }
+        { binding: 7, resource: { buffer: snapshot } },
+        { binding: 8, resource: { buffer: resources.get(data.reconstructCounters) as GPUBuffer } }
       ] });
       const pass = command.beginComputePass({ label: "Surface/diagnostics snapshot" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end();
       this.encodeSnapshot?.(command, snapshot, data.frameId);
     });
     for (const resource of [input.work, input.counts, input.materialCounters, input.materialAudit,
-      input.geometryCount, input.geometryMissCounters, input.lightingCounters]) node.read(resource);
+      input.geometryCount, input.geometryMissCounters, input.lightingCounters, input.reconstructCounters]) node.read(resource);
     snapshotId = node.create("Surface diagnostics snapshot buffer", { kind: "transient_buffer",
       size: SURFACE_DIAGNOSTICS_BYTE_SIZE, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
       domain: "internal-full" });

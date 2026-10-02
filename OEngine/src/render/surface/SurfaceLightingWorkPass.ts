@@ -47,6 +47,9 @@ export interface SurfaceLightingInput {
     readonly specular: ResourceId;
     readonly dfg: ResourceId;
   };
+  /** Detailed-only producer counters. The packet writes themselves remain
+   * production work; diagnostic atomics are compiled behind this flag. */
+  readonly diagnosticsEnabled: boolean;
 }
 
 /* Reuse the production clustered-light BRDF and VSM branches. The helper
@@ -67,6 +70,7 @@ struct SurfaceSettings {
   width: u32, height: u32, record_count: u32, frame: u32,
   sample_offset: u32, light_enabled: u32, environment_enabled: u32, shadow_enabled: u32,
   cluster_enabled: u32, _environment_enabled_2: u32, ao_enabled: u32, geometry_offset: u32,
+  diagnostics_enabled: u32, _reserved0: u32, _reserved1: u32, _reserved2: u32,
 };
 @group(0) @binding(0) var<uniform> settings: SurfaceSettings;
 @group(0) @binding(1) var<storage, read> geometry: array<vec4f>;
@@ -82,6 +86,10 @@ struct SurfaceSettings {
 @group(0) @binding(13) var environment_diffuse: texture_2d<f32>;
 @group(0) @binding(14) var environment_specular: texture_2d<f32>;
 @group(0) @binding(15) var environment_dfg: texture_2d<f32>;
+
+fn diagnostic_add(index: u32, value: u32) {
+  if settings.diagnostics_enabled != 0u { atomicAdd(&counters[index], value); }
+}
 
 @group(1) @binding(0) var<storage, read> node: array<u32>;
 @group(1) @binding(2) var<uniform> cluster_parameters: vec3f;
@@ -218,7 +226,7 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   let pixel = vec2i(i32(pixel_index % setting(0u)), i32(pixel_index / setting(0u)));
   let position = geometry[base + 0u].xyz;
   if geometry[base + 1u].w < 0.5 {
-    atomicAdd(&counters[13], 1u);
+    diagnostic_add(13u, 1u);
     return;
   }
   let geometric_normal = normalize(geometry[base + 1u].xyz);
@@ -235,8 +243,8 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   }
   let surface_geometry = SurfaceGeometry(normal, geometric_normal, position, view_dir);
   let ao = ao_at(pixel_index);
-  if setting(10u) == 0u { atomicAdd(&counters[7], 1u); }
-  atomicAdd(&counters[12], 1u);
+  if setting(10u) == 0u { diagnostic_add(7u, 1u); }
+  diagnostic_add(12u, 1u);
   let has_direct = (signal_mask & 7u) != 0u;
   let has_diffuse = (signal_mask & 1u) != 0u;
   let has_specular = (signal_mask & 2u) != 0u;
@@ -246,39 +254,39 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   if has_direct {
     direct = direct_surface(material, surface_geometry, vec2f(pixel) + vec2f(0.5),
       abs(geometry[base + 0u].w));
-    atomicAdd(&counters[5], 1u);
-    if setting(7u) != 0u { atomicAdd(&counters[18], 1u); }
-    else { atomicAdd(&counters[8], 1u); }
+    diagnostic_add(5u, 1u);
+    if setting(7u) != 0u { diagnostic_add(18u, 1u); }
+    else { diagnostic_add(8u, 1u); }
   }
   var direct_diffuse = vec3f(0.0);
   var direct_specular = vec3f(0.0);
   var coat_direct = vec3f(0.0);
   if has_diffuse {
     direct_diffuse = direct.diffuse * (1.0 - material.coatFactor * 0.25);
-    atomicAdd(&counters[0], 1u);
-  } else { atomicAdd(&counters[14], 1u); }
+    diagnostic_add(0u, 1u);
+  } else { diagnostic_add(14u, 1u); }
   if has_specular {
     direct_specular = max(direct.specular - select(vec3f(0.0), direct.specular * material.coatFactor, has_coat), vec3f(0.0));
-    atomicAdd(&counters[1], 1u);
-  } else { atomicAdd(&counters[15], 1u); }
+    diagnostic_add(1u, 1u);
+  } else { diagnostic_add(15u, 1u); }
   if has_coat {
     coat_direct = direct.specular * material.coatFactor;
-    atomicAdd(&counters[2], 1u);
-  } else { atomicAdd(&counters[16], 1u); }
+    diagnostic_add(2u, 1u);
+  } else { diagnostic_add(16u, 1u); }
   var environment = vec3f(0.0);
   var coat_ibl = vec3f(0.0);
   if has_ibl {
     environment = environment_surface(material, normal, view_dir, pixel, ao);
-    atomicAdd(&counters[3], 1u);
-    atomicAdd(&counters[6], 1u);
-  } else { atomicAdd(&counters[17], 1u); atomicAdd(&counters[19], 1u); }
+    diagnostic_add(3u, 1u);
+    diagnostic_add(6u, 1u);
+  } else { diagnostic_add(17u, 1u); diagnostic_add(19u, 1u); }
   if has_coat && has_ibl { coat_ibl = coat_environment(material, normal, view_dir); }
   diffuse[record] = vec4f(direct_diffuse, 1.0);
   specular[record] = vec4f(direct_specular, 1.0);
   coat[record] = vec4f(coat_direct + coat_ibl, 1.0);
   ibl[record] = vec4f(environment, 1.0);
-  atomicAdd(&counters[10], 4u * 16u);
-  if (sample_flags & 2u) != 0u { atomicAdd(&counters[4], 1u); }
+  diagnostic_add(10u, 4u * 16u);
+  if (sample_flags & 2u) != 0u { diagnostic_add(4u, 1u); }
 }
 `;
 
@@ -292,12 +300,12 @@ export class SurfaceLightingWorkPass {
   private readonly viewBuffer: GPUBuffer;
 
   constructor(private readonly device: GPUDevice) {
-    this.settings = device.createBuffer({ label: "Surface lighting settings", size: 48,
+    this.settings = device.createBuffer({ label: "Surface lighting settings", size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.viewBuffer = device.createBuffer({ label: "Surface lighting view", size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 64 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float", viewDimension: "2d-array" } },
       ...[3, 4, 5, 6, 7].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
@@ -338,7 +346,8 @@ export class SurfaceLightingWorkPass {
       const settings = new Uint32Array([
         data.width, data.height, data.recordCount, data.frame, data.sampleOffset,
         1, 1, data.shadow === null ? 0 : 1,
-        1, 1, data.scalarAo === null ? 0 : 1, data.geometryOffset]);
+        1, 1, data.scalarAo === null ? 0 : 1, data.geometryOffset,
+        data.diagnosticsEnabled ? 1 : 0, 0, 0, 0]);
       command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
       const initialCounters = new Uint32Array(SPARSE_LIGHTING_COUNTER_WORDS);
       initialCounters[11] = 1;

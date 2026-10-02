@@ -3,12 +3,15 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 
-export interface SurfaceReconstructionProducts { readonly radiance: ResourceId; readonly reactiveMask: ResourceId; }
+export const SURFACE_RECONSTRUCT_COUNTER_WORDS = 6;
+export const SURFACE_RECONSTRUCT_COUNTER_BYTES = SURFACE_RECONSTRUCT_COUNTER_WORDS * 4;
+export interface SurfaceReconstructionProducts { readonly radiance: ResourceId; readonly reactiveMask: ResourceId; readonly counters: ResourceId; }
 
 const RECONSTRUCT_WGSL = /* wgsl */ `
 struct Settings {
   width:u32, height:u32, record_count:u32, history_valid:u32,
-  pre_exposure:f32, history_feedback:f32, history_max_age:u32, revision_mask:u32
+  pre_exposure:f32, history_feedback:f32, history_max_age:u32, revision_mask:u32,
+  diagnostics_enabled:u32, _reserved0:u32, _reserved1:u32, _reserved2:u32
 }
 @group(0) @binding(0) var<uniform> settings:Settings;
 @group(0) @binding(1) var<storage,read> diffuse:array<vec4f>;
@@ -33,6 +36,11 @@ struct Settings {
 @group(0) @binding(21) var history_identity_write:texture_storage_2d<rgba32uint,write>;
 @group(0) @binding(22) var history_age_read:texture_2d<u32>;
 @group(0) @binding(23) var history_age_write:texture_storage_2d<r32uint,write>;
+@group(0) @binding(24) var<storage,read_write> diagnostics:array<atomic<u32>>;
+
+fn diagnostic_add(index:u32, value:u32) {
+  if settings.diagnostics_enabled != 0u { atomicAdd(&diagnostics[index], value); }
+}
 
 @compute @workgroup_size(8,8)
 fn reconstruct(@builtin(global_invocation_id) id:vec3u){
@@ -69,6 +77,10 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
   textureStore(history_age_write,pixel,vec4u(select(0u, min(previous_age + 1u, 255u), valid && identity_match)));
   textureStore(output,pixel,vec4f(resolved*exposure,select(0.0,1.0,valid)));
   textureStore(reactive,pixel,vec4f(max(facts.x,select(0.0,0.35,!valid || !identity_match)),facts.yzw));
+  if valid { diagnostic_add(0u, 1u); } else { diagnostic_add(1u, 1u); }
+  if can_reuse { diagnostic_add(2u, 1u); } else { diagnostic_add(3u, 1u); }
+  if valid && !identity_match { diagnostic_add(4u, 1u); }
+  diagnostic_add(5u, 1u);
 }
 `;
 
@@ -94,10 +106,10 @@ export class SurfaceReconstructionPass {
   private readonly retired: RetiredHistories[] = [];
 
   constructor(private readonly device: GPUDevice) {
-    this.settings = device.createBuffer({ label: "Surface reconstruct settings", size: 32,
+    this.settings = device.createBuffer({ label: "Surface reconstruct settings", size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 32 } },
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
       ...[1, 2, 3, 4].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "read-only-storage" as GPUBufferBindingType } })),
       { binding: 6, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
@@ -113,7 +125,8 @@ export class SurfaceReconstructionPass {
       { binding: 20, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 21, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32uint" } },
       { binding: 22, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 23, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32uint" } }
+      { binding: 23, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32uint" } },
+      { binding: 24, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
     ] });
     this.pipeline = device.createComputePipeline({ label: "Surface/cheap reconstruct",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
@@ -160,7 +173,7 @@ export class SurfaceReconstructionPass {
     diffuse: ResourceId; specular: ResourceId; coat: ResourceId; ibl: ResourceId;
     reactive: ResourceId; identity: ResourceId; preExposure: ResourceId; sampleMap: ResourceId;
     revisions: SurfaceHistoryRevisions;
-    width: number; height: number; recordCount: number
+    width: number; height: number; recordCount: number; diagnosticsEnabled: boolean
   }): SurfaceReconstructionProducts {
     if (!this.prepared || this.histories === null) throw new Error("Surface reconstruction frame is not prepared");
     const historyRead = this.histories.map((pair, index) => graph.import_resource(`Surface ${["diffuse", "specular", "coat", "ibl"][index]} history/read`,
@@ -175,7 +188,7 @@ export class SurfaceReconstructionPass {
       { kind: "imported", label: "Surface signal age history read", domain: "internal-full" }, this.ageHistories![this.readIndex]);
     const ageWrite = graph.import_resource("Surface signal age history/write",
       { kind: "imported", label: "Surface signal age history write", domain: "internal-full" }, this.ageHistories![this.writeIndex]);
-    let radiance!: ResourceId, reactiveMask!: ResourceId;
+    let radiance!: ResourceId, reactiveMask!: ResourceId, counters!: ResourceId;
     const node = graph.add("Surface/cheap full-resolution reconstruct", { ...input, historyRead, historyWrite, identityRead, identityWrite, ageRead, ageWrite },
       (data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
@@ -188,11 +201,16 @@ export class SurfaceReconstructionPass {
           (previousRevisions.light === data.revisions.light ? 0 : 7) |
           (previousRevisions.shadow === data.revisions.shadow ? 0 : 7);
         this.historyRevisions = { ...data.revisions };
-        const settings = new ArrayBuffer(32); const view = new DataView(settings);
+        const settings = new ArrayBuffer(48); const view = new DataView(settings);
         view.setUint32(0, data.width, true); view.setUint32(4, data.height, true);
         view.setUint32(8, data.recordCount, true); view.setUint32(12, this.historyValid ? 1 : 0, true);
         view.setFloat32(16, 1, true); view.setFloat32(20, 0.18, true);
         view.setUint32(24, 8, true); view.setUint32(28, revisionMask, true);
+        view.setUint32(32, data.diagnosticsEnabled ? 1 : 0, true);
+        if (data.diagnosticsEnabled) {
+          command.writeBuffer(resources.get(counters) as GPUBuffer, 0,
+            new Uint32Array(SURFACE_RECONSTRUCT_COUNTER_WORDS).buffer, 0, SURFACE_RECONSTRUCT_COUNTER_BYTES);
+        }
         command.writeBuffer(this.settings, 0, settings, 0, settings.byteLength);
         const group = this.device.createBindGroup({ layout: this.layout, entries: [
           { binding: 0, resource: { buffer: this.settings } },
@@ -217,7 +235,8 @@ export class SurfaceReconstructionPass {
           { binding: 20, resource: resolveTextureView(resources.get(data.identityRead)) },
           { binding: 21, resource: resolveTextureView(resources.get(data.identityWrite)) },
           { binding: 22, resource: resolveTextureView(resources.get(data.ageRead)) },
-          { binding: 23, resource: resolveTextureView(resources.get(data.ageWrite)) }
+          { binding: 23, resource: resolveTextureView(resources.get(data.ageWrite)) },
+          { binding: 24, resource: { buffer: resources.get(counters) as GPUBuffer } }
         ] });
         const pass = command.beginComputePass({ label: "Surface/reconstruct" });
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
@@ -230,8 +249,11 @@ export class SurfaceReconstructionPass {
       height: input.height, format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
     reactiveMask = node.create("Surface/reactive reconstructed", { kind: "transient_texture", width: input.width,
       height: input.height, format: "rgba8unorm", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
+    counters = node.create("Surface/reconstruct diagnostics", { kind: "transient_buffer", size: SURFACE_RECONSTRUCT_COUNTER_BYTES,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
+    node.write(counters);
     node.write(radiance); node.write(reactiveMask);
-    return { radiance, reactiveMask };
+    return { radiance, reactiveMask, counters };
   }
 
   commit(gpuDone: Promise<void>): void {

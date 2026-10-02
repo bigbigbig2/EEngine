@@ -344,7 +344,8 @@ export class SurfaceWorkRuntime {
       meshletWork: input.meshletWork, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions,
       counts, materialLookup: input.materialLookup, surfaceIdentity: input.surfaceIdentity, materials: input.materials,
       programCount: input.publication.surfaceProgramCount, width: input.width, height: input.height,
-      recordCount, sampleOffset: layout.sampleOffset, frame: input.frame.generation });
+      recordCount, sampleOffset: layout.sampleOffset, frame: input.frame.generation,
+      diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     const geometry = this.geometry.addToGraph(graph, { visibility: input.visibility, work, arena: input.arena,
       meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
       frameInstances: input.frameInstances, frameAttributes: input.frameAttributes, camera: input.camera,
@@ -362,14 +363,17 @@ export class SurfaceWorkRuntime {
       work, sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset / 16, width: input.width, height: input.height,
       recordCount, frame: input.frame.generation, counts, camera: input.camera,
       lightRecords: input.lightRecords, clusters: input.clusters, shadow: input.shadow,
-      scalarAo: input.scalarAo, environment: input.environment });
+      scalarAo: input.scalarAo, environment: input.environment,
+      diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
       coat: lighting.coatPackets, ibl: lighting.iblPackets, reactive: input.factsMask,
       identity: input.factsIdentity, preExposure: input.preExposure, revisions: input.revisions,
-      width: input.width, height: input.height, recordCount, sampleMap });
+      width: input.width, height: input.height, recordCount, sampleMap,
+      diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     const diagnostics = this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null ? this.diagnostics.addToGraph(graph, {
       work, counts, materialCounters: evaluatedMaterial.counters, materialAudit: evaluatedMaterial.audit, geometryCount: geometry.count,
       geometryMissCounters: geometry.missCounters, lightingCounters: lighting.counters,
+      reconstructCounters: reconstruction.counters,
       width: input.width, height: input.height, frameId: input.frame.generation,
       geometryOffset: layout.geometryOffset
     }) : null;
