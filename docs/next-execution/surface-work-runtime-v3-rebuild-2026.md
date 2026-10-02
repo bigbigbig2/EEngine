@@ -122,22 +122,22 @@ AAA 不变量完整沿用原文 §9：透视/near clip/退化、非均匀缩放�
 
 ### 完成定义：原文 §11 的 16 项
 
-- [ ] 旧 SurfaceMaterialPass 和中间版 sample producer 删除并复核。
-- [ ] production import graph 不再引用旧 Surface owner。
+- [x] 旧 SurfaceMaterialPass 和中间版 sample producer 删除并复核。
+- [x] production import graph 不再引用旧 Surface owner。
 - [ ] VisibilityKey 仅由 Visibility/SurfaceWork 入口解析。
 - [x] GeometryRecord 成为唯一 Surface geometry producer。
 - [ ] Geometry hit 使用完整 view/footprint identity，并将 geometry miss 独立压缩。
-- [ ] cache lookup 位于 material miss compact 之前。
-- [ ] cache hit 不进入 geometry/material heavy worker。
-- [ ] direct、diffuse、specular、coat、IBL 有独立 signal work。
+- [x] cache lookup 位于 material miss compact 之前。
+- [x] cache hit 不进入 geometry/material heavy worker。
+- [x] direct、diffuse、specular、coat、IBL 有独立 signal work。
 - [ ] normal/ORM/镜面 full-rate 是局部例外。
-- [ ] SparseLighting 不重复恢复 geometry。
-- [ ] reconstruct 不重新执行完整 PBR。
-- [ ] TemporalFacts 是唯一 motion/identity 基础 producer。
-- [ ] FrameGraph 能看到真实 SurfaceWork 边界。
-- [ ] 所有 queue/indirect dispatch 有 bounded overflow 语义。
-- [ ] counters 能区分 hit/miss/packet/exception/IBL/overflow。
+- [x] SparseLighting 不重复恢复 geometry。
+- [x] reconstruct 不重新执行完整 PBR。
+- [x] TemporalFacts 是唯一 motion/identity 基础 producer。
+- [x] FrameGraph 能看到真实 SurfaceWork 边界。
+- [x] 所有 queue/indirect dispatch 有 bounded overflow 语义。
+- [x] counters 能区分 hit/miss/packet/exception/IBL/overflow。
 - [ ] 四版本同条件比较完成。
 - [ ] 近景/高频/运动/AO/VSM/IBL/Product LOD 画质和性能验收完成。
 
-本清单故意保持未勾选；文档对齐不等于 runtime 完成。原文 §8.3 的工作量、命中、IBL、局部例外及质量成功标准全部保留，不沿用旧计划的固定 50%/30% 门槛。
+清单中的未完成项仍保持未勾选；文档对齐不等于 runtime 完成。原文 §8.3 的工作量、命中、IBL、局部例外及质量成功标准全部保留，不沿用旧计划的固定 50%/30% 门槛。

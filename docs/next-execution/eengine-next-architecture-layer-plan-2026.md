@@ -11,7 +11,7 @@
 - 来源：[Next porting ledger](../porting/next-renderer.md)；旧条目和组件验证不等于新链实现或 adoption。
 - 验收：[VALIDATION](../VALIDATION.md) 与原文 §8–§11。
 
-源码基线已删除旧 SurfaceMaterialPass/Probe/sample worker 主链。当前生产代码已经接通 `SurfaceWorkRuntime` 的 classify、publication cache lookup、hit-mask-gated `SurfaceGeometryPass`、publication miss evaluation、cluster/VSM/AO/IBL provider、独立 signal packets、双缓冲 history 和 reconstruct；独立 geometry miss compaction、完整 sampler/UV/filtered footprint、材质 view/nonlocal identity、Product/形变、signal age/revision reject 与正式验收仍未完成。这里描述的是当前结构接线，不把它提升为最终算法或性能完成。
+源码基线已删除旧 SurfaceMaterialPass/Probe/sample worker 主链。当前生产代码已经接通 `SurfaceWorkRuntime` 的 classify、publication cache lookup、hit-mask-gated `SurfaceGeometryPass`、publication miss evaluation、cluster/VSM/AO/IBL provider、signal-mask 独立 packets、signal/identity/age 双缓冲 history 和 reconstruct；独立 geometry miss compaction、完整 sampler/UV/filtered footprint、材质 view/nonlocal identity、Product/形变、environment/light/VSM revision reject 与正式验收仍未完成。这里描述的是当前结构接线，不把它提升为最终算法或性能完成。
 
 ## 2. 保留底座和当前范围
 

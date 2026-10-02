@@ -740,20 +740,20 @@ surfaceDispatchCount
 
 ## 11. 完成定义
 
-- [ ] 旧 SurfaceMaterialPass 和中间版 sample producer 删除；
-- [ ] production import graph 不再引用旧 Surface owner；
+- [x] 旧 SurfaceMaterialPass 和中间版 sample producer 删除；
+- [x] production import graph 不再引用旧 Surface owner；
 - [ ] VisibilityKey 只有 Visibility/SurfaceWork 入口解析；
-- [ ] GeometryRecord 成为唯一 Surface geometry producer；
-- [ ] cache lookup 位于 material miss compact 之前；
-- [ ] cache hit 不进入 geometry/material heavy worker；
-- [ ] direct、diffuse、specular、coat、IBL 有独立 signal work；
+- [x] GeometryRecord 成为唯一 Surface geometry producer；
+- [x] cache lookup 位于 material miss compact 之前；
+- [x] cache hit 不进入 geometry/material heavy worker；
+- [x] direct、diffuse、specular、coat、IBL 有独立 signal work；
 - [ ] normal/ORM/镜面 full-rate 是局部例外；
-- [ ] SparseLighting 不重复恢复 geometry；
-- [ ] reconstruct 不重新执行完整 PBR；
-- [ ] TemporalFacts 是唯一 motion/identity 基础 producer；
-- [ ] FrameGraph 能看到真实 SurfaceWork 边界；
-- [ ] 所有 queue 和 indirect dispatch 有 bounded overflow 语义；
-- [ ] GPU counters 能区分 hit、miss、packet、exception、IBL 和 overflow；
+- [x] SparseLighting 不重复恢复 geometry；
+- [x] reconstruct 不重新执行完整 PBR；
+- [x] TemporalFacts 是唯一 motion/identity 基础 producer；
+- [x] FrameGraph 能看到真实 SurfaceWork 边界；
+- [x] 所有 queue 和 indirect dispatch 有 bounded overflow 语义；
+- [x] GPU counters 能区分 hit、miss、packet、exception、IBL 和 overflow；
 - [ ] 完成旧 baseline、中间版、当前第三版和最终版同条件比较；
 - [ ] 近景、高频材质、移动镜头、AO、VSM、IBL 和 Product LOD 完成画质与性能验收。
 
