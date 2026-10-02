@@ -780,14 +780,18 @@ full-rate PBR reconstruct
 
 ## 13. 源码入口
 
+以下 Surface 条目是当前唯一生产主链入口；其余基础入口仍固定在本文历史设计基线 revision，用于复现当时的底座分析。
+
 - [RendererCore.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/render/pipeline/RendererCore.ts)
 - [FrameProgram.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/render/program/FrameProgram.ts)
 - [FrameProgramLowering.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/render/program/FrameProgramLowering.ts)
 - [PackedVisibilityPass.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/render/passes/PackedVisibilityPass.ts)
-- [AppearanceCachePass.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/render/surface/AppearanceCachePass.ts)
-- [GpuAppearancePublication.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/gpu/GpuAppearancePublication.ts)
-- [SparseLightingPass.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/render/surface/SparseLightingPass.ts)
-- [surface_sparse_lighting.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/shaders/surface_sparse_lighting.ts)
+- [SurfaceWorkRuntime.ts](https://github.com/bigbigbig2/EEngine/blob/master/OEngine/src/render/surface/SurfaceWorkRuntime.ts)
+- [SurfaceMaterialCachePass.ts](https://github.com/bigbigbig2/EEngine/blob/master/OEngine/src/render/surface/SurfaceMaterialCachePass.ts)
+- [SurfaceGeometryPass.ts](https://github.com/bigbigbig2/EEngine/blob/master/OEngine/src/render/surface/SurfaceGeometryPass.ts)
+- [SurfaceLightingWorkPass.ts](https://github.com/bigbigbig2/EEngine/blob/master/OEngine/src/render/surface/SurfaceLightingWorkPass.ts)
+- [SurfaceReconstructionPass.ts](https://github.com/bigbigbig2/EEngine/blob/master/OEngine/src/render/surface/SurfaceReconstructionPass.ts)
+- [GpuAppearancePublication.ts](https://github.com/bigbigbig2/EEngine/blob/master/OEngine/src/gpu/GpuAppearancePublication.ts)
 - [WinnerPrimitiveInterpolation.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/render/surface/WinnerPrimitiveInterpolation.ts)
 - [GpuRenderWorld.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/gpu/GpuRenderWorld.ts)
 - [AppearanceGraphCompiler.ts](https://github.com/bigbigbig2/EEngine/blob/e7296be9cebbc3bcc1b6b738d682c928548d72d5/OEngine/src/material/AppearanceGraphCompiler.ts)
