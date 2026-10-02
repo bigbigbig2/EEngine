@@ -28,3 +28,16 @@
 源码证据：`OEngine/src/render/program/FrameProgramLowering.ts` 先发布 TemporalFacts，再调用唯一 `owners.surfaceWork.addToGraph`；随后将 Surface 结果送入 Sky/Aerial、FSR3、Radiometry、Bloom 和 Present。`OEngine/src/render/surface/SurfaceWorkRuntime.ts` 注册 classify、cache lookup、`SurfaceGeometryPass`、publication miss evaluation、四类 lighting packets 和 reconstruct。`SurfaceMaterialCachePass.ts`、`GpuAppearancePublication.ts`、`SurfaceGeometryPass.ts`、`SurfaceLightingWorkPass.ts`、`SurfaceReconstructionPass.ts` 分别证明 lookup、真实 publication evaluator、唯一 GeometryRecord、packet 和 reconstruct 的结构入口；覆盖分类、provider 与 history 仍需实现和验收。
 
 当前源码已经接通 V3 的 SurfaceWork、implicit/uniform/mixed tile classify、bounded sample/exception、唯一 GeometryRecord 结构、publication cache lookup、per-program indirect miss dispatch、真实 AppearanceResidentKernel、独立 signal packets、packet reconstruct 和真实 FrameGraph 边，但 GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint key、cluster/VSM/AO/IBL provider、signal history、skin/morph/previous deformation、Product 跨 LOD/source/seam、nonlocal/provider、屏外 VSM caster、透明 composition、SSSR/GI/VT 等缺口继续有效。实现、来源 adoption、evidence、画质和性能分别验收；本轮实现仍未运行正式验证。
+
+## 最终静态对照
+
+| V3 目标 | 源码证据 | 结论 |
+| --- | --- | --- |
+| 单一 Surface 主链与真实 FrameGraph 边 | `FrameProgramLowering.ts:354-389` → `SurfaceWorkRuntime.addToGraph`；`SurfaceWorkRuntime.ts:238-316` | 结构已对齐；旧 owner 未出现在当前生产接线 |
+| lookup 在 miss evaluation 前，命中绕过重工作 | `SurfaceMaterialCachePass.ts:68-74` | lookup、hit mask、bounded miss queue 和 indirect evaluator 已接通；`SurfaceGeometryPass.ts:201-232` 仍按 record range dispatch，命中尚未绕过 GeometryRecord |
+| 唯一 GeometryRecord | `SurfaceWorkRuntime.ts:298-310`、`SurfaceGeometryPass.ts:174-232` | producer 已唯一；Product/skin/morph/previous deformation 覆盖仍不完整 |
+| diffuse/specular/coat/IBL 独立 packet | `SurfaceLightingWorkPass.ts:72-83` | packet 资源和计数器已分离；当前 provider 仍是基础本地 BRDF/环境项 |
+| 廉价 reconstruct 与 TemporalFacts 基础事实 | `SurfaceReconstructionPass.ts:46-56`、`FrameProgramLowering.ts:347-364` | packet-only 输出边已接通；signal history、完整 reject/age、AO/emissive/energy 语义未完成 |
+| 真实 cluster/VSM/AO/IBL 输入进入 lighting owner | `FrameProgramLowering.ts:390-406` | 资源句柄已导入，但当前 `surfaceWork.addToGraph` 调用未把这些句柄传入 lighting pass，Phase 4 仍未完成 |
+
+因此，当前工程与 V3 的**方向和结构边界一致**，与 V3 的**最终算法、AAA provider、命中几何裁剪及性能验收尚不一致**；后续应继续在唯一主链内补齐这些缺口，不恢复旧 owner 或兼容桥。
