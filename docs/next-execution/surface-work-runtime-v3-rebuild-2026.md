@@ -94,9 +94,9 @@ SurfaceWorkRuntime 已纳入 RendererCore 的 prepare/commit/abort/destroy，rec
 
 Overflow 不发布不完整 work，记录 diagnostic/counter，由当前 tile/signal 的最终 bounded full-rate 分支完整覆盖；不交给旧 queue，不通过第二次 CPU 控制 submit 修补。
 
-### Phase 7：集中验证与残留清理（部分完成）
+### Phase 7：集中验证与残留清理（尚未开始）
 
-已执行 `npm run typecheck`、`npm run build`、`npm run build:test` 和 `npm run audit:shaders`，结果通过；旧 `appearance-publication` 合同测试仍按已删除的 coverage/task ABI 失败，不能作为新 ABI 的通过证据。整帧 shader validation、GPU oracle、浏览器、连续画质、生命周期故障矩阵和四版本同条件性能尚未完成，剩余历史 fixture/死代码待最终清理。
+历史基线曾执行过 `npm run typecheck`、`npm run build`、`npm run build:test` 和 `npm run audit:shaders`，但之后的 SurfaceWork compaction 与 publication evaluator 已改变生产代码，历史结果不能作为当前版本证据。旧 `appearance-publication` 合同测试仍按已删除的 coverage/task ABI 失败，不能作为新 ABI 的通过证据。当前 revision 尚未重新执行 typecheck、build、shader validation、GPU oracle、浏览器、连续画质、生命周期故障矩阵和四版本同条件性能；这些统一留到 Phase 7。
 
 后续 SSSR、GI、VT、Transparency/Media 保持独立模块；不能用它们未完成推迟本次 Surface 专项验收，也不能将其完整效果宣称为 Surface 已实现成果。
 
