@@ -228,9 +228,9 @@ next-renderer-showcase 当前默认开启 renderScale 1、HZB、cone、XeGTAO、
 
 最终性能上限上，第三版高于中间版，因为它可以把静态材质、稳定字段和可复用输入移出每帧重计算。
 
-当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、publication cache lookup、hit-mask-gated `SurfaceGeometryPass`、GPU-compacted miss evaluation、signal-mask lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect、sample map、完整 `AppearanceResidentKernel` miss evaluation、cluster/VSM/AO/IBL provider、GeometryRecord 持久化命中旁路、packet diagnostics 以及 signal/identity/age 双缓冲 history，但独立 geometry miss compaction、完整 sampler/UV/filtered footprint key、材质 view/nonlocal、Product/形变对应、environment/light/VSM revision reject 和正式验收仍未完成，因此不能把当前接线等同于最终性能或 AAA 验收。
+当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、publication cache lookup、GPU-only geometry miss compact/indirect resolve、`SurfaceGeometryPass`、GPU-compacted miss evaluation、signal-mask lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect、sample map、完整 `AppearanceResidentKernel` miss evaluation、cluster/VSM/AO/IBL provider、GeometryRecord 持久化命中旁路、packet diagnostics 以及 signal/identity/age 双缓冲 history，但完整 sampler/UV/filtered footprint key、材质 view/nonlocal、Product/形变对应、environment/light/VSM revision reject 和正式验收仍未完成，因此不能把当前接线等同于最终性能或 AAA 验收。
 
-当前源码仍有可量化的未完成成本：稳定 material/static 程序已经按 publication identity 做安全 cache 复用，依赖 geometry、非 material-only UV、dynamic/view/nonlocal 的程序仍被保守导向 miss；GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，geometry miss 尚未独立压缩，非稳定程序 cache identity 尚未覆盖完整采样 footprint，history 已具备 identity 比较和 age 上限但仍缺 environment/light/VSM revision 细分。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
+当前源码仍有可量化的未完成成本：稳定 material/static 程序已经按 publication identity 做安全 cache 复用，依赖 geometry、非 material-only UV、dynamic/view/nonlocal 的程序仍被保守导向 miss；GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，非稳定程序 cache identity 尚未覆盖完整采样 footprint，history 已具备 identity 比较和 age 上限但仍缺 environment/light/VSM revision 细分。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
 
 ### 2.7 当前生产接线（2026-10-02）
 
@@ -247,7 +247,7 @@ Visibility / TemporalFacts
 → Sky / Aerial / FSR3 / Radiometry / Bloom / Present
 ~~~
 
-这是当前唯一生产结构，不代表最终算法已完成。hit-mask geometry miss compaction、完整 sampler/UV/filtered footprint key、Product/形变对应、environment/light/VSM history revision reject 和正式性能/画质验收仍是未完成项。
+这是当前唯一生产结构，不代表最终算法已完成。完整 sampler/UV/filtered footprint key、Product/形变对应、environment/light/VSM history revision reject 和正式性能/画质验收仍是未完成项。
 
 ## 4. 最终架构：SurfaceWork Runtime
 
@@ -744,6 +744,8 @@ surfaceDispatchCount
 - [x] production import graph 不再引用旧 Surface owner；
 - [ ] VisibilityKey 只有 Visibility/SurfaceWork 入口解析；
 - [x] GeometryRecord 成为唯一 Surface geometry producer；
+- [x] Geometry miss 使用 bounded GPU queue 和 indirect resolve 独立压缩；
+- [ ] Geometry hit identity 覆盖完整 view/filtered footprint 语义；
 - [x] cache lookup 位于 material miss compact 之前；
 - [x] cache hit 不进入 geometry/material heavy worker；
 - [x] direct、diffuse、specular、coat、IBL 有独立 signal work；

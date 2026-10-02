@@ -1,4 +1,4 @@
-import type { FrameGraph } from "../../framegraph/FrameGraph.js";
+import type { FrameGraph, FrameGraphContext, PassResources } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
@@ -15,6 +15,7 @@ import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../../gpu/GpuFrameGeometryAttribute
 export interface SurfaceGeometryProducts {
   readonly records: ResourceId;
   readonly count: ResourceId;
+  readonly missCounters: ResourceId;
 }
 
 export interface SurfaceGeometryInput {
@@ -48,6 +49,7 @@ export interface SurfaceGeometryInput {
 const GEOMETRY_CACHE_CAPACITY = 1 << 15;
 const GEOMETRY_CACHE_KEY_STRIDE = 13;
 const GEOMETRY_CACHE_VALUE_STRIDE = 10;
+const GEOMETRY_MISS_INDIRECT_OFFSET = 8;
 
 const GEOMETRY_WGSL = /* wgsl */ `
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -80,6 +82,8 @@ struct Settings {
 @group(0) @binding(13) var<storage, read> material_hit_mask: array<u32>;
 @group(0) @binding(14) var<storage, read_write> geometry_cache_keys: array<u32>;
 @group(0) @binding(15) var<storage, read_write> geometry_cache_values: array<vec4f>;
+@group(0) @binding(16) var<storage, read_write> geometry_miss_queue: array<u32>;
+@group(0) @binding(17) var<storage, read_write> geometry_miss_counters: array<atomic<u32>>;
 
 fn attribute_at(ids: vec3u, weights: vec3f, field: u32) -> vec4f {
   if surface_direct_source { return surface_source_attribute(ids, weights, field); }
@@ -126,10 +130,17 @@ fn cache_value_base(cell: u32) -> u32 { return cell * ${GEOMETRY_CACHE_VALUE_STR
 
 @compute @workgroup_size(64)
 fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
-  let record = id.x;
-  let actual_count = min(settings.record_count, surface_counts[0u]);
-  if record >= actual_count || record >= settings.capacity { return; }
-  if record == 0u { atomicStore(&record_count[0], actual_count); }
+  let miss_mode = settings.source_payload.w != 0u;
+  let dispatch_index = id.x;
+  if miss_mode {
+    if dispatch_index >= atomicLoad(&geometry_miss_counters[0]) { return; }
+  } else {
+    let actual_count = min(settings.record_count, surface_counts[0u]);
+    if dispatch_index >= actual_count || dispatch_index >= settings.capacity { return; }
+    if dispatch_index == 0u { atomicStore(&record_count[0], actual_count); }
+  }
+  let record = select(dispatch_index, geometry_miss_queue[dispatch_index], miss_mode);
+  if record >= settings.capacity { return; }
   let sample_at = settings.sample_offset / 4u + record * 8u;
   let pixel = work[sample_at];
   let x = pixel % settings.width;
@@ -171,6 +182,7 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
     geometry_cache_keys[cache_key + 11u] == pixel &&
     geometry_cache_keys[cache_key + 12u] == clip_signature;
   if cache_match {
+    if miss_mode { return; }
     let cached = cache_value_base(cache_cell);
     let local_position = geometry_cache_values[cached + 0u].xyz;
     let local_edge1 = geometry_cache_values[cached + 1u].xyz;
@@ -204,6 +216,15 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
     records[base + 9u] = vec4f(bitcast<f32>(key), bitcast<f32>(decoded.meshlet_work_slot), bitcast<f32>(meshlet.instance_slot), bitcast<f32>(meshlet.geometry_slot));
     records[base + 10u] = metadata;
     records[base + 11u] = color;
+    return;
+  }
+  if !miss_mode {
+    let miss_slot = atomicAdd(&geometry_miss_counters[0], 1u);
+    if miss_slot < settings.capacity {
+      geometry_miss_queue[miss_slot] = record;
+    } else {
+      atomicOr(&geometry_miss_counters[1], 1u);
+    }
     return;
   }
   let directory = settings.directory_at + 4u + decoded.meshlet_work_slot * 4u;
@@ -298,10 +319,26 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
 }
 `;
 
+const GEOMETRY_MISS_FINALIZE_WGSL = /* wgsl */ `
+struct Settings { capacity: u32, _pad: vec3u }
+@group(0) @binding(0) var<uniform> settings: Settings;
+@group(0) @binding(1) var<storage, read_write> counters: array<atomic<u32>>;
+@compute @workgroup_size(1)
+fn finalize() {
+  let count = min(atomicLoad(&counters[0]), settings.capacity);
+  atomicStore(&counters[2], (count + 63u) / 64u);
+  atomicStore(&counters[3], select(0u, 1u, count != 0u));
+  atomicStore(&counters[4], select(0u, 1u, count != 0u));
+}
+`;
+
 export class SurfaceGeometryPass {
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
+  private readonly finalizeLayout: GPUBindGroupLayout;
+  private readonly finalizePipeline: GPUComputePipeline;
   private readonly settings: GPUBuffer;
+  private readonly finalizeSettings: GPUBuffer;
   private readonly geometryCacheKeys: GPUBuffer;
   private readonly geometryCacheValues: GPUBuffer;
 
@@ -319,6 +356,8 @@ export class SurfaceGeometryPass {
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.settings = device.createBuffer({ label: "Surface Geometry settings", size: 80,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.finalizeSettings = device.createBuffer({ label: "Surface Geometry miss finalize settings", size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ label: "Surface Geometry bindings", entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 80 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
@@ -335,24 +374,32 @@ export class SurfaceGeometryPass {
       { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 17, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
     ] });
     this.pipeline = device.createComputePipeline({ label: "Surface/GeometryRecord", layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: { module: device.createShaderModule({ label: "Surface Geometry Record", code: GEOMETRY_WGSL }), entryPoint: "resolve_geometry" } });
+    this.finalizeLayout = device.createBindGroupLayout({ entries: [
+      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+    ] });
+    this.finalizePipeline = device.createComputePipeline({ label: "Surface/Geometry miss finalize",
+      layout: device.createPipelineLayout({ bindGroupLayouts: [this.finalizeLayout] }),
+      compute: { module: device.createShaderModule({ code: GEOMETRY_MISS_FINALIZE_WGSL }), entryPoint: "finalize" } });
   }
 
   addToGraph(graph: FrameGraph, input: SurfaceGeometryInput): SurfaceGeometryProducts {
-    let records!: ResourceId;
-    const node = graph.add("Surface/GeometryRecord", input, (data, resources, context) => {
+    let records!: ResourceId, count!: ResourceId, missQueue!: ResourceId, missCounters!: ResourceId;
+    const bindAndDispatch = (data: SurfaceGeometryInput & { mode: number }, resources: PassResources, context: FrameGraphContext): void => {
       const command = context.encoder as ShadeGPUCommandContext;
-      command.writeBuffer(resources.get(count) as GPUBuffer, 0, new Uint32Array(4).buffer, 0, 16);
       const settings = new Uint32Array([
         data.width, data.height, Math.ceil(data.width / 8), data.frameAt,
         data.directoryAt, data.sampleOffset, data.geometryOffset, data.geometryCapacity,
         Math.min(data.geometryCapacity, Math.ceil(data.width / 8) * Math.ceil(data.height / 8)),
         GEOMETRY_CACHE_CAPACITY, GEOMETRY_CACHE_CAPACITY - 1, 0,
         data.sourceGeometry, data.sourceMeshlet, data.sourceMeshletVertices, data.sourceMeshletTriangles,
-        data.sourceVertexData, 0, 0, 0
+        data.sourceVertexData, 0, 0, data.mode
       ]);
       command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
       const group = this.device.createBindGroup({ layout: this.layout, entries: [
@@ -371,24 +418,60 @@ export class SurfaceGeometryPass {
         { binding: 12, resource: { buffer: resources.get(data.counts) as GPUBuffer } },
         { binding: 13, resource: { buffer: resources.get(data.materialHitMask) as GPUBuffer } },
         { binding: 14, resource: { buffer: this.geometryCacheKeys } },
-        { binding: 15, resource: { buffer: this.geometryCacheValues } }
+        { binding: 15, resource: { buffer: this.geometryCacheValues } },
+        { binding: 16, resource: { buffer: resources.get(missQueue) as GPUBuffer } },
+        { binding: 17, resource: { buffer: resources.get(missCounters) as GPUBuffer } }
       ] });
       const pass = command.beginComputePass({ label: "Surface/GeometryRecord" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
-      pass.dispatchWorkgroupsIndirect(resources.get(data.counts) as GPUBuffer, SURFACE_WORK_INDIRECT_OFFSET); pass.end();
+      if (data.mode === 0) pass.dispatchWorkgroupsIndirect(resources.get(data.counts) as GPUBuffer, SURFACE_WORK_INDIRECT_OFFSET);
+      else pass.dispatchWorkgroupsIndirect(resources.get(missCounters) as GPUBuffer, GEOMETRY_MISS_INDIRECT_OFFSET);
+      pass.end();
+    };
+    const classify = graph.add("Surface/GeometryRecord cache classify", { ...input, mode: 0 }, (data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      command.writeBuffer(resources.get(count) as GPUBuffer, 0, new Uint32Array(4).buffer, 0, 16);
+      command.writeBuffer(resources.get(missCounters) as GPUBuffer, 0, new Uint32Array(8).buffer, 0, 32);
+      bindAndDispatch(data, resources, context);
     });
     for (const resource of [input.visibility, input.work, input.arena, input.meshletWork,
-      input.sourceHeap, input.vertexPayload, input.frameInstances, input.frameAttributes, input.camera]) node.read(resource);
-    node.read(input.counts); node.read(input.materialHitMask);
-    records = node.create("Surface/GeometryRecord buffer", { kind: "transient_buffer",
+      input.sourceHeap, input.vertexPayload, input.frameInstances, input.frameAttributes, input.camera]) classify.read(resource);
+    classify.read(input.counts); classify.read(input.materialHitMask);
+    records = classify.create("Surface/GeometryRecord buffer", { kind: "transient_buffer",
       size: input.geometryOffset + input.geometryCapacity * SURFACE_GEOMETRY_RECORD_STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, domain: "internal-full" });
-    node.write(records);
-    const count = node.create("Surface/GeometryRecord count", { kind: "transient_buffer", size: 16,
+    classify.write(records);
+    count = classify.create("Surface/GeometryRecord count", { kind: "transient_buffer", size: 16,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
-    node.write(count);
-    return { records, count };
+    classify.write(count);
+    missQueue = classify.create("Surface/GeometryRecord miss queue", { kind: "transient_buffer",
+      size: Math.max(4, input.recordCount * 4), usage: GPUBufferUsage.STORAGE, domain: "internal-full" });
+    classify.write(missQueue);
+    missCounters = classify.create("Surface/GeometryRecord miss indirect", { kind: "transient_buffer", size: 32,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
+    classify.write(missCounters);
+    const finalize = graph.add("Surface/GeometryRecord miss finalize", { missCounters }, (data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      command.writeBuffer(this.finalizeSettings, 0, new Uint32Array([input.geometryCapacity, 0, 0, 0]).buffer, 0, 16);
+      const group = this.device.createBindGroup({ layout: this.finalizeLayout, entries: [
+        { binding: 0, resource: { buffer: this.finalizeSettings } },
+        { binding: 1, resource: { buffer: resources.get(data.missCounters) as GPUBuffer } }
+      ] });
+      const pass = command.beginComputePass({ label: "Surface/GeometryRecord miss finalize" });
+      pass.setPipeline(this.finalizePipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end();
+    });
+    finalize.read(missCounters); finalize.write(missCounters);
+    const resolveMisses = graph.add("Surface/GeometryRecord miss resolve", { ...input, mode: 1, records, count, missQueue, missCounters }, (data, resources, context) => {
+      bindAndDispatch(data, resources, context);
+    });
+    resolveMisses.dependsOn(finalize);
+    for (const resource of [input.visibility, input.work, input.arena, input.meshletWork,
+      input.sourceHeap, input.vertexPayload, input.frameInstances, input.frameAttributes, input.camera,
+      input.materialHitMask, records, count, missQueue, missCounters]) resolveMisses.read(resource);
+    records = resolveMisses.write(records);
+    count = resolveMisses.write(count);
+    return { records, count, missCounters };
   }
 
-  destroy(): void { this.settings.destroy(); this.geometryCacheKeys.destroy(); this.geometryCacheValues.destroy(); }
+  destroy(): void { this.settings.destroy(); this.finalizeSettings.destroy(); this.geometryCacheKeys.destroy(); this.geometryCacheValues.destroy(); }
 }
