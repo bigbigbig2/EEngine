@@ -12,6 +12,10 @@ import { SurfaceReconstructionPass } from "./SurfaceReconstructionPass.js";
 import { SurfaceDiagnosticsPass } from "./SurfaceDiagnosticsPass.js";
 import { SURFACE_DIAGNOSTICS_BYTE_SIZE, type SurfaceDiagnosticsMode, type SurfaceDiagnosticsIdentity } from "../../gpu/SurfaceDiagnosticsAbi.js";
 import type { SurfaceDiagnosticsCapture } from "../../debug/SurfaceDiagnosticsCapture.js";
+import { SurfaceCacheIdentityPass } from "./SurfaceCacheIdentityPass.js";
+import { SurfaceDependencyEpochPass } from "./SurfaceDependencyEpochPass.js";
+import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
+import type { ResourceAccounting } from "../../debug/profiling/ResourceAccounting.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 
 export interface SurfaceWorkFrame {
@@ -54,6 +58,8 @@ var<workgroup> valid: array<u32, 64>;
 var<workgroup> tile_class: u32;
 var<workgroup> uniform_key: u32;
 var<workgroup> uniform_lane: u32;
+var<workgroup> tile_base:u32;
+var<workgroup> lane_offset:array<u32,64>;
 var<workgroup> tile_samples: atomic<u32>;
 var<workgroup> overflow_lo: atomic<u32>;
 var<workgroup> overflow_hi: atomic<u32>;
@@ -68,7 +74,7 @@ fn write_sample(slot: u32, pixel: u32, key: u32, tile: u32, lane: u32) {
   work[at + 5u] = tile | (lane << 16u);
   work[at + 6u] = slot;
   work[at + 7u] = 1u;
-  textureStore(sample_map, vec2i(i32(pixel % settings.width), i32(pixel / settings.width)), vec4u(slot));
+  textureStore(sample_map, vec2i(i32(pixel % settings.width), i32(pixel / settings.width)), vec4u(pixel));
 }
 
 @compute @workgroup_size(64)
@@ -106,9 +112,12 @@ fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid:
         else if keys[i] != first { same = false; }
       }
     }
+    var prefix=0u;
+    for(var i=0u;i<64u;i++){lane_offset[i]=prefix;prefix+=valid[i];}
     uniform_key = first;
     tile_class = 0u;
     if visible != 0u { tile_class = select(2u, 1u, same); }
+    if tile_class==2u {tile_base=atomicAdd(&counts[0],visible);}
     let tile_at = settings.tile_offset + tile * 12u;
     let origin_x = tx * 8u;
     let origin_y = ty * 8u;
@@ -143,7 +152,7 @@ fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid:
       for (var i = 0u; i < 64u; i++) {
         let sx = tx * 8u + (i % 8u); let sy = ty * 8u + (i / 8u);
         if sx < settings.width && sy < settings.height && valid[i] != 0u {
-          textureStore(sample_map, vec2i(i32(sx), i32(sy)), vec4u(slot));
+          textureStore(sample_map, vec2i(i32(sx), i32(sy)), vec4u(representative));
         }
       }
     } else {
@@ -153,7 +162,7 @@ fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid:
   }
   if tile_class == 2u && valid[lane] != 0u {
     atomicAdd(&tile_samples, 1u);
-    let slot = atomicAdd(&counts[0], 1u);
+    let slot = tile_base+lane_offset[lane];
     if slot < settings.sample_capacity {
       write_sample(slot, py * settings.width + px, key, tile, lane);
     } else if lane < 32u { atomicAdd(&counts[14], 1u); atomicOr(&overflow_lo, 1u << lane); }
@@ -207,6 +216,9 @@ fn finalize() {
 `;
 
 export class SurfaceWorkRuntime {
+  private readonly cacheIdentity: SurfaceCacheIdentityPass;
+  private readonly dependencyEpoch: SurfaceDependencyEpochPass;
+  private readonly scratch: SurfaceFrameResources;
   private readonly geometry: SurfaceGeometryPass;
   private readonly material: SurfaceMaterialCachePass;
   private readonly lighting: SurfaceLightingWorkPass;
@@ -227,10 +239,13 @@ export class SurfaceWorkRuntime {
 
   constructor(private readonly device: GPUDevice, private readonly budget: SurfaceWorkBudget = {
     maxTiles: 262144, maxSamples: 262144, maxExceptions: 65536, maxGeometryRecords: 262144, maxBytes: 128 * 1024 * 1024
-  }) {
-    this.geometry = new SurfaceGeometryPass(device);
-    this.material = new SurfaceMaterialCachePass(device);
-    this.lighting = new SurfaceLightingWorkPass(device);
+  }, accounting?: ResourceAccounting) {
+    this.scratch = new SurfaceFrameResources(device, accounting);
+    this.cacheIdentity = new SurfaceCacheIdentityPass(device,this.scratch);
+    this.dependencyEpoch = new SurfaceDependencyEpochPass(device,this.scratch);
+    this.geometry = new SurfaceGeometryPass(device, this.scratch);
+    this.material = new SurfaceMaterialCachePass(device, this.scratch);
+    this.lighting = new SurfaceLightingWorkPass(device, this.scratch);
     this.reconstruction = new SurfaceReconstructionPass(device);
     this.diagnostics = new SurfaceDiagnosticsPass(device, (command, source, frameId) => {
       const capture = this.diagnosticsCapture;
@@ -267,6 +282,7 @@ export class SurfaceWorkRuntime {
   prepareFrame(width: number, height: number): void {
     if (this.destroyed || this.prepared) throw new Error("SurfaceWork frame is already prepared");
     this.layout = surfaceWorkLayout(width, height, this.budget, this.device.limits);
+    this.scratch.prepare(width, height);
     this.reconstruction.prepareFrame(width, height); this.prepared = true;
   }
 
@@ -293,7 +309,7 @@ export class SurfaceWorkRuntime {
     environment: SurfaceLightingInput["environment"];
     physicalSun: SurfaceLightingInput["physicalSun"];
     factsMask: ResourceId; factsIdentity: ResourceId; factsMotion: ResourceId; preExposure: ResourceId; width: number; height: number;
-    historyBinding: (name: string, resolve: () => GPUTexture) => GPUTexture;
+    historyBinding: SurfaceResourceBinding;
     revisions: SurfaceSignalRevisions; viewRevision: Readonly<{value:number}>; nonlocalRevision: Readonly<{value:number}>; diagnosticFrame: Readonly<{value:number}>;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
@@ -327,8 +343,8 @@ export class SurfaceWorkRuntime {
       pass.dispatchWorkgroups(tileCount); pass.end();
     });
     classify.read(input.visibility);
-    work = classify.create("SurfaceWork frame partitions", { kind: "transient_buffer", size: layout.geometryOffset,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" }); classify.write(work);
+    work = this.scratch.importBuffer(graph, input.historyBinding, "SurfaceWork frame partitions", layout.geometryOffset,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST); work = classify.write(work);
     counts = classify.create("SurfaceWork counters and indirect", { kind: "transient_buffer", size: SURFACE_WORK_COUNTER_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" }); classify.write(counts);
     sampleMap = classify.create("SurfaceWork sample map", { kind: "transient_texture", width: input.width, height: input.height,
@@ -346,14 +362,20 @@ export class SurfaceWorkRuntime {
     });
     finalize.read(work); work = finalize.write(work); finalize.read(counts); counts = finalize.write(counts);
     const recordCount = layout.sampleCapacity;
-    const material = this.material.addLookupToGraph(graph, { visibility: input.visibility, work,
+    const witness=this.cacheIdentity.addToGraph(graph,{camera:input.camera,work,counts,meshlets:input.meshletWork,instances:input.frameInstances,
+      sampleOffset:layout.sampleOffset,capacity:recordCount,pixelCount:input.width*input.height,
+      view:input.viewRevision,scene:input.nonlocalRevision,bind:input.historyBinding});
+    work=witness.work;
+    const dependencyEpoch=this.dependencyEpoch.addToGraph(graph,input.residencyVersions,input.historyBinding);
+    const material = this.material.addLookupToGraph(graph, { geometryKeys:witness.keys,dependencyEpoch,visibility: input.visibility, work,
       meshletWork: input.meshletWork, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions,
       counts, materialLookup: input.materialLookup, surfaceIdentity: input.surfaceIdentity, materials: input.materials,
-      programCount: input.publication.surfaceProgramCount, width: input.width, height: input.height,
+      resourceBinding: input.historyBinding, programCount: input.publication.surfaceProgramCount, width: input.width, height: input.height,
       recordCount, sampleOffset: layout.sampleOffset, frame: input.frame.generation,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null,
       viewRevision: input.viewRevision, nonlocalRevision: input.nonlocalRevision });
-    const geometry = this.geometry.addToGraph(graph, { visibility: input.visibility, work, arena: input.arena,
+    work=material.work;
+    const geometry = this.geometry.addToGraph(graph, { resourceBinding: input.historyBinding, visibility: input.visibility, work, arena: input.arena,
       meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
       frameInstances: input.frameInstances, frameAttributes: input.frameAttributes, camera: input.camera,
       width: input.width,
@@ -362,14 +384,14 @@ export class SurfaceWorkRuntime {
       sourceMeshletVertices: input.frame.sourceMeshletVertices, sourceMeshletTriangles: input.frame.sourceMeshletTriangles,
       sourceVertexData: input.frame.sourceVertexData, materialHitMask: material.hitMask,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null,
-      sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset, recordCount, geometryCapacity: layout.geometryCapacity, counts });
-    const evaluatedMaterial = this.material.addEvaluateToGraph(graph, { ...material, geometry: geometry.records, geometryOffset: layout.geometryOffset / 16, width: input.width, height: input.height,
+      sampleOffset: layout.sampleOffset, geometryOffset: 0, recordCount, geometryCapacity: layout.geometryCapacity, counts });
+    const evaluatedMaterial = this.material.addEvaluateToGraph(graph, { ...material, geometry: geometry.records, geometryOffset: 0, width: input.width, height: input.height,
       recordCount, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions, frame: input.frame.generation, counts,
       publication: input.publication, textureBanks: input.textureBanks, work, sampleOffset: layout.sampleOffset,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null,
       viewRevision: input.viewRevision, nonlocalRevision: input.nonlocalRevision });
-    const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: evaluatedMaterial.fields,
-      work, sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset / 16, width: input.width, height: input.height,
+    const lighting = this.lighting.addToGraph(graph, { geometryKeys:witness.keys,revisions:input.revisions,diagnosticFrame:input.diagnosticFrame,resourceBinding: input.historyBinding, geometry: geometry.records, fields: evaluatedMaterial.fields,
+      work, sampleOffset: layout.sampleOffset, geometryOffset: 0, width: input.width, height: input.height,
       recordCount, frame: input.frame.generation, counts, camera: input.camera,
       lightRecords: input.lightRecords, clusters: input.clusters, shadow: input.shadow,
       scalarAo: input.scalarAo, environment: input.environment, physicalSun: input.physicalSun,
@@ -378,24 +400,24 @@ export class SurfaceWorkRuntime {
       coat: lighting.coatPackets, ibl: lighting.iblPackets, reactive: input.factsMask,
       identity: input.factsIdentity, motion: input.factsMotion, historyBinding: input.historyBinding,
       preExposure: input.preExposure, revisions: input.revisions,
-      width: input.width, height: input.height, recordCount, sampleMap,
+      width: input.width, height: input.height, recordCount:input.width*input.height, sampleMap,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     const diagnostics = this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null ? this.diagnostics.addToGraph(graph, {
       work, counts, materialCounters: evaluatedMaterial.counters, materialAudit: evaluatedMaterial.audit, geometryCount: geometry.count,
       geometryMissCounters: geometry.missCounters, lightingCounters: lighting.counters,
       reconstructCounters: reconstruction.counters,
       width: input.width, height: input.height, frameId: input.diagnosticFrame,
-      geometryOffset: layout.geometryOffset
+      geometryOffset: 0
     }) : null;
-    return { work, counts, sampleMap, ...geometry, ...evaluatedMaterial, ...lighting, ...reconstruction,
+    return { counts, sampleMap, ...geometry, ...evaluatedMaterial, ...lighting, ...reconstruction,
       ...(diagnostics === null ? {} : diagnostics) };
   }
 
   commit(gpuDone: Promise<void>): void {
     if (!this.prepared) throw new Error("SurfaceWork commit without prepare");
-    this.reconstruction.commit(gpuDone); this.prepared = false;
+    this.reconstruction.commit(gpuDone); this.scratch.commit(gpuDone); this.prepared = false;
   }
   abort(): void { this.reconstruction.abort(); this.prepared = false; }
   invalidate(): void { this.reconstruction.invalidate(); }
-  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.reconstruction.destroy(); this.diagnostics.destroy(); this.settings.destroy(); this.finalizeSettings.destroy(); }
+  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.scratch.destroy(); this.cacheIdentity.destroy(); this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.reconstruction.destroy(); this.diagnostics.destroy(); this.settings.destroy(); this.finalizeSettings.destroy(); }
 }

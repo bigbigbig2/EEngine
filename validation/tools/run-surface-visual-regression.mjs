@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 // Explicit diagnostic against the production showcase, using an isolated browser.
 const root = process.cwd();
-const out = resolve(root, ".local/validation/surface-v3-visual-fix");
+const out = resolve(root, process.argv[2] ?? ".local/validation/surface-v3-visual-fix");
 await mkdir(out, { recursive: true });
 const server = await createServer({ configFile: resolve(root, "examples/vite.config.ts"),
   clearScreen: false, server: { host: "127.0.0.1", port: 4182, strictPort: true } });
@@ -62,6 +62,19 @@ try {
     return canvas.width === 1440 && canvas.height === 810;
   });
   await advance(15); await shot("06-resize");
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.waitForFunction(() => document.querySelector("#viewport").width === 1280);
+  await advance(15); await shot("07-return-resize");
+  await page.locator("#panel-toggle").click();
+  await page.locator("#sun-intensity").fill("0.2");
+  await page.locator("#sun-intensity").dispatchEvent("input");
+  await page.locator("#panel-toggle").click();
+  await advance(15); await shot("08-sun-edit");
+  await page.locator("#panel-toggle").click();
+  await page.locator("#sun-intensity").fill("1.5");
+  await page.locator("#sun-intensity").dispatchEvent("input");
+  await page.locator("#panel-toggle").click();
+  await advance(15); await shot("09-sun-restored");
   await page.evaluate(() => globalThis.__eengineShowcase.dispose());
   await context.close();
 } catch (error) { report.errors.push(String(error)); }

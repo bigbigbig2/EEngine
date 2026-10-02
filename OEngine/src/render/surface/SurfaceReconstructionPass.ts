@@ -4,7 +4,7 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "../../shaders/working_color.js";
 
-export const SURFACE_RECONSTRUCT_COUNTER_WORDS = 6;
+export const SURFACE_RECONSTRUCT_COUNTER_WORDS = 8;
 export const SURFACE_RECONSTRUCT_COUNTER_BYTES = SURFACE_RECONSTRUCT_COUNTER_WORDS * 4;
 export interface SurfaceReconstructionProducts { readonly radiance: ResourceId; readonly reactiveMask: ResourceId; readonly counters: ResourceId; }
 
@@ -58,6 +58,7 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
   let previous_age=textureLoad(history_age_read,previous_pixel,0).x;
   // Motion validity and disocclusion reject history, never current radiance.
   var valid=record<settings.record_count && record!=0xffffffffu;
+  if valid { diagnostic_add(7u,1u); }
   if valid { valid=diffuse[record].w>0.5; }
   let identity_match=all(identity==previous_identity);
   var current_diffuse=vec3f(0.0); var current_specular=vec3f(0.0);
@@ -69,6 +70,7 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
   let reuse_specular=can_reuse && (settings.revision_mask & 2u)==0u;
   let reuse_coat=can_reuse && (settings.revision_mask & 4u)==0u;
   let reuse_ibl=can_reuse && (settings.revision_mask & 8u)==0u;
+  diagnostic_add(6u,u32(reuse_diffuse)+u32(reuse_specular)+u32(reuse_coat)+u32(reuse_ibl));
   var resolved_diffuse=current_diffuse; var resolved_specular=current_specular;
   var resolved_coat=current_coat; var resolved_ibl=current_ibl;
   if reuse_diffuse { resolved_diffuse=mix(textureLoad(diffuse_history_read,previous_pixel,0).xyz,current_diffuse,feedback); }

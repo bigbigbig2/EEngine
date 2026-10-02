@@ -40,10 +40,10 @@ export function classifySurfaceTimingPhase(
   if (/surfacework\/finalize counters/.test(label)) {
     return "workFinalize";
   }
-  if (/surface\/material publication lookup/.test(label)) {
+  if (/surface\/material publication lookup|surface\/residency epoch/.test(label)) {
     return "materialLookup";
   }
-  if (/surface\/geometryrecord cache classify/.test(label)) {
+  if (/surface\/geometryrecord cache classify|surface\/input witness|surface\/view epoch/.test(label)) {
     return "geometryLookup";
   }
   if (/surface\/geometryrecord miss finalize/.test(label)) {
@@ -58,7 +58,7 @@ export function classifySurfaceTimingPhase(
   if (/surface\/material miss publication evaluation|surface\/material publication kernel \d+$/.test(label)) {
     return "materialEvaluate";
   }
-  if (/surface\/lighting packets/.test(label)) {
+  if (/surface\/lighting packets|surface\/lighting classify|surface\/lighting finalize/.test(label)) {
     return "lighting";
   }
   if (/surface\/reconstruct/.test(label)) {

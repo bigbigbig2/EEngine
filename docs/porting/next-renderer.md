@@ -776,3 +776,20 @@ Directional VSM 的真实 PCF 接收点比较没有删除或换成 page-version 
 | 发布事务与资源共享，本地生命周期胶水 | `CoverageRasterBindings` 缓存 publication 级 texture views/samplers/bindgroups；主光栅和 VSM 同资源组；Renderer 在 instance patch 后、shadow generation 判定前同步 Coverage | 无新私有 submit，无旧 sample/closure/Resolve 恢复。scene rollback、GPU retirement、device loss、resize/cut 全矩阵仍待最终验收 |
 
 当前工作树本批没有运行 typecheck、build、targeted tests、GPU oracle、浏览器或 benchmark，按 Surface 连续重构规则推迟到完整目标生产链实现后集中执行。现有部分测试 fixture 已随 ABI 修改，但未运行，其他旧 fixture 尚待统一调整。透明完整材质/照明链、skin/morph 与 previous 形变、Product source-domain/跨 LOD/seam、一般 nonlocal GPU provider 仍未完成；R01–R24、来源采用状态和性能目标均不提升。
+
+### 用户请求的 Showcase 白蒙感与缓存性能修复（2026-10-03）
+
+本次为用户明确请求的诊断和优化，不是 V3 四版本 Phase 7 验收。新增方案名 **ExactPixelInputWitness**：以同一像素的精确 producer 输入见证证明相同几何/采样输入，复用已有材质编译器的按字段 masked evaluation；不宣称跨相机移动的 object-space cache、完整 CPS/VRCS 或其他上游算法移植。
+
+来源核读：Wicked Engine 固定 revision [`df44c3db4c4927492bc9c791eac715d98d7ed091`](https://github.com/turanszkij/WickedEngine/tree/df44c3db4c4927492bc9c791eac715d98d7ed091)，MIT；具体入口 `WickedEngine/shaders/visibility_resolveCS.hlsl::main`、`visibility_shadeCS.hlsl::main`。前者的 primitive uniform/divergent 分支、`local_bin_mask`、组同步和材质 bin publication，后者的 tile/pixel bounds、Surface load、逐像素 shading 已核读。只作调度参考，**没有复制其完整 shading 算法**；uniform primitive 不等于材质或光照空间恒定。此前账本的 CPS/VRCS 论文与 Filament BRDF/irradiance 来源继续适用。没有找到涵盖本地 V3 ABI/精确字段版本/出版事务的单一完整 donor，差距保留，不提升 adoption。
+
+| 来源阶段或本地集成 | 唯一生产入口与数据流 | 保留条件和限制 |
+| --- | --- | --- |
+| Wicked tile group reservation 参考；本地确定性 prefix/地址分配 | `SurfaceWorkRuntime`：mixed tile 组内 prefix，一次全局原子预约连续区间，再逐 lane 写样本 | 无 subgroup 依赖，无本帧 CPU control；原覆盖 mask 和容量判断保留。未增加近似空间共享 |
+| 本地精确 ABI/生命周期集成 | `SurfaceCacheIdentityPass`：逐 word GPU camera snapshot → view epoch；representative pixel + scene/primitive/LOD/geometry/instance/product generations、dynamic revision 和 flags → 唯一 GeometryRecord witness；Geometry classify/miss 使用同一 shader 数学的编译期 specialization | 无 hash 碰撞。epoch 饱和后永久 miss，resize 重置。相机改变使 geometry/UV/view 字段 miss；不宣称跨 LOD 对应或尚未实现的形变正确性 |
+| 已有 Appearance compiler 字段依赖与 masked WGSL lowering | `SurfaceDependencyEpochPass` 一次比较 residency table；`SurfaceMaterialCachePass` 按字段版本/依赖比较 → GPU program compact → `GpuAppearancePublication` 只求 missing roots | sampler/routes/static products 由不可变 publication generation 隔离；Dynamic/Nonlocal 始终 miss；纹理版本全局保守失效。publication 替换清除新程序不存在的旧字段。packed normal-validity 以数值整数存 rgba16f |
+| 本地资源 ownership 与 publication 集成 | `SurfaceFrameResources` 持有一份 extent-sized GeometryRecord/work/cache/fields/packets；FrameGraph late binding，队列顺序消费，resize 在最后提交完成后退休 | 无额外 submit；仍保持两帧 CPU in-flight。完整键和值计入 accounting，不把缓存容量当免费。命中 fields 已在持久纹理内，不再复制六层 |
+| 已有 BRDF/IBL 数学；本地 exact signal reuse 与确定性 prefix/compact | `SurfaceLightingWorkPass` 对 geometry/material witness、light/environment revision 和 AO 精确匹配；轻量 classify → 组内 prefix/一次全局预约 → bounded dirty signal 队列 → finalize indirect → 原 BRDF heavy worker，持久 pixel-addressed packet 供 reconstruct | AO 变化仅刷新 IBL；coat 的混合 direct/IBL 合并失效；VSM 开启时 direct 保守重算。hit 不进 heavy shader，dirty queue 上界为 accepted sample capacity；每条记录携带独立 lobe mask。未实现移动时近似复用 |
+| 已有 cosine convolution 与 Lambert BRDF 单位修正 | diffuse environment 产品是 irradiance，Surface 消费补 `RECIPROCAL_PI`；示例固定曝光 8→4 | 没有更换 tone mapper、用阴影掩盖问题或改黑色背景；不是新增光照算法 |
+
+本次实际检查记录见 `.local/validation/surface-p0p5-report.md`。仅声明该 fixture 上的检查与测量；真实 GPU oracle 覆盖输入见证/字段失效，Chrome 截图与两档覆盖诊断覆盖生产链。完整 device loss 浏览器矩阵、连续画质与 V3 四版本验收仍待完成，R01–R24 与来源采用等级保持原状。

@@ -54,7 +54,7 @@ const scene = new Scene();
 const baseIrradiance = [1.474, 1.8504, 1.91198] as const;
 const settings = {
   autoExposure: false,
-  fixedExposure: 8,
+  fixedExposure: 4,
   gtao: true, fsr3: true, bloom: true, hzb: true, cone: true,
   autoRotate: false, profiler: false, renderScale: 1, sse: 4,
   sunAzimuth: 30, sunElevation: 63, sunIntensity: 1.5,
@@ -85,8 +85,16 @@ let captureTarget: { end: number; resolve(): void; reject(error: unknown): void;
 let savedCamera: { matrix: number[]; target: number[] } | null = null;
 let hudUpdatedAt = 0;
 let captureConditions: Record<string, unknown> = {};
+const diagnosticVsm=(globalThis as typeof globalThis & {__surfaceDiagnostic?:{vsm?:boolean}}).__surfaceDiagnostic?.vsm ?? false;
+let capturePath: { begin:number; frames:number; position:readonly number[]; target:readonly number[] } | null = null;
 
 const capture = new BenchmarkCapture({
+  beginMeasurement: (begin, request) => {
+    if (request.trajectory !== "orbit-return") return;
+    capturePath = { begin, frames:request.frames, position:[camera!.transform.position.x,camera!.transform.position.y,camera!.transform.position.z],
+      target:[controls!.target.x,controls!.target.y,controls!.target.z] };
+  },
+  endMeasurement: () => { capturePath=null; },
   renderer: () => { if (!renderer || !refinementComplete || failed) throw new Error(`Scene is not ready: ${state.textContent}`); return renderer; },
   prepare: request => {
     savedCamera = { matrix: Array.from(camera!.transform.matrix), target: [controls!.target.x, controls!.target.y, controls!.target.z] };
@@ -98,6 +106,7 @@ const capture = new BenchmarkCapture({
     renderer!.xe_gtao_enabled = request.profile !== "no-ao";
     renderer!.fsr3_enabled = request.profile !== "no-fsr3";
     renderer!.bloom_enabled = request.profile !== "no-bloom";
+    renderer!.shadowVisibilityEnabled = request.vsm;
     renderer!.render_debug_view = RenderDebugView.None;
     renderer!.packed_visibility_hzb_enabled = true;
     renderer!.packed_visibility_cone_enabled = true;
@@ -109,9 +118,10 @@ const capture = new BenchmarkCapture({
       camera: { transform: Array.from(camera!.transform.matrix), viewProjection: Array.from(camera!.view_projection_matrix),
         near: camera!.near, far: camera!.far, fov: camera!.fov },
       features: { gtao: renderer!.xe_gtao_enabled, fsr3: renderer!.fsr3_enabled, bloom: renderer!.bloom_enabled,
-        vsm: false, jitter: false, hzb: true, cone: true, currentHzbLateRecheck: false, sse: 4 },
+        vsm: diagnosticVsm && renderer!.shadowVisibilityEnabled, jitter: false, hzb: true, cone: true, currentHzbLateRecheck: false, sse: 4 },
       sun: scene.physical_environment.snapshot(), exposure: settings.fixedExposure, textureMaxResolution: 1024,
       instanceCount: scene.instance_count, counters: request.counters,
+      trajectory:request.trajectory, trajectoryRadians:0.05, trajectoryStages:"equal thirds: static, sin(pi*t) orbit returning to base, settled",
       frameDeltaSeconds: 1 / 60, hudIntervalMs: 250, scheduling: "timer-driven; Renderer two-frame completion backpressure",
       pipelineInitialization: diagnostic.__surfaceDiagnostic?.pipelineInitialization ?? "production-sync" };
     return captureConditions;
@@ -145,6 +155,7 @@ const capture = new BenchmarkCapture({
     renderer!.perf_gpu_counters_enabled = settings.profiler;
     renderer!.profiler.configure({ enabled: settings.profiler, gpuSampleInterval: 1, gpuCounterSampleInterval: 8, historyCapacity: 180 });
     renderer!.xe_gtao_enabled = settings.gtao; renderer!.fsr3_enabled = settings.fsr3; renderer!.bloom_enabled = settings.bloom;
+    renderer!.shadowVisibilityEnabled = false;
     renderer!.render_debug_view = geometryDebugRenderViews[settings.debugView];
     renderer!.packed_visibility_hzb_enabled = settings.hzb; renderer!.packed_visibility_cone_enabled = settings.cone;
     renderer!.packed_visibility_sse_threshold = settings.sse; renderer!.setResolutionScale(settings.renderScale);
@@ -311,7 +322,7 @@ async function start(): Promise<void> {
   if (!context) throw new Error("无法创建 WebGPU canvas context");
   loadStart = performance.now();
   renderer = new Renderer({
-    enableVsm: false, enablePhysicalEnvironment: true, autoExposure: settings.autoExposure,
+    enableVsm: diagnosticVsm, enablePhysicalEnvironment: true, autoExposure: settings.autoExposure,
     fixedExposure: settings.fixedExposure, renderScale: 1,
     requiredLimits: { maxStorageBuffersPerShaderStage: 16 }, textureMaxResolution: 1024
   });
@@ -430,6 +441,14 @@ function draw(now: number): void {
   const delta = previousTime > 0 ? Math.min(0.1, Math.max(1 / 240, (now - previousTime) / 1000)) : 1 / 60;
   previousTime = now;
   if (!capture.busy) controls?.update(delta);
+  if (capturePath) {
+    const index=renderer.frame_count-capturePath.begin, third=Math.floor(capturePath.frames/3);
+    const angle=index>=third && index<2*third ? 0.05*Math.sin(Math.PI*(index-third+1)/third) : 0;
+    const [x,y,z]=capturePath.position, [cx,cy,cz]=capturePath.target;
+    const dx=x!-cx!, dz=z!-cz!, cosine=Math.cos(angle), sine=Math.sin(angle);
+    camera.transform.position.set(cx!+dx*cosine-dz*sine,y!,cz!+dx*sine+dz*cosine);
+    camera.transform.lookAt({x:cx!,y:cy!,z:cz!});
+  }
   camera.update();
   try {
     const previousFrame = renderer.frame_count;

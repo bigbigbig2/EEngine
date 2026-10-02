@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve } from "node:path";
 const run = promisify(execFile), root = process.cwd();
-const out = resolve(root, ".local/validation/surface-v3-frame-pacing");
+const out = resolve(root, process.argv[2] ?? ".local/validation/surface-v3-frame-pacing");
 await mkdir(out, { recursive: true });
 const server = await createServer({ configFile: resolve(root, "examples/vite.config.ts"), clearScreen: false,
   server: { host: "127.0.0.1", port: 4183, strictPort: true } });
@@ -31,6 +31,12 @@ try {
   await page.evaluate(() => globalThis.__eengineShowcase.start());
   await page.evaluate(() => globalThis.__eengineShowcase.capture({ width: 1920, height: 1080, frames: 1,
     warmup: 5, coverage: "preset", distanceScale: 0.885, retainView: true, surfaceMode: "timing" }));
+  if (process.argv.includes("--rotate")) {
+    await page.locator("#panel-toggle").click();
+    await page.getByText("自动旋转", { exact: true }).click();
+    await page.locator("#panel-toggle").click();
+    report.motion = "continuous auto rotation";
+  }
   for (const profiling of [false, true]) {
     stage = profiling ? "profiling-on" : "profiling-off";
     if (profiling) {

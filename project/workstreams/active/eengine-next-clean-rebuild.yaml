@@ -16,7 +16,13 @@ currentSlice:
   title: SurfaceWork Runtime 第三版：统一几何、miss-only 材质与分信号重建
   status: active
   phaseStatus: >-
-    Phase 3 已补齐 GPU-only geometry miss classify/compact/indirect resolve，并扩展完整几何字段 cache identity；Phase 4 已接入真实 LightClusterFrame、ShadowVisibilityFrame、XeGTAO packed visibility、authored/physical IBL 与生产 BRDF/cluster/VSM 数学，按 material feature 发布 diffuse/specular/coat/IBL signal mask 和局部 full-rate exception，独立写入 packet，lighting counters 已覆盖 packet/direct/IBL/AO/VSM/full-rate/overflow/bytes/dispatch 诊断；Phase 5 已接入 TemporalFacts identity、四路双缓冲 signal history 与 pre-exposure reconstruct；Phase 6 已接入 GPU completion 后 history 交换、resize retire、camera cut 失效和 environment 全局、light/shadow 按 signal revision mask。非稳定程序完整 sampler/UV/filtered footprint、browser/GPU 性能与四版本正式验收仍待 Phase 7。
+    用户 2026-10-03 明确请求的 Showcase 修复已接入：diffuse irradiance 消费补 1/pi、示例曝光 8→4；
+    Surface 队列有序单份 extent 资源、精确 pixel/input witness、逐字段版本 lookup、masked miss evaluation、
+    独立 GeometryRecord 命中与 classify/miss 编译期分离、dirty lighting GPU compact/indirect、持久 signal packets。
+    静止复用包含精确 GPU camera 输入；Dynamic/Nonlocal 和 VSM direct 保守重算，相机变化使相关字段失效。
+    本次已运行 typecheck/build、25 项 targeted tests、30 项 GPU 判定 oracle 和包含移动/resize 返回/太阳编辑的截图；
+    测量与限制集中记录于 .local/validation/surface-p0p5-report.md。完整跨视角 footprint cache、Product/形变、
+    连续画质误差界与 V3 四版本正式验收仍未完成，不提升来源采用或 claims。
   goal: >-
     Phase 0 已冻结 GTX 1650 Ti/1080p、Dungeon fingerprint、功能集、覆盖率和 P50/P95 口径，配置见
     validation/profiles/surface-work-v3-phase0-baseline.yaml。Phase 1–3 已删除旧 Surface owner，接通

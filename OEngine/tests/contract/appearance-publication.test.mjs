@@ -5,6 +5,7 @@ import { GpuAppearancePublication, APPEARANCE_DIRECTORY_STRIDE } from "../../.te
 import { AppearanceGraphBuilder, snapshotAppearanceTexture } from "../../.test-dist/material/AppearanceGraph.js";
 import { compileAppearanceGraph } from "../../.test-dist/material/AppearanceGraphCompiler.js";
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
+import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMaterial.js";
 import { encodeGpuTextureRef } from "../../.test-dist/gpu/GpuTextureRefAbi.js";
 import { cookAppearanceMipProduct } from "../../.test-dist/material/AppearanceMipCooker.js";
 import { writeAppearanceAssetPackage, openAppearanceAssetPackage } from "../../.test-dist/assets/AppearanceAssetPackage.js";
@@ -23,7 +24,7 @@ const limits = { maxBindGroups: 4, maxBindingsPerBindGroup: 1000,
   maxBufferSize: 1e8, maxStorageBufferBindingSize: 1e8, maxUniformBufferBindingSize: 65536,
   maxStorageBuffersPerShaderStage: 16, maxUniformBuffersPerShaderStage: 12,
   maxSampledTexturesPerShaderStage: 16, maxSamplersPerShaderStage: 16, maxStorageTexturesPerShaderStage: 4 };
-function fixture(auto = false) {
+function fixture(auto = false, maxPrograms = 2) {
   const loss = deferred(), compiled = [], buffers = [];
   let scopeDepth = 0, creates = 0;
   const device = { limits: { ...limits }, lost: loss.promise,
@@ -41,7 +42,7 @@ function fixture(auto = false) {
     createBuffer(descriptor) { const buffer = { ...descriptor, bytes: new Uint8Array(descriptor.size), destroyed: 0,
       destroy() { this.destroyed++; } }; buffers.push(buffer); return buffer; }
   };
-  const registry = new AppearanceProgramRegistry(device, { maxPrograms: 2, maxConcurrentCompiles: 1, maxSourceBytes: 200000 });
+  const registry = new AppearanceProgramRegistry(device, { maxPrograms, maxConcurrentCompiles: 1, maxSourceBytes: 200000 });
   const cache = { prepare() { return {}; }, release() {} };
   return { device, registry, loss, compiled, buffers, cache, creates: () => creates };
 }
@@ -110,7 +111,8 @@ function source(value, materialSlot, texture) {
   const binding = snapshotAppearanceTexture(texture, "linear-rgb", [0.2, 0.3], [2, 3], Math.PI / 2,
     undefined, [0.5, 0.5, 1, 1]);
   g.output("field", g.operation("multiply", p, g.swizzle(g.texture(binding, uv), [0])));
-  return { materialSlot, program: compileAppearanceGraph(g.build()), textureBindingSetId: 0,
+  g.output("alpha", g.constant(1));
+  return { material: new StandardShadeMaterial(), materialSlot, program: compileAppearanceGraph(g.build()), textureBindingSetId: 0,
     textureRefs: new Map([[texture, encodeGpuTextureRef(0, 1)]]) };
 }
 
@@ -126,9 +128,9 @@ async function bakedSource(value, materialSlot) {
 
 test("shared PSO does not merge distinct physical product resource sets; capability preflight precedes asset allocation", async () => {
   const sources = await Promise.all([bakedSource(0.25, 17), bakedSource(0.5, 18)]);
-  const f = fixture(true), c = command(f.device), allocations = [], released = [];
+  const f = fixture(true, 32), c = command(f.device), allocations = [], released = [];
   const owner = { acquire(asset) {
-    const texture = { asset: asset.runtime.manifest.assetId }; allocations.push(texture);
+    const texture = { asset: asset.runtime.manifest.assetId, createView() { return { texture: this }; } }; allocations.push(texture);
     return { destination: () => ({ texture, layer: 0 }), release: () => released.push(texture) };
   } };
   const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(), new Map(), undefined, owner, f.cache);
@@ -146,16 +148,18 @@ test("shared PSO does not merge distinct physical product resource sets; capabil
 });
 
 test("actual-sized GPU publication shares pipelines while retaining different instance data and snapshot sampling", async () => {
-  const f = fixture(true), c = command(f.device), texture = new ShadeTexture();
+  const f = fixture(true, 32), c = command(f.device), texture = new ShadeTexture();
   const sources = [source(0.25, 17, texture), source(0.5, 18, texture)];
   texture.wrapS = 2; texture.wrapT = 2;
   const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(),
     new Map([[texture, { slot: 12, revision: 43 }]]), undefined, undefined, f.cache);
   assert.throws(() => p.program(0), /not consumable/);
-  await p.ready; c.finish(); assert.equal(f.compiled.length, 5);
-  assert.deepEqual([...new Float32Array(p.constants.bytes.buffer)], [0.25, 0.5]);
-  assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 0, 0, 1, 0, 18, 0, 1, 1, 0, 1, 1, 1]);
-  assert.deepEqual([...new Uint32Array(p.fields.bytes.buffer)], [1, 0, 1, 67, 1, 0, 1, 67]);
+  await p.ready; c.finish();
+  assert.equal(f.compiled.filter(item => item.descriptor.compute.entryPoint === "surface_main").length, 1,
+    "two material instances share one Surface program");
+  assert.deepEqual([...new Float32Array(p.constants.bytes.buffer)], [0.25, 1, 1, 0.5, 0.5, 1, 1, 0.5]);
+  assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 0, 0, 2, 0, 18, 0, 4, 1, 0, 2, 2, 1]);
+  assert.deepEqual([...new Uint32Array(p.fields.bytes.buffer)], [1, 0, 1, 67, 1, 1, 1, 0, 1, 0, 1, 67, 1, 1, 1, 0]);
   assert.equal(p.allocatedBytes, f.buffers.reduce((bytes, buffer) => bytes + buffer.size, 0));
   const route = new DataView(p.routes.bytes.buffer);
   assert.equal(route.getUint32(8, true), 12); assert.equal(route.getUint32(12, true), 43);
@@ -171,7 +175,7 @@ test("actual-sized GPU publication shares pipelines while retaining different in
 });
 
 test("aborting a publication rejects its readiness even if a shared driver compile has not settled", async () => {
-  const f = fixture(), c = command(f.device), texture = new ShadeTexture();
+  const f = fixture(false, 32), c = command(f.device), texture = new ShadeTexture();
   const p = new GpuAppearancePublication(f.device, f.registry, [source(0.4, 1, texture)], c, new Map(), new Map(), undefined, undefined, f.cache);
   await tick(); c.abort(); await assert.rejects(p.ready, /cancelled/);
   assert.ok(f.buffers.every(buffer => buffer.destroyed === 1));
@@ -188,7 +192,7 @@ test("publication rejects before buffer allocation when negotiated storage capac
 });
 
 test("device loss disposes a resident publication and revokes its pipeline access", async () => {
-  const f = fixture(true), c = command(f.device);
+  const f = fixture(true, 32), c = command(f.device);
   const p = new GpuAppearancePublication(f.device, f.registry,
     [source(0.4, 1, new ShadeTexture())], c, new Map(), new Map(), undefined, undefined, f.cache);
   await p.ready; c.finish(); assert.ok(p.program(0));

@@ -62,7 +62,7 @@ const server = await createServer({ configFile: resolve(root, "examples/vite.con
       dev.middlewares.use("/__surface-performance/", async (request, response) => {
         if (request.url?.split("?")[0] === "/config.json") {
           response.setHeader("Content-Type", "application/json"); response.setHeader("Cache-Control", "no-store");
-          response.end(JSON.stringify({ mode, asyncPrewarm, evidenceRole: "diagnostic", accepted: false })); return;
+          response.end(JSON.stringify({ mode, asyncPrewarm, vsm: args.includes("--vsm"), evidenceRole: "diagnostic", accepted: false })); return;
         }
         const html = await readFile(resolve(root, "validation/labs/surface-performance/index.html"), "utf8");
         response.setHeader("Content-Type", "text/html");
@@ -122,7 +122,7 @@ try {
         const distanceScale = cameraDistances.get(coverage);
         const capture = await bounded(page.evaluate(request => globalThis.__eengineShowcase.capture(request), { width, height, frames, warmup,
           coverage, surfaceMode: mode, ...(distanceScale === undefined ? {} : { distanceScale, lockCamera: true }),
-          counters: !args.includes("--no-counters"), view: option("view", "overview"), profile: "full", retainView: true }), 600000, "Calibration/capture");
+          counters: !args.includes("--no-counters"), view: option("view", "overview"), trajectory: option("trajectory", "static"), vsm: args.includes("--vsm"), profile: "full", retainView: true }), 600000, "Calibration/capture");
         if (capture.complete && distanceScale === undefined) cameraDistances.set(coverage, capture.cameraDistanceScale);
         capture.caseId = `surface-performance-${coverage}-${mode}-${batch}`; capture.mode = mode; capture.batch = batch; capture.coverageGroup = coverage;
         capture.errors = errors;

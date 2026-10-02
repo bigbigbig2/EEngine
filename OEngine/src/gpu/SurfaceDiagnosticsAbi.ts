@@ -5,7 +5,7 @@
  * counters are mutable indirect arguments, while these fields are immutable
  * evidence for one sampled frame.
  */
-export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 1;
+export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 2;
 export const SURFACE_DIAGNOSTICS_MAGIC = 0x53564433; // "SVD3"
 export const SURFACE_DIAGNOSTICS_HEADER_WORDS = 16;
 export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 96;
@@ -94,7 +94,13 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   geometryFirstTriangleCount: 68,
   geometryFirstPrimitive: 69,
   geometryFirstDirectoryTriangles: 70,
-  geometryFirstTriangleBase: 71
+  geometryFirstTriangleBase: 71,
+  geometryRecordWriteBytes: 72,
+  packetWriteBytes: 73,
+  reconstructHistoryLoads: 74,
+  reconstructMappedPixels: 75,
+  reconstructReadBytes: 76,
+  reconstructWriteBytes: 77
 } as const);
 
 export const SURFACE_DIAGNOSTICS_COUNTERS = SURFACE_DIAGNOSTIC_COUNTERS;
@@ -232,11 +238,9 @@ function counterValue(values: SurfaceDiagnosticsValues, counter: SurfaceDiagnost
 }
 
 export function reconstructLogicalBytes(values: SurfaceDiagnosticsValues): number | null {
-  const outputPixels = finiteCounter(values.outputPixels);
-  const packetPixels = finiteCounter(values.validPacketPixels);
-  const historyReuse = finiteCounter(values.historyReusePixels);
-  if (outputPixels === null || packetPixels === null || historyReuse === null) return null;
-  return 84 * outputPixels + 64 * packetPixels + 8 * historyReuse;
+  const read = finiteCounter(values.reconstructReadBytes);
+  const write = finiteCounter(values.reconstructWriteBytes);
+  return read === null || write === null ? null : read + write;
 }
 
 function sumEquals(

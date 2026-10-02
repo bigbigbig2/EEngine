@@ -14,6 +14,9 @@ export interface CaptureRequest {
   surfaceMode?: SurfaceDiagnosticsMode;
   /** Diagnostic runner may keep the measured pose for its screenshot. */
   retainView?: boolean;
+  /** Reproducible per-submitted-frame path: static / small orbit / return. */
+  trajectory?: "static" | "orbit-return";
+  vsm?: boolean;
 }
 export interface CaptureHost {
   renderer(): Renderer;
@@ -24,6 +27,8 @@ export interface CaptureHost {
   renderFrames(count: number): Promise<void>;
   restore(retainView?: boolean): void;
   status(message: string): void;
+  beginMeasurement?(frame: number, request: Required<CaptureRequest>): void;
+  endMeasurement?(): void;
 }
 export interface CaptureReport {
   schema: string; evidenceRole: "diagnostic"; accepted: false;
@@ -51,11 +56,12 @@ export class BenchmarkCapture {
     const request: Required<CaptureRequest> = { width: 1280, height: 720, frames: 120, warmup: 60,
       view: "overview", profile: "full", counters: true, coverage: "low",
       distanceScale: input.coverage === "high" ? 0.5 : 1.75, lockCamera: false,
-      surfaceMode: "timing", retainView: false, ...input };
+      surfaceMode: "timing", retainView: false, trajectory: "static", vsm: false, ...input };
     for (const key of ["width", "height", "frames", "warmup"] as const) {
       if (!Number.isSafeInteger(request[key]) || request[key] < (key === "warmup" ? 0 : 1) || request[key] > 8192) throw new Error(`Invalid capture ${key}`);
     }
     if (!["overview", "detail"].includes(request.view) || !["full", "no-ao", "no-fsr3", "no-bloom"].includes(request.profile)) throw new Error("Unknown capture profile/view");
+    if (!["static","orbit-return"].includes(request.trajectory) || (request.trajectory === "orbit-return" && (request.frames<3 || request.frames%3!==0))) throw new Error("Orbit trajectory requires three equal nonempty frame ranges");
     if (!["low", "high", "preset"].includes(request.coverage) || !Number.isFinite(request.distanceScale) || request.distanceScale < 0.02 || request.distanceScale > 8) throw new Error("Invalid coverage/distance");
     const renderer = this.host.renderer();
     if (!renderer.device.features.has("timestamp-query")) throw new Error("This adapter has no timestamp-query; GPU performance capture unavailable");
@@ -115,11 +121,19 @@ export class BenchmarkCapture {
       }
       const calibrated = calibration.at(-1)!;
       if (calibrated.coverage < band[0]! || calibrated.coverage > band[1]!) throw new Error("Unable to reach requested coverage band");
+      if (request.trajectory !== "static") {
+        // Warm the exact trajectory, then settle back at its initial pose.
+        this.host.beginMeasurement?.(renderer.frame_count, request);
+        await this.host.renderFrames(request.frames);
+        this.host.endMeasurement?.();
+        await this.settleWorkload();
+      }
       const conditions = this.host.conditions();
       const workloadStart = this.host.stability();
       renderer.profiler.configure({ gpuCounterSampleInterval: 8 });
       renderer.perf_gpu_counters_enabled = request.counters;
       begin = renderer.frame_count; end = begin + request.frames;
+      this.host.beginMeasurement?.(begin, request);
       this.host.status(`采集 ${request.frames} 帧 · ${request.width}×${request.height}`);
       const captureStartUnixMs = Date.now();
       this.preparation.push({ phase: "measurement", time: captureStartUnixMs, begin, end });
@@ -151,8 +165,8 @@ export class BenchmarkCapture {
         ...(request.surfaceMode === "detailed" && rows.some(frame => frame.surfaceDiagnostics?.coverage.status !== "pass") ? ["Surface detailed coverage is incomplete or failed"] : []),
         ...(request.surfaceMode === "detailed" && rows.some(frame => frame.surfaceDiagnostics?.availability !== "available") ? ["Surface detailed snapshot unavailable or dropped"] : []),
         ...(workloadEnd.signature !== workloadStart.signature || workloadEnd.busy || workloadEnd.failed ? ["Geometry residency changed during fixed capture"] : []),
-        ...(coverageRange && (coverageRange[0]! < band[0]! || coverageRange[1]! > band[1]!) ? ["Measured coverage outside requested band"] : []),
-        ...(coverageCounts && coverageCounts.min !== coverageCounts.max ? ["Visible-pixel workload changed during fixed capture"] : [])
+        ...(request.trajectory === "static" && coverageRange && (coverageRange[0]! < band[0]! || coverageRange[1]! > band[1]!) ? ["Measured coverage outside requested band"] : []),
+        ...(request.trajectory === "static" && coverageCounts && coverageCounts.min !== coverageCounts.max ? ["Visible-pixel workload changed during fixed capture"] : [])
       ];
       this.last = { schema: "eengine-showcase-capture-v1", evidenceRole: "diagnostic", accepted: false,
         startedAt, captureStartUnixMs, captureEndUnixMs: Date.now(), request, conditions, frames: rows, summary,
@@ -167,6 +181,7 @@ export class BenchmarkCapture {
       this.host.status(issues.length ? `采集异常：${issues.join("；")}` : `完成 ${rows.length} 帧 · GPU P50 ${summary.gpuPassSumMs!.p50.toFixed(2)} / P95 ${summary.gpuPassSumMs!.p95.toFixed(2)} ms`);
       return this.last;
     } finally {
+      this.host.endMeasurement?.();
       renderer.configureSurfaceDiagnostics("off", null);
       diagnosticsCapture.destroy();
       unsubscribe(); document.removeEventListener("visibilitychange", onVisibility);

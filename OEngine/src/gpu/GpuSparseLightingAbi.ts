@@ -41,9 +41,10 @@ export const SPARSE_LIGHTING_COUNTER = Object.freeze({
   coatDisabled: 16,
   iblDisabled: 17,
   shadowEvaluations: 18,
+  diffuseWrites: 20, specularWrites: 21, coatWrites: 22, iblWrites: 23,
   environmentDisabled: 19
 } as const);
-export const SPARSE_LIGHTING_COUNTER_WORDS = 20;
+export const SPARSE_LIGHTING_COUNTER_WORDS = 24;
 export const SPARSE_LIGHTING_COUNTER_BYTES = SPARSE_LIGHTING_COUNTER_WORDS * 4;
 
 /** Initial explicit calibration policy; final continuous-image acceptance

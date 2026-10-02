@@ -116,17 +116,20 @@ export function surfaceWorkLayout(width: number, height: number, budget: Surface
     throw new RangeError("SurfaceWork tile capacity exceeds the negotiated profile");
   }
   const tileOffset = SURFACE_WORK_HEADER_STRIDE;
-  const sampleOffset = align(tileOffset + budget.maxTiles * SURFACE_TILE_DESCRIPTOR_STRIDE, 256);
-  const exceptionOffset = align(sampleOffset + budget.maxSamples * SURFACE_SAMPLE_RECORD_STRIDE, 256);
-  const counterOffset = align(exceptionOffset + budget.maxExceptions * SURFACE_EXCEPTION_RECORD_STRIDE, 256);
+  const sampleCapacity = Math.min(width * height, budget.maxSamples, budget.maxGeometryRecords);
+  const exceptionCapacity = Math.min(tiles * 2, budget.maxExceptions);
+  const sampleOffset = align(tileOffset + tiles * SURFACE_TILE_DESCRIPTOR_STRIDE, 256);
+  const exceptionOffset = align(sampleOffset + sampleCapacity * SURFACE_SAMPLE_RECORD_STRIDE, 256);
+  const counterOffset = align(exceptionOffset + exceptionCapacity * SURFACE_EXCEPTION_RECORD_STRIDE, 256);
   const geometryOffset = align(counterOffset + SURFACE_COUNTER_BLOCK_STRIDE, 256);
-  const byteLength = geometryOffset + budget.maxGeometryRecords * SURFACE_GEOMETRY_RECORD_STRIDE;
-  if (byteLength > budget.maxBytes || byteLength > Number(limits.maxBufferSize) ||
-      byteLength > Number(limits.maxStorageBufferBindingSize)) {
+  const geometryBytes = width * height * SURFACE_GEOMETRY_RECORD_STRIDE;
+  const byteLength = geometryOffset + geometryBytes;
+  if (byteLength > budget.maxBytes || Math.max(geometryOffset, geometryBytes) > Number(limits.maxBufferSize) ||
+      Math.max(geometryOffset, geometryBytes) > Number(limits.maxStorageBufferBindingSize)) {
     throw new RangeError("SurfaceWork allocation exceeds the negotiated storage budget");
   }
-  return Object.freeze({ tileCapacity: budget.maxTiles, sampleCapacity: budget.maxSamples,
-    exceptionCapacity: budget.maxExceptions, geometryCapacity: budget.maxGeometryRecords,
+  return Object.freeze({ tileCapacity: tiles, sampleCapacity,
+    exceptionCapacity, geometryCapacity: width * height,
     tileOffset, sampleOffset, exceptionOffset, counterOffset, geometryOffset, byteLength });
 }
 
