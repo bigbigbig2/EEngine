@@ -1,6 +1,6 @@
 # Surface V3 第一版优化设计：连续表面共享、稳定字段缓存与有界稀疏信号
 
-日期：2026-10-03。源码与测量基线：`0676cf28`。状态：**已进入分 Phase 执行，Phase 0 固定输入和容量；目标生产算法尚未完成，不代表性能已通过**。
+日期：2026-10-03。源码与测量基线：`0676cf28`。状态：**Phase 0 固定输入/容量，Phase 1 连续域与局部摘要发布已完成；Phase 2–7 未完成，不代表整链画质性能已通过**。
 
 配套：[执行文档](../next-execution/surface-work-v3-optimization-v1-execution-2026-10.md)、[已有性能报告](../performance/2026-10-03-surface-v3-work-bandwidth-report.md)、[第三版总设计](eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)、[整体架构](eengine-next-overall-architecture-final-2026.md)、[来源账本](../porting/next-renderer.md)。
 

@@ -25,6 +25,35 @@ async function loadArtifact() {
   });
 }
 
+test("actual WASM Product publishes continuity-v2 with independent UV domains and valid two-sided geometry",async()=>{
+  const {decodeGroupHeaderV3,decodeMeshletHeaderV3}=await import("../../.test-dist/assets/GeometryAbiV3.js");
+  const {decodeSurfacePrimitive}=await import("../../.test-dist/gpu/SurfacePrimitiveAbi.js");
+  const xy=[[0,0],[1,0],[0,1],[1,0],[1,1],[0,1]],values=[];
+  for(let i=0;i<xy.length;i++){const p=xy[i];values.push(p[0],p[1],0,0,0,1,1,0,0,1,p[0]+(i>=3?2:0),p[1],p[0],p[1],1,1,1,1);}
+  const canonical=encodeWebCanonicalGeometryV1([{materialId:7,meshletFlags:9,attributeMask:63,generateNormals:false,
+    vertices:new Float32Array(values),indices:new Uint32Array([0,1,2,3,4,5])}]);
+  const module=await loadArtifact(),result=cookWebGeometryWasmV1(module,canonical,encodeWebGeometryCookRecipeV1(),8*262144);
+  try{
+    const section=result.descriptorSections().groupDirectory,view=new DataView(section.buffer,section.byteOffset,section.byteLength),records=[];
+    for(let g=0;g<section.byteLength/16;g++){
+      assert.equal(view.getUint32(g*16+12,true)&0xc0,0xc0);
+      const page=result.copyPage(view.getUint32(g*16,true)),offset=view.getUint32(g*16+4,true),length=view.getUint32(g*16+8,true);
+      const group=new DataView(page,offset,length),header=decodeGroupHeaderV3(group);
+      for(let m=0;m<header.meshletCount;m++){
+        const meshlet=decodeMeshletHeaderV3(group,header.meshletHeaderOffset+m*48);
+        const metadata=Math.ceil((meshlet.triangleByteOffset+meshlet.triangleCount*3)/4)*4;
+        assert.ok(metadata+meshlet.triangleCount*64<=header.vertexDataOffset);
+        for(let primitive=0;primitive<meshlet.triangleCount;primitive++)records.push(decodeSurfacePrimitive(new Uint8Array(page,offset,length),metadata+primitive*64));
+      }
+    }
+    assert.equal(records.length,2);
+    assert.equal(new Set(records.map(r=>r.domain)).size,1);
+    assert.equal(new Set(records.map(r=>r.uv0Domain)).size,2);
+    assert.equal(new Set(records.map(r=>r.uv1Domain)).size,1);
+    assert.ok(records.every(r=>r.domain!==0&&r.risk===0));
+  }finally{result.release();}
+});
+
 function triangleCanonical(materialId = 0, xOffset = 0) {
   const vertices = Float32Array.from([
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

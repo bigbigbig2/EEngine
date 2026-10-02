@@ -16,9 +16,11 @@ import {
   textureFormatBlockLayout
 } from "./codec/TextureFormatLayout.js";
 import { requiredTextureCompressionFeature } from "./codec/TextureCodecPolicy.js";
+import { buildTextureLocalVariation, encodeTextureLocalVariation, decodeTextureLocalVariation,
+  type TextureLocalVariation } from "../texture/TextureLocalVariation.js";
 
 export const TEXTURE_ASSET_SCHEMA_VERSION = 2;
-export const TEXTURE_COOKER_VERSION = "oengine-texture-package-writer-v2.2.0";
+export const TEXTURE_COOKER_VERSION = "oengine-texture-package-writer-v2.3.0-local-variation";
 
 export type TextureSemanticV2 =
   | "base-color-srgb"
@@ -74,6 +76,7 @@ export interface TextureVariantMetadataV2 {
   readonly codecRevision: string;
   readonly codecBinaryHash: string;
   readonly mips: readonly TextureMipV2[];
+  readonly localVariationChunkId?: string;
 }
 
 export interface EncodedTextureMipV2 {
@@ -119,6 +122,7 @@ export interface TextureAssetLoadEvidenceV2 {
 
 export interface SelectedTextureVariantV2 extends TextureVariantMetadataV2 {
   readonly payloads: readonly Uint8Array[];
+  readonly localVariation?: TextureLocalVariation;
 }
 
 export interface TextureUploadEvidenceV2 {
@@ -162,7 +166,12 @@ export async function writeEncodedTextureAssetPackageV2(
 ): Promise<ArrayBuffer> {
   validatePackageSource(source);
   if (encodedVariants.length === 0) throw new RangeError("Texture package requires at least one encoded variant");
-  const variants = encodedVariants.map((encoded, index) => validateEncodedVariant(source, encoded, index));
+  const validated = encodedVariants.map((encoded, index) => validateEncodedVariant(source, encoded, index));
+  const offline = encodedVariants.map(encoded => offlineTextureVariation(encoded));
+  const variants = encodedVariants.map((encoded, index) => {
+    const variant = validated[index]!;
+    return offline[index] === undefined ? variant : Object.freeze({ ...variant, localVariationChunkId: `${variant.id}-local-variation-v1` });
+  });
   if (new Set(variants.map((variant) => variant.id)).size !== variants.length) {
     throw new RangeError("Texture encoded variant ids must be unique");
   }
@@ -191,6 +200,12 @@ export async function writeEncodedTextureAssetPackageV2(
         expectedResidentBytes: payload.byteLength,
         data: payload
       });
+    }
+    const tree = offline[variantIndex];
+    if (tree !== undefined) {
+      const data = encodeTextureLocalVariation(tree);
+      chunks.push({ id: variant.localVariationChunkId!, sectionType: sectionType++, semantic: "texture-local-variation-v1",
+        compression: "none", decodedBytes: data.byteLength, expectedResidentBytes: 0, data });
     }
   }
   const textureMetadata = new TextEncoder().encode(canonicalJson({
@@ -243,7 +258,8 @@ export async function writeEncodedTextureAssetPackageV2(
           { name: "maxTextureArrayLayers", min: 1 },
           { name: "maxTextureDimension2D", min: Math.max(source.width, source.height) }
         ],
-        chunkIds: [TEXTURE_METADATA_CHUNK_ID, ...variant.mips.map((mip) => mip.chunkId)]
+        chunkIds: [TEXTURE_METADATA_CHUNK_ID, ...variant.mips.map((mip) => mip.chunkId),
+          ...(variant.localVariationChunkId === undefined ? [] : [variant.localVariationChunkId])]
       }))
     },
     chunks
@@ -308,8 +324,15 @@ export function selectTextureAssetVariantV2(
   );
   const variant = asset.variants.find((candidate) => candidate.id === selected.id);
   if (variant === undefined) throw new Error(`Texture variant '${selected.id}' has no typed metadata`);
+  const localVariation = variant.localVariationChunkId === undefined ? undefined
+    : decodeTextureLocalVariation(asset.runtime.chunks.get(variant.localVariationChunkId)!);
+  if (localVariation !== undefined && (localVariation.mips.length !== variant.mips.length ||
+    localVariation.mips.some((mip, level) => mip.width !== variant.mips[level]!.logicalWidth || mip.height !== variant.mips[level]!.logicalHeight))) {
+    throw new Error("Texture variation dimensions do not match the selected encoded variant");
+  }
   return Object.freeze({
     ...variant,
+    ...(localVariation === undefined ? {} : { localVariation }),
     payloads: Object.freeze(variant.mips.map((mip) => {
       const bytes = asset.runtime.chunks.get(mip.chunkId);
       if (bytes === undefined) throw new Error(`Texture mip chunk '${mip.chunkId}' is missing`);
@@ -606,7 +629,20 @@ function validateTextureMetadata(raw: unknown, manifest: RuntimeAssetManifestV2)
     });
     const expectedLevels = Math.floor(Math.log2(Math.max(raw.width, raw.height))) + 1;
     if (mips.length !== expectedLevels) throw new Error(`Texture variant '${String(variant.id)}' mip chain is incomplete`);
-    const expectedChunkIds = [TEXTURE_METADATA_CHUNK_ID, ...mips.map(({ chunkId }) => chunkId)].sort();
+    let localVariationChunkId: string | undefined;
+    if (variant.localVariationChunkId !== undefined) {
+      if (typeof variant.localVariationChunkId !== "string" || variant.localVariationChunkId !== `${String(variant.id)}-local-variation-v1`) {
+        throw new Error("Invalid texture variation chunk identity");
+      }
+      localVariationChunkId = variant.localVariationChunkId;
+      const chunk = manifest.chunks.find(candidate => candidate.id === localVariationChunkId);
+      if (chunk === undefined || chunk.semantic !== "texture-local-variation-v1" || chunk.compressedBytes > 32 * 1024 * 1024 ||
+        chunk.compressedBytes !== chunk.decodedBytes || chunk.expectedResidentBytes !== 0) {
+        throw new Error("Invalid texture variation chunk contract");
+      }
+    }
+    const expectedChunkIds = [TEXTURE_METADATA_CHUNK_ID, ...mips.map(({ chunkId }) => chunkId),
+      ...(localVariationChunkId === undefined ? [] : [localVariationChunkId])].sort();
     if (!sameStrings(manifestVariant.chunkIds, expectedChunkIds)) {
       throw new Error(`Texture variant '${String(variant.id)}' chunk table is invalid`);
     }
@@ -618,7 +654,8 @@ function validateTextureMetadata(raw: unknown, manifest: RuntimeAssetManifestV2)
       codecId: variant.codecId,
       codecRevision: variant.codecRevision,
       codecBinaryHash: variant.codecBinaryHash.toLowerCase(),
-      mips: Object.freeze(mips)
+      mips: Object.freeze(mips),
+      ...(localVariationChunkId === undefined ? {} : { localVariationChunkId })
     });
   });
   if (variants.length !== manifestVariants.size || new Set(variants.map(({ id }) => id)).size !== variants.length) {
@@ -636,6 +673,33 @@ function validateTextureMetadata(raw: unknown, manifest: RuntimeAssetManifestV2)
     throw new Error("Texture metadata contains unknown or non-canonical fields");
   }
   return normalized;
+}
+
+/** Cook exact RGBA8 variants. Compressed variants without a verified decoder
+ * use residency's actual GPU decoded builder rather than borrowing source bounds. */
+function offlineTextureVariation(encoded: EncodedTextureVariantV2): TextureLocalVariation | undefined {
+  if (encoded.format !== "rgba8unorm" && encoded.format !== "rgba8unorm-srgb") return undefined;
+  const srgb = encoded.format === "rgba8unorm-srgb";
+  const inputs = encoded.mips.map(mip => {
+    if (mip.payload.length !== mip.logicalWidth * mip.logicalHeight * 4) throw new RangeError("RGBA8 variation source size mismatch");
+    const rgba = new Float32Array(mip.payload.length);
+    for (let i = 0; i < rgba.length; i++) { const value = mip.payload[i]! / 255;
+      rgba[i] = srgb && i % 4 < 3 ? value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4 : value; }
+    return { width: mip.logicalWidth, height: mip.logicalHeight, rgba };
+  });
+  for (let block = 4; block <= 64; block *= 2) {
+    let tree: TextureLocalVariation;
+    try { tree = buildTextureLocalVariation(inputs, block, 31 * 1024 * 1024); }
+    catch (error) { if (error instanceof RangeError && error.message.includes("budget")) continue; throw error; }
+    // Hardware sRGB decoding precision is implementation-dependent. Keep a
+    // conservative 8-bit quantum envelope, never certify ideal-pow exactness.
+    if (srgb) for (const mip of tree.mips) for (const level of mip.levels) for (let i = 0; i < level.bounds.length; i += 8) {
+      for (let c = 0; c < 3; c++) { level.bounds[i + c] = Math.max(0, level.bounds[i + c]! - 1 / 255);
+        level.bounds[i + 4 + c] = Math.min(1, level.bounds[i + 4 + c]! + 1 / 255); }
+    }
+    return tree;
+  }
+  return undefined;
 }
 
 function padRows(source: Uint8Array, tight: number, padded: number, rows: number): Uint8Array { const output = new Uint8Array(padded * rows); for (let row = 0; row < rows; row++) output.set(source.subarray(row * tight, (row + 1) * tight), row * padded); return output; }

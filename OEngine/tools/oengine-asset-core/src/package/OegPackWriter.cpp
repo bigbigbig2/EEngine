@@ -461,7 +461,7 @@ void ValidateOegPackV3File(const std::string& path, bool verifyPages) {
             const GeometryGroupDirectoryV3& directory = groups[groupId];
             if (directory.pageId != pageId) continue;
             ++groupsOnPage;
-            constexpr std::uint32_t kKnownGroupFlags = kGroupBootstrap | kGroupOpaque | kGroupMask | kGroupBlend | kGroupTwoSided | kGroupSimplificationFallback | kGroupSurfaceMetadata;
+            constexpr std::uint32_t kKnownGroupFlags = kGroupBootstrap | kGroupOpaque | kGroupMask | kGroupBlend | kGroupTwoSided | kGroupSimplificationFallback | kGroupSurfaceMetadata | kGroupSurfaceContinuityV2;
             if ((directory.flags & ~kKnownGroupFlags) != 0u) throw std::runtime_error("group flags are invalid");
             minimumGroup = std::min(minimumGroup, groupId);
             pageContainsBootstrap = pageContainsBootstrap || (directory.flags & kGroupBootstrap) != 0u;

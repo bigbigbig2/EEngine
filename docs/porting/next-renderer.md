@@ -2,6 +2,18 @@
 
 ## 2026-10-03：Surface V3 第一版优化设计映射（待实施）
 
+### Phase 1 实施与来源边界
+
+实际代码与检查范围见[Phase 1 发布记录](../next-execution/surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。连续域与角点lineage为具名本地Continuity-Domain Signal Sampling的publication部分；六种域、独立risk、LOD-local继承、位置/属性误差及上取整tangent角锥不是OSS或DOOM已交付的完整算法。
+
+既有meshoptimizer donor固定`9e1f07b159d3cb777f1c67ed31fc11fd117986f4` / MIT，使用已归档`indexgenerator.cpp`的完整记录remap与`simplifier.cpp`的attribute/update路径；不改vendor算法，hash仍严格核对。source lineage随实际weld/split/update/compact保留到`GeometryCooker.cpp::BuildMeshlets/SimplifyGroup/SerializeGroup`；source角点未能精确字节回查不再导致整个几何域清零。普通资产对应`SurfaceContinuity.ts` → `GeometrySurfacePublication.ts` → GpuAssetStore的真实metadata upload，Product对应同一64 B metadata → group/page publication。Native和两个WASM版本同步profile/flags。
+
+局部纹理min/max hierarchy、wrap/footprint、normal cone与binary codec为本地方案，复用既有TextureResidency/TextureAssetPackage ownership；不是Intel CPS或OSS filtering的完整port。Cooker对实际RGBA8 variant产生离线摘要；压缩格式未引入不完整CPU decoder，使用`TextureVariationResidency`完整GPU逐mip/level reduction，消费真实resident格式解码值。保留generation/revision、resident mip准入、有限32 MiB池、准入失败局部unknown、单producer、abort/retire和无额外production submit。
+
+重新取得并核读固定OSS`473a59bbcdd30e3366cc567d66a5a97353620d48` / Apache-2.0的`Resources/VirtualRenderTexture.cginc`、`ShadelAllocator.cginc`与`RenderTaskProcessing.compute`：沿用occupancy/address/filter与task发布阶段边界的参考，不声称本地已采用其Htex/RT/GI或完整allocator。GPU物理sRGB转换以实际textureLoad输入为oracle，不能把理想CPU pow当硬件精确值。
+
+生产GPU纹理摘要组件的五个真实case已通过，仍不提升Surface整体adoption/性能claim。新classifier、FieldStore、SignalStore、reconstruct尚待后续Phase；局部组件GPU证据不冒称整帧链路已通过。
+
 执行更新：用户已要求逐 Phase 完整实现、检查、每阶段一次提交。Phase 0 已完成身份冻结、资源删除/依赖清单和独立容量政策检查，详见[Phase 0 清单](../next-execution/surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)；尚未实施/验证下表复杂算法，采用状态不变。以下“本次只形成设计”指此前设计编写阶段。
 
 对应[第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)与[执行文档](../next-execution/surface-work-v3-optimization-v1-execution-2026-10.md)。本次只形成设计，不修改生产源码、不运行测试、不提升任何 adoption 或性能 claim。下文历史主链名称和验证记录不能当作本方案已接入。

@@ -9,6 +9,7 @@ import {
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { decodedTextureVariation, type TextureSurfacePublication, type TextureVariation } from "./TextureVariation.js";
+import { TextureVariationResidency } from "./TextureVariationResidency.js";
 import { TextureFilterType } from "../texture/TextureFilterType.js";
 import type { CachedRenderPipelineDescriptor } from "./GPUDescriptorCaches.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
@@ -45,6 +46,7 @@ export const TEXTURE_RESIDENCY_BUDGET_BYTES = 2 * 1024 * 1024 * 1024;
 export interface TextureResidencyBindings {
   readonly textureCapacity: number;
   readonly surfaceResidencyVersions: GPUBuffer;
+  readonly localVariation: GPUBuffer;
   readonly bindingSets: readonly TextureBindingSet[];
 }
 
@@ -150,6 +152,7 @@ export interface TextureResidencyLedgerEntry {
 
 export interface TextureResidencyEvidence {
   readonly schemaVersion: 6;
+  readonly localVariation: ReturnType<TextureVariationResidency["stats"]>;
   readonly textureCapacity: number;
   readonly residentTextureCount: number;
   readonly retiringTextureCount: number;
@@ -250,6 +253,7 @@ interface ResidentTexture {
   availableMip: number;
   surfaceRevision: number;
   readonly variation: TextureVariation;
+  readonly offlineVariation?: SelectedTextureVariantV2["localVariation"];
   refCount: number;
   retireGeneration: number;
 }
@@ -346,6 +350,7 @@ export class TextureResidency {
   private readonly freeDescriptorSlots: number[] = [];
   private readonly surfaceResidencyVersions: GPUBuffer;
   private readonly surfaceResidencyAccounting: AccountingResourceHandle | null;
+  private readonly localVariation: TextureVariationResidency;
   private nextSurfaceRevision = 1;
   private readonly descriptorGenerations: number[] = [0];
   private resizePipeline: GPURenderPipeline | null = null;
@@ -436,6 +441,7 @@ export class TextureResidency {
       kind: "buffer", category: "resident", owner: "TextureResidency/surface versions",
       bytes: residencyBytes, label: "TextureResidency/surface versions"
     }) ?? null;
+    this.localVariation = new TextureVariationResidency(graphics.device, this.logicalCapacity(), graphics.resource_accounting);
     this.allocateInitialBase(base);
     for (let slot = this.logicalCapacity(); slot >= 1; slot--) {
       this.freeDescriptorSlots.push(slot);
@@ -527,6 +533,7 @@ export class TextureResidency {
           { mipLevelRange: initialMipRange(assignment.asset, assignment.variant.mips.length) }
         ));
       }
+      for (const entry of newTextures) this.stageLocalVariation(command, entry);
       command.onFinished.addOne(() => {
         if (settled) return;
         settled = true;
@@ -552,7 +559,8 @@ export class TextureResidency {
         materialTextureRoutingRefs: this.materialTextureRoutingRefs(materials),
         textureMipRanges: this.textureMipRanges(materials),
         surfacePublications: new Map([...this.textures.values()].filter(entry => entry.refCount > 0).map(entry =>
-          [entry.source, Object.freeze({ slot: entry.slot, revision: entry.surfaceRevision, variation: entry.variation })]))
+          [entry.source, Object.freeze({ slot: entry.slot, generation: entry.generation,
+            localVariationSlot: entry.slot, revision: entry.surfaceRevision, variation: entry.variation })]))
       });
     } catch (error) {
       rollback();
@@ -610,6 +618,7 @@ export class TextureResidency {
       const revision = this.allocateSurfaceRevision();
       const bytes = new Uint32Array([revision]);
       command.writeBuffer(this.surfaceResidencyVersions, upload.entry.slot * 4, bytes.buffer, 0, 4);
+      this.stageLocalVariation(command, upload.entry, upload.nextMip, revision);
       return revision;
     });
     let settled = false;
@@ -688,6 +697,7 @@ export class TextureResidency {
     return Object.freeze({
       textureCapacity: this.logicalCapacity(),
       surfaceResidencyVersions: this.surfaceResidencyVersions,
+      localVariation: this.localVariation.buffer,
       bindingSets: Object.freeze(active.map((set): TextureBindingSet => {
         const views = [
           ...this.banks.map((bank) => bank.view ?? fallback),
@@ -844,6 +854,7 @@ export class TextureResidency {
     );
     return Object.freeze({
       schemaVersion: 6,
+      localVariation: this.localVariation.stats(),
       textureCapacity: this.logicalCapacity(),
       residentTextureCount,
       retiringTextureCount,
@@ -920,6 +931,7 @@ export class TextureResidency {
     this.materials.clear();
     this.descriptors.clear();
     this.surfaceResidencyVersions.destroy();
+    this.localVariation.destroy();
     if (this.surfaceResidencyAccounting !== null) {
       this.graphics.resource_accounting?.destroyed(this.surfaceResidencyAccounting);
     }
@@ -1506,6 +1518,7 @@ export class TextureResidency {
           : initialMipRange(packageAssignment.asset, packageAssignment.variant.mips.length)[0],
         surfaceRevision: this.allocateSurfaceRevision(),
         variation: decodedTextureVariation(texture, packageAssignment?.variant),
+        ...(packageAssignment?.variant.localVariation === undefined ? {} : { offlineVariation: packageAssignment.variant.localVariation }),
         refCount: 0,
         retireGeneration: 0
       };
@@ -1539,6 +1552,7 @@ export class TextureResidency {
         if (this.destroyed || entry.refCount !== 0 || entry.retireGeneration !== generation) return;
         if (this.textures.get(entry.source) !== entry) return;
         this.textures.delete(entry.source);
+        this.localVariation.retire(entry.slot, entry.generation);
         this.descriptors.delete(entry.slot);
         this.descriptorGenerations[entry.slot] = nextTextureHandleGeneration(entry.generation);
         this.freeDescriptorSlots.push(entry.slot);
@@ -1621,8 +1635,20 @@ export class TextureResidency {
     this.resizeDispatchCount++;
   }
 
+  private stageLocalVariation(command: ShadeGPUCommandContext, entry: ResidentTexture,
+    availableMip = entry.availableMip, revision = entry.surfaceRevision): void {
+    const texture = entry.cooked
+      ? requirePackageSegmentTexture(this.packageSegments[entry.segment]!)
+      : requireBankTexture(this.banks[entry.bankClass]!);
+    // Summarize the dimensions actually sampled by the shader, including bank
+    // resampling/padding; a source-image summary is not interchangeable here.
+    this.localVariation.stage(command, { slot: entry.slot, generation: entry.generation,
+      revision, texture, layer: entry.layer, width: texture.width, height: texture.height,
+      mipCount: entry.mipLevelCount, availableMip, decodeSrgb: entry.rawColorDecode === "srgb-rgb" }, entry.offlineVariation);
+  }
+
   private allocatedBytes(): number {
-    return this.surfaceResidencyVersions.size + this.banks.reduce(
+    return this.surfaceResidencyVersions.size + this.localVariation.bytes + this.banks.reduce(
       (sum, bank) => sum + arrayBytes(bank.physicalSize, bank.capacity),
       0
     ) + this.packageSegments.reduce(

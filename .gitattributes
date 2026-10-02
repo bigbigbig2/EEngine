@@ -10,7 +10,9 @@
 
 # Generated Emscripten bundles are stored exactly as the toolchain emits them and
 # are byte-compared by the cooker artefact tests; never normalise them.
-OEngine/src/assets/web-cook/wasm/vendor/** -text
+# Emscripten may emit end-of-line spaces; preserve exact build bytes rather than
+# rewriting generated modules to satisfy source whitespace checks.
+OEngine/src/assets/web-cook/wasm/vendor/** -text whitespace=-blank-at-eol
 
 # Binary assets and build outputs must never be normalised.
 *.png binary

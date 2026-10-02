@@ -15,6 +15,8 @@ import {
 } from "../assets/GeometryAssetPackage.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import { prepareGeometryResidentAttributes } from "./GeometryResidentAttributes.js";
+import { prepareGeometrySurfacePublication } from "./GeometrySurfacePublication.js";
+import { SURFACE_PRIMITIVE_BYTES, SURFACE_PRIMITIVE_VERSION } from "./SurfacePrimitiveAbi.js";
 import { GPU_FRAME_ATTRIBUTE_STRIDE } from "./GpuFrameGeometryAttributesAbi.js";
 import {
   RuntimeAssetResidencyState,
@@ -754,6 +756,9 @@ export class GpuAssetStore {
       const offset = surfaceCursor; surfaceCursor += meshlet.triangleCount; return offset;
     });
     const surfaceMappingByteOffset=residentAttributeByteOffset+residentAttributes.byteLength;
+    const surfaceMetadata = prepareGeometrySurfacePublication(asset, residentAttributes);
+    const surfaceMetadataByteOffset = checkedAdd(surfaceMappingByteOffset, asset.surfacePrimitiveIds.byteLength,
+      "Surface continuity publication offset");
     const indexBegin = countOf(b.indices);
     const meshletVertexBegin = countOf(b.meshletVertexIndices);
     const meshletTriangleBegin = b.meshletTriangleIndices.cursorBytes;
@@ -821,6 +826,8 @@ export class GpuAssetStore {
       materialId: meshlet.materialId,
       flags: meshlet.flags,
       surfacePrimitiveWordOffset: surfaceMappingByteOffset/4+surfaceMeshletOffsets[meshletIndex]!,
+      surfaceMetadataWordOffset: surfaceMetadataByteOffset/4 + surfaceMeshletOffsets[meshletIndex]! * (SURFACE_PRIMITIVE_BYTES / 4),
+      surfaceMetadataVersion: SURFACE_PRIMITIVE_VERSION,
       boundsMin: meshlet.boundsBox.subarray(0, 3),
       boundsMax: meshlet.boundsBox.subarray(3, 6),
       boundsSphere: [
@@ -1007,6 +1014,7 @@ export class GpuAssetStore {
       GEOMETRY_SECTION_TYPES.VertexStreamData);
     append(b.vertexStreamData,residentAttributes,residentAttributeByteOffset,null);
     append(b.vertexStreamData,bytesOf(asset.surfacePrimitiveIds),surfaceMappingByteOffset,null);
+    append(b.vertexStreamData, surfaceMetadata, surfaceMetadataByteOffset, null);
     append(b.indices, bytesOf(asset.indices), undefined, GEOMETRY_SECTION_TYPES.IndexData);
     append(b.meshletVertexIndices, bytesOf(asset.meshletVertexIndices), undefined,
       GEOMETRY_SECTION_TYPES.MeshletVertexIndices);

@@ -1,6 +1,6 @@
 # Surface V3 第一版优化执行文档
 
-日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0 完成，Phase 1–7 尚未完成**。阶段证据见[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)。
+日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–7 尚未完成**。阶段证据见[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
 
 唯一配套细化设计：[Surface V3 第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)。保留[第三版总设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)的 owner 边界，按用户最新要求替换初版物理实现。历史执行记录见[原 V3 计划](surface-work-runtime-v3-rebuild-2026.md)；历史测量见[1080p 报告](../performance/2026-10-03-surface-v3-work-bandwidth-report.md)。
 

@@ -8,7 +8,10 @@ export interface TextureVariation {
 }
 export interface TextureSurfacePublication {
   readonly slot: number;
+  readonly generation: number;
   readonly revision: number;
+  /** Descriptor is validated on GPU; CPU residency does not decide shading work. */
+  readonly localVariationSlot: number;
   readonly variation: TextureVariation;
 }
 const UNKNOWN: TextureVariation = Object.freeze({ known: false,

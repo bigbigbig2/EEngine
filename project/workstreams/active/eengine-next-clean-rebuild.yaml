@@ -19,7 +19,10 @@ currentSlice:
     第一版优化按用户最新指令逐 Phase 完整实现、检查、每阶段一次中文提交后继续。
     Phase 0 已固定 0676cf28478bc2f4b96af7138f45ef33f1216a3f 与 Dungeon SHA256，建立生产删除/依赖清单、
     capacity policy 和 412 MiB / 512 MiB 预算；5 项定向 capacity tests 通过。
-    Phase 1–7 尚未完成，capacity policy 尚未接入生产 renderer，不宣称跨 primitive/稳定缓存/性能收益已实现。
+    Phase 1 已完成六域 continuity-v2、源/LOD逐字段lineage、普通Geometry真实metadata upload、Native与两种WASM v6发布，
+    offline RGBA8摘要和实际GPU decoded mip/footprint摘要；所有表/节点在32 MiB pool中，接现有TextureResidency encoder。
+    typecheck/build、Native/core ABI oracle、两个WASM编译、33项定向checks和5个生产纹理摘要GPU cases通过；
+    组件结果不证明整帧画质性能。Phase 2–7 尚未完成，capacity policy尚未接入新work链，旧winner equality仍待Phase 2切断。
     以下为 0676cf28 历史基线能力和诊断记录，不是本轮新算法完成证据。
     用户 2026-10-03 明确请求的 Showcase 修复已接入：diffuse irradiance 消费补 1/pi、示例曝光 8→4；
     Surface 队列有序单份 extent 资源、精确 pixel/input witness、逐字段版本 lookup、masked miss evaluation、

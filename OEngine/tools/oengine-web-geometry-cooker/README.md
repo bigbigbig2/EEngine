@@ -1,14 +1,16 @@
 # OEngine Web Geometry Cooker
 
-Current artifacts (2026-09-30): both specializations rebuilt from the shared
-GeometryCooker for Surface phase one. Canonical/recipe input ABI is version 3;
-the recipe profile is static-pbr-page-local-f32-surface-v5 with the existing
-nyx-hierarchy-v4.0-attribute-update algorithm. Groups carry flag bit 6 and
-32-byte primitive continuity/variation records between triangle and vertex
-regions. Group partitioning respects the complete 256 KiB payload and 128
-meshlet limits. Old recipe products require recooking; there is no second
-production geometry decoder. Updated LOD corners with no unambiguous source
-mapping reject sharing. This rebuild does not establish VG visual acceptance.
+Current artifacts (2026-10-03): both specializations rebuilt for Surface V3
+optimization Phase 1. Canonical/recipe input ABI remains version 3; recipe profile
+is static-pbr-page-local-f32-continuity-v6. Groups carry bits 6 and 7 and 64-byte
+primitive metadata: geometry/UV0/UV1/normal/tangent/color domains, independent
+identity/field risks, variation and LOD error bounds. LOD lineage is transferred
+through weld/split/update/remap rather than exact source-corner byte lookup.
+Unknown correspondence becomes local to the affected field; two-sided does not
+clear geometry domains. Full 256 KiB payload capacity still includes metadata.
+Old metadata-v1 products require recooking. This is publication completion, not
+Surface classifier/quality/performance acceptance; pthread browser initialization
+remains a separate unvalidated experimental capability.
 
 The pinned meshoptimizer revision remains unchanged. The 22 hash entries in
 source.json and verify.cmake were corrected after byte-for-byte comparison
@@ -41,8 +43,8 @@ canonical-window builder, and the Phase D optional spill-release hook
 (`abi_version == 3`):
 
 ```text
-oengine-web-geometry-cooker.mjs   SHA-256 1e6c227c9d10439f0e4b9c75de7a0c84ef74ff47820b8dc4c857de73fb1d1efb
-oengine-web-geometry-cooker.wasm  SHA-256 7040e0b04d149a3cb1428958643f6e1e451b1293cfae54791d20bb6dbdda8297
+oengine-web-geometry-cooker.mjs   SHA-256 cb18635b24d4c4dba7793844150be21b661b6091a2564bfe1e4ac4d4fe536ae8
+oengine-web-geometry-cooker.wasm  SHA-256 66bb946b4a65fca56c678069d254a1b2c2085bbefdaeea50f9e3f19b34bd90ac
 ```
 
 The cooker emits one Product asset per canonical material domain, so a

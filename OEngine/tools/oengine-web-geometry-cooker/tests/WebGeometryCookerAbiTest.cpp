@@ -2,6 +2,7 @@
 
 #include "oengine_asset/GeometryAbi.h"
 #include "oengine_asset/GeometryCooker.h"
+#include "oengine_asset/SurfaceMetadata.h"
 #include "oengine_asset/OegPackCodec.h"
 #include <cfloat>
 #include <set>
@@ -460,17 +461,19 @@ void AssertSurfaceMetadataAndPageCapacity() {
     for (const auto& group : cooked.groups) {
         assert(group.bytes.size() <= kGeometryPageBytesV3);
         assert((group.flags & kGroupSurfaceMetadata) != 0u);
+        assert((group.flags & kGroupSurfaceContinuityV2) != 0u);
         GroupHeaderV3 header{}; DecodeRecordV3(group.bytes.data(), &header);
         assert(header.meshletCount <= 128u);
         for (std::uint32_t meshletIndex = 0; meshletIndex < header.meshletCount; ++meshletIndex) {
             MeshletHeaderV3 meshlet{};
             DecodeRecordV3(group.bytes.data() + header.meshletHeaderOffset + meshletIndex * 48u, &meshlet);
             const auto metadata = AlignUp(meshlet.triangleByteOffset + meshlet.triangleCount * 3u, 4u);
-            assert(metadata + meshlet.triangleCount * 32u <= header.vertexDataOffset);
+            assert(metadata + meshlet.triangleCount * 64u <= header.vertexDataOffset);
             for (std::uint32_t primitive = 0u; primitive < meshlet.triangleCount; ++primitive) {
-                const auto at = metadata + primitive * 32u;
+                const auto at = metadata + primitive * 64u;
                 const auto currentDomain = U32(group.bytes, at);
-                assert(currentDomain != 0u && U32(group.bytes, at + 4u) == 0u);
+                assert(currentDomain != 0u && U32(group.bytes, at + 24u) == 0u);
+                for (std::uint32_t field = 1u; field < 6u; ++field) assert(U32(group.bytes, at + field * 4u) != 0u);
                 if (sharingDomain != 0u) assert(currentDomain == sharingDomain);
                 sharingDomain = currentDomain; ++primitiveCount;
             }
@@ -499,7 +502,40 @@ void AssertSurfaceMetadataAndPageCapacity() {
     assert(identities[0] > 0u && identities[1] > 0u && identities[0] != identities[1]);
 }
 
+void AssertIndependentSurfaceContinuity() {
+    using namespace oengine::asset;
+    MaterialDomain domain;
+    domain.attributeMask=kAttributePosition|kAttributeNormal|kAttributeTangent|kAttributeUv0|kAttributeUv1|kAttributeColor;
+    domain.meshletFlags=kMeshletOpaque|kMeshletTwoSided;
+    domain.vertices.resize(6);
+    const float xy[6][2]={{0,0},{1,0},{0,1},{1,0},{1,1},{0,1}};
+    for(unsigned i=0;i<6;++i){
+        auto& vertex=domain.vertices[i];vertex.position[0]=xy[i][0];vertex.position[1]=xy[i][1];
+        vertex.uv0[0]=xy[i][0]+(i>=3?2.0f:0.0f);vertex.uv0[1]=xy[i][1];
+        vertex.uv1[0]=xy[i][0];vertex.uv1[1]=xy[i][1];
+    }
+    domain.indices={0,1,2,3,4,5};
+    auto result=BuildSourceSurfaceDomains(domain);
+    assert(result.triangles[0].domains[0]==result.triangles[1].domains[0]);
+    assert(result.triangles[0].domains[1]!=result.triangles[1].domains[1]);
+    for(unsigned field=2;field<6;++field)assert(result.triangles[0].domains[field]==result.triangles[1].domains[field]);
+    assert(result.triangles[0].identityRisk==0&&result.triangles[1].identityRisk==0);
+    for(unsigned i=3;i<6;++i){domain.vertices[i].normal[1]=1;domain.vertices[i].normal[2]=0;domain.vertices[i].color[0]=0;}
+    result=BuildSourceSurfaceDomains(domain);
+    assert(result.triangles[0].domains[0]==result.triangles[1].domains[0]);
+    assert(result.triangles[0].domains[3]!=result.triangles[1].domains[3]);
+    assert(result.triangles[0].domains[5]!=result.triangles[1].domains[5]);
+    SurfaceVertexLineage a,b,c;
+    SurfacePrimitiveMetadata metadata;
+    for(unsigned field=0;field<6;++field){a[field].insert(100+field);b[field].insert(100+field);c[field].insert(100+field);metadata.domains[field]=200+field;}
+    c[1].clear();c[1].insert(999);
+    InheritSurfaceLineage(metadata,a,b,c);
+    assert(metadata.domains[0]==100&&metadata.domains[1]==201&&metadata.domains[2]==102);
+    assert((metadata.fieldRisk>>16)==2&&metadata.identityRisk==kSurfaceLodLocal);
+}
+
 int main() {
+    AssertIndependentSurfaceContinuity();
     AssertSurfaceMetadataAndPageCapacity();
     AssertMeshletSeamsAndTerminalLod();
     AssertPageIdentityRollup();

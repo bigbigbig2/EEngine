@@ -8,11 +8,11 @@
  * resident tables.
  */
 
-export const GPU_GEOMETRY_ABI_VERSION = 8;
+export const GPU_GEOMETRY_ABI_VERSION = 9;
 export const GPU_FALLBACK_RECORD_INDEX = 0;
 export const GPU_GEOMETRY_RECORD_STRIDE = 240;
 export const GPU_CLUSTER_RECORD_STRIDE = 128;
-export const GPU_MESHLET_RECORD_STRIDE = 112;
+export const GPU_MESHLET_RECORD_STRIDE = 128;
 
 type GpuAbiFieldKind = "u32" | "f32" | "vec4f";
 
@@ -117,7 +117,11 @@ const MESHLET_FIELDS: readonly GpuAbiField[] = [
   { name: "bounds_max", kind: "vec4f", byteOffset: 48 },
   { name: "bounds_sphere", kind: "vec4f", byteOffset: 64 },
   { name: "cone_apex", kind: "vec4f", byteOffset: 80 },
-  { name: "cone_axis_cutoff", kind: "vec4f", byteOffset: 96 }
+  { name: "cone_axis_cutoff", kind: "vec4f", byteOffset: 96 },
+  { name: "surface_metadata_word_offset", kind: "u32", byteOffset: 112 },
+  { name: "surface_metadata_version", kind: "u32", byteOffset: 116 },
+  { name: "_pad0", kind: "u32", byteOffset: 120 },
+  { name: "_pad1", kind: "u32", byteOffset: 124 }
 ];
 
 export const GPU_GEOMETRY_RECORD_SCHEMA = createSchema(
@@ -276,6 +280,8 @@ export interface GpuMeshletRecordCpu {
   readonly materialId: number;
   readonly flags: number;
   readonly surfacePrimitiveWordOffset?: number;
+  readonly surfaceMetadataWordOffset?: number;
+  readonly surfaceMetadataVersion?: number;
   readonly boundsMin: ArrayLike<number>;
   readonly boundsMax: ArrayLike<number>;
   readonly boundsSphere: ArrayLike<number>;
@@ -401,6 +407,8 @@ export function packGpuMeshletRecords(
     writeVec4(view, base + 64, record.boundsSphere);
     writeVec4(view, base + 80, record.coneApex);
     writeVec4(view, base + 96, record.coneAxisCutoff);
+    view.setUint32(base + 112, checkedU32(record.surfaceMetadataWordOffset ?? 0, "Surface metadata offset"), true);
+    view.setUint32(base + 116, checkedU32(record.surfaceMetadataVersion ?? 0, "Surface metadata version"), true);
   }
   return bytes;
 }
