@@ -42,7 +42,7 @@ SurfaceWork 的 packet/reconstruct owner 管理 signal history 资源和 GPU com
 | --- | --- |
 | implicit/uniform/mixed SurfaceWork，不全员 pixel task | 64-lane tile classifier 已发布三类覆盖、bounded sample/exception、indirect count 和 sample map；Product/形变输入与数值/性能验收仍待完成 |
 | 唯一 SurfaceGeometryRecord | 已由 `SurfaceGeometryPass` 生产；skin/morph、Product 跨 LOD/source/seam 对应仍有缺口 |
-| lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，publication kernel 只消费 bounded miss；GeometryRecord 已消费 hit mask 并有命中旁路，sampler/UV/footprint/camera key 仍不完整 |
+| lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，publication kernel 只消费 bounded miss；GeometryRecord 已消费 hit mask 并有命中旁路，sampler/UV/footprint 与材质 view/nonlocal key 仍不完整 |
 | 独立 diffuse/specular/coat/IBL work | 四类 packet 已独立资源和 counters；cluster、VSM、AO、physical/authored IBL provider 已接入，正式数值/画质验收未完成 |
 | 廉价 reconstruct | 已不重新解码 Geometry Product 或执行材质图；双缓冲 history 已接入，完整 signal age/revision reject 尚未完成 |
 | FrameGraph 看到真实阶段 | lookup、GeometryRecord、miss evaluation、packet 和 reconstruct 均是独立 FrameGraph 节点 |
