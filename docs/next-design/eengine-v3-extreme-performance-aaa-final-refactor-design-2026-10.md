@@ -7,7 +7,7 @@
 
 本文不把设计文档中“计划实现”的内容当成已经完成，而是把当前代码、当前缺口和最终推进方案分开说明。
 
-实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 publication cache lookup → GeometryRecord（当前仍按 record range 求值）→ GPU-compacted miss-only `AppearanceResidentKernel` evaluation → 真实 clustered/VSM/AO/IBL 输入的 diffuse/specular/coat/IBL packets → 双缓冲 signal-history reconstruct。publication kernel、material/program lookup、field/route/variation identity、每-program indirect miss dispatch、生产 direct-light 数学和 history 生命周期已接入；GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint、Product/形变、完整 signal age/revision reject 和 Phase 7 GPU/browser 性能验收仍未完成。
+实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 publication cache lookup → hit-mask-gated GeometryRecord（命中走持久化 geometry cache，未命中执行完整恢复）→ GPU-compacted miss-only `AppearanceResidentKernel` evaluation → 真实 clustered/VSM/AO/IBL 输入的 diffuse/specular/coat/IBL packets → 双缓冲 signal-history reconstruct。publication kernel、material/program lookup、field/route/variation identity、每-program indirect miss dispatch、生产 direct-light 数学和 history 生命周期已接入；geometry cache 已包含代表像素与当前实例 object-to-clip 签名，完整 sampler/UV/filtered footprint、材质 view/nonlocal 语义、Product/形变、完整 signal age/revision reject 和 Phase 7 GPU/browser 性能验收仍未完成。
 
 ## 1. 最终判断
 
@@ -26,8 +26,8 @@
 
 当前实现仍有三个决定性瓶颈：
 
-1. GeometryRecord 仍会接收命中样本，hit mask 尚未前置成真正的 geometry miss compaction；
-2. GeometryRecord 尚未消费 hit mask；cache key 尚未包含完整 sampler/UV/filtered footprint 语义，动态 view/nonlocal 与 Product/形变对应仍未完成；
+1. GeometryRecord 命中已经由 hit mask 门控持久化 geometry cache，但当前仍按 bounded sample record dispatch，不是独立的 geometry miss queue；
+2. geometry cache key 已包含代表像素、几何/实例 generation 和 object-to-clip 签名，完整 sampler/UV/filtered footprint、材质 view/nonlocal 与 Product/形变对应仍未完成；
 3. 完整 sampler/UV/filtered footprint identity、Product/形变几何对应、signal age/revision reject 和正式验收仍不完整，无法证明最终 AAA 的可复用 packet 成本。
 
 历史基线的实际成本接近：
@@ -230,7 +230,7 @@ next-renderer-showcase 当前默认开启 renderScale 1、HZB、cone、XeGTAO、
 
 当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、publication cache lookup、`SurfaceGeometryPass`、GPU-compacted miss evaluation、lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect、sample map、完整 `AppearanceResidentKernel` miss evaluation、cluster/VSM/AO/IBL provider 和双缓冲 signal history，但 GeometryRecord 命中绕过、完整 sampler/UV/filtered footprint key、Product/形变对应、signal age/revision reject 和正式验收仍未完成，因此不能把当前接线等同于最终性能或 AAA 验收。
 
-当前源码仍有可量化的未完成成本：GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，命中样本尚未在 GeometryRecord 前被裁掉，cache identity 尚未覆盖完整采样 footprint，history 仍缺 signal age/revision 细分。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
+当前源码仍有可量化的未完成成本：GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，geometry miss 尚未独立压缩，cache identity 尚未覆盖完整采样 footprint 与材质 view/nonlocal，history 仍缺 signal age/revision 细分。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
 
 ### 2.7 当前生产接线（2026-10-02）
 
@@ -240,7 +240,7 @@ next-renderer-showcase 当前默认开启 renderScale 1、HZB、cone、XeGTAO、
 Visibility / TemporalFacts
 → SurfaceWork classify
 → cache lookup
-→ GeometryRecord（当前仍按 record range）
+→ hit-mask-gated GeometryRecord（cache hit bypass / miss resolve）
 → hit-mask-gated miss field evaluation
 → diffuse/specular/coat/IBL packets
 → packet reconstruct
@@ -728,7 +728,7 @@ surfaceDispatchCount
 
 ### 10.1 Cache lookup 语义仍不完整
 
-当前 lookup 已位于 `SurfaceGeometryPass` 之前，classify 已发布真实 sample map，但 GeometryRecord 尚未消费 hit mask，且 key 尚未覆盖完整 sampler/UV/footprint/variation 语义。必须完成 geometry miss compaction 和完整 key 比较，确保命中项不进入 geometry/material heavy worker。
+当前 lookup 已位于 `SurfaceGeometryPass` 之前，classify 已发布真实 sample map，GeometryRecord 已消费 hit mask 并在命中时读取持久化 geometry cache；当前仍需把 geometry miss 从 bounded sample record 中进一步压缩，并补齐 sampler/UV/footprint/variation 与 camera/view identity，确保命中项不进入 geometry/material heavy worker。
 
 ### 10.2 GeometryRecord 的覆盖仍不完整
 

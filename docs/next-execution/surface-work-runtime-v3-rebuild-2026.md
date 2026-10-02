@@ -6,9 +6,9 @@
 
 ## 1. 当前事实与三个必改点
 
-源码核对基线为当前工作树（历史切断基线仍为 `e7296be9`）。旧 SurfaceMaterialPass/Probe/sample producer 已从生产链删除；当前 FrameProgramLowering 实际连接的是 Visibility/TemporalFacts → SurfaceWorkRuntime（classify、publication lookup、GeometryRecord、publication miss evaluation、cluster/VSM/AO/IBL 输入、独立 packet、双缓冲 history reconstruct）→ Sky/Aerial/FSR3/显示。GeometryRecord hit 绕过、完整 identity/footprint 语义和 Phase 7 验收仍未完成。
+源码核对基线为当前工作树（历史切断基线仍为 `e7296be9`）。旧 SurfaceMaterialPass/Probe/sample producer 已从生产链删除；当前 FrameProgramLowering 实际连接的是 Visibility/TemporalFacts → SurfaceWorkRuntime（classify、publication lookup、hit-mask-gated GeometryRecord、publication miss evaluation、cluster/VSM/AO/IBL 输入、独立 packet、双缓冲 history reconstruct）→ Sky/Aerial/FSR3/显示。独立 geometry miss compaction、完整 identity/footprint 语义和 Phase 7 验收仍未完成。
 
-当前源码已切断全有效像素 Appearance demand、独立 geometry inputs 和旧 SparseLighting prepare_surface；SurfaceWork 已注册 tile/sample lookup、implicit/uniform/mixed classify、bounded sample/exception、唯一 GeometryRecord、真实 publication miss evaluation、独立 packet、生产 clustered/VSM/AO/IBL provider 和 history reconstruct 的生产边。GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint key、完整 identity reject、局部例外计数和性能闭环仍未完成，不能据此宣称最终算法或性能已经完成。
+当前源码已切断全有效像素 Appearance demand、独立 geometry inputs 和旧 SparseLighting prepare_surface；SurfaceWork 已注册 tile/sample lookup、implicit/uniform/mixed classify、bounded sample/exception、唯一 GeometryRecord、命中 geometry cache、真实 publication miss evaluation、独立 packet、生产 clustered/VSM/AO/IBL provider 和 history reconstruct 的生产边。独立 geometry miss compaction、sampler/UV/filtered footprint key、完整 identity reject、局部例外计数和性能闭环仍未完成，不能据此宣称最终算法或性能已经完成。
 
 最终完成条件（不是当前源码事实）必须同时满足：
 
@@ -70,17 +70,17 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 已加入 `GpuSurfaceWorkAbi.ts`、`SurfaceWorkRuntime.ts` 和 `SurfaceGeometryPass.ts`，classify 现在以 64-lane workgroup 扫描每个 8×8 tile，发布 implicit/uniform/mixed 分类、bounded sample/exception、GPU sample counter、indirect args 和 per-pixel sample map；GeometryRecord 读取动态 sample count、MeshletWork、FrameGeometry、FrameAttributes、FrameInstances、asset heap、vertex payload 和 camera，发布真实位置/法线/切线/UV/导数/身份/signature。Product/形变对应仍有缺口，数值、容量、浏览器和性能验收尚未运行；Phase 2 实现完成，验收待 Phase 7。
 
-### Phase 3：Appearance 改为 miss-only demand（publication kernel 已接通，命中绕过仍待完成）
+### Phase 3：Appearance 改为 miss-only demand（publication kernel 与 geometry hit bypass 已接通，验收待完成）
 
 扩展现有 AppearanceGraphCompiler 输出 constant/static/stable-local/geometry/view/nonlocal、signal rate、full-rate requirement、texture variation 和可融合属性；不建立第二套材质系统。
 
-`SurfaceMaterialCachePass` 在 GeometryRecord 之前执行 publication identity lookup，GPU 为每个 program 维护 bounded miss counter/indirect args；`GpuAppearancePublication.encodeSurfaceMissEvaluation` 复用已发布的 `AppearanceResidentKernel`、constants、routes、runtime inputs、resident texture/product bindings，按 miss program 求值并写回六层 fields 与稳定 cache。cache identity 已加入 geometry slot/meshlet/instance/primitive、material、field/residency version、publication field/route/variation hash；仍缺 sampler/UV transform 与真实 filtered footprint 的独立 identity。`SurfaceGeometryPass` 仍按 sample range 发布 GeometryRecord，hit mask 目前只门控 miss evaluator，因此命中尚未绕过几何 heavy worker；Product/形变/动态 view/nonlocal 语义与正式验收继续留待后续阶段。
+`SurfaceMaterialCachePass` 在 GeometryRecord 之前执行 publication identity lookup，GPU 为每个 program 维护 bounded miss counter/indirect args；`GpuAppearancePublication.encodeSurfaceMissEvaluation` 复用已发布的 `AppearanceResidentKernel`、constants、routes、runtime inputs、resident texture/product bindings，按 miss program 求值并写回六层 fields 与稳定 cache。`SurfaceGeometryPass` 现在消费 hit mask：命中先验证包含代表像素、几何/实例 generation、material 和 object-to-clip 签名的持久化 geometry cache，未命中才执行 winner 插值和属性解码；UV 导数也随 cache value 恢复。仍缺独立 geometry miss compaction、sampler/UV transform 与真实 filtered footprint 的独立 identity、材质 view/nonlocal 语义、Product/形变与正式验收。
 
 ### Phase 4：分 signal lighting packets（生产接线完成，统一验收待做）
 
 DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRecord、material field address、cluster/light identity、shadow/environment revision 和 history reference。Direct、diffuse、specular、coat、IBL 分别可观测，不以单一 Surface rate 代替。
 
-`SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Diffuse、specular、coat、IBL packet 仍保持独立写域，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。局部例外计数、GeometryRecord hit 绕过和最终 GPU/画质验收仍待 Phase 7。
+`SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Diffuse、specular、coat、IBL packet 仍保持独立写域，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。局部例外计数、独立 geometry miss compaction、完整 view/footprint identity 和最终 GPU/画质验收仍待 Phase 7。
 
 ### Phase 5：廉价 reconstruct（生产接线完成，统一验收待做）
 
@@ -125,7 +125,8 @@ AAA 不变量完整沿用原文 §9：透视/near clip/退化、非均匀缩放�
 - [ ] 旧 SurfaceMaterialPass 和中间版 sample producer 删除并复核。
 - [ ] production import graph 不再引用旧 Surface owner。
 - [ ] VisibilityKey 仅由 Visibility/SurfaceWork 入口解析。
-- [ ] GeometryRecord 成为唯一 Surface geometry producer。
+- [x] GeometryRecord 成为唯一 Surface geometry producer。
+- [ ] Geometry hit 使用完整 view/footprint identity，并将 geometry miss 独立压缩。
 - [ ] cache lookup 位于 material miss compact 之前。
 - [ ] cache hit 不进入 geometry/material heavy worker。
 - [ ] direct、diffuse、specular、coat、IBL 有独立 signal work。

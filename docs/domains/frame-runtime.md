@@ -9,7 +9,7 @@ owner: frame-runtime
 
 核对：2026-10-02，以当前工作树源码为准。`RendererCore` 是 composition root，`FrameCoordinator` 是唯一 frame command context/submit owner。FrameProgramLowering 已切换到唯一 SurfaceWorkRuntime，SurfaceWork 的 classify、lookup、GeometryRecord、miss evaluation、cluster/VSM/AO/IBL 输入、packet 和 reconstruct 都注册为独立 FrameGraph 节点；HZB、cluster、XeGTAO 和 directional VSM 继续使用同一 FrameGraph。
 
-旧 SurfaceProbe/Work Builder/sample workers/Resolve 与 SurfaceMaterialPass 不再是生产路径。当前 V3 主链已经真实接线；GeometryRecord hit 绕过、完整 identity/footprint 语义、signal age/revision reject 和整帧验收仍未完成。
+旧 SurfaceProbe/Work Builder/sample workers/Resolve 与 SurfaceMaterialPass 不再是生产路径。当前 V3 主链已经真实接线；GeometryRecord 已有 hit-mask-gated geometry cache bypass，独立 geometry miss compaction、完整 identity/footprint 语义、signal age/revision reject 和整帧验收仍未完成。
 
 FrameProgram 关闭有限产品需求，FrameProgramBindings 在 encode 前检查当前 publication/descriptor/device shape，Lowering 注册实际资源边。SurfaceWork 的固定前缀、GeometryRecord、cache key/value、packet 与 HDR/reactive 边界均可被 FrameGraph 看到；camera motion、history ping-pong 和局部 generation 不用于 CPU 选择本帧 work。
 

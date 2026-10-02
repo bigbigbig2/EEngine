@@ -41,7 +41,13 @@ export interface SurfaceGeometryInput {
   readonly recordCount: number;
   readonly geometryCapacity: number;
   readonly counts: ResourceId;
+  /** Material publication hit mask. Geometry cache lookup is only a fast path for hits. */
+  readonly materialHitMask: ResourceId;
 }
+
+const GEOMETRY_CACHE_CAPACITY = 1 << 15;
+const GEOMETRY_CACHE_KEY_STRIDE = 13;
+const GEOMETRY_CACHE_VALUE_STRIDE = 10;
 
 const GEOMETRY_WGSL = /* wgsl */ `
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -55,7 +61,8 @@ ${surfaceGeometrySourceReaderWgsl(false, "source_heap")}
 struct Settings {
   width: u32, height: u32, tiles_x: u32, frame_at: u32,
   directory_at: u32, sample_offset: u32, geometry_offset: u32,
-  capacity: u32, record_count: u32, source: vec4u, source_payload: vec4u
+  capacity: u32, record_count: u32, cache_capacity: u32, cache_mask: u32,
+  source: vec4u, source_payload: vec4u
 }
 @group(0) @binding(0) var<uniform> settings: Settings;
 @group(0) @binding(1) var visibility: texture_2d<u32>;
@@ -70,6 +77,9 @@ struct Settings {
 @group(0) @binding(10) var<storage, read_write> records: array<vec4f>;
 @group(0) @binding(11) var<storage, read_write> record_count: array<atomic<u32>>;
 @group(0) @binding(12) var<storage, read> surface_counts: array<u32>;
+@group(0) @binding(13) var<storage, read> material_hit_mask: array<u32>;
+@group(0) @binding(14) var<storage, read_write> geometry_cache_keys: array<u32>;
+@group(0) @binding(15) var<storage, read_write> geometry_cache_values: array<vec4f>;
 
 fn attribute_at(ids: vec3u, weights: vec3f, field: u32) -> vec4f {
   if surface_direct_source { return surface_source_attribute(ids, weights, field); }
@@ -86,6 +96,33 @@ fn normalize_or(value: vec3f, fallback: vec3f) -> vec3f {
 fn hash_word(value: u32, seed: u32) -> u32 {
   var x = seed ^ value; x *= 16777619u; x ^= x >> 13u; x *= 2246822519u; return x;
 }
+
+fn geometry_cache_hash(geometry_slot: u32, meshlet_identity: u32, instance_slot: u32,
+  primitive: u32, geometry_generation: u32, dynamic_revision: u32,
+  profile_lod: u32, product_slot: u32, instance_set_generation: u32,
+  representative_pixel: u32, clip_signature: u32) -> u32 {
+  var x = 2166136261u;
+  x = hash_word(geometry_slot, x); x = hash_word(meshlet_identity, x);
+  x = hash_word(instance_slot, x); x = hash_word(primitive, x);
+  x = hash_word(geometry_generation, x); x = hash_word(dynamic_revision, x);
+  x = hash_word(profile_lod, x); x = hash_word(product_slot, x);
+  x = hash_word(instance_set_generation, x);
+  x = hash_word(representative_pixel, x);
+  return hash_word(clip_signature, x);
+}
+
+fn frame_instance_clip_signature(instance: OEngineFrameInstanceRecord) -> u32 {
+  var signature = 2166136261u;
+  for (var column = 0u; column < 4u; column++) {
+    for (var row = 0u; row < 4u; row++) {
+      signature = hash_word(bitcast<u32>(instance.object_to_clip[column][row]), signature);
+    }
+  }
+  return signature;
+}
+
+fn cache_key_base(cell: u32) -> u32 { return cell * ${GEOMETRY_CACHE_KEY_STRIDE}u; }
+fn cache_value_base(cell: u32) -> u32 { return cell * ${GEOMETRY_CACHE_VALUE_STRIDE}u; }
 
 @compute @workgroup_size(64)
 fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
@@ -106,6 +143,69 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
     return;
   }
   let meshlet = meshlet_work.elements[decoded.meshlet_work_slot];
+  let instance = frame_instances[meshlet.instance_slot];
+  let geometry_generation = oengine_instance_geometry_generation(instance.source);
+  let dynamic_revision = instance.source.dynamic_revision;
+  let product_slot = oengine_instance_product_table_slot(instance.source);
+  let instance_set_generation = instance.source.instance_set_generation;
+  let profile_lod = meshlet.packed_profile_lod;
+  let primitive = decoded.local_primitive;
+  let clip_signature = frame_instance_clip_signature(instance);
+  let cache_hash = geometry_cache_hash(meshlet.geometry_slot, meshlet.meshlet_slot,
+    meshlet.instance_slot, primitive, geometry_generation, dynamic_revision,
+    profile_lod, product_slot, instance_set_generation, pixel, clip_signature);
+  let cache_cell = cache_hash & settings.cache_mask;
+  let cache_key = cache_key_base(cache_cell);
+  let cache_match = material_hit_mask[record] != 0u &&
+    geometry_cache_keys[cache_key + 0u] == cache_hash &&
+    geometry_cache_keys[cache_key + 1u] == meshlet.geometry_slot &&
+    geometry_cache_keys[cache_key + 2u] == meshlet.meshlet_slot &&
+    geometry_cache_keys[cache_key + 3u] == meshlet.instance_slot &&
+    geometry_cache_keys[cache_key + 4u] == primitive &&
+    geometry_cache_keys[cache_key + 5u] == geometry_generation &&
+    geometry_cache_keys[cache_key + 6u] == dynamic_revision &&
+    geometry_cache_keys[cache_key + 7u] == profile_lod &&
+    geometry_cache_keys[cache_key + 8u] == product_slot &&
+    geometry_cache_keys[cache_key + 9u] == instance_set_generation &&
+    geometry_cache_keys[cache_key + 10u] == meshlet.material_slot_or_range &&
+    geometry_cache_keys[cache_key + 11u] == pixel &&
+    geometry_cache_keys[cache_key + 12u] == clip_signature;
+  if cache_match {
+    let cached = cache_value_base(cache_cell);
+    let local_position = geometry_cache_values[cached + 0u].xyz;
+    let local_edge1 = geometry_cache_values[cached + 1u].xyz;
+    let local_edge2 = geometry_cache_values[cached + 2u].xyz;
+    let transform = oengine_instance_current_object_to_world(instance.source);
+    let geometric = normalize_or(cross((transform * vec4f(local_edge1, 0.0)).xyz,
+      (transform * vec4f(local_edge2, 0.0)).xyz), vec3f(0.0, 0.0, 1.0));
+    let local_shading = normalize_or(geometry_cache_values[cached + 3u].xyz, geometric);
+    let local_tangent = geometry_cache_values[cached + 4u];
+    var normal = oengine_frame_instance_normal(instance.normal_x, instance.normal_y,
+      instance.normal_z.xyz, local_shading, geometric);
+    let tangent_raw = (transform * vec4f(local_tangent.xyz, 0.0)).xyz;
+    var tangent = normalize_or(tangent_raw - normal * dot(normal, tangent_raw),
+      normalize_or(cross(select(vec3f(0.0, 0.0, 1.0), vec3f(0.0, 1.0, 0.0), abs(normal.z) > 0.99), normal), vec3f(1.0, 0.0, 0.0)));
+    let position = (transform * vec4f(local_position, 1.0)).xyz;
+    let view_dir = normalize_or(camera.transform[3].xyz - position, normal);
+    if (instance.source.flags & 16u) != 0u && dot(normal, view_dir) < 0.0 { normal = -normal; tangent = -tangent; }
+    let bitangent = cross(normal, tangent) * sign(local_tangent.w) * sign(instance.normal_x.w);
+    let color = geometry_cache_values[cached + 8u];
+    let metadata = geometry_cache_values[cached + 7u];
+    let view_depth = -(camera.view_matrix * vec4f(position, 1.0)).z;
+    records[base + 0u] = vec4f(position, select(-view_depth, view_depth, ((instance.source.flags >> 8u) & 15u) >= 4u));
+    records[base + 1u] = vec4f(geometric, 1.0);
+    records[base + 2u] = vec4f(normal, bitangent.z);
+    records[base + 3u] = geometry_cache_values[cached + 5u];
+    records[base + 4u] = geometry_cache_values[cached + 6u];
+    records[base + 5u] = vec4f(tangent, local_tangent.w * sign(instance.normal_x.w));
+    records[base + 6u] = vec4f(view_dir, bitangent.z);
+    records[base + 7u] = geometry_cache_values[cached + 9u];
+    records[base + 8u] = vec4f(bitcast<f32>(key), bitcast<f32>(meshlet.material_slot_or_range), bitcast<f32>(decoded.meshlet_work_slot), bitcast<f32>(primitive));
+    records[base + 9u] = vec4f(bitcast<f32>(key), bitcast<f32>(decoded.meshlet_work_slot), bitcast<f32>(meshlet.instance_slot), bitcast<f32>(meshlet.geometry_slot));
+    records[base + 10u] = metadata;
+    records[base + 11u] = color;
+    return;
+  }
   let directory = settings.directory_at + 4u + decoded.meshlet_work_slot * 4u;
   var interpolation: WinnerInterpolation;
   var ids = vec3u(0u, 1u, 2u);
@@ -125,20 +225,23 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
     records[base + 8u] = vec4f(bitcast<f32>(key), 0.0, 0.0, 0.0);
     return;
   }
-  let instance = frame_instances[meshlet.instance_slot];
   let transform = oengine_instance_current_object_to_world(instance.source);
   let a = attribute_at(ids, vec3f(1.0, 0.0, 0.0), 5u).xyz;
   let b = attribute_at(ids, vec3f(0.0, 1.0, 0.0), 5u).xyz;
   let c = attribute_at(ids, vec3f(0.0, 0.0, 1.0), 5u).xyz;
-  let geometric = normalize_or(cross((transform * vec4f(b - a, 0.0)).xyz,
-    (transform * vec4f(c - a, 0.0)).xyz), vec3f(0.0, 0.0, 1.0));
-  var normal = oengine_frame_instance_normal(instance.normal_x, instance.normal_y,
-    instance.normal_z.xyz, attribute_at(ids, interpolation.weights, 0u).xyz, geometric);
+  let local_position = attribute_at(ids, interpolation.weights, 5u).xyz;
+  let local_edge1 = b - a;
+  let local_edge2 = c - a;
+  let local_geometric = normalize_or(cross(local_edge1, local_edge2), vec3f(0.0, 0.0, 1.0));
+  let local_shading = normalize_or(attribute_at(ids, interpolation.weights, 0u).xyz, local_geometric);
   let local_tangent = attribute_at(ids, interpolation.weights, 1u);
+  let geometric = normalize_or((transform * vec4f(local_geometric, 0.0)).xyz, vec3f(0.0, 0.0, 1.0));
+  var normal = oengine_frame_instance_normal(instance.normal_x, instance.normal_y,
+    instance.normal_z.xyz, local_shading, geometric);
   let tangent_raw = (transform * vec4f(local_tangent.xyz, 0.0)).xyz;
   var tangent = normalize_or(tangent_raw - normal * dot(normal, tangent_raw),
     normalize_or(cross(select(vec3f(0.0, 0.0, 1.0), vec3f(0.0, 1.0, 0.0), abs(normal.z) > 0.99), normal), vec3f(1.0, 0.0, 0.0)));
-  let position = (transform * vec4f(attribute_at(ids, interpolation.weights, 5u).xyz, 1.0)).xyz;
+  let position = (transform * vec4f(local_position, 1.0)).xyz;
   let view_dir = normalize_or(camera.transform[3].xyz - position, normal);
   if (instance.source.flags & 16u) != 0u && dot(normal, view_dir) < 0.0 { normal = -normal; tangent = -tangent; }
   let bitangent = cross(normal, tangent) * sign(local_tangent.w) * sign(instance.normal_x.w);
@@ -155,6 +258,31 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   signature = hash_word(bitcast<u32>(normal.y), signature);
   signature = hash_word(bitcast<u32>(normal.z), signature);
   signature = hash_word(meshlet.material_slot_or_range, signature);
+  let color = attribute_at(ids, interpolation.weights, 3u);
+  let cache_value = cache_value_base(cache_cell);
+  geometry_cache_values[cache_value + 0u] = vec4f(local_position, 1.0);
+  geometry_cache_values[cache_value + 1u] = vec4f(local_edge1, 0.0);
+  geometry_cache_values[cache_value + 2u] = vec4f(local_edge2, 0.0);
+  geometry_cache_values[cache_value + 3u] = vec4f(local_shading, 1.0);
+  geometry_cache_values[cache_value + 4u] = local_tangent;
+  geometry_cache_values[cache_value + 5u] = vec4f(uv0, uv1);
+  geometry_cache_values[cache_value + 6u] = vec4f(uv2, attribute_at(ids, interpolation.weights, 3u).xy);
+  geometry_cache_values[cache_value + 7u] = vec4f(bitcast<f32>(signature), bitcast<f32>(instance.source.flags), bitcast<f32>(interpolation.flags), 0.0);
+  geometry_cache_values[cache_value + 8u] = vec4f(1.0, color.z, color.w, 0.0);
+  geometry_cache_values[cache_value + 9u] = vec4f(uv0dx, uv0dy);
+  geometry_cache_keys[cache_key + 0u] = cache_hash;
+  geometry_cache_keys[cache_key + 1u] = meshlet.geometry_slot;
+  geometry_cache_keys[cache_key + 2u] = meshlet.meshlet_slot;
+  geometry_cache_keys[cache_key + 3u] = meshlet.instance_slot;
+  geometry_cache_keys[cache_key + 4u] = primitive;
+  geometry_cache_keys[cache_key + 5u] = geometry_generation;
+  geometry_cache_keys[cache_key + 6u] = dynamic_revision;
+  geometry_cache_keys[cache_key + 7u] = profile_lod;
+  geometry_cache_keys[cache_key + 8u] = product_slot;
+  geometry_cache_keys[cache_key + 9u] = instance_set_generation;
+  geometry_cache_keys[cache_key + 10u] = meshlet.material_slot_or_range;
+  geometry_cache_keys[cache_key + 11u] = pixel;
+  geometry_cache_keys[cache_key + 12u] = clip_signature;
   records[base + 0u] = vec4f(position, select(-view_depth, view_depth, ((instance.source.flags >> 8u) & 15u) >= 4u));
   records[base + 1u] = vec4f(geometric, 1.0);
   records[base + 2u] = vec4f(normal, bitangent.z);
@@ -166,7 +294,6 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   records[base + 8u] = vec4f(bitcast<f32>(key), bitcast<f32>(meshlet.material_slot_or_range), bitcast<f32>(decoded.meshlet_work_slot), bitcast<f32>(decoded.local_primitive));
   records[base + 9u] = vec4f(bitcast<f32>(key), bitcast<f32>(decoded.meshlet_work_slot), bitcast<f32>(meshlet.instance_slot), bitcast<f32>(meshlet.geometry_slot));
   records[base + 10u] = vec4f(bitcast<f32>(signature), bitcast<f32>(meshlet.material_slot_or_range), bitcast<f32>(instance.source.flags), bitcast<f32>(interpolation.flags));
-  let color = attribute_at(ids, interpolation.weights, 3u);
   records[base + 11u] = vec4f(1.0, color.z, color.w, 0.0);
 }
 `;
@@ -175,8 +302,21 @@ export class SurfaceGeometryPass {
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
   private readonly settings: GPUBuffer;
+  private readonly geometryCacheKeys: GPUBuffer;
+  private readonly geometryCacheValues: GPUBuffer;
 
   constructor(private readonly device: GPUDevice) {
+    const keyBytes = GEOMETRY_CACHE_CAPACITY * GEOMETRY_CACHE_KEY_STRIDE * 4;
+    const valueBytes = GEOMETRY_CACHE_CAPACITY * GEOMETRY_CACHE_VALUE_STRIDE * 16;
+    if (keyBytes > Number(device.limits.maxStorageBufferBindingSize) ||
+      valueBytes > Number(device.limits.maxStorageBufferBindingSize) ||
+      keyBytes > Number(device.limits.maxBufferSize) || valueBytes > Number(device.limits.maxBufferSize)) {
+      throw new RangeError("Surface geometry cache exceeds the negotiated storage limits");
+    }
+    this.geometryCacheKeys = device.createBuffer({ label: "Surface geometry cache keys", size: keyBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    this.geometryCacheValues = device.createBuffer({ label: "Surface geometry cache values", size: valueBytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     this.settings = device.createBuffer({ label: "Surface Geometry settings", size: 80,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ label: "Surface Geometry bindings", entries: [
@@ -192,7 +332,10 @@ export class SurfaceGeometryPass {
       { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 256 } },
       { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
+      { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
     ] });
     this.pipeline = device.createComputePipeline({ label: "Surface/GeometryRecord", layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
       compute: { module: device.createShaderModule({ label: "Surface Geometry Record", code: GEOMETRY_WGSL }), entryPoint: "resolve_geometry" } });
@@ -207,9 +350,9 @@ export class SurfaceGeometryPass {
         data.width, data.height, Math.ceil(data.width / 8), data.frameAt,
         data.directoryAt, data.sampleOffset, data.geometryOffset, data.geometryCapacity,
         Math.min(data.geometryCapacity, Math.ceil(data.width / 8) * Math.ceil(data.height / 8)),
-        0, 0, 0,
+        GEOMETRY_CACHE_CAPACITY, GEOMETRY_CACHE_CAPACITY - 1, 0,
         data.sourceGeometry, data.sourceMeshlet, data.sourceMeshletVertices, data.sourceMeshletTriangles,
-        data.sourceVertexData, 0, 0, 0, 0
+        data.sourceVertexData, 0, 0, 0
       ]);
       command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
       const group = this.device.createBindGroup({ layout: this.layout, entries: [
@@ -225,7 +368,10 @@ export class SurfaceGeometryPass {
         { binding: 9, resource: { buffer: resources.get(data.camera) as GPUBuffer } },
         { binding: 10, resource: { buffer: resources.get(records) as GPUBuffer } },
         { binding: 11, resource: { buffer: resources.get(count) as GPUBuffer } },
-        { binding: 12, resource: { buffer: resources.get(data.counts) as GPUBuffer } }
+        { binding: 12, resource: { buffer: resources.get(data.counts) as GPUBuffer } },
+        { binding: 13, resource: { buffer: resources.get(data.materialHitMask) as GPUBuffer } },
+        { binding: 14, resource: { buffer: this.geometryCacheKeys } },
+        { binding: 15, resource: { buffer: this.geometryCacheValues } }
       ] });
       const pass = command.beginComputePass({ label: "Surface/GeometryRecord" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
@@ -233,7 +379,7 @@ export class SurfaceGeometryPass {
     });
     for (const resource of [input.visibility, input.work, input.arena, input.meshletWork,
       input.sourceHeap, input.vertexPayload, input.frameInstances, input.frameAttributes, input.camera]) node.read(resource);
-    node.read(input.counts);
+    node.read(input.counts); node.read(input.materialHitMask);
     records = node.create("Surface/GeometryRecord buffer", { kind: "transient_buffer",
       size: input.geometryOffset + input.geometryCapacity * SURFACE_GEOMETRY_RECORD_STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, domain: "internal-full" });
@@ -244,5 +390,5 @@ export class SurfaceGeometryPass {
     return { records, count };
   }
 
-  destroy(): void { this.settings.destroy(); }
+  destroy(): void { this.settings.destroy(); this.geometryCacheKeys.destroy(); this.geometryCacheValues.destroy(); }
 }

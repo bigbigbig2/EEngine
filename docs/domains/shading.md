@@ -24,7 +24,7 @@ VisibilityKey / Depth / MeshletWork / shared frame geometry
 
 ### Appearance
 
-`SurfaceMaterialCachePass` 在 GeometryRecord 之前按 publication material lookup、geometry identity、材质字段/驻留版本和 publication field/route/variation identity 做 key 比较；命中直接写六层 fields，未命中压入有界 miss queue。`GpuAppearancePublication.encodeSurfaceMissEvaluation` 已按 publication program 复用完整 `AppearanceResidentKernel` 与其常量、routes、runtime inputs、texture/product bindings，写回 fields 和稳定 cache，不再运行本地 fallback field kernel。`SurfaceGeometryPass` 尚未读取 hit mask，仍按 record range 发布 GeometryRecord；因此命中绕过几何 heavy work 尚未实现。sampler、UV set/transform 与真实 filtered footprint 尚未完整进入 key，view/nonlocal 动态输入、Product/形变对应和数值语义仍待验收。
+`SurfaceMaterialCachePass` 在 GeometryRecord 之前按 publication material lookup、geometry identity、材质字段/驻留版本和 publication field/route/variation identity 做 key 比较；命中直接写六层 fields，未命中压入有界 miss queue。`GpuAppearancePublication.encodeSurfaceMissEvaluation` 已按 publication program 复用完整 `AppearanceResidentKernel` 与其常量、routes、runtime inputs、texture/product bindings，写回 fields 和稳定 cache，不再运行本地 fallback field kernel。`SurfaceGeometryPass` 已读取 hit mask：命中样本先验证包含代表像素、几何/实例 generation、material 和 object-to-clip 签名的持久化 geometry cache，命中直接恢复 GeometryRecord（包括 UV 导数），未命中才执行 winner 插值和属性解码。当前仍按 bounded sample record dispatch，sampler、UV set/transform、真实 filtered footprint 与材质 view/nonlocal 语义尚未完整进入 key，Product/形变对应和数值语义仍待验收。
 
 AppearanceGraphCompiler 已支持 typed dependencies、等价采样合并、常量/无用通道处理和 product 分类，lowering 输出 WGSL 求值程序。GpuMaterialStore 发布字段版本，AppearanceProgramRegistry 持有程序 leases，AppearanceStaticResidency 管理静态产品与 completion 退役。当前 mutable material 编辑仍需要实际 republication/resync，不能宣称所有动态输入或 nonlocal providers 已完成。
 
@@ -42,7 +42,7 @@ SurfaceWork 的 packet/reconstruct owner 管理 signal history 资源和 GPU com
 | --- | --- |
 | implicit/uniform/mixed SurfaceWork，不全员 pixel task | 64-lane tile classifier 已发布三类覆盖、bounded sample/exception、indirect count 和 sample map；Product/形变输入与数值/性能验收仍待完成 |
 | 唯一 SurfaceGeometryRecord | 已由 `SurfaceGeometryPass` 生产；skin/morph、Product 跨 LOD/source/seam 对应仍有缺口 |
-| lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，publication kernel 只消费 bounded miss；hit mask 尚未被 GeometryRecord 消费，sampler/UV/footprint key 仍不完整 |
+| lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，publication kernel 只消费 bounded miss；GeometryRecord 已消费 hit mask 并有命中旁路，sampler/UV/footprint/camera key 仍不完整 |
 | 独立 diffuse/specular/coat/IBL work | 四类 packet 已独立资源和 counters；cluster、VSM、AO、physical/authored IBL provider 已接入，正式数值/画质验收未完成 |
 | 廉价 reconstruct | 已不重新解码 Geometry Product 或执行材质图；双缓冲 history 已接入，完整 signal age/revision reject 尚未完成 |
 | FrameGraph 看到真实阶段 | lookup、GeometryRecord、miss evaluation、packet 和 reconstruct 均是独立 FrameGraph 节点 |

@@ -10,7 +10,7 @@
 
 ## 2026-10-02：SurfaceWork V3 ABI 与 GeometryRecord 本地接线
 
-`GpuSurfaceWorkAbi.ts` 的固定前缀、分区布局、容量校验和 `SurfaceWorkRuntime`/`SurfaceGeometryPass` 的 FrameGraph 绑定属于本地 ABI、资源生命周期与 WebGPU 接线，不声称来自外部 donor。唯一几何数学继续复用本账本已固定的 `HomogeneousWinnerInterpolation` profile：`WinnerPrimitiveInterpolation` 负责 dictionary/coefficient/arena producer，`SurfaceGeometryPass` 只通过 arena consumer 读取并发布 GeometryRecord。当前已接通 publication miss evaluator、属性解码、cluster/VSM/AO/authored+physical IBL、分信号 lighting packets、双缓冲 history 和真实 FrameGraph 边；这属于本地实现接线，不提升任何上游 adoption 或最终性能/画质 claim。GeometryRecord hit 绕过、完整 sampler/UV/filtered-footprint identity、Product/形变、signal age/revision reject、数值 oracle、整帧画质和性能 adoption 仍未完成。
+`GpuSurfaceWorkAbi.ts` 的固定前缀、分区布局、容量校验和 `SurfaceWorkRuntime`/`SurfaceGeometryPass` 的 FrameGraph 绑定属于本地 ABI、资源生命周期与 WebGPU 接线，不声称来自外部 donor。唯一几何数学继续复用本账本已固定的 `HomogeneousWinnerInterpolation` profile：`WinnerPrimitiveInterpolation` 负责 dictionary/coefficient/arena producer，`SurfaceGeometryPass` 只通过 arena consumer 读取并发布 GeometryRecord。当前已接通 publication miss evaluator、属性解码、GeometryRecord hit-mask geometry cache bypass、cluster/VSM/AO/authored+physical IBL、分信号 lighting packets、双缓冲 history 和真实 FrameGraph 边；这属于本地实现接线，不提升任何上游 adoption 或最终性能/画质 claim。独立 geometry miss compaction、完整 sampler/UV/filtered-footprint、材质 view/nonlocal identity、Product/形变、signal age/revision reject、数值 oracle、整帧画质和性能 adoption 仍未完成。
 
 ## 2026-09-29：Virtual Geometry 正确性修复
 

@@ -9,7 +9,7 @@ owner: visibility
 
 核对：2026-10-02，基线 `11d906ab`。Visibility 拥有 GPU hierarchy traversal、bounded MeshletWork、indirect hardware raster、VisibilityKey/depth 和 HZB。普通与 Product 工作进入同一 GPU Scene。可见工作在 GPU 生产和消费，readback 只供诊断或延迟反馈，模块不拥有私有 frame submit。
 
-当前 FrameProgramLowering 将 VisibilityKey/depth/MeshletWork 与共享 frame geometry 送入 SurfaceWorkRuntime；SurfaceWork 先做 cache lookup，再注册唯一 GeometryRecord 和后续 packet/reconstruct，当前 GeometryRecord 仍按 record range 求值，hit mask 只供后续 miss evaluator 使用。AppearanceCachePass、SparseLightingPass、旧 frequency planner、Dense/exception MaterialPass、Probe/sample 链均不是当前生产 consumer。
+当前 FrameProgramLowering 将 VisibilityKey/depth/MeshletWork 与共享 frame geometry 送入 SurfaceWorkRuntime；SurfaceWork 先做 cache lookup，再注册唯一 GeometryRecord 和后续 packet/reconstruct，GeometryRecord 已按 hit mask 走包含代表像素与 object-to-clip 签名的持久化 geometry cache bypass，仍按 bounded sample record dispatch，geometry miss 尚未独立压缩。AppearanceCachePass、SparseLightingPass、旧 frequency planner、Dense/exception MaterialPass、Probe/sample 链均不是当前生产 consumer。
 
 选中工作经过 shared instance transforms、FrameGeometryVertices 和 FrameGeometryArena，为 raster/Appearance winner 消费准备 clips、triangle directory 和真实 attributes。Product late HZB 重排工作目录而共享底层几何存储。WinnerPrimitiveInterpolation 已在 Appearance 实际消费，不再是“仅 diagnostic、尚未接入”的状态。
 
