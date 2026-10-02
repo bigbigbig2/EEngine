@@ -2,7 +2,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
-import { APPEARANCE_SURFACE_LAYER_COUNT, SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE } from "../../gpu/GpuAppearanceCacheAbi.js";
+import { APPEARANCE_SURFACE_CACHE_KEY_WORDS, APPEARANCE_SURFACE_LAYER_COUNT, SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE } from "../../gpu/GpuAppearanceCacheAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { SURFACE_WORK_INDIRECT_OFFSET } from "../../gpu/GpuSurfaceWorkAbi.js";
@@ -22,7 +22,7 @@ fn surface_geometry_identity(item:OEngineMeshletRasterWork, primitive:u32, mater
 @group(0) @binding(3) var<storage,read> meshlet_work:OEngineMeshletWorkQueueRead;
 @group(0) @binding(4) var<storage,read> field_versions:array<u32>;
 @group(0) @binding(5) var<storage,read> residency_versions:array<u32>;
-@group(0) @binding(6) var<storage,read_write> cache:array<vec4u>;
+@group(0) @binding(6) var<storage,read_write> cache:array<u32>;
 @group(0) @binding(7) var<storage,read_write> cache_values:array<vec4f>;
 @group(0) @binding(8) var<storage,read_write> misses:array<u32>;
 @group(0) @binding(9) var<storage,read_write> counters:array<atomic<u32>>;
@@ -40,9 +40,9 @@ fn lookup(@builtin(global_invocation_id) id:vec3u) {
   let meshlet=meshlet_work.elements[decoded.meshlet_work_slot]; let material=select(0u,meshlet.material_slot_or_range,valid);
   if !valid || material>=arrayLength(&material_lookup) { hit_mask[record]=0u; return; }
   let entry=material_lookup[material]; if entry==0xffffffffu { hit_mask[record]=0u; return; }
-  let stable=surface_identity[entry]; let geometryIdentity=surface_geometry_identity(meshlet,decoded.local_primitive,material); let field=select(0u,field_versions[0u],arrayLength(&field_versions)>0u); let residency=select(0u,residency_versions[0u],arrayLength(&residency_versions)>0u);
-  let key=cache_hash(geometryIdentity,material,field,residency,stable.x^stable.y^stable.z^stable.w); let cell=key&(settings.cache_capacity-1u); let old=cache[cell];
-  let cacheable=(stable.w & ${SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE}u)==0u; let exact=cacheable && old.x==key && old.y==geometryIdentity && old.z==material && old.w==stable.z; let pixel=vec2i(work[sample_at]%settings.width,work[sample_at]/settings.width);
+  let stable=surface_identity[entry]; let geometryIdentity=surface_geometry_identity(meshlet,decoded.local_primitive,material); var field=2166136261u; for(var field_at=0u;field_at<arrayLength(&field_versions);field_at+=4u){ field=(field^field_versions[field_at])*16777619u; } var residency=2166136261u; for(var residency_at=0u;residency_at<arrayLength(&residency_versions);residency_at++){ residency=(residency^residency_versions[residency_at])*16777619u; }
+  let key=cache_hash(geometryIdentity,material,field,residency,stable.x^stable.y^stable.z^stable.w); let cell=key&(settings.cache_capacity-1u); let cache_at=cell*${APPEARANCE_SURFACE_CACHE_KEY_WORDS}u;
+  let cacheable=(stable.w & ${SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE}u)==0u; let exact=cacheable && cache[cache_at+0u]==key && cache[cache_at+1u]==geometryIdentity && cache[cache_at+2u]==material && cache[cache_at+3u]==stable.x && cache[cache_at+4u]==stable.y && cache[cache_at+5u]==stable.z && cache[cache_at+6u]==stable.w && cache[cache_at+7u]==field && cache[cache_at+8u]==residency; let pixel=vec2i(work[sample_at]%settings.width,work[sample_at]/settings.width);
   if exact { hit_mask[record]=1u; atomicAdd(&counters[0],1u); for(var layer=0u;layer<${APPEARANCE_SURFACE_LAYER_COUNT}u;layer++){textureStore(fields,pixel,i32(layer),cache_values[cell*${APPEARANCE_SURFACE_LAYER_COUNT}u+layer]);} }
   else { hit_mask[record]=0u; atomicAdd(&counters[1],1u); let slot=atomicAdd(&counters[2],1u); if slot<settings.record_count { misses[slot]=record; } let program=stable.w & 0x7fffffffu; if program<settings.program_count { atomicAdd(&counters[4u+program*8u+4u],1u); } }
 }
@@ -59,8 +59,11 @@ fn finalize(){ for(var program=0u;program<settings.program_count;program++){ let
 export class SurfaceMaterialCachePass {
   private readonly lookupLayout:GPUBindGroupLayout; private readonly lookupPipeline:GPUComputePipeline; private readonly finalizeLayout:GPUBindGroupLayout; private readonly finalizePipeline:GPUComputePipeline; private readonly settings:GPUBuffer; private readonly finalizeSettings:GPUBuffer; private readonly cache:GPUBuffer; private readonly cacheValues:GPUBuffer; private readonly cacheCapacity:number;
   constructor(private readonly device:GPUDevice,cacheCapacity=1<<16){
-    if((cacheCapacity&(cacheCapacity-1))!==0)throw new RangeError("Surface material cache capacity must be a power of two"); this.cacheCapacity=cacheCapacity;
-    this.settings=device.createBuffer({label:"Surface material lookup settings",size:32,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST}); this.finalizeSettings=device.createBuffer({label:"Surface material miss finalize settings",size:16,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST}); this.cache=device.createBuffer({label:"Surface material stable cache keys",size:cacheCapacity*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST}); this.cacheValues=device.createBuffer({label:"Surface material stable cache values",size:cacheCapacity*APPEARANCE_SURFACE_LAYER_COUNT*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
+    if((cacheCapacity&(cacheCapacity-1))!==0)throw new RangeError("Surface material cache capacity must be a power of two");
+    const keyBytes=cacheCapacity*APPEARANCE_SURFACE_CACHE_KEY_WORDS*4, valueBytes=cacheCapacity*APPEARANCE_SURFACE_LAYER_COUNT*16;
+    if(keyBytes>Number(device.limits.maxStorageBufferBindingSize)||valueBytes>Number(device.limits.maxStorageBufferBindingSize)||keyBytes>Number(device.limits.maxBufferSize)||valueBytes>Number(device.limits.maxBufferSize))throw new RangeError("Surface material cache exceeds negotiated storage limits");
+    this.cacheCapacity=cacheCapacity;
+    this.settings=device.createBuffer({label:"Surface material lookup settings",size:32,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST}); this.finalizeSettings=device.createBuffer({label:"Surface material miss finalize settings",size:16,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST}); this.cache=device.createBuffer({label:"Surface material stable cache keys",size:cacheCapacity*APPEARANCE_SURFACE_CACHE_KEY_WORDS*4,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST}); this.cacheValues=device.createBuffer({label:"Surface material stable cache values",size:cacheCapacity*APPEARANCE_SURFACE_LAYER_COUNT*16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST});
     this.lookupLayout=device.createBindGroupLayout({entries:[{binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:"uniform",minBindingSize:32}},{binding:1,visibility:GPUShaderStage.COMPUTE,texture:{sampleType:"uint",viewDimension:"2d"}},...[2,3,4,5,6,7,8,9,10,12,13,14].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:(binding===4||binding===5||binding===12||binding===13||binding===14?"read-only-storage":"storage") as GPUBufferBindingType}})),{binding:11,visibility:GPUShaderStage.COMPUTE,storageTexture:{access:"write-only",format:"rgba16float",viewDimension:"2d-array"}}]});
     this.lookupPipeline=device.createComputePipeline({label:"Surface/material publication lookup",layout:device.createPipelineLayout({bindGroupLayouts:[this.lookupLayout]}),compute:{module:device.createShaderModule({code:CACHE_WGSL}),entryPoint:"lookup"}});
     this.finalizeLayout=device.createBindGroupLayout({entries:[{binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:"uniform",minBindingSize:16}},{binding:1,visibility:GPUShaderStage.COMPUTE,buffer:{type:"storage"}}]}); this.finalizePipeline=device.createComputePipeline({label:"Surface/material miss indirect finalize",layout:device.createPipelineLayout({bindGroupLayouts:[this.finalizeLayout]}),compute:{module:device.createShaderModule({code:FINALIZE_WGSL}),entryPoint:"finalize"}});

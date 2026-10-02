@@ -14,7 +14,7 @@ import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
 import { appearanceCachePlan, appearanceCacheIntegration, type AppearanceCachePlan } from "../shaders/appearance_cache.js";
-import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS, APPEARANCE_SURFACE_CHANNELS, APPEARANCE_SURFACE_LAYER_COUNT, APPEARANCE_PACKED_SLOT_RECORD_COUNT, SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE } from "./GpuAppearanceCacheAbi.js";
+import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS, APPEARANCE_SURFACE_CACHE_KEY_WORDS, APPEARANCE_SURFACE_CHANNELS, APPEARANCE_SURFACE_LAYER_COUNT, APPEARANCE_PACKED_SLOT_RECORD_COUNT, SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE } from "./GpuAppearanceCacheAbi.js";
 import type { GpuAppearanceCache, PreparedAppearanceCache } from "./GpuAppearanceCache.js";
 import { GPU_VISIBILITY_KEY_WGSL, GPU_VISIBILITY_KEY_EMPTY, GPU_VISIBILITY_KEY_INVALID } from "./GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "./GpuMeshletRasterWorkAbi.js";
@@ -114,7 +114,7 @@ struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: 
 @group(0) @binding(17) var<storage, read> surface_directory: array<u32>;
 @group(0) @binding(18) var surface_fields: texture_storage_2d_array<rgba16float, write>;
 @group(0) @binding(19) var<uniform> surface_settings: SurfaceSettings;
-@group(0) @binding(20) var<storage, read_write> surface_cache: array<vec4u>;
+@group(0) @binding(20) var<storage, read_write> surface_cache: array<u32>;
 @group(0) @binding(21) var<storage, read_write> surface_cache_values: array<vec4f>;
 @group(0) @binding(22) var<storage, read> surface_identity: array<vec4u>;
 @group(0) @binding(23) var<storage, read> surface_counters: array<u32>;
@@ -155,12 +155,16 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
   textureStore(surface_fields,pixel,2,layer2); textureStore(surface_fields,pixel,3,layer3);
   textureStore(surface_fields,pixel,4,layer4); textureStore(surface_fields,pixel,5,layer5);
   let stable=surface_geometry_identity(bitcast<u32>(surface_geometry[base+9u].w),bitcast<u32>(surface_geometry[base+9u].y),bitcast<u32>(surface_geometry[base+9u].z),bitcast<u32>(surface_geometry[base+10u].w),material);
-  let field=select(0u,surface_field_versions[0u],arrayLength(&surface_field_versions)>0u);
-  let residency=select(0u,surface_residency_versions[0u],arrayLength(&surface_residency_versions)>0u);
+   var field=2166136261u; for(var fieldAt=0u;fieldAt<arrayLength(&surface_field_versions);fieldAt+=4u){ field=(field^surface_field_versions[fieldAt])*16777619u; }
+   var residency=2166136261u; for(var residencyAt=0u;residencyAt<arrayLength(&surface_residency_versions);residencyAt++){ residency=(residency^surface_residency_versions[residencyAt])*16777619u; }
   let identityRecord=surface_identity[entry];
   let hash=surface_cache_hash(stable,material,field,residency,identityRecord.x^identityRecord.y^identityRecord.z^identityRecord.w);
   let cell=hash&(surface_settings.cache_capacity-1u);
-  surface_cache[cell]=vec4u(hash,stable,material,identityRecord.z);
+   let cacheAt=cell*${APPEARANCE_SURFACE_CACHE_KEY_WORDS}u;
+   surface_cache[cacheAt+0u]=hash; surface_cache[cacheAt+1u]=stable; surface_cache[cacheAt+2u]=material;
+   surface_cache[cacheAt+3u]=identityRecord.x; surface_cache[cacheAt+4u]=identityRecord.y;
+   surface_cache[cacheAt+5u]=identityRecord.z; surface_cache[cacheAt+6u]=identityRecord.w;
+   surface_cache[cacheAt+7u]=field; surface_cache[cacheAt+8u]=residency;
   surface_cache_values[cell*${APPEARANCE_SURFACE_LAYER_COUNT}u+0u]=layer0;
   surface_cache_values[cell*${APPEARANCE_SURFACE_LAYER_COUNT}u+1u]=layer1;
   surface_cache_values[cell*${APPEARANCE_SURFACE_LAYER_COUNT}u+2u]=layer2;
@@ -185,7 +189,7 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
     { binding: 17, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
     { binding: 18, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float", viewDimension: "2d-array" } },
     { binding: 19, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 32 } },
-    { binding: 20, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
+    { binding: 20, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: APPEARANCE_SURFACE_CACHE_KEY_WORDS * 4 } },
     { binding: 21, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
     { binding: 22, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } }
     ,{ binding: 23, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } }

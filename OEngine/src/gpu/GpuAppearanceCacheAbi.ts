@@ -12,6 +12,8 @@ export const APPEARANCE_FIELD_COUNT = APPEARANCE_FIELD_NAMES.length;
 /** Physical Surface publication packs vec3 fields with their scalar consumers.
  * Logical compiler outputs/versions retain independent identities. */
 export const APPEARANCE_SURFACE_LAYER_COUNT = 6;
+/** Exact stable Surface cache identity words. Hash is only the first index. */
+export const APPEARANCE_SURFACE_CACHE_KEY_WORDS = 9;
 /** High bit in surface publication identity.w marks fields that depend on
  * geometry, texture footprint, dynamic, view or nonlocal inputs. Such entries
  * must not be reused by the stable material cache until their full input
