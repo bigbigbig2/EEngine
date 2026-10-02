@@ -288,7 +288,7 @@ export class SurfaceWorkRuntime {
     shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
     environment: SurfaceLightingInput["environment"];
     factsMask: ResourceId; factsIdentity: ResourceId; preExposure: ResourceId; width: number; height: number;
-    revisions: SurfaceSignalRevisions; viewRevision: Readonly<{value:number}>; nonlocalRevision: Readonly<{value:number}>;
+    revisions: SurfaceSignalRevisions; viewRevision: Readonly<{value:number}>; nonlocalRevision: Readonly<{value:number}>; diagnosticFrame: Readonly<{value:number}>;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
@@ -376,7 +376,7 @@ export class SurfaceWorkRuntime {
       work, counts, materialCounters: evaluatedMaterial.counters, materialAudit: evaluatedMaterial.audit, geometryCount: geometry.count,
       geometryMissCounters: geometry.missCounters, lightingCounters: lighting.counters,
       reconstructCounters: reconstruction.counters,
-      width: input.width, height: input.height, frameId: input.frame.generation,
+      width: input.width, height: input.height, frameId: input.diagnosticFrame,
       geometryOffset: layout.geometryOffset
     }) : null;
     return { work, counts, sampleMap, ...geometry, ...evaluatedMaterial, ...lighting, ...reconstruction,

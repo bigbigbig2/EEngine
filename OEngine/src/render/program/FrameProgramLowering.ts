@@ -398,6 +398,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     })),
     viewRevision: bind("surface-view-revision", bindings => ({ value: bindings.cameraRevision })),
     nonlocalRevision: bind("surface-nonlocal-revision", bindings => ({ value: bindings.sceneRevision })),
+    diagnosticFrame: bind("surface-diagnostic-frame", bindings => ({ value: bindings.frameIndex })),
     materialLookup: surfaceMaterialLookup,
     surfaceIdentity,
     materials: materialRecords,

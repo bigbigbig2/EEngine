@@ -26,7 +26,7 @@ export interface SurfaceDiagnosticsInput {
   readonly reconstructCounters: ResourceId;
   readonly width: number;
   readonly height: number;
-  readonly frameId: number;
+  readonly frameId: Readonly<{value:number}>;
   readonly geometryOffset: number;
 }
 
@@ -135,7 +135,7 @@ export class SurfaceDiagnosticsPass {
     const node = graph.add("Surface/diagnostics snapshot", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       command.writeBuffer(this.settings, 0, new Uint32Array([
-        data.width, data.height, data.frameId, data.geometryOffset / 16, data.geometryOffset / 16, 12, 0, 0
+        data.width, data.height, data.frameId.value, data.geometryOffset / 16, data.geometryOffset / 16, 12, 0, 0
       ]).buffer, 0, 32);
       const snapshot = resources.get(snapshotId) as GPUBuffer;
       command.writeBuffer(snapshot, 0, new Uint32Array(SURFACE_DIAGNOSTICS_BYTE_SIZE / 4).buffer, 0, SURFACE_DIAGNOSTICS_BYTE_SIZE);
@@ -152,7 +152,7 @@ export class SurfaceDiagnosticsPass {
       ] });
       const pass = command.beginComputePass({ label: "Surface/diagnostics snapshot" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end();
-      this.encodeSnapshot?.(command, snapshot, data.frameId);
+      this.encodeSnapshot?.(command, snapshot, data.frameId.value);
     });
     for (const resource of [input.work, input.counts, input.materialCounters, input.materialAudit,
       input.geometryCount, input.geometryMissCounters, input.lightingCounters, input.reconstructCounters]) node.read(resource);
