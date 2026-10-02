@@ -16,6 +16,36 @@ export const SPARSE_LIGHTING_HISTORY_NAMES = Object.freeze([
   "lighting-diffuse", "lighting-specular", "lighting-coat"
 ] as const);
 
+/**
+ * Surface V3 lighting diagnostics.  These words are written by the single
+ * packet dispatch and are intentionally independent from SurfaceWork's
+ * classify/indirect counter block.
+ */
+export const SPARSE_LIGHTING_COUNTER = Object.freeze({
+  diffusePackets: 0,
+  specularPackets: 1,
+  coatPackets: 2,
+  iblPackets: 3,
+  fullRateExceptions: 4,
+  directEvaluations: 5,
+  iblEvaluations: 6,
+  aoRejects: 7,
+  vsmRejects: 8,
+  overflowFlags: 9,
+  bytesWritten: 10,
+  dispatchCount: 11,
+  recordsConsidered: 12,
+  invalidRecords: 13,
+  diffuseDisabled: 14,
+  specularDisabled: 15,
+  coatDisabled: 16,
+  iblDisabled: 17,
+  shadowEvaluations: 18,
+  environmentDisabled: 19
+} as const);
+export const SPARSE_LIGHTING_COUNTER_WORDS = 20;
+export const SPARSE_LIGHTING_COUNTER_BYTES = SPARSE_LIGHTING_COUNTER_WORDS * 4;
+
 /** Initial explicit calibration policy; final continuous-image acceptance
  * determines its production quality budget. These are decision tolerances,
  * not a claimed radiance/AAA error bound. */

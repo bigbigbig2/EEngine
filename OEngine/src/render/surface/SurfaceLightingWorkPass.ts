@@ -4,6 +4,7 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { SURFACE_WORK_INDIRECT_OFFSET } from "../../gpu/GpuSurfaceWorkAbi.js";
 import { APPEARANCE_SURFACE_READ_WGSL } from "../../gpu/GpuAppearanceCacheAbi.js";
+import { SPARSE_LIGHTING_COUNTER_BYTES, SPARSE_LIGHTING_COUNTER_WORDS } from "../../gpu/GpuSparseLightingAbi.js";
 import { createProductionSparseDirectLightingWgsl } from "../../shaders/lighting_direct.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "../../shaders/environment_ibl.js";
 
@@ -107,6 +108,7 @@ fn setting(index: u32) -> u32 {
     case 8u: { return settings.cluster_enabled; }
     case 9u: { return settings.environment_enabled; }
     case 10u: { return settings.ao_enabled; }
+    case 7u: { return settings.shadow_enabled; }
     default: { return 0u; }
   }
 }
@@ -196,8 +198,13 @@ fn environment_surface(material: StandardMaterial, normal: vec3f, view_dir: vec3
   let dfg = textureLoad(environment_dfg, dfg_xy, 0).xy;
   let diffuse = diffuse_env * material.diffuse * material.occlusion * ao;
   let specular = specular_env * (material.specularF0 * dfg.x + vec3f(dfg.y));
-  let coat = specular_env * material.coatFactor * 0.04 * ao;
-  return diffuse + specular + coat + material.emissive;
+  return diffuse + specular + material.emissive;
+}
+
+fn coat_environment(material: StandardMaterial, normal: vec3f, view_dir: vec3f) -> vec3f {
+  let reflection = reflect(-view_dir, normal);
+  let specular_env = sample_prefiltered_environment(environment_specular, reflection, material.coatRoughness);
+  return specular_env * material.coatFactor * 0.04;
 }
 
 @compute @workgroup_size(64)
@@ -207,8 +214,16 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   let base = record * 12u;
   let sample_at = setting(4u) / 4u + record * 8u;
   let pixel_index = work[sample_at];
+  let signal_mask = work[sample_at + 3u];
+  let sample_flags = work[sample_at + 7u];
   let pixel = vec2i(i32(pixel_index % setting(0u)), i32(pixel_index / setting(0u)));
   let position = geometry[base + 0u].xyz;
+  if geometry[base + 1u].w < 0.5 {
+    atomicAdd(&counters[13], 1u);
+    textureStore(output, pixel, vec4f(0.0));
+    textureStore(reactive, pixel, vec4f(1.0, 0.0, 1.0, 1.0));
+    return;
+  }
   let geometric_normal = normalize(geometry[base + 1u].xyz);
   let shading_normal = normalize(geometry[base + 2u].xyz);
   let tangent = normalize(geometry[base + 5u].xyz);
@@ -222,20 +237,52 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
     normal = normalize(tangent * normal_ts.x + bitangent * normal_ts.y + shading_normal * normal_ts.z);
   }
   let surface_geometry = SurfaceGeometry(normal, geometric_normal, position, view_dir);
-  let direct = direct_surface(material, surface_geometry, vec2f(pixel) + vec2f(0.5),
-    abs(geometry[base + 0u].w));
   let ao = ao_at(pixel_index);
-  let environment = environment_surface(material, normal, view_dir, pixel, ao);
-  let coat_direct = direct.specular * material.coatFactor;
-  let direct_diffuse = direct.diffuse * (1.0 - material.coatFactor * 0.25);
-  let direct_specular = max(direct.specular - coat_direct, vec3f(0.0));
+  if setting(10u) == 0u { atomicAdd(&counters[7], 1u); }
+  atomicAdd(&counters[12], 1u);
+  let has_direct = (signal_mask & 7u) != 0u;
+  let has_diffuse = (signal_mask & 1u) != 0u;
+  let has_specular = (signal_mask & 2u) != 0u;
+  let has_coat = (signal_mask & 4u) != 0u;
+  let has_ibl = (signal_mask & 8u) != 0u;
+  var direct = ReflectedLight(vec3f(0.0), vec3f(0.0));
+  if has_direct {
+    direct = direct_surface(material, surface_geometry, vec2f(pixel) + vec2f(0.5),
+      abs(geometry[base + 0u].w));
+    atomicAdd(&counters[5], 1u);
+    if setting(7u) != 0u { atomicAdd(&counters[18], 1u); }
+    else { atomicAdd(&counters[8], 1u); }
+  }
+  var direct_diffuse = vec3f(0.0);
+  var direct_specular = vec3f(0.0);
+  var coat_direct = vec3f(0.0);
+  if has_diffuse {
+    direct_diffuse = direct.diffuse * (1.0 - material.coatFactor * 0.25);
+    atomicAdd(&counters[0], 1u);
+  } else { atomicAdd(&counters[14], 1u); }
+  if has_specular {
+    direct_specular = max(direct.specular - select(vec3f(0.0), direct.specular * material.coatFactor, has_coat), vec3f(0.0));
+    atomicAdd(&counters[1], 1u);
+  } else { atomicAdd(&counters[15], 1u); }
+  if has_coat {
+    coat_direct = direct.specular * material.coatFactor;
+    atomicAdd(&counters[2], 1u);
+  } else { atomicAdd(&counters[16], 1u); }
+  var environment = vec3f(0.0);
+  var coat_ibl = vec3f(0.0);
+  if has_ibl {
+    environment = environment_surface(material, normal, view_dir, pixel, ao);
+    atomicAdd(&counters[3], 1u);
+    atomicAdd(&counters[6], 1u);
+  } else { atomicAdd(&counters[17], 1u); atomicAdd(&counters[19], 1u); }
+  if has_coat && has_ibl { coat_ibl = coat_environment(material, normal, view_dir); }
   diffuse[record] = vec4f(direct_diffuse, 1.0);
   specular[record] = vec4f(direct_specular, 1.0);
-  coat[record] = vec4f(coat_direct, 1.0);
+  coat[record] = vec4f(coat_direct + coat_ibl, 1.0);
   ibl[record] = vec4f(environment, 1.0);
-  atomicAdd(&counters[0], 1u); atomicAdd(&counters[1], 1u);
-  atomicAdd(&counters[2], 1u); atomicAdd(&counters[3], 1u);
-  textureStore(output, pixel, vec4f(direct_diffuse + direct_specular + coat_direct + environment, 1.0));
+  atomicAdd(&counters[10], 4u * 16u);
+  if (sample_flags & 2u) != 0u { atomicAdd(&counters[4], 1u); }
+  textureStore(output, pixel, vec4f(direct_diffuse + direct_specular + coat_direct + coat_ibl + environment, 1.0));
   let reactive_value = select(0.0, 1.0, material.roughness < 0.12 || material.coatFactor > 0.5);
   textureStore(reactive, pixel, vec4f(reactive_value, 0.0, 0.0, 1.0));
 }
@@ -298,10 +345,13 @@ export class SurfaceLightingWorkPass {
       const command = context.encoder as ShadeGPUCommandContext;
       const settings = new Uint32Array([
         data.width, data.height, data.recordCount, data.frame, data.sampleOffset,
-        1, data.environment === undefined ? 0 : 1, data.shadow === null ? 0 : 1,
+        1, 1, data.shadow === null ? 0 : 1,
         1, 1, data.scalarAo === null ? 0 : 1, 0]);
       command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
-      command.writeBuffer(resources.get(counters) as GPUBuffer, 0, new Uint32Array(4).buffer, 0, 16);
+      const initialCounters = new Uint32Array(SPARSE_LIGHTING_COUNTER_WORDS);
+      initialCounters[11] = 1;
+      command.writeBuffer(resources.get(counters) as GPUBuffer, 0,
+        initialCounters.buffer, 0, SPARSE_LIGHTING_COUNTER_BYTES);
       const buffer = (id: ResourceId): GPUBuffer => resources.get(id) as GPUBuffer;
       const group0 = this.device.createBindGroup({ layout: this.layout, entries: [
         { binding: 0, resource: { buffer: this.settings } }, { binding: 1, resource: { buffer: buffer(data.geometry) } },
@@ -363,7 +413,7 @@ export class SurfaceLightingWorkPass {
     specularPackets = node.create("Surface/specular packets", { kind: "transient_buffer", size: bytes, usage: GPUBufferUsage.STORAGE, domain: "internal-full" });
     coatPackets = node.create("Surface/coat packets", { kind: "transient_buffer", size: bytes, usage: GPUBufferUsage.STORAGE, domain: "internal-full" });
     iblPackets = node.create("Surface/IBL packets", { kind: "transient_buffer", size: bytes, usage: GPUBufferUsage.STORAGE, domain: "internal-full" });
-    counters = node.create("Surface/lighting counters", { kind: "transient_buffer", size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
+    counters = node.create("Surface/lighting counters", { kind: "transient_buffer", size: SPARSE_LIGHTING_COUNTER_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     for (const id of [diffusePackets, specularPackets, coatPackets, iblPackets, counters]) node.write(id);
     radiance = node.create("Surface/packet radiance", { kind: "transient_texture", width: input.width, height: input.height, format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
     reactiveMask = node.create("Surface/packet reactive", { kind: "transient_texture", width: input.width, height: input.height, format: "rgba8unorm", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
