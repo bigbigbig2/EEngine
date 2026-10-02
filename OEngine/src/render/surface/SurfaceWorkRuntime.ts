@@ -319,7 +319,7 @@ export class SurfaceWorkRuntime {
       lightRecords: input.lightRecords, clusters: input.clusters, shadow: input.shadow,
       scalarAo: input.scalarAo, environment: input.environment });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
-      coat: lighting.coatPackets, ibl: lighting.iblPackets, geometry: geometry.records, reactive: input.factsMask,
+      coat: lighting.coatPackets, ibl: lighting.iblPackets, reactive: input.factsMask,
       identity: input.factsIdentity, preExposure: input.preExposure, width: input.width, height: input.height, recordCount, sampleMap });
     return { work, counts, sampleMap, records: geometry.records, count: geometry.count, ...material, ...lighting, ...reconstruction };
   }

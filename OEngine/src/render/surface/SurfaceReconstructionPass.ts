@@ -15,7 +15,6 @@ struct Settings {
 @group(0) @binding(2) var<storage,read> specular:array<vec4f>;
 @group(0) @binding(3) var<storage,read> coat:array<vec4f>;
 @group(0) @binding(4) var<storage,read> ibl:array<vec4f>;
-@group(0) @binding(5) var<storage,read> geometry:array<vec4f>;
 @group(0) @binding(6) var<storage,read> source_reactive:texture_2d<f32>;
 @group(0) @binding(7) var output:texture_storage_2d<rgba16float,write>;
 @group(0) @binding(8) var reactive:texture_storage_2d<rgba8unorm,write>;
@@ -80,7 +79,7 @@ export class SurfaceReconstructionPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 32 } },
-      ...[1, 2, 3, 4, 5].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
+      ...[1, 2, 3, 4].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "read-only-storage" as GPUBufferBindingType } })),
       { binding: 6, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
       { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
@@ -137,7 +136,7 @@ export class SurfaceReconstructionPass {
   }
 
   addToGraph(graph: FrameGraph, input: {
-    diffuse: ResourceId; specular: ResourceId; coat: ResourceId; ibl: ResourceId; geometry: ResourceId;
+    diffuse: ResourceId; specular: ResourceId; coat: ResourceId; ibl: ResourceId;
     reactive: ResourceId; identity: ResourceId; preExposure: ResourceId; sampleMap: ResourceId;
     width: number; height: number; recordCount: number
   }): SurfaceReconstructionProducts {
@@ -170,7 +169,6 @@ export class SurfaceReconstructionPass {
           { binding: 2, resource: { buffer: resources.get(data.specular) as GPUBuffer } },
           { binding: 3, resource: { buffer: resources.get(data.coat) as GPUBuffer } },
           { binding: 4, resource: { buffer: resources.get(data.ibl) as GPUBuffer } },
-          { binding: 5, resource: { buffer: resources.get(data.geometry) as GPUBuffer } },
           { binding: 6, resource: resolveTextureView(resources.get(data.reactive)) },
           { binding: 7, resource: resolveTextureView(resources.get(radiance)) },
           { binding: 8, resource: resolveTextureView(resources.get(reactiveMask)) },
@@ -188,7 +186,7 @@ export class SurfaceReconstructionPass {
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
         pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8)); pass.end();
       });
-    for (const id of [input.diffuse, input.specular, input.coat, input.ibl, input.geometry,
+    for (const id of [input.diffuse, input.specular, input.coat, input.ibl,
       input.reactive, input.identity, input.preExposure, input.sampleMap, historyRead, identityRead, ageRead]) node.read(id);
     node.write(historyWrite); node.write(identityWrite); node.write(ageWrite);
     radiance = node.create("Surface/HDR reconstructed", { kind: "transient_texture", width: input.width,
