@@ -15,6 +15,8 @@ currentSlice:
   id: surface-work-runtime-v3-refactor
   title: SurfaceWork Runtime 第三版：统一几何、miss-only 材质与分信号重建
   status: active
+  phaseStatus: >-
+    Phase 4 已接入真实 LightClusterFrame、ShadowVisibilityFrame、XeGTAO packed visibility、authored/physical IBL 与生产 BRDF/cluster/VSM 数学，独立 diffuse/specular/coat/IBL packet 已接线；Phase 5 已接入双缓冲 signal history 与 pre-exposure reconstruct；Phase 6 已接入 GPU completion 后 history 交换、resize retire 和 camera cut 失效。GeometryRecord hit 绕过、完整 signal age/identity reject、browser/GPU 性能与四版本正式验收仍待 Phase 7。
   goal: >-
     Phase 0 已固定三组历史 revision、GTX 1650 Ti/1080p 目标、Dungeon 资源 fingerprint、
     feature set、覆盖率区间、预热/采集/P50/P95 口径，配置见
