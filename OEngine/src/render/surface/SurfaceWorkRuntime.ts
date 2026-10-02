@@ -53,6 +53,7 @@ var<workgroup> keys: array<u32, 64>;
 var<workgroup> valid: array<u32, 64>;
 var<workgroup> tile_class: u32;
 var<workgroup> uniform_key: u32;
+var<workgroup> uniform_lane: u32;
 var<workgroup> tile_samples: atomic<u32>;
 var<workgroup> overflow_lo: atomic<u32>;
 var<workgroup> overflow_hi: atomic<u32>;
@@ -101,7 +102,7 @@ fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid:
     for (var i = 0u; i < 64u; i++) {
       if valid[i] != 0u {
         visible += 1u;
-        if first == 0xffffffffu { first = keys[i]; }
+        if first == 0xffffffffu { first = keys[i]; uniform_lane = i; }
         else if keys[i] != first { same = false; }
       }
     }
@@ -135,10 +136,13 @@ fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid:
     atomicStore(&tile_samples, 1u);
     let slot = atomicAdd(&counts[0], 1u);
     if slot < settings.sample_capacity {
-      write_sample(slot, (ty * 8u) * settings.width + tx * 8u, uniform_key, tile, lane);
+      // A partially covered uniform tile can have background at its origin.
+      // Geometry must resolve a covered representative and publish only covered pixels.
+      let representative=(ty*8u+uniform_lane/8u)*settings.width+tx*8u+uniform_lane%8u;
+      write_sample(slot, representative, uniform_key, tile, uniform_lane);
       for (var i = 0u; i < 64u; i++) {
         let sx = tx * 8u + (i % 8u); let sy = ty * 8u + (i / 8u);
-        if sx < settings.width && sy < settings.height {
+        if sx < settings.width && sy < settings.height && valid[i] != 0u {
           textureStore(sample_map, vec2i(i32(sx), i32(sy)), vec4u(slot));
         }
       }
@@ -287,7 +291,9 @@ export class SurfaceWorkRuntime {
     lightRecords: ResourceId; clusters: SurfaceLightingInput["clusters"];
     shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
     environment: SurfaceLightingInput["environment"];
-    factsMask: ResourceId; factsIdentity: ResourceId; preExposure: ResourceId; width: number; height: number;
+    physicalSun: SurfaceLightingInput["physicalSun"];
+    factsMask: ResourceId; factsIdentity: ResourceId; factsMotion: ResourceId; preExposure: ResourceId; width: number; height: number;
+    historyBinding: (name: string, resolve: () => GPUTexture) => GPUTexture;
     revisions: SurfaceSignalRevisions; viewRevision: Readonly<{value:number}>; nonlocalRevision: Readonly<{value:number}>; diagnosticFrame: Readonly<{value:number}>;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
@@ -355,6 +361,7 @@ export class SurfaceWorkRuntime {
       sourceGeometry: input.frame.sourceGeometry, sourceMeshlet: input.frame.sourceMeshlet,
       sourceMeshletVertices: input.frame.sourceMeshletVertices, sourceMeshletTriangles: input.frame.sourceMeshletTriangles,
       sourceVertexData: input.frame.sourceVertexData, materialHitMask: material.hitMask,
+      diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null,
       sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset, recordCount, geometryCapacity: layout.geometryCapacity, counts });
     const evaluatedMaterial = this.material.addEvaluateToGraph(graph, { ...material, geometry: geometry.records, geometryOffset: layout.geometryOffset / 16, width: input.width, height: input.height,
       recordCount, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions, frame: input.frame.generation, counts,
@@ -365,11 +372,12 @@ export class SurfaceWorkRuntime {
       work, sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset / 16, width: input.width, height: input.height,
       recordCount, frame: input.frame.generation, counts, camera: input.camera,
       lightRecords: input.lightRecords, clusters: input.clusters, shadow: input.shadow,
-      scalarAo: input.scalarAo, environment: input.environment,
+      scalarAo: input.scalarAo, environment: input.environment, physicalSun: input.physicalSun,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
       coat: lighting.coatPackets, ibl: lighting.iblPackets, reactive: input.factsMask,
-      identity: input.factsIdentity, preExposure: input.preExposure, revisions: input.revisions,
+      identity: input.factsIdentity, motion: input.factsMotion, historyBinding: input.historyBinding,
+      preExposure: input.preExposure, revisions: input.revisions,
       width: input.width, height: input.height, recordCount, sampleMap,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     const diagnostics = this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null ? this.diagnostics.addToGraph(graph, {

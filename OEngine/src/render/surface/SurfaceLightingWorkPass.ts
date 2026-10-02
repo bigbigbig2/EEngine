@@ -8,6 +8,7 @@ import { SPARSE_LIGHTING_COUNTER_BYTES, SPARSE_LIGHTING_COUNTER_WORDS } from "..
 import { createProductionSparseDirectLightingWgsl } from "../../shaders/lighting_direct.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "../../shaders/environment_ibl.js";
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
+import { ATMOSPHERE_RUNTIME_WGSL } from "../../shaders/atmosphere/runtime.js";
 
 export interface SurfaceLightingProducts {
   readonly diffusePackets: ResourceId;
@@ -30,6 +31,7 @@ export interface SurfaceLightingInput {
   readonly recordCount: number;
   readonly frame: number;
   readonly camera: ResourceId;
+  readonly physicalSun: { readonly parameters: ResourceId; readonly transmittance: ResourceId } | null;
   readonly lightRecords: ResourceId;
   readonly clusters: {
     readonly parameters: ResourceId;
@@ -66,6 +68,7 @@ ${DIRECT_MATH}
 ${OCTAHEDRAL_SAMPLE_WGSL}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${APPEARANCE_SURFACE_READ_WGSL}
+${ATMOSPHERE_RUNTIME_WGSL}
 
 struct SurfaceView { width: u32, height: u32, frame_index: u32, _pad: u32 };
 struct SurfaceSettings {
@@ -88,6 +91,9 @@ struct SurfaceSettings {
 @group(0) @binding(13) var environment_diffuse: texture_2d<f32>;
 @group(0) @binding(14) var environment_specular: texture_2d<f32>;
 @group(0) @binding(15) var environment_dfg: texture_2d<f32>;
+@group(0) @binding(16) var<uniform> physical_sun: PhysicalEnvironmentParameters;
+@group(0) @binding(17) var solar_transmittance: texture_2d<f32>;
+@group(0) @binding(18) var solar_sampler: sampler;
 
 fn diagnostic_add(index: u32, value: u32) {
   if settings.diagnostics_enabled != 0u { atomicAdd(&counters[index], value); }
@@ -147,6 +153,15 @@ fn surface_material(pixel: vec2i) -> StandardMaterial {
 fn direct_surface(material: StandardMaterial, geometry_in: SurfaceGeometry,
   pixel: vec2f, view_depth: f32) -> ReflectedLight {
   var reflected = ReflectedLight(vec3f(0.0), vec3f(0.0));
+  if settings._reserved0 != 0u {
+    var solar: GpuPrimitiveTypeTable;
+    solar.direction=normalize(physical_sun.sun_direction_world);
+    solar.color=atmosphere_sun_irradiance(geometry_in.position,physical_sun,solar_transmittance,solar_sampler);
+    if settings.shadow_enabled != 0u {
+      solar.color*=vsm_sample_directional(geometry_in.position,geometry_in.shading_normal,solar);
+    }
+    re_direct_physical(solar,geometry_in,material,&reflected);
+  }
   var directional_mask = directional_lights_iteration_mask(&node);
   while (directional_mask != 0u) {
     let index = countTrailingZeros(directional_mask);
@@ -220,6 +235,9 @@ fn coat_environment(material: StandardMaterial, normal: vec3f, view_dir: vec3f) 
 fn build(@builtin(global_invocation_id) id: vec3u) {
   let record = id.x;
   if record >= setting(2u) || record >= surface_counts[0u] { return; }
+  // Publish invalid packets on every early exit; transient allocations may be reused.
+  diffuse[record]=vec4f(0.0); specular[record]=vec4f(0.0);
+  coat[record]=vec4f(0.0); ibl[record]=vec4f(0.0);
   let base = setting(11u) + record * 12u;
   let sample_at = setting(4u) / 4u + record * 8u;
   let pixel_index = work[sample_at];
@@ -300,8 +318,10 @@ export class SurfaceLightingWorkPass {
   private readonly pipeline: GPUComputePipeline;
   private readonly settings: GPUBuffer;
   private readonly viewBuffer: GPUBuffer;
+  private readonly solarSampler: GPUSampler;
 
   constructor(private readonly device: GPUDevice) {
+    this.solarSampler = device.createSampler({ label: "Surface solar transmittance", minFilter: "linear", magFilter: "linear" });
     this.settings = device.createBuffer({ label: "Surface lighting settings", size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.viewBuffer = device.createBuffer({ label: "Surface lighting view", size: 16,
@@ -316,7 +336,10 @@ export class SurfaceLightingWorkPass {
       { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ...[13, 14, 15].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
-        texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d" as GPUTextureViewDimension } }))
+        texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d" as GPUTextureViewDimension } })),
+      { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
+      { binding: 17, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
+      { binding: 18, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } }
     ] });
     this.lightLayout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -350,7 +373,7 @@ export class SurfaceLightingWorkPass {
         data.width, data.height, data.recordCount, data.frame, data.sampleOffset,
         1, 1, data.shadow === null ? 0 : 1,
         1, 1, data.scalarAo === null ? 0 : 1, data.geometryOffset,
-        data.diagnosticsEnabled ? 1 : 0, 0, 0, 0]);
+        data.diagnosticsEnabled ? 1 : 0, data.physicalSun === null ? 0 : 1, 0, 0]);
       command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
       const initialCounters = new Uint32Array(SPARSE_LIGHTING_COUNTER_WORDS);
       initialCounters[11] = 1;
@@ -366,7 +389,10 @@ export class SurfaceLightingWorkPass {
         { binding: 11, resource: { buffer: buffer(data.work) } }, { binding: 12, resource: { buffer: buffer(data.scalarAo ?? data.counts) } },
         { binding: 13, resource: resolveTextureView(resources.get(data.environment.diffuse)) },
         { binding: 14, resource: resolveTextureView(resources.get(data.environment.specular)) },
-        { binding: 15, resource: resolveTextureView(resources.get(data.environment.dfg)) }
+        { binding: 15, resource: resolveTextureView(resources.get(data.environment.dfg)) },
+        { binding: 16, resource: { buffer: buffer(data.physicalSun?.parameters ?? data.camera) } },
+        { binding: 17, resource: resolveTextureView(resources.get(data.physicalSun?.transmittance ?? data.environment.diffuse)) },
+        { binding: 18, resource: this.solarSampler }
       ] });
       const group1 = this.device.createBindGroup({ layout: this.lightLayout, entries: [
         { binding: 0, resource: { buffer: buffer(data.lightRecords) } },
@@ -402,6 +428,7 @@ export class SurfaceLightingWorkPass {
     });
     node.read(input.geometry); node.read(input.fields); node.read(input.counts); node.read(input.work);
     node.read(input.lightRecords); node.read(input.clusters.parameters); node.read(input.clusters.lookup);
+    if (input.physicalSun !== null) { node.read(input.physicalSun.parameters); node.read(input.physicalSun.transmittance); }
     node.read(input.clusters.data); node.read(input.clusters.activeLightList);
     if (input.shadow !== null) { shadowConstantsId = input.shadow.lightProjection; shadowPageTableId = input.shadow.virtualPageTable; shadowAtlasId = input.shadow.physicalAtlasDepth; node.read(input.shadow.virtualPageTable); node.read(input.shadow.physicalAtlasDepth); node.read(input.shadow.lightProjection); }
     else {

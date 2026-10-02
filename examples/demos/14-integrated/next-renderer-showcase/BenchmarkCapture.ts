@@ -12,6 +12,8 @@ export interface CaptureRequest {
   distanceScale?: number;
   lockCamera?: boolean;
   surfaceMode?: SurfaceDiagnosticsMode;
+  /** Diagnostic runner may keep the measured pose for its screenshot. */
+  retainView?: boolean;
 }
 export interface CaptureHost {
   renderer(): Renderer;
@@ -20,7 +22,7 @@ export interface CaptureHost {
   setDistance(scale: number): void;
   stability(): { signature: string; busy: boolean; failed: boolean };
   renderFrames(count: number): Promise<void>;
-  restore(): void;
+  restore(retainView?: boolean): void;
   status(message: string): void;
 }
 export interface CaptureReport {
@@ -49,7 +51,7 @@ export class BenchmarkCapture {
     const request: Required<CaptureRequest> = { width: 1280, height: 720, frames: 120, warmup: 60,
       view: "overview", profile: "full", counters: true, coverage: "low",
       distanceScale: input.coverage === "high" ? 0.5 : 1.75, lockCamera: false,
-      surfaceMode: "timing", ...input };
+      surfaceMode: "timing", retainView: false, ...input };
     for (const key of ["width", "height", "frames", "warmup"] as const) {
       if (!Number.isSafeInteger(request[key]) || request[key] < (key === "warmup" ? 0 : 1) || request[key] > 8192) throw new Error(`Invalid capture ${key}`);
     }
@@ -140,7 +142,9 @@ export class BenchmarkCapture {
         ...(summary.invalidGpuFrameIds.length ? ["GPU timestamps incomplete/invalid"] : []),
         ...(summary.multipleSubmitFrameIds.length ? ["Unexpected submit count"] : []),
         ...(summary.counters.appearanceTasksOverflow && summary.counters.appearanceTasksOverflow.max > 0 ? ["Appearance task overflow; incomplete surface coverage"] : []),
-        ...(summary.counters.appearanceTasksWritten && coverageCounts && summary.counters.appearanceTasksWritten.min !== coverageCounts.min ? ["Appearance tasks do not cover all visible pixels"] : []),
+        // V3 samples can serve multiple covered pixels. Detailed reconstruction
+        // coverage below verifies the output domain; sample count is not coverage.
+        ...(summary.counters.appearanceTasksWritten && coverageCounts && summary.counters.appearanceTasksWritten.max > coverageCounts.max ? ["Appearance samples exceed visible pixels"] : []),
         ...(diagnostics.validationErrorCount || diagnostics.uncapturedErrorCount || diagnostics.deviceLostCount ? ["GPU/runtime errors recorded"] : []),
         ...(diagnostics.failedGpuTimestampBatches || diagnostics.failedGpuCounterSamples ? ["GPU readback failures recorded"] : []),
         ...(request.counters && !coverageCounts ? ["Measured GPU coverage counters missing"] : []),
@@ -166,7 +170,7 @@ export class BenchmarkCapture {
       renderer.configureSurfaceDiagnostics("off", null);
       diagnosticsCapture.destroy();
       unsubscribe(); document.removeEventListener("visibilitychange", onVisibility);
-      this.host.restore(); this.clocks.clear(); this.busy = false;
+      this.host.restore(request.retainView); this.clocks.clear(); this.busy = false;
     }
   }
 

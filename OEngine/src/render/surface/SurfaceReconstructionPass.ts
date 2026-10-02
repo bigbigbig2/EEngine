@@ -2,12 +2,14 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
+import { LINEAR_REC709_TO_REC2020_WGSL } from "../../shaders/working_color.js";
 
 export const SURFACE_RECONSTRUCT_COUNTER_WORDS = 6;
 export const SURFACE_RECONSTRUCT_COUNTER_BYTES = SURFACE_RECONSTRUCT_COUNTER_WORDS * 4;
 export interface SurfaceReconstructionProducts { readonly radiance: ResourceId; readonly reactiveMask: ResourceId; readonly counters: ResourceId; }
 
 const RECONSTRUCT_WGSL = /* wgsl */ `
+${LINEAR_REC709_TO_REC2020_WGSL}
 struct Settings {
   width:u32, height:u32, record_count:u32, history_valid:u32,
   pre_exposure:f32, history_feedback:f32, history_max_age:u32, revision_mask:u32,
@@ -37,6 +39,7 @@ struct Settings {
 @group(0) @binding(22) var history_age_read:texture_2d<u32>;
 @group(0) @binding(23) var history_age_write:texture_storage_2d<r32uint,write>;
 @group(0) @binding(24) var<storage,read_write> diagnostics:array<atomic<u32>>;
+@group(0) @binding(25) var motion:texture_2d<f32>;
 
 fn diagnostic_add(index:u32, value:u32) {
   if settings.diagnostics_enabled != 0u { atomicAdd(&diagnostics[index], value); }
@@ -48,14 +51,19 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
   let pixel=vec2i(id.xy); let record=textureLoad(sample_map,pixel,0).x;
   let facts=textureLoad(source_reactive,pixel,0);
   let identity=textureLoad(current_identity,pixel,0);
-  let previous_identity=textureLoad(history_identity_read,pixel,0);
-  let previous_age=textureLoad(history_age_read,pixel,0).x;
-  let valid=record<settings.record_count && record!=0xffffffffu && facts.y>0.5 && facts.z<0.5;
+  let previous_uv=(vec2f(id.xy)+0.5)/vec2f(f32(settings.width),f32(settings.height))-textureLoad(motion,pixel,0).xy;
+  let previous_inside=all(previous_uv>=vec2f(0.0)) && all(previous_uv<vec2f(1.0));
+  let previous_pixel=clamp(vec2i(previous_uv*vec2f(f32(settings.width),f32(settings.height))),vec2i(0),vec2i(i32(settings.width)-1,i32(settings.height)-1));
+  let previous_identity=textureLoad(history_identity_read,previous_pixel,0);
+  let previous_age=textureLoad(history_age_read,previous_pixel,0).x;
+  // Motion validity and disocclusion reject history, never current radiance.
+  var valid=record<settings.record_count && record!=0xffffffffu;
+  if valid { valid=diffuse[record].w>0.5; }
   let identity_match=all(identity==previous_identity);
   var current_diffuse=vec3f(0.0); var current_specular=vec3f(0.0);
   var current_coat=vec3f(0.0); var current_ibl=vec3f(0.0);
   if valid { current_diffuse=diffuse[record].xyz; current_specular=specular[record].xyz; current_coat=coat[record].xyz; current_ibl=ibl[record].xyz; }
-  let can_reuse=settings.history_valid!=0u && valid && identity_match && previous_age<settings.history_max_age;
+  let can_reuse=settings.history_valid!=0u && valid && previous_inside && facts.y>0.5 && facts.z<0.5 && facts.x<0.5 && identity_match && previous_age<settings.history_max_age;
   let feedback=clamp(settings.history_feedback+facts.w*0.1,0.05,0.35);
   let reuse_diffuse=can_reuse && (settings.revision_mask & 1u)==0u;
   let reuse_specular=can_reuse && (settings.revision_mask & 2u)==0u;
@@ -63,10 +71,10 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
   let reuse_ibl=can_reuse && (settings.revision_mask & 8u)==0u;
   var resolved_diffuse=current_diffuse; var resolved_specular=current_specular;
   var resolved_coat=current_coat; var resolved_ibl=current_ibl;
-  if reuse_diffuse { resolved_diffuse=mix(textureLoad(diffuse_history_read,pixel,0).xyz,current_diffuse,feedback); }
-  if reuse_specular { resolved_specular=mix(textureLoad(specular_history_read,pixel,0).xyz,current_specular,feedback); }
-  if reuse_coat { resolved_coat=mix(textureLoad(coat_history_read,pixel,0).xyz,current_coat,feedback); }
-  if reuse_ibl { resolved_ibl=mix(textureLoad(ibl_history_read,pixel,0).xyz,current_ibl,feedback); }
+  if reuse_diffuse { resolved_diffuse=mix(textureLoad(diffuse_history_read,previous_pixel,0).xyz,current_diffuse,feedback); }
+  if reuse_specular { resolved_specular=mix(textureLoad(specular_history_read,previous_pixel,0).xyz,current_specular,feedback); }
+  if reuse_coat { resolved_coat=mix(textureLoad(coat_history_read,previous_pixel,0).xyz,current_coat,feedback); }
+  if reuse_ibl { resolved_ibl=mix(textureLoad(ibl_history_read,previous_pixel,0).xyz,current_ibl,feedback); }
   let resolved=resolved_diffuse+resolved_specular+resolved_coat+resolved_ibl;
   let exposure=max(pre_exposure[0],1e-4);
   textureStore(diffuse_history_write,pixel,vec4f(resolved_diffuse,1.0));
@@ -74,8 +82,8 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
   textureStore(coat_history_write,pixel,vec4f(resolved_coat,1.0));
   textureStore(ibl_history_write,pixel,vec4f(resolved_ibl,1.0));
   textureStore(history_identity_write,pixel,select(vec4u(0u),identity,valid));
-  textureStore(history_age_write,pixel,vec4u(select(0u, min(previous_age + 1u, 255u), valid && identity_match)));
-  textureStore(output,pixel,vec4f(resolved*exposure,select(0.0,1.0,valid)));
+  textureStore(history_age_write,pixel,vec4u(select(0u, min(previous_age + 1u, 255u), can_reuse)));
+  textureStore(output,pixel,vec4f(oengine_linear_rec709_to_rec2020(resolved)*exposure,select(0.0,1.0,valid)));
   textureStore(reactive,pixel,vec4f(max(facts.x,select(0.0,0.35,!valid || !identity_match)),facts.yzw));
   if valid { diagnostic_add(0u, 1u); } else { diagnostic_add(1u, 1u); }
   if can_reuse { diagnostic_add(2u, 1u); } else { diagnostic_add(3u, 1u); }
@@ -126,7 +134,8 @@ export class SurfaceReconstructionPass {
       { binding: 21, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32uint" } },
       { binding: 22, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
       { binding: 23, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32uint" } },
-      { binding: 24, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      { binding: 24, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 25, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "unfilterable-float" } }
     ] });
     this.pipeline = device.createComputePipeline({ label: "Surface/cheap reconstruct",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
@@ -171,23 +180,24 @@ export class SurfaceReconstructionPass {
 
   addToGraph(graph: FrameGraph, input: {
     diffuse: ResourceId; specular: ResourceId; coat: ResourceId; ibl: ResourceId;
-    reactive: ResourceId; identity: ResourceId; preExposure: ResourceId; sampleMap: ResourceId;
+    reactive: ResourceId; identity: ResourceId; motion: ResourceId; preExposure: ResourceId; sampleMap: ResourceId;
+    historyBinding: (name: string, resolve: () => GPUTexture) => GPUTexture;
     revisions: SurfaceHistoryRevisions;
     width: number; height: number; recordCount: number; diagnosticsEnabled: boolean
   }): SurfaceReconstructionProducts {
     if (!this.prepared || this.histories === null) throw new Error("Surface reconstruction frame is not prepared");
     const historyRead = this.histories.map((pair, index) => graph.import_resource(`Surface ${["diffuse", "specular", "coat", "ibl"][index]} history/read`,
-      { kind: "imported", label: `Surface ${["diffuse", "specular", "coat", "ibl"][index]} history read`, domain: "internal-full" }, pair[this.readIndex]));
+      { kind: "imported", label: `Surface ${["diffuse", "specular", "coat", "ibl"][index]} history read`, domain: "internal-full" }, input.historyBinding(`surface-history-${index}-read`, () => this.histories![index]![this.readIndex])));
     const historyWrite = this.histories.map((pair, index) => graph.import_resource(`Surface ${["diffuse", "specular", "coat", "ibl"][index]} history/write`,
-      { kind: "imported", label: `Surface ${["diffuse", "specular", "coat", "ibl"][index]} history write`, domain: "internal-full" }, pair[this.writeIndex]));
+      { kind: "imported", label: `Surface ${["diffuse", "specular", "coat", "ibl"][index]} history write`, domain: "internal-full" }, input.historyBinding(`surface-history-${index}-write`, () => this.histories![index]![this.writeIndex])));
     const identityRead = graph.import_resource("Surface signal identity history/read",
-      { kind: "imported", label: "Surface signal identity history read", domain: "internal-full" }, this.identityHistories![this.readIndex]);
+      { kind: "imported", label: "Surface signal identity history read", domain: "internal-full" }, input.historyBinding("surface-history-identity-read", () => this.identityHistories![this.readIndex]));
     const identityWrite = graph.import_resource("Surface signal identity history/write",
-      { kind: "imported", label: "Surface signal identity history write", domain: "internal-full" }, this.identityHistories![this.writeIndex]);
+      { kind: "imported", label: "Surface signal identity history write", domain: "internal-full" }, input.historyBinding("surface-history-identity-write", () => this.identityHistories![this.writeIndex]));
     const ageRead = graph.import_resource("Surface signal age history/read",
-      { kind: "imported", label: "Surface signal age history read", domain: "internal-full" }, this.ageHistories![this.readIndex]);
+      { kind: "imported", label: "Surface signal age history read", domain: "internal-full" }, input.historyBinding("surface-history-age-read", () => this.ageHistories![this.readIndex]));
     const ageWrite = graph.import_resource("Surface signal age history/write",
-      { kind: "imported", label: "Surface signal age history write", domain: "internal-full" }, this.ageHistories![this.writeIndex]);
+      { kind: "imported", label: "Surface signal age history write", domain: "internal-full" }, input.historyBinding("surface-history-age-write", () => this.ageHistories![this.writeIndex]));
     let radiance!: ResourceId, reactiveMask!: ResourceId, counters!: ResourceId;
     const node = graph.add("Surface/cheap full-resolution reconstruct", { ...input, historyRead, historyWrite, identityRead, identityWrite, ageRead, ageWrite },
       (data, resources, context) => {
@@ -236,14 +246,15 @@ export class SurfaceReconstructionPass {
           { binding: 21, resource: resolveTextureView(resources.get(data.identityWrite)) },
           { binding: 22, resource: resolveTextureView(resources.get(data.ageRead)) },
           { binding: 23, resource: resolveTextureView(resources.get(data.ageWrite)) },
-          { binding: 24, resource: { buffer: resources.get(counters) as GPUBuffer } }
+          { binding: 24, resource: { buffer: resources.get(counters) as GPUBuffer } },
+          { binding: 25, resource: resolveTextureView(resources.get(data.motion)) }
         ] });
         const pass = command.beginComputePass({ label: "Surface/reconstruct" });
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
         pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8)); pass.end();
       });
     for (const id of [input.diffuse, input.specular, input.coat, input.ibl,
-      input.reactive, input.identity, input.preExposure, input.sampleMap, ...historyRead, identityRead, ageRead]) node.read(id);
+      input.reactive, input.identity, input.motion, input.preExposure, input.sampleMap, ...historyRead, identityRead, ageRead]) node.read(id);
     for (const id of historyWrite) node.write(id); node.write(identityWrite); node.write(ageWrite);
     radiance = node.create("Surface/HDR reconstructed", { kind: "transient_texture", width: input.width,
       height: input.height, format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT, domain: "internal-full" });

@@ -78,7 +78,23 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   residentBytes: 52,
   outputPixels: 53,
   validPacketPixels: 54,
-  reserved: 55
+  reserved: 55,
+  geometryKeyInvalid: 56,
+  geometryKeyOutOfRange: 57,
+  geometrySourceRejected: 58,
+  geometryInterpolationRejected: 59,
+  geometryKeyZero: 60,
+  geometryDirectoryRejected: 61,
+  geometryTriangleRangeRejected: 62,
+  geometryVertexRangeRejected: 63,
+  geometryCoefficientDegenerate: 64
+  ,geometryPrimitiveRangeRejected: 65,
+  geometryBaseRangeRejected: 66,
+  geometrySpanRangeRejected: 67,
+  geometryFirstTriangleCount: 68,
+  geometryFirstPrimitive: 69,
+  geometryFirstDirectoryTriangles: 70,
+  geometryFirstTriangleBase: 71
 } as const);
 
 export const SURFACE_DIAGNOSTICS_COUNTERS = SURFACE_DIAGNOSTIC_COUNTERS;

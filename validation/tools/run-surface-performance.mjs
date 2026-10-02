@@ -122,7 +122,7 @@ try {
         const distanceScale = cameraDistances.get(coverage);
         const capture = await bounded(page.evaluate(request => globalThis.__eengineShowcase.capture(request), { width, height, frames, warmup,
           coverage, surfaceMode: mode, ...(distanceScale === undefined ? {} : { distanceScale, lockCamera: true }),
-          counters: !args.includes("--no-counters"), view: option("view", "overview"), profile: "full" }), 600000, "Calibration/capture");
+          counters: !args.includes("--no-counters"), view: option("view", "overview"), profile: "full", retainView: true }), 600000, "Calibration/capture");
         if (capture.complete && distanceScale === undefined) cameraDistances.set(coverage, capture.cameraDistanceScale);
         capture.caseId = `surface-performance-${coverage}-${mode}-${batch}`; capture.mode = mode; capture.batch = batch; capture.coverageGroup = coverage;
         capture.errors = errors;
@@ -131,6 +131,10 @@ try {
         if (errors.length) { capture.complete = false; capture.issues.push("Browser errors"); }
         report.captures.push(capture);
         await writeFile(resolve(out, `${batch}-${coverage}-${mode}.json`), JSON.stringify(capture, null, 2));
+        const screenshotFrame = await page.evaluate(() => globalThis.__eengineShowcase.runtime.frameCount);
+        await page.waitForFunction(frame => globalThis.__eengineShowcase.runtime.frameCount >= frame + 4,
+          screenshotFrame, { timeout: 30000 });
+        await page.screenshot({ path: resolve(out, `${batch}-${coverage}-${mode}.png`), timeout: 10000 });
         console.log(`${coverage}/${mode}: ${capture.summary.completedGpu}/${frames} frames; coverage ${(capture.calibration.at(-1).coverage * 100).toFixed(2)}%; Surface ${capture.summary.surfacePassSumMs?.p50.toFixed(3)} / ${capture.summary.surfacePassSumMs?.p95.toFixed(3)} ms; total ${capture.summary.gpuPassSumMs?.p50.toFixed(3)} / ${capture.summary.gpuPassSumMs?.p95.toFixed(3)} ms`);
         if (!capture.complete) report.errors.push(`${batch}-${coverage}-${mode}: ${capture.issues.join("; ")}`);
       } catch (error) {

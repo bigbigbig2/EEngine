@@ -44,6 +44,7 @@ export interface SurfaceGeometryInput {
   readonly counts: ResourceId;
   /** Material publication hit mask. Geometry cache lookup is only a fast path for hits. */
   readonly materialHitMask: ResourceId;
+  readonly diagnosticsEnabled: boolean;
 }
 
 const GEOMETRY_CACHE_CAPACITY = 1 << 15;
@@ -148,8 +149,13 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   let key = textureLoad(visibility, vec2i(i32(x), i32(y)), 0).x;
   let base = settings.geometry_offset / 16u + record * 12u;
   let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
+  if (key == 0u) { atomicAdd(&record_count[10], 1u); }
   if decoded.valid == 0u {
     atomicAdd(&record_count[5], 1u);
+    let raw = oengine_visibility_key_decode(key);
+    if (raw.valid == 0u) { atomicAdd(&record_count[6], 1u); }
+    else if (meshlet_work.header.generation == 0u) { atomicAdd(&record_count[7], 1u); }
+    else { atomicAdd(&record_count[8], 1u); }
     for (var i = 0u; i < 12u; i++) { records[base + i] = vec4f(0.0); }
     records[base + 8u] = vec4f(bitcast<f32>(key), 0.0, 0.0, 0.0);
     return;
@@ -245,6 +251,49 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   }
   if (interpolation.flags & 1u) == 0u {
     atomicAdd(&record_count[5], 1u);
+    atomicAdd(&record_count[9], 1u);
+    if settings.source_payload.y != 0u {
+      let directory_work = arena[settings.directory_at + 0u];
+      let directory_generation = arena[settings.directory_at + 1u];
+      let directory_vertices = arena[settings.directory_at + 2u];
+      let directory_triangles = arena[settings.directory_at + 3u];
+      if directory_generation == 0u {
+        atomicAdd(&record_count[11], 1u);
+      } else if decoded.meshlet_work_slot >= directory_work {
+        atomicAdd(&record_count[11], 1u);
+      } else {
+        let meshlet_at = directory;
+        let vertex_base = arena[meshlet_at + 0u];
+        let triangle_base = arena[meshlet_at + 1u];
+        let vertex_count = arena[meshlet_at + 2u];
+        let triangle_count = arena[meshlet_at + 3u];
+        if decoded.local_primitive >= triangle_count {
+          atomicAdd(&record_count[15], 1u);
+          atomicCompareExchangeWeak(&record_count[18], 0u, triangle_count);
+          atomicCompareExchangeWeak(&record_count[19], 0u, decoded.local_primitive);
+          atomicCompareExchangeWeak(&record_count[20], 0u, directory_triangles);
+          atomicCompareExchangeWeak(&record_count[21], 0u, triangle_base);
+        } else if triangle_base >= directory_triangles {
+          atomicAdd(&record_count[16], 1u);
+        } else if decoded.local_primitive >= directory_triangles - triangle_base {
+          atomicAdd(&record_count[17], 1u);
+        }
+        if decoded.local_primitive >= triangle_count || triangle_base >= directory_triangles ||
+          decoded.local_primitive >= directory_triangles - triangle_base {
+          atomicAdd(&record_count[12], 1u);
+        } else {
+          let packed = arena[arena[settings.frame_at + 7u] + triangle_base + decoded.local_primitive];
+          let corners = vec3u(packed & 255u, (packed >> 8u) & 255u, (packed >> 16u) & 255u);
+          let vertices = min(directory_vertices, arena[settings.frame_at + 2u]);
+          if any(corners >= vec3u(vertex_count)) || vertex_base >= vertices ||
+            any(corners >= vec3u(vertices - vertex_base)) {
+            atomicAdd(&record_count[13], 1u);
+          } else {
+            atomicAdd(&record_count[14], 1u);
+          }
+        }
+      }
+    }
     for (var i = 0u; i < 12u; i++) { records[base + i] = vec4f(0.0); }
     records[base + 8u] = vec4f(bitcast<f32>(key), 0.0, 0.0, 0.0);
     return;
@@ -400,10 +449,13 @@ export class SurfaceGeometryPass {
       const settings = new Uint32Array([
         data.width, data.height, Math.ceil(data.width / 8), data.frameAt,
         data.directoryAt, data.sampleOffset, data.geometryOffset, data.geometryCapacity,
-        Math.min(data.geometryCapacity, Math.ceil(data.width / 8) * Math.ceil(data.height / 8)),
+        // Geometry is one record per accepted Surface sample.  The previous
+        // tile-count limit silently dropped every sample after the first
+        // 32,400 tiles at 1080p, leaving reconstruct with mostly empty output.
+        Math.min(data.geometryCapacity, data.recordCount),
         GEOMETRY_CACHE_CAPACITY, GEOMETRY_CACHE_CAPACITY - 1, 0,
         data.sourceGeometry, data.sourceMeshlet, data.sourceMeshletVertices, data.sourceMeshletTriangles,
-        data.sourceVertexData, 0, 0, data.mode
+        data.sourceVertexData, data.diagnosticsEnabled ? 1 : 0, 0, data.mode
       ]);
       command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
       const group = this.device.createBindGroup({ layout: this.layout, entries: [
@@ -431,14 +483,15 @@ export class SurfaceGeometryPass {
       } else {
         command.gpu_encoder.copyBufferToBuffer(resources.get(missCounters) as GPUBuffer, GEOMETRY_MISS_INDIRECT_OFFSET, resources.get(dispatchIndirect) as GPUBuffer, 0, 16);
       }
-      const pass = command.beginComputePass({ label: "Surface/GeometryRecord" });
+      const pass = command.beginComputePass({ label: data.mode === 0
+        ? "Surface/GeometryRecord cache classify" : "Surface/GeometryRecord miss resolve" });
       pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
       pass.dispatchWorkgroupsIndirect(resources.get(dispatchIndirect) as GPUBuffer, 0);
       pass.end();
     };
     const classify = graph.add("Surface/GeometryRecord cache classify", { ...input, mode: 0 }, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      command.writeBuffer(resources.get(count) as GPUBuffer, 0, new Uint32Array(8).buffer, 0, 32);
+      command.writeBuffer(resources.get(count) as GPUBuffer, 0, new Uint32Array(24).buffer, 0, 96);
       command.writeBuffer(resources.get(missCounters) as GPUBuffer, 0, new Uint32Array(8).buffer, 0, 32);
       bindAndDispatch(data, resources, context);
     });
@@ -449,7 +502,7 @@ export class SurfaceGeometryPass {
       size: input.geometryOffset + input.geometryCapacity * SURFACE_GEOMETRY_RECORD_STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, domain: "internal-full" });
     classify.write(records);
-    count = classify.create("Surface/GeometryRecord count", { kind: "transient_buffer", size: 32,
+    count = classify.create("Surface/GeometryRecord count", { kind: "transient_buffer", size: 96,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     classify.write(count);
     missQueue = classify.create("Surface/GeometryRecord miss queue", { kind: "transient_buffer",

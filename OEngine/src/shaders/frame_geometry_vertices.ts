@@ -41,14 +41,12 @@ var<workgroup> source_counts: vec2u;
 var<workgroup> source_clip_matrix: mat4x4f;
 
 fn frame_vertex_reserve(counter: ptr<storage, atomic<u32>, read_write>, count: u32, capacity: u32) -> u32 {
-  var observed = atomicLoad(counter);
-  for (var retry = 0u; retry < 32u; retry++) {
-    if count > capacity - min(observed, capacity) { return 0xffffffffu; }
-    let result = atomicCompareExchangeWeak(counter, observed, observed + count);
-    if result.exchanged { return observed; }
-    observed = result.old_value;
-  }
-  return 0xffffffffu;
+  // A reservation cannot fail because another workgroup won a CAS race.
+  // Each admitted work contributes at most 128 vertices/triangles, so the
+  // request sum fits u32; only a real capacity miss leaves a directory empty.
+  let base = atomicAdd(counter, count);
+  if count > capacity - min(base, capacity) { return 0xffffffffu; }
+  return base;
 }
 @compute @workgroup_size(1)
 fn frame_vertices_begin() {
@@ -109,8 +107,8 @@ fn frame_vertices_build(@builtin(workgroup_id) group: vec3u, @builtin(local_invo
 fn frame_vertices_finalize() {
   // Vertex reservation can leave an unreferenced hole if triangle reservation
   // fails. Published directory entries only reference complete paired storage.
-  frame_directory.vertex_count = atomicLoad(&control.vertices);
-  frame_directory.triangle_count = atomicLoad(&control.triangles);
+  frame_directory.vertex_count = min(atomicLoad(&control.vertices), settings.vertex_capacity);
+  frame_directory.triangle_count = min(atomicLoad(&control.triangles), settings.triangle_capacity);
 }
 `;
 }

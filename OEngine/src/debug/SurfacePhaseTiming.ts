@@ -34,7 +34,7 @@ export function classifySurfaceTimingPhase(
   const label = segment.label.trim().toLocaleLowerCase("en-US");
   if (label.length === 0) return null;
 
-  if (/surfacework\/classify implicit-uniform-mixed/.test(label)) {
+  if (/surfacework\/classify(?: implicit-uniform-mixed)?$/.test(label)) {
     return "classify";
   }
   if (/surfacework\/finalize counters/.test(label)) {
@@ -55,7 +55,7 @@ export function classifySurfaceTimingPhase(
   if (/surface\/material miss indirect finalize|surface\/material miss queue compact/.test(label)) {
     return "materialFinalize";
   }
-  if (/surface\/material miss publication evaluation/.test(label)) {
+  if (/surface\/material miss publication evaluation|surface\/material publication kernel \d+$/.test(label)) {
     return "materialEvaluate";
   }
   if (/surface\/lighting packets/.test(label)) {

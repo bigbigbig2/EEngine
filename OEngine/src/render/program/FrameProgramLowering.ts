@@ -290,6 +290,10 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     "physical-environment-sun", { kind: "imported", label: "Physical Environment Sun" },
     bind("physical-environment-sun", bindings => bindings.environment!.parameters)
   );
+  const atmosphereEnvironment = !plan.request.physicalEnvironment ? undefined : graph.import_resource(
+    "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
+    bind("physical-environment-transmittance", bindings => bindings.environment!.luts.views.transmittance)
+  );
   const clusters = lightRecords === undefined ? undefined :
     owners.lightCluster().addToGraph(
       graph,
@@ -388,8 +392,13 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     },
     scalarAo: scalarAo ?? null,
     environment: surfaceEnvironment,
+    physicalSun: physicalEnvironmentSun === undefined || atmosphereEnvironment === undefined ? null : {
+      parameters: physicalEnvironmentSun, transmittance: atmosphereEnvironment
+    },
     factsMask: facts.mask,
     factsIdentity: facts.identity,
+    factsMotion: facts.motion,
+    historyBinding: (name, resolve) => bind(name, resolve),
     preExposure: gpuPreviousExposure,
     revisions: bind("surface-signal-revisions", bindings => ({
       environment: bindings.lightingEnvironmentRevision,
@@ -425,10 +434,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       sourceVertexData: bindings.job.assets.sparseShading.vertexDataWordBase
     }))
   });
-  const atmosphereEnvironment = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
-    "physical-environment-transmittance", { kind: "imported", label: "Physical Environment transmittance" },
-    bind("physical-environment-transmittance", bindings => bindings.environment!.luts.views.transmittance)
-  );
   const skyRadiance = !plan.stages.includes("physical-sky") ? undefined : graph.import_resource(
     "physical-environment-sky-radiance", { kind: "imported", label: "Physical Environment sky radiance" },
     bind("physical-environment-sky-radiance", bindings => bindings.environment!.luts.views.scattering)

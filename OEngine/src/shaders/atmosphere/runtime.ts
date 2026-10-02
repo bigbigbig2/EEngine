@@ -24,6 +24,21 @@ fn atmosphere_transmittance_uv(r: f32, mu: f32) -> vec2f {
   let d = atmosphere_distance_to_top(r, mu);
   return vec2f(atmosphere_unit_coord((d - (ATMOSPHERE_TOP_RADIUS - r)) / (dh + h - (ATMOSPHERE_TOP_RADIUS - r)), 256.0), atmosphere_unit_coord(dh / h, 64.0));
 }
+// Takram common.getTransmittanceToSun / AtmosphereLightNode.setupDirect,
+// b012ad06d858fc035d88aacfd73f092f93c994e4. Preserve finite solar disk at horizon.
+// Copyright/conditions: tools/atmosphere-port/upstream/atmosphere/LICENSE (MIT/BSD).
+fn atmosphere_sun_irradiance(world: vec3f, environment: PhysicalEnvironmentParameters,
+  trans: texture_2d<f32>, s: sampler) -> vec3f {
+  let point=atmosphere_world_to_planet(world,environment.world_to_unit);
+  let radius=atmosphere_clamp_radius(length(point));
+  let cosine=clamp(dot(normalize(point),normalize(environment.sun_direction_world)),-1.0,1.0);
+  let sin_horizon=ATMOSPHERE_BOTTOM_RADIUS/radius;
+  let cos_horizon=-sqrt(max(1.0-sin_horizon*sin_horizon,0.0));
+  let horizon=smoothstep(-sin_horizon*0.004675,sin_horizon*0.004675,cosine-cos_horizon);
+  let transmission=textureSampleLevel(trans,s,atmosphere_transmittance_uv(radius,cosine),0.0).rgb*horizon;
+  return environment.sun_irradiance*transmission*
+    vec3f(98242.786222,69954.398112,66475.012354)*ATMOSPHERE_LUMINANCE_SCALE;
+}
 fn atmosphere_scattering_coord(r: f32, mu: f32, mus: f32, nu: f32, ground: bool) -> vec4f {
   let h = atmosphere_sqrt_safe(ATMOSPHERE_TOP_RADIUS * ATMOSPHERE_TOP_RADIUS - ATMOSPHERE_BOTTOM_RADIUS * ATMOSPHERE_BOTTOM_RADIUS);
   let dh = atmosphere_sqrt_safe(r * r - ATMOSPHERE_BOTTOM_RADIUS * ATMOSPHERE_BOTTOM_RADIUS);

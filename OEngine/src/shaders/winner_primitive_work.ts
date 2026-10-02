@@ -227,6 +227,12 @@ fn winner_arena_interpolate_key(key: u32, pixel: vec2f, viewport: vec2f,
   if slot < ${heap}[frame_at + ${ARENA.coefficientCapacity}u] {
     let at = ${heap}[frame_at + ${ARENA.coefficients}u] + slot * ${WINNER_COEFFICIENT_STRIDE / 4}u;
     coeff = WinnerCoefficients(winner_arena_vec4(at), winner_arena_vec4(at + 4u), winner_arena_vec4(at + 8u));
+    // The arena consumer can run without the optional dictionary producer.
+    // A zero-initialized entry must not turn VisibilityKey 0 into a false hit;
+    // recover the coefficients directly from the published geometry instead.
+    if coeff.row0.w == 0.0 {
+      coeff = winner_arena_direct_coefficients(key, frame_at, directory_at);
+    }
   } else {
     coeff = winner_arena_direct_coefficients(key, frame_at, directory_at);
   }

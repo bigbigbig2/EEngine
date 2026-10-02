@@ -79,6 +79,22 @@ fn snapshot_frame() {
   snapshot[${COUNTER_BASE + C.geometryMissCompleted}u] = geometry_count[1u];
   snapshot[${COUNTER_BASE + C.geometryRecordsValid}u] = geometry_count[4u];
   snapshot[${COUNTER_BASE + C.geometryRejected}u] = geometry_count[5u];
+  snapshot[${COUNTER_BASE + C.geometryKeyInvalid}u] = geometry_count[6u];
+  snapshot[${COUNTER_BASE + C.geometryKeyOutOfRange}u] = geometry_count[7u];
+  snapshot[${COUNTER_BASE + C.geometrySourceRejected}u] = geometry_count[8u];
+  snapshot[${COUNTER_BASE + C.geometryInterpolationRejected}u] = geometry_count[9u];
+  snapshot[${COUNTER_BASE + C.geometryKeyZero}u] = geometry_count[10u];
+  snapshot[${COUNTER_BASE + C.geometryDirectoryRejected}u] = geometry_count[11u];
+  snapshot[${COUNTER_BASE + C.geometryTriangleRangeRejected}u] = geometry_count[12u];
+  snapshot[${COUNTER_BASE + C.geometryVertexRangeRejected}u] = geometry_count[13u];
+  snapshot[${COUNTER_BASE + C.geometryCoefficientDegenerate}u] = geometry_count[14u];
+  snapshot[${COUNTER_BASE + C.geometryPrimitiveRangeRejected}u] = geometry_count[15u];
+  snapshot[${COUNTER_BASE + C.geometryBaseRangeRejected}u] = geometry_count[16u];
+  snapshot[${COUNTER_BASE + C.geometrySpanRangeRejected}u] = geometry_count[17u];
+  snapshot[${COUNTER_BASE + C.geometryFirstTriangleCount}u] = geometry_count[18u];
+  snapshot[${COUNTER_BASE + C.geometryFirstPrimitive}u] = geometry_count[19u];
+  snapshot[${COUNTER_BASE + C.geometryFirstDirectoryTriangles}u] = geometry_count[20u];
+  snapshot[${COUNTER_BASE + C.geometryFirstTriangleBase}u] = geometry_count[21u];
   snapshot[${COUNTER_BASE + C.geometryProducerBaseWords}u] = settings.producer_base;
   snapshot[${COUNTER_BASE + C.geometryConsumerBaseWords}u] = settings.consumer_base;
   snapshot[${COUNTER_BASE + C.geometryRecordStrideWords}u] = settings.stride;
@@ -88,7 +104,11 @@ fn snapshot_frame() {
   snapshot[${COUNTER_BASE + C.specularEvaluations}u] = lighting_counts[1u];
   snapshot[${COUNTER_BASE + C.coatEvaluations}u] = lighting_counts[2u];
   snapshot[${COUNTER_BASE + C.iblEvaluations}u] = lighting_counts[3u];
-  let packet_writes = select(0u, lighting_counts[12u] - lighting_counts[13u], lighting_counts[12u] >= lighting_counts[13u]);
+  // A lighting record writes one entry to each packet.  lighting_counts[13]
+  // is a rejection counter for records that entered the kernel; subtracting
+  // it from processed records under-reported writes whenever geometry was
+  // rejected before lighting.
+  let packet_writes = lighting_counts[12u];
   snapshot[${COUNTER_BASE + C.diffusePacketWrites}u] = packet_writes;
   snapshot[${COUNTER_BASE + C.specularPacketWrites}u] = packet_writes;
   snapshot[${COUNTER_BASE + C.coatPacketWrites}u] = packet_writes;

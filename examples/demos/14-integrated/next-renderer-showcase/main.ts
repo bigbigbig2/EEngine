@@ -133,14 +133,15 @@ const capture = new BenchmarkCapture({
       captureTarget = { end: renderer!.frame_count + count, resolve, reject, timer }; capturePaused = false;
     });
   },
-  restore: () => {
+  restore: (retainView = false) => {
     if (captureTarget) { clearTimeout(captureTarget.timer); captureTarget.reject(new Error("Capture stopped")); captureTarget = null; }
     capturePaused = false; captureExtent = null; canvas.style.pointerEvents = "";
-    if (savedCamera) {
+    if (savedCamera && !retainView) {
       // Restore the actual pose; restoring only position would lose camera orientation.
       camera!.transform.fromMatrix(savedCamera.matrix);
       controls!.target.set(...savedCamera.target as [number, number, number]); controls!.reset(); camera!.update(); savedCamera = null;
     }
+    savedCamera = null;
     renderer!.perf_gpu_counters_enabled = settings.profiler;
     renderer!.profiler.configure({ enabled: settings.profiler, gpuSampleInterval: 1, gpuCounterSampleInterval: 8, historyCapacity: 180 });
     renderer!.xe_gtao_enabled = settings.gtao; renderer!.fsr3_enabled = settings.fsr3; renderer!.bloom_enabled = settings.bloom;
@@ -162,6 +163,9 @@ export const showcaseDiagnostics = {
   get failed() { return failed; },
   get busy() { return capture.busy; },
   get lastCapture() { return capture.last; },
+  // Completed snapshots are needed by diagnostics: latest is normally still pending.
+  get profiles() { return renderer?.profiler.history ?? []; },
+  get adapter() { return renderer?.adapter_info; },
   get runtime() { return { frameCount: renderer?.frame_count, diagnostics: renderer?.profiler.diagnostics,
     preparation: capture.preparation, visibility: document.visibilityState, streaming: renderer?.geometryStreamingEvidence(scene) }; },
   capture: async (request: CaptureRequest = {}) => { await showcaseDiagnostics.start(); return capture.run(request); },
@@ -376,7 +380,8 @@ async function start(): Promise<void> {
   controls.autoRotate = settings.autoRotate;
   setView("overview");
   resizeObserver = new ResizeObserver(resize);
-  resizeObserver.observe(canvas);
+  // Renderer.resize sets inline canvas dimensions; observe the layout owner.
+  resizeObserver.observe(canvas.parentElement!);
   resize();
   applySettings();
   await handles.settled();
@@ -411,8 +416,8 @@ function setViewDistance(scale: number): void {
 function resize(): void {
   if (!renderer || !camera) return;
   if (captureExtent) return;
-  const width = Math.max(1, Math.round(canvas.clientWidth));
-  const height = Math.max(1, Math.round(canvas.clientHeight));
+  const width = Math.max(1, Math.round(canvas.parentElement!.clientWidth));
+  const height = Math.max(1, Math.round(canvas.parentElement!.clientHeight));
   renderer.resize(width, height);
   camera.aspect = width / height;
   camera.update();
@@ -493,7 +498,10 @@ function exportDiagnostics(): void {
     camera: camera ? { position: camera.transform.position, near: camera.near, far: camera.far } : null,
     frameCount: renderer?.frame_count ?? 0, diagnostics: renderer?.profiler.diagnostics ?? null,
     streaming: renderer?.geometryStreamingEvidence(scene) ?? null,
-    latestProfile: renderer?.profiler.latest ?? null, graph: renderer?.mainFrameGraphEvidence() ?? null,
+    latestProfile: renderer?.profiler.latest ?? null,
+    completedGpuProfile: renderer?.profiler.history.reverse().find(snapshot => snapshot.gpu.sampled &&
+      !snapshot.gpu.pending && snapshot.gpu.segments.length > 0) ?? null,
+    graph: renderer?.mainFrameGraphEvidence() ?? null,
     surfaceProfile: renderer?.profiler.history.reverse().find(snapshot => snapshot.gpuCounters.values.surfaceMaterialSamples !== undefined) ?? null
   };
   downloadJson(data, "eengine-next-showcase");

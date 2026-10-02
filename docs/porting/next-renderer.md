@@ -10,6 +10,13 @@
 
 ## 2026-10-02：SurfaceWork V3 ABI 与 GeometryRecord 本地接线
 
+### 2026-10-02 Showcase 着色诊断修复
+
+- 重新核读已归档固定 Takram `b012ad06d858fc035d88aacfd73f092f93c994e4` 的 `AtmosphereLightNode.ts::setupDirect`、`common.ts::getTransmittanceToSun`、`AtmosphereParameters.ts` 与 `WEBGPU.md`；许可保留于 `tools/atmosphere-port/upstream/atmosphere/LICENSE`（MIT、Bruneton BSD 及既有 notices）。直射阶段映射为 `atmosphere/runtime.ts::atmosphere_sun_irradiance` → `SurfaceLightingWorkPass::direct_surface` → diffuse/specular/coat packets。保留位置/行星半径、LUT UV、太阳有限角半径的地平线 smoothstep、solar irradiance 和 luminance conversion；复用现有 BRDF 与启用时的 VSM，未用白光替代大气透射。IBL 保持已有独立 producer；不将本次接线称作完整 AtmosphereLight 间接 irradiance 移植。
+- 当前 packet 有效性与 TemporalFacts 的 motion/history mismatch 分离、已有 UV motion 接入 nearest history lookup、FrameGraph 历史纹理逐帧绑定、部分覆盖 uniform tile 选取覆盖内代表点，均为 V3 数据契约及生命周期修复。不是新 TAA/denoiser 移植；完整 plane/normal/view history 预算仍属于 V3 最终验收范围。
+- Surface packet 的线性 Rec.709 在 reconstruct 写 HDR 时转换到现有 Rec.2020 working space；history 保持曝光无关的 packet 色域。此项复用 `working_color.ts`，与 Sky/aerial/Present 的既有合同一致。
+- 本轮按用户明确要求执行浏览器截图与 GPU profiling。仅记录本次实际验证，不提升 R03/R10 或整个 V3 的正式 adoption、画质及性能 claims。
+
 `GpuSurfaceWorkAbi.ts` 的固定前缀、分区布局、容量校验和 `SurfaceWorkRuntime`/`SurfaceGeometryPass` 的 FrameGraph 绑定属于本地 ABI、资源生命周期与 WebGPU 接线，不声称来自外部 donor。唯一几何数学继续复用本账本已固定的 `HomogeneousWinnerInterpolation` profile：`WinnerPrimitiveInterpolation` 负责 dictionary/coefficient/arena producer，`SurfaceGeometryPass` 只通过 arena consumer 读取并发布 GeometryRecord。当前已接通 publication miss evaluator、属性解码、GeometryRecord hit-mask geometry cache bypass、独立 geometry miss queue/indirect compaction、cluster/VSM/AO/authored+physical IBL、分信号 lighting packets、双缓冲 history 和真实 FrameGraph 边；这属于本地实现接线，不提升任何上游 adoption 或最终性能/画质 claim。完整 sampler/UV/filtered-footprint、材质 view/nonlocal identity、Product/形变、按 signal 的 selective revision invalidation、数值 oracle、整帧画质和性能 adoption 仍未完成。
 
 ## 2026-09-29：Virtual Geometry 正确性修复
