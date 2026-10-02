@@ -12,6 +12,11 @@ export const APPEARANCE_FIELD_COUNT = APPEARANCE_FIELD_NAMES.length;
 /** Physical Surface publication packs vec3 fields with their scalar consumers.
  * Logical compiler outputs/versions retain independent identities. */
 export const APPEARANCE_SURFACE_LAYER_COUNT = 6;
+/** High bit in surface publication identity.w marks fields that depend on
+ * geometry, texture footprint, dynamic, view or nonlocal inputs. Such entries
+ * must not be reused by the stable material cache until their full input
+ * identity is published. The low bits retain the surface program index. */
+export const SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE = 0x80000000;
 /** Six physical layers and one slot record for two independently versioned
  * validity outputs packed into the previously unused flags lane. */
 export const APPEARANCE_PACKED_SLOT_RECORD_COUNT = APPEARANCE_SURFACE_LAYER_COUNT + 1;

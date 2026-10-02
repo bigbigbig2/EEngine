@@ -24,7 +24,7 @@ currentSlice:
     queues、GPU indirect 和 sample map。Phase 4 已接入真实 LightClusterFrame、ShadowVisibilityFrame、XeGTAO
     packed visibility、authored/physical IBL 与生产 direct-light 数学；Phase 5–6 已接入 packet-only
     reconstruct、双缓冲 signal history、GPU completion 交换、resize retire 和 camera-cut invalidate。
-    独立 geometry miss compaction、完整 sampler/UV/filtered footprint、材质 view/nonlocal identity、Product/形变、signal age/revision reject、
+    独立 geometry miss compaction、非稳定程序完整 sampler/UV/filtered footprint、材质 view/nonlocal identity、Product/形变、signal age/revision reject、
     browser/GPU 性能和四版本正式验收仍待 Phase 7。始终保持唯一 Renderer、唯一 FrameGraph/submit，
     不恢复旧链、适配桥或中间 A/B 路径。
 

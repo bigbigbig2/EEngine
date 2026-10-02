@@ -2,7 +2,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
-import { APPEARANCE_SURFACE_LAYER_COUNT } from "../../gpu/GpuAppearanceCacheAbi.js";
+import { APPEARANCE_SURFACE_LAYER_COUNT, SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE } from "../../gpu/GpuAppearanceCacheAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { SURFACE_WORK_INDIRECT_OFFSET } from "../../gpu/GpuSurfaceWorkAbi.js";
@@ -42,9 +42,9 @@ fn lookup(@builtin(global_invocation_id) id:vec3u) {
   let entry=material_lookup[material]; if entry==0xffffffffu { hit_mask[record]=0u; return; }
   let stable=surface_identity[entry]; let geometryIdentity=surface_geometry_identity(meshlet,decoded.local_primitive,material); let field=select(0u,field_versions[0u],arrayLength(&field_versions)>0u); let residency=select(0u,residency_versions[0u],arrayLength(&residency_versions)>0u);
   let key=cache_hash(geometryIdentity,material,field,residency,stable.x^stable.y^stable.z^stable.w); let cell=key&(settings.cache_capacity-1u); let old=cache[cell];
-  let exact=old.x==key && old.y==geometryIdentity && old.z==material && old.w==stable.z; let pixel=vec2i(work[sample_at]%settings.width,work[sample_at]/settings.width);
+  let cacheable=(stable.w & ${SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE}u)==0u; let exact=cacheable && old.x==key && old.y==geometryIdentity && old.z==material && old.w==stable.z; let pixel=vec2i(work[sample_at]%settings.width,work[sample_at]/settings.width);
   if exact { hit_mask[record]=1u; atomicAdd(&counters[0],1u); for(var layer=0u;layer<${APPEARANCE_SURFACE_LAYER_COUNT}u;layer++){textureStore(fields,pixel,i32(layer),cache_values[cell*${APPEARANCE_SURFACE_LAYER_COUNT}u+layer]);} }
-  else { hit_mask[record]=0u; atomicAdd(&counters[1],1u); let slot=atomicAdd(&counters[2],1u); if slot<settings.record_count { misses[slot]=record; } let program=stable.w; if program<settings.program_count { atomicAdd(&counters[4u+program*8u+4u],1u); } }
+  else { hit_mask[record]=0u; atomicAdd(&counters[1],1u); let slot=atomicAdd(&counters[2],1u); if slot<settings.record_count { misses[slot]=record; } let program=stable.w & 0x7fffffffu; if program<settings.program_count { atomicAdd(&counters[4u+program*8u+4u],1u); } }
 }
 `;
 

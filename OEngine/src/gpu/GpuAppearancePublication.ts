@@ -1,5 +1,5 @@
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
-import { selectAppearanceProductProgram } from "../material/AppearanceGraphCompiler.js";
+import { APPEARANCE_DEPENDENCY, selectAppearanceProductProgram } from "../material/AppearanceGraphCompiler.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
 import type { TextureSurfacePublication } from "./TextureVariation.js";
@@ -14,7 +14,7 @@ import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
 import { appearanceCachePlan, appearanceCacheIntegration, type AppearanceCachePlan } from "../shaders/appearance_cache.js";
-import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS, APPEARANCE_SURFACE_CHANNELS, APPEARANCE_SURFACE_LAYER_COUNT, APPEARANCE_PACKED_SLOT_RECORD_COUNT } from "./GpuAppearanceCacheAbi.js";
+import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS, APPEARANCE_SURFACE_CHANNELS, APPEARANCE_SURFACE_LAYER_COUNT, APPEARANCE_PACKED_SLOT_RECORD_COUNT, SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE } from "./GpuAppearanceCacheAbi.js";
 import type { GpuAppearanceCache, PreparedAppearanceCache } from "./GpuAppearanceCache.js";
 import { GPU_VISIBILITY_KEY_WGSL, GPU_VISIBILITY_KEY_EMPTY, GPU_VISIBILITY_KEY_INVALID } from "./GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "./GpuMeshletRasterWorkAbi.js";
@@ -47,6 +47,20 @@ function surfaceIdentityHash(value: string): number {
     hash = Math.imul(hash, 16777619) >>> 0;
   }
   return hash >>> 0;
+}
+
+function surfacePublicationRequiresFullIdentity(program: CompiledAppearanceGraph): boolean {
+  const varying = APPEARANCE_DEPENDENCY.Surface | APPEARANCE_DEPENDENCY.Geometry |
+    APPEARANCE_DEPENDENCY.Dynamic | APPEARANCE_DEPENDENCY.View |
+    APPEARANCE_DEPENDENCY.Nonlocal;
+  if (Object.values(program.outputs).some(roots => roots.some(root =>
+    (program.instructions[root]?.dependency ?? 0) & varying))) return true;
+  // A texture whose coordinate graph is material-only is stable. Any
+  // geometry/view/dynamic coordinate requires the full sampled footprint key.
+  if (program.samples.some(sample => sample.uv.some(ref =>
+    (program.instructions[ref]?.dependency ?? 0) & varying))) return true;
+  return (program.productReads ?? []).some(read => read.field.constant === undefined &&
+    read.uv !== null && read.uv.some(ref => (program.instructions[ref]?.dependency ?? 0) & varying));
 }
 
 /**
@@ -593,14 +607,30 @@ export class GpuAppearancePublication {
         materialLookupData[source.materialSlot] = index;
         const fieldIdentity = [...(source.fieldVersions?.entries() ?? [])]
           .sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => `${name}:${value.version}`).join("|");
-        const routeIdentity = [...source.textureRefs.entries()]
-          .map(([texture, ref]) => `${texture.appearance_content_version ?? texture.label}:${ref}`).sort().join("|");
-        const variationIdentity = [...source.textureRefs.keys()]
-          .map(texture => `${texture.appearance_content_version ?? texture.label}:${texturePublications.get(texture)?.revision ?? 0}`).sort().join("|");
+        const productIdentity = (source.program.productReads ?? []).map(read => JSON.stringify([
+          read.asset.runtime.manifest.assetId, read.field.contentKey, read.field.name, read.uv
+        ])).sort();
+        const routeIdentity = source.program.samples.map(sample => {
+          const texture = sample.binding.texture;
+          const ref = source.textureRefs.get(texture) ?? GPU_TEXTURE_REF_INVALID;
+          const binding = sample.binding;
+          return JSON.stringify([texture.appearance_content_version ?? texture.label, ref,
+            binding.contentVersion, binding.decode, binding.sampler, binding.offset,
+            binding.scale, binding.rotation, binding.fallback, binding.range]);
+        }).concat(productIdentity).sort().join("|");
+        const variationIdentity = source.program.samples.map(sample => {
+          const texture = sample.binding.texture;
+          return JSON.stringify([texture.appearance_content_version ?? texture.label,
+            texturePublications.get(texture)?.revision ?? 0, sample.binding.sampler,
+            sample.binding.offset, sample.binding.scale, sample.binding.rotation]);
+        }).concat(productIdentity).sort().join("|");
         identityData[index * 4 + 0] = surfaceIdentityHash(fieldIdentity);
         identityData[index * 4 + 1] = surfaceIdentityHash(routeIdentity);
         identityData[index * 4 + 2] = surfaceIdentityHash(variationIdentity);
-        identityData[index * 4 + 3] = directoryData[index * directoryWords + 1] ?? 0;
+        const programIndex = directoryData[index * directoryWords + 1] ?? 0;
+        identityData[index * 4 + 3] = (programIndex |
+          (surfacePublicationRequiresFullIdentity(source.program)
+            ? SURFACE_PUBLICATION_IDENTITY_UNCACHEABLE : 0)) >>> 0;
       });
       const maximum = Math.min(Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize));
       for (const data of [constantData, routeData, directoryData, fieldData, inputData, materialLookupData, identityData]) if (data.byteLength > maximum) {

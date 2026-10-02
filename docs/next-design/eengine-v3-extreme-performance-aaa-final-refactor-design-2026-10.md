@@ -230,7 +230,7 @@ next-renderer-showcase 当前默认开启 renderScale 1、HZB、cone、XeGTAO、
 
 当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、publication cache lookup、hit-mask-gated `SurfaceGeometryPass`、GPU-compacted miss evaluation、lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect、sample map、完整 `AppearanceResidentKernel` miss evaluation、cluster/VSM/AO/IBL provider、GeometryRecord 持久化命中旁路和双缓冲 signal history，但独立 geometry miss compaction、完整 sampler/UV/filtered footprint key、材质 view/nonlocal、Product/形变对应、signal age/revision reject 和正式验收仍未完成，因此不能把当前接线等同于最终性能或 AAA 验收。
 
-当前源码仍有可量化的未完成成本：GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，geometry miss 尚未独立压缩，cache identity 尚未覆盖完整采样 footprint 与材质 view/nonlocal，history 仍缺 signal age/revision 细分。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
+当前源码仍有可量化的未完成成本：稳定 material/static 程序已经按 publication identity 做安全 cache 复用，依赖 geometry、非 material-only UV、dynamic/view/nonlocal 的程序仍被保守导向 miss；GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，geometry miss 尚未独立压缩，非稳定程序 cache identity 尚未覆盖完整采样 footprint，history 仍缺 signal age/revision 细分。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
 
 ### 2.7 当前生产接线（2026-10-02）
 

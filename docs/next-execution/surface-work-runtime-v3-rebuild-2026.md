@@ -74,7 +74,7 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 扩展现有 AppearanceGraphCompiler 输出 constant/static/stable-local/geometry/view/nonlocal、signal rate、full-rate requirement、texture variation 和可融合属性；不建立第二套材质系统。
 
-`SurfaceMaterialCachePass` 在 GeometryRecord 之前执行 publication identity lookup，GPU 为每个 program 维护 bounded miss counter/indirect args；`GpuAppearancePublication.encodeSurfaceMissEvaluation` 复用已发布的 `AppearanceResidentKernel`、constants、routes、runtime inputs、resident texture/product bindings，按 miss program 求值并写回六层 fields 与稳定 cache。`SurfaceGeometryPass` 现在消费 hit mask：命中先验证包含代表像素、几何/实例 generation、material 和 object-to-clip 签名的持久化 geometry cache，未命中才执行 winner 插值和属性解码；UV 导数也随 cache value 恢复。仍缺独立 geometry miss compaction、sampler/UV transform 与真实 filtered footprint 的独立 identity、材质 view/nonlocal 语义、Product/形变与正式验收。
+`SurfaceMaterialCachePass` 在 GeometryRecord 之前执行 publication identity lookup，GPU 为每个 program 维护 bounded miss counter/indirect args；publication identity 现在区分纯 material/static 程序与依赖 geometry、纹理 footprint、dynamic/view/nonlocal 的程序，后者显式禁止稳定 cache 命中；稳定程序的 identity 纳入 sampler、wrap/filter、decode、UV transform、fallback、range 和纹理 revision。`GpuAppearancePublication.encodeSurfaceMissEvaluation` 复用已发布的 `AppearanceResidentKernel`、constants、routes、runtime inputs、resident texture/product bindings，按 miss program 求值并写回六层 fields 与稳定 cache。`SurfaceGeometryPass` 现在消费 hit mask：命中先验证包含代表像素、几何/实例 generation、material 和 object-to-clip 签名的持久化 geometry cache，未命中才执行 winner 插值和属性解码；UV 导数也随 cache value 恢复。仍缺独立 geometry miss compaction、非稳定程序的完整 filtered footprint identity、材质 view/nonlocal 语义、Product/形变与正式验收。
 
 ### Phase 4：分 signal lighting packets（生产接线完成，统一验收待做）
 
