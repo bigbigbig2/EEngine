@@ -398,6 +398,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     })),
     materialLookup: surfaceMaterialLookup,
     surfaceIdentity,
+    materials: materialRecords,
     textureBanks,
     publication: appearancePublication,
     residencyVersions: textureResidencyVersions,

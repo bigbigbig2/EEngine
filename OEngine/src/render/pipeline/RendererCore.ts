@@ -26,6 +26,8 @@ import { assertFrameProgramBindings, type SceneFrameBindings, type EmptyFrameBin
 import { VisibilityCounterPass } from "../passes/VisibilityCounterPass.js";
 import { lowerFrameProgram, type FrameProgramOwners } from "../program/FrameProgramLowering.js";
 import { FrameProfiler } from "../../debug/FrameProfiler.js";
+import type { SurfaceDiagnosticsMode } from "../../gpu/SurfaceDiagnosticsAbi.js";
+import type { SurfaceDiagnosticsCapture } from "../../debug/SurfaceDiagnosticsCapture.js";
 import { TemporalFabric } from "../TemporalFabric.js";
 import { TemporalFactsPass } from "../temporal/TemporalFactsPass.js";
 import { GpuRadiometryPass } from "../temporal/GpuRadiometryPass.js";
@@ -285,6 +287,7 @@ export class Renderer {
   private _aerialPerspective: AerialPerspectivePass | null = null;
   private _present!: SurfacePresentPass;
   private _surfaceWork!: SurfaceWorkRuntime;
+  private _surfaceDiagnosticsMode: SurfaceDiagnosticsMode = "off";
   private readonly _visibilityCounters = new VisibilityCounterPass();
   private _environmentRuntime: PhysicalEnvironmentRuntime | null = null;
   private readonly _temporal = new TemporalFabric();
@@ -369,6 +372,16 @@ export class Renderer {
   }
   get graphics(): GraphicsContext { return this._graphics; }
   get profiler(): FrameProfiler { return this._profiler; }
+  configureSurfaceDiagnostics(
+    mode: SurfaceDiagnosticsMode,
+    capture: SurfaceDiagnosticsCapture | null,
+    runId = "default"
+  ): void {
+    if (this._destroyed) throw new Error("Renderer has been destroyed");
+    this._surfaceDiagnosticsMode = mode;
+    this._surfaceWork.setDiagnosticsMode(mode);
+    this._surfaceWork.setDiagnosticsCapture(capture, { runId, deviceEpoch: this.deviceEpoch });
+  }
   get frame_count(): number { return this._frame_count; }
   get canvas(): HTMLCanvasElement | OffscreenCanvas | undefined { return this.context?.canvas; }
   get capabilities(): RendererCapabilities {
@@ -1547,7 +1560,7 @@ export class Renderer {
         debugView: this._render_debug_view
       });
       assertFrameProgramBindings(program, graphBindings);
-      const graphKey = program.key;
+      const graphKey = `${program.key}|surface-diagnostics:${this._surfaceDiagnosticsMode}`;
       const compiled = this._graphCache.getOrCreate(
         graphKey,
         () => lowerFrameProgram(program, graphBindings, this.frameProgramOwners()),

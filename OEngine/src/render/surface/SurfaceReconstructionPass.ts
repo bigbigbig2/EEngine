@@ -8,7 +8,7 @@ export interface SurfaceReconstructionProducts { readonly radiance: ResourceId; 
 const RECONSTRUCT_WGSL = /* wgsl */ `
 struct Settings {
   width:u32, height:u32, record_count:u32, history_valid:u32,
-  pre_exposure:f32, history_feedback:f32, history_max_age:u32, _pad:u32
+  pre_exposure:f32, history_feedback:f32, history_max_age:u32, revision_mask:u32
 }
 @group(0) @binding(0) var<uniform> settings:Settings;
 @group(0) @binding(1) var<storage,read> diffuse:array<vec4f>;
@@ -20,13 +20,19 @@ struct Settings {
 @group(0) @binding(8) var reactive:texture_storage_2d<rgba8unorm,write>;
 @group(0) @binding(9) var<storage,read> pre_exposure:array<f32>;
 @group(0) @binding(10) var sample_map:texture_2d<u32>;
-@group(0) @binding(11) var history_read:texture_2d<f32>;
-@group(0) @binding(12) var history_write:texture_storage_2d<rgba16float,write>;
-@group(0) @binding(13) var current_identity:texture_2d<u32>;
-@group(0) @binding(14) var history_identity_read:texture_2d<u32>;
-@group(0) @binding(15) var history_identity_write:texture_storage_2d<rgba32uint,write>;
-@group(0) @binding(16) var history_age_read:texture_2d<u32>;
-@group(0) @binding(17) var history_age_write:texture_storage_2d<r32uint,write>;
+@group(0) @binding(11) var diffuse_history_read:texture_2d<f32>;
+@group(0) @binding(12) var diffuse_history_write:texture_storage_2d<rgba16float,write>;
+@group(0) @binding(13) var specular_history_read:texture_2d<f32>;
+@group(0) @binding(14) var specular_history_write:texture_storage_2d<rgba16float,write>;
+@group(0) @binding(15) var coat_history_read:texture_2d<f32>;
+@group(0) @binding(16) var coat_history_write:texture_storage_2d<rgba16float,write>;
+@group(0) @binding(17) var ibl_history_read:texture_2d<f32>;
+@group(0) @binding(18) var ibl_history_write:texture_storage_2d<rgba16float,write>;
+@group(0) @binding(19) var current_identity:texture_2d<u32>;
+@group(0) @binding(20) var history_identity_read:texture_2d<u32>;
+@group(0) @binding(21) var history_identity_write:texture_storage_2d<rgba32uint,write>;
+@group(0) @binding(22) var history_age_read:texture_2d<u32>;
+@group(0) @binding(23) var history_age_write:texture_storage_2d<r32uint,write>;
 
 @compute @workgroup_size(8,8)
 fn reconstruct(@builtin(global_invocation_id) id:vec3u){
@@ -38,17 +44,27 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
   let previous_age=textureLoad(history_age_read,pixel,0).x;
   let valid=record<settings.record_count && record!=0xffffffffu && facts.y>0.5 && facts.z<0.5;
   let identity_match=all(identity==previous_identity);
-  var current=vec3f(0.0);
-  if valid { current=diffuse[record].xyz+specular[record].xyz+coat[record].xyz+ibl[record].xyz; }
+  var current_diffuse=vec3f(0.0); var current_specular=vec3f(0.0);
+  var current_coat=vec3f(0.0); var current_ibl=vec3f(0.0);
+  if valid { current_diffuse=diffuse[record].xyz; current_specular=specular[record].xyz; current_coat=coat[record].xyz; current_ibl=ibl[record].xyz; }
   let can_reuse=settings.history_valid!=0u && valid && identity_match && previous_age<settings.history_max_age;
-  var resolved=current;
-  if can_reuse {
-    let previous=textureLoad(history_read,pixel,0).xyz;
-    let feedback=clamp(settings.history_feedback+facts.w*0.1,0.05,0.35);
-    resolved=mix(previous,current,feedback);
-  }
+  let feedback=clamp(settings.history_feedback+facts.w*0.1,0.05,0.35);
+  let reuse_diffuse=can_reuse && (settings.revision_mask & 1u)==0u;
+  let reuse_specular=can_reuse && (settings.revision_mask & 2u)==0u;
+  let reuse_coat=can_reuse && (settings.revision_mask & 4u)==0u;
+  let reuse_ibl=can_reuse && (settings.revision_mask & 8u)==0u;
+  var resolved_diffuse=current_diffuse; var resolved_specular=current_specular;
+  var resolved_coat=current_coat; var resolved_ibl=current_ibl;
+  if reuse_diffuse { resolved_diffuse=mix(textureLoad(diffuse_history_read,pixel,0).xyz,current_diffuse,feedback); }
+  if reuse_specular { resolved_specular=mix(textureLoad(specular_history_read,pixel,0).xyz,current_specular,feedback); }
+  if reuse_coat { resolved_coat=mix(textureLoad(coat_history_read,pixel,0).xyz,current_coat,feedback); }
+  if reuse_ibl { resolved_ibl=mix(textureLoad(ibl_history_read,pixel,0).xyz,current_ibl,feedback); }
+  let resolved=resolved_diffuse+resolved_specular+resolved_coat+resolved_ibl;
   let exposure=max(pre_exposure[0],1e-4);
-  textureStore(history_write,pixel,vec4f(resolved,1.0));
+  textureStore(diffuse_history_write,pixel,vec4f(resolved_diffuse,1.0));
+  textureStore(specular_history_write,pixel,vec4f(resolved_specular,1.0));
+  textureStore(coat_history_write,pixel,vec4f(resolved_coat,1.0));
+  textureStore(ibl_history_write,pixel,vec4f(resolved_ibl,1.0));
   textureStore(history_identity_write,pixel,select(vec4u(0u),identity,valid));
   textureStore(history_age_write,pixel,vec4u(select(0u, min(previous_age + 1u, 255u), valid && identity_match)));
   textureStore(output,pixel,vec4f(resolved*exposure,select(0.0,1.0,valid)));
@@ -57,21 +73,22 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
 `;
 
 type HistoryPair = readonly [GPUTexture, GPUTexture];
-type RetiredHistories = { signal: HistoryPair; identity: HistoryPair; age: HistoryPair; done: Promise<void> };
+type SignalHistories = readonly [HistoryPair, HistoryPair, HistoryPair, HistoryPair];
+type RetiredHistories = { signal: SignalHistories; identity: HistoryPair; age: HistoryPair; done: Promise<void> };
 type SurfaceHistoryRevisions = Readonly<{ environment: number; light: number; shadow: number }>;
 
 export class SurfaceReconstructionPass {
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
   private readonly settings: GPUBuffer;
-  private histories: HistoryPair | null = null;
+  private histories: SignalHistories | null = null;
   private identityHistories: HistoryPair | null = null;
   private ageHistories: HistoryPair | null = null;
   private size: readonly [number, number] = [0, 0];
   private readIndex: 0 | 1 = 0;
   private writeIndex: 0 | 1 = 1;
   private historyValid = false;
-  private historyRevisionKey: string | null = null;
+  private historyRevisions: SurfaceHistoryRevisions | null = null;
   private prepared = false;
   private lastGpuDone: Promise<void> | null = null;
   private readonly retired: RetiredHistories[] = [];
@@ -88,13 +105,15 @@ export class SurfaceReconstructionPass {
       { binding: 8, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba8unorm" } },
       { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 10, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 11, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 12, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
-      { binding: 13, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 14, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 15, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32uint" } },
-      { binding: 16, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 17, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32uint" } }
+      ...[11, 13, 15, 17].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
+        texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d" as GPUTextureViewDimension } })),
+      ...[12, 14, 16, 18].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
+        storageTexture: { access: "write-only" as const, format: "rgba16float" as GPUTextureFormat } })),
+      { binding: 19, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
+      { binding: 20, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
+      { binding: 21, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba32uint" } },
+      { binding: 22, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
+      { binding: 23, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32uint" } }
     ] });
     this.pipeline = device.createComputePipeline({ label: "Surface/cheap reconstruct",
       layout: device.createPipelineLayout({ bindGroupLayouts: [this.layout] }),
@@ -108,10 +127,10 @@ export class SurfaceReconstructionPass {
         this.retired.push({ signal: this.histories, identity: this.identityHistories!, age: this.ageHistories!,
           done: this.lastGpuDone ?? Promise.resolve() });
       }
-      this.histories = [0, 1].map(index => this.device.createTexture({
-        label: `Surface signal history/${index}`, size: [width, height], format: "rgba16float",
+      this.histories = ["diffuse", "specular", "coat", "ibl"].map(signal => [0, 1].map(index => this.device.createTexture({
+        label: `Surface ${signal} history/${index}`, size: [width, height], format: "rgba16float",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
-      })) as unknown as HistoryPair;
+      })) as unknown as HistoryPair) as unknown as SignalHistories;
       this.identityHistories = [0, 1].map(index => this.device.createTexture({
         label: `Surface signal identity history/${index}`, size: [width, height], format: "rgba32uint",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
@@ -120,7 +139,7 @@ export class SurfaceReconstructionPass {
         label: `Surface signal age history/${index}`, size: [width, height], format: "r32uint",
         usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING
       })) as unknown as HistoryPair;
-      this.size = [width, height]; this.historyValid = false;
+      this.size = [width, height]; this.historyValid = false; this.historyRevisions = null;
     }
     this.prepared = true;
     this.retireCompleted();
@@ -130,7 +149,7 @@ export class SurfaceReconstructionPass {
     while (this.retired.length > 0) {
       const item = this.retired.shift()!;
       void item.done.then(() => {
-        item.signal[0].destroy(); item.signal[1].destroy();
+        for (const pair of item.signal) { pair[0].destroy(); pair[1].destroy(); }
         item.identity[0].destroy(); item.identity[1].destroy();
         item.age[0].destroy(); item.age[1].destroy();
       });
@@ -144,10 +163,10 @@ export class SurfaceReconstructionPass {
     width: number; height: number; recordCount: number
   }): SurfaceReconstructionProducts {
     if (!this.prepared || this.histories === null) throw new Error("Surface reconstruction frame is not prepared");
-    const historyRead = graph.import_resource("Surface signal history/read",
-      { kind: "imported", label: "Surface signal history read", domain: "internal-full" }, this.histories[this.readIndex]);
-    const historyWrite = graph.import_resource("Surface signal history/write",
-      { kind: "imported", label: "Surface signal history write", domain: "internal-full" }, this.histories[this.writeIndex]);
+    const historyRead = this.histories.map((pair, index) => graph.import_resource(`Surface ${["diffuse", "specular", "coat", "ibl"][index]} history/read`,
+      { kind: "imported", label: `Surface ${["diffuse", "specular", "coat", "ibl"][index]} history read`, domain: "internal-full" }, pair[this.readIndex]));
+    const historyWrite = this.histories.map((pair, index) => graph.import_resource(`Surface ${["diffuse", "specular", "coat", "ibl"][index]} history/write`,
+      { kind: "imported", label: `Surface ${["diffuse", "specular", "coat", "ibl"][index]} history write`, domain: "internal-full" }, pair[this.writeIndex]));
     const identityRead = graph.import_resource("Surface signal identity history/read",
       { kind: "imported", label: "Surface signal identity history read", domain: "internal-full" }, this.identityHistories![this.readIndex]);
     const identityWrite = graph.import_resource("Surface signal identity history/write",
@@ -163,14 +182,17 @@ export class SurfaceReconstructionPass {
         // FrameGraph bindings are late-bound. Read revisions while encoding the
         // frame so a light/environment/VSM update invalidates the next history
         // use even when the graph recipe is reused.
-        const revisionKey = `${data.revisions.environment}:${data.revisions.light}:${data.revisions.shadow}`;
-        if (this.historyRevisionKey !== null && this.historyRevisionKey !== revisionKey) this.historyValid = false;
-        this.historyRevisionKey = revisionKey;
+        const previousRevisions = this.historyRevisions;
+        const revisionMask = previousRevisions === null ? 15 :
+          (previousRevisions.environment === data.revisions.environment ? 0 : 15) |
+          (previousRevisions.light === data.revisions.light ? 0 : 7) |
+          (previousRevisions.shadow === data.revisions.shadow ? 0 : 7);
+        this.historyRevisions = { ...data.revisions };
         const settings = new ArrayBuffer(32); const view = new DataView(settings);
         view.setUint32(0, data.width, true); view.setUint32(4, data.height, true);
         view.setUint32(8, data.recordCount, true); view.setUint32(12, this.historyValid ? 1 : 0, true);
         view.setFloat32(16, 1, true); view.setFloat32(20, 0.18, true);
-        view.setUint32(24, 8, true);
+        view.setUint32(24, 8, true); view.setUint32(28, revisionMask, true);
         command.writeBuffer(this.settings, 0, settings, 0, settings.byteLength);
         const group = this.device.createBindGroup({ layout: this.layout, entries: [
           { binding: 0, resource: { buffer: this.settings } },
@@ -183,21 +205,27 @@ export class SurfaceReconstructionPass {
           { binding: 8, resource: resolveTextureView(resources.get(reactiveMask)) },
           { binding: 9, resource: { buffer: resources.get(data.preExposure) as GPUBuffer } },
           { binding: 10, resource: resolveTextureView(resources.get(data.sampleMap)) },
-          { binding: 11, resource: resolveTextureView(resources.get(data.historyRead)) },
-          { binding: 12, resource: resolveTextureView(resources.get(data.historyWrite)) },
-          { binding: 13, resource: resolveTextureView(resources.get(data.identity)) },
-          { binding: 14, resource: resolveTextureView(resources.get(data.identityRead)) },
-          { binding: 15, resource: resolveTextureView(resources.get(data.identityWrite)) },
-          { binding: 16, resource: resolveTextureView(resources.get(data.ageRead)) },
-          { binding: 17, resource: resolveTextureView(resources.get(data.ageWrite)) }
+          { binding: 11, resource: resolveTextureView(resources.get(data.historyRead[0]!)) },
+          { binding: 12, resource: resolveTextureView(resources.get(data.historyWrite[0]!)) },
+          { binding: 13, resource: resolveTextureView(resources.get(data.historyRead[1]!)) },
+          { binding: 14, resource: resolveTextureView(resources.get(data.historyWrite[1]!)) },
+          { binding: 15, resource: resolveTextureView(resources.get(data.historyRead[2]!)) },
+          { binding: 16, resource: resolveTextureView(resources.get(data.historyWrite[2]!)) },
+          { binding: 17, resource: resolveTextureView(resources.get(data.historyRead[3]!)) },
+          { binding: 18, resource: resolveTextureView(resources.get(data.historyWrite[3]!)) },
+          { binding: 19, resource: resolveTextureView(resources.get(data.identity)) },
+          { binding: 20, resource: resolveTextureView(resources.get(data.identityRead)) },
+          { binding: 21, resource: resolveTextureView(resources.get(data.identityWrite)) },
+          { binding: 22, resource: resolveTextureView(resources.get(data.ageRead)) },
+          { binding: 23, resource: resolveTextureView(resources.get(data.ageWrite)) }
         ] });
         const pass = command.beginComputePass({ label: "Surface/reconstruct" });
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
         pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8)); pass.end();
       });
     for (const id of [input.diffuse, input.specular, input.coat, input.ibl,
-      input.reactive, input.identity, input.preExposure, input.sampleMap, historyRead, identityRead, ageRead]) node.read(id);
-    node.write(historyWrite); node.write(identityWrite); node.write(ageWrite);
+      input.reactive, input.identity, input.preExposure, input.sampleMap, ...historyRead, identityRead, ageRead]) node.read(id);
+    for (const id of historyWrite) node.write(id); node.write(identityWrite); node.write(ageWrite);
     radiance = node.create("Surface/HDR reconstructed", { kind: "transient_texture", width: input.width,
       height: input.height, format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" });
     reactiveMask = node.create("Surface/reactive reconstructed", { kind: "transient_texture", width: input.width,
@@ -219,11 +247,11 @@ export class SurfaceReconstructionPass {
 
   destroy(): void {
     this.settings.destroy();
-    if (this.histories !== null) { this.histories[0].destroy(); this.histories[1].destroy(); }
+    if (this.histories !== null) for (const pair of this.histories) { pair[0].destroy(); pair[1].destroy(); }
     if (this.identityHistories !== null) { this.identityHistories[0].destroy(); this.identityHistories[1].destroy(); }
     if (this.ageHistories !== null) { this.ageHistories[0].destroy(); this.ageHistories[1].destroy(); }
     for (const item of this.retired) {
-      item.signal[0].destroy(); item.signal[1].destroy();
+      for (const pair of item.signal) { pair[0].destroy(); pair[1].destroy(); }
       item.identity[0].destroy(); item.identity[1].destroy();
       item.age[0].destroy(); item.age[1].destroy();
     }

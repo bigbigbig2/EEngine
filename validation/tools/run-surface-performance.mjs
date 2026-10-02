@@ -6,8 +6,6 @@ import { fileURLToPath } from "node:url";
 import { execFile, execFileSync } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { sensitivityModes } from "../labs/surface-performance/ShaderSensitivity.mjs";
-import { prewarmSurfaceOwner, prewarmRendererRoot } from "../labs/surface-performance/PipelinePrewarm.mjs";
 
 const runFile = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -15,9 +13,9 @@ const args = process.argv.slice(2);
 function option(name, fallback) { const at = args.indexOf(`--${name}`); return at < 0 ? fallback : args[at + 1]; }
 const frames = Number(option("frames", "120")), warmup = Number(option("warmup", "60"));
 const batches = Number(option("batches", "2")), width = Number(option("width", "1280")), height = Number(option("height", "720"));
-const modes = option("modes", sensitivityModes.join(",")).split(",");
-const asyncPrewarm = args.includes("--async-prewarm");
-if (modes.some(mode => !sensitivityModes.includes(mode))) throw new Error("Unknown --modes");
+const modes = option("modes", "timing,detailed").split(",");
+const asyncPrewarm = false;
+if (modes.some(mode => !["timing", "detailed"].includes(mode))) throw new Error("Unknown --modes; use timing,detailed");
 const coverageGroups = option("coverage", "low,high").split(",");
 if (!coverageGroups.length || coverageGroups.some(group => !["low", "high"].includes(group)) || new Set(coverageGroups).size !== coverageGroups.length) throw new Error("Invalid --coverage; use low,high");
 for (const [name, value] of Object.entries({ frames, batches, width, height, warmup })) {
@@ -56,29 +54,11 @@ async function sampleSensor() {
 }
 if (!args.includes("--no-sensors")) await sampleSensor();
 const sensorTimer = args.includes("--no-sensors") ? null : setInterval(() => { sensorPending = sampleSensor(); }, 1000);
-let mode = "production";
+let mode = "timing";
 const normalize = path => path.replaceAll("\\", "/");
-const helper = normalize(resolve(root, "validation/labs/surface-performance/ShaderSensitivity.mjs"));
 const server = await createServer({ configFile: resolve(root, "examples/vite.config.ts"), clearScreen: false,
   server: { host: "127.0.0.1", port: Number(option("port", "4180")), strictPort: true, fs: { allow: [root] } },
-  plugins: [{ name: "surface-diagnostic-only", enforce: "pre",
-    transform(source, id) {
-      if (asyncPrewarm && normalize(id).endsWith("/OEngine/src/render/surface/SurfaceMaterialPass.ts")) return prewarmSurfaceOwner(source);
-      if (asyncPrewarm && normalize(id).endsWith("/OEngine/src/render/pipeline/RendererCore.ts")) return prewarmRendererRoot(source);
-      if (!normalize(id).endsWith("/OEngine/src/shaders/surface_sample_worker.ts") || mode === "production") return;
-      if (!source.includes("export function surfaceSampleWorkerWgsl(")) throw new Error("Missing worker generator diagnostic seam");
-      return source.replace("export function surfaceSampleWorkerWgsl(", "function productionSurfaceSampleWorkerWgsl(") + `
-import { rewriteSurfaceWorker } from ${JSON.stringify(helper)};
-export function surfaceSampleWorkerWgsl(...args: Parameters<typeof productionSurfaceSampleWorkerWgsl>) {
-  const source = productionSurfaceSampleWorkerWgsl(...args);
-  const specialization = { hasLit: args[1], physicalEnvironment: args[6] ?? true, closureLighting: args[7] ?? false };
-  const rewritten = rewriteSurfaceWorker(source, ${JSON.stringify(mode)}, specialization);
-  const diagnostic = (globalThis as unknown as { __surfaceDiagnostic?: { rewrites: unknown[] } }).__surfaceDiagnostic;
-  diagnostic?.rewrites.push({ ...specialization, mode: ${JSON.stringify(mode)}, changed: rewritten !== source });
-  return rewritten;
-}`;
-    },
-    configureServer(dev) {
+  plugins: [{ name: "surface-v3-diagnostic-host", configureServer(dev) {
       dev.middlewares.use("/__surface-performance/", async (request, response) => {
         if (request.url?.split("?")[0] === "/config.json") {
           response.setHeader("Content-Type", "application/json"); response.setHeader("Cache-Control", "no-store");
@@ -96,7 +76,7 @@ const report = { schema: "eengine-surface-performance-suite-v1", evidenceRole: "
   options: { frames, warmup, batches, width, height, modes, coverageGroups, view: option("view", "overview"),
     headless: args.includes("--headless"), asyncPrewarm, counters: !args.includes("--no-counters"),
     chrome: option("chrome", "C:/Program Files/Google/Chrome/Application/chrome.exe") },
-  measurement: "completed fixed consecutive GPU frame ranges; pass interval sum; ablation differences are non-additive",
+  measurement: "completed fixed consecutive GPU frame ranges; Surface V3 stage interval sum/span; timing versus detailed overhead",
   sensorMapping: "sensor query UTC intervals overlap CPU encode→GPU result observation windows; not calibrated per-GPU-frame attribution" };
 const save = () => writeFile(resolve(out, "suite.json"), JSON.stringify(report, null, 2));
 async function bounded(operation, timeoutMs, label) {
@@ -110,7 +90,7 @@ try {
   const cameraDistances = new Map();
   // Alternate order across batches; each experiment gets a new Document/device.
   for (let batch = 0; batch < batches; batch++) {
-    const ordered = batch % 2 ? [...modes].reverse() : [...modes].sort((a, b) => (a === "production" ? -1 : b === "production" ? 1 : 0));
+    const ordered = batch % 2 ? [...modes].reverse() : [...modes];
     for (const coverage of batch % 2 ? [...coverageGroups].reverse() : coverageGroups) {
     for (const selected of ordered) {
       mode = selected; server.moduleGraph.invalidateAll();
@@ -141,24 +121,17 @@ try {
         await bounded(page.evaluate(() => globalThis.__eengineShowcase.start()), asyncPrewarm ? 600000 : 180000, "Scene preparation");
         const distanceScale = cameraDistances.get(coverage);
         const capture = await bounded(page.evaluate(request => globalThis.__eengineShowcase.capture(request), { width, height, frames, warmup,
-          coverage, ...(distanceScale === undefined ? {} : { distanceScale, lockCamera: true }),
+          coverage, surfaceMode: mode, ...(distanceScale === undefined ? {} : { distanceScale, lockCamera: true }),
           counters: !args.includes("--no-counters"), view: option("view", "overview"), profile: "full" }), 600000, "Calibration/capture");
         if (capture.complete && distanceScale === undefined) cameraDistances.set(coverage, capture.cameraDistanceScale);
         capture.caseId = `surface-performance-${coverage}-${mode}-${batch}`; capture.mode = mode; capture.batch = batch; capture.coverageGroup = coverage;
         capture.errors = errors;
         capture.conditions.browser = { version: report.browser, headless: args.includes("--headless"), asyncPrewarm, processIsolation: "per-case" };
-        capture.shaderRewrites = await page.evaluate(() => globalThis.__surfaceDiagnostic.rewrites);
-        capture.pipelinePrewarm = await page.evaluate(() => ({ hits: globalThis.__surfaceDiagnostic.prewarmCacheHits, misses: globalThis.__surfaceDiagnostic.prewarmCacheMisses }));
-        if (asyncPrewarm && (!capture.pipelinePrewarm.hits.some(key => key.startsWith("true:")) || capture.pipelinePrewarm.misses.some(key => key.startsWith("true:")))) {
-          capture.complete = false; capture.issues.push("Async prewarm did not cover the actual lit consumer profile");
-        }
-        if (mode !== "production" && !capture.shaderRewrites.some(rewrite => rewrite.changed)) {
-          capture.complete = false; capture.issues.push("No diagnostic shader rewrite actually applied");
-        }
+        capture.surfaceMode = mode;
         if (errors.length) { capture.complete = false; capture.issues.push("Browser errors"); }
         report.captures.push(capture);
         await writeFile(resolve(out, `${batch}-${coverage}-${mode}.json`), JSON.stringify(capture, null, 2));
-        console.log(`${coverage}/${mode}: ${capture.summary.completedGpu}/${frames} frames; coverage ${(capture.calibration.at(-1).coverage * 100).toFixed(2)}%; worker ${capture.summary.passes.find(p => p.label.endsWith("Surface/material and lighting samples"))?.p50.toFixed(3)} ms; total ${capture.summary.gpuPassSumMs?.p50.toFixed(3)} / ${capture.summary.gpuPassSumMs?.p95.toFixed(3)} ms`);
+        console.log(`${coverage}/${mode}: ${capture.summary.completedGpu}/${frames} frames; coverage ${(capture.calibration.at(-1).coverage * 100).toFixed(2)}%; Surface ${capture.summary.surfacePassSumMs?.p50.toFixed(3)} / ${capture.summary.surfacePassSumMs?.p95.toFixed(3)} ms; total ${capture.summary.gpuPassSumMs?.p50.toFixed(3)} / ${capture.summary.gpuPassSumMs?.p95.toFixed(3)} ms`);
         if (!capture.complete) report.errors.push(`${batch}-${coverage}-${mode}: ${capture.issues.join("; ")}`);
       } catch (error) {
         report.errors.push(`${batch}-${coverage}-${mode}: ${String(error)}; browser: ${JSON.stringify(errors)}`); console.error(String(error));

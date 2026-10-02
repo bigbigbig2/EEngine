@@ -7,7 +7,7 @@ export interface ExperimentFrame {
   uploads: { bytes: number };
   readbacks: { bytes: number };
   graph?: { cacheHits: number; cacheMisses: number };
-  gpu: { available: boolean; sampled: boolean; pending: boolean; segments: { label: string; phase: string; durationMs: number }[] };
+  gpu: { available: boolean; sampled: boolean; pending: boolean; segments: { label: string; phase: string; durationMs: number; startTick?: string; endTick?: string }[] };
   gpuCounters: { sampled: boolean; pending: boolean; dropped: boolean; values: Partial<Record<string, number>> };
   gpuValid: boolean;
 }

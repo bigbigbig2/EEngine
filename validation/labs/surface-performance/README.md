@@ -1,23 +1,25 @@
-# Surface 性能定位实验
+# Surface V3 性能测量设施
 
-本地集成的 diagnostic-only 宿主，复用 `next-renderer-showcase` 的 Dungeon、发布、FrameGraph 与 GPU consumer。独立 Document/device、Chrome 临时 profile；不修改引擎生产 shader，不提交 accepted evidence，不使用 shader 编译禁用优化开关。源码由私有 Vite 宿主在编译时明确改写，预期函数/边界不存在时失败；示例正常入口不加载这些改写。
+本地 diagnostic-only 宿主，复用 `next-renderer-showcase` 的 Dungeon、发布、FrameGraph 与 Surface V3 production renderer。独立 Document/device、Chrome 临时 profile；不修改生产 shader，不提交 accepted evidence。测量链固定为“覆盖完整性 → 实际工作量 → GPU 阶段耗时”。
 
 ## 运行
 
 从仓库根目录执行，默认打开本机有界面 Google Chrome：
 
 ```powershell
-node validation/tools/run-surface-performance.mjs --frames 120 --warmup 60 --batches 2
+node validation/tools/run-surface-performance.mjs --modes timing,detailed --frames 600 --warmup 300 --batches 3
 node validation/tools/analyze-surface-performance.mjs .local/validation/<运行目录>/suite.json
 ```
 
 小批编译/采集检查：
 
 ```powershell
-node validation/tools/run-surface-performance.mjs --modes production,material-only --frames 20 --warmup 10 --batches 1
+node validation/tools/run-surface-performance.mjs --modes timing,detailed --frames 20 --warmup 10 --batches 1
 ```
 
-参数：`--chrome <chrome.exe>`、`--width 1280 --height 720`、`--coverage low,high`（默认两组）、`--view overview|detail`、`--modes <逗号列表>`、`--no-counters`、`--no-sensors`、`--out <目录>`、`--port 4180`。`--headless` 必须显式选择，不能与有界面结果混用。
+参数：`--chrome <chrome.exe>`、`--width 1920 --height 1080`、`--coverage low,high`（默认两组）、`--view overview|detail`、`--modes timing,detailed`、`--no-counters`、`--no-sensors`、`--out <目录>`、`--port 4180`。`--headless` 必须显式选择，不能与有界面结果混用。
+
+`timing` 只写 GPU timestamp；`detailed` 额外写 Surface V3 snapshot、覆盖关系和逻辑字节模型。两种模式必须使用同一批次、同一相机、同一驻留状态比较，详细模式相对 timing 的差值单独报告为测量扰动。
 
 ## 固定采集合同
 
@@ -34,26 +36,23 @@ node validation/tools/run-surface-performance.mjs --modes production,material-on
 
 ## 实验与解释
 
-| 模式 | 保留/移除内容 | 能定位什么 |
-| --- | --- | --- |
-| production | 完整生产着色 | 总成本、采样减量、长尾、跨 revision 同画质基准 |
-| geometry-only | 保留 setup、透视重心、位置/法线/顶点色恢复，并编码到输出；去除 lit 材质纹理和 lighting | 几何恢复及其调度压力是否占大头 |
-| material-only | 保留材质求值，参数编码到输出；替换照明函数 | worker 对 lighting 的敏感程度 |
-| no-ibl | 保留 local direct + physical sun；删除天空漫反射与环境镜面消费；共享 DFG/energy 仍可能被 direct 使用 | 环境照明消费的敏感程度 |
-| no-direct | 删除灯表 direct 和太阳反射项，保留环境照明 | direct 计算与灯表依赖的敏感程度 |
-| no-shared-setup | 保持实际表面/照明计算，改用直接 setup 恢复 | 16-slot 表、原子、barrier、共享内存是否净获益 |
-| no-worker-statistics | 删除 worker 的逐样本诊断 atomicAdd；保留 Builder/容量预约与正确性控制 | 诊断竞争是否显著干扰 worker |
+每组场景先运行 `timing`，再运行 `detailed`。两者都使用同一生产路径；`detailed` 只增加 snapshot、计数和覆盖检查。分析器同时输出：
 
-所有消融改变编译器 DCE、寄存器生命周期、occupancy 或图像；差值**非可加的精确组件成本**。geometry/material 诊断会显著改变画面；setup/统计诊断仍需独立图像正确性检查才可采用。不同图像会改变 FSR3/Bloom，因此定位 worker 时看 worker interval，并同时保留整图成本。
+- Surface 各阶段 P50/P95；
+- `surfacePassSumMs` 与 `surfaceSpanMs`；
+- tile、sample、material、geometry、lighting、reconstruct 工作漏斗；
+- 覆盖方程状态、溢出、丢样和 snapshot 可用性；
+- 资源分配量与 reconstruct 逻辑访问字节；
+- `detailed - timing` 的整帧和 Surface 扰动。
 
-分析器只和同批、同实际相机/尺寸/效果/时间步的 production 比较敏感程度，并检查可见像素数；同像素数不是逐像素 VisibilityKey 相等证明。统计关闭时无法完成该覆盖计数检查，必须标未知。
+GPU timestamp 不可用、snapshot 丢失、覆盖关系失败或生产路径发生未解释截断时，只保留诊断记录，不形成性能改善结论。
 
 ## 定位顺序
 
-1. 先重复 production，查看全 GPU pass 是否同步变慢和时钟/温度窗口；污染明显时保留数据但不宣称稳定性能。
-2. 查看 Probe/Builder/空 closure 成本与 material/lighting/full/coarse/fallback/overflow。全率时不能把采集成功当优化成功。
-3. 比较 material-only、no-ibl、no-direct、geometry-only，确定进一步实验范围；不要用四个耗时相减拼出精确原 shader 分解。
-4. 用 no-shared-setup/no-worker-statistics 检查当前调度开销。对胜出的候选实施完整生产优化后，再跑 production、画质和生命周期检查。
-5. 空间复用验证增加受控材质：常量、非恒定 albedo、ORM/AO、双面、normal map、薄高光、UV 接缝与密集小三角形；分别测试全景/近景/运动。受控 oracle 不替代 Dungeon 实景性能。
+1. 先看 coverage；任何 overflow、miss queue 截断、Geometry ABI base 不一致或 snapshot dropped 都暂停性能解释。
+2. 再看工作漏斗，区分 cache hit、真实 miss、evaluator 完成和字段 publication，避免把漏算当优化。
+3. 再看 Surface 阶段耗时，先判断是 pass 合计、Surface span 还是区间外 provider 占主导。
+4. 最后比较 `timing` 与 `detailed`，报告诊断扰动；只有完整 coverage 的 timing 数据才进入性能比较。
+5. 对高频 normal/ORM、材质交错、容量压力、相机运动和 VSM 开关分别采集，不能用一个 Dungeon 总数代替覆盖。
 
 示例调试面板也提供完整画面的固定采集及 AO/FSR3/Bloom 关闭实验和完整 JSON 导出；它属于开发诊断，正式验收仍使用仓库的 validation 协议和固定条件。

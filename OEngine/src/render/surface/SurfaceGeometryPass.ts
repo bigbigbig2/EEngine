@@ -134,6 +134,7 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   let dispatch_index = id.x;
   if miss_mode {
     if dispatch_index >= atomicLoad(&geometry_miss_counters[0]) { return; }
+    atomicAdd(&record_count[1], 1u);
   } else {
     let actual_count = min(settings.record_count, surface_counts[0u]);
     if dispatch_index >= actual_count || dispatch_index >= settings.capacity { return; }
@@ -147,8 +148,9 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   let y = pixel / settings.width;
   let key = textureLoad(visibility, vec2i(x, y), 0).x;
   let base = settings.geometry_offset / 16u + record * 12u;
-  let decoded = oengine_visibility_key_decode(key);
-  if decoded.valid == 0u || decoded.meshlet_work_slot >= meshlet_work.header.written_count {
+  let decoded = oengine_visibility_key_resolve(key, meshlet_work.header.generation, meshlet_work.header.written_count);
+  if decoded.valid == 0u {
+    atomicAdd(&record_count[5], 1u);
     for (var i = 0u; i < 12u; i++) { records[base + i] = vec4f(0.0); }
     records[base + 8u] = vec4f(bitcast<f32>(key), 0.0, 0.0, 0.0);
     return;
@@ -182,6 +184,7 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
     geometry_cache_keys[cache_key + 11u] == pixel &&
     geometry_cache_keys[cache_key + 12u] == clip_signature;
   if cache_match {
+    if !miss_mode { atomicAdd(&record_count[3], 1u); atomicAdd(&record_count[4], 1u); }
     if miss_mode { return; }
     let cached = cache_value_base(cache_cell);
     let local_position = geometry_cache_values[cached + 0u].xyz;
@@ -242,6 +245,7 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
     ids = vec3u(0u, 1u, 2u);
   }
   if (interpolation.flags & 1u) == 0u {
+    atomicAdd(&record_count[5], 1u);
     for (var i = 0u; i < 12u; i++) { records[base + i] = vec4f(0.0); }
     records[base + 8u] = vec4f(bitcast<f32>(key), 0.0, 0.0, 0.0);
     return;
@@ -316,6 +320,7 @@ fn resolve_geometry(@builtin(global_invocation_id) id: vec3u) {
   records[base + 9u] = vec4f(bitcast<f32>(key), bitcast<f32>(decoded.meshlet_work_slot), bitcast<f32>(meshlet.instance_slot), bitcast<f32>(meshlet.geometry_slot));
   records[base + 10u] = vec4f(bitcast<f32>(signature), bitcast<f32>(meshlet.material_slot_or_range), bitcast<f32>(instance.source.flags), bitcast<f32>(interpolation.flags));
   records[base + 11u] = vec4f(1.0, color.z, color.w, 0.0);
+  atomicAdd(&record_count[4], 1u);
 }
 `;
 
@@ -430,7 +435,7 @@ export class SurfaceGeometryPass {
     };
     const classify = graph.add("Surface/GeometryRecord cache classify", { ...input, mode: 0 }, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      command.writeBuffer(resources.get(count) as GPUBuffer, 0, new Uint32Array(4).buffer, 0, 16);
+      command.writeBuffer(resources.get(count) as GPUBuffer, 0, new Uint32Array(8).buffer, 0, 32);
       command.writeBuffer(resources.get(missCounters) as GPUBuffer, 0, new Uint32Array(8).buffer, 0, 32);
       bindAndDispatch(data, resources, context);
     });
@@ -441,7 +446,7 @@ export class SurfaceGeometryPass {
       size: input.geometryOffset + input.geometryCapacity * SURFACE_GEOMETRY_RECORD_STRIDE,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC, domain: "internal-full" });
     classify.write(records);
-    count = classify.create("Surface/GeometryRecord count", { kind: "transient_buffer", size: 16,
+    count = classify.create("Surface/GeometryRecord count", { kind: "transient_buffer", size: 32,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     classify.write(count);
     missQueue = classify.create("Surface/GeometryRecord miss queue", { kind: "transient_buffer",
@@ -460,7 +465,7 @@ export class SurfaceGeometryPass {
       const pass = command.beginComputePass({ label: "Surface/GeometryRecord miss finalize" });
       pass.setPipeline(this.finalizePipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end();
     });
-    finalize.read(missCounters); finalize.write(missCounters);
+    finalize.read(missCounters); missCounters = finalize.write(missCounters);
     const resolveMisses = graph.add("Surface/GeometryRecord miss resolve", { ...input, mode: 1, records, count, missQueue, missCounters }, (data, resources, context) => {
       bindAndDispatch(data, resources, context);
     });

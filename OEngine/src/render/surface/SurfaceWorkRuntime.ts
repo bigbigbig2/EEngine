@@ -9,6 +9,9 @@ import { SurfaceMaterialCachePass, type SurfaceMaterialProducts } from "./Surfac
 import { SurfaceLightingWorkPass } from "./SurfaceLightingWorkPass.js";
 import type { SurfaceLightingInput } from "./SurfaceLightingWorkPass.js";
 import { SurfaceReconstructionPass } from "./SurfaceReconstructionPass.js";
+import { SurfaceDiagnosticsPass } from "./SurfaceDiagnosticsPass.js";
+import { SURFACE_DIAGNOSTICS_BYTE_SIZE, type SurfaceDiagnosticsMode, type SurfaceDiagnosticsIdentity } from "../../gpu/SurfaceDiagnosticsAbi.js";
+import type { SurfaceDiagnosticsCapture } from "../../debug/SurfaceDiagnosticsCapture.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 
 export interface SurfaceWorkFrame {
@@ -29,6 +32,7 @@ export interface SurfaceWorkProducts extends SurfaceGeometryProducts, SurfaceMat
   readonly counts: ResourceId;
   readonly radiance: ResourceId;
   readonly reactiveMask: ResourceId;
+  readonly diagnostics?: ResourceId;
 }
 
 const CLASSIFY_WGSL = /* wgsl */ `
@@ -139,17 +143,17 @@ fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid:
         }
       }
     } else {
+      atomicAdd(&counts[14], 1u);
       atomicOr(&overflow_lo, 1u);
     }
   }
   if tile_class == 2u && valid[lane] != 0u {
-    let local_slot = atomicAdd(&tile_samples, 1u);
+    atomicAdd(&tile_samples, 1u);
     let slot = atomicAdd(&counts[0], 1u);
     if slot < settings.sample_capacity {
       write_sample(slot, py * settings.width + px, key, tile, lane);
-    } else if lane < 32u { atomicOr(&overflow_lo, 1u << lane); }
-    else { atomicOr(&overflow_hi, 1u << (lane - 32u)); }
-    if local_slot >= settings.sample_capacity { atomicOr(&counts[2], 1u); }
+    } else if lane < 32u { atomicAdd(&counts[14], 1u); atomicOr(&overflow_lo, 1u << lane); }
+    else { atomicAdd(&counts[14], 1u); atomicOr(&overflow_hi, 1u << (lane - 32u)); }
   }
   workgroupBarrier();
   if lane == 0u {
@@ -157,6 +161,7 @@ fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid:
     work[tile_at + 8u] = atomicLoad(&tile_samples);
     let lo = atomicLoad(&overflow_lo); let hi = atomicLoad(&overflow_hi);
     if lo != 0u || hi != 0u {
+      atomicAdd(&counts[13], 1u);
       atomicOr(&counts[2], 2u);
       if settings.exception_stride > 0u && tile * settings.exception_stride < settings.exception_capacity {
         let e = settings.exception_offset + tile * settings.exception_stride * 4u;
@@ -179,6 +184,10 @@ struct Settings { max_samples: u32, max_exceptions: u32, indirect_offset: u32, r
 @group(0) @binding(2) var<storage, read_write> work: array<u32>;
 @compute @workgroup_size(1)
 fn finalize() {
+  let requested_samples = atomicLoad(&counts[0]);
+  let requested_exceptions = atomicLoad(&counts[1]);
+  atomicStore(&counts[12], requested_samples);
+  atomicStore(&counts[13], requested_exceptions + atomicLoad(&counts[13]));
   let samples = min(atomicLoad(&counts[0]), settings.max_samples);
   let exceptions = min(atomicLoad(&counts[1]), settings.max_exceptions);
   work[4] = samples;
@@ -198,6 +207,10 @@ export class SurfaceWorkRuntime {
   private readonly material: SurfaceMaterialCachePass;
   private readonly lighting: SurfaceLightingWorkPass;
   private readonly reconstruction: SurfaceReconstructionPass;
+  private readonly diagnostics: SurfaceDiagnosticsPass;
+  private diagnosticsMode: SurfaceDiagnosticsMode = "off";
+  private diagnosticsCapture: SurfaceDiagnosticsCapture | null = null;
+  private diagnosticsIdentity: Omit<SurfaceDiagnosticsIdentity, "frameId"> = { runId: "default", deviceEpoch: 0 };
   private readonly classifyLayout: GPUBindGroupLayout;
   private readonly classifyPipeline: GPUComputePipeline;
   private readonly finalizeLayout: GPUBindGroupLayout;
@@ -215,6 +228,16 @@ export class SurfaceWorkRuntime {
     this.material = new SurfaceMaterialCachePass(device);
     this.lighting = new SurfaceLightingWorkPass(device);
     this.reconstruction = new SurfaceReconstructionPass(device);
+    this.diagnostics = new SurfaceDiagnosticsPass(device, (command, source, frameId) => {
+      const capture = this.diagnosticsCapture;
+      if (capture === null || this.diagnosticsMode !== "detailed" || command.gpu_encoder === undefined) return;
+      const identity = { ...this.diagnosticsIdentity, frameId };
+      const ticket = capture.encodeReadback(command.gpu_encoder, source, identity);
+      if (ticket === null) return;
+      command.recordReadback("surface-diagnostics", SURFACE_DIAGNOSTICS_BYTE_SIZE);
+      command.onFinished.addOne(() => capture.markSubmitted(ticket));
+      command.onAborted?.addOne((_context, cause) => capture.cancel(ticket, cause));
+    });
     this.settings = device.createBuffer({ label: "SurfaceWork/classify settings", size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.finalizeSettings = device.createBuffer({ label: "SurfaceWork/finalize settings", size: 16,
@@ -243,9 +266,23 @@ export class SurfaceWorkRuntime {
     this.reconstruction.prepareFrame(width, height); this.prepared = true;
   }
 
+  setDiagnosticsMode(mode: SurfaceDiagnosticsMode): void {
+    if (this.prepared) throw new Error("Cannot change Surface diagnostics mode during a frame");
+    this.diagnosticsMode = mode;
+  }
+
+  setDiagnosticsCapture(
+    capture: SurfaceDiagnosticsCapture | null,
+    identity: Omit<SurfaceDiagnosticsIdentity, "frameId"> = { runId: "default", deviceEpoch: 0 }
+  ): void {
+    if (this.prepared) throw new Error("Cannot change Surface diagnostics capture during a frame");
+    this.diagnosticsCapture = capture;
+    this.diagnosticsIdentity = identity;
+  }
+
   addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; meshletWork: ResourceId;
     sourceHeap: ResourceId; vertexPayload: ResourceId; frameInstances: ResourceId; frameAttributes: ResourceId;
-    camera: ResourceId; fieldVersions: ResourceId; residencyVersions: ResourceId; materialLookup: ResourceId; surfaceIdentity: ResourceId;
+    camera: ResourceId; fieldVersions: ResourceId; residencyVersions: ResourceId; materialLookup: ResourceId; surfaceIdentity: ResourceId; materials: ResourceId;
     textureBanks: readonly (readonly ResourceId[])[]; publication: GpuAppearancePublication;
     lightRecords: ResourceId; clusters: SurfaceLightingInput["clusters"];
     shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
@@ -273,7 +310,7 @@ export class SurfaceWorkRuntime {
         layout.exceptionCapacity, exceptionStride]);
       command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
       command.writeBuffer(resources.get(work) as GPUBuffer, 0, header.buffer, 0, header.byteLength);
-      command.writeBuffer(resources.get(counts) as GPUBuffer, 0, new Uint32Array(16).buffer, 0, 64);
+      command.writeBuffer(resources.get(counts) as GPUBuffer, 0, new Uint32Array(SURFACE_WORK_COUNTER_BYTES / 4).buffer, 0, SURFACE_WORK_COUNTER_BYTES);
       const group = this.device.createBindGroup({ layout: this.classifyLayout, entries: [
         { binding: 0, resource: { buffer: this.settings } }, { binding: 1, resource: resolveTextureView(resources.get(data.visibility)) },
         { binding: 2, resource: { buffer: resources.get(work) as GPUBuffer } },
@@ -301,11 +338,11 @@ export class SurfaceWorkRuntime {
       const pass = command.beginComputePass({ label: "SurfaceWork/finalize counters" });
       pass.setPipeline(this.finalizePipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end();
     });
-    finalize.read(work); finalize.write(work); finalize.read(counts); finalize.write(counts);
+    finalize.read(work); work = finalize.write(work); finalize.read(counts); counts = finalize.write(counts);
     const recordCount = layout.sampleCapacity;
     const material = this.material.addLookupToGraph(graph, { visibility: input.visibility, work,
       meshletWork: input.meshletWork, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions,
-      counts, materialLookup: input.materialLookup, surfaceIdentity: input.surfaceIdentity,
+      counts, materialLookup: input.materialLookup, surfaceIdentity: input.surfaceIdentity, materials: input.materials,
       programCount: input.publication.surfaceProgramCount, width: input.width, height: input.height,
       recordCount, sampleOffset: layout.sampleOffset, frame: input.frame.generation });
     const geometry = this.geometry.addToGraph(graph, { visibility: input.visibility, work, arena: input.arena,
@@ -317,11 +354,12 @@ export class SurfaceWorkRuntime {
       sourceMeshletVertices: input.frame.sourceMeshletVertices, sourceMeshletTriangles: input.frame.sourceMeshletTriangles,
       sourceVertexData: input.frame.sourceVertexData, materialHitMask: material.hitMask,
       sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset, recordCount, geometryCapacity: layout.geometryCapacity, counts });
-    this.material.addEvaluateToGraph(graph, { ...material, geometry: geometry.records, width: input.width, height: input.height,
+    const evaluatedMaterial = this.material.addEvaluateToGraph(graph, { ...material, geometry: geometry.records, geometryOffset: layout.geometryOffset / 16, width: input.width, height: input.height,
       recordCount, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions, frame: input.frame.generation, counts,
-      publication: input.publication, textureBanks: input.textureBanks, work, sampleOffset: layout.sampleOffset });
-    const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: material.fields,
-      work, sampleOffset: layout.sampleOffset, width: input.width, height: input.height,
+      publication: input.publication, textureBanks: input.textureBanks, work, sampleOffset: layout.sampleOffset,
+      diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
+    const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: evaluatedMaterial.fields,
+      work, sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset / 16, width: input.width, height: input.height,
       recordCount, frame: input.frame.generation, counts, camera: input.camera,
       lightRecords: input.lightRecords, clusters: input.clusters, shadow: input.shadow,
       scalarAo: input.scalarAo, environment: input.environment });
@@ -329,7 +367,14 @@ export class SurfaceWorkRuntime {
       coat: lighting.coatPackets, ibl: lighting.iblPackets, reactive: input.factsMask,
       identity: input.factsIdentity, preExposure: input.preExposure, revisions: input.revisions,
       width: input.width, height: input.height, recordCount, sampleMap });
-    return { work, counts, sampleMap, records: geometry.records, count: geometry.count, ...material, ...lighting, ...reconstruction };
+    const diagnostics = this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null ? this.diagnostics.addToGraph(graph, {
+      work, counts, materialCounters: evaluatedMaterial.counters, materialAudit: evaluatedMaterial.audit, geometryCount: geometry.count,
+      geometryMissCounters: geometry.missCounters, lightingCounters: lighting.counters,
+      width: input.width, height: input.height, frameId: input.frame.generation,
+      geometryOffset: layout.geometryOffset
+    }) : null;
+    return { work, counts, sampleMap, records: geometry.records, count: geometry.count, ...evaluatedMaterial, ...lighting, ...reconstruction,
+      ...(diagnostics === null ? {} : diagnostics) };
   }
 
   commit(gpuDone: Promise<void>): void {
@@ -338,5 +383,5 @@ export class SurfaceWorkRuntime {
   }
   abort(): void { this.reconstruction.abort(); this.prepared = false; }
   invalidate(): void { this.reconstruction.invalidate(); }
-  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.reconstruction.destroy(); this.settings.destroy(); this.finalizeSettings.destroy(); }
+  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.reconstruction.destroy(); this.diagnostics.destroy(); this.settings.destroy(); this.finalizeSettings.destroy(); }
 }

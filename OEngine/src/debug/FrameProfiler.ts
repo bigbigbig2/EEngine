@@ -70,6 +70,9 @@ export interface FrameGpuSegment {
   type: FrameGpuPassType;
   phase: GpuFramePhase;
   durationMs: number;
+  /** Raw query values retained for interval/span attribution. */
+  startTick?: string;
+  endTick?: string;
 }
 
 export interface FrameGpuEvidence {
@@ -101,6 +104,8 @@ export interface FrameProfilerDiagnostics {
 
 export interface FrameProfileSnapshot {
   frameIndex: number;
+  runId?: string;
+  deviceEpoch?: number;
   /** Benchmark-owned immutable context (camera segment, distance, LOD mode, etc.). */
   metadata?: Readonly<Record<string, unknown>>;
   cpuMs: Record<string, number>;
@@ -117,6 +122,8 @@ export interface FrameGpuTimingInput {
   label?: string;
   type: FrameGpuPassType;
   duration_ms: number;
+  start?: bigint;
+  end?: bigint;
 }
 
 export type FrameProfileListener = (snapshot: FrameProfileSnapshot) => void;
@@ -389,6 +396,7 @@ export class FrameProfiler {
   private epochValue = 0;
   private warmupRemainingValue = 0;
   private deviceEpoch = 0;
+  private captureRunIdValue = "default";
   private readonly onUncapturedError = (event: GPUUncapturedErrorEvent): void => {
     const error = event.error;
     const name = error.constructor?.name || "GPUError";
@@ -475,6 +483,21 @@ export class FrameProfiler {
 
   get epoch(): number {
     return this.epochValue;
+  }
+
+  get deviceEpoch(): number {
+    return this.deviceEpoch;
+  }
+
+  get captureRunId(): string {
+    return this.captureRunIdValue;
+  }
+
+  setCaptureRunId(runId: string): void {
+    if (this.active !== null) throw new Error("Cannot change capture run id during a frame");
+    const normalized = runId.trim();
+    if (normalized.length === 0) throw new RangeError("capture run id must not be empty");
+    this.captureRunIdValue = normalized;
   }
 
   get warmupRemaining(): number {
@@ -707,6 +730,8 @@ export class FrameProfiler {
       metricSamples: {},
       snapshot: {
         frameIndex,
+        runId: this.captureRunIdValue,
+        deviceEpoch: this.deviceEpoch,
         cpuMs: {},
         submits: { count: 0, labels: {} },
         readbacks: { count: 0, bytes: 0, labels: {} },
@@ -1008,7 +1033,9 @@ export class FrameProfiler {
       label: timing.label ?? `unnamed-${index}`,
       type: timing.type,
       phase: classifyGpuFramePhase(timing.label ?? `unnamed-${index}`),
-      durationMs: nonNegativeFinite(timing.duration_ms, "GPU duration")
+      durationMs: nonNegativeFinite(timing.duration_ms, "GPU duration"),
+      ...(timing.start === undefined ? {} : { startTick: timing.start.toString() }),
+      ...(timing.end === undefined ? {} : { endTick: timing.end.toString() })
     }));
     frame.gpu.pending = false;
     this.failedGpuTimingFrames.delete(frameIndex);
@@ -1189,7 +1216,9 @@ export class FrameProfiler {
           label,
           type: timing.type,
           phase: classifyGpuFramePhase(label),
-          durationMs: nonNegativeFinite(timing.duration_ms, "GPU duration")
+          durationMs: nonNegativeFinite(timing.duration_ms, "GPU duration"),
+          ...(timing.start === undefined ? {} : { startTick: timing.start.toString() }),
+          ...(timing.end === undefined ? {} : { endTick: timing.end.toString() })
         };
       })
     );
@@ -1284,6 +1313,8 @@ function qualifyGpuTimingLabel(
 function cloneSnapshot(snapshot: FrameProfileSnapshot): FrameProfileSnapshot {
   return {
     frameIndex: snapshot.frameIndex,
+    ...(snapshot.runId === undefined ? {} : { runId: snapshot.runId }),
+    ...(snapshot.deviceEpoch === undefined ? {} : { deviceEpoch: snapshot.deviceEpoch }),
     cpuMs: { ...snapshot.cpuMs },
     submits: {
       count: snapshot.submits.count,

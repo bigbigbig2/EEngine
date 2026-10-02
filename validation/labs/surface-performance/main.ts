@@ -13,9 +13,9 @@ const configuration = await fetch("/__surface-performance/config.json").then(res
 const mode = configuration.mode;
 const requestedMode = new URL(location.href).searchParams.get("mode");
 if (requestedMode && requestedMode !== mode) throw new Error("Diagnostic shader mode does not match host configuration");
-document.title = `Surface diagnostic · ${mode}`;
+document.title = `Surface V3 measurement · ${mode}`;
 const banner = document.createElement("div");
-banner.textContent = `DIAGNOSTIC ONLY · ${mode} · 不作为画质或性能改善验收`;
+banner.textContent = `SURFACE V3 MEASUREMENT · ${mode} · coverage + work + GPU timing`;
 banner.style.cssText = "position:fixed;top:40px;left:12px;z-index:100;color:#ffd38a;background:#18202ddd;padding:5px;font:12px monospace;pointer-events:none";
 document.body.append(banner);
 Object.assign(globalThis, { __surfaceDiagnostic: { evidenceRole: "diagnostic", accepted: false, mode, rewrites: [], prewarmCacheHits: [], prewarmCacheMisses: [],

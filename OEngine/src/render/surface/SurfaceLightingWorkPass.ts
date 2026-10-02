@@ -22,6 +22,8 @@ export interface SurfaceLightingInput {
   readonly counts: ResourceId;
   readonly work: ResourceId;
   readonly sampleOffset: number;
+  /** GeometryRecord base in vec4 words inside the shared record buffer. */
+  readonly geometryOffset: number;
   readonly width: number;
   readonly height: number;
   readonly recordCount: number;
@@ -64,7 +66,7 @@ struct SurfaceView { width: u32, height: u32, frame_index: u32, _pad: u32 };
 struct SurfaceSettings {
   width: u32, height: u32, record_count: u32, frame: u32,
   sample_offset: u32, light_enabled: u32, environment_enabled: u32, shadow_enabled: u32,
-  cluster_enabled: u32, _environment_enabled_2: u32, ao_enabled: u32, _pad: u32,
+  cluster_enabled: u32, _environment_enabled_2: u32, ao_enabled: u32, geometry_offset: u32,
 };
 @group(0) @binding(0) var<uniform> settings: SurfaceSettings;
 @group(0) @binding(1) var<storage, read> geometry: array<vec4f>;
@@ -105,6 +107,7 @@ fn setting(index: u32) -> u32 {
     case 9u: { return settings.environment_enabled; }
     case 10u: { return settings.ao_enabled; }
     case 7u: { return settings.shadow_enabled; }
+    case 11u: { return settings.geometry_offset; }
     default: { return 0u; }
   }
 }
@@ -207,7 +210,7 @@ fn coat_environment(material: StandardMaterial, normal: vec3f, view_dir: vec3f) 
 fn build(@builtin(global_invocation_id) id: vec3u) {
   let record = id.x;
   if record >= setting(2u) || record >= surface_counts[0u] { return; }
-  let base = record * 12u;
+  let base = setting(11u) + record * 12u;
   let sample_at = setting(4u) / 4u + record * 8u;
   let pixel_index = work[sample_at];
   let signal_mask = work[sample_at + 3u];
@@ -335,7 +338,7 @@ export class SurfaceLightingWorkPass {
       const settings = new Uint32Array([
         data.width, data.height, data.recordCount, data.frame, data.sampleOffset,
         1, 1, data.shadow === null ? 0 : 1,
-        1, 1, data.scalarAo === null ? 0 : 1, 0]);
+        1, 1, data.scalarAo === null ? 0 : 1, data.geometryOffset]);
       command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
       const initialCounters = new Uint32Array(SPARSE_LIGHTING_COUNTER_WORDS);
       initialCounters[11] = 1;

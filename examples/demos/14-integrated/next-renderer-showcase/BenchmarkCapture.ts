@@ -1,4 +1,6 @@
 import type { Renderer } from "../../../../OEngine/src/render/pipeline/RendererCore.ts";
+import { SurfaceDiagnosticsCapture } from "../../../../OEngine/src/debug/SurfaceDiagnosticsCapture.ts";
+import type { SurfaceDiagnosticsMode, SurfaceDiagnosticsSnapshot } from "../../../../OEngine/src/gpu/SurfaceDiagnosticsAbi.ts";
 import { summarizeCapture, validGpuFrame, type TimedFrame } from "./BenchmarkMetrics.ts";
 
 export interface CaptureRequest {
@@ -9,6 +11,7 @@ export interface CaptureRequest {
   coverage?: "low" | "high" | "preset";
   distanceScale?: number;
   lockCamera?: boolean;
+  surfaceMode?: SurfaceDiagnosticsMode;
 }
 export interface CaptureHost {
   renderer(): Renderer;
@@ -45,7 +48,8 @@ export class BenchmarkCapture {
     if (this.busy) throw new Error("A capture is already running");
     const request: Required<CaptureRequest> = { width: 1280, height: 720, frames: 120, warmup: 60,
       view: "overview", profile: "full", counters: true, coverage: "low",
-      distanceScale: input.coverage === "high" ? 0.5 : 1.75, lockCamera: false, ...input };
+      distanceScale: input.coverage === "high" ? 0.5 : 1.75, lockCamera: false,
+      surfaceMode: "timing", ...input };
     for (const key of ["width", "height", "frames", "warmup"] as const) {
       if (!Number.isSafeInteger(request[key]) || request[key] < (key === "warmup" ? 0 : 1) || request[key] > 8192) throw new Error(`Invalid capture ${key}`);
     }
@@ -55,6 +59,12 @@ export class BenchmarkCapture {
     if (!renderer.device.features.has("timestamp-query")) throw new Error("This adapter has no timestamp-query; GPU performance capture unavailable");
     this.busy = true; this.cancelled = false; this.clocks.clear(); this.preparation = [];
     const frames = new Map<number, TimedFrame>();
+    const surfaceDiagnostics = new Map<number, SurfaceDiagnosticsSnapshot>();
+    const runId = `surface-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const diagnosticsCapture = new SurfaceDiagnosticsCapture(renderer.device, {
+      mode: request.surfaceMode,
+      onSnapshot: snapshot => surfaceDiagnostics.set(snapshot.frameId, snapshot)
+    });
     let begin = Infinity, end = Infinity;
     let hidden = document.visibilityState !== "visible";
     const onVisibility = () => { if (document.visibilityState !== "visible") hidden = true; };
@@ -74,6 +84,7 @@ export class BenchmarkCapture {
         historyCapacity: Math.max(256, request.frames + request.warmup + 32) });
       renderer.profiler.setMode("record");
       renderer.perf_gpu_counters_enabled = true;
+      renderer.configureSurfaceDiagnostics(request.surfaceMode, diagnosticsCapture, runId);
       this.preparation.push({ phase: "warmup", time: Date.now(), frame: renderer.frame_count });
       this.host.status(`预热 ${request.warmup} 帧`);
       await this.host.renderFrames(request.warmup);
@@ -113,9 +124,12 @@ export class BenchmarkCapture {
       await this.host.renderFrames(request.frames);
       await this.waitFor(() => !this.cancelled, renderer.device.queue.onSubmittedWorkDone());
       await this.waitFor(() => [...frames.values()].length === request.frames && [...frames.values()].every(frame =>
-        !frame.gpu.pending && !frame.gpuCounters.pending));
+        !frame.gpu.pending && !frame.gpuCounters.pending &&
+        (request.surfaceMode !== "detailed" || surfaceDiagnostics.has(frame.frameIndex))));
       if (this.cancelled) throw new Error("Capture cancelled");
-      const rows = [...frames.values()].sort((a, b) => a.frameIndex - b.frameIndex).map(frame => ({ ...frame, ...this.clocks.get(frame.frameIndex) }));
+      const rows = [...frames.values()].sort((a, b) => a.frameIndex - b.frameIndex).map(frame => ({
+        ...frame, ...this.clocks.get(frame.frameIndex), surfaceDiagnostics: surfaceDiagnostics.get(frame.frameIndex)
+      }));
       const summary = summarizeCapture(rows);
       const diagnostics = renderer.profiler.diagnostics;
       const workloadEnd = this.host.stability();
@@ -130,6 +144,8 @@ export class BenchmarkCapture {
         ...(diagnostics.validationErrorCount || diagnostics.uncapturedErrorCount || diagnostics.deviceLostCount ? ["GPU/runtime errors recorded"] : []),
         ...(diagnostics.failedGpuTimestampBatches || diagnostics.failedGpuCounterSamples ? ["GPU readback failures recorded"] : []),
         ...(request.counters && !coverageCounts ? ["Measured GPU coverage counters missing"] : []),
+        ...(request.surfaceMode === "detailed" && rows.some(frame => frame.surfaceDiagnostics?.coverage.status !== "pass") ? ["Surface detailed coverage is incomplete or failed"] : []),
+        ...(request.surfaceMode === "detailed" && rows.some(frame => frame.surfaceDiagnostics?.availability !== "available") ? ["Surface detailed snapshot unavailable or dropped"] : []),
         ...(workloadEnd.signature !== workloadStart.signature || workloadEnd.busy || workloadEnd.failed ? ["Geometry residency changed during fixed capture"] : []),
         ...(coverageRange && (coverageRange[0]! < band[0]! || coverageRange[1]! > band[1]!) ? ["Measured coverage outside requested band"] : []),
         ...(coverageCounts && coverageCounts.min !== coverageCounts.max ? ["Visible-pixel workload changed during fixed capture"] : [])
@@ -147,6 +163,8 @@ export class BenchmarkCapture {
       this.host.status(issues.length ? `采集异常：${issues.join("；")}` : `完成 ${rows.length} 帧 · GPU P50 ${summary.gpuPassSumMs!.p50.toFixed(2)} / P95 ${summary.gpuPassSumMs!.p95.toFixed(2)} ms`);
       return this.last;
     } finally {
+      renderer.configureSurfaceDiagnostics("off", null);
+      diagnosticsCapture.destroy();
       unsubscribe(); document.removeEventListener("visibilitychange", onVisibility);
       this.host.restore(); this.clocks.clear(); this.busy = false;
     }

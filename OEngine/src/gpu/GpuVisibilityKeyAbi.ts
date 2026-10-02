@@ -72,6 +72,13 @@ struct OEngineVisibilityKeyDecodeResult {
   empty: u32,
 };
 
+struct OEngineVisibilityKeyResolveResult {
+  meshlet_work_slot: u32,
+  local_primitive: u32,
+  valid: u32,
+  empty: u32,
+};
+
 fn oengine_visibility_key_try_encode(
   meshlet_work_slot: u32,
   local_primitive: u32
@@ -121,6 +128,19 @@ fn oengine_visibility_key_meshlet_work_slot(key: u32) -> u32 {
 
 fn oengine_visibility_key_local_primitive(key: u32) -> u32 {
   return key >> OENGINE_VISIBILITY_KEY_LOCAL_PRIMITIVE_SHIFT;
+}
+
+fn oengine_visibility_key_resolve(key: u32, queue_generation: u32,
+  written_count: u32) -> OEngineVisibilityKeyResolveResult {
+  let decoded = oengine_visibility_key_decode(key);
+  if decoded.empty != 0u { return OEngineVisibilityKeyResolveResult(0u, 0u, 0u, 1u); }
+  if decoded.valid == 0u || queue_generation == 0u ||
+      decoded.meshlet_work_slot >= written_count {
+    return OEngineVisibilityKeyResolveResult(decoded.meshlet_work_slot,
+      decoded.local_primitive, 0u, 0u);
+  }
+  return OEngineVisibilityKeyResolveResult(decoded.meshlet_work_slot,
+    decoded.local_primitive, 1u, 0u);
 }
 
 fn oengine_visibility_key_context_is_valid(

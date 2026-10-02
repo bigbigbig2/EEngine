@@ -19,8 +19,13 @@ export const SURFACE_WORK_COUNT_IMPLICIT = 4;
 export const SURFACE_WORK_COUNT_UNIFORM = 5;
 export const SURFACE_WORK_COUNT_MIXED = 6;
 export const SURFACE_WORK_COUNT_GEOMETRY = 7;
+// Immutable diagnostic values copied before finalize rewrites dispatch fields.
+export const SURFACE_WORK_COUNT_SAMPLE_REQUESTED = 12;
+export const SURFACE_WORK_COUNT_EXCEPTION_REQUESTED = 13;
+export const SURFACE_WORK_COUNT_SAMPLE_OVERFLOW = 14;
+export const SURFACE_WORK_COUNT_EXCEPTION_OVERFLOW = 15;
 export const SURFACE_WORK_INDIRECT_OFFSET = 32;
-export const SURFACE_WORK_COUNTER_BYTES = 64;
+export const SURFACE_WORK_COUNTER_BYTES = 128;
 
 export const SURFACE_WORK_OVERFLOW = Object.freeze({
   tile: 1,

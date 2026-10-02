@@ -74,7 +74,7 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 扩展现有 AppearanceGraphCompiler 输出 constant/static/stable-local/geometry/view/nonlocal、signal rate、full-rate requirement、texture variation 和可融合属性；不建立第二套材质系统。
 
-`SurfaceMaterialCachePass` 在 GeometryRecord 之前执行 publication identity lookup，GPU 为每个 program 维护 bounded miss counter/indirect args；publication identity 现在区分纯 material/static 程序与依赖 geometry、纹理 footprint、dynamic/view/nonlocal 的程序，后者显式禁止稳定 cache 命中；稳定程序的 identity 纳入 sampler、wrap/filter、decode、UV transform、fallback、range 和纹理 revision。`GpuAppearancePublication.encodeSurfaceMissEvaluation` 复用已发布的 `AppearanceResidentKernel`、constants、routes、runtime inputs、resident texture/product bindings，按 miss program 求值并写回六层 fields 与稳定 cache。`SurfaceGeometryPass` 现在先以 GPU classify 验证 hit mask/cache identity，命中直接发布 GeometryRecord，miss 压入 bounded queue 后由独立 indirect resolve 执行 winner 插值和属性解码；UV 导数也随 cache value 恢复。仍缺非稳定程序的完整 filtered footprint identity、材质 view/nonlocal 语义、Product/形变与正式验收。
+`SurfaceMaterialCachePass` 在 GeometryRecord 之前执行 publication identity lookup，GPU 为每个 program 维护 bounded miss counter/indirect args；publication identity 现在区分纯 material/static 程序与依赖 geometry、纹理 footprint、dynamic/view/nonlocal 的程序，后者显式禁止稳定 cache 命中；稳定程序的 identity 纳入 sampler、wrap/filter、decode、UV transform、fallback、range 和纹理 revision。lookup 同时读取已发布材质 header，按 closure/texture feature 发布 diffuse/specular/coat/IBL signal mask，并把 normal/ORM/specular 或不稳定程序标记为局部 full-rate exception。`GpuAppearancePublication.encodeSurfaceMissEvaluation` 复用已发布的 `AppearanceResidentKernel`、constants、routes、runtime inputs、resident texture/product bindings，按 miss program 求值并写回六层 fields 与稳定 cache。缓存 key 现在保留 hash、publication identity、版本、geometry/meshlet/instance/primitive 全字段比较；`SurfaceGeometryPass` 命中直接发布 GeometryRecord，miss 压入 bounded queue 后由独立 indirect resolve 执行 winner 插值和属性解码。仍缺非稳定程序的完整 filtered footprint identity、材质 view/nonlocal 语义、Product/形变与正式验收。
 
 ### Phase 4：分 signal lighting packets（生产接线完成，统一验收待做）
 
@@ -84,7 +84,7 @@ DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRec
 
 ### Phase 5：廉价 reconstruct（生产接线完成，统一验收待做）
 
-`SurfaceReconstructionPass` 只读取四类 packet、TemporalFacts mask/identity、pre-exposure 和双缓冲 signal/identity/age history，按全分辨率映射合成 HDR/reactive；GeometryRecord 已从 reconstruct 绑定移除，逐像素 identity 比较、8 帧 age 上限、camera cut reject、运行时 environment/light/VSM 全局 revision reject 与 GPU completion 后交换由 SurfaceWork 生命周期管理。它不重新解码 Geometry Product 或执行材质 graph。按 signal 选择性失效、能量守恒对照和连续画质仍待 Phase 7。
+`SurfaceReconstructionPass` 只读取四类 packet、TemporalFacts mask/identity、pre-exposure 和四路双缓冲 signal history，按全分辨率映射合成 HDR/reactive；GeometryRecord 已从 reconstruct 绑定移除，逐像素 identity 比较、8 帧 age 上限、camera cut reject、运行时 environment/light/VSM revision mask 与 GPU completion 后交换由 SurfaceWork 生命周期管理。environment 变化失效全部 signal，light/shadow 只失效 direct 相关 signal，未变化的 signal 独立复用历史。它不重新解码 Geometry Product 或执行材质 graph。能量守恒对照和连续画质仍待 Phase 7。
 
 ### Phase 6：全链与生命周期（生产接线完成，统一验收待做）
 
@@ -131,13 +131,13 @@ AAA 不变量完整沿用原文 §9：透视/near clip/退化、非均匀缩放�
 - [x] cache lookup 位于 material miss compact 之前。
 - [x] cache hit 不进入 geometry/material heavy worker。
 - [x] direct、diffuse、specular、coat、IBL 有独立 signal work。
-- [ ] normal/ORM/镜面 full-rate 是局部例外。
+- [x] normal/ORM/镜面 full-rate 是局部例外。
 - [x] SparseLighting 不重复恢复 geometry。
 - [x] reconstruct 不重新执行完整 PBR。
 - [x] TemporalFacts 是唯一 motion/identity 基础 producer。
 - [x] FrameGraph 能看到真实 SurfaceWork 边界。
 - [x] 所有 queue/indirect dispatch 有 bounded overflow 语义。
-- [x] counters 能区分 hit/miss/packet/exception/IBL/overflow。
+- [x] counters 能区分 hit/miss、signal evaluation、exception、IBL 和 overflow；packet plane 写入在生产 kernel 未提供独立计数时明确标记 unknown。
 - [ ] 四版本同条件比较完成。
 - [ ] 近景/高频/运动/AO/VSM/IBL/Product LOD 画质和性能验收完成。
 

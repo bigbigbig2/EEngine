@@ -5,9 +5,15 @@ import {
 
 export const SURFACE_TIMING_PHASES = [
   "classify",
-  "finalize",
-  "resolve",
-  "lighting"
+  "workFinalize",
+  "materialLookup",
+  "geometryLookup",
+  "geometryFinalize",
+  "geometryResolve",
+  "materialFinalize",
+  "materialEvaluate",
+  "lighting",
+  "reconstruct"
 ] as const;
 
 export type SurfaceTimingPhase = (typeof SURFACE_TIMING_PHASES)[number];
@@ -19,9 +25,8 @@ export interface SurfaceTimingSegment {
 }
 
 /**
- * Maps implementation-level timestamp labels onto the stable Visibility-to-
- * Surface phases used by migration A/B reports. Unknown work is deliberately
- * omitted instead of being guessed into a phase.
+ * Maps exact V3 production labels onto stable report phases. Unknown work is
+ * deliberately omitted and remains an external interval in the report.
  */
 export function classifySurfaceTimingPhase(
   segment: Pick<SurfaceTimingSegment, "label" | "phase">
@@ -29,19 +34,38 @@ export function classifySurfaceTimingPhase(
   const label = segment.label.trim().toLocaleLowerCase("en-US");
   if (label.length === 0) return null;
 
-  if (/sparseshading\/.*(?:counter|diagnostic|readback)/.test(label)) return null;
-  if (/sparseshading\/clear \+ classify/.test(label)) {
+  if (/surfacework\/classify implicit-uniform-mixed/.test(label)) {
     return "classify";
   }
-  if (/sparseshading\/finalize/.test(label)) {
-    return "finalize";
+  if (/surfacework\/finalize counters/.test(label)) {
+    return "workFinalize";
   }
-  if (/sparseshading\/active-bin/.test(label)) {
-    return "resolve";
+  if (/surface\/material publication lookup/.test(label)) {
+    return "materialLookup";
+  }
+  if (/surface\/geometryrecord cache classify/.test(label)) {
+    return "geometryLookup";
+  }
+  if (/surface\/geometryrecord miss finalize/.test(label)) {
+    return "geometryFinalize";
+  }
+  if (/surface\/geometryrecord miss resolve|surface\/geometryrecord$/.test(label)) {
+    return "geometryResolve";
+  }
+  if (/surface\/material miss indirect finalize|surface\/material miss queue compact/.test(label)) {
+    return "materialFinalize";
+  }
+  if (/surface\/material miss publication evaluation/.test(label)) {
+    return "materialEvaluate";
+  }
+  if (/surface\/lighting packets/.test(label)) {
+    return "lighting";
+  }
+  if (/surface\/reconstruct/.test(label)) {
+    return "reconstruct";
   }
 
-  const phase = segment.phase ?? classifyGpuFramePhase(segment.label);
-  return phase === "lighting-and-ibl" ? "lighting" : null;
+  return null;
 }
 
 /** Sum every matching pass once per frame before percentile aggregation. */

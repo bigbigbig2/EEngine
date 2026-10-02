@@ -13,7 +13,14 @@ export const APPEARANCE_FIELD_COUNT = APPEARANCE_FIELD_NAMES.length;
  * Logical compiler outputs/versions retain independent identities. */
 export const APPEARANCE_SURFACE_LAYER_COUNT = 6;
 /** Exact stable Surface cache identity words. Hash is only the first index. */
-export const APPEARANCE_SURFACE_CACHE_KEY_WORDS = 9;
+/** Cache key stores the hash plus every geometry identity component used by
+ * the lookup. The hash remains an index only; these words are the proof. */
+export const APPEARANCE_SURFACE_CACHE_KEY_WORDS = 13;
+export const SURFACE_SIGNAL_DIFFUSE = 1;
+export const SURFACE_SIGNAL_SPECULAR = 2;
+export const SURFACE_SIGNAL_COAT = 4;
+export const SURFACE_SIGNAL_IBL = 8;
+export const SURFACE_SAMPLE_FLAG_FULL_RATE = 2;
 /** High bit in surface publication identity.w marks fields that depend on
  * geometry, texture footprint, dynamic, view or nonlocal inputs. Such entries
  * must not be reused by the stable material cache until their full input

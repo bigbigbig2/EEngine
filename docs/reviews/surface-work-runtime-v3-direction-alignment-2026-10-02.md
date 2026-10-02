@@ -11,7 +11,7 @@
 | cache lookup → miss-only compact | V3 原文、V3 执行计划、Shading domain | lookup 已前移，publication identity、每 program indirect miss compaction、真实 AppearanceResidentKernel、GeometryRecord hit-mask bypass 和独立 geometry miss queue/indirect resolve 已接入；sampler/UV/filtered footprint/camera key 仍不完整 |
 | diffuse/specular/coat/IBL packets | V3 原文、架构层计划、workstream rules | 独立 signal 与局部 full-rate 例外已统一 |
 | TemporalFacts 唯一基础 owner | `docs/domains/frame-runtime.md`、`docs/next-execution/temporal-radiometry-presentation.md` | 目标和当前边界一致，Surface 不拥有第二套基础 motion |
-| 廉价 reconstruct | V3 原文、V3 执行计划、Shading domain | 当前已是 packet-only 结构，接入双缓冲 signal history、基础 AO/emissive/energy 合成；完整 age/revision 语义仍待验收 |
+| 廉价 reconstruct | V3 原文、V3 执行计划、Shading domain | 当前已是 packet-only 结构，接入四路 signal history、按 signal revision mask、基础 AO/emissive/energy 合成；完整 age/footprint 语义仍待验收 |
 | 单 Renderer / 单 submit / 无本帧 CPU work control | `AGENTS.md`、ADR-0021、workstream | 已统一为硬架构规则 |
 | Phase 0–7 与最终验收 | `docs/VALIDATION.md`、V3 执行计划、workstream | 统一到原文 §8–§11，移除旧 50%/30% 门槛 |
 

@@ -135,17 +135,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     motion = sky_motion(uv);
     identity = vec4u(0xffffffffu, 0u, 0u, 0u);
     valid = finite_motion(motion) && inside(uv - motion);
-  } else if (oengine_visibility_key_is_valid(key)) {
-    let work_slot = oengine_visibility_key_meshlet_work_slot(key);
-    if (meshlet_work.header.generation != 0u &&
-        work_slot < meshlet_work.header.written_count) {
+  } else {
+    let resolved_key = oengine_visibility_key_resolve(key, meshlet_work.header.generation,
+      meshlet_work.header.written_count);
+    if (resolved_key.valid != 0u) {
+      let work_slot = resolved_key.meshlet_work_slot;
       let work = meshlet_work.elements[work_slot];
       if (work.instance_slot < arrayLength(&instances) &&
           work.material_slot_or_range < arrayLength(&materials)) {
         let instance = instances[work.instance_slot];
         let material = materials[work.material_slot_or_range];
         identity = vec4u(work.instance_slot + 1u,
-          geometry_signature(instance, work, oengine_visibility_key_local_primitive(key)),
+          geometry_signature(instance, work, resolved_key.local_primitive),
           material_signature(instance, material, work.material_slot_or_range), instance.dynamic_revision);
         let previous_clip = previous_clip_for_surface(uv, depth, instance);
         let previous_uv = previous_clip.xy / previous_clip.w * vec2f(0.5, -0.5) + vec2f(0.5);

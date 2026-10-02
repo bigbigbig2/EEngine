@@ -15,14 +15,23 @@ export interface GpuReadbackRingOptions {
   resourceOwner?: string;
 }
 
+export interface GpuReadbackIdentity {
+  readonly runId?: string;
+  readonly deviceEpoch?: number;
+}
+
 export interface GpuReadbackResult {
   frameIndex: number;
   data: ArrayBuffer;
+  runId?: string;
+  deviceEpoch?: number;
 }
 
 export interface GpuReadbackFailure {
   frameIndex: number;
   error: unknown;
+  runId?: string;
+  deviceEpoch?: number;
 }
 
 export interface GpuReadbackRingStats {
@@ -37,6 +46,8 @@ export interface GpuReadbackTicket {
   readonly slotIndex: number;
   readonly generation: number;
   readonly frameIndex: number;
+  readonly runId?: string;
+  readonly deviceEpoch?: number;
 }
 
 type SlotState = "idle" | "encoded" | "mapping";
@@ -47,6 +58,8 @@ interface GpuReadbackSlot {
   state: SlotState;
   generation: number;
   frameIndex: number;
+  runId?: string;
+  deviceEpoch?: number;
 }
 
 /**
@@ -116,7 +129,8 @@ export class GpuReadbackRing {
     encoder: Pick<GPUCommandEncoder, "copyBufferToBuffer">,
     source: GPUBuffer,
     sourceOffset: number,
-    frameIndex: number
+    frameIndex: number,
+    identity: GpuReadbackIdentity = {}
   ): GpuReadbackTicket | null {
     this.assertAlive();
     assertNonNegativeInteger(frameIndex, "frameIndex");
@@ -132,6 +146,8 @@ export class GpuReadbackRing {
     const slot = this.slots[slotIndex]!;
     slot.state = "encoded";
     slot.frameIndex = frameIndex;
+    slot.runId = identity.runId;
+    slot.deviceEpoch = identity.deviceEpoch;
     slot.generation++;
     encoder.copyBufferToBuffer(
       source,
@@ -144,7 +160,9 @@ export class GpuReadbackRing {
     return {
       slotIndex,
       generation: slot.generation,
-      frameIndex
+      frameIndex,
+      runId: identity.runId,
+      deviceEpoch: identity.deviceEpoch
     };
   }
 
@@ -176,7 +194,7 @@ export class GpuReadbackRing {
     }
     slot.state = "idle";
     this.failedCount++;
-    this.onError({ frameIndex: ticket.frameIndex, error });
+    this.onError({ frameIndex: ticket.frameIndex, error, runId: ticket.runId, deviceEpoch: ticket.deviceEpoch });
   }
 
   destroy(): void {
@@ -207,14 +225,14 @@ export class GpuReadbackRing {
       slot.buffer.unmap();
       slot.state = "idle";
       this.completedCount++;
-      this.onResult({ frameIndex: ticket.frameIndex, data });
+      this.onResult({ frameIndex: ticket.frameIndex, data, runId: ticket.runId, deviceEpoch: ticket.deviceEpoch });
     } catch (error) {
       if (slot.buffer.mapState === "mapped") slot.buffer.unmap();
       if (!this.ticketMatches(slot, ticket)) return;
       slot.state = "idle";
       if (this.destroyed) return;
       this.failedCount++;
-      this.onError({ frameIndex: ticket.frameIndex, error });
+      this.onError({ frameIndex: ticket.frameIndex, error, runId: ticket.runId, deviceEpoch: ticket.deviceEpoch });
     }
   }
 
@@ -223,7 +241,9 @@ export class GpuReadbackRing {
     ticket: GpuReadbackTicket
   ): boolean {
     return slot.generation === ticket.generation &&
-      slot.frameIndex === ticket.frameIndex;
+      slot.frameIndex === ticket.frameIndex &&
+      slot.runId === ticket.runId &&
+      slot.deviceEpoch === ticket.deviceEpoch;
   }
 
   private findIdleSlot(): number {

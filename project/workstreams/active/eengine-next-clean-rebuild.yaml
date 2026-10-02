@@ -16,15 +16,15 @@ currentSlice:
   title: SurfaceWork Runtime 第三版：统一几何、miss-only 材质与分信号重建
   status: active
   phaseStatus: >-
-    Phase 3 已补齐 GPU-only geometry miss classify/compact/indirect resolve；Phase 4 已接入真实 LightClusterFrame、ShadowVisibilityFrame、XeGTAO packed visibility、authored/physical IBL 与生产 BRDF/cluster/VSM 数学，按 sample signal mask 分支执行并独立写入 diffuse/specular/coat/IBL packet，lighting counters 已覆盖 packet/direct/IBL/AO/VSM/full-rate/overflow/bytes/dispatch 诊断；Phase 5 已接入 TemporalFacts identity、双缓冲 signal/identity/age history 与 pre-exposure reconstruct；Phase 6 已接入 GPU completion 后 history 交换、resize retire、camera cut 失效和运行时 environment/light/VSM 全局 revision reject。非稳定程序完整 sampler/UV/filtered footprint、按 signal 选择性 revision invalidation、browser/GPU 性能与四版本正式验收仍待 Phase 7。
+    Phase 3 已补齐 GPU-only geometry miss classify/compact/indirect resolve，并扩展完整几何字段 cache identity；Phase 4 已接入真实 LightClusterFrame、ShadowVisibilityFrame、XeGTAO packed visibility、authored/physical IBL 与生产 BRDF/cluster/VSM 数学，按 material feature 发布 diffuse/specular/coat/IBL signal mask 和局部 full-rate exception，独立写入 packet，lighting counters 已覆盖 packet/direct/IBL/AO/VSM/full-rate/overflow/bytes/dispatch 诊断；Phase 5 已接入 TemporalFacts identity、四路双缓冲 signal history 与 pre-exposure reconstruct；Phase 6 已接入 GPU completion 后 history 交换、resize retire、camera cut 失效和 environment 全局、light/shadow 按 signal revision mask。非稳定程序完整 sampler/UV/filtered footprint、browser/GPU 性能与四版本正式验收仍待 Phase 7。
   goal: >-
     Phase 0 已冻结 GTX 1650 Ti/1080p、Dungeon fingerprint、功能集、覆盖率和 P50/P95 口径，配置见
     validation/profiles/surface-work-v3-phase0-baseline.yaml。Phase 1–3 已删除旧 Surface owner，接通
     implicit/uniform/mixed SurfaceWork、唯一 GeometryRecord、publication lookup/miss evaluator、bounded
     queues、GPU indirect 和 sample map。Phase 4 已接入真实 LightClusterFrame、ShadowVisibilityFrame、XeGTAO
     packed visibility、authored/physical IBL 与生产 direct-light 数学，并按 signal mask 写入独立 packet/counter；Phase 5–6 已接入 packet-only
-    reconstruct、TemporalFacts identity 与双缓冲 signal/identity/age history、GPU completion 交换、resize retire 和 camera-cut invalidate。
-    非稳定程序完整 sampler/UV/filtered footprint、材质 view/nonlocal identity、Product/形变、按 signal 选择性 revision invalidation、
+    reconstruct、TemporalFacts identity 与四路双缓冲 signal/identity/age history、GPU completion 交换、resize retire 和 camera-cut invalidate。
+    非稳定程序完整 sampler/UV/filtered footprint、材质 view/nonlocal identity、Product/形变、
     browser/GPU 性能和四版本正式验收仍待 Phase 7。始终保持唯一 Renderer、唯一 FrameGraph/submit，
     不恢复旧链、适配桥或中间 A/B 路径。
 
