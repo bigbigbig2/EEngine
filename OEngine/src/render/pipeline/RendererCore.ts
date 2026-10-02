@@ -1136,6 +1136,8 @@ export class Renderer {
     );
     const limits = {
       maxStorageBuffersPerShaderStage: minStorageBuffers,
+      maxStorageBufferBindingSize: Number(adapter.limits.maxStorageBufferBindingSize),
+      maxBufferSize: Number(adapter.limits.maxBufferSize),
       maxStorageTexturesPerShaderStage: Number(adapter.limits.maxStorageTexturesPerShaderStage),
       ...(config.requiredLimits?.maxColorAttachmentBytesPerSample === undefined
         ? {} : { maxColorAttachmentBytesPerSample: config.requiredLimits.maxColorAttachmentBytesPerSample })
@@ -1226,7 +1228,8 @@ export class Renderer {
     this._xeGtaoDenoise = new XeGtaoDenoisePass(device, 1);
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
     this._surfaceWork = new SurfaceWorkRuntime(device, {
-      maxTiles: 262144, maxSamples: 262144, maxExceptions: 65536, maxGeometryRecords: 262144, maxBytes: 128 * 1024 * 1024
+      maxTiles: 65536, maxSamples: 2097152, maxExceptions: 2097152,
+      maxGeometryRecords: 2097152, maxBytes: 768 * 1024 * 1024
     });
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
