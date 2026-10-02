@@ -82,13 +82,13 @@ DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRec
 
 `SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Diffuse、specular、coat、IBL packet 仍保持独立写域，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。局部例外计数、信号 history、GeometryRecord hit 绕过和最终 GPU/画质验收仍待 Phase 5–7。
 
-### Phase 5：廉价 reconstruct（实现中）
+### Phase 5：廉价 reconstruct（生产接线完成，统一验收待做）
 
-已新增 `SurfaceReconstructionPass`，只读取四类 packet、GeometryRecord、TemporalFacts mask 和 pre-exposure，按 tile 映射在全分辨率合成 HDR/reactive；未重新解码 Geometry Product 或执行材质 graph。真实 signal history read/reject/age、emissive、AO 独立输入与完整 energy composition 仍待接通，Phase 5 未完成。
+`SurfaceReconstructionPass` 只读取四类 packet、GeometryRecord、TemporalFacts mask、pre-exposure 和双缓冲 signal history，按全分辨率映射合成 HDR/reactive；history validity、feedback、camera/identity reject 与 GPU completion 后交换由 SurfaceWork 生命周期管理。它不重新解码 Geometry Product 或执行材质 graph。更细的 signal age、能量守恒对照和连续画质仍待 Phase 7。
 
-### Phase 6：全链与生命周期（实现中）
+### Phase 6：全链与生命周期（生产接线完成，统一验收待做）
 
-SurfaceWorkRuntime 已纳入 RendererCore 的 prepare/commit/abort/destroy，reconstruct 读取唯一 TemporalFacts reactive mask，仍沿用 FrameCoordinator 的单一 submit 与最多两个 in-flight 背压。Environment/VSM/AO 的 signal 依赖、history identity/version/revision reject、camera cut/resize/device recovery 以及 GPU completion retire 还未全部接通，Phase 6 未完成，未运行编译、测试或 GPU/browser 验证。
+SurfaceWorkRuntime 已纳入 RendererCore 的 prepare/commit/abort/destroy；reconstruct 读取唯一 TemporalFacts reactive mask，history 在 GPU completion 后交换，resize 进入 retire 队列，仍沿用 FrameCoordinator 的单一 submit 与最多两个 in-flight 背压。Environment/VSM/AO 的 FrameGraph 依赖已显式注册；完整 identity/version/revision reject、camera cut/device recovery 和故障矩阵仍待 Phase 7，未运行编译、测试或 GPU/browser 验证。
 
 资源分类沿用原文 §7：publication、frame persistent、frame transient、output/history 各有 owner/accounting/retire point。创建前协商 buffer、workgroup、dispatch、binding、texture/storage limits；pipeline/bind group/sampler 在 publication/profile 阶段缓存，不按材质实例或纹理组合建立独立 PSO。
 

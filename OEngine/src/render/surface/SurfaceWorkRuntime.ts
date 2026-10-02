@@ -233,7 +233,8 @@ export class SurfaceWorkRuntime {
 
   prepareFrame(width: number, height: number): void {
     if (this.destroyed || this.prepared) throw new Error("SurfaceWork frame is already prepared");
-    this.layout = surfaceWorkLayout(width, height, this.budget, this.device.limits); this.prepared = true;
+    this.layout = surfaceWorkLayout(width, height, this.budget, this.device.limits);
+    this.reconstruction.prepareFrame(width, height); this.prepared = true;
   }
 
   addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; meshletWork: ResourceId;
@@ -323,7 +324,11 @@ export class SurfaceWorkRuntime {
     return { work, counts, sampleMap, records: geometry.records, count: geometry.count, ...material, ...lighting, ...reconstruction };
   }
 
-  commit(_gpuDone: Promise<void>): void { if (!this.prepared) throw new Error("SurfaceWork commit without prepare"); this.prepared = false; }
-  abort(): void { this.prepared = false; }
+  commit(gpuDone: Promise<void>): void {
+    if (!this.prepared) throw new Error("SurfaceWork commit without prepare");
+    this.reconstruction.commit(gpuDone); this.prepared = false;
+  }
+  abort(): void { this.reconstruction.abort(); this.prepared = false; }
+  invalidate(): void { this.reconstruction.invalidate(); }
   destroy(): void { if (this.destroyed) return; this.destroyed = true; this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.reconstruction.destroy(); this.settings.destroy(); this.finalizeSettings.destroy(); }
 }

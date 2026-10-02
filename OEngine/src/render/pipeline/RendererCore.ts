@@ -388,6 +388,7 @@ export class Renderer {
   invalidateTemporalHistory(): void {
     this._temporal.invalidate();
     this._fsr3.invalidate();
+    this._surfaceWork.invalidate();
   }
   get shadowVisibilityEnabled(): boolean { return this._shadowVisibilityEnabled; }
   set shadowVisibilityEnabled(enabled: boolean) {
@@ -402,6 +403,7 @@ export class Renderer {
     this._programCache.clear();
     this._temporal.invalidate();
     this._fsr3?.invalidate();
+    this._surfaceWork.invalidate();
   }
   get views(): ViewManager { return this._views; }
   get output_resolution(): Vec2 { return this._output_resolution.clone(); }
@@ -1423,6 +1425,7 @@ export class Renderer {
           hzb.invalidate("camera-cut");
           this._temporal.histories.invalidate("camera-cut");
           this._fsr3.invalidate();
+          this._surfaceWork.invalidate();
         }
       }
       const identityHistory = this._temporal.histories.state("identity");
