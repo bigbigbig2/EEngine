@@ -236,7 +236,7 @@ export class SurfaceWorkRuntime {
       if (ticket === null) return;
       command.recordReadback("surface-diagnostics", SURFACE_DIAGNOSTICS_BYTE_SIZE);
       command.onFinished.addOne(() => capture.markSubmitted(ticket));
-      command.onAborted?.addOne((_context, cause) => capture.cancel(ticket, cause));
+      command.onAborted?.addOne((_context: ShadeGPUCommandContext, cause: unknown) => capture.cancel(ticket, cause));
     });
     this.settings = device.createBuffer({ label: "SurfaceWork/classify settings", size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -288,7 +288,7 @@ export class SurfaceWorkRuntime {
     shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
     environment: SurfaceLightingInput["environment"];
     factsMask: ResourceId; factsIdentity: ResourceId; preExposure: ResourceId; width: number; height: number;
-    revisions: SurfaceSignalRevisions; viewRevision: number; nonlocalRevision: number;
+    revisions: SurfaceSignalRevisions; viewRevision: Readonly<{value:number}>; nonlocalRevision: Readonly<{value:number}>;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
@@ -379,7 +379,7 @@ export class SurfaceWorkRuntime {
       width: input.width, height: input.height, frameId: input.frame.generation,
       geometryOffset: layout.geometryOffset
     }) : null;
-    return { work, counts, sampleMap, records: geometry.records, count: geometry.count, ...evaluatedMaterial, ...lighting, ...reconstruction,
+    return { work, counts, sampleMap, ...geometry, ...evaluatedMaterial, ...lighting, ...reconstruction,
       ...(diagnostics === null ? {} : diagnostics) };
   }
 

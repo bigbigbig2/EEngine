@@ -395,7 +395,7 @@ export class FrameProfiler {
   private readonly failedGpuTimingFrames = new Set<number>();
   private epochValue = 0;
   private warmupRemainingValue = 0;
-  private deviceEpoch = 0;
+  private deviceEpochValue = 0;
   private captureRunIdValue = "default";
   private readonly onUncapturedError = (event: GPUUncapturedErrorEvent): void => {
     const error = event.error;
@@ -486,7 +486,7 @@ export class FrameProfiler {
   }
 
   get deviceEpoch(): number {
-    return this.deviceEpoch;
+    return this.deviceEpochValue;
   }
 
   get captureRunId(): string {
@@ -682,10 +682,10 @@ export class FrameProfiler {
     if (this.gpuDevice === device) return;
     this.detachGpuDevice();
     this.gpuDevice = device;
-    const epoch = ++this.deviceEpoch;
+    const epoch = ++this.deviceEpochValue;
     device.addEventListener("uncapturederror", this.onUncapturedError);
     void device.lost.then((info) => {
-      if (this.gpuDevice !== device || this.deviceEpoch !== epoch) return;
+      if (this.gpuDevice !== device || this.deviceEpochValue !== epoch) return;
       this.deviceLostCount++;
       appendBounded(this.deviceLostReasons, `${info.reason}: ${info.message}`);
     });
@@ -704,7 +704,7 @@ export class FrameProfiler {
       current.removeEventListener("uncapturederror", this.onUncapturedError);
     }
     this.gpuDevice = null;
-    this.deviceEpoch++;
+    this.deviceEpochValue++;
     this.destroyGpuCounterResources();
   }
 
@@ -731,7 +731,7 @@ export class FrameProfiler {
       snapshot: {
         frameIndex,
         runId: this.captureRunIdValue,
-        deviceEpoch: this.deviceEpoch,
+        deviceEpoch: this.deviceEpochValue,
         cpuMs: {},
         submits: { count: 0, labels: {} },
         readbacks: { count: 0, bytes: 0, labels: {} },

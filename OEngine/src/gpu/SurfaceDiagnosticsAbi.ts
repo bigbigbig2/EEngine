@@ -81,6 +81,8 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   reserved: 55
 } as const);
 
+export const SURFACE_DIAGNOSTICS_COUNTERS = SURFACE_DIAGNOSTIC_COUNTERS;
+
 export type SurfaceDiagnosticCounter = keyof typeof SURFACE_DIAGNOSTIC_COUNTERS;
 
 export const SURFACE_DIAGNOSTIC_FLAGS = Object.freeze({
@@ -168,7 +170,7 @@ export function decodeSurfaceDiagnostics(
     return unavailableSnapshot(identity, mode, "snapshot-schema-mismatch");
   }
   const values: Record<string, number> = {};
-  for (const [name, index] of Object.entries(SURFACE_DIAGNOSTICS_COUNTERS)) {
+  for (const [name, index] of Object.entries(SURFACE_DIAGNOSTICS_COUNTERS) as [SurfaceDiagnosticCounter, number][]) {
     values[name] = words[SURFACE_DIAGNOSTICS_HEADER_WORDS + index] ?? 0;
   }
   const coverage = evaluateSurfaceCoverage(values);
@@ -191,11 +193,11 @@ export function evaluateSurfaceCoverage(values: SurfaceDiagnosticsValues): Surfa
     sumEquals(values, "sampleRequested", ["sampleAccepted", "sampleOverflow"], violations);
     sumEquals(values, "materialLookup", ["materialHit", "materialMissRequested", "materialRejected"], violations);
     sumEquals(values, "geometryRecordsRequested", ["geometryCacheHit", "geometryMissQueued", "geometryRejected"], violations);
-    if (values.materialMissQueued < values.materialEvaluatorCompleted + values.materialEvaluatorSkippedOrRejected) {
+    if (counterValue(values, "materialMissQueued") < counterValue(values, "materialEvaluatorCompleted") + counterValue(values, "materialEvaluatorSkippedOrRejected")) {
       violations.push("material queued less than completed plus skipped/rejected");
     }
-    if (values.geometryMissCompleted > values.geometryMissQueued) violations.push("geometry miss completed exceeds queued");
-    if (values.reconstructOutputPixels + values.reconstructUncoveredPixels !== values.outputPixels) {
+    if (counterValue(values, "geometryMissCompleted") > counterValue(values, "geometryMissQueued")) violations.push("geometry miss completed exceeds queued");
+    if (counterValue(values, "reconstructOutputPixels") + counterValue(values, "reconstructUncoveredPixels") !== counterValue(values, "outputPixels")) {
       violations.push("reconstruct output coverage mismatch");
     }
   }
@@ -207,6 +209,10 @@ export function evaluateSurfaceCoverage(values: SurfaceDiagnosticsValues): Surfa
   }
   const status = violations.length !== 0 ? "fail" : incomplete ? "unknown" : "pass";
   return { status, violations };
+}
+
+function counterValue(values: SurfaceDiagnosticsValues, counter: SurfaceDiagnosticCounter): number {
+  return values[counter] ?? 0;
 }
 
 export function reconstructLogicalBytes(values: SurfaceDiagnosticsValues): number | null {
