@@ -11,7 +11,7 @@
 - 来源：[Next porting ledger](../porting/next-renderer.md)；旧条目和组件验证不等于新链实现或 adoption。
 - 验收：[VALIDATION](../VALIDATION.md) 与原文 §8–§11。
 
-源码基线已删除旧 SurfaceMaterialPass/Probe/sample worker 主链。当前 Appearance demand/geometry inputs 和 SparseLighting prepare/reconstruct 仍需重构。此次完成的是方向和文档切换，未实现 SurfaceWork Runtime、miss-only demand 或唯一 GeometryRecord。
+源码基线已删除旧 SurfaceMaterialPass/Probe/sample worker 主链。当前生产代码已经接通 `SurfaceWorkRuntime` 的 classify、publication cache lookup、`SurfaceGeometryPass`、publication miss evaluation、独立 signal packets 和 reconstruct；GeometryRecord 仍按 record range 发布，hit mask 尚未被 GeometryRecord 消费，完整 sampler/UV/filtered footprint、Product/形变、lighting provider、signal history 与正式验收仍未完成。这里描述的是当前结构接线，不把它提升为最终算法或性能完成。
 
 ## 2. 保留底座和当前范围
 

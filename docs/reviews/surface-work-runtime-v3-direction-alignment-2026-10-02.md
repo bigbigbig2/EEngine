@@ -17,7 +17,7 @@
 
 ## 清理结果
 
-- 第三版原文已复制到 `docs/next-design/`，并与下载文件 SHA256 一致。
+- 第三版原文的目标架构、阶段顺序、容量/身份/质量不变量已纳入 `docs/next-design/`；仓库副本另外记录当前源码核对，因此不与下载文件逐字节相同。下载原文 SHA256 为 `6d229211f8aab8e8efcf9e10a253452a57ed98b84557869e7049928502aa5401`。
 - 旧 Surface v2、Signal-Rate、缓存 Surface 设计与执行文件已从活动文档树删除；Git 历史仍可追溯。
 - 整体架构、docs 入口、AGENTS、workstream、shading/frame-runtime/visibility domain、Surface/Temporal/VSM/AO 入口已指向 V3 或明确标注历史边界。
 - 退休 spec/contract 保留为历史记录，不再作为 V3 ABI 或当前实现事实。

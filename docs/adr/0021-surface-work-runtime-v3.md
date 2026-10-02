@@ -6,7 +6,7 @@ Status: accepted
 
 2026-10-02 用户明确要求严格按照提供的第三版最终重构设计清理工程方向，并在完成后逐项对照。此前 Surface v2、Signal-Rate、缓存 Surface 的目标和执行记录并存，部分入口仍把已删除的 sample-driven owner 写作现状，并沿用没有出现在新原文中的固定百分比性能门槛。
 
-原文日期为 2026-10-01，源码基线为 `e7296be9cebbc3bcc1b6b738d682c928548d72d5`。仓库内[权威设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)与用户 Downloads 文件逐字节一致，SHA256 为 `6d229211f8aab8e8efcf9e10a253452a57ed98b84557869e7049928502aa5401`。采纳日期与原文日期分别保留。
+原文日期为 2026-10-01，源码基线为 `e7296be9cebbc3bcc1b6b738d682c928548d72d5`。用户提供的 Downloads 原文 SHA256 为 `6d229211f8aab8e8efcf9e10a253452a57ed98b84557869e7049928502aa5401`。仓库内[权威设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)保留原文的目标架构与执行要求，并增加单独的当前源码核对段，因此是工程适配副本，不再声称与下载文件逐字节一致。采纳日期与原文日期分别保留。
 
 ## Decision
 
