@@ -1430,6 +1430,8 @@ export class Renderer {
         // view.  Invalidate HZB for every real matrix change; the next stable
         // frame rebuilds it and restores the fast path without dropping work.
         if (matrixDelta > 1e-5) {
+          this._cameraRevision = this._cameraRevision >= 0xfffffffe
+            ? 1 : this._cameraRevision + 1;
           hzb.invalidate("camera-cut");
         }
         // Camera motion invalidates temporal data, but never changes graph topology.
@@ -1524,6 +1526,8 @@ export class Renderer {
         kind: "scene",
         deviceEpoch: this.deviceEpoch,
         frameIndex,
+        cameraRevision: this._cameraRevision,
+        sceneRevision: runtime.shadingPublication.revision,
         job, camera, view, hzb, depth: this._renderTargets.depth,
         swapchain: this.context.getCurrentTexture().createView(), runtime, preExposure,
         fsr3: this._fsr3, temporalFacts: this._temporalFacts, radiometry: this._gpuRadiometry,

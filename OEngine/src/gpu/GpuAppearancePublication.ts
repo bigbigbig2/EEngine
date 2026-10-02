@@ -32,7 +32,8 @@ const SURFACE_SETTINGS_WGSL = `
 struct SurfaceSettings {
   width: u32, height: u32, record_count: u32, entry_index: u32,
   cache_capacity: u32, field_version: u32, residency_version: u32, sample_offset: u32,
-  geometry_offset: u32, diagnostics_enabled: u32, reserved1: u32, reserved2: u32
+  geometry_offset: u32, diagnostics_enabled: u32, view_revision: u32, nonlocal_revision: u32,
+  reserved1: u32, reserved2: u32, reserved3: u32, reserved4: u32
 };
 `;
 
@@ -129,7 +130,8 @@ var<private> appearance_task: vec4u;
 var<private> appearance_inputs: array<vec4f, ${Math.max(1, inputLayout.vectors)}>;
 fn appearance_constant(index:u32)->f32 { return appearance_constants[appearance_task.x+index]; }
 fn appearance_input(index:u32,channel:u32)->f32 { return appearance_inputs[index][channel]; }
-fn surface_cache_hash(identity:u32, material:u32, field:u32, residency:u32, publication:u32)->u32 { var x=identity^(material*16777619u)^(field*2246822519u)^(residency*3266489917u)^publication; x^=x>>16u; x*=0x7feb352du; x^=x>>15u; x*=0x846ca68bu; return x^(x>>16u); }
+fn surface_hash_word(value:u32, seed:u32)->u32 { var x=seed^value; x*=16777619u; x^=x>>13u; x*=2246822519u; return x; }
+fn surface_cache_hash(identity:u32, material:u32, field:u32, residency:u32, publication:u32, footprint:u32, view:u32, nonlocal:u32)->u32 { var x=identity; x=surface_hash_word(material,x); x=surface_hash_word(field,x); x=surface_hash_word(residency,x); x=surface_hash_word(publication,x); x=surface_hash_word(footprint,x); x=surface_hash_word(view,x); return surface_hash_word(nonlocal,x); }
 fn surface_geometry_identity(geometry_slot:u32, meshlet_slot:u32, instance_slot:u32, primitive:u32, material:u32)->u32 { var x=geometry_slot*16777619u^meshlet_slot*2246822519u^instance_slot*3266489917u^primitive*668265263u^material; x^=x>>16u; x*=0x7feb352du; return x^(x>>15u); }
 fn surface_audit_add(index:u32) { if surface_settings.diagnostics_enabled != 0u { atomicAdd(&surface_audit[index], 1u); } }
 `;
@@ -168,7 +170,9 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
    var field=2166136261u; for(var fieldAt=0u;fieldAt<arrayLength(&surface_field_versions);fieldAt+=4u){ field=(field^surface_field_versions[fieldAt])*16777619u; }
    var residency=2166136261u; for(var residencyAt=0u;residencyAt<arrayLength(&surface_residency_versions);residencyAt++){ residency=(residency^surface_residency_versions[residencyAt])*16777619u; }
   let identityRecord=surface_identity[entry];
-  let hash=surface_cache_hash(stable,material,field,residency,identityRecord.x^identityRecord.y^identityRecord.z^identityRecord.w);
+  let footprint=surface_hash_word(pixel_word,2166136261u);
+  footprint=surface_hash_word(surface_work[surface_settings.sample_offset/4u+record*8u+2u],footprint);
+  let hash=surface_cache_hash(stable,material,field,residency,identityRecord.x^identityRecord.y^identityRecord.z^identityRecord.w,footprint,surface_settings.view_revision,surface_settings.nonlocal_revision);
   let cell=hash&(surface_settings.cache_capacity-1u);
    let cacheAt=cell*${APPEARANCE_SURFACE_CACHE_KEY_WORDS}u;
    surface_cache[cacheAt+0u]=hash; surface_cache[cacheAt+1u]=stable; surface_cache[cacheAt+2u]=material;
@@ -177,6 +181,8 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
    surface_cache[cacheAt+7u]=field; surface_cache[cacheAt+8u]=residency;
    surface_cache[cacheAt+9u]=geometrySlot; surface_cache[cacheAt+10u]=meshletSlot;
    surface_cache[cacheAt+11u]=instanceSlot; surface_cache[cacheAt+12u]=primitive;
+   surface_cache[cacheAt+13u]=footprint; surface_cache[cacheAt+14u]=surface_settings.view_revision;
+   surface_cache[cacheAt+15u]=surface_settings.nonlocal_revision;
   surface_cache_values[cell*${APPEARANCE_SURFACE_LAYER_COUNT}u+0u]=layer0;
   surface_cache_values[cell*${APPEARANCE_SURFACE_LAYER_COUNT}u+1u]=layer1;
   surface_cache_values[cell*${APPEARANCE_SURFACE_LAYER_COUNT}u+2u]=layer2;
@@ -202,7 +208,7 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
     { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
     { binding: 17, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
     { binding: 18, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float", viewDimension: "2d-array" } },
-    { binding: 19, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
+    { binding: 19, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 64 } },
     { binding: 20, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: APPEARANCE_SURFACE_CACHE_KEY_WORDS * 4 } },
     { binding: 21, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
     { binding: 22, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } }
@@ -817,6 +823,8 @@ export class GpuAppearancePublication {
     readonly cacheValues: GPUBuffer;
     readonly audit: GPUBuffer;
     readonly diagnosticsEnabled: boolean;
+    readonly viewRevision: number;
+    readonly nonlocalRevision: number;
     readonly indirect: GPUBuffer;
     readonly width: number;
     readonly height: number;
@@ -835,15 +843,15 @@ export class GpuAppearancePublication {
     const taskProgram = command.allocateTransientBuffer(GPUBufferUsage.STORAGE, 16);
     const taskExtent = command.allocateTransientBuffer(GPUBufferUsage.STORAGE, 32);
     const dispatch = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 16);
-    const settings = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 48);
+    const settings = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 64);
     for (let programIndex = 0; programIndex < pipelines.length; programIndex++) {
       const entry = this.entries.find(candidate => candidate.programIndex === programIndex);
       if (!entry) continue;
       command.writeBuffer(settings, 0, new Uint32Array([
         input.width, input.height, input.recordCount, programIndex,
         input.cacheCapacity, 0, 0, input.sampleOffset, input.geometryOffset,
-        input.diagnosticsEnabled ? 1 : 0, 0, 0
-      ]).buffer, 0, 48);
+        input.diagnosticsEnabled ? 1 : 0, input.viewRevision >>> 0, input.nonlocalRevision >>> 0, 0, 0, 0, 0
+      ]).buffer, 0, 64);
       command.writeBuffer(dispatch, 0, new Uint32Array([0, programIndex, 0, 0]).buffer, 0, 16);
       const ready = pipelines[programIndex]!;
       const group0 = this.device.createBindGroup({ layout: ready.layouts[0]!, entries: [

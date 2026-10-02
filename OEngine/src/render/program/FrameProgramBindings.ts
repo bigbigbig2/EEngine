@@ -19,6 +19,8 @@ export type SceneFrameBindings = Readonly<{
   kind: "scene";
   deviceEpoch: number;
   frameIndex: number;
+  cameraRevision: number;
+  sceneRevision: number;
   job: PackedVisibilityJob;
   camera: PerspectiveCamera;
   view: GPUViewContext;

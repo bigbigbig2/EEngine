@@ -396,6 +396,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       light: bindings.lightingLightRevision,
       shadow: bindings.vsmGeneration.generation
     })),
+    viewRevision: bind("surface-view-revision", bindings => bindings.cameraRevision),
+    nonlocalRevision: bind("surface-nonlocal-revision", bindings => bindings.sceneRevision),
     materialLookup: surfaceMaterialLookup,
     surfaceIdentity,
     materials: materialRecords,

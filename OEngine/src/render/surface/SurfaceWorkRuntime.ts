@@ -288,7 +288,7 @@ export class SurfaceWorkRuntime {
     shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
     environment: SurfaceLightingInput["environment"];
     factsMask: ResourceId; factsIdentity: ResourceId; preExposure: ResourceId; width: number; height: number;
-    revisions: SurfaceSignalRevisions;
+    revisions: SurfaceSignalRevisions; viewRevision: number; nonlocalRevision: number;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
@@ -345,7 +345,8 @@ export class SurfaceWorkRuntime {
       counts, materialLookup: input.materialLookup, surfaceIdentity: input.surfaceIdentity, materials: input.materials,
       programCount: input.publication.surfaceProgramCount, width: input.width, height: input.height,
       recordCount, sampleOffset: layout.sampleOffset, frame: input.frame.generation,
-      diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
+      diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null,
+      viewRevision: input.viewRevision, nonlocalRevision: input.nonlocalRevision });
     const geometry = this.geometry.addToGraph(graph, { visibility: input.visibility, work, arena: input.arena,
       meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
       frameInstances: input.frameInstances, frameAttributes: input.frameAttributes, camera: input.camera,
@@ -358,7 +359,8 @@ export class SurfaceWorkRuntime {
     const evaluatedMaterial = this.material.addEvaluateToGraph(graph, { ...material, geometry: geometry.records, geometryOffset: layout.geometryOffset / 16, width: input.width, height: input.height,
       recordCount, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions, frame: input.frame.generation, counts,
       publication: input.publication, textureBanks: input.textureBanks, work, sampleOffset: layout.sampleOffset,
-      diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
+      diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null,
+      viewRevision: input.viewRevision, nonlocalRevision: input.nonlocalRevision });
     const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: evaluatedMaterial.fields,
       work, sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset / 16, width: input.width, height: input.height,
       recordCount, frame: input.frame.generation, counts, camera: input.camera,

@@ -74,6 +74,8 @@ export interface PackedSceneSource {
   readonly materialIndices: Uint32Array;
   readonly currentTransforms: Float32Array;
   readonly previousTransforms?: Float32Array;
+  readonly deformationRevisions?: Uint32Array;
+  readonly deformationMotionValid?: Uint8Array;
   readonly boundsSpheres: Float32Array;
   readonly boundsMin?: Float32Array;
   readonly boundsMax?: Float32Array;
@@ -109,6 +111,8 @@ export interface VirtualGeometrySceneSource {
   readonly materialIndices: Uint32Array;
   readonly currentTransforms: Float32Array;
   readonly previousTransforms?: Float32Array;
+  readonly deformationRevisions?: Uint32Array;
+  readonly deformationMotionValid?: Uint8Array;
   readonly boundsSpheres: Float32Array;
   readonly boundsMin?: Float32Array;
   readonly boundsMax?: Float32Array;
@@ -399,6 +403,8 @@ export class GpuRenderWorld {
       materialHandles,
       currentTransforms: source.currentTransforms,
       previousTransforms: source.previousTransforms,
+      deformationRevisions: source.deformationRevisions,
+      deformationMotionValid: source.deformationMotionValid,
       boundsSpheres: source.boundsSpheres,
       boundsMin: source.boundsMin,
       boundsMax: source.boundsMax,
@@ -425,6 +431,8 @@ export class GpuRenderWorld {
         materialHandles: materialHandles.subarray(begin),
         currentTransforms: source.currentTransforms.subarray(begin * 16),
         previousTransforms: source.previousTransforms?.subarray(begin * 16),
+        deformationRevisions: source.deformationRevisions?.subarray(begin),
+        deformationMotionValid: source.deformationMotionValid?.subarray(begin),
         boundsSpheres: source.boundsSpheres.subarray(begin * 4),
         boundsMin: source.boundsMin?.subarray(begin * 3),
         boundsMax: source.boundsMax?.subarray(begin * 3),
@@ -557,6 +565,8 @@ export class GpuRenderWorld {
         materialIndices: source.materialIndices,
         currentTransforms: source.currentTransforms,
         previousTransforms: source.previousTransforms,
+        deformationRevisions: source.deformationRevisions,
+        deformationMotionValid: source.deformationMotionValid,
         boundsSpheres: source.boundsSpheres,
         boundsMin: source.boundsMin,
         boundsMax: source.boundsMax,
@@ -601,6 +611,8 @@ export class GpuRenderWorld {
       materialIndices: source.materialIndices,
       currentTransforms: source.currentTransforms,
       previousTransforms: source.previousTransforms,
+      deformationRevisions: source.deformationRevisions,
+      deformationMotionValid: source.deformationMotionValid,
       boundsSpheres: source.boundsSpheres,
       boundsMin: source.boundsMin,
       boundsMax: source.boundsMax,
@@ -1783,6 +1795,8 @@ function validateSource(
   assertLength(source.materialIndices, source.count, "materialIndices");
   assertLength(source.currentTransforms, source.count * 16, "currentTransforms");
   if (source.previousTransforms) assertLength(source.previousTransforms, source.count * 16, "previousTransforms");
+  if (source.deformationRevisions) assertLength(source.deformationRevisions, source.count, "deformationRevisions");
+  if (source.deformationMotionValid) assertLength(source.deformationMotionValid, source.count, "deformationMotionValid");
   assertLength(source.boundsSpheres, source.count * 4, "boundsSpheres");
   if (source.boundsMin) assertLength(source.boundsMin, source.count * 3, "boundsMin");
   if (source.boundsMax) assertLength(source.boundsMax, source.count * 3, "boundsMax");
@@ -1842,6 +1856,8 @@ function validateVirtualSource(
   assertLength(source.materialIndices, source.count, "materialIndices");
   assertLength(source.currentTransforms, source.count * 16, "currentTransforms");
   if (source.previousTransforms) assertLength(source.previousTransforms, source.count * 16, "previousTransforms");
+  if (source.deformationRevisions) assertLength(source.deformationRevisions, source.count, "deformationRevisions");
+  if (source.deformationMotionValid) assertLength(source.deformationMotionValid, source.count, "deformationMotionValid");
   assertLength(source.boundsSpheres, source.count * 4, "boundsSpheres");
   if (source.boundsMin) assertLength(source.boundsMin, source.count * 3, "boundsMin");
   if (source.boundsMax) assertLength(source.boundsMax, source.count * 3, "boundsMax");

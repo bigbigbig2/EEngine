@@ -84,6 +84,10 @@ export interface GpuInstanceRecordCpu {
   readonly currentObjectToWorld: ArrayLike<number>;
   /** Previous-frame object-to-world; the packer converts it to previous_from_current. */
   readonly previousObjectToWorld: ArrayLike<number>;
+  /** Revision of the current Product/skin/morph deformation output. */
+  readonly dynamicRevision?: number;
+  /** Whether a previous deformation sample is available for motion vectors. */
+  readonly deformationMotionValid?: boolean;
 }
 
 export interface GpuInstanceMotionScratch {
@@ -255,9 +259,10 @@ export function writeGpuInstanceRecord(
     record.currentObjectToWorld, 0, "currentObjectToWorld");
   writeGpuInstanceAffineMatrix(destination, byteOffset + GPU_INSTANCE_RECORD_OFFSETS.previous_from_current_affine,
     previousFromCurrent, 0, "previousFromCurrent");
-  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision, 0, "dynamicRevision");
+  writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
+    record.dynamicRevision ?? 0, "dynamicRevision");
   writeU32(view, GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
-    motionValid ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid, "motionFlags");
+    motionValid && (record.deformationMotionValid ?? true) ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid, "motionFlags");
 }
 
 export function createGpuInstanceMotionScratch(): GpuInstanceMotionScratch {

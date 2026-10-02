@@ -48,6 +48,10 @@ export interface InstanceSource {
   readonly materialHandles: Uint32Array;
   readonly currentTransforms: Float32Array;
   readonly previousTransforms?: Float32Array;
+  /** Monotonic current deformation revision (skin/morph/Product deformation). */
+  readonly deformationRevisions?: Uint32Array;
+  /** Optional proof that a previous deformation sample exists for motion. */
+  readonly deformationMotionValid?: Uint8Array;
   /** Object-space bounds; GPU visibility applies currentTransforms exactly once. */
   readonly boundsSpheres: Float32Array;
   /** Object-space AABB minimum. */
@@ -1130,10 +1134,13 @@ export class GpuScene {
         0,
         "previousFromCurrent"
       );
-      view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision, 0, true);
+      view.setUint32(base + GPU_INSTANCE_RECORD_OFFSETS.dynamic_revision,
+        source.deformationRevisions?.[index] ?? 0, true);
+      const deformationMotionValid = source.deformationMotionValid === undefined ||
+        source.deformationMotionValid[index] !== 0;
       view.setUint32(
         base + GPU_INSTANCE_RECORD_OFFSETS.motion_flags,
-        motionValid ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid,
+        motionValid && deformationMotionValid ? 0 : GPU_INSTANCE_FLAGS.MotionInvalid,
         true
       );
     }
@@ -1326,6 +1333,8 @@ function validateInstanceSource(source: InstanceSource): void {
   if (source.previousTransforms !== undefined) {
     assertLength(source.previousTransforms, source.count * 16, "previousTransforms");
   }
+  if (source.deformationRevisions !== undefined) assertLength(source.deformationRevisions, source.count, "deformationRevisions");
+  if (source.deformationMotionValid !== undefined) assertLength(source.deformationMotionValid, source.count, "deformationMotionValid");
   assertLength(source.boundsSpheres, source.count * 4, "boundsSpheres");
   if (source.boundsMin !== undefined) assertLength(source.boundsMin, source.count * 3, "boundsMin");
   if (source.boundsMax !== undefined) assertLength(source.boundsMax, source.count * 3, "boundsMax");
