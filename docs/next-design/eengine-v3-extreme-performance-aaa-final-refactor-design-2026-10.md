@@ -228,7 +228,7 @@ next-renderer-showcase 当前默认开启 renderScale 1、HZB、cone、XeGTAO、
 
 最终性能上限上，第三版高于中间版，因为它可以把静态材质、稳定字段和可复用输入移出每帧重计算。
 
-当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、publication cache lookup、`SurfaceGeometryPass`、GPU-compacted miss evaluation、lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect、sample map、完整 `AppearanceResidentKernel` miss evaluation、cluster/VSM/AO/IBL provider 和双缓冲 signal history，但 GeometryRecord 命中绕过、完整 sampler/UV/filtered footprint key、Product/形变对应、signal age/revision reject 和正式验收仍未完成，因此不能把当前接线等同于最终性能或 AAA 验收。
+当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、publication cache lookup、hit-mask-gated `SurfaceGeometryPass`、GPU-compacted miss evaluation、lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect、sample map、完整 `AppearanceResidentKernel` miss evaluation、cluster/VSM/AO/IBL provider、GeometryRecord 持久化命中旁路和双缓冲 signal history，但独立 geometry miss compaction、完整 sampler/UV/filtered footprint key、材质 view/nonlocal、Product/形变对应、signal age/revision reject 和正式验收仍未完成，因此不能把当前接线等同于最终性能或 AAA 验收。
 
 当前源码仍有可量化的未完成成本：GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，geometry miss 尚未独立压缩，cache identity 尚未覆盖完整采样 footprint 与材质 view/nonlocal，history 仍缺 signal age/revision 细分。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
 
@@ -728,7 +728,7 @@ surfaceDispatchCount
 
 ### 10.1 Cache lookup 语义仍不完整
 
-当前 lookup 已位于 `SurfaceGeometryPass` 之前，classify 已发布真实 sample map，GeometryRecord 已消费 hit mask 并在命中时读取持久化 geometry cache；当前仍需把 geometry miss 从 bounded sample record 中进一步压缩，并补齐 sampler/UV/footprint/variation 与 camera/view identity，确保命中项不进入 geometry/material heavy worker。
+当前 lookup 已位于 `SurfaceGeometryPass` 之前，classify 已发布真实 sample map，GeometryRecord 已消费 hit mask 并在命中时读取持久化 geometry cache；当前仍需把 geometry miss 从 bounded sample record 中进一步压缩，并补齐 sampler/UV/footprint/variation 与材质 view/nonlocal identity，确保命中项不进入 geometry/material heavy worker。
 
 ### 10.2 GeometryRecord 的覆盖仍不完整
 
