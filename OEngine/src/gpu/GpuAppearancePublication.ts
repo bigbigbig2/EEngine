@@ -6,7 +6,7 @@ import type { TextureSurfacePublication } from "./TextureVariation.js";
 import type { ResourceAccounting, ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import { AppearanceProgramRegistry, type AppearanceProgramLease, type AppearanceProgramDescriptor } from "./AppearanceProgramRegistry.js";
 import { appearanceResidentKernel, APPEARANCE_ROUTE_STRIDE, type AppearanceResidentKernel,
-  type AppearanceSampleResourceProfile, type AppearanceKernelIntegration } from "../shaders/appearance_resident_kernel.js";
+  APPEARANCE_WORKGROUP_SIZE, type AppearanceSampleResourceProfile, type AppearanceKernelIntegration } from "../shaders/appearance_resident_kernel.js";
 import { decodeGpuTextureRef, GPU_TEXTURE_REF_INVALID } from "./GpuTextureRefAbi.js";
 import { encodeSamplerClass, GPU_MATERIAL_VISIBILITY_SAMPLER } from "./GpuMaterialVisibilityAbi.js";
 import { AppearanceStaticResidency, appearanceStaticTextureKey, type AppearanceStaticLease } from "./AppearanceStaticResidency.js";
