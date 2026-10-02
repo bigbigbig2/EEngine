@@ -80,7 +80,7 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRecord、material field address、cluster/light identity、shadow/environment revision 和 history reference。Direct、diffuse、specular、coat、IBL 分别可观测，不以单一 Surface rate 代替。
 
-`SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Kernel 先读取 sample signal mask，只执行被请求的 direct/IBL lobe，Diffuse、specular、coat、IBL 保持独立写域；lighting counter 覆盖 packet、direct/IBL evaluation、AO/VSM/full-rate/overflow/bytes/dispatch 诊断，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。完整 view/footprint identity、environment/light/VSM revision reject 和最终 GPU/画质验收仍待 Phase 7。
+`SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Kernel 先读取 sample signal mask，只执行被请求的 direct/IBL lobe，Diffuse、specular、coat、IBL 保持独立写域；lighting counter 覆盖 packet、direct/IBL evaluation、AO/VSM/full-rate/overflow/bytes/dispatch 诊断，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。完整 view/footprint identity、按 signal 的 revision invalidation 和最终 GPU/画质验收仍待 Phase 7。
 
 ### Phase 5：廉价 reconstruct（生产接线完成，统一验收待做）
 
