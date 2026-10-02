@@ -24,7 +24,7 @@ currentSlice:
     packet-driven reconstruct，完成真实 FrameGraph 边与基础生命周期。原文 §11 的 16 项
     不因文档切换提升完成。skin/morph 与 previous deformation、Product 跨 LOD/source/seam、
     nonlocal/provider、屏外 VSM caster 和透明 composition 缺口继续保留。
-    Phase 1 已完成；Phase 2 已完成唯一 GeometryRecord、implicit/uniform/mixed tile 分类、bounded sample/exception、GPU counter/indirect 和 sample map 实现，但 Product/形变对应与正式验收仍待完成；Phase 3 已完成 lookup 前移、hit mask、bounded miss queue 和缓存字段值的结构接线，但 GeometryRecord 尚未消费 hit mask，publication kernel miss evaluation、完整 sampler/UV/footprint key 仍待接通；Phase 4 已接入 diffuse/specular/coat/IBL packet buffers 与基础 GGX/Smith/Schlick，完整 provider 和 AAA 数学仍待接通；Phase 5 已接入只读 packet、TemporalFacts mask 和 pre-exposure reconstruct，signal history/AO/emissive/energy 仍待接通；Phase 6 已保持单一 FrameGraph/submit 生命周期。完整 cluster/VSM/AO/IBL provider、signal history、device recovery、浏览器画质和四版本性能仍待接通。实现、adoption、连续画质和四版本同条件性能均未验收，
+    Phase 1 已完成；Phase 2 已完成唯一 GeometryRecord、implicit/uniform/mixed tile 分类、bounded sample/exception、GPU counter/indirect 和 sample map 实现，但 Product/形变对应与正式验收仍待完成；Phase 3 已完成 publication identity lookup、bounded miss queue、每 program GPU indirect miss compaction 与真实 AppearanceResidentKernel miss evaluation，字段结果回写 publication cache；GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint key、动态 view/nonlocal 语义仍不完整；Phase 4 已接入 diffuse/specular/coat/IBL packet buffers 与基础 GGX/Smith/Schlick，完整 provider 和 AAA 数学仍待接通；Phase 5 已接入只读 packet、TemporalFacts mask 和 pre-exposure reconstruct，signal history/AO/emissive/energy 仍待接通；Phase 6 已保持单一 FrameGraph/submit 生命周期。完整 cluster/VSM/AO/IBL provider、signal history、device recovery、浏览器画质和四版本性能仍待接通。实现、adoption、连续画质和四版本同条件性能均未验收，
     不恢复旧链。
 
 nextModules:

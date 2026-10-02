@@ -1,6 +1,6 @@
 # SurfaceWork Runtime V3 直接重构执行计划
 
-更新：2026-10-02。状态：Phase 0–3 的主链与真实 GeometryRecord/cache lookup 已接线；Phase 4–6 仍在算法收敛；Phase 7 的整帧 GPU/browser/画质/性能验收未完成。
+更新：2026-10-02。状态：Phase 0–3 的主链、publication miss evaluator 与真实 GeometryRecord/cache lookup 已接线；Phase 4–6 仍在算法收敛；Phase 7 的整帧 GPU/browser/画质/性能验收未完成。
 
 唯一目标依据是用户指定的 [EEngine 第三版最终重构设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。该文件按原文纳入，本文只把其 §4–§11 转成工程执行顺序，不另设快路径优先、旧 Signal-Rate 回退或新的性能百分比门槛。整体保留边界见 [整体架构](../next-design/eengine-next-overall-architecture-final-2026.md)，当前切片见 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。
 
@@ -70,11 +70,11 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 已加入 `GpuSurfaceWorkAbi.ts`、`SurfaceWorkRuntime.ts` 和 `SurfaceGeometryPass.ts`，classify 现在以 64-lane workgroup 扫描每个 8×8 tile，发布 implicit/uniform/mixed 分类、bounded sample/exception、GPU sample counter、indirect args 和 per-pixel sample map；GeometryRecord 读取动态 sample count、MeshletWork、FrameGeometry、FrameAttributes、FrameInstances、asset heap、vertex payload 和 camera，发布真实位置/法线/切线/UV/导数/身份/signature。Product/形变对应仍有缺口，数值、容量、浏览器和性能验收尚未运行；Phase 2 实现完成，验收待 Phase 7。
 
-### Phase 3：Appearance 改为 miss-only demand（结构接线完成，publication kernel 待接通）
+### Phase 3：Appearance 改为 miss-only demand（publication kernel 已接通，命中绕过仍待完成）
 
 扩展现有 AppearanceGraphCompiler 输出 constant/static/stable-local/geometry/view/nonlocal、signal rate、full-rate requirement、texture variation 和可融合属性；不建立第二套材质系统。
 
-已新增 `SurfaceMaterialCachePass`，在 GeometryRecord 之前执行 stable key lookup，命中直接写字段纹理并生成 hit mask，miss 写入 bounded queue；当前 GeometryRecord 尚未消费 hit mask，仍按 record range 求值，只有后续 evaluator 按 hit mask 跳过命中记录。当前 key 只覆盖部分 identity/version 字段，miss evaluator 仍是本地字段 kernel，尚未绑定每个 publication 的完整 AppearanceResidentKernel，也未覆盖完整 sampler/UV/footprint/variation key，因此 Phase 3 只有结构接线，算法仍在实现中。
+`SurfaceMaterialCachePass` 在 GeometryRecord 之前执行 publication identity lookup，GPU 为每个 program 维护 bounded miss counter/indirect args；`GpuAppearancePublication.encodeSurfaceMissEvaluation` 复用已发布的 `AppearanceResidentKernel`、constants、routes、runtime inputs、resident texture/product bindings，按 miss program 求值并写回六层 fields 与稳定 cache。cache identity 已加入 geometry slot/meshlet/instance/primitive、material、field/residency version、publication field/route/variation hash；仍缺 sampler/UV transform 与真实 filtered footprint 的独立 identity。`SurfaceGeometryPass` 仍按 sample range 发布 GeometryRecord，hit mask 目前只门控 miss evaluator，因此命中尚未绕过几何 heavy worker；Product/形变/动态 view/nonlocal 语义与正式验收继续留待后续阶段。
 
 ### Phase 4：分 signal lighting packets（实现中）
 

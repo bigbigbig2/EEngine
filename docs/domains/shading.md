@@ -9,7 +9,7 @@ owner: shading
 
 当前复核提交为 `11d906ab`；文中旧的 `84e77c3d` 只表示此前一次结构核对，不代表当前源码版本。
 
-核对日期：2026-10-02；源码基线 `84e77c3d`。本页描述当前实现，目标见[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，执行见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。结构主链已切换，完整 AAA 数学、整帧 history、浏览器画质和性能仍未验收，本页不作性能通过声明。
+核对日期：2026-10-02；源码基线 `e4efc426` 加当前 Phase 3 工作树。本文描述当前实现，目标见[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，执行见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。结构主链与 publication miss evaluator 已切换，完整 AAA 数学、整帧 history、浏览器画质和性能仍未验收，本页不作性能通过声明。
 
 当前 Surface 生产链为唯一 V3 路径，仍在算法收敛阶段：
 
@@ -26,7 +26,7 @@ VisibilityKey / Depth / MeshletWork / shared frame geometry
 
 ### Appearance
 
-`SurfaceMaterialCachePass` 在 GeometryRecord 之前按当前已接入的 VisibilityKey、材质槽、字段版本和纹理驻留版本做 key 比较；命中直接写六层 fields，未命中压入有界 miss queue。当前 `SurfaceGeometryPass` 尚未读取 hit mask，仍按 record range 发布 GeometryRecord；hit mask 只在后续 miss evaluator 中生效，因此“命中绕过几何 heavy work”尚未实现。sampler、UV set/transform、footprint 和 variation revision 尚未完整进入 key；字段评估仍是本地 fallback kernel，尚未绑定每个 publication 的完整 `AppearanceResidentKernel`，因此不能宣称材质图语义已完全保持。
+`SurfaceMaterialCachePass` 在 GeometryRecord 之前按 publication material lookup、geometry identity、材质字段/驻留版本和 publication field/route/variation identity 做 key 比较；命中直接写六层 fields，未命中压入有界 miss queue。`GpuAppearancePublication.encodeSurfaceMissEvaluation` 已按 publication program 复用完整 `AppearanceResidentKernel` 与其常量、routes、runtime inputs、texture/product bindings，写回 fields 和稳定 cache，不再运行本地 fallback field kernel。`SurfaceGeometryPass` 尚未读取 hit mask，仍按 record range 发布 GeometryRecord；因此命中绕过几何 heavy work 尚未实现。sampler、UV set/transform 与真实 filtered footprint 尚未完整进入 key，view/nonlocal 动态输入、Product/形变对应和数值语义仍待验收。
 
 AppearanceGraphCompiler 已支持 typed dependencies、等价采样合并、常量/无用通道处理和 product 分类，lowering 输出 WGSL 求值程序。GpuMaterialStore 发布字段版本，AppearanceProgramRegistry 持有程序 leases，AppearanceStaticResidency 管理静态产品与 completion 退役。当前 mutable material 编辑仍需要实际 republication/resync，不能宣称所有动态输入或 nonlocal providers 已完成。
 
@@ -44,7 +44,7 @@ SurfaceWork 的 packet/reconstruct owner 负责未来的 signal history 资源�
 | --- | --- |
 | implicit/uniform/mixed SurfaceWork，不全员 pixel task | 64-lane tile classifier 已发布三类覆盖、bounded sample/exception、indirect count 和 sample map；Product/形变输入与数值/性能验收仍待完成 |
 | 唯一 SurfaceGeometryRecord | 已由 `SurfaceGeometryPass` 生产；skin/morph、Product 跨 LOD/source/seam 对应仍有缺口 |
-| lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，hit mask 已生成但尚未被 GeometryRecord 消费；完整 publication kernel miss evaluation 未接通 |
+| lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，publication kernel 只消费 bounded miss；hit mask 尚未被 GeometryRecord 消费，sampler/UV/footprint key 仍不完整 |
 | 独立 diffuse/specular/coat/IBL work | 四类 packet 已独立资源和 counters；cluster、VSM、AO、physical/authored IBL provider 尚未接线 |
 | 廉价 reconstruct | 已不重新解码 Geometry Product 或执行材质图；真实 signal history reject/age 尚未完成 |
 | FrameGraph 看到真实阶段 | lookup、GeometryRecord、miss evaluation、packet 和 reconstruct 均是独立 FrameGraph 节点 |

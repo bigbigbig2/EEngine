@@ -332,6 +332,16 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       bind(`radiometry/${name}`, bindings => resolve(bindings.radiometry)));
   const gpuPreviousExposure = owners.radiometry.importPreviousExposure(graph, bindRadiometry);
   const gpuPriorExposure = owners.radiometry.importPriorExposure(graph, bindRadiometry);
+  const surfaceMaterialLookup = graph.import_resource("surface-material-lookup", { kind: "imported", label: "Surface publication material lookup" },
+    bind("surface-material-lookup", bindings => {
+      if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
+      return bindings.runtime.appearancePublication.materialLookup;
+    }));
+  const surfaceIdentity = graph.import_resource("surface-publication-identity", { kind: "imported", label: "Surface publication identity" },
+    bind("surface-publication-identity", bindings => {
+      if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
+      return bindings.runtime.appearancePublication.surfaceIdentity;
+    }));
   const previousCamera = graph.import_resource("previous-camera", { kind: "imported", label: "previous camera" },
     bind("previous-camera", bindings => bindings.view.gpu_previous_camera_state.buffer));
   const facts = owners.temporalFacts.addToGraph(graph, {
@@ -352,6 +362,10 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     camera: cameraBuffer,
     factsMask: facts.mask,
     preExposure: gpuPreviousExposure,
+    materialLookup: surfaceMaterialLookup,
+    surfaceIdentity,
+    textureBanks,
+    publication: appearancePublication,
     residencyVersions: textureResidencyVersions,
     fieldVersions: graph.import_resource("surface-field-versions", { kind: "imported", label: "published surface field versions" },
       bind("surface-field-versions", bindings => {

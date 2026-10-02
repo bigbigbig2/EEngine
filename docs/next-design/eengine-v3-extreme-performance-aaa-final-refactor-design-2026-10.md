@@ -7,7 +7,7 @@
 
 本文不把设计文档中“计划实现”的内容当成已经完成，而是把当前代码、当前缺口和最终推进方案分开说明。
 
-实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 cache lookup → GeometryRecord（当前仍按 record range 求值）→ hit-mask-gated miss field evaluation → diffuse/specular/coat/IBL packets → packet reconstruct。该接线不提升本文后续 AAA 数学、完整材质 publication kernel、cluster/VSM/AO/IBL provider、signal history 和性能验收状态；这些仍以源码和 Phase 7 证据为准。
+实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 publication cache lookup → GeometryRecord（当前仍按 record range 求值）→ GPU-compacted miss-only `AppearanceResidentKernel` evaluation → diffuse/specular/coat/IBL packets → packet reconstruct。publication kernel、material/program lookup、field/route/variation identity 和每-program indirect miss dispatch 已接入；GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint、Product/形变、AAA provider、signal history 和 Phase 7 性能验收仍未完成。
 
 ## 1. 最终判断
 
@@ -27,7 +27,7 @@
 当前实现仍有三个决定性瓶颈：
 
 1. GeometryRecord 仍会接收命中样本，hit mask 尚未前置成真正的 geometry miss compaction；
-2. miss evaluator 和 cache key 尚未接入完整 publication 程序及 sampler/UV/footprint/variation 语义；
+2. GeometryRecord 尚未消费 hit mask；cache key 尚未包含完整 sampler/UV/filtered footprint 语义，动态 view/nonlocal 与 Product/形变对应仍未完成；
 3. lighting provider、signal history 和 Product/形变几何对应仍不完整，无法形成最终 AAA 的可复用 packet 成本。
 
 历史基线的实际成本接近：
@@ -228,7 +228,7 @@ next-renderer-showcase 当前默认开启 renderScale 1、HZB、cone、XeGTAO、
 
 最终性能上限上，第三版高于中间版，因为它可以把静态材质、稳定字段和可复用输入移出每帧重计算。
 
-当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、cache lookup、`SurfaceGeometryPass`、miss evaluation、lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect 和 sample map，但完整 publication kernel、完整 sampler/UV/footprint key、cluster/VSM/AO/IBL provider 和 signal history 仍未完成，因此不能把结构接线等同于最终性能或 AAA 验收。
+当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、publication cache lookup、`SurfaceGeometryPass`、GPU-compacted miss evaluation、lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect、sample map 和完整 `AppearanceResidentKernel` miss evaluation，但 GeometryRecord 命中绕过、完整 sampler/UV/filtered footprint key、cluster/VSM/AO/IBL provider 和 signal history 仍未完成，因此不能把当前接线等同于最终性能或 AAA 验收。
 
 当前源码仍有可量化的未完成成本：GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，命中样本尚未在 GeometryRecord 前被裁掉，lighting 仍是基础本地 BRDF，reconstruct 只实现 mask/pre-exposure 的简化合成。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
 

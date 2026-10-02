@@ -8,6 +8,7 @@ import { SurfaceGeometryPass, type SurfaceGeometryProducts } from "./SurfaceGeom
 import { SurfaceMaterialCachePass, type SurfaceMaterialProducts } from "./SurfaceMaterialCachePass.js";
 import { SurfaceLightingWorkPass } from "./SurfaceLightingWorkPass.js";
 import { SurfaceReconstructionPass } from "./SurfaceReconstructionPass.js";
+import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 
 export interface SurfaceWorkFrame {
   readonly generation: number;
@@ -236,7 +237,9 @@ export class SurfaceWorkRuntime {
 
   addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; meshletWork: ResourceId;
     sourceHeap: ResourceId; vertexPayload: ResourceId; frameInstances: ResourceId; frameAttributes: ResourceId;
-    camera: ResourceId; fieldVersions: ResourceId; residencyVersions: ResourceId; factsMask: ResourceId; preExposure: ResourceId; width: number; height: number;
+    camera: ResourceId; fieldVersions: ResourceId; residencyVersions: ResourceId; materialLookup: ResourceId; surfaceIdentity: ResourceId;
+    textureBanks: readonly (readonly ResourceId[])[]; publication: GpuAppearancePublication;
+    factsMask: ResourceId; preExposure: ResourceId; width: number; height: number;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
@@ -290,7 +293,9 @@ export class SurfaceWorkRuntime {
     const recordCount = layout.sampleCapacity;
     const material = this.material.addLookupToGraph(graph, { visibility: input.visibility, work,
       meshletWork: input.meshletWork, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions,
-      counts, width: input.width, height: input.height, recordCount, sampleOffset: layout.sampleOffset, frame: input.frame.generation });
+      counts, materialLookup: input.materialLookup, surfaceIdentity: input.surfaceIdentity,
+      programCount: input.publication.surfaceProgramCount, width: input.width, height: input.height,
+      recordCount, sampleOffset: layout.sampleOffset, frame: input.frame.generation });
     const geometry = this.geometry.addToGraph(graph, { visibility: input.visibility, work, arena: input.arena,
       meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
       frameInstances: input.frameInstances, frameAttributes: input.frameAttributes, camera: input.camera,
@@ -301,7 +306,8 @@ export class SurfaceWorkRuntime {
       sourceVertexData: input.frame.sourceVertexData,
       sampleOffset: layout.sampleOffset, geometryOffset: layout.geometryOffset, recordCount, geometryCapacity: layout.geometryCapacity, counts });
     this.material.addEvaluateToGraph(graph, { ...material, geometry: geometry.records, width: input.width, height: input.height,
-      recordCount, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions, frame: input.frame.generation, counts });
+      recordCount, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions, frame: input.frame.generation, counts,
+      publication: input.publication, textureBanks: input.textureBanks, work, sampleOffset: layout.sampleOffset });
     const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: material.fields,
       width: input.width, height: input.height, recordCount, frame: input.frame.generation, counts });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
