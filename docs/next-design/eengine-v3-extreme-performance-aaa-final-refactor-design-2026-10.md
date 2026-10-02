@@ -736,7 +736,7 @@ surfaceDispatchCount
 
 ### 10.3 Reconstruct 的历史与合成语义仍不完整
 
-当前 reconstruct 已只读 packet、GeometryRecord、TemporalFacts mask/identity、pre-exposure 和双缓冲 signal/identity/age history，并完成基础 emissive/AO/energy 合成；environment/light/VSM revision reject、细分能量守恒对照和正式画质验收仍未完成。必须补齐这些结果选择和合成语义，同时保持 reconstruct 不执行完整 PBR。
+当前 reconstruct 已只读 packet、TemporalFacts mask/identity、pre-exposure 和双缓冲 signal/identity/age history，并完成基础 emissive/AO/energy 合成；GeometryRecord 已从 reconstruct 绑定移除，environment/light/VSM revision reject、细分能量守恒对照和正式画质验收仍未完成。必须补齐这些结果选择和合成语义，同时保持 reconstruct 不执行完整 PBR。
 
 ## 11. 完成定义
 

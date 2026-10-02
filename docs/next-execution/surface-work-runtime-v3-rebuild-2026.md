@@ -84,7 +84,7 @@ DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRec
 
 ### Phase 5：廉价 reconstruct（生产接线完成，统一验收待做）
 
-`SurfaceReconstructionPass` 只读取四类 packet、GeometryRecord、TemporalFacts mask/identity、pre-exposure 和双缓冲 signal/identity/age history，按全分辨率映射合成 HDR/reactive；逐像素 identity 比较、8 帧 age 上限、camera cut reject 与 GPU completion 后交换由 SurfaceWork 生命周期管理。它不重新解码 Geometry Product 或执行材质 graph。environment/light/VSM revision reject、能量守恒对照和连续画质仍待 Phase 7。
+`SurfaceReconstructionPass` 只读取四类 packet、TemporalFacts mask/identity、pre-exposure 和双缓冲 signal/identity/age history，按全分辨率映射合成 HDR/reactive；GeometryRecord 已从 reconstruct 绑定移除，逐像素 identity 比较、8 帧 age 上限、camera cut reject 与 GPU completion 后交换由 SurfaceWork 生命周期管理。它不重新解码 Geometry Product 或执行材质 graph。environment/light/VSM revision reject、能量守恒对照和连续画质仍待 Phase 7。
 
 ### Phase 6：全链与生命周期（生产接线完成，统一验收待做）
 
