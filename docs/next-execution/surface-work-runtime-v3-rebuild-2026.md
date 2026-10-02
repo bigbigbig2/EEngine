@@ -8,7 +8,7 @@
 
 源码核对基线为 `677e29c5`（历史切断基线仍为 `e7296be9`）。旧 SurfaceMaterialPass/Probe/sample producer 已从生产链删除；当前 FrameProgramLowering 实际连接的是 Visibility/TemporalFacts → SurfaceWorkRuntime（classify、publication lookup、GeometryRecord、publication miss evaluation、独立 packet、reconstruct）→ Sky/Aerial/FSR3/显示。完整 cluster/VSM/AO/IBL provider 与 history 仍未完成。
 
-当前源码已切断全有效像素 Appearance demand、独立 geometry inputs 和旧 SparseLighting prepare_surface；SurfaceWork 已注册 tile/sample lookup、implicit/uniform/mixed classify、bounded sample/exception、唯一 GeometryRecord、真实 publication miss evaluation、独立 packet 和 cheap reconstruct 的生产边。GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint key、cluster/VSM/AO/IBL provider、signal history 和性能闭环仍未完成，不能据此宣称最终算法或性能已经完成。
+当前源码已切断全有效像素 Appearance demand、独立 geometry inputs 和旧 SparseLighting prepare_surface；SurfaceWork 已注册 tile/sample lookup、implicit/uniform/mixed classify、bounded sample/exception、唯一 GeometryRecord、真实 publication miss evaluation、独立 packet、生产 clustered/VSM/AO/IBL provider 和 history reconstruct 的生产边。GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint key、完整 identity reject、局部例外计数和性能闭环仍未完成，不能据此宣称最终算法或性能已经完成。
 
 最终完成条件（不是当前源码事实）必须同时满足：
 
@@ -80,7 +80,7 @@ Phase 是依赖顺序，不是逐阶段审批、编译或测试门禁。按根 A
 
 DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRecord、material field address、cluster/light identity、shadow/environment revision 和 history reference。Direct、diffuse、specular、coat、IBL 分别可观测，不以单一 Surface rate 代替。
 
-`SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Diffuse、specular、coat、IBL packet 仍保持独立写域，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。局部例外计数、信号 history、GeometryRecord hit 绕过和最终 GPU/画质验收仍待 Phase 5–7。
+`SurfaceLightingWorkPass` 现在消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL 资源，直接复用 `lighting_direct.ts` 的 clustered directional/point/spot BRDF、clearcoat 和 VSM 分支，并通过 `APPEARANCE_SURFACE_READ_WGSL` 按逻辑字段读取材质。Diffuse、specular、coat、IBL packet 仍保持独立写域，AO 只进入环境 diffuse/coat signal；旧 `prepare_surface` 已删除。局部例外计数、GeometryRecord hit 绕过和最终 GPU/画质验收仍待 Phase 7。
 
 ### Phase 5：廉价 reconstruct（生产接线完成，统一验收待做）
 
