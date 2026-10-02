@@ -309,7 +309,8 @@ export class SurfaceWorkRuntime {
       recordCount, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions, frame: input.frame.generation, counts,
       publication: input.publication, textureBanks: input.textureBanks, work, sampleOffset: layout.sampleOffset });
     const lighting = this.lighting.addToGraph(graph, { geometry: geometry.records, fields: material.fields,
-      width: input.width, height: input.height, recordCount, frame: input.frame.generation, counts });
+      work, sampleOffset: layout.sampleOffset, width: input.width, height: input.height,
+      recordCount, frame: input.frame.generation, counts });
     const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
       coat: lighting.coatPackets, ibl: lighting.iblPackets, geometry: geometry.records, reactive: input.factsMask,
       preExposure: input.preExposure, width: input.width, height: input.height, recordCount, sampleMap });

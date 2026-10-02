@@ -34,7 +34,7 @@ AppearanceGraphCompiler 已支持 typed dependencies、等价采样合并、常�
 
 FrameGeometryArena/Vertices 提供当帧共享 clips/triangles/attributes。`SurfaceGeometryPass` 通过 `winnerPrimitiveArenaConsumerWgsl` 和 `surfaceGeometrySourceReaderWgsl` 统一恢复 winner、ordinary source 属性、实例变换、几何/着色法线、切线、UV、导数、视向、深度、身份和 signature，并写入唯一 GeometryRecord。Appearance 与 lighting 只读该记录。
 
-`SurfaceLightingWorkPass` 现在按 GeometryRecord 和 fields 发布独立 diffuse/specular/coat/IBL packet，并使用 GGX、Smith visibility、Schlick Fresnel、金属度和能量分配计算。`SurfaceReconstructionPass` 只做 packet 映射、TemporalFacts 有效性判断、AO/reactive 传播和 pre-exposure 应用；真实跨帧 signal history、cluster/VSM/AO/IBL provider 资源仍待接入。
+`SurfaceLightingWorkPass` 现在按 GeometryRecord 和 fields 发布独立 diffuse/specular/coat/IBL packet，并使用 SurfaceWork sample record 的像素地址读取字段；当前仍是基础 GGX/Smith/Schlick 与能量分配计算。`SurfaceReconstructionPass` 只做 packet 映射、TemporalFacts 有效性判断、AO/reactive 传播和 pre-exposure 应用；真实跨帧 signal history、cluster/VSM/AO/IBL provider 资源仍待接入。
 
 SurfaceWork 的 packet/reconstruct owner 负责未来的 signal history 资源；当前实现尚未接入完整 history read/reject/age。TemporalFacts 独立发布 motion/identity/validity 基础产品，FSR3 读取其 motion/mask 与 Surface reactive；Surface 不另有 motion attachment。当前基础事实与最终 signal reactive 的完整合同仍待重构收敛。
 
