@@ -14,13 +14,15 @@ Module B 已将 Standard/Coated 材质、Dense/有界异常工作和直接/环�
 
 本模块不实施 SSSR/GI/VSM、完整 Temporal Fabric、全局光照 AO、多材质全场 GBuffer、通用自动成本模型或正式画质/性能声明。后续 SSSR/GI 若提出真正的 Normal/Roughness 复用需求，再选有限 Surface sidecar。现有 FSR3 生产链继续接收 Surface HDR/motion；Module D 负责统一时序事实和呈现生命周期。
 
-## 2. 当前源码主链与耦合
+## 2. 历史源码基线与耦合
+
+本节保留 Module C 编写时的历史 SurfaceMaterialPass 事实；当前生产 SurfaceWork V3 的事实以 [Shading domain](../domains/shading.md) 和 [SurfaceWork V3 执行计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md) 为准。
 
 | 已核对事实（2026-09-27） | Module C 的含义 |
 | --- | --- |
 | `OEngine/src/render/program/FrameProgram.ts` 的 `FrameProduct`/`FrameProgramStage` 无 AO 或 surface normal；`dependencies()` 将 `surface-radiance` 直接连到 Visibility/meshlet/depth/cluster | 新 AO 必须成为有 producer、consumer、domain、invalid 值的真实语义产物，而不是 Lowering 中没有 Frame Program fact 的隐藏 Pass |
-| `FrameProgramLowering.ts::compileSceneGraph` 在 Visibility/HZB/cluster 后调用 `SurfaceMaterialPass.addToGraph()`，再进入 Sky/Aerial/FSR3/Present | AO 可以插在 Surface 前，由同一 Graph 管理依赖；Lighting consumer 仍是唯一 Surface HDR writer |
-| `SurfaceMaterialPass.ts` 的频率 planner → Dense + 七条异常 lane 写 `rgba16float` HDR、`rg16float` motion；`surface_material_kernel.ts::sparse_direct` 在一次返回值中合并直接光、PhysicalSun、环境漫反射/镜面与 emissive | AO 不能后乘完整 HDR；要在内部间接项的位置读 AO，且 Dense/Binned/fallback 使用同一规则 |
+| 历史基线的 `FrameProgramLowering.ts::compileSceneGraph` 在 Visibility/HZB/cluster 后调用 `SurfaceMaterialPass.addToGraph()`；当前 V3 已切换为 `SurfaceWorkRuntime.addToGraph()`，再进入 Sky/Aerial/FSR3/Present | AO 必须在 Surface packet 前由同一 Graph 管理依赖；lighting/reconstruct consumer 仍是唯一 Surface HDR writer |
+| 历史 `SurfaceMaterialPass.ts` 的频率 planner → Dense + 七条异常 lane 写 `rgba16float` HDR、`rg16float` motion；`surface_material_kernel.ts::sparse_direct` 在一次返回值中合并直接光、PhysicalSun、环境漫反射/镜面与 emissive | AO 不能后乘完整 HDR；当前 V3 由 diffuse/specular/coat/IBL packet producer 在内部间接项的位置读 AO，并保持各 packet/exception 的同一规则 |
 | `shading_frequency.ts::frequency_eligible` 目前只允许特定静态 opaque Unlit factor/1×1 texture 粗频；lit 与 Coated 均为 full rate | 当前 AO 不会因受光 2×2/4×4 代表点复制而丢失接触变化；将来扩展 lit 粗频时，必须重新纳入 AO 变化或改成逐像素间接组合 |
 | `SurfaceKernelBindingPlan.ts` 最宽 lit/VG 布局有 16 sampled textures、15 storage buffers、2 storage textures；`PhysicalSamplingProfile.ts` admission 至少要求 16/16/2 | 在最宽布局直接加 AO sampled texture 将到 17，不能只追加一个 binding；第 16 个 storage buffer 是当前可行但需核对的输出消费槽 |
 | `RenderTargets.ts` 的 depth 为 reverse-Z `depth32float`；`HierarchicalZBuffer.ts` 的 HZB 为 `rg16float` 深度范围 | XeGTAO 的视空间加权过滤 depth mip 是另一种语义，不共享/重命名 HZB |

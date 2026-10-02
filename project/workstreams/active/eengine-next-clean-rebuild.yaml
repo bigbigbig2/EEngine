@@ -18,16 +18,15 @@ currentSlice:
   phaseStatus: >-
     Phase 4 已接入真实 LightClusterFrame、ShadowVisibilityFrame、XeGTAO packed visibility、authored/physical IBL 与生产 BRDF/cluster/VSM 数学，独立 diffuse/specular/coat/IBL packet 已接线；Phase 5 已接入双缓冲 signal history 与 pre-exposure reconstruct；Phase 6 已接入 GPU completion 后 history 交换、resize retire 和 camera cut 失效。GeometryRecord hit 绕过、完整 signal age/identity reject、browser/GPU 性能与四版本正式验收仍待 Phase 7。
   goal: >-
-    Phase 0 已固定三组历史 revision、GTX 1650 Ti/1080p 目标、Dungeon 资源 fingerprint、
-    feature set、覆盖率区间、预热/采集/P50/P95 口径，配置见
-    validation/profiles/surface-work-v3-phase0-baseline.yaml。历史切断基线 e7296be9 已删除旧
-    SurfaceMaterialPass/Probe/sample 主链；Phase 1 已切断 AppearanceCachePass/SparseLightingPass 旧 owner、独立 geometry inputs 与旧 FrameProgram 接线，
-    已切换到 SurfaceWork、唯一 GeometryRecord、bounded miss queue、独立 signal packets 和
-    packet-driven reconstruct，完成真实 FrameGraph 边与基础生命周期。原文 §11 的 16 项
-    不因文档切换提升完成。skin/morph 与 previous deformation、Product 跨 LOD/source/seam、
-    nonlocal/provider、屏外 VSM caster 和透明 composition 缺口继续保留。
-    Phase 1 已完成；Phase 2 已完成唯一 GeometryRecord、implicit/uniform/mixed tile 分类、bounded sample/exception、GPU counter/indirect 和 sample map 实现，但 Product/形变对应与正式验收仍待完成；Phase 3 已完成 publication identity lookup、bounded miss queue、每 program GPU indirect miss compaction 与真实 AppearanceResidentKernel miss evaluation，字段结果回写 publication cache；GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint key、动态 view/nonlocal 语义仍不完整；Phase 4 已接入 diffuse/specular/coat/IBL packet buffers 与基础 GGX/Smith/Schlick，完整 provider 和 AAA 数学仍待接通；Phase 5 已接入只读 packet、TemporalFacts mask 和 pre-exposure reconstruct，signal history/AO/emissive/energy 仍待接通；Phase 6 已保持单一 FrameGraph/submit 生命周期。完整 cluster/VSM/AO/IBL provider、signal history、device recovery、浏览器画质和四版本性能仍待接通。实现、adoption、连续画质和四版本同条件性能均未验收，
-    不恢复旧链。
+    Phase 0 已冻结 GTX 1650 Ti/1080p、Dungeon fingerprint、功能集、覆盖率和 P50/P95 口径，配置见
+    validation/profiles/surface-work-v3-phase0-baseline.yaml。Phase 1–3 已删除旧 Surface owner，接通
+    implicit/uniform/mixed SurfaceWork、唯一 GeometryRecord、publication lookup/miss evaluator、bounded
+    queues、GPU indirect 和 sample map。Phase 4 已接入真实 LightClusterFrame、ShadowVisibilityFrame、XeGTAO
+    packed visibility、authored/physical IBL 与生产 direct-light 数学；Phase 5–6 已接入 packet-only
+    reconstruct、双缓冲 signal history、GPU completion 交换、resize retire 和 camera-cut invalidate。
+    GeometryRecord hit 绕过、完整 sampler/UV/filtered footprint、Product/形变、signal age/revision reject、
+    browser/GPU 性能和四版本正式验收仍待 Phase 7。始终保持唯一 Renderer、唯一 FrameGraph/submit，
+    不恢复旧链、适配桥或中间 A/B 路径。
 
 nextModules:
   - id: sssr

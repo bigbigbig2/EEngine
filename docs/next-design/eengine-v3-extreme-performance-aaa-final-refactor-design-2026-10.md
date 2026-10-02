@@ -2,12 +2,12 @@
 
 日期：2026-10-01  
 设计基线：master / e7296be9cebbc3bcc1b6b738d682c928548d72d5（历史切断基线）
-当前源码核对：master / 677e29c5（2026-10-02）
+当前源码核对：当前工作树（2026-10-02）
 目标：基于当前第三版真实源码，完成一次破坏式 Surface 重构，解决 2026-09-25 报告中可见像素级几何、材质、直接光照和 IBL 的增长瓶颈，同时保留现代 AAA 的 PBR、normal、ORM、specular、clearcoat、IBL、VSM、AO、temporal 和 FSR3 质量。
 
 本文不把设计文档中“计划实现”的内容当成已经完成，而是把当前代码、当前缺口和最终推进方案分开说明。
 
-实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 publication cache lookup → GeometryRecord（当前仍按 record range 求值）→ GPU-compacted miss-only `AppearanceResidentKernel` evaluation → diffuse/specular/coat/IBL packets → packet reconstruct。publication kernel、material/program lookup、field/route/variation identity 和每-program indirect miss dispatch 已接入；GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint、Product/形变、AAA provider、signal history 和 Phase 7 性能验收仍未完成。
+实现核对（2026-10-02）：当前生产代码已切换到 `SurfaceWorkRuntime` 唯一路径，FrameGraph 顺序为 publication cache lookup → GeometryRecord（当前仍按 record range 求值）→ GPU-compacted miss-only `AppearanceResidentKernel` evaluation → 真实 clustered/VSM/AO/IBL 输入的 diffuse/specular/coat/IBL packets → 双缓冲 signal-history reconstruct。publication kernel、material/program lookup、field/route/variation identity、每-program indirect miss dispatch、生产 direct-light 数学和 history 生命周期已接入；GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint、Product/形变、完整 signal age/revision reject 和 Phase 7 GPU/browser 性能验收仍未完成。
 
 ## 1. 最终判断
 
@@ -28,7 +28,7 @@
 
 1. GeometryRecord 仍会接收命中样本，hit mask 尚未前置成真正的 geometry miss compaction；
 2. GeometryRecord 尚未消费 hit mask；cache key 尚未包含完整 sampler/UV/filtered footprint 语义，动态 view/nonlocal 与 Product/形变对应仍未完成；
-3. lighting provider、signal history 和 Product/形变几何对应仍不完整，无法形成最终 AAA 的可复用 packet 成本。
+3. 完整 sampler/UV/filtered footprint identity、Product/形变几何对应、signal age/revision reject 和正式验收仍不完整，无法证明最终 AAA 的可复用 packet 成本。
 
 历史基线的实际成本接近：
 
@@ -228,9 +228,9 @@ next-renderer-showcase 当前默认开启 renderScale 1、HZB、cone、XeGTAO、
 
 最终性能上限上，第三版高于中间版，因为它可以把静态材质、稳定字段和可复用输入移出每帧重计算。
 
-当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、publication cache lookup、`SurfaceGeometryPass`、GPU-compacted miss evaluation、lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect、sample map 和完整 `AppearanceResidentKernel` miss evaluation，但 GeometryRecord 命中绕过、完整 sampler/UV/filtered footprint key、cluster/VSM/AO/IBL provider 和 signal history 仍未完成，因此不能把当前接线等同于最终性能或 AAA 验收。
+当前源码已经进一步切换到 `SurfaceWorkRuntime` 唯一路径：`SurfaceWorkRuntime.ts` 注册 classify、publication cache lookup、`SurfaceGeometryPass`、GPU-compacted miss evaluation、lighting packets 和 `SurfaceReconstructionPass`；`FrameProgramLowering.ts` 没有旧 Surface owner 的生产接线。当前实现已经接入 implicit/uniform/mixed tile 扫描、bounded sample/exception、GPU counter/indirect、sample map、完整 `AppearanceResidentKernel` miss evaluation、cluster/VSM/AO/IBL provider 和双缓冲 signal history，但 GeometryRecord 命中绕过、完整 sampler/UV/filtered footprint key、Product/形变对应、signal age/revision reject 和正式验收仍未完成，因此不能把当前接线等同于最终性能或 AAA 验收。
 
-当前源码仍有可量化的未完成成本：GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，命中样本尚未在 GeometryRecord 前被裁掉，lighting 仍是基础本地 BRDF，reconstruct 只实现 mask/pre-exposure 的简化合成。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
+当前源码仍有可量化的未完成成本：GeometryRecord 尚未覆盖完整 Product/skin/morph/previous deformation 对应，命中样本尚未在 GeometryRecord 前被裁掉，cache identity 尚未覆盖完整采样 footprint，history 仍缺 signal age/revision 细分。下一阶段必须在唯一主链内补齐这些算法，不恢复旧 owner 或兼容桥。
 
 ### 2.7 当前生产接线（2026-10-02）
 
@@ -247,7 +247,7 @@ Visibility / TemporalFacts
 → Sky / Aerial / FSR3 / Radiometry / Bloom / Present
 ~~~
 
-这是当前唯一生产结构，不代表最终算法已完成。完整材质 publication、真实 light/cluster/VSM/AO/IBL provider、history reject/age、hit-mask geometry compaction、Product/形变对应和正式性能/画质验收仍是未完成项。
+这是当前唯一生产结构，不代表最终算法已完成。hit-mask geometry compaction、完整 sampler/UV/filtered footprint key、Product/形变对应、history age/revision reject 和正式性能/画质验收仍是未完成项。
 
 ## 4. 最终架构：SurfaceWork Runtime
 
@@ -736,7 +736,7 @@ surfaceDispatchCount
 
 ### 10.3 Reconstruct 的历史与合成语义仍不完整
 
-当前 reconstruct 已只读 packet、GeometryRecord、TemporalFacts mask 和 pre-exposure，但 signal history read/reject/age、AO/emissive/energy composition 仍未完成。必须补齐这些结果选择和合成语义，同时保持 reconstruct 不执行完整 PBR。
+当前 reconstruct 已只读 packet、GeometryRecord、TemporalFacts mask、pre-exposure 和双缓冲 signal history，并完成基础 emissive/AO/energy 合成；signal age/revision reject、细分能量守恒对照和正式画质验收仍未完成。必须补齐这些结果选择和合成语义，同时保持 reconstruct 不执行完整 PBR。
 
 ## 11. 完成定义
 

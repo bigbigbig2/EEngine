@@ -49,7 +49,7 @@ C1–C7 可在同一工作分支连续推进。算法 WGSL/CPU oracle 可在实�
 
 1. 对固定 XeGTAO SHA `a5b1686c7ea37788eeb3576b5be47f7c03db532c` 核查根 MIT LICENSE、`XeGTAO.h`、`XeGTAO.hlsli`、`vaGTAO.hlsl`、`vaGTAO.cpp` 的真实函数/宏、host dispatch 和资源格式。阅读 README 对与原论文不同的 near-field、thin occluder、depth MIP、noise、空间降噪和 bent normal 的解释；以源码常量为最终参数依据。
 2. 在[来源账本 R05](../porting/next-renderer.md)维持 `not adopted`，逐条列出 `GenerateNormals → PrefilterDepths16x16 → MainPass → DenoisePass/LastPass` 的输入输出、关键分支、局部目标文件和 oracle。CACAO 固定 SHA `0ddca95e6714727a252ead345591ca8f2598f261`、MIT，记为整套替代候选而非混搭来源。旧 Three.js GTAO、Filament AO 仅为对照/组合来源。
-3. 核对现有 depth clear、reverse-Z、投影 `device_depth_to_view_space`、内部尺寸、`metersPerWorldUnit`、FSR3 temporal 状态。核对 `SurfaceMaterialPass` 的最宽 16 sampled/15 storage/2 storage-texture 预算和 `maxStorageBufferBindingSize`，并按目标 adapter 查询 AO 自己的 storage texture/格式限制。
+3. 核对现有 depth clear、reverse-Z、投影 `device_depth_to_view_space`、内部尺寸、`metersPerWorldUnit`、FSR3 temporal 状态。历史 `SurfaceMaterialPass` 的 16 sampled/15 storage/2 storage-texture 预算只作旧基线；当前 V3 以 `SurfaceWorkRuntime` 的 lighting/packet layout 和目标 adapter 的 `maxStorageBufferBindingSize`、storage texture/格式限制重新做 admission。
 4. 选中首版 High scalar（3 slices × 每侧 3 steps）完整 profile；directional High、Medium scalar 作为同 donor 的明确后续档。即使优先做 scalar，也保留源 `#ifdef` 分支的文档映射，不把未做 bent/Ultra 标为已采用。
 
 本步产物是可直接编码的参数表、合法 WebGPU 资源方案及待删生产引用。不是一次独立测试或 evidence 回合。
@@ -60,7 +60,7 @@ C1–C7 可在同一工作分支连续推进。算法 WGSL/CPU oracle 可在实�
 
 1. 为 `indirect-visibility` 增 Frame Program Fact：producer `xe-gtao`，consumer `surface`，`internal-full` 像素域，值为非曝光 scalar `[0,1]` 与可选 view-space bent normal，背景/无效值为 `1`。依赖 `depth` 和需要区分背景时的 `visibility`；不要把 Normal、Roughness 假注册为已存在 Graph 产品。内部 scratch 不升格为 Frame Program 产品。同步补齐 `project/domains/frame-runtime.yaml` 的 `render/program/**` 和 `project/domains/shading.yaml` 的拟新增 `render/ao/**` 路由；当前两者会落到 platform 兜底。
 2. Request 仅包含结构性 AO profile：`off`、`scalar-high`、以后 `scalar-medium`/`directional-high`，以及实际影响资源布局的能力/格式变体。`hasLit=false`、无有效受光 consumer、空场景或 AO 关闭时，需求闭包不包含 AO stage/中间资源。FrameIndex、NoiseIndex、radius、投影矩阵、material/texture generation 作为执行期值，不进入 topology key。
-3. 在 Lowering 中于 Visibility depth 完成后、Surface 注册前调用 AO owner `addToGraph`，把返回的最终 AO ResourceId 传给 `SurfaceMaterialPass.addToGraph`。Graph 的 `read(depth/key)`、AO 中间 `write/read`、Surface `read(indirect-visibility)` 必须能从资源边解释完整顺序；LightCluster/HZB 可保留原独立分支。
+3. 在 Lowering 中于 Visibility depth 完成后、Surface 注册前调用 AO owner `addToGraph`，把返回的最终 AO ResourceId 传给 `SurfaceWorkRuntime.addToGraph` 的 lighting/environment 输入。Graph 的 `read(depth/key)`、AO 中间 `write/read`、Surface packet `read(indirect-visibility)` 必须能从资源边解释完整顺序；LightCluster/HZB 可保留原独立分支。
 4. 把 Surface Demand 的语义层限定为真实需求：AO final visibility 是生产者交付项，Surface normal/roughness 仍是 register-only。对于未来字段，定义 consumer、space、precision、domain、invalid、producer、重建成本和有限 layout 的选择接口，但不创建闲置 pass、texture 或新 HDR writer。
 
 **可观察条件**：`off` 的 Program 无 `xe-gtao` stage；`scalar-high` 有 `depth → AO → surface-radiance` 的完整依赖；改变 scene publication/resource generation 只更新绑定，不产生无意义的新 topology。此时还没有 AO 数学，不能用一张恒等纹理声称 C1 生产集成完成。
@@ -114,13 +114,13 @@ C1–C7 可在同一工作分支连续推进。算法 WGSL/CPU oracle 可在实�
 
 **修改入口**：SurfaceWork V3 的 Work/GeometryRecord/cache/signal owners，以及现有 Filament-derived `specular_ambient_occlusion.ts`；旧 SurfaceMaterialPass/绑定入口仅作为历史基线。
 
-1. 增 `indirect-visibility` 语义角色，按 `AO off/scalar/directional` 编译有限 Surface layout。最宽 `sampledTextures=16` 不得变 17；buffer 后端增一个 read-only storage binding 后 `storageBuffers=16`，仍受设备 admission 检查。布局签名和 Program key 包含 AO 物理 profile，不含 AO 数据版本、frameIndex 或 material generation。Dense、每条 Binned、overflow fallback 都绑定同一当前帧 AO 产品；中性关闭档无 AO 绑定。
-2. 在 `sparse_direct` 内把 `direct diffuse/specular`、PhysicalSun、sky diffuse、env specular/base coat/coat lobe、emissive 作为可辨内部语义项。`V = min(glTF materialAO, Xe scalar)` 是首版**本地**合成政策，保留 glTF occlusion strength；它只进入未含遮蔽的间接项。direct、Sun 和 emissive 的算式不乘 V。Material unlit 直接返回 emissive，AO 无意义。
+1. 增 `indirect-visibility` 语义角色，按 `AO off/scalar/directional` 编译有限 Surface packet layout。最宽 `sampledTextures=16` 不得变 17；buffer 后端增一个 read-only storage binding 后 `storageBuffers=16`，仍受设备 admission 检查。布局签名和 Program key 包含 AO 物理 profile，不含 AO 数据版本、frameIndex 或 material generation。implicit/uniform/mixed work 与 bounded full-rate exception 都绑定同一当前帧 AO 产品；中性关闭档无 AO 绑定。
+2. 在 `SurfaceLightingWorkPass` 的 packet producers 内把 `direct diffuse/specular`、PhysicalSun、sky diffuse、env specular/base coat/coat lobe、emissive 作为可辨内部语义项。`V = min(glTF materialAO, Xe scalar)` 是首版**本地**合成政策，保留 glTF occlusion strength；它只进入未含遮蔽的间接项。direct、Sun 和 emissive 的算式不乘 V。Material unlit 直接返回 emissive，AO 无意义。
 3. Standard 与 Coated 的环境漫反射使用合成 visibility；环境镜面维持 Filament cone/cap specular AO。Directional 档使用 Xe bent normal，经明确 view→world 变换后供反射方向/coat 方向计算；scalar 档说明用 shading/coat normal 的无 bent 近似。不要把 AO scalar 当成某盏光源阴影，也不要在 FSR3 前把整张 HDR 再乘一次。
-4. 保留 Sky/IBL 有效 generation、texture route、材质身份与 exception overflow 的既有守卫。AO 的 producer 独立于 Surface queue；Dense 在 AO 前不执行，Binned/fallback 不读上一帧 AO。`SurfaceMaterialPass.addToGraph` 对 AO ResourceId 注册 read；输出 HDR/motion writer 域不因 AO 增加第二 producer。
+4. 保留 Sky/IBL 有效 generation、texture route、材质身份与 exception overflow 的既有守卫。AO 的 producer 独立于 SurfaceWork queue；packet producer 只读本帧 AO，不读上一帧 AO。`SurfaceWorkRuntime.addToGraph` 对 AO ResourceId 注册 read；输出 HDR/motion writer 域不因 AO 增加第二 producer。
 5. 与后续 provider 固定接口：VSM 只影响 direct light visibility；SSSR 替代对应 env specular 时不能重复 AO；GI 明示 total/delta 和已遮蔽/未遮蔽；glTF AO 是材质微遮蔽输入而不是屏幕空间算法本身。
 
-**局部核对**：无 AO 时原 HDR 同参数等价；AO=0.5 时环境间接变、direct/Sun/emissive 不变；Coated base/coat 两层均按选定可见性处理；Dense/Binned/overflow 同材质输出不因路径而出现不同 AO 规则。Binding layout 在 16 sampled/16 storage 的 profile 下合法。
+**局部核对**：无 AO 时原 HDR 同参数等价；AO=0.5 时环境间接变、direct/Sun/emissive 不变；implicit/uniform/mixed/exception 同材质输出不因路径而出现不同 AO 规则。Binding layout 在 16 sampled/16 storage 的 profile 下合法。
 
 ## 10. C7：字段需求边界、旧路径切断与生命周期
 

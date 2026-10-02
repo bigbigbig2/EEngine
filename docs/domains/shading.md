@@ -7,9 +7,7 @@ owner: shading
 
 ## 当前源码事实
 
-当前复核提交为 `11d906ab`；文中旧的 `84e77c3d` 只表示此前一次结构核对，不代表当前源码版本。
-
-核对日期：2026-10-02；源码基线 `e4efc426` 加当前 Phase 3 工作树。本文描述当前实现，目标见[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，执行见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。结构主链与 publication miss evaluator 已切换，完整 AAA 数学、整帧 history、浏览器画质和性能仍未验收，本页不作性能通过声明。
+核对日期：2026-10-02；以当前工作树源码为准。本文描述当前实现，目标见[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，执行见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。结构主链、publication miss evaluator、生产 lighting provider 和双缓冲 history 已接线，完整 identity/footprint 语义、浏览器画质和性能仍未验收，本页不作性能通过声明。
 
 当前 Surface 生产链为唯一 V3 路径，仍在算法收敛阶段：
 
@@ -34,9 +32,9 @@ AppearanceGraphCompiler 已支持 typed dependencies、等价采样合并、常�
 
 FrameGeometryArena/Vertices 提供当帧共享 clips/triangles/attributes。`SurfaceGeometryPass` 通过 `winnerPrimitiveArenaConsumerWgsl` 和 `surfaceGeometrySourceReaderWgsl` 统一恢复 winner、ordinary source 属性、实例变换、几何/着色法线、切线、UV、导数、视向、深度、身份和 signature，并写入唯一 GeometryRecord。Appearance 与 lighting 只读该记录。
 
-`SurfaceLightingWorkPass` 现在按 GeometryRecord 和 fields 发布独立 diffuse/specular/coat/IBL packet，并使用 SurfaceWork sample record 的像素地址读取字段；当前仍是基础 GGX/Smith/Schlick 与能量分配计算。`SurfaceReconstructionPass` 只做 packet 映射、TemporalFacts 有效性判断、AO/reactive 传播和 pre-exposure 应用；真实跨帧 signal history、cluster/VSM/AO/IBL provider 资源仍待接入。
+`SurfaceLightingWorkPass` 现在按 GeometryRecord 和 fields 发布独立 diffuse/specular/coat/IBL packet，并使用 SurfaceWork sample record 的像素地址读取字段；direct lighting 复用生产 clustered BRDF、clearcoat 和 VSM 数学，环境 signal 消费 authored/physical IBL 与 packed AO。`SurfaceReconstructionPass` 做 packet 映射、TemporalFacts 有效性判断、基础 AO/emissive/energy 合成、pre-exposure 应用和双缓冲 signal history 交换；完整 history age/revision reject 仍待接入验收。
 
-SurfaceWork 的 packet/reconstruct owner 负责未来的 signal history 资源；当前实现尚未接入完整 history read/reject/age。TemporalFacts 独立发布 motion/identity/validity 基础产品，FSR3 读取其 motion/mask 与 Surface reactive；Surface 不另有 motion attachment。当前基础事实与最终 signal reactive 的完整合同仍待重构收敛。
+SurfaceWork 的 packet/reconstruct owner 管理 signal history 资源和 GPU completion 后交换。TemporalFacts 独立发布 motion/identity/validity 基础产品，FSR3 读取其 motion/mask 与 Surface reactive；Surface 不另有 motion attachment。当前基础事实与最终 signal age/revision/reactive 合同仍待重构收敛。
 
 ## 最终目标与现状差距
 
@@ -45,8 +43,8 @@ SurfaceWork 的 packet/reconstruct owner 负责未来的 signal history 资源�
 | implicit/uniform/mixed SurfaceWork，不全员 pixel task | 64-lane tile classifier 已发布三类覆盖、bounded sample/exception、indirect count 和 sample map；Product/形变输入与数值/性能验收仍待完成 |
 | 唯一 SurfaceGeometryRecord | 已由 `SurfaceGeometryPass` 生产；skin/morph、Product 跨 LOD/source/seam 对应仍有缺口 |
 | lookup 前置、仅 miss heavy work | lookup 已在 GeometryRecord 前注册，publication kernel 只消费 bounded miss；hit mask 尚未被 GeometryRecord 消费，sampler/UV/footprint key 仍不完整 |
-| 独立 diffuse/specular/coat/IBL work | 四类 packet 已独立资源和 counters；cluster、VSM、AO、physical/authored IBL provider 尚未接线 |
-| 廉价 reconstruct | 已不重新解码 Geometry Product 或执行材质图；真实 signal history reject/age 尚未完成 |
+| 独立 diffuse/specular/coat/IBL work | 四类 packet 已独立资源和 counters；cluster、VSM、AO、physical/authored IBL provider 已接入，正式数值/画质验收未完成 |
+| 廉价 reconstruct | 已不重新解码 Geometry Product 或执行材质图；双缓冲 history 已接入，完整 signal age/revision reject 尚未完成 |
 | FrameGraph 看到真实阶段 | lookup、GeometryRecord、miss evaluation、packet 和 reconstruct 均是独立 FrameGraph 节点 |
 | 原文完整生命周期和四版本验收 | 未通过；文档切换不提升状态 |
 

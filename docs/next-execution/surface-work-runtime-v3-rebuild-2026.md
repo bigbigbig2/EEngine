@@ -1,12 +1,12 @@
 # SurfaceWork Runtime V3 直接重构执行计划
 
-更新：2026-10-02。状态：Phase 0–3 的主链、publication miss evaluator 与真实 GeometryRecord/cache lookup 已接线；Phase 4–6 仍在算法收敛；Phase 7 的整帧 GPU/browser/画质/性能验收未完成。
+更新：2026-10-02。状态：Phase 0–6 的生产主链和生命周期接线已完成；Phase 7 的统一编译、数值、浏览器、画质和四版本性能验收尚未完成。
 
 唯一目标依据是用户指定的 [EEngine 第三版最终重构设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。该文件按原文纳入，本文只把其 §4–§11 转成工程执行顺序，不另设快路径优先、旧 Signal-Rate 回退或新的性能百分比门槛。整体保留边界见 [整体架构](../next-design/eengine-next-overall-architecture-final-2026.md)，当前切片见 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。
 
 ## 1. 当前事实与三个必改点
 
-源码核对基线为 `677e29c5`（历史切断基线仍为 `e7296be9`）。旧 SurfaceMaterialPass/Probe/sample producer 已从生产链删除；当前 FrameProgramLowering 实际连接的是 Visibility/TemporalFacts → SurfaceWorkRuntime（classify、publication lookup、GeometryRecord、publication miss evaluation、独立 packet、reconstruct）→ Sky/Aerial/FSR3/显示。完整 cluster/VSM/AO/IBL provider 与 history 仍未完成。
+源码核对基线为当前工作树（历史切断基线仍为 `e7296be9`）。旧 SurfaceMaterialPass/Probe/sample producer 已从生产链删除；当前 FrameProgramLowering 实际连接的是 Visibility/TemporalFacts → SurfaceWorkRuntime（classify、publication lookup、GeometryRecord、publication miss evaluation、cluster/VSM/AO/IBL 输入、独立 packet、双缓冲 history reconstruct）→ Sky/Aerial/FSR3/显示。GeometryRecord hit 绕过、完整 identity/footprint 语义和 Phase 7 验收仍未完成。
 
 当前源码已切断全有效像素 Appearance demand、独立 geometry inputs 和旧 SparseLighting prepare_surface；SurfaceWork 已注册 tile/sample lookup、implicit/uniform/mixed classify、bounded sample/exception、唯一 GeometryRecord、真实 publication miss evaluation、独立 packet、生产 clustered/VSM/AO/IBL provider 和 history reconstruct 的生产边。GeometryRecord 尚未消费 hit mask，sampler/UV/filtered footprint key、完整 identity reject、局部例外计数和性能闭环仍未完成，不能据此宣称最终算法或性能已经完成。
 
@@ -88,15 +88,15 @@ DiffuseLightingWork、SpecularLightingWork、CoatLightingWork 使用 GeometryRec
 
 ### Phase 6：全链与生命周期（生产接线完成，统一验收待做）
 
-SurfaceWorkRuntime 已纳入 RendererCore 的 prepare/commit/abort/destroy；reconstruct 读取唯一 TemporalFacts reactive mask，history 在 GPU completion 后交换，resize 进入 retire 队列，仍沿用 FrameCoordinator 的单一 submit 与最多两个 in-flight 背压。Environment/VSM/AO 的 FrameGraph 依赖已显式注册；完整 identity/version/revision reject、camera cut/device recovery 和故障矩阵仍待 Phase 7，未运行编译、测试或 GPU/browser 验证。
+SurfaceWorkRuntime 已纳入 RendererCore 的 prepare/commit/abort/destroy；reconstruct 读取唯一 TemporalFacts reactive mask，history 在 GPU completion 后交换，resize 进入 retire 队列，仍沿用 FrameCoordinator 的单一 submit 与最多两个 in-flight 背压。Environment/VSM/AO 的 FrameGraph 依赖已显式注册；完整 identity/version/revision reject、camera cut/device recovery 和故障矩阵仍待 Phase 7。
 
 资源分类沿用原文 §7：publication、frame persistent、frame transient、output/history 各有 owner/accounting/retire point。创建前协商 buffer、workgroup、dispatch、binding、texture/storage limits；pipeline/bind group/sampler 在 publication/profile 阶段缓存，不按材质实例或纹理组合建立独立 PSO。
 
 Overflow 不发布不完整 work，记录 diagnostic/counter，由当前 tile/signal 的最终 bounded full-rate 分支完整覆盖；不交给旧 queue，不通过第二次 CPU 控制 submit 修补。
 
-### Phase 7：集中验证与残留清理（尚未开始）
+### Phase 7：集中验证与残留清理（验证进行中，尚未通过）
 
-历史基线曾执行过 `npm run typecheck`、`npm run build`、`npm run build:test` 和 `npm run audit:shaders`，但之后的 SurfaceWork compaction 与 publication evaluator 已改变生产代码，历史结果不能作为当前版本证据。旧 `appearance-publication` 合同测试仍按已删除的 coverage/task ABI 失败，不能作为新 ABI 的通过证据。当前 revision 尚未重新执行 typecheck、build、shader validation、GPU oracle、浏览器、连续画质、生命周期故障矩阵和四版本同条件性能；这些统一留到 Phase 7。
+当前 revision 已重新通过 `npm run typecheck`、`npm run build`、`npm run build:test` 和 `npm run audit:shaders`。完整 `npm test` 暴露了多组既有资源/GPU 合同失败并在长时间无输出后中止；`verify --full` 修正 Phase 0 profile schema 后进入浏览器/性能阶段，但同样长时间无输出后中止。GPU oracle、浏览器矩阵、连续画质、生命周期故障矩阵和四版本同条件性能仍没有可接受的正式证据；不得把编译通过提升为 Phase 7 完成。
 
 后续 SSSR、GI、VT、Transparency/Media 保持独立模块；不能用它们未完成推迟本次 Surface 专项验收，也不能将其完整效果宣称为 Surface 已实现成果。
 

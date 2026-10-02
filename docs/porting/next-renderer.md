@@ -10,7 +10,7 @@
 
 ## 2026-10-02：SurfaceWork V3 ABI 与 GeometryRecord 本地接线
 
-`GpuSurfaceWorkAbi.ts` 的固定前缀、分区布局、容量校验和 `SurfaceWorkRuntime`/`SurfaceGeometryPass` 的 FrameGraph 绑定属于本地 ABI、资源生命周期与 WebGPU 接线，不声称来自外部 donor。唯一几何数学继续复用本账本已固定的 `HomogeneousWinnerInterpolation` profile：`WinnerPrimitiveInterpolation` 负责 dictionary/coefficient/arena producer，`SurfaceGeometryPass` 只通过 arena consumer 读取并发布 GeometryRecord。当前阶段只完成结构与真实 GPU producer 接线；材质 miss、属性解码、lighting packets、数值 oracle、整帧画质和性能 adoption 仍未完成。
+`GpuSurfaceWorkAbi.ts` 的固定前缀、分区布局、容量校验和 `SurfaceWorkRuntime`/`SurfaceGeometryPass` 的 FrameGraph 绑定属于本地 ABI、资源生命周期与 WebGPU 接线，不声称来自外部 donor。唯一几何数学继续复用本账本已固定的 `HomogeneousWinnerInterpolation` profile：`WinnerPrimitiveInterpolation` 负责 dictionary/coefficient/arena producer，`SurfaceGeometryPass` 只通过 arena consumer 读取并发布 GeometryRecord。当前已接通 publication miss evaluator、属性解码、cluster/VSM/AO/authored+physical IBL、分信号 lighting packets、双缓冲 history 和真实 FrameGraph 边；这属于本地实现接线，不提升任何上游 adoption 或最终性能/画质 claim。GeometryRecord hit 绕过、完整 sampler/UV/filtered-footprint identity、Product/形变、signal age/revision reject、数值 oracle、整帧画质和性能 adoption 仍未完成。
 
 ## 2026-09-29：Virtual Geometry 正确性修复
 
@@ -715,11 +715,11 @@ The local page-table ABI now allocates 32 bytes per entry across disjoint mip pl
 | --- | --- | --- |
 | CPS surface/depth/normal 判定；VRCS tile primary/duplicate 和 cluster 局部性 | `SurfaceWorkRuntime.ts` 的 classify 与 `SurfaceLightingWorkPass.ts` 的 packet 分类；真实 winner/属性/实例输入由 `SurfaceGeometryPass.ts` 提供 | 具名本地 **ClusterLocalSignalPackets**，不是完整 CPS/VRCS 移植。没有找到涵盖本地 VisibilityKey、Product、材质编译、Temporal 和 WebGPU dispatch 全链的单一 donor；误差容限仍待连续画质校准 |
 | VRCS compact lists 与完整输出覆盖；CPS full/零灯分支 | `SurfaceLightingWorkPass.ts` 的 bounded packet buffers、counter/indirect 边界与 `SurfaceReconstructionPass.ts` 的输出映射；当前代码保留唯一新程序边界，完整历史选择仍待接入 | 固定 pixel capacity 是准确上界；无本帧 CPU work control，无跨 workgroup 自旋，无旧 full-rate worker。所有必要 direct/IBL 消费仍须在唯一新程序内完成 |
-| Filament BRDF/DFG/irradiance 数学与现有完整 provider 产品 | `SurfaceLightingWorkPass.ts` 当前只提供基础本地 BRDF/环境项；真实 light lists、directional VSM、physical-sky/authored IBL、AO provider 尚未全部接入 | 不以固定光/固定视角替代 provider。当前 VSM profile 仍只有 directional；point/spot 阴影和未发布 GI/reflection provider 不宣称完成。真实 authored 环境接线仍待完成 |
-| 已有 TemporalFabric 的唯一历史 authority；本地有界年龄决策 | `SurfaceReconstructionPass.ts` 当前读取 TemporalFacts mask；完整 identity、相关 signal revision、位置/法线/视向、shadow content revision 和 age reject 尚未接入 | guide/signature/signals 的最终物理资源由 SurfaceWork packet/reconstruct owner 管理；TemporalFabric 管角色、有效性与 cut。当前 signal history read/reject/age 尚未接入，未预曝光 HDR 信号的完整布局和显示工作空间仍待验收 |
+| Filament BRDF/DFG/irradiance 数学与现有完整 provider 产品 | `SurfaceLightingWorkPass.ts` 消费 `LightClusterFrame`、`ShadowVisibilityFrame`、XeGTAO packed visibility 和 authored/physical IBL；复用生产 clustered BRDF、clearcoat 和 VSM 分支 | 具名本地 **ClusterLocalSignalPackets**，不是完整 CPS/VRCS 移植。point/spot 阴影、GI/reflection provider 和连续画质仍按后续模块/Phase 7 验收；不宣称上游移植或性能完成 |
+| 已有 TemporalFabric 的唯一历史 authority；本地有界年龄决策 | `SurfaceReconstructionPass.ts` 已读取 TemporalFacts mask、pre-exposure 和双缓冲 signal history；GPU completion 后由 SurfaceWork owner 交换资源 | guide/signature/signals 的完整物理资源和 identity/version/revision/age reject 仍待接入与验收；TemporalFabric 管角色、有效性与 cut，不产生第二套 motion |
 | 本地 ABI/编译器集成，不新增复杂 donor | `SurfaceMaterialCachePass.ts`、`GpuAppearancePublication.encodeSurfaceMissEvaluation` 与 `SurfaceGeometryPass.ts` 共同承载 bounded miss、真实属性和材质字段发布；旧 `appearance_geometry_inputs.ts` 名称只保留为历史来源阶段 | 未恢复 Probe/旧 Setup；shared/frame/source 三者使用相同数学。输出逻辑字段与版本不变，物理字段打包为六 RGBA 层。坐标采样、容量 miss 和 mixed ordinary/Product 当前只完成代码写入 |
 
-状态为**实现返工中、未采用验证**。本轮尚未运行新的编译、数值、覆盖、生命周期、浏览器、连续画质或两覆盖率性能验证；先前诊断结果不证明本轮代码。signal 历史与 guide 的物理字节、字段发布、分类和 miss 全成本都须纳入最终比较，不能用 primary 数量下降代替净收益。resident 属性、实际形变、稳定 source/LOD/seam 地址以及剩余 provider 仍不标完成。
+状态为**实现接线完成、集中验收未通过**。本轮已运行 typecheck/build/build:test/shader audit；旧 publication/lowering fixture 与新 ABI 不一致的失败已记录，不能通过恢复旧实现消除。尚未完成数值 oracle、覆盖/生命周期、浏览器、连续画质或四版本性能验证；signal 历史与 guide 的物理字节、字段发布、分类和 miss 全成本都须纳入最终比较，不能用 primary 数量下降代替净收益。resident 属性、实际形变、稳定 source/LOD/seam 地址、命中 geometry 绕过和完整 signal reject 仍不标完成。
 
 ### 同轮新增本地集成事实（尚未验证）
 
