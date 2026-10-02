@@ -1,5 +1,27 @@
 # EEngine Next：开源迁移来源与采用边界
 
+## 2026-10-03：Surface V3 第一版优化设计映射（待实施）
+
+执行更新：用户已要求逐 Phase 完整实现、检查、每阶段一次提交。Phase 0 已完成身份冻结、资源删除/依赖清单和独立容量政策检查，详见[Phase 0 清单](../next-execution/surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)；尚未实施/验证下表复杂算法，采用状态不变。以下“本次只形成设计”指此前设计编写阶段。
+
+对应[第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)与[执行文档](../next-execution/surface-work-v3-optimization-v1-execution-2026-10.md)。本次只形成设计，不修改生产源码、不运行测试、不提升任何 adoption 或性能 claim。下文历史主链名称和验证记录不能当作本方案已接入。
+
+沿用本账本固定的 Forge `cd5046893faba2dc7869243873bf01f02a6f0df9` / Apache-2.0、Wicked `df44c3db4c4927492bc9c791eac715d98d7ed091` / MIT、Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887` / shader Apache-2.0、OSS `473a59bbcdd30e3366cc567d66a5a97353620d48` / Apache-2.0，以及 DOOM GPC2025 PDF（SHA256 `e5fe7cf223006bf95089eb2890c878a47aecccd612eb9e5398c1fe43273d0fad`）。固定 URL、许可和源文件详见下文“选定来源到本地阶段的映射”及 10-01 `DependencySamplePages` 条目。早期“仅审部分 OSS”的范围与 10-01 追加源文件映射是不同时间记录，本轮不宣称重新审完上游全仓。
+
+具名本地方案为 **Continuity-Domain Signal Sampling（连续表面域分信号采样）**，配合稳定 FieldStore、有界 SignalStore 和固定 batch 工作区。检索范围包含上述完整 shader/已列 host 源阶段、DACS/OSS 与对象空间着色、Decoupled Sampling、Visibility Buffer、DAIS 和 DOOM 技术说明；没有完整覆盖本地连续域、前置字段缓存、变率照明、LOD publication 与 WebGPU 生命周期的单一 donor。DACS 许可未明确的源码不复制，DOOM 演讲没有完整可复制源码许可。
+
+| 固定源阶段与入口 | 输入 → 本地拟实施产物 → consumer | 保留条件、本地扩展与失败分支 |
+|---|---|---|
+| Forge `VisibilityBufferShadingUtilities.h.fsl::CalcFullBary/Interpolate2DWithDeriv`，既有 HomogeneousWinnerInterpolation 数学 | clip/属性与合法 winner → FrameGeometry primitive setup + SurfaceGeometry address/hot/cold → Appearance/Lighting | 透视/梯度、近裁剪、退化与合法 footprint；不新建第二几何 producer。setup 容量不足由同一 owner 直接计算；不是完整 DAIS/Forge port |
+| Wicked `visibility_resolveCS.hlsl::main`、`visibility_shadeCS.hlsl::main` | coverage/profile → SurfaceWork tile masks、compact/indirect → 有界字段/信号 workers | 保留空背景、合法 lane、完整覆盖；去掉相同 primitive 才可共享的本地门槛。上游仍逐像素 Surface，跨 primitive/field rate 是本地设计 |
+| Intel `ComputeShaderTile.hlsl::ComputeSurfaceDataFromGBufferAllSamplesCPS/RequiresPerPixelShading/ComputeShaderTileCS` | depth/normal/light-list 风险 → 局部 signal coarse/fine → 完整 lighting 输出 | 保留边界拒绝、零灯覆盖和补做语义；本地不用已生成 GBuffer 冒充免费前置输入，不直接复制阈值。未知风险只细化关联信号 |
+| DOOM PDF 11–15、23–25、27–38、55–58 页 | rate/primaries/coverage → cell templates/remap → immutable packet reconstruct | 位置/边缘/去块问题保留；surfaceID 属未来构想。连续域/字段误差/LOD 为本地算法；不复制第35页同UAV读写race |
+| OSS `ObjectSpaceShading/Assets/Shaders/Resources/ShadelMemoryProcessing.compute`、`RenderTaskProcessing.compute`、`VirtualRenderTexture.cginc`、`ShadelAllocator.cginc`；host `ObjectSpaceShadingPipeline.cs`（具体相对目录沿用10-01条目） | chart/footprint 与需求 → FieldStore lookup/dedup/admit/evaluate/publish → 命中或本批 transient | 保留有界容量、有效内容/版本、单producer与完整miss覆盖；本地 canonical-cell anchor/误差有效域是近似重采样，替换历史 exact-input 物理选择，不声称 donor Htex/GI/RT 完整移植 |
+| 现有 Filament BRDF/DFG 与 production atmosphere/environment 数学，沿用原 pins | 字段/几何/provider → Ddirect/Denv/Sdirect/Senv/coat/E → 稀疏 SignalStore/reconstruct | 原能量、太阳透射、clearcoat、spec env不缩减；分离条件不成立的BRDF部分保留worker残差/细率。signal存储与跨视角有效域为本地设计 |
+| 本地 Cooker `BuildSourceSurfaceDomains`、GeometryCooker metadata publication | 源连通、seams、LOD lineage、纹理局部 bounds → 分离域/字段风险 → Work classifier/FieldStore | 替换完整顶点相等和any-risk→domain0约束；不能以同材质跨不连通表面。复杂误差传播需独立数值与生产消费验证，不归类为简单ABI胶水 |
+
+资源分批、indirect参数发布、ref编解码与生命周期绑定是本地集成；域构建、footprint近似、字段误差传播、信号history和边界重建仍是复杂算法。实施前补齐实际采用源分支与本地产物映射，整链完成后统一运行数值/覆盖/生命周期/浏览器/画质/性能验收。没有完成这些步骤之前保持设计或未采用状态，不引用上游耗时预测 GTX1650Ti 收益。
+
 初始调查日期：2026-09-25；Module A/B 追加核对：2026-09-27。当前采用边界对应 [ADR-0020](../adr/0020-clean-cut-renderer.md) 和 [单路径重建路线](../next-execution/eengine-next-architecture-layer-plan-2026.md)。这是影响当前选型的来源账本，不是已移植清单；表中的模块是目标 owner，不表示迁移顺序。
 
 本轮通过 GitHub 固定 revision 的目录、许可证原文和下列标明的实现文件进行核查；未构建这些上游工程，未跑其 benchmark，也未证明移植后的 WebGPU 性能。**固定 commit 是复现调查的版本，不是自动引入依赖或升级现有来源的指令。** 本地已有 port 继续以 [geometry](./geometry.md)、[visibility](./visibility.md)、[shading](./shading.md)、[platform](./platform.md) 的既有 revision 为准。

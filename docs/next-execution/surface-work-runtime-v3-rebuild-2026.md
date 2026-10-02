@@ -1,5 +1,7 @@
 # SurfaceWork Runtime V3 直接重构执行计划
 
+> 2026-10-03 后续计划：新增[第一版优化执行文档](surface-work-v3-optimization-v1-execution-2026-10.md)，对应[优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)。后续重构按该细化计划替换初版物理方案；本页保留原阶段记录。用户已要求逐 Phase 完整实施、检查并每阶段一次提交，新计划进度以该执行文档为准。
+
 更新：2026-10-02。状态：Phase 0–6 的生产主链和生命周期接线已完成；Phase 7 的统一编译、数值、浏览器、画质和四版本性能验收尚未开始。
 
 唯一目标依据是用户指定的 [EEngine 第三版最终重构设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。该文件按原文纳入，本文只把其 §4–§11 转成工程执行顺序，不另设快路径优先、旧 Signal-Rate 回退或新的性能百分比门槛。整体保留边界见 [整体架构](../next-design/eengine-next-overall-architecture-final-2026.md)，当前切片见 [workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)。

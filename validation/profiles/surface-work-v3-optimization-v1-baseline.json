@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "id": "surface-work-v3-optimization-v1-baseline",
+  "status": "identity-frozen-no-new-sampling",
+  "revision": "0676cf28478bc2f4b96af7138f45ef33f1216a3f",
+  "asset": {
+    "path": "examples/assets/three/rendering-lab/dungeon_warkarma.glb",
+    "sha256": "cac0fc8c16d107e7ac4e69efde89c2cb6ef4bc66c34456a4dd0923218e5aafb1"
+  },
+  "existingReport": "docs/performance/2026-10-03-surface-v3-work-bandwidth-report.md",
+  "adapter": "NVIDIA GeForce GTX 1650 Ti 4GB",
+  "browser": "Chrome 154.0.8037.92 headed",
+  "internalResolution": [1920, 1080],
+  "outputResolution": [1920, 1080],
+  "deviceScaleFactor": 1,
+  "renderScale": 1,
+  "fixedExposure": 4,
+  "features": {
+    "xeGTAO": true, "fsr3": true, "bloom": true, "hzb": true,
+    "coneVisibility": true, "physicalEnvironment": true,
+    "vsm": false, "temporalJitter": false, "sseThreshold": 4
+  },
+  "coverage": { "lowDistanceScale": 0.885, "highDistanceScale": 0.05 },
+  "trajectory": {
+    "warmupFrames": 60, "warmupTrajectory": true,
+    "framesPerCapture": 120, "staticFrames": 40, "movingFrames": 40, "recoveredFrames": 40,
+    "horizontalAngle": "0.05 * sin(pi*t)", "stepBySuccessfulSubmittedFrame": true,
+    "waitForGeometryResidencyBeforeCapture": true
+  },
+  "measurement": {
+    "timingAndDetailedAreSeparateCaptures": true,
+    "percentiles": [50, 95], "timestampQuery": "required",
+    "logicalBytesUnit": "MB-decimal-not-DRAM",
+    "resourceCapacityUnit": "MiB-binary",
+    "sumOfStagePercentilesIsNotFramePercentile": true,
+    "detailedCountersDoNotControlCurrentFrameWork": true
+  },
+  "fullFeatureAcceptance": {
+    "vsm": true, "temporalJitter": "record-final-profile",
+    "requiresVsmInitializationRepair": true,
+    "comparableWithExistingReport": false
+  },
+  "historicalRevisions": {
+    "fullResolution": "89f0a9412a0740ae67b0062b4337b8785f85400c",
+    "signalRateIntermediate": "15f12f7b7a1735078eff968382ce4391efb371e8",
+    "v3Cutover": "e7296be9cebbc3bcc1b6b738d682c928548d72d5"
+  },
+  "historicalComparisonPolicy": "independent-checkouts-in-phase7-no-production-AB-switch",
+  "capacityPolicy": {
+    "source": "OEngine/src/gpu/SurfaceOptimizationCapacity.ts",
+    "defaultBatchTargetCapacity": 262144,
+    "defaultBatchTileCapacity": 4096,
+    "default1080pBatchCount": 8,
+    "plannedReservedMiB": 412,
+    "surfaceEnvelopeMiB": 512,
+    "headroomMiB": 100,
+    "countsUsePaddedTileTargetsForNPOT": true,
+    "physicalBindingsUseNegotiatedDeviceLimits": true,
+    "activeGpuCountsAreNotCpuAllocationInput": true
+  },
+  "validationStatus": {
+    "assetFingerprintRechecked": true,
+    "revisionsResolved": true,
+    "capacityContractTests": "5 passed",
+    "capacityStandaloneStrictTypecheck": "passed",
+    "rendererAdoption": false,
+    "newBrowserOrGpuSampling": false
+  }
+}
