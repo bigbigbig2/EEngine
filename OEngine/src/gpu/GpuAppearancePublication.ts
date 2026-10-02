@@ -27,6 +27,10 @@ const APPEARANCE_FRAME_MAX_PIXELS = 4194304;
 const APPEARANCE_FRAME_MAX_INPUT_VECTORS = 96;
 const APPEARANCE_FRAME_MAX_OUTPUTS = 64;
 const APPEARANCE_CACHE_STAGES = ["cache_reset", "cache_request", "cache_nominate", "cache_publish", "cache_consume"] as const;
+// The legacy dependency-field cache kernel binds eleven storage buffers. GTX
+// 1650-class WebGPU profiles commonly expose fewer; Surface V3's publication
+// cache remains the authoritative cache on those devices.
+const APPEARANCE_CACHE_STORAGE_BUFFER_COUNT = 11;
 
 const SURFACE_SETTINGS_WGSL = `
 struct SurfaceSettings {
@@ -503,7 +507,9 @@ export class GpuAppearancePublication {
           assets.set(read.asset.runtime.manifest.assetId, read.asset);
           return binding;
         });
-        const cachePlan = appearanceCachePlan(source.program, appearanceInputLayout(source.program).vectors, 64);
+        const compiledCachePlan = appearanceCachePlan(source.program, appearanceInputLayout(source.program).vectors, 64);
+        const cachePlan = Number(device.limits.maxStorageBuffersPerShaderStage) >= APPEARANCE_CACHE_STORAGE_BUFFER_COUNT
+          ? compiledCachePlan : disableAppearanceCachePlan(compiledCachePlan);
         const hasCachedFields = cachePlan.fields.some(field => field.cells > 0);
         const candidate = appearanceResidentKernel(source.program, resources, productResources,
           hasCachedFields ? appearanceCacheIntegration(cachePlan) : undefined);
@@ -1126,6 +1132,14 @@ export class GpuAppearancePublication {
     command.writeBuffer(buffer, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
     return buffer;
   }
+}
+
+function disableAppearanceCachePlan(plan: AppearanceCachePlan): AppearanceCachePlan {
+  return Object.freeze({
+    ...plan,
+    fields: Object.freeze(plan.fields.map(field => Object.freeze({ ...field, base: 0, cells: 0 }))),
+    words: 4
+  });
 }
 
 function packProductRoute(asset: AppearanceAssetPackage, layer: number): ArrayBuffer {
