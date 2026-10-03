@@ -31,6 +31,7 @@ export interface SurfaceSignalRevisions {
   readonly environment: number;
   readonly light: number;
   readonly shadow: number;
+  readonly ao?: number;
 }
 
 export interface SurfaceWorkProducts extends SurfaceGeometryProducts, SurfaceMaterialProducts {

@@ -17,6 +17,10 @@
 
 因此当前真正完成的是 **Phase 0–1，Phase 2–4 已完成对应代码切换但尚未完成正式生产验收**。Phase 3 的完整跨帧 FieldStore value 消费、Phase 4 的 HDR precision spill，以及 Phase 5 的 Surface history 删除仍是后续收敛项。
 
+## Phase 4 收口与 Phase 5 入口
+
+Phase 4 已完成六类独立 signal、紧凑 packet、lighting 前 SignalStore probe、lighting 后 miss-only pack/publish、20-word entry、HDR precision spill 与 age/confidence 更新；正式整链验收留到 Phase 7。当前进入 Phase 5，删除 Surface dense history/identity/age，并以 TemporalFacts、稀疏 packet 和按 extent/profile 的固定 batch 完成 reconstruct。
+
 ## Phase 2 当前事实
 
 已经完成的组件工作包括：

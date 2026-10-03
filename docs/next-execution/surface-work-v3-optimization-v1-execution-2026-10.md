@@ -161,6 +161,8 @@ Phase 2 的 plan ABI、CPU/GPU synthetic oracle、Geometry setup 和 production 
 
 ## 8. Phase 4：拆分信号率、紧凑 packet 和稀疏 history
 
+收口状态（2026-10-03）：Phase 4 代码实现已完成；正式 WGSL、数值、GPU、浏览器和整链验收统一延期到 Phase 7。Phase 5 负责删除 Surface 自有 history/identity/age 并建立批处理 reconstruct。
+
 当前源码状态（2026-10-03）：Phase 4 核心生产接线已完成。`SurfaceLightingWorkPass` 已将 direct diffuse、environment diffuse、direct specular、environment specular、coat direct、coat environment 作为六个独立 signal family，使用按 record 的紧凑半精度 packet；四路全屏 lighting packet plane 与 dense signal witness 已从该主链移除。`GpuSurfaceSignalStore` 负责有界 64 MiB resident store，lighting classify 在重 worker 前直接 probe，lighting 后通过独立 pack/publish 节点发布，`SurfaceReconstructionPass` 读取六类 packet 并只做合成。SignalStore 的 key、generation、valid flag、结果 payload 和 publish/reset ABI 已接通；Phase 4 的正式 WGSL/数值、HDR precision spill、历史资源删除和整链验收仍需后续集中处理，其中四路 Surface history 与 identity/age 的最终删除属于 Phase 5。
 
 1. 将当前 IBL 拆成 Denv、Senv、E；direct diffuse/specular 与 coat direct/env 分开依赖和需求。
@@ -175,6 +177,8 @@ Phase 2 的 plan ABI、CPU/GPU synthetic oracle、Geometry setup 和 production 
 历史读写不在同一dispatch互相竞态。重复cell每submitted frame只推进一次age；跨批cache消费和驱逐按有序发布/pin处理。正常miss必须在当前帧产出结果，不能等FSR3填洞。
 
 ## 9. Phase 5：廉价 reconstruct 与完整 batch 复用
+
+当前状态（2026-10-03）：已进入实现。
 
 - Reconstruct按本批output region写入；规则cell用模板，mixed用紧凑映射。
 - 同domain/字段seam/side内选择合法source；默认单tap，必要插值至多4 tap/信号，按真实tap统计读取。

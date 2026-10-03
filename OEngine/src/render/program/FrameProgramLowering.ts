@@ -414,7 +414,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     revisions: bind("surface-signal-revisions", bindings => ({
       environment: bindings.lightingEnvironmentRevision,
       light: bindings.lightingLightRevision,
-      shadow: bindings.vsmGeneration.generation
+      shadow: bindings.vsmGeneration.generation,
+      ao: scalarAo === undefined ? 0 : 1
     })),
     viewRevision: bind("surface-view-revision", bindings => ({ value: bindings.cameraRevision })),
     nonlocalRevision: bind("surface-nonlocal-revision", bindings => ({ value: bindings.sceneRevision })),

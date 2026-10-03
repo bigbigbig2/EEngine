@@ -67,7 +67,9 @@ architectureRules:
   - Do not introduce current-frame GPU-to-CPU-to-GPU visible/work control, private submits or one universal physical queue.
   - Cache pipelines, bind groups and samplers by publication/profile; do not create a PSO for each material instance or texture combination.
   - Follow the latest user instruction: finish and check each full optimization Phase, make one Chinese commit, then proceed; frame-wide browser/quality/performance acceptance remains in Phase 7.
-  - Pinned complex algorithms preserve source stages, branches and invariants; documentation alignment does not promote adoption or claims.
+    - Pinned complex algorithms preserve source stages, branches and invariants; documentation alignment does not promote adoption or claims.
+    - Phase 4 code is closed and committed; Phase 7 remains the formal GPU/browser/quality acceptance gate.
+    - Phase 5 is active: Surface reconstruction consumes packet/TemporalFacts only and uses extent/profile bounded batches with GPU indirect counts.
 
 deferredValidation:
   policy: >-
