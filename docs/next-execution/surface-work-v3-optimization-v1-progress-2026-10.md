@@ -12,10 +12,16 @@
 | Phase 3：FieldStore 与 demand Geometry | 核心代码已切换，正式验收延期 | 当前工作树；`build:test` 与 `git diff --check` 通过 | 已加入首帧初始化、lookup 前置 gate、compact field buffer、评估后 publish/admit；旧六层全屏 fields 与 pixel-capacity 分配已删除，仍保留 19-word compact identity 元数据和 4-word admission 摘要 |
 | Phase 4：SignalStore、紧凑 packet、稀疏 history | 代码收口完成，正式验收延期 | `b882cc5a`；`git diff --check` 与静态 ABI/WGSL 检索通过 | 六类独立 signal family、按 record 紧凑 packet、lighting 前 SignalStore probe、lighting 后 miss-only pack/publish 已接入；20-word entry、HDR precision spill、age/confidence 与四路 packet plane/dense signal witness 删除已完成。正式整链验收统一留到 Phase 7 |
 | Phase 5：reconstruct/batch | 代码收口完成，正式验收延期 | 当前工作树；`git diff --check`、导航解析和旧 history 静态检索通过 | 已删除四路 Surface history、dense identity/age 与历史交换；reconstruct 只消费 packet/precision packet、TemporalFacts 和 sample map；batch 上限按 extent/profile 推导，GPU 生成每批 indirect count，尾批按 output region 有界写入 |
-| Phase 6：真实 provider/lifecycle | 未开始 | 无 | 不能把现有历史生命周期接线算作本轮目标完成 |
+| Phase 6：真实 provider/lifecycle | 代码收口完成，正式验收延期 | 本次工作树；`git diff --check` 与静态依赖检索 | 容量预检、Surface 512 MiB ledger、Field/Signal publication generation + submitted epoch、VSM 初始化顺序和真实 FrameGraph provider 依赖已接通；浏览器、GPU、画质与性能统一留到 Phase 7 |
 | Phase 7：整链验收 | 未开始 | 无 | 没有正式 browser matrix、画质对照或四版本性能比较 |
 
 因此当前真正完成的是 **Phase 0–1，Phase 2–5 已完成对应代码切换但尚未完成正式生产验收**。Phase 3 的完整跨帧 FieldStore value 消费、Phase 4/5 的正式 GPU、浏览器与连续画质验收统一留到 Phase 7。
+
+## Phase 6 收口
+
+本阶段已完成固定预算与生命周期接线：`SurfaceOptimizationCapacity` 在 Surface extent 资源创建前执行 negotiated-limit/profile preflight，并输出 payload、metadata、queues、alignment、scratch、persistent、history、retired overlap 和 Surface envelope 账本；共享 Visibility、TemporalFacts、材质纹理、VSM、FSR3 等仍单列在全引擎 memory evidence。FieldStore 与 SignalStore 按 publication generation 推进 cache generation，在每次单一 frame submit 登记 submitted epoch，并在 `gpuDone` resolve/reject 后退休。VSM 的 `VsmAtlasRasterPass` 现在只在 `GraphicsContext` 初始化完成后构造，receiver demand、page allocation、caster raster 和 content commit 继续通过同一 FrameGraph 声明依赖真实资源。
+
+本阶段未运行 typecheck、build、targeted tests、GPU oracle、browser 或 benchmark；SurfaceWork V3 规则将这些集中到 Phase 7。当前提交只证明代码接线和静态边界，不提升整链画质、性能或来源 adoption 声明。
 
 ## Phase 4 收口与 Phase 5 完成
 

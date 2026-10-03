@@ -18,6 +18,7 @@ import { XeGtaoMainPass } from "../ao/XeGtaoMainPass.js";
 import { XeGtaoDenoisePass } from "../ao/XeGtaoDenoisePass.js";
 import { SurfacePresentPass } from "../surface/SurfacePresentPass.js";
 import { SurfaceWorkRuntime } from "../surface/SurfaceWorkRuntime.js";
+import { planSurfaceOptimizationCapacity, SURFACE_OPTIMIZATION_ENVELOPE_BYTES } from "../../gpu/SurfaceOptimizationCapacity.js";
 import { LightClusterPass } from "../passes/LightClusterPass.js";
 import { PhysicalSkyPass } from "../passes/PhysicalSkyPass.js";
 import { AerialPerspectivePass } from "../passes/AerialPerspectivePass.js";
@@ -1179,16 +1180,6 @@ export class Renderer {
       }),
       record: captureWebGpuCapabilityRecord(gpu, device, adapter)
     });
-    // E2 freezes the device-epoch profile and owns persistent resources. E4/E5
-    // publish demand and residency work through the same Frame Program submit.
-    if (config.enableVsm !== false) {
-      this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
-      this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
-      this._vsmAllocatePages = new VsmAllocatePagesPass(device);
-      this._vsmCasterRecords = new VsmCasterRecordPass(device);
-      this._vsmAtlasRaster = new VsmAtlasRasterPass(this._graphics);
-      this._vsmInvalidation = new VsmInvalidationPass();
-    }
     device.lost.then(info => {
       if (!this._destroyed) {
         this._deviceLost = true;
@@ -1201,6 +1192,24 @@ export class Renderer {
       config.geometryResidency, config.textureBankMaxCapacities
     );
     await this._graphics.initialize();
+    const canvas = context.canvas as HTMLCanvasElement;
+    this._width = Math.max(1, canvas.clientWidth || canvas.width);
+    this._height = Math.max(1, canvas.clientHeight || canvas.height);
+    // Reject an unsupported initial extent before VSM, Surface pipelines, or
+    // extent-dependent stores are created. Resize repeats this preflight.
+    planSurfaceOptimizationCapacity(this._width, this._height, device.limits);
+    // E2 freezes the device-epoch profile and owns persistent resources. E4/E5
+    // publish demand and residency work through the same Frame Program submit.
+    // The raster pass needs the initialized GraphicsContext; constructing it
+    // earlier would dereference an undefined device owner.
+    if (config.enableVsm !== false) {
+      this._vsm = VsmResources.create(device, negotiateVsmCapabilities(device));
+      this._vsmReceiverDemand = new VsmReceiverDemandPass(device);
+      this._vsmAllocatePages = new VsmAllocatePagesPass(device);
+      this._vsmCasterRecords = new VsmCasterRecordPass(device);
+      this._vsmAtlasRaster = new VsmAtlasRasterPass(this._graphics);
+      this._vsmInvalidation = new VsmInvalidationPass();
+    }
     this._frameCoordinator = new FrameCoordinator(this._graphics);
     this._environments = new GPUSceneEnvironmentManager(this._graphics);
     this._cameraStates = new GPUCameraStateManager(device);
@@ -1229,7 +1238,7 @@ export class Renderer {
     this._present = new SurfacePresentPass(device, this._format, this._displayProfile);
     this._surfaceWork = new SurfaceWorkRuntime(device, {
       maxTiles: 65536, maxSamples: 2097152, maxExceptions: 2097152,
-      maxGeometryRecords: 2097152, maxBytes: 768 * 1024 * 1024
+      maxGeometryRecords: 2097152, maxBytes: SURFACE_OPTIMIZATION_ENVELOPE_BYTES
     }, this._graphics.resource_accounting, this._graphics.surface_field_store, this._graphics.surface_signal_store);
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
@@ -1244,20 +1253,19 @@ export class Renderer {
       this._physicalSky = new PhysicalSkyPass(this._graphics);
       this._aerialPerspective = new AerialPerspectivePass(device);
     }
-    const canvas = context.canvas as HTMLCanvasElement;
-    this._width = Math.max(1, canvas.clientWidth || canvas.width);
-    this._height = Math.max(1, canvas.clientHeight || canvas.height);
     this._renderTargets.initializeDepth(this._graphics.textures, 1, 1);
     this.resize(this._width, this._height, true);
   }
 
   resize(width: number, height: number, force = false): void {
     if (!force && width === this._width && height === this._height) return;
-    this._width = Math.max(1, Math.floor(width));
-    this._height = Math.max(1, Math.floor(height));
-    const maxDimension = Number(this.device.limits.maxTextureDimension2D);
-    const outputWidth = Math.min(this._width, maxDimension);
-    const outputHeight = Math.min(this._height, maxDimension);
+    const nextWidth = Math.max(1, Math.floor(width));
+    const nextHeight = Math.max(1, Math.floor(height));
+    planSurfaceOptimizationCapacity(nextWidth, nextHeight, this.device.limits);
+    const outputWidth = nextWidth;
+    const outputHeight = nextHeight;
+    this._width = nextWidth;
+    this._height = nextHeight;
     this._output_resolution.set(outputWidth, outputHeight);
     this._render_resolution.set(
       Math.max(1, Math.floor(outputWidth * this.resolutionScale)),
@@ -1476,10 +1484,7 @@ export class Renderer {
         colorHistory.readValid, timeDeltaSeconds);
       this._temporalFacts.prepareFrame(width, height, identityHistory.readIndex,
         identityHistory.writeIndex, identityHistory.readValid);
-      this._surfaceWork.prepareFrame(width, height);
-      const diffuseHistory = this._temporal.histories.state("lighting-diffuse");
-      const specularHistory = this._temporal.histories.state("lighting-specular");
-      const coatHistory = this._temporal.histories.state("lighting-coat");
+      this._surfaceWork.prepareFrame(width, height, runtime.shadingPublication.revision);
       this._fsr3.prepareFrame(command, {
         renderWidth: width, renderHeight: height,
         outputWidth: this._output_resolution.x, outputHeight: this._output_resolution.y,
@@ -1600,15 +1605,12 @@ export class Renderer {
       }
       this._temporal.markProduced("color");
       this._temporal.markProduced("identity");
-      this._temporal.markProduced("lighting-diffuse");
-      this._temporal.markProduced("lighting-specular");
-      this._temporal.markProduced("lighting-coat");
       view.finish_frame(command, frameIndex);
       command.onFinished.addOne(() => this._previousViewMatrices.set(view, currentViewMatrix));
       this._profiler.measure("submit", () => this._frameCoordinator.submitFrame(frame));
       this._fsr3.commit(command.gpuDone);
       this._temporalFacts.commit(command.gpuDone);
-      this._surfaceWork.commit(command.gpuDone);
+      this._surfaceWork.commit(command.gpuDone, runtime.shadingPublication.revision);
       this._gpuRadiometry.commit(command.gpuDone);
       this._temporal.commit(frameIndex);
       temporalActive = false;

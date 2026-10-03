@@ -1,8 +1,8 @@
 # Surface V3 第一版优化执行文档
 
-当前推进：Phase 4 代码收口已提交（`b882cc5a`），Phase 5 代码已完成；正式整链验收延期至 Phase 7，下一阶段为 Phase 6。
+当前推进：Phase 4 代码收口已提交（`b882cc5a`），Phase 5 代码收口已完成，Phase 6 资源、真实 provider 与生命周期接线已完成；正式整链验收延期至 Phase 7。
 
-日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–3 已完成代码切换但正式验收延期，Phase 4–5 代码收口完成但正式验收延期，Phase 6–7 尚未开始**。详细状态见[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
+日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–6 已完成代码切换但正式验收延期，Phase 7 尚未开始**。详细状态见[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
 
 唯一配套细化设计：[Surface V3 第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)。保留[第三版总设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)的 owner 边界，按用户最新要求替换初版物理实现。历史执行记录见[原 V3 计划](surface-work-runtime-v3-rebuild-2026.md)；历史测量见[1080p 报告](../performance/2026-10-03-surface-v3-work-bandwidth-report.md)。
 
@@ -207,6 +207,13 @@ Phase 2 的 plan ABI、CPU/GPU synthetic oracle、Geometry setup 和 production 
 - 使用发布generation和submitted epoch，不以CPU帧号假定GPU已完成。
 - 绑定、view、sampler、pipeline按publication/profile/extent缓存；避免每材质每批重复创建。
 - 可选immediates/subgroup-size-control/buffer_view仅作为有限specialization，基础语义一致；先发现再申请再消费，记录三种状态。
+
+### Phase 6 实现收口（2026-10-03）
+
+- `SurfaceOptimizationCapacity` 已接入 `SurfaceWorkRuntime.prepareFrame`，在 extent scratch 创建前执行设备 limit/profile 预检；账本显式记录 payload、metadata、queue、alignment、scratch、persistent、history、retired overlap 和 512 MiB Surface envelope，shared 资源仍由全引擎 memory evidence 单独记录。
+- FieldStore/SignalStore 在 publication generation 边界推进代际，并在一次提交中登记 submitted epoch；`gpuDone` 成功或失败均释放 in-flight 记录，resize、abort、scene/LOD/texture publication、camera cut 与 device loss 不以 CPU frame number 推断 GPU 完成。
+- VSM 初始化顺序已修复：`GraphicsContext` 完成初始化后才创建 `VsmAtlasRasterPass`；现有 receiver demand、allocation、caster raster 与 content commit 仍在同一 FrameGraph/submit 中声明真实 page/content 依赖。
+- LightCluster、AO、authored/physical environment、Atmosphere、TemporalFacts 和 FSR3 已由 `FrameProgramLowering` 消费真实 frame products；Phase 7 仍负责浏览器、画质、数值和性能验收。
 
 ### 真正 provider
 

@@ -11,10 +11,6 @@ export const SPARSE_LIGHTING_GUIDE_LAYERS = 2;
 export const SPARSE_LIGHTING_SETTINGS_BYTES = 128;
 export const SPARSE_LIGHTING_PACKET_BYTES = 8;
 export const SPARSE_LIGHTING_REFERENCE_BYTES = 16;
-export const SPARSE_LIGHTING_HISTORY_NAMES = Object.freeze([
-  "lighting-diffuse", "lighting-specular", "lighting-coat"
-] as const);
-
 /**
  * Surface V3 lighting diagnostics.  These words are written by the single
  * packet dispatch and are intentionally independent from SurfaceWork's

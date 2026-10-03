@@ -47,6 +47,32 @@ export interface SurfaceOptimizationCapacity {
   readonly persistentSegments: Readonly<Record<"fieldStore" | "signalStore" | "variation", readonly number[]>>;
   readonly reservedBytes: number;
   readonly envelopeHeadroomBytes: number;
+  readonly queueLimits: Readonly<SurfaceOptimizationQueueLimits>;
+  readonly ledger: Readonly<SurfaceOptimizationBudgetLedger>;
+}
+export interface SurfaceOptimizationQueueLimits {
+  readonly targetPixels: number;
+  readonly uniqueAddresses: number;
+  readonly fieldCount: number;
+  readonly signalCount: number;
+  readonly programPartitions: number;
+  readonly precisionSpill: number;
+}
+/** Explicit accounting for the optimization-v1 envelope. Shared renderer
+ * products are intentionally outside this ledger and are reported by the
+ * engine-wide memory evidence owner. */
+export interface SurfaceOptimizationBudgetLedger {
+  readonly payloadBytes: number;
+  readonly metadataBytes: number;
+  readonly queueBytes: number;
+  readonly alignmentBytes: number;
+  readonly outputBytes: number;
+  readonly scratchBytes: number;
+  readonly persistentBytes: number;
+  readonly historyBytes: number;
+  readonly retiredOverlapBytes: number;
+  readonly sharedBytes: number;
+  readonly surfaceEnvelopeBytes: number;
 }
 const integer = (value: number, name: string): number => {
   if (!Number.isSafeInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive safe integer`);
@@ -103,15 +129,34 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
   if (outputBytes > SURFACE_OPTIMIZATION_BUDGET_MIB.outputs * SURFACE_OPTIMIZATION_MIB) {
     throw new RangeError("Surface output extent exceeds configured output budget");
   }
-  const reservedBytes = Object.values(scratchBytes).reduce((sum, bytes) => sum + bytes, 0)
-    + [...persistentSegments.fieldStore, ...persistentSegments.signalStore, ...persistentSegments.variation]
-      .reduce((sum, bytes) => sum + bytes, 0)
-    + SURFACE_OPTIMIZATION_BUDGET_MIB.outputs * SURFACE_OPTIMIZATION_MIB;
+  const rawScratchBytes = batchTargetCapacity * scratchProfile.reduce((sum, [, field]) => sum + profile[field], 0)
+    + controlBytes;
+  const scratchTotalBytes = Object.values(scratchBytes).reduce((sum, bytes) => sum + bytes, 0);
+  const persistentBytes = [...persistentSegments.fieldStore, ...persistentSegments.signalStore,
+    ...persistentSegments.variation].reduce((sum, bytes) => sum + bytes, 0);
+  const alignmentBytes = Math.max(0, scratchTotalBytes - rawScratchBytes);
+  const payloadBytes = scratchBytes.addresses + scratchBytes.geometryCold + scratchBytes.fields +
+    scratchBytes.signals + scratchBytes.resolveMaps;
+  const metadataBytes = scratchBytes.plans + scratchBytes.geometryHot;
+  const queueBytes = scratchBytes.queues;
+  const historyBytes = 0;
+  const retiredOverlapBytes = scratchTotalBytes;
+  const outputBytes = SURFACE_OPTIMIZATION_BUDGET_MIB.outputs * SURFACE_OPTIMIZATION_MIB;
+  const reservedBytes = scratchTotalBytes + persistentBytes + outputBytes;
   if (reservedBytes > SURFACE_OPTIMIZATION_ENVELOPE_BYTES) throw new RangeError("Surface envelope exceeded");
+  const ledger = Object.freeze({ payloadBytes, metadataBytes, queueBytes, alignmentBytes, outputBytes,
+    scratchBytes: scratchTotalBytes, persistentBytes, historyBytes, retiredOverlapBytes,
+    sharedBytes: 0, surfaceEnvelopeBytes: SURFACE_OPTIMIZATION_ENVELOPE_BYTES });
+  const queueLimits = Object.freeze({ targetPixels: batchTargetCapacity,
+    uniqueAddresses: Math.floor(scratchBytes.addresses / profile.addressBytesPerTarget),
+    fieldCount: Math.floor(scratchBytes.fields / profile.fieldBytesPerTarget),
+    signalCount: Math.floor(scratchBytes.signals / profile.signalBytesPerTarget),
+    programPartitions: Math.floor(scratchBytes.plans / 256),
+    precisionSpill: Math.floor(scratchBytes.signals / 16) });
   return Object.freeze({ width, height, pixelCount, tilesX, tilesY, tileCount,
     batchTileCapacity: batchTiles, batchTargetCapacity, batchCount: Math.ceil(tileCount / batchTiles),
     scratchBytes: Object.freeze(scratchBytes), persistentSegments, reservedBytes,
-    envelopeHeadroomBytes: SURFACE_OPTIMIZATION_ENVELOPE_BYTES - reservedBytes });
+    envelopeHeadroomBytes: SURFACE_OPTIMIZATION_ENVELOPE_BYTES - reservedBytes, queueLimits, ledger });
 }
 
 /** CPU encodes all fixed ranges; GPU coverage/counts select work inside each range. */

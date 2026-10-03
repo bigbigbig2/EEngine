@@ -13,6 +13,9 @@ export class GpuSurfaceFieldStore {
  private readonly handle?:ResourceHandle;
  private destroyed=false;
  private generation=1;
+ private publicationGeneration=0;
+ private submittedEpoch=0;
+ private readonly inFlight=new Set<number>();
  private counters={lookupRequests:0,hits:0,misses:0,admissions:0,overflows:0};
  constructor(private readonly device:GPUDevice,budgetBytes=128*1024*1024,private readonly accounting?:ResourceAccounting){
   this.capacity=planSurfaceFieldStoreCapacity(device.limits,budgetBytes);
@@ -20,6 +23,26 @@ export class GpuSurfaceFieldStore {
   this.handle=accounting?.created({kind:"buffer",category:"resident",owner:"Surface/FieldStore",bytes:this.capacity.bytes,label:"Surface/FieldStore"});
  }
  nextGeneration():number{if(this.generation>=0xffffffff)throw new RangeError("FieldStore generation exhausted");return ++this.generation;}
+ /** Advances the GPU cache generation at a publication boundary. A scene
+  * revision is a witness, never a CPU frame number. */
+ preparePublication(publicationGeneration:number):void{
+  if (!Number.isSafeInteger(publicationGeneration) || publicationGeneration < 0 || publicationGeneration > 0xffffffff) {
+   throw new RangeError("FieldStore publication generation must be uint32");
+  }
+  if (publicationGeneration !== this.publicationGeneration) {
+   this.publicationGeneration = publicationGeneration;
+   this.nextGeneration();
+  }
+ }
+ trackSubmission(gpuDone:Promise<void>,publicationGeneration:number):number{
+  if (this.destroyed) throw new Error("FieldStore submission after destroy");
+  this.preparePublication(publicationGeneration);
+  const epoch = ++this.submittedEpoch;
+  this.inFlight.add(epoch);
+  const retire = (): void => { this.inFlight.delete(epoch); };
+  void gpuDone.then(retire, retire);
+  return epoch;
+ }
  /** Write only initialization/control words. Field values are published by the
   * GPU evaluate stage after its miss owner is compacted. */
  reset(command:ShadeGPUCommandContext):void{
@@ -27,7 +50,7 @@ export class GpuSurfaceFieldStore {
   let offset=0;for(const buffer of this.buffers){const size=buffer.size;command.writeBuffer(buffer,0,new Uint32Array(size/4).buffer,0,size);offset+=size;}
  }
  recordLookup(requests:number,hits:number,misses:number,admissions=0,overflows=0):void{this.counters.lookupRequests+=requests;this.counters.hits+=hits;this.counters.misses+=misses;this.counters.admissions+=admissions;this.counters.overflows+=overflows;}
- stats():SurfaceFieldStoreStats & { readonly generation:number } {return Object.freeze({capacity:this.capacity,allocatedBytes:this.capacity.bytes,generation:this.generation,...this.counters});}
+ stats():SurfaceFieldStoreStats & { readonly generation:number; readonly publicationGeneration:number; readonly submittedEpoch:number; readonly inFlightSubmissions:number } {return Object.freeze({capacity:this.capacity,allocatedBytes:this.capacity.bytes,generation:this.generation,publicationGeneration:this.publicationGeneration,submittedEpoch:this.submittedEpoch,inFlightSubmissions:this.inFlight.size,...this.counters});}
  destroy():void{if(this.destroyed)return;this.destroyed=true;for(const buffer of this.buffers)buffer.destroy();if(this.handle)this.accounting!.destroyed(this.handle);}
 }
 

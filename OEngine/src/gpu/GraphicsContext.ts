@@ -422,6 +422,8 @@ export class GraphicsContext {
     const textureResidency = this.textureResidencyValue?.evidence();
     const buffers = this.buffer_allocator_main.evidence();
     const textures = this.allocator_textures.evidence();
+    const surfaceFieldBytes = this.surfaceFieldStoreValue?.stats().allocatedBytes ?? 0;
+    const surfaceSignalBytes = this.surfaceSignalStoreValue?.stats().allocatedBytes ?? 0;
     const residentMaterialBytes = materials === undefined
       ? 0
       : materials.residentMaterialSlotCount * GPU_MATERIAL_VISIBILITY_RECORD_STRIDE +
@@ -436,13 +438,13 @@ export class GraphicsContext {
       (appearance?.allocatedBytes ?? 0) +
       (staticAppearance?.allocatedBytes ?? 0) +
       (materials?.allocatedBytes ?? 0) +
-      (textureResidency?.allocatedBytes ?? 0);
+      (textureResidency?.allocatedBytes ?? 0) + surfaceFieldBytes + surfaceSignalBytes;
     const residentLogicalBytes =
       (assets?.residentBytes ?? 0) +
       (scene?.residentBytes ?? 0) +
       (appearance?.residentBytes ?? 0) +
       (staticAppearance?.residentBytes ?? 0) +
-      residentMaterialBytes;
+      residentMaterialBytes + surfaceFieldBytes + surfaceSignalBytes;
     const retiringBytes =
       (assets?.retiringBytes ?? 0) +
       (scene?.retiringBytes ?? 0) +
@@ -481,8 +483,18 @@ export class GraphicsContext {
         frameGeometry: Object.freeze({ allocatedBytes: this.frameGeometryArenaValue?.allocatedBytes ?? 0 }),
         currentHzbRecheck: Object.freeze({ allocatedBytes: this.currentHzbRecheckValue?.allocatedBytes ?? 0 }),
         appearanceCache: Object.freeze({ allocatedBytes: this.appearanceCacheValue?.allocatedBytes ?? 0 }),
-        surfaceFieldStore: Object.freeze({ allocatedBytes: this.surfaceFieldStoreValue?.stats().allocatedBytes ?? 0 }),
-        surfaceSignalStore: Object.freeze({ allocatedBytes: this.surfaceSignalStoreValue?.stats().allocatedBytes ?? 0 }),
+        surfaceFieldStore: Object.freeze({
+          allocatedBytes: this.surfaceFieldStoreValue?.stats().allocatedBytes ?? 0,
+          publicationGeneration: this.surfaceFieldStoreValue?.stats().publicationGeneration ?? 0,
+          submittedEpoch: this.surfaceFieldStoreValue?.stats().submittedEpoch ?? 0,
+          inFlightSubmissions: this.surfaceFieldStoreValue?.stats().inFlightSubmissions ?? 0
+        }),
+        surfaceSignalStore: Object.freeze({
+          allocatedBytes: this.surfaceSignalStoreValue?.stats().allocatedBytes ?? 0,
+          publicationGeneration: this.surfaceSignalStoreValue?.stats().publicationGeneration ?? 0,
+          submittedEpoch: this.surfaceSignalStoreValue?.stats().submittedEpoch ?? 0,
+          inFlightSubmissions: this.surfaceSignalStoreValue?.stats().inFlightSubmissions ?? 0
+        }),
         assets: Object.freeze({
           allocatedBytes: assets?.allocatedBytes ?? 0,
           residentBytes: assets?.residentBytes ?? 0,
@@ -508,6 +520,7 @@ export class GraphicsContext {
         transientTextures: Object.freeze({ ...textures })
       }),
       limitations: Object.freeze([
+        "allocatedBytes is the whole-engine physical ledger; Surface optimization and shared owners remain separate entries",
         "fragmentationBytes covers capacity slack in asset, scene and material tables",
         "transientPoolBytes reports shared allocator allocation after graph execution",
         "non-table persistent textures are included in allocatedBytes but not residentLogicalBytes"

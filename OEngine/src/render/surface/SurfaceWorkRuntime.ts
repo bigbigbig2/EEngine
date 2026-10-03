@@ -20,6 +20,7 @@ import type { ResourceAccounting } from "../../debug/profiling/ResourceAccountin
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import type { GpuSurfaceFieldStore } from "../../gpu/GpuSurfaceFieldStore.js";
 import type { GpuSurfaceSignalStore } from "../../gpu/GpuSurfaceSignalStore.js";
+import { planSurfaceOptimizationCapacity, type SurfaceOptimizationCapacity } from "../../gpu/SurfaceOptimizationCapacity.js";
 
 export interface SurfaceWorkFrame {
   readonly generation: number;
@@ -93,10 +94,15 @@ export class SurfaceWorkRuntime {
   private prepared = false;
   private destroyed = false;
   private layout: SurfaceWorkLayout | null = null;
+  private capacity: SurfaceOptimizationCapacity | null = null;
+  private readonly fieldStore: GpuSurfaceFieldStore | null;
+  private readonly signalStore: GpuSurfaceSignalStore | null;
 
   constructor(private readonly device: GPUDevice, private readonly budget: SurfaceWorkBudget = {
     maxTiles: 262144, maxSamples: 262144, maxExceptions: 65536, maxGeometryRecords: 262144, maxBytes: 128 * 1024 * 1024
   }, accounting?: ResourceAccounting, fieldStore: GpuSurfaceFieldStore | null = null, signalStore: GpuSurfaceSignalStore | null = null) {
+    this.fieldStore = fieldStore;
+    this.signalStore = signalStore;
     this.scratch = new SurfaceFrameResources(device, accounting);
     this.cellClassifier = new SurfaceCellClassifierPass(device, this.scratch);
     this.cacheIdentity = new SurfaceCacheIdentityPass(device,this.scratch);
@@ -126,12 +132,19 @@ export class SurfaceWorkRuntime {
       compute: { module: device.createShaderModule({ code: FINALIZE_WGSL }), entryPoint: "finalize" } });
   }
 
-  prepareFrame(width: number, height: number): void {
+  prepareFrame(width: number, height: number, publicationGeneration = 0): void {
     if (this.destroyed || this.prepared) throw new Error("SurfaceWork frame is already prepared");
+    // Preflight the complete V3 profile before any extent-dependent scratch is
+    // created. A rejected profile must not silently clamp visible work.
+    this.capacity = planSurfaceOptimizationCapacity(width, height, this.device.limits);
     this.layout = surfaceWorkLayout(width, height, this.budget, this.device.limits);
+    this.fieldStore?.preparePublication(publicationGeneration);
+    this.signalStore?.preparePublication(publicationGeneration);
     this.scratch.prepare(width, height);
-    this.reconstruction.prepareFrame(width, height, Math.max(1, Math.floor(this.layout.sampleCapacity / 64))); this.prepared = true;
+    this.reconstruction.prepareFrame(width, height, this.capacity.batchTileCapacity); this.prepared = true;
   }
+
+  capacityEvidence(): SurfaceOptimizationCapacity | null { return this.capacity; }
 
   setDiagnosticsMode(mode: SurfaceDiagnosticsMode): void {
     if (this.prepared) throw new Error("Cannot change Surface diagnostics mode during a frame");
@@ -238,9 +251,12 @@ export class SurfaceWorkRuntime {
       ...(diagnostics === null ? {} : diagnostics) };
   }
 
-  commit(gpuDone: Promise<void>): void {
+  commit(gpuDone: Promise<void>, publicationGeneration = 0): void {
     if (!this.prepared) throw new Error("SurfaceWork commit without prepare");
-    this.reconstruction.commit(); this.scratch.commit(gpuDone); this.prepared = false;
+    this.reconstruction.commit(); this.scratch.commit(gpuDone);
+    this.fieldStore?.trackSubmission(gpuDone, publicationGeneration);
+    this.signalStore?.trackSubmission(gpuDone, publicationGeneration);
+    this.prepared = false;
   }
   abort(): void { this.reconstruction.abort(); this.prepared = false; }
   invalidate(): void { this.reconstruction.invalidate(); }
