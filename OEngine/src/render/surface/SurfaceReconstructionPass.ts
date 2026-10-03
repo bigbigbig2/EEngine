@@ -16,10 +16,7 @@ struct Settings {
   diagnostics_enabled:u32, _reserved0:u32, _reserved1:u32, _reserved2:u32
 }
 @group(0) @binding(0) var<uniform> settings:Settings;
-@group(0) @binding(1) var<storage,read> diffuse:array<vec4f>;
-@group(0) @binding(2) var<storage,read> specular:array<vec4f>;
-@group(0) @binding(3) var<storage,read> coat:array<vec4f>;
-@group(0) @binding(4) var<storage,read> ibl:array<vec4f>;
+@group(0) @binding(1) var<storage,read> packets:array<vec2u>;
 @group(0) @binding(6) var source_reactive:texture_2d<f32>;
 @group(0) @binding(7) var output:texture_storage_2d<rgba16float,write>;
 @group(0) @binding(8) var reactive:texture_storage_2d<rgba8unorm,write>;
@@ -44,6 +41,7 @@ struct Settings {
 fn diagnostic_add(index:u32, value:u32) {
   if settings.diagnostics_enabled != 0u { atomicAdd(&diagnostics[index], value); }
 }
+fn packet_value(record:u32,kind:u32)->vec4f{let packed=packets[record*6u+kind];return vec4f(unpack2x16float(packed.x),unpack2x16float(packed.y));}
 
 @compute @workgroup_size(8,8)
 fn reconstruct(@builtin(global_invocation_id) id:vec3u){
@@ -59,11 +57,11 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u){
   // Motion validity and disocclusion reject history, never current radiance.
   var valid=record<settings.record_count && record!=0xffffffffu;
   if valid { diagnostic_add(7u,1u); }
-  if valid { valid=diffuse[record].w>0.5; }
+  if valid { valid=packet_value(record,0u).w>0.5 || packet_value(record,1u).w>0.5 || packet_value(record,2u).w>0.5 || packet_value(record,3u).w>0.5 || packet_value(record,4u).w>0.5 || packet_value(record,5u).w>0.5; }
   let identity_match=all(identity==previous_identity);
   var current_diffuse=vec3f(0.0); var current_specular=vec3f(0.0);
   var current_coat=vec3f(0.0); var current_ibl=vec3f(0.0);
-  if valid { current_diffuse=diffuse[record].xyz; current_specular=specular[record].xyz; current_coat=coat[record].xyz; current_ibl=ibl[record].xyz; }
+  if valid { current_diffuse=packet_value(record,0u).xyz + packet_value(record,1u).xyz; current_specular=packet_value(record,2u).xyz + packet_value(record,3u).xyz; current_coat=packet_value(record,4u).xyz + packet_value(record,5u).xyz; }
   let can_reuse=settings.history_valid!=0u && valid && previous_inside && facts.y>0.5 && facts.z<0.5 && facts.x<0.5 && identity_match && previous_age<settings.history_max_age;
   let feedback=clamp(settings.history_feedback+facts.w*0.1,0.05,0.35);
   let reuse_diffuse=can_reuse && (settings.revision_mask & 1u)==0u;
@@ -120,8 +118,7 @@ export class SurfaceReconstructionPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
-      ...[1, 2, 3, 4].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "read-only-storage" as GPUBufferBindingType } })),
+      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 6, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
       { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
       { binding: 8, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba8unorm" } },
@@ -181,7 +178,7 @@ export class SurfaceReconstructionPass {
   }
 
   addToGraph(graph: FrameGraph, input: {
-    diffuse: ResourceId; specular: ResourceId; coat: ResourceId; ibl: ResourceId;
+    packets: ResourceId;
     reactive: ResourceId; identity: ResourceId; motion: ResourceId; preExposure: ResourceId; sampleMap: ResourceId;
     historyBinding: (name: string, resolve: () => GPUTexture) => GPUTexture;
     revisions: SurfaceHistoryRevisions;
@@ -226,10 +223,7 @@ export class SurfaceReconstructionPass {
         command.writeBuffer(this.settings, 0, settings, 0, settings.byteLength);
         const group = this.device.createBindGroup({ layout: this.layout, entries: [
           { binding: 0, resource: { buffer: this.settings } },
-          { binding: 1, resource: { buffer: resources.get(data.diffuse) as GPUBuffer } },
-          { binding: 2, resource: { buffer: resources.get(data.specular) as GPUBuffer } },
-          { binding: 3, resource: { buffer: resources.get(data.coat) as GPUBuffer } },
-          { binding: 4, resource: { buffer: resources.get(data.ibl) as GPUBuffer } },
+          { binding: 1, resource: { buffer: resources.get(data.packets) as GPUBuffer } },
           { binding: 6, resource: resolveTextureView(resources.get(data.reactive)) },
           { binding: 7, resource: resolveTextureView(resources.get(radiance)) },
           { binding: 8, resource: resolveTextureView(resources.get(reactiveMask)) },
@@ -255,7 +249,7 @@ export class SurfaceReconstructionPass {
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, group);
         pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8)); pass.end();
       });
-    for (const id of [input.diffuse, input.specular, input.coat, input.ibl,
+    for (const id of [input.packets,
       input.reactive, input.identity, input.motion, input.preExposure, input.sampleMap, ...historyRead, identityRead, ageRead]) node.read(id);
     for (const id of historyWrite) node.write(id); node.write(identityWrite); node.write(ageWrite);
     radiance = node.create("Surface/HDR reconstructed", { kind: "transient_texture", width: input.width,

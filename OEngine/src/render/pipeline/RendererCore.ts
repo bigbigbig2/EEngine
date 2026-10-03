@@ -1230,7 +1230,7 @@ export class Renderer {
     this._surfaceWork = new SurfaceWorkRuntime(device, {
       maxTiles: 65536, maxSamples: 2097152, maxExceptions: 2097152,
       maxGeometryRecords: 2097152, maxBytes: 768 * 1024 * 1024
-    }, this._graphics.resource_accounting, this._graphics.surface_field_store);
+    }, this._graphics.resource_accounting, this._graphics.surface_field_store, this._graphics.surface_signal_store);
     this._temporalFacts = new TemporalFactsPass(device);
     this._gpuRadiometry = new GpuRadiometryPass(device, config.autoExposure, config.fixedExposure);
     this._bloom = new BloomPass(device);

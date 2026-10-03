@@ -22,7 +22,7 @@ currentSlice:
     Phase 1 已完成六域 continuity-v2、源/LOD逐字段lineage、普通Geometry真实metadata upload、Native与两种WASM v6发布，
     offline RGBA8摘要和实际GPU decoded mip/footprint摘要；所有表/节点在32 MiB pool中，接现有TextureResidency encoder。
     typecheck/build、Native/core ABI oracle、两个WASM编译、33项定向checks和5个生产纹理摘要GPU cases通过；
-    组件结果不证明整帧画质性能。Phase 2 已完成代码切换：runtime 旧 classifier 源码已删除，多字段 WGSL 生成错误已修复；真实 Chromium producer/consumer fixture 在 pipeline compile 阶段仍未完成，因此不提升为正式整链验收。Phase 3 已接通 compact record 字段 buffer、FieldStore 初始化与 lookup gate、评估后 publish/admit、bounded GeometryRecord arena；旧六层全屏 fields 与 pixel-capacity 分配已删除，仍保留 19-word compact identity 元数据和 4-word admission 摘要，完整跨帧 value 消费及 Phase 4–7 尚未开始。
+    组件结果不证明整帧画质性能。Phase 2 已完成代码切换：runtime 旧 classifier 源码已删除，多字段 WGSL 生成错误已修复；真实 Chromium producer/consumer fixture 在 pipeline compile 阶段仍未完成，因此不提升为正式整链验收。Phase 3 已接通 compact record 字段 buffer、FieldStore 初始化与 lookup gate、评估后 publish/admit、bounded GeometryRecord arena；旧六层全屏 fields 与 pixel-capacity 分配已删除，仍保留 19-word compact identity 元数据和 4-word admission 摘要。Phase 4 已接通六类独立 lighting signal、按 record 紧凑 packet、lighting 前 SignalStore probe 与 lighting 后独立 pack/publish；四路全屏 packet plane 和 dense signal witness 已删除。Phase 4 的 HDR precision spill、SignalStore age/confidence、Surface history 最终删除及 Phase 7 正式验收仍未完成。
     以下为 0676cf28 历史基线能力和诊断记录，不是本轮新算法完成证据。
     用户 2026-10-03 明确请求的 Showcase 修复已接入：diffuse irradiance 消费补 1/pi、示例曝光 8→4；
     Surface 队列有序单份 extent 资源、精确 pixel/input witness、逐字段版本 lookup、masked miss evaluation、

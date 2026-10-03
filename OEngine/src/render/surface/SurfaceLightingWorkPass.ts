@@ -10,18 +10,19 @@ import { createProductionSparseDirectLightingWgsl } from "../../shaders/lighting
 import { OCTAHEDRAL_SAMPLE_WGSL } from "../../shaders/environment_ibl.js";
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import { ATMOSPHERE_RUNTIME_WGSL } from "../../shaders/atmosphere/runtime.js";
+import { SURFACE_SIGNAL_STORE_COMPUTE_WGSL, SURFACE_SIGNAL_STORE_ENTRY_BYTES } from "../../gpu/GpuSurfaceSignalStoreAbi.js";
+import type { GpuSurfaceSignalStore } from "../../gpu/GpuSurfaceSignalStore.js";
 
 export interface SurfaceLightingProducts {
-  readonly diffusePackets: ResourceId;
-  readonly specularPackets: ResourceId;
-  readonly coatPackets: ResourceId;
-  readonly iblPackets: ResourceId;
+  readonly packets: ResourceId;
   readonly counters: ResourceId;
 }
 
 export interface SurfaceLightingInput {
   readonly resourceBinding: SurfaceResourceBinding;
   readonly geometryKeys: ResourceId;
+  /** Compact material identity/version words; part of every signal key. */
+  readonly fieldIdentity: ResourceId;
   readonly revisions: Readonly<{environment:number;light:number;shadow:number}>;
   readonly diagnosticFrame: Readonly<{value:number}>;
   readonly geometry: ResourceId;
@@ -85,10 +86,7 @@ struct SurfaceSettings {
 };
 @group(0) @binding(0) var<uniform> settings: SurfaceSettings;
 @group(0) @binding(1) var<storage, read> geometry: array<vec4f>;
-@group(0) @binding(3) var<storage, read_write> diffuse: array<vec4f>;
-@group(0) @binding(4) var<storage, read_write> specular: array<vec4f>;
-@group(0) @binding(5) var<storage, read_write> coat: array<vec4f>;
-@group(0) @binding(6) var<storage, read_write> ibl: array<vec4f>;
+@group(0) @binding(3) var<storage, read_write> packets: array<vec2u>;
 @group(0) @binding(7) var<storage, read_write> counters: array<atomic<u32>>;
 @group(0) @binding(10) var<storage, read> surface_counts: array<u32>;
 @group(0) @binding(11) var<storage, read> work: array<u32>;
@@ -103,6 +101,9 @@ struct SurfaceSettings {
 
 fn diagnostic_add(index: u32, value: u32) {
   if settings.diagnostics_enabled != 0u { atomicAdd(&counters[index], value); }
+}
+fn packet_store(record:u32, kind:u32, value:vec4f) {
+  packets[record*6u+kind]=vec2u(pack2x16float(value.xy),pack2x16float(value.zw));
 }
 
 @group(1) @binding(0) var<storage, read> node: array<u32>;
@@ -215,10 +216,13 @@ fn direct_surface(material: StandardMaterial, geometry_in: SurfaceGeometry,
   return reflected;
 }
 
-fn environment_surface(material: StandardMaterial, normal: vec3f, view_dir: vec3f,
-  pixel: vec2i, ao: f32) -> vec3f {
+fn environment_diffuse_surface(material: StandardMaterial, normal: vec3f, ao: f32) -> vec3f {
   let diffuse_env = sample_octahedral_bilinear(environment_diffuse, vec2u(0u),
     textureDimensions(environment_diffuse).x, normal, 0u).rgb;
+  return diffuse_env * material.diffuse * material.occlusion * ao * RECIPROCAL_PI;
+}
+
+fn environment_specular_surface(material: StandardMaterial, normal: vec3f, view_dir: vec3f) -> vec3f {
   let reflection = reflect(-view_dir, normal);
   let specular_env = sample_prefiltered_environment(environment_specular, reflection, material.roughness);
   let no_v = saturate(dot(normal, view_dir));
@@ -226,9 +230,7 @@ fn environment_surface(material: StandardMaterial, normal: vec3f, view_dir: vec3
   let dfg_xy = vec2i(clamp(vec2f(no_v, material.roughness) * vec2f(dfg_size),
     vec2f(0.0), vec2f(dfg_size) - vec2f(1.0)));
   let dfg = textureLoad(environment_dfg, dfg_xy, 0).xy;
-  let diffuse = diffuse_env * material.diffuse * material.occlusion * ao * RECIPROCAL_PI;
-  let specular = specular_env * (material.specularF0 * dfg.x + vec3f(dfg.y));
-  return diffuse + specular + material.emissive;
+  return specular_env * (material.specularF0 * dfg.x + vec3f(dfg.y));
 }
 
 fn coat_environment(material: StandardMaterial, normal: vec3f, view_dir: vec3f) -> vec3f {
@@ -260,11 +262,13 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   }
   let surface_geometry = SurfaceGeometry(normal, geometric_normal, position, view_dir);
   if setting(10u) == 0u { diagnostic_add(7u, 1u); }
-  let has_direct = (signal_mask & 7u) != 0u;
   let has_diffuse = (signal_mask & 1u) != 0u;
-  let has_specular = (signal_mask & 2u) != 0u;
-  let has_coat = (signal_mask & 4u) != 0u;
-  let has_ibl = (signal_mask & 8u) != 0u;
+  let has_diffuse_env = (signal_mask & 2u) != 0u;
+  let has_specular = (signal_mask & 4u) != 0u;
+  let has_specular_env = (signal_mask & 8u) != 0u;
+  let has_coat = (signal_mask & 16u) != 0u;
+  let has_coat_env = (signal_mask & 32u) != 0u;
+  let has_direct = has_diffuse || has_specular || has_coat;
   var direct = ReflectedLight(vec3f(0.0), vec3f(0.0));
   if has_direct {
     direct = direct_surface(material, surface_geometry, vec2f(pixel) + vec2f(0.5),
@@ -288,18 +292,18 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
     coat_direct = direct.specular * material.coatFactor;
     diagnostic_add(2u, 1u);
   } else { diagnostic_add(16u, 1u); }
-  var environment = vec3f(0.0);
+  var environment_diffuse = vec3f(0.0);
+  var environment_specular = vec3f(0.0);
   var coat_ibl = vec3f(0.0);
-  if has_ibl {
-    environment = environment_surface(material, normal, view_dir, pixel, ao);
-    diagnostic_add(3u, 1u);
-    diagnostic_add(6u, 1u);
-  } else { diagnostic_add(17u, 1u); diagnostic_add(19u, 1u); }
-  if has_coat && has_ibl { coat_ibl = coat_environment(material, normal, view_dir); }
-  if has_diffuse {diffuse[pixel_index] = vec4f(direct_diffuse, 1.0);diagnostic_add(20u,1u);}
-  if has_specular {specular[pixel_index] = vec4f(direct_specular, 1.0);diagnostic_add(21u,1u);}
-  if has_coat {coat[pixel_index] = vec4f(coat_direct + coat_ibl, 1.0);diagnostic_add(22u,1u);}
-  if has_ibl {ibl[pixel_index] = vec4f(environment, 1.0);diagnostic_add(23u,1u);}
+  if has_diffuse_env {environment_diffuse = environment_diffuse_surface(material, normal, ao);diagnostic_add(3u, 1u);}
+  if has_specular_env {environment_specular = environment_specular_surface(material, normal, view_dir);diagnostic_add(6u, 1u);}
+  if has_coat_env {coat_ibl = coat_environment(material, normal, view_dir);}
+  if has_diffuse {packet_store(record,0u,vec4f(direct_diffuse, 1.0));diagnostic_add(20u,1u);}
+  if has_diffuse_env {packet_store(record,1u,vec4f(environment_diffuse + material.emissive, 1.0));diagnostic_add(21u,1u);}
+  if has_specular {packet_store(record,2u,vec4f(direct_specular, 1.0));diagnostic_add(22u,1u);}
+  if has_specular_env {packet_store(record,3u,vec4f(environment_specular, 1.0));diagnostic_add(23u,1u);}
+  if has_coat {packet_store(record,4u,vec4f(coat_direct, 1.0));diagnostic_add(24u,1u);}
+  if has_coat_env {packet_store(record,5u,vec4f(coat_ibl, 1.0));diagnostic_add(25u,1u);}
   diagnostic_add(10u, countOneBits(signal_mask) * 16u);
   if (sample_flags & 2u) != 0u { diagnostic_add(4u, 1u); }
 }
@@ -320,14 +324,12 @@ struct SurfaceSettings {
 @group(0) @binding(3) var<storage,read> surface_counts:array<u32>;
 @group(0) @binding(4) var<storage,read> scalar_ao:array<u32>;
 @group(0) @binding(5) var<storage,read> geometry_keys:array<u32>;
-@group(0) @binding(6) var<storage,read_write> signal_cache:array<u32>;
-@group(0) @binding(7) var<storage,read_write> diffuse:array<vec4f>;
-@group(0) @binding(8) var<storage,read_write> specular:array<vec4f>;
-@group(0) @binding(9) var<storage,read_write> coat:array<vec4f>;
-@group(0) @binding(10) var<storage,read_write> ibl:array<vec4f>;
-@group(0) @binding(11) var<storage,read_write> dirty_queue:array<vec2u>;
-@group(0) @binding(12) var<storage,read_write> dirty_counts:array<atomic<u32>>;
-@group(0) @binding(13) var<storage,read_write> counters:array<atomic<u32>>;
+@group(0) @binding(6) var<storage,read_write> signal_store_entries:array<atomic<u32>>;
+@group(0) @binding(7) var<storage,read_write> packets:array<vec2u>;
+@group(0) @binding(8) var<storage,read_write> dirty_queue:array<vec2u>;
+@group(0) @binding(9) var<storage,read_write> dirty_counts:array<atomic<u32>>;
+@group(0) @binding(10) var<storage,read_write> counters:array<atomic<u32>>;
+@group(0) @binding(11) var<storage,read> field_identity:array<u32>;
 fn diagnostic_add(index:u32,value:u32){if settings.diagnostics_enabled!=0u{atomicAdd(&counters[index],value);}}
 fn setting(index: u32) -> u32 {
   switch index {
@@ -349,6 +351,30 @@ fn ao_at(pixel_index: u32) -> f32 {
   let packed = scalar_ao[pixel_index >> 2u];
   return f32((packed >> ((pixel_index & 3u) * 8u)) & 0xffu) * (1.0 / 255.0);
 }
+fn signal_key_word(record:u32,kind:u32,word:u32)->u32 {
+  let geometry_base=record*13u;
+  switch word {
+    case 0u:{return geometry_keys[geometry_base+12u];}
+    case 1u:{return geometry_keys[geometry_base+0u];}
+    case 2u:{return geometry_keys[geometry_base+1u];}
+    case 3u:{return geometry_keys[geometry_base+2u];}
+    case 4u:{return geometry_keys[geometry_base+3u];}
+    case 5u:{return kind;}
+    case 6u:{return settings.environment_revision;}
+    case 7u:{return settings.light_revision;}
+    case 8u:{return settings.shadow_revision;}
+    case 9u:{var h=2166136261u;for(var i=0u;i<19u;i++){h=(h^field_identity[record*19u+i])*16777619u;}return h;}
+    default:{return 0u;}
+  }
+}
+fn signal_store_probe(record:u32,kind:u32)->u32 {
+  var hash=2166136261u;for(var word=0u;word<10u;word++){hash=(hash^signal_key_word(record,kind,word))*16777619u;}
+  var set_count=1u; if arrayLength(&signal_store_entries)>=64u { set_count=arrayLength(&signal_store_entries)/64u; }
+  let set_index=hash%set_count;
+  for(var way=0u;way<4u;way++){let entry=set_index*4u+way;let at=entry*16u;var equal=true;for(var word=0u;word<10u;word++){if atomicLoad(&signal_store_entries[at+word])!=signal_key_word(record,kind,word){equal=false;break;}}if equal && (atomicLoad(&signal_store_entries[at+12u])&1u)!=0u{return entry;}}
+  return 0xffffffffu;
+}
+fn packet_load_store(record:u32,kind:u32,entry:u32){let at=entry*16u;packets[record*6u+kind]=vec2u(atomicLoad(&signal_store_entries[at+10u]),atomicLoad(&signal_store_entries[at+11u]));}
 
 
 fn classify_record(record:u32)->u32 {
@@ -361,36 +387,18 @@ fn classify_record(record:u32)->u32 {
   let sample_flags = work[sample_at + 7u];
   let pixel = vec2i(i32(pixel_index % setting(0u)), i32(pixel_index / setting(0u)));
   if geometry[base + 1u].w < 0.5 {
-    diffuse[pixel_index]=vec4f(0.0);specular[pixel_index]=vec4f(0.0);
-    coat[pixel_index]=vec4f(0.0);ibl[pixel_index]=vec4f(0.0);
-    diagnostic_add(20u,1u);diagnostic_add(21u,1u);diagnostic_add(22u,1u);diagnostic_add(23u,1u);
-    signal_cache[pixel_index*8u]=0u;
+    for(var clear_kind=0u;clear_kind<6u;clear_kind++){packets[record*6u+clear_kind]=vec2u(0u);}
+    diagnostic_add(20u,1u);diagnostic_add(21u,1u);diagnostic_add(22u,1u);diagnostic_add(23u,1u);diagnostic_add(24u,1u);diagnostic_add(25u,1u);
     diagnostic_add(13u, 1u);
     return 0u;
   }
   diagnostic_add(12u,1u);
   let ao=ao_at(pixel_index);
-  let epoch=geometry_keys[record*13u+12u];
-  let cached=record*8u;
-  let features=settings.ao_enabled | (settings.shadow_enabled<<1u) | (settings._reserved0<<2u);
-  let same=(sample_flags&4u)!=0u && work[sample_at+4u]==0u && epoch!=0xffffffffu &&
-    signal_cache[cached]==epoch && signal_cache[cached+4u]==enabled_mask && signal_cache[cached+6u]==features;
-  // Exact reuse only. VSM sampling may rotate with frame index and page content;
-  // until its producer publishes a content witness, shadowed direct stays dirty.
-  let same_direct=same && settings.shadow_enabled==0u &&
-    signal_cache[cached+1u]==settings.environment_revision &&
-    signal_cache[cached+2u]==settings.light_revision && signal_cache[cached+3u]==settings.shadow_revision;
-  let same_ibl=same && signal_cache[cached+1u]==settings.environment_revision && signal_cache[cached+5u]==bitcast<u32>(ao);
-  if same_direct {signal_mask &= ~7u;}
-  if same_ibl {signal_mask &= ~8u;}
-  // Coat contains direct and environment terms; refresh both together.
-  if (enabled_mask&4u)!=0u && signal_mask!=0u {signal_mask=enabled_mask;}
-  signal_cache[cached]=epoch;signal_cache[cached+1u]=settings.environment_revision;
-  signal_cache[cached+2u]=settings.light_revision;signal_cache[cached+3u]=settings.shadow_revision;
-  signal_cache[cached+4u]=enabled_mask;signal_cache[cached+5u]=bitcast<u32>(ao);signal_cache[cached+6u]=features;
-  if !same && (enabled_mask&2u)==0u {specular[pixel_index]=vec4f(0.0,0.0,0.0,1.0);diagnostic_add(21u,1u);}
-  if !same && (enabled_mask&4u)==0u {coat[pixel_index]=vec4f(0.0,0.0,0.0,1.0);diagnostic_add(22u,1u);}
-  if !same && (enabled_mask&8u)==0u {ibl[pixel_index]=vec4f(0.0,0.0,0.0,1.0);diagnostic_add(23u,1u);}
+  // A representative slot is reused across frames. Clear all six packet
+  // lanes before loading sparse hits so disabled or rejected lobes cannot
+  // expose a previous record's value to reconstruct.
+  for(var clear_kind=0u;clear_kind<6u;clear_kind++){packets[record*6u+clear_kind]=vec2u(0u);}
+  for(var kind=0u;kind<6u;kind++){let bit=1u<<kind;if (enabled_mask&bit)!=0u {let hit=signal_store_probe(record,kind);if(hit!=0xffffffffu){packet_load_store(record,kind,hit);signal_mask &= ~bit;diagnostic_add(11u,1u);}}}
   return signal_mask;
 
 }
@@ -412,6 +420,17 @@ const LIGHTING_FINALIZE_WGSL = /* wgsl */ `
 @group(0) @binding(0) var<storage,read_write> counts:array<u32>;
 @compute @workgroup_size(1) fn finalize(){counts[4]=(counts[0]+63u)/64u;counts[5]=1u;counts[6]=1u;}
 `;
+const SIGNAL_PACK_WGSL = /* wgsl */ `
+struct Settings { record_count:u32, environment_revision:u32, light_revision:u32, shadow_revision:u32, sample_offset:u32 }
+@group(0) @binding(0) var<uniform> settings:Settings;
+@group(0) @binding(1) var<storage,read> geometry_keys:array<u32>;
+@group(0) @binding(2) var<storage,read> work:array<u32>;
+@group(0) @binding(3) var<storage,read> packets:array<vec2u>;
+@group(0) @binding(4) var<storage,read_write> requests:array<u32>;
+@group(0) @binding(5) var<storage,read> field_identity:array<u32>;
+fn key_word(record:u32,kind:u32,word:u32)->u32{switch word{case 0u:{return geometry_keys[record*13u+12u];}case 1u:{return geometry_keys[record*13u];}case 2u:{return geometry_keys[record*13u+1u];}case 3u:{return geometry_keys[record*13u+2u];}case 4u:{return geometry_keys[record*13u+3u];}case 5u:{return kind;}case 6u:{return settings.environment_revision;}case 7u:{return settings.light_revision;}case 8u:{return settings.shadow_revision;}case 9u:{var h=2166136261u;for(var i=0u;i<19u;i++){h=(h^field_identity[record*19u+i])*16777619u;}return h;}default:{return 0u;}}}
+@compute @workgroup_size(64) fn pack(@builtin(global_invocation_id) id:vec3u){let request=id.x;let record=request/6u;let kind=request%6u;if(record>=settings.record_count){return;}let target=request*16u;let enabled=(work[settings.sample_offset/4u+record*8u+3u]&(1u<<kind))!=0u;let valid_key=geometry_keys[record*13u+12u]!=0xffffffffu;if(!enabled||!valid_key){requests[target]=0xffffffffu;return;}for(var word=0u;word<10u;word++){requests[target+word]=key_word(record,kind,word);}let value=packets[record*6u+kind];requests[target+10u]=value.x;requests[target+11u]=value.y;requests[target+12u]=1u;requests[target+13u]=0u;requests[target+14u]=0u;requests[target+15u]=0u;}
+`;
 
 export class SurfaceLightingWorkPass {
   private readonly planPipeline:GPUComputePipeline;
@@ -424,8 +443,15 @@ export class SurfaceLightingWorkPass {
   private readonly settings: GPUBuffer;
   private readonly viewBuffer: GPUBuffer;
   private readonly solarSampler: GPUSampler;
+  private readonly signalStorePackPipeline: GPUComputePipeline;
+  private readonly signalStoreResetPipeline: GPUComputePipeline;
+  private readonly signalStorePublishPipeline: GPUComputePipeline;
+  private readonly signalStoreSettings: GPUBuffer;
+  private readonly signalPackSettings: GPUBuffer;
+  private signalStoreInitialized = false;
 
-  constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources) {
+  constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources,
+    private readonly signalStore: GpuSurfaceSignalStore | null = null) {
     this.planPipeline=device.createComputePipeline({label:"Surface/lighting classify",layout:"auto",compute:{module:device.createShaderModule({code:LIGHTING_PLAN_WGSL}),entryPoint:"plan"}});
     this.finalizePipeline=device.createComputePipeline({label:"Surface/lighting finalize",layout:"auto",compute:{module:device.createShaderModule({code:LIGHTING_FINALIZE_WGSL}),entryPoint:"finalize"}});
     this.solarSampler = device.createSampler({ label: "Surface solar transmittance", minFilter: "linear", magFilter: "linear" });
@@ -433,12 +459,20 @@ export class SurfaceLightingWorkPass {
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.viewBuffer = device.createBuffer({ label: "Surface lighting view", size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.signalStoreSettings = device.createBuffer({ label: "Surface/SignalStore settings", size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.signalPackSettings = device.createBuffer({ label: "Surface/SignalStore request pack settings", size: 32,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.signalStorePackPipeline = device.createComputePipeline({ label: "Surface/SignalStore request pack", layout: "auto", compute: { module: device.createShaderModule({ code: SIGNAL_PACK_WGSL }), entryPoint: "pack" } });
+    const signalStoreModule = device.createShaderModule({ label: "Surface/SignalStore lookup and publish", code: SURFACE_SIGNAL_STORE_COMPUTE_WGSL });
+    this.signalStoreResetPipeline = device.createComputePipeline({ label: "Surface/SignalStore reset", layout: "auto", compute: { module: signalStoreModule, entryPoint: "surface_signal_store_reset" } });
+    this.signalStorePublishPipeline = device.createComputePipeline({ label: "Surface/SignalStore publish", layout: "auto", compute: { module: signalStoreModule, entryPoint: "surface_signal_store_publish" } });
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 80 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      ...[3, 4, 5, 6, 7].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: "storage" as GPUBufferBindingType } })),
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -471,12 +505,13 @@ export class SurfaceLightingWorkPass {
   }
 
   addToGraph(graph: FrameGraph, input: SurfaceLightingInput): SurfaceLightingProducts {
-    let diffusePackets!: ResourceId, specularPackets!: ResourceId, coatPackets!: ResourceId;
-    let iblPackets!: ResourceId, counters!: ResourceId;
+    let packets!: ResourceId, counters!: ResourceId;
     let dispatchIndirect!: ResourceId;
     let dirtyCounts!:ResourceId;
     let dirtyQueue=this.scratch.importBuffer(graph,input.resourceBinding,"Surface/dirty lighting queue",input.recordCount*8,GPUBufferUsage.STORAGE);
-    let signalCache=this.scratch.importBuffer(graph,input.resourceBinding,"Surface/compact signal witnesses",Math.max(32,input.recordCount*32),GPUBufferUsage.STORAGE);
+    const signalStoreBuffer = this.signalStore === null
+      ? this.scratch.importBuffer(graph,input.resourceBinding,"Surface/SignalStore disabled entries",256,GPUBufferUsage.STORAGE)
+      : graph.import_resource("Surface/SignalStore entries",{kind:"imported",label:"Surface/SignalStore entries",domain:"internal-full"},input.resourceBinding("surface-signal-store",()=>this.signalStore!.buffers[0]!));
     let shadowConstantsId!: ResourceId, shadowPageTableId!: ResourceId, shadowAtlasId!: ResourceId;
     const node = graph.add("Surface/independent lighting packets", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
@@ -494,8 +529,7 @@ export class SurfaceLightingWorkPass {
       const group0 = this.device.createBindGroup({ layout: this.layout, entries: [
         { binding: 0, resource: { buffer: this.settings } }, { binding: 1, resource: { buffer: buffer(data.geometry) } },
         { binding: 2, resource: { buffer: buffer(data.fields) } },
-        { binding: 3, resource: { buffer: buffer(diffusePackets) } }, { binding: 4, resource: { buffer: buffer(specularPackets) } },
-        { binding: 5, resource: { buffer: buffer(coatPackets) } }, { binding: 6, resource: { buffer: buffer(iblPackets) } },
+        { binding: 3, resource: { buffer: buffer(packets) } },
         { binding: 7, resource: { buffer: buffer(counters) } }, { binding: 10, resource: { buffer: buffer(dirtyCounts) } },
         { binding: 11, resource: { buffer: buffer(data.work) } }, { binding: 12, resource: { buffer: buffer(data.scalarAo ?? data.counts) } },
         { binding: 13, resource: resolveTextureView(resources.get(data.environment.diffuse)) },
@@ -534,8 +568,8 @@ export class SurfaceLightingWorkPass {
       }
       command.gpu_encoder.copyBufferToBuffer(buffer(data.counts), SURFACE_WORK_INDIRECT_OFFSET, resources.get(dispatchIndirect) as GPUBuffer, 0, 16);
       command.writeBuffer(buffer(dirtyCounts),0,new Uint32Array(8).buffer,0,32);
-      const planIds=[data.geometry,data.work,data.counts,data.scalarAo??data.counts,data.geometryKeys,signalCache,
-        diffusePackets,specularPackets,coatPackets,iblPackets,dirtyQueue,dirtyCounts,counters];
+      const planIds=[data.geometry,data.work,data.counts,data.scalarAo??data.counts,data.geometryKeys,signalStoreBuffer,
+        packets,dirtyQueue,dirtyCounts,counters,data.fieldIdentity];
       const planGroup=this.device.createBindGroup({layout:this.planPipeline.getBindGroupLayout(0),entries:[
         {binding:0,resource:{buffer:this.settings}},...planIds.map((id,index)=>({binding:index+1,resource:{buffer:buffer(id)}}))]});
       const planner=command.beginComputePass({label:"Surface/lighting classify"});planner.setPipeline(this.planPipeline);planner.setBindGroup(0,planGroup);
@@ -550,7 +584,7 @@ export class SurfaceLightingWorkPass {
     });
     dirtyCounts=node.create("Surface/dirty lighting count",{kind:"transient_buffer",size:32,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST});
     dirtyQueue=node.write(dirtyQueue);
-    node.read(input.geometryKeys);node.read(signalCache);signalCache=node.write(signalCache);
+    node.read(input.geometryKeys); node.read(input.fieldIdentity); node.read(signalStoreBuffer);
     node.read(input.geometry); node.read(input.fields); node.read(input.counts); node.read(input.work);
     node.read(input.lightRecords); node.read(input.clusters.parameters); node.read(input.clusters.lookup);
     if (input.physicalSun !== null) { node.read(input.physicalSun.parameters); node.read(input.physicalSun.transmittance); }
@@ -564,19 +598,50 @@ export class SurfaceLightingWorkPass {
     }
     if (input.scalarAo !== null) node.read(input.scalarAo);
     node.read(input.environment.diffuse); node.read(input.environment.specular); node.read(input.environment.dfg);
-    const bytes = Math.max(16, input.width * input.height * 16);
+    const bytes = Math.max(8, input.recordCount * 6 * 8);
     dispatchIndirect = node.create("Surface/lighting dispatch indirect", { kind: "transient_buffer", size: 16,
       usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     node.write(dispatchIndirect);
-    diffusePackets = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/diffuse packets", bytes, GPUBufferUsage.STORAGE);
-    specularPackets = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/specular packets", bytes, GPUBufferUsage.STORAGE);
-    coatPackets = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/coat packets", bytes, GPUBufferUsage.STORAGE);
-    iblPackets = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/IBL packets", bytes, GPUBufferUsage.STORAGE);
+    packets = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/compact signal packets", bytes, GPUBufferUsage.STORAGE);
     counters = node.create("Surface/lighting counters", { kind: "transient_buffer", size: SPARSE_LIGHTING_COUNTER_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
-    node.read(diffusePackets); diffusePackets = node.write(diffusePackets); node.read(specularPackets); specularPackets = node.write(specularPackets);
-    node.read(coatPackets); coatPackets = node.write(coatPackets); node.read(iblPackets); iblPackets = node.write(iblPackets); node.write(counters);
-    return { diffusePackets, specularPackets, coatPackets, iblPackets, counters };
+    node.read(packets); packets = node.write(packets); node.write(counters);
+    if (this.signalStore !== null) {
+      const storeEntries = this.signalStore.capacity.segmentBytes[0]! / SURFACE_SIGNAL_STORE_ENTRY_BYTES;
+      const initialization = !this.signalStoreInitialized ? graph.add("Surface/SignalStore initialize", { signalStoreBuffer, storeEntries }, (data, resources, context) => {
+        const command = context.encoder as ShadeGPUCommandContext;
+        command.writeBuffer(this.signalStoreSettings, 0, new Uint32Array([0, data.storeEntries, 1, 0]).buffer, 0, 16);
+        const group = this.device.createBindGroup({ layout: this.signalStoreResetPipeline.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: this.signalStoreSettings } }, { binding: 2, resource: { buffer: resources.get(data.signalStoreBuffer) as GPUBuffer } }
+        ] });
+        const pass = command.beginComputePass({ label: "Surface/SignalStore initialize" }); pass.setPipeline(this.signalStoreResetPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(data.storeEntries / 64)); pass.end();
+        command.onFinished.addOne(() => { this.signalStoreInitialized = true; }); command.onAborted?.addOne(() => { this.signalStoreInitialized = false; });
+      }) : null;
+      if (initialization !== null) { initialization.read(signalStoreBuffer); initialization.write(signalStoreBuffer); node.dependsOn(initialization); }
+      const requestCount = Math.max(1, input.recordCount * 6);
+      let requests!: ResourceId, storeCounters!: ResourceId;
+      const publish = graph.add("Surface/SignalStore publish after lighting", { recordCount: input.recordCount, requestCount, storeEntries, sampleOffset: input.sampleOffset, revisions: input.revisions, signalStoreBuffer, packets, geometryKeys: input.geometryKeys, fieldIdentity: input.fieldIdentity, work: input.work }, (data, resources, context) => {
+        const command = context.encoder as ShadeGPUCommandContext;
+        command.writeBuffer(this.signalPackSettings, 0, new Uint32Array([data.recordCount, data.revisions.environment, data.revisions.light, data.revisions.shadow, data.sampleOffset]).buffer, 0, 20);
+        const packGroup = this.device.createBindGroup({ layout: this.signalStorePackPipeline.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: this.signalPackSettings } }, { binding: 1, resource: { buffer: resources.get(data.geometryKeys) as GPUBuffer } },
+          { binding: 2, resource: { buffer: resources.get(data.work) as GPUBuffer } }, { binding: 3, resource: { buffer: resources.get(data.packets) as GPUBuffer } },
+          { binding: 4, resource: { buffer: resources.get(requests) as GPUBuffer } }, { binding: 5, resource: { buffer: resources.get(data.fieldIdentity) as GPUBuffer } }
+        ] });
+        const packPass = command.beginComputePass({ label: "Surface/SignalStore request pack" }); packPass.setPipeline(this.signalStorePackPipeline); packPass.setBindGroup(0, packGroup); packPass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); packPass.end();
+        command.writeBuffer(this.signalStoreSettings, 0, new Uint32Array([data.requestCount, data.storeEntries, this.signalStore!.stats().generation, 0]).buffer, 0, 16);
+        command.gpu_encoder.clearBuffer(resources.get(storeCounters) as GPUBuffer, 0, 32);
+        const publishGroup = this.device.createBindGroup({ layout: this.signalStorePublishPipeline.getBindGroupLayout(0), entries: [
+          { binding: 0, resource: { buffer: this.signalStoreSettings } }, { binding: 1, resource: { buffer: resources.get(requests) as GPUBuffer } },
+          { binding: 2, resource: { buffer: resources.get(data.signalStoreBuffer) as GPUBuffer } }, { binding: 4, resource: { buffer: resources.get(storeCounters) as GPUBuffer } }
+        ] });
+        const publishPass = command.beginComputePass({ label: "Surface/SignalStore publish" }); publishPass.setPipeline(this.signalStorePublishPipeline); publishPass.setBindGroup(0, publishGroup); publishPass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); publishPass.end();
+      });
+      requests = publish.create("Surface/SignalStore requests", { kind: "transient_buffer", size: requestCount * 16 * 4, usage: GPUBufferUsage.STORAGE });
+      storeCounters = publish.create("Surface/SignalStore counters", { kind: "transient_buffer", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      publish.read(input.geometryKeys); publish.read(input.fieldIdentity); publish.read(input.work); publish.read(packets); publish.read(signalStoreBuffer); publish.write(requests); publish.write(storeCounters); publish.write(signalStoreBuffer); publish.dependsOn(node); publish.make_side_effect();
+    }
+    return { packets, counters };
   }
 
-  destroy(): void { this.settings.destroy(); this.viewBuffer.destroy(); }
+  destroy(): void { this.signalStoreInitialized = false; this.settings.destroy(); this.viewBuffer.destroy(); this.signalStoreSettings.destroy(); this.signalPackSettings.destroy(); }
 }

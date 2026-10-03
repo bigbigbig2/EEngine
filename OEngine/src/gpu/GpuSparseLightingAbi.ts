@@ -1,10 +1,9 @@
-/** Signal packet ABI. A pixel owns at most one packet with a three-bit lobe
- * mask; target references select either a current primary or previous sample.
+/** Signal packet ABI. A representative owns up to six independent signal
+ * packets; target references select either a current primary or previous sample.
  * The full pixel-capacity allocation is an exact bound, not a work estimate. */
-export const SPARSE_LIGHTING_SIGNAL_COUNT = 3;
-/** Three independently scheduled lobes plus diffuse environment irradiance.
- * The fourth plane shares diffuse references/age; albedo remains per target. */
-export const SPARSE_LIGHTING_RADIANCE_LAYERS = 4;
+export const SPARSE_LIGHTING_SIGNAL_COUNT = 6;
+/** Independent direct/environment packets for diffuse, specular and coat. */
+export const SPARSE_LIGHTING_RADIANCE_LAYERS = 6;
 /** Exact f32 position/signed depth plus two f32 octahedral normal pairs.
  * View vectors come from the authoritative current/previous camera. Roughness
  * stays in current fields and its independent change signature. */
@@ -22,10 +21,12 @@ export const SPARSE_LIGHTING_HISTORY_NAMES = Object.freeze([
  * classify/indirect counter block.
  */
 export const SPARSE_LIGHTING_COUNTER = Object.freeze({
-  diffusePackets: 0,
-  specularPackets: 1,
-  coatPackets: 2,
-  iblPackets: 3,
+  directDiffusePackets: 0,
+  environmentDiffusePackets: 1,
+  directSpecularPackets: 2,
+  environmentSpecularPackets: 3,
+  directCoatPackets: 4,
+  environmentCoatPackets: 5,
   fullRateExceptions: 4,
   directEvaluations: 5,
   iblEvaluations: 6,
@@ -41,10 +42,12 @@ export const SPARSE_LIGHTING_COUNTER = Object.freeze({
   coatDisabled: 16,
   iblDisabled: 17,
   shadowEvaluations: 18,
-  diffuseWrites: 20, specularWrites: 21, coatWrites: 22, iblWrites: 23,
+  directDiffuseWrites: 20, environmentDiffuseWrites: 21,
+  directSpecularWrites: 22, environmentSpecularWrites: 23,
+  directCoatWrites: 24, environmentCoatWrites: 25,
   environmentDisabled: 19
 } as const);
-export const SPARSE_LIGHTING_COUNTER_WORDS = 24;
+export const SPARSE_LIGHTING_COUNTER_WORDS = 26;
 export const SPARSE_LIGHTING_COUNTER_BYTES = SPARSE_LIGHTING_COUNTER_WORDS * 4;
 
 /** Initial explicit calibration policy; final continuous-image acceptance

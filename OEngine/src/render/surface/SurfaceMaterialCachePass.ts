@@ -88,8 +88,10 @@ fn field_store_hit(key_at:u32)->bool {
    missing|=1u<<field;
   }
  }
- var signals=1u;if material_record.family!=0u{signals|=10u;}
- if material_record.family==2u || (material_record.feature_mask&((1u<<7u)|(1u<<8u)|(1u<<9u)))!=0u{signals|=4u;}
+ // Six independent signal bits: Ddirect, Denv, Sdirect, Senv, Cdirect, Cenv.
+ // The compact lighting pass can then hit or miss each lobe independently.
+ var signals=1u|2u|4u|8u;
+ if material_record.family==2u || (material_record.feature_mask&((1u<<7u)|(1u<<8u)|(1u<<9u)))!=0u{signals|=16u|32u;}
  work[at+3u]=signals;work[at+4u]=missing;
  work[at+7u]|=select(0u,2u,(material_record.feature_mask&((1u<<1u)|(1u<<2u)|(1u<<5u)|(1u<<6u)))!=0u);
  if missing==0u{

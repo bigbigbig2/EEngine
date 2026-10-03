@@ -19,8 +19,8 @@ import type { SurfaceGeometryPass } from "./SurfaceGeometryPass.js";
  * The production cell classifier owns the complete coverage -> cell plan
  * boundary. It emits compact SurfaceSampleRecord representatives directly;
  * there is no old winner-equality classifier or pixel-task expansion stage.
- * The compact sample buffer is intentionally kept as the current consumer ABI
- * until the FieldStore/SignalStore phases replace its storage products.
+ * FieldStore and SignalStore consume these representatives as the bounded
+ * per-frame demand stream; they do not recreate dense pixel products.
  */
 export interface SurfaceCellClassifierInput {
   readonly resourceBinding: SurfaceResourceBinding;

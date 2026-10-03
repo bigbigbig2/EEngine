@@ -10,12 +10,12 @@
 | Phase 1：连续域、LOD lineage、局部纹理 variation | 已完成 | `5057c8dd`；Phase 1 发布记录 | Native/WASM、普通 Geometry metadata、Product lineage、32 MiB variation pool 和实际纹理摘要发布已检查 |
 | Phase 2：连续域 classifier、跨 VisibilityKey、多率 SurfaceWork、Geometry setup | 实现切换完成，完整验收延期 | 当前工作树；生成器静态检查与 `build:test` 通过 | 已移除 runtime 旧 classifier 源码并修复多字段 WGSL 未声明 `field`；Chromium production fixture 仍受长时间 pipeline 编译限制，未宣称整链通过 |
 | Phase 3：FieldStore 与 demand Geometry | 核心代码已切换，正式验收延期 | 当前工作树；`build:test` 与 `git diff --check` 通过 | 已加入首帧初始化、lookup 前置 gate、compact field buffer、评估后 publish/admit；旧六层全屏 fields 与 pixel-capacity 分配已删除，仍保留 19-word compact identity 元数据和 4-word admission 摘要 |
-| Phase 4：SignalStore、紧凑 packet、稀疏 history | 预备实现 | 未提交 `GpuSurfaceSignalStore*` | owner、ABI 和预算存在，尚未替换 `SurfaceLightingWorkPass` |
+| Phase 4：SignalStore、紧凑 packet、稀疏 history | 核心代码已接通，正式验收延期 | 当前工作树；`build:test` 与 `git diff --check` 通过 | 六类独立 signal family、按 record 紧凑 packet、lighting 前 SignalStore probe、lighting 后 pack/publish 已接入；四路 packet plane 与 dense signal witness 已删除。四路 Surface history/identity/age 的最终删除属于 Phase 5，HDR precision spill 与正式 GPU/浏览器验收仍待完成 |
 | Phase 5：reconstruct/batch | 未开始 | 无 | 仍使用旧 dense history/reconstruct 生产路径 |
 | Phase 6：真实 provider/lifecycle | 未开始 | 无 | 不能把现有历史生命周期接线算作本轮目标完成 |
 | Phase 7：整链验收 | 未开始 | 无 | 没有正式 browser matrix、画质对照或四版本性能比较 |
 
-因此当前真正完成的是 **Phase 0–1，Phase 2 已完成代码切换但尚未完成正式生产验收，Phase 3 核心代码已接通但仍待完整 FieldStore value 消费与正式生产验收**。
+因此当前真正完成的是 **Phase 0–1，Phase 2–4 已完成对应代码切换但尚未完成正式生产验收**。Phase 3 的完整跨帧 FieldStore value 消费、Phase 4 的 HDR precision spill，以及 Phase 5 的 Surface history 删除仍是后续收敛项。
 
 ## Phase 2 当前事实
 
@@ -40,8 +40,8 @@
 1. 在后续收口中重新运行真实 Chromium production-cell fixture，覆盖 ordinary/Product、跨 key/meshlet、UV seam、normal 高频、direct shadow 风险、tail/overflow；当前不把长时间 compile 当成通过。
 2. 继续删除 `GpuSurfaceWorkAbi` 的旧 pixel-capacity/record 分区，让 plans/compact representative work 的真实 consumer 使用 bounded batch 与 demand Geometry。
 3. 完成 FieldStore 的完整 value 消费和 19-word identity 元数据最终收敛；当前 lookup gate、compact field buffer、评估后 publish 已接入，剩余工作集中在跨帧 value 复用、admission 溢出与真实 GPU 覆盖。
-4. 接着接入 SignalStore 和独立 signal rate，删除 dense packet/history owner，完成检查后提交 Phase 4。
-5. 接着接入 SignalStore 和独立 signal rate，删除 dense packet/history owner，完成检查后提交 Phase 4。
-6. 最后推进 reconstruct、固定 batches、providers/lifecycle，全部接线完成后才执行 Phase 7 的整链浏览器、画质和性能报告。
+4. 收口 Phase 4 的 HDR precision spill、SignalStore age/confidence 与按 signal 的完整依赖签名，再进入 Phase 5。
+5. Phase 5 删除四路 Surface history pairs、dense identity/age，并把 reconstruct 限定为 packet/history 的廉价合成。
+6. 最后推进固定 batches、providers/lifecycle，全部接线完成后才执行 Phase 7 的整链浏览器、画质和性能报告。
 
-当前先停在讨论和进度记录阶段；不继续修改生产实现，等待下一步指令。
+当前 Phase 4 已完成核心生产切换；正式 GPU/浏览器验收按 Phase 7 集中执行。

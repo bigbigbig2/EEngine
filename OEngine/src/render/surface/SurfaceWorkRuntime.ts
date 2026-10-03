@@ -19,6 +19,7 @@ import { SurfaceCellClassifierPass } from "./SurfaceCellClassifierPass.js";
 import type { ResourceAccounting } from "../../debug/profiling/ResourceAccounting.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import type { GpuSurfaceFieldStore } from "../../gpu/GpuSurfaceFieldStore.js";
+import type { GpuSurfaceSignalStore } from "../../gpu/GpuSurfaceSignalStore.js";
 
 export interface SurfaceWorkFrame {
   readonly generation: number;
@@ -94,14 +95,14 @@ export class SurfaceWorkRuntime {
 
   constructor(private readonly device: GPUDevice, private readonly budget: SurfaceWorkBudget = {
     maxTiles: 262144, maxSamples: 262144, maxExceptions: 65536, maxGeometryRecords: 262144, maxBytes: 128 * 1024 * 1024
-  }, accounting?: ResourceAccounting, fieldStore: GpuSurfaceFieldStore | null = null) {
+  }, accounting?: ResourceAccounting, fieldStore: GpuSurfaceFieldStore | null = null, signalStore: GpuSurfaceSignalStore | null = null) {
     this.scratch = new SurfaceFrameResources(device, accounting);
     this.cellClassifier = new SurfaceCellClassifierPass(device, this.scratch);
     this.cacheIdentity = new SurfaceCacheIdentityPass(device,this.scratch);
     this.dependencyEpoch = new SurfaceDependencyEpochPass(device,this.scratch);
     this.geometry = new SurfaceGeometryPass(device, this.scratch);
     this.material = new SurfaceMaterialCachePass(device, this.scratch, fieldStore);
-    this.lighting = new SurfaceLightingWorkPass(device, this.scratch);
+    this.lighting = new SurfaceLightingWorkPass(device, this.scratch, signalStore);
     this.reconstruction = new SurfaceReconstructionPass(device);
     this.diagnostics = new SurfaceDiagnosticsPass(device, (command, source, frameId) => {
       const capture = this.diagnosticsCapture;
@@ -215,14 +216,13 @@ export class SurfaceWorkRuntime {
       publication: input.publication, textureBanks: input.textureBanks, work, sampleOffset: layout.sampleOffset,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null,
       viewRevision: input.viewRevision, nonlocalRevision: input.nonlocalRevision });
-    const lighting = this.lighting.addToGraph(graph, { geometryKeys:witness.keys,revisions:input.revisions,diagnosticFrame:input.diagnosticFrame,resourceBinding: input.historyBinding, geometry: geometry.records, fields: evaluatedMaterial.fields,
+    const lighting = this.lighting.addToGraph(graph, { geometryKeys:witness.keys,fieldIdentity: material.cacheKeys,revisions:input.revisions,diagnosticFrame:input.diagnosticFrame,resourceBinding: input.historyBinding, geometry: geometry.records, fields: evaluatedMaterial.fields,
       work, sampleOffset: layout.sampleOffset, geometryOffset: 0, width: input.width, height: input.height,
       recordCount, frame: input.frame.generation, counts, camera: input.camera,
       lightRecords: input.lightRecords, clusters: input.clusters, shadow: input.shadow,
       scalarAo: input.scalarAo, environment: input.environment, physicalSun: input.physicalSun,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
-    const reconstruction = this.reconstruction.addToGraph(graph, { diffuse: lighting.diffusePackets, specular: lighting.specularPackets,
-      coat: lighting.coatPackets, ibl: lighting.iblPackets, reactive: input.factsMask,
+    const reconstruction = this.reconstruction.addToGraph(graph, { packets: lighting.packets, reactive: input.factsMask,
       identity: input.factsIdentity, motion: input.factsMotion, historyBinding: input.historyBinding,
       preExposure: input.preExposure, revisions: input.revisions,
       width: input.width, height: input.height, recordCount:input.width*input.height, sampleMap,

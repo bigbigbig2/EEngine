@@ -104,10 +104,10 @@ fn snapshot_frame() {
   snapshot[${COUNTER_BASE + C.specularEvaluations}u] = lighting_counts[1u];
   snapshot[${COUNTER_BASE + C.coatEvaluations}u] = lighting_counts[2u];
   snapshot[${COUNTER_BASE + C.iblEvaluations}u] = lighting_counts[3u];
-  snapshot[${COUNTER_BASE + C.diffusePacketWrites}u] = lighting_counts[20u];
-  snapshot[${COUNTER_BASE + C.specularPacketWrites}u] = lighting_counts[21u];
-  snapshot[${COUNTER_BASE + C.coatPacketWrites}u] = lighting_counts[22u];
-  snapshot[${COUNTER_BASE + C.iblPacketWrites}u] = lighting_counts[23u];
+  snapshot[${COUNTER_BASE + C.diffusePacketWrites}u] = lighting_counts[20u] + lighting_counts[21u];
+  snapshot[${COUNTER_BASE + C.specularPacketWrites}u] = lighting_counts[22u] + lighting_counts[23u];
+  snapshot[${COUNTER_BASE + C.coatPacketWrites}u] = lighting_counts[24u] + lighting_counts[25u];
+  snapshot[${COUNTER_BASE + C.iblPacketWrites}u] = lighting_counts[21u] + lighting_counts[23u] + lighting_counts[25u];
   snapshot[${COUNTER_BASE + C.reconstructOutputPixels}u] = reconstruct_counts[0u];
   snapshot[${COUNTER_BASE + C.reconstructUncoveredPixels}u] = reconstruct_counts[1u];
   snapshot[${COUNTER_BASE + C.historyReusePixels}u] = reconstruct_counts[2u];
@@ -116,7 +116,7 @@ fn snapshot_frame() {
   snapshot[${COUNTER_BASE + C.outputPixels}u] = settings.width * settings.height;
   snapshot[${COUNTER_BASE + C.validPacketPixels}u] = lighting_counts[12u];
   snapshot[${COUNTER_BASE + C.geometryRecordWriteBytes}u] = geometry_count[22u];
-  snapshot[${COUNTER_BASE + C.packetWriteBytes}u] = 16u*(lighting_counts[20u]+lighting_counts[21u]+lighting_counts[22u]+lighting_counts[23u]);
+  snapshot[${COUNTER_BASE + C.packetWriteBytes}u] = 8u*(lighting_counts[20u]+lighting_counts[21u]+lighting_counts[22u]+lighting_counts[23u]+lighting_counts[24u]+lighting_counts[25u]);
   snapshot[${COUNTER_BASE + C.reconstructHistoryLoads}u] = reconstruct_counts[6u];
   snapshot[${COUNTER_BASE + C.reconstructMappedPixels}u] = reconstruct_counts[7u];
   // Format-footprint logical traffic, not DRAM transactions: sample map 4,
