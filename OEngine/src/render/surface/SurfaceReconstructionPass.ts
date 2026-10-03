@@ -58,24 +58,26 @@ struct Settings {
 @group(0) @binding(0) var<uniform> settings:Settings;
 @group(0) @binding(1) var<storage,read> packets:array<vec2u>;
 @group(0) @binding(2) var<storage,read> full_packets:array<vec4f>;
-@group(0) @binding(3) var source_facts:texture_2d<f32>;
-@group(0) @binding(4) var sample_map:texture_2d<u32>;
-@group(0) @binding(5) var<storage,read> pre_exposure:array<f32>;
-@group(0) @binding(6) var output:texture_storage_2d<rgba16float,write>;
-@group(0) @binding(7) var reactive:texture_storage_2d<rgba8unorm,write>;
-@group(0) @binding(8) var<storage,read_write> diagnostics:array<atomic<u32>>;
+@group(0) @binding(3) var<storage,read> packet_flags:array<u32>;
+@group(0) @binding(4) var source_facts:texture_2d<f32>;
+@group(0) @binding(5) var sample_map:texture_2d<u32>;
+@group(0) @binding(6) var<storage,read> pre_exposure:array<f32>;
+@group(0) @binding(7) var output:texture_storage_2d<rgba16float,write>;
+@group(0) @binding(8) var reactive:texture_storage_2d<rgba8unorm,write>;
+@group(0) @binding(9) var<storage,read_write> diagnostics:array<atomic<u32>>;
 
 fn diagnostic_add(index:u32,value:u32) {
   if (settings.diagnostics_enabled!=0u) { atomicAdd(&diagnostics[index],value); }
 }
 fn packet_value(record:u32,kind:u32)->vec4f {
-  let full=full_packets[record*6u+kind];
-  if (full.w>0.5) { return full; }
-  let packed=packets[record*6u+kind];
+  let slot=record*6u+kind;
+  let flags=packet_flags[slot];
+  if ((flags&2u)!=0u) { return full_packets[flags>>8u]; }
+  let packed=packets[slot];
   return vec4f(unpack2x16float(packed.x),unpack2x16float(packed.y));
 }
 fn has_signal(record:u32)->bool {
-  for (var kind=0u;kind<6u;kind++) { if (packet_value(record,kind).w>0.5) { return true; } }
+  for (var kind=0u;kind<6u;kind++) { if ((packet_flags[record*6u+kind]&1u)!=0u) { return true; } }
   return false;
 }
 fn compose(record:u32)->vec3f {
@@ -129,12 +131,13 @@ export class SurfaceReconstructionPass {
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float", viewDimension: "2d" } },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
-      { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 6, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
-      { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba8unorm" } },
-      { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 4, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float", viewDimension: "2d" } },
+      { binding: 5, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } },
+      { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
+      { binding: 8, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba8unorm" } },
+      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
     ] });
     this.batchLayout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
@@ -156,6 +159,7 @@ export class SurfaceReconstructionPass {
   addToGraph(graph: FrameGraph, input: {
     packets: ResourceId;
     fullPackets: ResourceId;
+    packetFlags: ResourceId;
     reactive: ResourceId;
     preExposure: ResourceId;
     sampleMap: ResourceId;
@@ -193,18 +197,19 @@ export class SurfaceReconstructionPass {
           { binding: 0, resource: { buffer: this.settings } },
           { binding: 1, resource: { buffer: resources.get(data.packets) as GPUBuffer } },
           { binding: 2, resource: { buffer: resources.get(data.fullPackets) as GPUBuffer } },
-          { binding: 3, resource: resolveTextureView(resources.get(data.reactive)) },
-          { binding: 4, resource: resolveTextureView(resources.get(data.sampleMap)) },
-          { binding: 5, resource: { buffer: resources.get(data.preExposure) as GPUBuffer } },
-          { binding: 6, resource: resolveTextureView(resources.get(radiance)) },
-          { binding: 7, resource: resolveTextureView(resources.get(reactiveMask)) },
-          { binding: 8, resource: { buffer: countersBuffer } }
+          { binding: 3, resource: { buffer: resources.get(data.packetFlags) as GPUBuffer } },
+          { binding: 4, resource: resolveTextureView(resources.get(data.reactive)) },
+          { binding: 5, resource: resolveTextureView(resources.get(data.sampleMap)) },
+          { binding: 6, resource: { buffer: resources.get(data.preExposure) as GPUBuffer } },
+          { binding: 7, resource: resolveTextureView(resources.get(radiance)) },
+          { binding: 8, resource: resolveTextureView(resources.get(reactiveMask)) },
+          { binding: 9, resource: { buffer: countersBuffer } }
         ] });
         const pass = command.beginComputePass({ label: `Surface/reconstruct batch ${batch}` });
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroupsIndirect(indirect, batch * 16); pass.end();
       }
     });
-    node.read(input.packets); node.read(input.fullPackets); node.read(input.reactive); node.read(input.preExposure); node.read(input.sampleMap);
+    node.read(input.packets); node.read(input.fullPackets); node.read(input.packetFlags); node.read(input.reactive); node.read(input.preExposure); node.read(input.sampleMap);
     batchIndirect = node.create("Surface/reconstruct batch indirect", { kind: "transient_buffer", size: this.batchPlan.batchCount * 16,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     node.write(batchIndirect);

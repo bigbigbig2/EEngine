@@ -237,6 +237,7 @@ export class SurfaceWorkRuntime {
       scalarAo: input.scalarAo, environment: input.environment, physicalSun: input.physicalSun,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     const reconstruction = this.reconstruction.addToGraph(graph, { packets: lighting.packets, fullPackets: lighting.fullPackets,
+      packetFlags: lighting.packetFlags,
       reactive: input.factsMask, preExposure: input.preExposure,
       width: input.width, height: input.height, recordCount: recordCount, sampleMap,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });

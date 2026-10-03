@@ -1,6 +1,6 @@
 # Surface V3 第一版优化执行文档
 
-当前推进：Phase 4 代码收口已提交（`b882cc5a`），Phase 5 代码收口已完成，Phase 6 资源、真实 provider 与生命周期接线已完成；Phase 6.5 已提交一轮 production cutover blocker 修复，但 classifier 全屏 workspace 与 lighting 全量 precision mirror 仍未收口，正式整链验收继续延期至 Phase 7。
+当前推进：Phase 4 代码收口已提交（`b882cc5a`），Phase 5 代码收口已完成，Phase 6 资源、真实 provider 与生命周期接线已完成；Phase 6.5 production cutover 已完成，正式浏览器、GPU、画质与性能验收进入 Phase 7。
 
 日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–6 已完成代码切换但正式验收延期，Phase 7 尚未开始**。详细状态见[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
 
