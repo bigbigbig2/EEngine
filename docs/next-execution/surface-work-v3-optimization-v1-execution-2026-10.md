@@ -1,6 +1,8 @@
 # Surface V3 第一版优化执行文档
 
-日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–3 已完成代码切换但正式验收延期，Phase 4 核心代码已接通但正式验收延期，Phase 5–7 尚未开始**。详细状态见[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
+当前推进：Phase 4 代码收口已提交（`b882cc5a`），Phase 5 代码已完成；正式整链验收延期至 Phase 7，下一阶段为 Phase 6。
+
+日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–3 已完成代码切换但正式验收延期，Phase 4–5 代码收口完成但正式验收延期，Phase 6–7 尚未开始**。详细状态见[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
 
 唯一配套细化设计：[Surface V3 第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)。保留[第三版总设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)的 owner 边界，按用户最新要求替换初版物理实现。历史执行记录见[原 V3 计划](surface-work-runtime-v3-rebuild-2026.md)；历史测量见[1080p 报告](../performance/2026-10-03-surface-v3-work-bandwidth-report.md)。
 
@@ -163,7 +165,7 @@ Phase 2 的 plan ABI、CPU/GPU synthetic oracle、Geometry setup 和 production 
 
 收口状态（2026-10-03）：Phase 4 代码实现已完成；正式 WGSL、数值、GPU、浏览器和整链验收统一延期到 Phase 7。Phase 5 负责删除 Surface 自有 history/identity/age 并建立批处理 reconstruct。
 
-当前源码状态（2026-10-03）：Phase 4 核心生产接线已完成。`SurfaceLightingWorkPass` 已将 direct diffuse、environment diffuse、direct specular、environment specular、coat direct、coat environment 作为六个独立 signal family，使用按 record 的紧凑半精度 packet；四路全屏 lighting packet plane 与 dense signal witness 已从该主链移除。`GpuSurfaceSignalStore` 负责有界 64 MiB resident store，lighting classify 在重 worker 前直接 probe，lighting 后通过独立 pack/publish 节点发布，`SurfaceReconstructionPass` 读取六类 packet 并只做合成。SignalStore 的 key、generation、valid flag、结果 payload 和 publish/reset ABI 已接通；Phase 4 的正式 WGSL/数值、HDR precision spill、历史资源删除和整链验收仍需后续集中处理，其中四路 Surface history 与 identity/age 的最终删除属于 Phase 5。
+当前源码状态（2026-10-03）：Phase 4 代码收口已完成。`SurfaceLightingWorkPass` 已将 direct diffuse、environment diffuse、direct specular、environment specular、coat direct、coat environment 作为六个独立 signal family，使用按 record 的紧凑半精度 packet，并在异常值时写入 16 B precision spill；四路全屏 lighting packet plane 与 dense signal witness 已从该主链移除。`GpuSurfaceSignalStore` 负责有界 64 MiB resident store，lighting classify 在重 worker 前直接 probe，lighting 后通过独立 miss-only pack/publish 节点发布，entry 使用 20-word ABI 并维护 generation、valid、age/confidence。`SurfaceReconstructionPass` 已进入 Phase 5，删除 Surface history/identity/age，改为按 extent/profile batch 规划、GPU indirect count 和 packet/TemporalFacts 合成。正式 WGSL/数值、GPU、浏览器和整链验收统一留到 Phase 7。
 
 1. 将当前 IBL 拆成 Denv、Senv、E；direct diffuse/specular 与 coat direct/env 分开依赖和需求。
 2. 使用有限 diffuse、specular/coat worker families；保留原 direct/BRDF、atmosphere、cluster、shadow 与环境数学。
@@ -178,7 +180,7 @@ Phase 2 的 plan ABI、CPU/GPU synthetic oracle、Geometry setup 和 production 
 
 ## 9. Phase 5：廉价 reconstruct 与完整 batch 复用
 
-当前状态（2026-10-03）：已进入实现。
+当前状态（2026-10-03）：代码收口完成；正式 GPU、浏览器、画质与整链验收延期到 Phase 7。
 
 - Reconstruct按本批output region写入；规则cell用模板，mixed用紧凑映射。
 - 同domain/字段seam/side内选择合法source；默认单tap，必要插值至多4 tap/信号，按真实tap统计读取。

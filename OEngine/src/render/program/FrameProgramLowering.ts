@@ -407,8 +407,6 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       parameters: physicalEnvironmentSun, transmittance: atmosphereEnvironment
     },
     factsMask: facts.mask,
-    factsIdentity: facts.identity,
-    factsMotion: facts.motion,
     historyBinding: (name, resolve) => bind(name, resolve),
     preExposure: gpuPreviousExposure,
     revisions: bind("surface-signal-revisions", bindings => ({

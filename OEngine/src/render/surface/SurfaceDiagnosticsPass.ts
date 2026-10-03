@@ -110,25 +110,25 @@ fn snapshot_frame() {
   snapshot[${COUNTER_BASE + C.iblPacketWrites}u] = lighting_counts[21u] + lighting_counts[23u] + lighting_counts[25u];
   snapshot[${COUNTER_BASE + C.reconstructOutputPixels}u] = reconstruct_counts[0u];
   snapshot[${COUNTER_BASE + C.reconstructUncoveredPixels}u] = reconstruct_counts[1u];
-  snapshot[${COUNTER_BASE + C.historyReusePixels}u] = reconstruct_counts[2u];
-  snapshot[${COUNTER_BASE + C.historyRejectPixels}u] = reconstruct_counts[3u];
-  snapshot[${COUNTER_BASE + C.identityRejectPixels}u] = reconstruct_counts[4u];
+  // Surface history/identity was removed in Phase 5; these legacy ABI slots
+  // remain zero until a future diagnostics contract revision.
+  snapshot[${COUNTER_BASE + C.historyReusePixels}u] = 0u;
+  snapshot[${COUNTER_BASE + C.historyRejectPixels}u] = 0u;
+  snapshot[${COUNTER_BASE + C.identityRejectPixels}u] = 0u;
   snapshot[${COUNTER_BASE + C.outputPixels}u] = settings.width * settings.height;
   snapshot[${COUNTER_BASE + C.validPacketPixels}u] = lighting_counts[12u];
   snapshot[${COUNTER_BASE + C.geometryRecordWriteBytes}u] = geometry_count[22u];
   snapshot[${COUNTER_BASE + C.packetWriteBytes}u] = 8u*(lighting_counts[20u]+lighting_counts[21u]+lighting_counts[22u]+lighting_counts[23u]+lighting_counts[24u]+lighting_counts[25u]);
-  snapshot[${COUNTER_BASE + C.reconstructHistoryLoads}u] = reconstruct_counts[6u];
+  snapshot[${COUNTER_BASE + C.reconstructHistoryLoads}u] = 0u;
   snapshot[${COUNTER_BASE + C.reconstructMappedPixels}u] = reconstruct_counts[7u];
   // Format-footprint logical traffic, not DRAM transactions: sample map 4,
-  // facts 4, identity 16, motion 4, previous identity 16, previous age 4,
-  // exposure 4 = 52 B per output pixel. A valid mapped target reads four
-  // vec4f packets (64 B); invalid mapped targets only check diffuse (16 B).
-  // Each accepted signal history fetch is one rgba16float texel (8 B).
+  // TemporalFacts rgba8 4 and exposure 4 = 12 B per output pixel. A valid
+  // mapped target reads six full packet vec4f values (96 B). Surface no longer
+  // owns a second full-resolution identity, motion or signal history.
   let output_pixels=settings.width*settings.height;
-  snapshot[${COUNTER_BASE + C.reconstructReadBytes}u] = 52u*output_pixels +
-    16u*reconstruct_counts[7u]+48u*reconstruct_counts[0u]+8u*reconstruct_counts[6u];
-  // Four signal histories 32 + identity 16 + age 4 + HDR 8 + reactive 4.
-  snapshot[${COUNTER_BASE + C.reconstructWriteBytes}u] = 64u*output_pixels;
+  snapshot[${COUNTER_BASE + C.reconstructReadBytes}u] = 12u*output_pixels + 96u*reconstruct_counts[7u];
+  // Final HDR rgba16float plus reactive rgba8unorm are the only Surface writes.
+  snapshot[${COUNTER_BASE + C.reconstructWriteBytes}u] = 12u*output_pixels;
   var diagnostic_flags = 0u;
   if surface_counts[14u] != 0u { diagnostic_flags = diagnostic_flags | ${SURFACE_DIAGNOSTIC_FLAGS.sampleOverflow}u; }
   if geometry_miss[1u] != 0u { diagnostic_flags = diagnostic_flags | ${SURFACE_DIAGNOSTIC_FLAGS.geometryOverflow}u; }

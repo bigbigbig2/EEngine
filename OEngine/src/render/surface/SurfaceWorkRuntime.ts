@@ -130,7 +130,7 @@ export class SurfaceWorkRuntime {
     if (this.destroyed || this.prepared) throw new Error("SurfaceWork frame is already prepared");
     this.layout = surfaceWorkLayout(width, height, this.budget, this.device.limits);
     this.scratch.prepare(width, height);
-    this.reconstruction.prepareFrame(width, height); this.prepared = true;
+    this.reconstruction.prepareFrame(width, height, Math.max(1, Math.floor(this.layout.sampleCapacity / 64))); this.prepared = true;
   }
 
   setDiagnosticsMode(mode: SurfaceDiagnosticsMode): void {
@@ -156,7 +156,7 @@ export class SurfaceWorkRuntime {
     shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
     environment: SurfaceLightingInput["environment"];
     physicalSun: SurfaceLightingInput["physicalSun"];
-    factsMask: ResourceId; factsIdentity: ResourceId; factsMotion: ResourceId; preExposure: ResourceId; width: number; height: number;
+    factsMask: ResourceId; preExposure: ResourceId; width: number; height: number;
     historyBinding: SurfaceResourceBinding;
     revisions: SurfaceSignalRevisions; viewRevision: Readonly<{value:number}>; nonlocalRevision: Readonly<{value:number}>; diagnosticFrame: Readonly<{value:number}>;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
@@ -223,10 +223,9 @@ export class SurfaceWorkRuntime {
       lightRecords: input.lightRecords, clusters: input.clusters, shadow: input.shadow,
       scalarAo: input.scalarAo, environment: input.environment, physicalSun: input.physicalSun,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
-    const reconstruction = this.reconstruction.addToGraph(graph, { packets: lighting.packets, reactive: input.factsMask,
-      identity: input.factsIdentity, motion: input.factsMotion, historyBinding: input.historyBinding,
-      preExposure: input.preExposure, revisions: input.revisions,
-      width: input.width, height: input.height, recordCount:input.width*input.height, sampleMap,
+    const reconstruction = this.reconstruction.addToGraph(graph, { packets: lighting.packets, fullPackets: lighting.fullPackets,
+      reactive: input.factsMask, preExposure: input.preExposure,
+      width: input.width, height: input.height, recordCount: recordCount, sampleMap,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     const diagnostics = this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null ? this.diagnostics.addToGraph(graph, {
       work, counts, materialCounters: evaluatedMaterial.counters, materialAudit: evaluatedMaterial.audit, geometryCount: geometry.count,
@@ -241,7 +240,7 @@ export class SurfaceWorkRuntime {
 
   commit(gpuDone: Promise<void>): void {
     if (!this.prepared) throw new Error("SurfaceWork commit without prepare");
-    this.reconstruction.commit(gpuDone); this.scratch.commit(gpuDone); this.prepared = false;
+    this.reconstruction.commit(); this.scratch.commit(gpuDone); this.prepared = false;
   }
   abort(): void { this.reconstruction.abort(); this.prepared = false; }
   invalidate(): void { this.reconstruction.invalidate(); }
