@@ -1,6 +1,7 @@
 import { GPU_GEOMETRY_RECORD_SCHEMA, GPU_MESHLET_RECORD_SCHEMA, type GpuRecordSchema } from "../gpu/GpuGeometryAbi.js";
 import { frameGeometrySourceWgsl, FRAME_ATTRIBUTE_OCT_DECODE_WGSL } from "./geometry_source_decode.js";
 import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../gpu/GpuFrameGeometryAttributesAbi.js";
+import { SURFACE_PRIMITIVE_BYTES, SURFACE_PRIMITIVE_VERSION } from "../gpu/SurfacePrimitiveAbi.js";
 
 /** Shared final direct source decoder. The normal path reads the frame arena;
  * only a capacity miss uses source data. No old worker or setup is retained.
@@ -73,6 +74,22 @@ fn surface_source_load(work: OEngineMeshletRasterWork) -> vec2u {
   surface_source_product=oengine_instance_virtual_geometry(frame_instances[work.instance_slot].source);
   ${product ? "if surface_source_product { return product_frame_vertex_load_source(work); }" : ""}
   return frame_vertex_load_source(work);
+}
+// Called after source_load by the same Geometry owner. Product metadata follows
+// that meshlet's aligned triangle bytes; ordinary metadata is a payload-relative
+// offset published by GpuAssetStore. It is not primitive winner identity data.
+fn surface_source_continuity(primitive:u32,triangle_count:u32)->array<vec4u,4> {
+ var result:array<vec4u,4>;
+ ${product ? `if surface_source_product {
+  let first=(product_source_triangle_byte+((triangle_count*3u+3u)&~3u))/4u+primitive*${SURFACE_PRIMITIVE_BYTES / 4}u;
+  for(var i=0u;i<4u;i++){let at=first+i*4u;result[i]=vec4u(product_frame_vertex_word(product_source_bank,at),
+   product_frame_vertex_word(product_source_bank,at+1u),product_frame_vertex_word(product_source_bank,at+2u),product_frame_vertex_word(product_source_bank,at+3u));}
+  return result;
+ }` : ""}
+ if source_meshlet.surface_metadata_version!=${SURFACE_PRIMITIVE_VERSION}u{return result;}
+ let first=settings.source_payload.x+source_meshlet.surface_metadata_word_offset+primitive*${SURFACE_PRIMITIVE_BYTES / 4}u;
+ for(var i=0u;i<4u;i++){let at=first+i*4u;result[i]=vec4u(vertex_payload[at],vertex_payload[at+1u],vertex_payload[at+2u],vertex_payload[at+3u]);}
+ return result;
 }
 `;
   return perInvocation ? source : source.replaceAll("var<private>","var<workgroup>");

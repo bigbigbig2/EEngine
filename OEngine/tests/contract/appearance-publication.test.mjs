@@ -131,7 +131,7 @@ test("shared PSO does not merge distinct physical product resource sets; capabil
   const f = fixture(true, 32), c = command(f.device), allocations = [], released = [];
   const owner = { acquire(asset) {
     const texture = { asset: asset.runtime.manifest.assetId, createView() { return { texture: this }; } }; allocations.push(texture);
-    return { destination: () => ({ texture, layer: 0 }), release: () => released.push(texture) };
+    return { destination: () => ({ texture, layer: 0 }), variation: () => null, release: () => released.push(texture) };
   } };
   const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(), new Map(), undefined, owner, f.cache);
   await p.ready;

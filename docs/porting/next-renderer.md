@@ -2,6 +2,32 @@
 
 ## 2026-10-03：Surface V3 第一版优化设计映射（待实施）
 
+### Phase 2 实施中：组件代码与完整接线分开记录
+
+### Phase 3 预备实现：FieldStore owner（未提交）
+
+按用户新增的来源优先规则，Phase 3 的有界分配、request/dedup/admit/publish 阶段继续对照固定 OSS `473a59bbcdd30e3366cc567d66a5a97353620d48` 的 `RenderTaskProcessing.compute`、`ShadelAllocator.cginc` 和 `VirtualRenderTexture.cginc`。本地只移植阶段边界和有限 allocator 约束，不复制 Unity/RT 绑定或作者工程的 chart/GI 语义；完整 Field key、generation、field version、sampler、texture/geometry domain 仍来自 EEngine publication。
+
+当前未提交代码：`GpuSurfaceFieldStoreAbi.ts` 定义 12-word 完整 identity、4-way bounded sets、128 MiB 默认预算及 negotiated segment；`GpuSurfaceFieldStore.ts` 是唯一长期 owner，支持同一 command 的 reset、GPU producer 统计、generation 和销毁。`SURFACE_FIELD_STORE_COMPUTE_WGSL` 已加入真实 lookup/publish：完整 key compare、有限四路 probe、CAS owner、hit/miss/full counters；`.local/validation/surface-optimization-v1/surface-field-store-gpu-oracle.json` 的 D3D12 fixture 验证 3 requests/3 hits/2 publishes/0 overflow。它尚未接入 `SurfaceMaterialCachePass` 的生产 lookup/evaluate/consume，也没有把旧 dense cache 物理删除，因此不能标 Phase 3 完成。Contract tests 已覆盖 identity-vs-hash、四路容量和 WGSL key comparison。
+
+### Phase 4 预备实现：SignalStore owner（未提交）
+
+SignalStore 的 packet/spill ABI 对照 Intel CPS 的 coarse/fine/overflow 分支和 OSS 的 bounded allocator/task publication 边界；不复制其 GBuffer 或 Unity/RT 绑定。`GpuSurfaceSignalStoreAbi.ts` 保留六种 direct/env/coat signal、provider revision、shadow/AO/footprint key；`GpuSurfaceSignalStore.ts` 提供 64 MiB 分段 owner、generation、reset 和生命周期。它尚未替换 `SurfaceLightingWorkPass` 的四个 dense packet/history 平面，Contract tests 覆盖 lobe identity、packet/spill容量和完整 key compare。
+
+此项尚未完成、尚未提交，不改变 Phase 0–1 的完成身份，也不提升采用或性能状态。继续沿用下表已固定的 Forge、Wicked、Intel CPS 与 OSS 源入口和许可证；跨 primitive 的字段 partition、区间传播及有界 primitive setup 是具名本地 **Continuity-Domain Signal Sampling**，不是这些 donor 已交付的完整组合算法。
+
+| 来源/本地规则 | 目前的本地代码 | 保留的输入、分支、发布与限制 |
+|---|---|---|
+| Wicked 完整 tile coverage、合法 lane 与 bin publication 阶段参考；跨 winner partition 是本地扩展 | `surface_cell_classify.ts`、`GpuSurfaceCellPlanAbi.ts` | 64 invocations；字段/信号各独立 workgroup；2×1/1×2/2×2/4×4，diffuse 可到 8×8。完整几何/字段兼容由必须提供的事实库判断，没有默认 stub。fine/grid 使用公式地址；mixed 6-bit owner 与 representative；每平面自己的覆盖 mask；常量不分配结果 slot。当前 D3D12/FXC 不接受旧串行 plane 循环的同步流，已调整为 dispatch Y=21，未降低共享语义 |
+| Forge/DAIS 既有 HomogeneousWinnerInterpolation；矩形有理仿射极值与 finite-pixel 差分界为本地扩展 | `surface_cell_address_math.ts` | 原始 W 为零/负值继续有效；矩形分母穿零只拒绝对应 footprint；包含实际 consumer 运算重排、消减与有限差分的误差余量。normal box 用包围球证明整个内部方向界，不能只采盒角就宣称完整 cone |
+| 既有 Geometry source/resident attribute decode 与 Phase 1 continuity publication；去重/容量是本地集成 | `SurfaceGeometryPass::addCellSetupsToGraph` → `SurfaceCellGeometrySetup` → `surface_cell_geometry_setup.ts` | reset/request-admit/finalize-indirect/build/consume；严格 winner 只用于本帧 setup 去重，不作共享判据。弱 CAS 重试/探测有限；request 不读取其他组尚未发布的 slot；容量/碰撞失败保留同 Geometry owner 的 direct math 入口。普通 metadata 读实际 payload offset；Product 读其 aligned triangle bytes 后的 v2 metadata。没有恢复旧 Winner coordinator，也没有生成全屏 GeometryRecord |
+| Phase 1 实际 decoded texture hierarchy；局部查询为本地算法 | `texture_local_variation_query.ts` | generation/revision/resident mip、repeat/mirror/clamp、bilinear halo、所交叠 mip 和有界节点查询；consumer 不读取材质 texel。缺摘要或未知 footprint 只拒绝依赖字段，不以 whole-texture min/max 代替局部 bounds |
+| 既有 Appearance scalar graph 与有限程序 lowering；区间传播为本地算法 | `appearance_field_bounds.ts`、`GpuSurfaceAppearanceBoundsAbi.ts`、`GpuAppearancePublication` | 同一 graph 根、同一 constant slot；逐输出 seam/dependency 闭包。乘加、除法、clamp、ORM、normal decode、normal moment 等的值界；UV 仿射坐标传播 finite-pixel gradient。奇点/未支持坐标导数只使相关输出 unknown。整数指数使用有界算术证书；其余 pow 不冒称拥有跨驱动严格误差界。sin/cos 使用适用区间内的绝对精度余量。publication 的 compact metadata 中实际上传 bounds/常量/routes，并同步数值编辑；独立旧 evaluator 资源仍待 Phase 3 切断 |
+
+已取得组件诊断：8 个 synthetic-fact GPU partition 场景；7 个真实 decoded texture pool + 生成字段 bounds 场景；1,445 个独立高斯消元参考位置与分母穿零；普通/Product setup shader profiles 编译；普通几何真实 FrameGraph/allocator/indirect 的 64 pixel / 2 winner / 2 setup 执行。artifact 位于 `.local/validation/surface-optimization-v1/`，均为 diagnostic，不是 accepted evidence。Dawn adapter/cache blob stderr 警告仍存在；不能称驱动问题已修复。
+
+**尚缺**完整 production fact library、Product 实际数据 GPU 执行、溢出 direct 消费、旧 classifier/pixel-task ABI 的生产切断及固定 batch 真实调度；旧 `SurfaceWorkRuntime` 仍运行旧 classifier。上述组件结果不证明本轮跨 primitive 共享已在 Showcase 生效，更不证明 Surface 总时间/画质收益。Phase 2 完整结束前不提交其局部实现。
+
 ### Phase 1 实施与来源边界
 
 实际代码与检查范围见[Phase 1 发布记录](../next-execution/surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。连续域与角点lineage为具名本地Continuity-Domain Signal Sampling的publication部分；六种域、独立risk、LOD-local继承、位置/属性误差及上取整tangent角锥不是OSS或DOOM已交付的完整算法。

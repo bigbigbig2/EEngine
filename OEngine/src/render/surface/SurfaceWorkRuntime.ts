@@ -15,6 +15,7 @@ import type { SurfaceDiagnosticsCapture } from "../../debug/SurfaceDiagnosticsCa
 import { SurfaceCacheIdentityPass } from "./SurfaceCacheIdentityPass.js";
 import { SurfaceDependencyEpochPass } from "./SurfaceDependencyEpochPass.js";
 import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
+import { SurfaceCellClassifierPass } from "./SurfaceCellClassifierPass.js";
 import type { ResourceAccounting } from "../../debug/profiling/ResourceAccounting.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 
@@ -219,6 +220,7 @@ export class SurfaceWorkRuntime {
   private readonly cacheIdentity: SurfaceCacheIdentityPass;
   private readonly dependencyEpoch: SurfaceDependencyEpochPass;
   private readonly scratch: SurfaceFrameResources;
+  private readonly cellClassifier: SurfaceCellClassifierPass;
   private readonly geometry: SurfaceGeometryPass;
   private readonly material: SurfaceMaterialCachePass;
   private readonly lighting: SurfaceLightingWorkPass;
@@ -227,11 +229,8 @@ export class SurfaceWorkRuntime {
   private diagnosticsMode: SurfaceDiagnosticsMode = "off";
   private diagnosticsCapture: SurfaceDiagnosticsCapture | null = null;
   private diagnosticsIdentity: Omit<SurfaceDiagnosticsIdentity, "frameId"> = { runId: "default", deviceEpoch: 0 };
-  private readonly classifyLayout: GPUBindGroupLayout;
-  private readonly classifyPipeline: GPUComputePipeline;
   private readonly finalizeLayout: GPUBindGroupLayout;
   private readonly finalizePipeline: GPUComputePipeline;
-  private readonly settings: GPUBuffer;
   private readonly finalizeSettings: GPUBuffer;
   private prepared = false;
   private destroyed = false;
@@ -241,6 +240,7 @@ export class SurfaceWorkRuntime {
     maxTiles: 262144, maxSamples: 262144, maxExceptions: 65536, maxGeometryRecords: 262144, maxBytes: 128 * 1024 * 1024
   }, accounting?: ResourceAccounting) {
     this.scratch = new SurfaceFrameResources(device, accounting);
+    this.cellClassifier = new SurfaceCellClassifierPass(device, this.scratch);
     this.cacheIdentity = new SurfaceCacheIdentityPass(device,this.scratch);
     this.dependencyEpoch = new SurfaceDependencyEpochPass(device,this.scratch);
     this.geometry = new SurfaceGeometryPass(device, this.scratch);
@@ -257,19 +257,8 @@ export class SurfaceWorkRuntime {
       command.onFinished.addOne(() => capture.markSubmitted(ticket));
       command.onAborted?.addOne((_context: ShadeGPUCommandContext, cause: unknown) => capture.cancel(ticket, cause));
     });
-    this.settings = device.createBuffer({ label: "SurfaceWork/classify settings", size: 48,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.finalizeSettings = device.createBuffer({ label: "SurfaceWork/finalize settings", size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.classifyLayout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 4, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "r32uint" } }
-    ] });
-    this.classifyPipeline = device.createComputePipeline({ label: "SurfaceWork/classify", layout: device.createPipelineLayout({ bindGroupLayouts: [this.classifyLayout] }),
-      compute: { module: device.createShaderModule({ code: CLASSIFY_WGSL }), entryPoint: "classify" } });
     this.finalizeLayout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
@@ -302,8 +291,9 @@ export class SurfaceWorkRuntime {
 
   addToGraph(graph: FrameGraph, input: { visibility: ResourceId; arena: ResourceId; meshletWork: ResourceId;
     sourceHeap: ResourceId; vertexPayload: ResourceId; frameInstances: ResourceId; frameAttributes: ResourceId;
-    camera: ResourceId; fieldVersions: ResourceId; residencyVersions: ResourceId; materialLookup: ResourceId; surfaceIdentity: ResourceId; materials: ResourceId;
+    camera: ResourceId; textureVariation: ResourceId; appearanceMetadata: ResourceId; fieldVersions: ResourceId; residencyVersions: ResourceId; materialLookup: ResourceId; surfaceIdentity: ResourceId; materials: ResourceId;
     textureBanks: readonly (readonly ResourceId[])[]; publication: GpuAppearancePublication;
+    product: Readonly<{ heap: ResourceId; banks: readonly ResourceId[] }> | null;
     lightRecords: ResourceId; clusters: SurfaceLightingInput["clusters"];
     shadow: SurfaceLightingInput["shadow"]; scalarAo: ResourceId | null;
     environment: SurfaceLightingInput["environment"];
@@ -315,40 +305,19 @@ export class SurfaceWorkRuntime {
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
     if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
     const layout = this.layout;
-    let work!: ResourceId;
-    let sampleMap!: ResourceId;
-    let counts!: ResourceId;
-    const classify = graph.add("SurfaceWork/classify implicit-uniform-mixed", input, (data, resources, context) => {
-      const command = context.encoder as ShadeGPUCommandContext;
-      const header = new Uint32Array(16); writeSurfaceWorkHeader(header, layout, data.width, data.height, data.frame.generation);
-      header[4] = 0; header[5] = 0; header[6] = 0;
-      const tilesX = Math.ceil(data.width / 8);
-      const tilesY = Math.ceil(data.height / 8);
-      const tileCount = tilesX * tilesY;
-      const exceptionStride = Math.max(1, Math.floor(layout.exceptionCapacity / Math.max(1, tileCount)));
-      const settings = new Uint32Array([data.width, data.height, tilesX, tilesY,
-        layout.tileOffset / 4, layout.sampleOffset / 4, layout.exceptionOffset / 4,
-        data.frame.generation >>> 0, layout.tileCapacity, layout.sampleCapacity,
-        layout.exceptionCapacity, exceptionStride]);
-      command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
-      command.writeBuffer(resources.get(work) as GPUBuffer, 0, header.buffer, 0, header.byteLength);
-      command.writeBuffer(resources.get(counts) as GPUBuffer, 0, new Uint32Array(SURFACE_WORK_COUNTER_BYTES / 4).buffer, 0, SURFACE_WORK_COUNTER_BYTES);
-      const group = this.device.createBindGroup({ layout: this.classifyLayout, entries: [
-        { binding: 0, resource: { buffer: this.settings } }, { binding: 1, resource: resolveTextureView(resources.get(data.visibility)) },
-        { binding: 2, resource: { buffer: resources.get(work) as GPUBuffer } },
-        { binding: 3, resource: { buffer: resources.get(counts) as GPUBuffer } },
-        { binding: 4, resource: resolveTextureView(resources.get(sampleMap)) }
-      ] });
-      const pass = command.beginComputePass({ label: "SurfaceWork/classify" }); pass.setPipeline(this.classifyPipeline); pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(tileCount); pass.end();
-    });
-    classify.read(input.visibility);
-    work = this.scratch.importBuffer(graph, input.historyBinding, "SurfaceWork frame partitions", layout.geometryOffset,
-      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST); work = classify.write(work);
-    counts = classify.create("SurfaceWork counters and indirect", { kind: "transient_buffer", size: SURFACE_WORK_COUNTER_BYTES,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" }); classify.write(counts);
-    sampleMap = classify.create("SurfaceWork sample map", { kind: "transient_texture", width: input.width, height: input.height,
-      format: "r32uint", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" }); classify.write(sampleMap);
+    const cells = this.cellClassifier.addToGraph(graph, { resourceBinding: input.historyBinding, geometryPass: this.geometry,
+      visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
+      frameInstances: input.frameInstances, camera: input.camera, textureVariation: input.textureVariation,
+      appearanceMetadata: input.appearanceMetadata, width: input.width, height: input.height,
+      generation: input.frame.generation, frameAt: input.frame.arenaHeaderOffset / 4, directoryAt: input.frame.directoryOffset / 4,
+      sourceGeometry: input.frame.sourceGeometry, sourceMeshlet: input.frame.sourceMeshlet, sourceMeshletVertices: input.frame.sourceMeshletVertices,
+      sourceMeshletTriangles: input.frame.sourceMeshletTriangles, sourceVertexData: input.frame.sourceVertexData,
+      publication: input.publication, product: input.product, lightRecords: input.lightRecords,
+      clusters: input.clusters, shadowEnabled: input.shadow !== null, physicalSunEnabled: input.physicalSun !== null,
+      workLayout: layout, diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
+    let work = cells.work;
+    let sampleMap = cells.sampleMap;
+    let counts = cells.counts;
     const finalize = graph.add("SurfaceWork/finalize counters", { work, counts }, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       command.writeBuffer(this.finalizeSettings, 0, new Uint32Array([layout.sampleCapacity, layout.exceptionCapacity, SURFACE_WORK_INDIRECT_OFFSET, 0]).buffer, 0, 16);
@@ -419,5 +388,5 @@ export class SurfaceWorkRuntime {
   }
   abort(): void { this.reconstruction.abort(); this.prepared = false; }
   invalidate(): void { this.reconstruction.invalidate(); }
-  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.scratch.destroy(); this.cacheIdentity.destroy(); this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.reconstruction.destroy(); this.diagnostics.destroy(); this.settings.destroy(); this.finalizeSettings.destroy(); }
+  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.scratch.destroy(); this.cellClassifier.destroy(); this.cacheIdentity.destroy(); this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.reconstruction.destroy(); this.diagnostics.destroy(); this.finalizeSettings.destroy(); }
 }

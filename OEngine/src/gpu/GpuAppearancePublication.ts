@@ -21,6 +21,8 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "./GpuMeshletRasterWorkAbi.js";
 import { appearanceInputLayout, appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
 import { appearanceCoverageKernel, COVERAGE_DIRECTORY_STRIDE } from "../shaders/appearance_coverage.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
+import { lowerAppearanceFieldBounds, type AppearanceFieldBoundProgram } from "../shaders/appearance_field_bounds.js";
+import { packSurfaceAppearanceBounds } from "./GpuSurfaceAppearanceBoundsAbi.js";
 
 const APPEARANCE_FRAME_MAX_TASKS = 262144;
 const APPEARANCE_FRAME_MAX_PIXELS = 4194304;
@@ -387,6 +389,10 @@ export class GpuAppearancePublication {
     readonly identity: number;
     readonly directory: number;
     readonly runtimeInputs: number;
+    readonly bounds: number;
+    readonly constants: number;
+    readonly routes: number;
+    readonly constantFields: number;
     readonly materialLookupCount: number;
     readonly directoryCount: number;
   }>;
@@ -394,6 +400,7 @@ export class GpuAppearancePublication {
   readonly materialLookup: GPUBuffer;
   readonly surfaceIdentity: GPUBuffer;
   readonly surfaceProgramCount: number;
+  readonly surfaceBoundPrograms: readonly AppearanceFieldBoundProgram[];
   readonly surfaceMaxInputVectors: number;
   readonly surfaceMaxOutputs: number;
   readonly cache!: PreparedAppearanceCache;
@@ -434,6 +441,8 @@ export class GpuAppearancePublication {
     const descriptors: AppearanceProgramDescriptor[] = [];
     const surfaceDescriptors: AppearanceProgramDescriptor[] = [];
     const surfaceKernels: AppearanceResidentKernel[] = [];
+    const boundPrograms: AppearanceFieldBoundProgram[] = [];
+    const boundGraphs: CompiledAppearanceGraph[] = [];
     const leaseIndices = new Map<string, number>();
     const resourceSets = new Map<string, number>();
     const coveragePrograms = new Map<string, number>();
@@ -446,6 +455,7 @@ export class GpuAppearancePublication {
     const directory = new Uint32Array(sources.length * directoryWords);
     const assets = new Map<string, AppearanceAssetPackage>();
     const productTargets: { assetId: string; field: string; textures: GPUTexture[]; binding: number }[] = [];
+    const productRouteTargets:{assetId:string;field:string;route:number}[]=[];
     try {
       for (const [index, source] of sources.entries()) {
         if (!Number.isInteger(source.materialSlot) || source.materialSlot < 0 || source.materialSlot > 0xffffffff) {
@@ -478,6 +488,7 @@ export class GpuAppearancePublication {
             productTargets.push({ assetId: read.asset.runtime.manifest.assetId, field: read.field.name, textures: productTextures, binding });
           }
           const layer = read.asset.fields.filter(field => appearanceStaticTextureKey(read.asset, field) === key).findIndex(field => field.name === read.field.name);
+          productRouteTargets.push({assetId:read.asset.runtime.manifest.assetId,field:read.field.name,route:routes.length});
           routes.push(packProductRoute(read.asset, layer));
           assets.set(read.asset.runtime.manifest.assetId, read.asset);
           return binding;
@@ -506,6 +517,8 @@ export class GpuAppearancePublication {
           const surfaceKernel = appearanceResidentKernel(source.program, resources, productResources,
             surfaceKernelIntegration(source.program, kernel.lowered));
           surfaceKernels.push(surfaceKernel);
+          boundPrograms.push(lowerAppearanceFieldBounds(source.program, kernel.lowered, `ab_field_${programIndex}`));
+          boundGraphs.push(source.program);
           surfaceDescriptors.push(surfaceKernel.descriptor);
           leaseIndices.set(kernelKey, programIndex);
         }
@@ -616,19 +629,29 @@ export class GpuAppearancePublication {
         identityData.set([directoryData[index*directoryWords+1]!,directoryData[index*directoryWords+5]!,names.length,this.surfaceCacheGeneration],at);
         APPEARANCE_FIELD_NAMES.forEach((name,field)=>{const ordinal=names.indexOf(name);identityData[at+4+field]=ordinal<0?0xffffffff:ordinal;});
       });
+      const boundData = packSurfaceAppearanceBounds(boundGraphs);
       const surfaceMetadataOffsets = {
         materialLookup: 0,
         identity: materialLookupData.length,
         directory: materialLookupData.length + identityData.length,
         runtimeInputs: materialLookupData.length + identityData.length + directoryData.length,
+        bounds: materialLookupData.length + identityData.length + directoryData.length + inputData.length,
+        constants: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length,
+        routes: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length + constantData.length,
+        constantFields: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length + constantData.length + routeData.byteLength/4,
         materialLookupCount: materialLookupData.length,
         directoryCount: directoryData.length / directoryWords
       } as const;
-      const surfaceMetadataData = new Uint32Array(surfaceMetadataOffsets.runtimeInputs + inputData.length);
+      // GPU publication substage fills one submitted-epoch constant palette per
+      // material. The immutable descriptor/input ranges precede this write domain.
+      const surfaceMetadataData = new Uint32Array(surfaceMetadataOffsets.constantFields + Math.max(1,sources.length)*64);
       surfaceMetadataData.set(materialLookupData, surfaceMetadataOffsets.materialLookup);
       surfaceMetadataData.set(identityData, surfaceMetadataOffsets.identity);
       surfaceMetadataData.set(directoryData, surfaceMetadataOffsets.directory);
       surfaceMetadataData.set(new Uint32Array(inputData.buffer, inputData.byteOffset, inputData.length), surfaceMetadataOffsets.runtimeInputs);
+      surfaceMetadataData.set(boundData, surfaceMetadataOffsets.bounds);
+      surfaceMetadataData.set(new Uint32Array(constantData.buffer),surfaceMetadataOffsets.constants);
+      surfaceMetadataData.set(new Uint32Array(routeData.buffer),surfaceMetadataOffsets.routes);
       const maximum = Math.min(Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize));
       for (const data of [constantData, routeData, directoryData, fieldData, inputData, materialLookupData, identityData, surfaceMetadataData]) if (data.byteLength > maximum) {
         throw new RangeError(`Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`);
@@ -657,6 +680,12 @@ export class GpuAppearancePublication {
         this.staticLeases.push(lease); assetLeases.set(id, lease);
       }
       for (const target of productTargets) target.textures[target.binding] = assetLeases.get(target.assetId)!.destination(target.field).texture;
+      for(const target of productRouteTargets){
+        const summary=assetLeases.get(target.assetId)!.variation(target.field);if(!summary)continue;
+        const view=new DataView(routeData.buffer,target.route*APPEARANCE_ROUTE_STRIDE,APPEARANCE_ROUTE_STRIDE);
+        view.setUint32(4,summary.slot,true);view.setUint32(8,summary.generation,true);view.setUint32(12,summary.revision,true);
+      }
+      surfaceMetadataData.set(new Uint32Array(routeData.buffer),surfaceMetadataOffsets.routes);
       for (const entry of entries) {
         Object.freeze(entry.productTextures); Object.freeze(entry.coverage.productTextures);
         (entry.coverage.productViews as GPUTextureView[]).push(...entry.coverage.productTextures.map(texture => texture.createView({ dimension: "2d-array" })));
@@ -682,6 +711,7 @@ export class GpuAppearancePublication {
        this.entries = Object.freeze(entries);
        this.leases = Object.freeze(leaseList);
        this.surfaceProgramCount = surfaceDescriptors.length;
+       this.surfaceBoundPrograms = Object.freeze(boundPrograms);
        this.surfaceMaxInputVectors = Math.max(1, ...surfaceKernels.map(kernel => kernel.inputVectorCount));
        this.surfaceMaxOutputs = Math.max(1, ...surfaceKernels.map(kernel => kernel.lowered.outputCount));
        this.allocatedBytes = this.buffers.reduce((bytes, buffer) => bytes + buffer.size, 0);
@@ -776,6 +806,7 @@ export class GpuAppearancePublication {
       command.writeBuffer(buffer, 0, data.buffer, data.byteOffset, data.byteLength);
     }
     command.writeBuffer(this.surfaceMetadata, this.surfaceMetadataOffsets.runtimeInputs*4, inputs.buffer, inputs.byteOffset, inputs.byteLength);
+    command.writeBuffer(this.surfaceMetadata, this.surfaceMetadataOffsets.constants*4, constants.buffer, constants.byteOffset, constants.byteLength);
     command.onFinished.addOne(() => { this.constantValues = constants; this.inputValues = inputs; this.fieldWords = fields; });
     return coverageChanged;
   }
@@ -1088,7 +1119,7 @@ export class GpuAppearancePublication {
   private upload(device: GPUDevice, command: ShadeGPUCommandContext, name: string, data: Float32Array | Uint8Array | Uint32Array): GPUBuffer {
     const label = `GpuAppearancePublication/${name}`;
     const buffer = device.createBuffer({ label, size: data.byteLength,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | (name === "surface-metadata" ? GPUBufferUsage.COPY_SRC : 0) });
     this.buffers.push(buffer);
     if (this.accounting !== undefined) this.accountingHandles.push(this.accounting.created({
       kind: "buffer", category: "resident", owner: "GpuAppearancePublication", label, bytes: data.byteLength }));
@@ -1129,5 +1160,7 @@ function packRoute(binding: CompiledAppearanceGraph["samples"][number]["binding"
   const values = [...binding.offset, ...binding.scale, Math.cos(binding.rotation), Math.sin(binding.rotation), 0, 0,
     ...binding.fallback];
   values.forEach((value, index) => view.setFloat32(16 + index * 4, value, true));
+  // Rotation's unused lanes carry exact local-summary identity, not f32 values.
+  view.setUint32(40, publication?.generation ?? 0, true);
   return data;
 }

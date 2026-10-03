@@ -1,0 +1,285 @@
+import type { FrameGraph } from "../../framegraph/FrameGraph.js";
+import type { ResourceId } from "../../framegraph/ResourceHandle.js";
+import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
+import { resolveTextureView } from "../RenderTargetViews.js";
+import { surfaceCellClassifyStageWgsl } from "../../shaders/surface_cell_classify.js";
+import { surfaceCellProductionFactsWgsl } from "../../shaders/surface_cell_production_facts.js";
+import { SURFACE_CELL_LIGHTING_RISK_WGSL } from "../../shaders/surface_cell_lighting_risk.js";
+import { SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL } from "../../shaders/surface_cell_static_product_bounds.js";
+import { SURFACE_CELL_PLAN_WGSL, SURFACE_CELL_PLANE_COUNT,
+  SURFACE_CELL_TILE_PLAN_BYTES, surfaceCellWorkspaceLayout, surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
+import { SURFACE_WORK_COUNTER_BYTES, SURFACE_WORK_HEADER_STRIDE, SURFACE_WORK_INDIRECT_OFFSET,
+  writeSurfaceWorkHeader, type SurfaceWorkLayout } from "../../gpu/GpuSurfaceWorkAbi.js";
+import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
+import type { SurfaceResourceBinding } from "./SurfaceFrameResources.js";
+import { SurfaceFrameResources } from "./SurfaceFrameResources.js";
+import type { SurfaceGeometryPass } from "./SurfaceGeometryPass.js";
+
+/**
+ * The production cell classifier owns the complete coverage -> cell plan
+ * boundary. It emits compact SurfaceSampleRecord representatives directly;
+ * there is no old winner-equality classifier or pixel-task expansion stage.
+ * The compact sample buffer is intentionally kept as the current consumer ABI
+ * until the FieldStore/SignalStore phases replace its storage products.
+ */
+export interface SurfaceCellClassifierInput {
+  readonly resourceBinding: SurfaceResourceBinding;
+  readonly geometryPass: SurfaceGeometryPass;
+  readonly visibility: ResourceId;
+  readonly meshletWork: ResourceId;
+  readonly sourceHeap: ResourceId;
+  readonly vertexPayload: ResourceId;
+  readonly frameInstances: ResourceId;
+  readonly camera: ResourceId;
+  readonly textureVariation: ResourceId;
+  readonly appearanceMetadata: ResourceId;
+  readonly width: number;
+  readonly height: number;
+  readonly generation: number;
+  readonly frameAt: number;
+  readonly directoryAt: number;
+  readonly sourceGeometry: number;
+  readonly sourceMeshlet: number;
+  readonly sourceMeshletVertices: number;
+  readonly sourceMeshletTriangles: number;
+  readonly sourceVertexData: number;
+  readonly publication: GpuAppearancePublication;
+  readonly product: Readonly<{ heap: ResourceId; banks: readonly ResourceId[] }> | null;
+  readonly lightRecords: ResourceId;
+  readonly clusters: Readonly<{ parameters: ResourceId; lookup: ResourceId; data: ResourceId }>;
+  readonly shadowEnabled: boolean;
+  readonly physicalSunEnabled: boolean;
+  readonly workLayout: SurfaceWorkLayout;
+  readonly diagnosticsEnabled: boolean;
+}
+
+export interface SurfaceCellClassifierProducts {
+  readonly work: ResourceId;
+  readonly counts: ResourceId;
+  readonly sampleMap: ResourceId;
+  readonly workspace: ResourceId;
+}
+
+const COMPACT_WGSL = /* wgsl */ `
+struct CompactSettings {
+  width:u32, height:u32, tiles_x:u32, tile_count:u32,
+  sample_offset:u32, tile_offset:u32, sample_capacity:u32, generation:u32,
+}
+@group(0) @binding(0) var<uniform> compact_settings:CompactSettings;
+@group(0) @binding(1) var<storage,read> compact_workspace:SurfaceCellWorkspace;
+@group(0) @binding(2) var<storage,read_write> compact_work:array<u32>;
+@group(0) @binding(3) var<storage,read_write> compact_counts:array<atomic<u32>>;
+@group(0) @binding(4) var compact_sample_map:texture_storage_2d<r32uint,write>;
+${SURFACE_CELL_PLAN_WGSL}
+var<workgroup> compact_rep:array<u32,64>;
+var<workgroup> compact_slot:array<u32,64>;
+var<workgroup> compact_active:array<u32,64>;
+var<workgroup> compact_count:atomic<u32>;
+
+fn compact_plan(tile:u32,plane:u32)->SurfaceCellPlanePlan {
+  let at=tile*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u+16u+plane*6u;
+  return SurfaceCellPlanePlan(compact_workspace.plans[at],compact_workspace.plans[at+1u],compact_workspace.plans[at+2u],compact_workspace.plans[at+3u],compact_workspace.plans[at+4u],compact_workspace.plans[at+5u]);
+}
+fn compact_rep_for(tile:u32,plane:u32,lane:u32)->u32 {
+  let plan=compact_plan(tile,plane);let coverage=vec2u(plan.coverage_lo,plan.coverage_hi);
+  if !surface_cell_mask_member(coverage,lane){return 0xffffffffu;}
+  let group=surface_cell_group(plan,&compact_workspace.maps,lane);
+  return surface_cell_representative(plan,&compact_workspace.maps,group);
+}
+fn compact_write_sample(slot:u32,pixel:u32,key:u32,tile:u32)->void {
+  let at=compact_settings.sample_offset+slot*8u;
+  compact_work[at]=pixel;compact_work[at+1u]=key;compact_work[at+2u]=key;
+  compact_work[at+3u]=0u;compact_work[at+4u]=0u;compact_work[at+5u]=tile;
+  compact_work[at+6u]=slot;compact_work[at+7u]=0u;
+}
+@compute @workgroup_size(64)
+fn compact_cells(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32){
+  let tile=group.x;if tile>=compact_settings.tile_count{return;}
+  let tx=tile%compact_settings.tiles_x;let ty=tile/compact_settings.tiles_x;
+  let px=tx*8u+lane%8u;let py=ty*8u+lane/8u;let inside=px<compact_settings.width&&py<compact_settings.height;
+  if inside{textureStore(compact_sample_map,vec2i(px,py),vec4u(0xffffffffu));}
+  compact_rep[lane]=0xffffffffu;compact_slot[lane]=0xffffffffu;compact_active[lane]=0u;
+  if lane==0u{atomicStore(&compact_count,0u);}
+  workgroupBarrier();
+  if lane==0u {
+    for(var i=0u;i<64u;i++){
+      if ((tx*8u+i%8u)>=compact_settings.width||(ty*8u+i/8u)>=compact_settings.height){continue;}
+      var rep=0xffffffffu;
+      for(var plane=0u;plane<${SURFACE_CELL_PLANE_COUNT}u;plane++){
+        let candidate=compact_rep_for(tile,plane,i);if candidate!=0xffffffffu{rep=select(candidate,rep,candidate<rep);}
+      }
+      if rep==0xffffffffu{continue;}
+      var seen=false;for(var j=0u;j<i;j++){if compact_rep[j]==rep{seen=true;break;}}
+      compact_rep[i]=rep;compact_active[i]=1u;
+      if !seen{let slot=atomicAdd(&compact_count,1u);compact_slot[i]=slot;}
+    }
+    let total=atomicLoad(&compact_count);let base=atomicAdd(&compact_counts[0],total);
+    var emitted=0u;
+    for(var i=0u;i<64u;i++){
+      if compact_active[i]==0u{continue;}
+      var owner=0xffffffffu;for(var j=0u;j<=i;j++){if compact_rep[j]==compact_rep[i]&&compact_slot[j]!=0xffffffffu{owner=compact_slot[j];break;}}
+      if owner==0xffffffffu{continue;}
+      let slot=base+owner;let rep=compact_rep[i];let repPixel=(ty*8u+rep/8u)*compact_settings.width+tx*8u+rep%8u;
+      let fact=compact_workspace.facts[tile*64u+rep];
+      if slot<compact_settings.sample_capacity{if compact_slot[i]==owner{compact_write_sample(slot,repPixel,fact.x,tile);}textureStore(compact_sample_map,vec2i(tx*8u+i%8u,ty*8u+i/8u),vec4u(slot));emitted++;}
+    }
+    let tileAt=compact_settings.tile_offset+tile*12u;compact_work[tileAt+0u]=(tx*8u)|((min(8u,compact_settings.width-tx*8u))<<16u);
+    compact_work[tileAt+1u]=(ty*8u)|((min(8u,compact_settings.height-ty*8u))<<16u);
+    compact_work[tileAt+2u]=select(0u,select(2u,1u,total==1u),total!=0u)|(min(emitted,255u)<<8u);
+    compact_work[tileAt+3u]=1u;compact_work[tileAt+4u]=1u;compact_work[tileAt+5u]=1u;compact_work[tileAt+6u]=1u;
+    compact_work[tileAt+7u]=tile*16u;compact_work[tileAt+8u]=emitted;compact_work[tileAt+9u]=tile;compact_work[tileAt+10u]=0u;compact_work[tileAt+11u]=0u;
+    atomicAdd(&compact_counts[3],emitted);
+    if total==0u{atomicAdd(&compact_counts[4],1u);}else if total==1u{atomicAdd(&compact_counts[5],1u);}else{atomicAdd(&compact_counts[6],1u);}
+    if base+total>compact_settings.sample_capacity{atomicAdd(&compact_counts[14],base+total-compact_settings.sample_capacity);atomicOr(&compact_counts[2],2u);}
+  }
+}
+`;
+
+export class SurfaceCellClassifierPass {
+  private readonly cellSettings: GPUBuffer;
+  private readonly factSettings: GPUBuffer;
+  private readonly compactSettings: GPUBuffer;
+  private readonly scratch: SurfaceFrameResources;
+  private readonly pipelines = new Map<string, Readonly<{ constants: GPUComputePipeline; facts: GPUComputePipeline; classify: readonly GPUComputePipeline[]; compact: GPUComputePipeline }>>();
+
+  constructor(private readonly device: GPUDevice, scratch: SurfaceFrameResources) {
+    this.scratch = scratch;
+    this.cellSettings = device.createBuffer({ label: "Surface/cell settings", size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.factSettings = device.createBuffer({ label: "Surface/cell fact settings", size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.compactSettings = device.createBuffer({ label: "Surface/cell compact settings", size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  }
+
+  addToGraph(graph: FrameGraph, input: SurfaceCellClassifierInput): SurfaceCellClassifierProducts {
+    const tilesX = Math.ceil(input.width / 8), tilesY = Math.ceil(input.height / 8), tiles = tilesX * tilesY;
+    const workspaceLayout = surfaceCellWorkspaceLayout(tiles);
+    if (workspaceLayout.bytes > this.device.limits.maxStorageBufferBindingSize) {
+      throw new RangeError("Surface cell workspace exceeds the negotiated storage binding limit; batch splitting is required");
+    }
+    const dictionaryCapacity = Math.min(65536, 2 ** Math.ceil(Math.log2(Math.max(16, tiles * 2))));
+    const product = input.product !== null;
+    const factLibrary = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
+      SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity);
+    const profile = `${product}:${dictionaryCapacity}:${input.publication.surfaceProgramCount}`;
+    let pipelines = this.pipelines.get(profile);
+    if (!pipelines) {
+      const fullModule = this.device.createShaderModule({ label: "Surface/cell publication and compaction", code:
+        `${surfaceCellClassifyStageWgsl(factLibrary, tiles, 0, 0, 3, "classify_cells_base", false)}\n${COMPACT_WGSL}` });
+      const stageRanges = [[0, 3, [0, 1, 2]], [3, 3, [3, 4, 5]], [6, 3, [6, 7, 8]], [9, 3, [9, 10, 11]],
+        [12, 3, [12, 13, 14]], [15, 3, [6, 10, 13]], [18, 3, [0, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14]]] as const;
+      const modules = stageRanges.map(([start, count, fields], index) => {
+        const stageFacts = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
+          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(fields), false);
+        return this.device.createShaderModule({
+        label: `Surface/cell production classifier stage ${index}`,
+        code: surfaceCellClassifyStageWgsl(stageFacts, tiles, index, start, count, `classify_cells_stage_${index}`, start < 15 ? "field-geometry" : "full")
+      });
+      });
+      const module = fullModule;
+      pipelines = Object.freeze({
+        constants: this.device.createComputePipeline({ label: "Surface/cell material constants", layout: "auto", compute: { module, entryPoint: "publish_cell_material_constants" } }),
+        facts: this.device.createComputePipeline({ label: "Surface/cell lighting facts", layout: "auto", compute: { module, entryPoint: "publish_cell_facts" } }),
+        classify: Object.freeze(modules.map((stageModule, index) => this.device.createComputePipeline({ label: `Surface/cell classify stage ${index}`, layout: "auto", compute: { module: stageModule, entryPoint: `classify_cells_stage_${index}` } }))),
+        compact: this.device.createComputePipeline({ label: "Surface/cell compact representatives", layout: "auto", compute: { module, entryPoint: "compact_cells" } })
+      });
+      this.pipelines.set(profile, pipelines);
+    }
+
+    const setup = input.geometryPass.addCellSetupsToGraph(graph, {
+      visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
+      frameInstances: input.frameInstances, product: input.product, width: input.width, height: input.height, tilesX,
+      firstTile: 0, tileCount: tiles, targetCapacity: input.width * input.height, addressBudgetBytes: 32 * 1024 * 1024,
+      generation: input.generation, sourceGeometry: input.sourceGeometry, sourceMeshlet: input.sourceMeshlet,
+      sourceMeshletVertices: input.sourceMeshletVertices, sourceMeshletTriangles: input.sourceMeshletTriangles, sourceVertexData: input.sourceVertexData
+    });
+
+    let work!: ResourceId, counts!: ResourceId, sampleMap!: ResourceId, workspace!: ResourceId;
+    const reset = graph.add("Surface/cell workspace reset", input, (data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      const header = new Uint32Array(SURFACE_WORK_HEADER_STRIDE / 4);
+      writeSurfaceWorkHeader(header, input.workLayout, data.width, data.height, data.generation);
+      command.writeBuffer(resources.get(work) as GPUBuffer, 0, header.buffer, 0, header.byteLength);
+      command.gpu_encoder.clearBuffer(resources.get(work) as GPUBuffer, SURFACE_WORK_HEADER_STRIDE, input.workLayout.tileOffset + tiles * 48 - SURFACE_WORK_HEADER_STRIDE);
+      command.gpu_encoder.clearBuffer(resources.get(counts) as GPUBuffer, 0, SURFACE_WORK_COUNTER_BYTES);
+      command.gpu_encoder.clearBuffer(resources.get(workspace) as GPUBuffer, 0, workspaceLayout.bytes);
+      command.writeBuffer(this.cellSettings, 0, new Uint32Array([data.width, data.height, tilesX, 0, tiles, tiles, data.generation, 0]).buffer, 0, 32);
+      command.writeBuffer(this.factSettings, 0, new Uint32Array([
+        input.sourceGeometry, input.sourceMeshlet, input.publication.surfaceMetadataOffsets.constants, input.publication.surfaceMetadataOffsets.routes,
+        input.publication.surfaceMetadataOffsets.bounds, input.publication.surfaceMetadataOffsets.directory,
+        input.publication.surfaceMetadataOffsets.materialLookup, input.publication.surfaceMetadataOffsets.materialLookupCount,
+        input.publication.surfaceProgramCount, input.publication.surfaceCacheGeneration,
+        setup.dictionaryCapacity, setup.setupCapacity, input.generation, 1,
+        input.publication.surfaceMetadataOffsets.constantFields, (input.shadowEnabled ? 1 : 0) | (input.physicalSunEnabled ? 2 : 0), 0, 0,
+        input.sourceMeshletVertices, input.sourceMeshletTriangles, input.sourceVertexData, input.directoryAt,
+        input.frameAt, 0, 0, 0
+      ]).buffer, 0, 96);
+      command.writeBuffer(this.compactSettings, 0, new Uint32Array([data.width, data.height, tilesX, tiles, input.workLayout.sampleOffset / 4, input.workLayout.tileOffset / 4, input.workLayout.sampleCapacity, data.generation]).buffer, 0, 32);
+    });
+    work = this.scratch.importBuffer(graph, input.resourceBinding, "SurfaceWork frame partitions", input.workLayout.geometryOffset,
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
+    work = reset.write(work);
+    counts = reset.create("Surface/cell counters", { kind: "transient_buffer", size: SURFACE_WORK_COUNTER_BYTES,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" }); reset.write(counts);
+    sampleMap = reset.create("Surface/cell sample map", { kind: "transient_texture", width: input.width, height: input.height,
+      format: "r32uint", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING, domain: "internal-full" }); reset.write(sampleMap);
+    workspace = reset.create("Surface/cell plan workspace", { kind: "transient_buffer", size: workspaceLayout.bytes,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" }); reset.write(workspace);
+
+    const makeGroup = (pipeline: GPUComputePipeline, entries: readonly GPUBindGroupEntry[]): GPUBindGroup =>
+      this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries });
+    const constants = graph.add("Surface/cell publish material constants", { input, setup, workspace, work, counts }, (data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext;
+      const pass = command.beginComputePass({ label: "Surface/cell publish material constants" }); pass.setPipeline(pipelines!.constants);
+      pass.setBindGroup(0, this.device.createBindGroup({ layout: pipelines!.constants.getBindGroupLayout(1), entries: [
+        { binding: 0, resource: { buffer: this.factSettings } }, { binding: 7, resource: { buffer: resources.get(input.appearanceMetadata) as GPUBuffer } }
+      ] }));
+      pass.dispatchWorkgroups(Math.ceil(input.publication.surfaceProgramCount / 64)); pass.end();
+    });
+    constants.read(input.appearanceMetadata); constants.read(setup.arena); constants.write(input.appearanceMetadata);
+
+    const bindFactGroups = (pipeline: GPUComputePipeline, resources: { get(id: ResourceId): unknown }): readonly GPUBindGroup[] => {
+      const group0: GPUBindGroupEntry[] = [
+        { binding: 0, resource: { buffer: this.cellSettings } }, { binding: 1, resource: resolveTextureView(resources.get(input.visibility)) }, { binding: 2, resource: { buffer: resources.get(workspace) as GPUBuffer } }
+      ];
+      const group1: GPUBindGroupEntry[] = [
+        { binding: 0, resource: { buffer: this.factSettings } }, { binding: 1, resource: { buffer: resources.get(setup.arena) as GPUBuffer } },
+        { binding: 3, resource: { buffer: resources.get(input.meshletWork) as GPUBuffer } }, { binding: 4, resource: { buffer: resources.get(input.sourceHeap) as GPUBuffer } },
+        { binding: 5, resource: { buffer: resources.get(input.vertexPayload) as GPUBuffer } }, { binding: 6, resource: { buffer: resources.get(input.frameInstances) as GPUBuffer } },
+        { binding: 7, resource: { buffer: resources.get(input.appearanceMetadata) as GPUBuffer } }, { binding: 8, resource: { buffer: resources.get(input.textureVariation) as GPUBuffer } },
+        { binding: 14, resource: { buffer: resources.get(input.camera) as GPUBuffer } }
+      ];
+      if (input.product !== null) { group1.push({ binding: 9, resource: { buffer: resources.get(input.product.heap) as GPUBuffer } }); input.product.banks.forEach((id, i) => group1.push({ binding: i + 10, resource: { buffer: resources.get(id) as GPUBuffer } })); }
+      const group2: GPUBindGroupEntry[] = [
+        { binding: 0, resource: { buffer: resources.get(input.lightRecords) as GPUBuffer } }, { binding: 1, resource: { buffer: resources.get(input.clusters.lookup) as GPUBuffer } },
+        { binding: 2, resource: { buffer: resources.get(input.clusters.data) as GPUBuffer } }, { binding: 3, resource: { buffer: resources.get(input.clusters.parameters) as GPUBuffer } }
+      ];
+      return [this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: group0 }),
+        this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: group1 }),
+        this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(2), entries: group2 })];
+    };
+    const facts = graph.add("Surface/cell publish geometry and lighting facts", { input, setup, constants, workspace }, (data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext; const pass = command.beginComputePass({ label: "Surface/cell publish geometry and lighting facts" }); pass.setPipeline(pipelines!.facts);
+      bindFactGroups(pipelines!.facts, resources).forEach((group, index) => pass.setBindGroup(index, group)); pass.dispatchWorkgroups(tiles); pass.end();
+    });
+    facts.read(input.visibility); facts.read(setup.arena); facts.read(input.meshletWork); facts.read(input.sourceHeap); facts.read(input.vertexPayload); facts.read(input.frameInstances); facts.read(input.appearanceMetadata); facts.read(input.textureVariation); facts.read(input.camera); facts.read(input.lightRecords); facts.read(input.clusters.lookup); facts.read(input.clusters.data); facts.read(input.clusters.parameters); facts.read(workspace); facts.write(workspace); facts.dependsOn(constants);
+    let previous = facts;
+    for (const [stageIndex, pipeline] of pipelines!.classify.entries()) {
+      const classify = graph.add(`Surface/cell classify continuity domains ${stageIndex}`, { input, setup, facts: previous, workspace }, (data, resources, context) => {
+        const command = context.encoder as ShadeGPUCommandContext; const pass = command.beginComputePass({ label: `Surface/cell classify continuity domains ${stageIndex}` }); pass.setPipeline(pipeline);
+        bindFactGroups(pipeline, resources).forEach((group, index) => pass.setBindGroup(index, group)); pass.dispatchWorkgroups(tiles); pass.end();
+      });
+      classify.read(input.visibility); classify.read(setup.arena); classify.read(input.meshletWork); classify.read(input.sourceHeap); classify.read(input.vertexPayload); classify.read(input.frameInstances); classify.read(input.appearanceMetadata); classify.read(input.textureVariation); classify.read(input.camera); classify.read(input.lightRecords); classify.read(input.clusters.lookup); classify.read(input.clusters.data); classify.read(input.clusters.parameters); classify.read(workspace); classify.write(workspace); classify.dependsOn(previous); previous = classify;
+    }
+    const compact = graph.add("Surface/cell compact representative work", { input, workspace, work, counts, sampleMap }, (data, resources, context) => {
+      const command = context.encoder as ShadeGPUCommandContext; const pass = command.beginComputePass({ label: "Surface/cell compact representative work" }); pass.setPipeline(pipelines!.compact);
+      pass.setBindGroup(0, makeGroup(pipelines!.compact, [
+        { binding: 0, resource: { buffer: this.compactSettings } }, { binding: 1, resource: { buffer: resources.get(workspace) as GPUBuffer } },
+        { binding: 2, resource: { buffer: resources.get(work) as GPUBuffer } }, { binding: 3, resource: { buffer: resources.get(counts) as GPUBuffer } },
+        { binding: 4, resource: resolveTextureView(resources.get(sampleMap)) }
+      ])); pass.dispatchWorkgroups(tiles); pass.end();
+    });
+    compact.read(workspace); compact.write(work); compact.write(counts); compact.write(sampleMap); compact.dependsOn(previous);
+    return { work, counts, sampleMap, workspace };
+  }
+
+  destroy(): void { this.cellSettings.destroy(); this.factSettings.destroy(); this.compactSettings.destroy(); this.pipelines.clear(); }
+}

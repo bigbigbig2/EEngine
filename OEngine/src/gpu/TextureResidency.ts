@@ -9,7 +9,7 @@ import {
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import type { ShadeTexture } from "../texture/ShadeTexture.js";
 import { decodedTextureVariation, type TextureSurfacePublication, type TextureVariation } from "./TextureVariation.js";
-import { TextureVariationResidency } from "./TextureVariationResidency.js";
+import { TextureVariationResidency, TEXTURE_LOCAL_VARIATION_STATIC_SLOTS } from "./TextureVariationResidency.js";
 import { TextureFilterType } from "../texture/TextureFilterType.js";
 import type { CachedRenderPipelineDescriptor } from "./GPUDescriptorCaches.js";
 import type { GraphicsContext } from "./GraphicsContext.js";
@@ -441,7 +441,7 @@ export class TextureResidency {
       kind: "buffer", category: "resident", owner: "TextureResidency/surface versions",
       bytes: residencyBytes, label: "TextureResidency/surface versions"
     }) ?? null;
-    this.localVariation = new TextureVariationResidency(graphics.device, this.logicalCapacity(), graphics.resource_accounting);
+    this.localVariation = new TextureVariationResidency(graphics.device, this.logicalCapacity(), graphics.resource_accounting,TEXTURE_LOCAL_VARIATION_STATIC_SLOTS);
     this.allocateInitialBase(base);
     for (let slot = this.logicalCapacity(); slot >= 1; slot--) {
       this.freeDescriptorSlots.push(slot);
@@ -1646,6 +1646,8 @@ export class TextureResidency {
       revision, texture, layer: entry.layer, width: texture.width, height: texture.height,
       mipCount: entry.mipLevelCount, availableMip, decodeSrgb: entry.rawColorDecode === "srgb-rgb" }, entry.offlineVariation);
   }
+  /** Internal GPU-owner service; static Appearance shares this same budget. */
+  get surfaceVariationOwner():TextureVariationResidency{return this.localVariation;}
 
   private allocatedBytes(): number {
     return this.surfaceResidencyVersions.size + this.localVariation.bytes + this.banks.reduce(

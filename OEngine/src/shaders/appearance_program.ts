@@ -8,6 +8,9 @@ export interface AppearanceWgslProgram {
   /** Topology + input/sampling semantics, excluding instance values/resources. */
   readonly templateKey: string;
   readonly constants: readonly number[];
+  /** Same constant addressing for evaluation, coordinate and bound lowering. */
+  readonly instructionConstantSlots: readonly number[];
+  readonly productConstantSlots: Readonly<Record<number, readonly number[]>>;
   readonly outputSlots: Readonly<Record<string, readonly number[]>>;
   readonly outputCount: number;
   readonly parameterSlots: Readonly<Record<string, readonly Readonly<{ slot: number; channel: number }>[]>>;
@@ -38,6 +41,8 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph, outputBits
     if (instruction.product !== undefined) productMasks.set(instruction.product, (productMasks.get(instruction.product) ?? 0) | masks[id]!);
   });
   const constants: number[] = [];
+  const instructionConstantSlots = Array<number>(program.instructions.length).fill(-1);
+  const productConstantSlots: Record<number, readonly number[]> = Object.create(null);
   const inputSlots = new Map(program.inputs.map((input, index) => [input.name, index]));
   const lines: string[] = [];
   const sampled = new Set<number>();
@@ -49,6 +54,7 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph, outputBits
   for (let id = 0; id < program.instructions.length; id++) {
     const instruction = program.instructions[id]!;
     if (instruction.kind === "constant" || instruction.kind === "parameter") {
+      instructionConstantSlots[id] = constants.length;
       if (instruction.parameter !== undefined) {
         (parameterSlots[instruction.parameter] ??= []).push({ slot: constants.length, channel: instruction.channel! });
       }
@@ -63,10 +69,12 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph, outputBits
       const index = instruction.product!, read = program.productReads![index]!;
       if (!productSamples.has(index)) {
         if (read.field.constant !== undefined) {
+          const slots: number[] = [];
           const fields = Array.from({ length: 4 }, (_, channel) => {
             if (channel >= read.field.width) return "0.0";
-            const slot = constants.length; constants.push(read.field.constant![channel]!); return `appearance_constant(${slot}u)`;
+            const slot = constants.length; slots.push(slot); constants.push(read.field.constant![channel]!); return `appearance_constant(${slot}u)`;
           });
+          productConstantSlots[index] = Object.freeze(slots);
           lines.push(`  let product_${index} = vec4f(${fields.join(", ")});`);
         } else {
           const call = `appearance_product_sample_${index}(vec2f(${expression(read.uv![0])}, ${expression(read.uv![1])}))`;
@@ -113,6 +121,7 @@ export function lowerAppearanceWgsl(program: CompiledAppearanceGraph, outputBits
     program.samples.map(sample => [sample.binding.decode, sample.readMask]),
     program.productReads?.map(read => [read.field.width, read.field.format, read.uv === null]) ?? []]);
   return Object.freeze({ source, templateKey, constants: Object.freeze(constants),
+    instructionConstantSlots: Object.freeze(instructionConstantSlots), productConstantSlots: Object.freeze(productConstantSlots),
     outputSlots: Object.freeze({ ...outputSlots }), outputCount,
     parameterSlots: Object.freeze(Object.fromEntries(Object.entries(parameterSlots).map(([name, slots]) =>
       [name, Object.freeze(slots.map(slot => Object.freeze(slot)))]))) });

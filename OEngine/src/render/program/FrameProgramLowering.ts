@@ -182,6 +182,10 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     "texture-residency-versions", { kind: "imported", label: "actual texture residency versions" },
     bind("texture-residency-versions", bindings => bindings.runtime.materialResources.surfaceResidencyVersions)
   );
+  const textureVariation = graph.import_resource(
+    "texture-local-variation", { kind: "imported", label: "published local texture variation" },
+    bind("texture-local-variation", bindings => bindings.runtime.materialResources.localVariation)
+  );
   const textureBanks: number[][] = Array.from({ length: 4 }, () => []);
   for (const setId of activeSets) {
     const bindingSet = initial.runtime.materialResources.bindingSets.find(set => set.id === setId);
@@ -346,6 +350,11 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
       return bindings.runtime.appearancePublication.surfaceIdentity;
     }));
+  const surfaceMetadata = graph.import_resource("surface-publication-metadata", { kind: "imported", label: "Surface publication metadata" },
+    bind("surface-publication-metadata", bindings => {
+      if (!bindings.runtime.appearancePublication) throw new Error("Appearance publication is missing");
+      return bindings.runtime.appearancePublication.surfaceMetadata;
+    }));
   const previousCamera = graph.import_resource("previous-camera", { kind: "imported", label: "previous camera" },
     bind("previous-camera", bindings => bindings.view.gpu_previous_camera_state.buffer));
   const facts = owners.temporalFacts.addToGraph(graph, {
@@ -382,6 +391,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     frameInstances: result.frame.frameInstances,
     frameAttributes: result.frame.frameAttributes,
     camera: cameraBuffer,
+    textureVariation,
+    appearanceMetadata: surfaceMetadata,
     lightRecords,
     clusters,
     shadow: shadowContract === null || shadowContract.virtualPageTable === null ||
@@ -413,6 +424,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     materials: materialRecords,
     textureBanks,
     publication: appearancePublication,
+    product: virtualMetadata === undefined || virtualBanks === undefined ? null : { heap: virtualMetadata, banks: virtualBanks },
     residencyVersions: textureResidencyVersions,
     fieldVersions: graph.import_resource("surface-field-versions", { kind: "imported", label: "published surface field versions" },
       bind("surface-field-versions", bindings => {

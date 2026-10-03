@@ -44,3 +44,17 @@ test('pipeline initialization failure destroys the allocated pool and releases a
  assert.throws(()=>new TextureVariationResidency(d,16,{created(){return 'variation';},destroyed(handle){released.push(handle);}}),/pipeline failure/);
  assert.equal(d.buffers[0].destroyed,true);assert.deepEqual(released,['variation']);
 });
+test('static products share the pool, recycle descriptor slots only with new generations and roll back aborts',()=>{
+ const d=device(),owner=new TextureVariationResidency(d,16,undefined,1),free=owner.stats().freeBytes;
+ const {slot:unusedSlot,generation:unusedGeneration,revision:unusedRevision,...texture}=input();
+ const aborted=command(d),first=owner.stageStatic(aborted,texture);
+ assert.equal(first.slot,17);assert.ok(first.generation>0);aborted.abort();assert.equal(owner.stats().freeBytes,free);
+ const committed=command(d),next=owner.stageStatic(committed,texture);
+ assert.equal(next.slot,17);assert.ok(next.generation>first.generation);committed.finish();
+ assert.equal(owner.stats().residentTextures,1);
+ assert.deepEqual(owner.stageStatic(command(d),texture),{slot:0,generation:0,revision:0});
+ owner.retire(next.slot,first.generation);assert.equal(owner.stats().residentTextures,1);
+ owner.retire(next.slot,next.generation);assert.equal(owner.stats().freeBytes,free);
+ const replacement=command(d),last=owner.stageStatic(replacement,texture);assert.ok(last.generation>next.generation);replacement.abort();
+ assert.equal(owner.stats().freeBytes,free);owner.destroy();
+});

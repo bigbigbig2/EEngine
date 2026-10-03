@@ -42,6 +42,8 @@ import { FrameGeometryVertices } from "../render/FrameGeometryVertices.js";
 import { RasterWorkPartitions } from "../render/RasterWorkPartitions.js";
 import { FrameGeometryArena } from "../render/FrameGeometryArena.js";
 import { GpuAppearanceCache } from "./GpuAppearanceCache.js";
+import { GpuSurfaceFieldStore } from "./GpuSurfaceFieldStore.js";
+import { GpuSurfaceSignalStore } from "./GpuSurfaceSignalStore.js";
 import { CurrentHzbLateRecheckGpu } from "../render/CurrentHzbLateRecheck.js";
 import {
   TextureResidency,
@@ -107,6 +109,8 @@ export class GraphicsContext {
   private rasterPartitionsValue: RasterWorkPartitions | undefined;
   private frameGeometryArenaValue: FrameGeometryArena | undefined;
   private appearanceCacheValue: GpuAppearanceCache | undefined;
+  private surfaceFieldStoreValue: GpuSurfaceFieldStore | undefined;
+  private surfaceSignalStoreValue: GpuSurfaceSignalStore | undefined;
   private currentHzbRecheckValue: CurrentHzbLateRecheckGpu | undefined;
   private textureResidencyValue: TextureResidency | undefined;
   private assetCodecServiceValue: AssetCodecService | undefined;
@@ -280,7 +284,7 @@ export class GraphicsContext {
   }
 
   get appearance_static(): AppearanceStaticResidency {
-    this.appearanceStaticValue ??= new AppearanceStaticResidency(this.device, this.appearance_programs, undefined, this.resource_accounting);
+    this.appearanceStaticValue ??= new AppearanceStaticResidency(this.device, this.appearance_programs, undefined, this.resource_accounting,this.texture_residency.surfaceVariationOwner);
     return this.appearanceStaticValue;
   }
 
@@ -305,6 +309,16 @@ export class GraphicsContext {
   get appearance_cache(): GpuAppearanceCache {
     this.appearanceCacheValue ??= new GpuAppearanceCache(this.device, this.resource_accounting);
     return this.appearanceCacheValue;
+  }
+  /** Stable canonical Surface field owner. Admission is GPU/FrameGraph driven;
+   * this getter only creates the bounded resident storage. */
+  get surface_field_store(): GpuSurfaceFieldStore {
+    this.surfaceFieldStoreValue ??= new GpuSurfaceFieldStore(this.device, undefined, this.resource_accounting);
+    return this.surfaceFieldStoreValue;
+  }
+  get surface_signal_store():GpuSurfaceSignalStore {
+    this.surfaceSignalStoreValue ??= new GpuSurfaceSignalStore(this.device,undefined,this.resource_accounting);
+    return this.surfaceSignalStoreValue;
   }
   get current_hzb_recheck(): CurrentHzbLateRecheckGpu {
     this.currentHzbRecheckValue ??= new CurrentHzbLateRecheckGpu(this.device, this.resource_accounting);
@@ -389,6 +403,8 @@ export class GraphicsContext {
       (this.currentHzbRecheckValue?.allocatedBytes ?? 0) +
       (this.materialStoreValue?.evidence().allocatedBytes ?? 0) +
       (this.textureResidencyValue?.evidence().allocatedBytes ?? 0) +
+      (this.surfaceFieldStoreValue?.stats().allocatedBytes ?? 0) +
+      (this.surfaceSignalStoreValue?.stats().allocatedBytes ?? 0) +
       this.buffer_allocator_main.gpu_memory_usage +
       this.buffer_allocator_staging.gpu_memory_usage +
       this.allocator_textures.gpu_memory_usage +
@@ -465,6 +481,8 @@ export class GraphicsContext {
         frameGeometry: Object.freeze({ allocatedBytes: this.frameGeometryArenaValue?.allocatedBytes ?? 0 }),
         currentHzbRecheck: Object.freeze({ allocatedBytes: this.currentHzbRecheckValue?.allocatedBytes ?? 0 }),
         appearanceCache: Object.freeze({ allocatedBytes: this.appearanceCacheValue?.allocatedBytes ?? 0 }),
+        surfaceFieldStore: Object.freeze({ allocatedBytes: this.surfaceFieldStoreValue?.stats().allocatedBytes ?? 0 }),
+        surfaceSignalStore: Object.freeze({ allocatedBytes: this.surfaceSignalStoreValue?.stats().allocatedBytes ?? 0 }),
         assets: Object.freeze({
           allocatedBytes: assets?.allocatedBytes ?? 0,
           residentBytes: assets?.residentBytes ?? 0,
@@ -509,6 +527,8 @@ export class GraphicsContext {
     this.rasterPartitionsValue?.destroy(); this.rasterPartitionsValue = undefined;
     this.currentHzbRecheckValue?.destroy(); this.currentHzbRecheckValue = undefined;
     this.appearanceCacheValue?.destroy(); this.appearanceCacheValue = undefined;
+    this.surfaceFieldStoreValue?.destroy(); this.surfaceFieldStoreValue = undefined;
+    this.surfaceSignalStoreValue?.destroy(); this.surfaceSignalStoreValue = undefined;
     this.frameGeometryArenaValue?.destroy(); this.frameGeometryArenaValue = undefined;
     this.appearanceProgramsValue?.destroy();
     this.appearanceProgramsValue = undefined;

@@ -12,6 +12,7 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../gpu/GpuMeshletRasterWorkAbi.
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import { surfaceGeometrySourceReaderWgsl } from "../../shaders/surface_geometry_reader.js";
 import { GPU_FRAME_ATTRIBUTE_VECTORS } from "../../gpu/GpuFrameGeometryAttributesAbi.js";
+import { SurfaceCellGeometrySetup, type SurfaceCellGeometrySetupInput, type SurfaceCellGeometrySetupProducts } from "./SurfaceCellGeometrySetup.js";
 
 export interface SurfaceGeometryProducts {
   readonly records: ResourceId;
@@ -278,6 +279,11 @@ fn finalize() {
 `;
 
 export class SurfaceGeometryPass {
+  private cellSetup: SurfaceCellGeometrySetup | null = null;
+  addCellSetupsToGraph(graph: FrameGraph, input: SurfaceCellGeometrySetupInput): SurfaceCellGeometrySetupProducts {
+    this.cellSetup ??= new SurfaceCellGeometrySetup(this.device);
+    return this.cellSetup.addToGraph(graph,input);
+  }
   private readonly layout: GPUBindGroupLayout;
   private readonly pipeline: GPUComputePipeline;
   private readonly classifyPipeline: GPUComputePipeline;
@@ -417,5 +423,5 @@ export class SurfaceGeometryPass {
     return { records, count, missCounters };
   }
 
-  destroy(): void { this.settings.destroy(); this.finalizeSettings.destroy();  }
+  destroy(): void { this.cellSetup?.destroy(); this.cellSetup=null; this.settings.destroy(); this.finalizeSettings.destroy();  }
 }

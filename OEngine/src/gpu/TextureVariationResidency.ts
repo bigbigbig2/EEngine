@@ -4,6 +4,8 @@ import type { TextureLocalVariation } from "../texture/TextureLocalVariation.js"
 
 export const TEXTURE_LOCAL_VARIATION_BUDGET_BYTES = 32 * 1024 * 1024;
 export const TEXTURE_LOCAL_VARIATION_DESCRIPTOR_WORDS = 8;
+export const TEXTURE_LOCAL_VARIATION_STATIC_SLOTS = 4096;
+export interface TextureStaticVariationPublication {readonly slot:number;readonly generation:number;readonly revision:number;}
 export interface TextureVariationBuildInput {
   readonly slot: number;
   readonly generation: number;
@@ -80,20 +82,25 @@ export class TextureVariationResidency {
   private readonly handle?: ResourceHandle;
   private readonly entries = new Map<number, Entry>();
   private readonly pending = new Set<number>();
+  private readonly staticSlots:number[]=[];
+  private staticGeneration=0;
+  private readonly staticLeases=new Map<number,number>();
   private readonly free: { start: number; words: number }[] = [];
   private destroyed = false;
   private readonly counters = { builds: 0, nodes: 0, degraded: 0, rejected: 0, offlineBuilds: 0 };
-  constructor(private readonly device: GPUDevice, readonly capacity: number, private readonly accounting?: ResourceAccounting) {
+  constructor(private readonly device: GPUDevice, readonly capacity: number, private readonly accounting?: ResourceAccounting, readonly staticCapacity=0) {
     if (!Number.isSafeInteger(capacity) || capacity < 1) throw new RangeError("Invalid variation descriptor capacity");
     this.bytes = Math.floor(Math.min(TEXTURE_LOCAL_VARIATION_BUDGET_BYTES,
       Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize)) / 256) * 256;
-    const begin = Math.ceil((capacity + 1) * TEXTURE_LOCAL_VARIATION_DESCRIPTOR_WORDS / 64) * 64;
+    if(!Number.isSafeInteger(staticCapacity)||staticCapacity<0)throw new RangeError("Invalid static variation descriptor capacity");
+    const begin = Math.ceil((capacity + staticCapacity + 1) * TEXTURE_LOCAL_VARIATION_DESCRIPTOR_WORDS / 64) * 64;
     if (this.bytes / 4 - begin < 256) throw new RangeError("Variation pool cannot contain descriptor table and a valid mip tree");
     this.buffer = device.createBuffer({ label: "Surface/local texture variation pool", size: this.bytes,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });
     this.handle = accounting?.created({ kind: "buffer", category: "resident", owner: "Surface/variation (TextureResidency)",
       bytes: this.bytes, label: "Surface/local texture variation pool" });
     this.free.push({ start: begin, words: this.bytes / 4 - begin });
+    for(let slot=capacity+staticCapacity;slot>capacity;slot--)this.staticSlots.push(slot);
     try {
       this.layout = device.createBindGroupLayout({ entries: [
         { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
@@ -111,7 +118,8 @@ export class TextureVariationResidency {
   stage(command: ShadeGPUCommandContext, input: TextureVariationBuildInput, precomputed?: TextureLocalVariation): boolean {
     if (this.destroyed || command.closed || command.device !== this.device) throw new Error("Invalid variation publication command");
     if (![input.slot, input.generation, input.revision, input.width, input.height, input.mipCount].every(v => Number.isSafeInteger(v) && v > 0 && v <= 0xffffffff) ||
-      input.slot > this.capacity || !Number.isInteger(input.availableMip) || input.availableMip < 0 || input.availableMip >= input.mipCount ||
+      input.slot > this.capacity+this.staticCapacity || (input.slot>this.capacity&&this.staticLeases.get(input.slot)!==input.generation) ||
+      !Number.isInteger(input.availableMip) || input.availableMip < 0 || input.availableMip >= input.mipCount ||
       !Number.isInteger(input.layer) || input.layer < 0 || input.layer >= input.texture.depthOrArrayLayers ||
       input.width > input.texture.width || input.height > input.texture.height || input.mipCount > input.texture.mipLevelCount) {
       throw new RangeError("Invalid actual texture variation publication");
@@ -218,8 +226,24 @@ export class TextureVariationResidency {
     if (this.destroyed) return;
     if (this.pending.has(slot)) throw new Error("Cannot retire an unsubmitted variation producer");
     const entry = this.entries.get(slot);
-    if (!entry || entry.generation !== generation) return;
-    this.entries.delete(slot); this.releaseRange(entry.start, entry.layout.words);
+    if (entry&&entry.generation === generation){this.entries.delete(slot); this.releaseRange(entry.start, entry.layout.words);}
+    if(slot>this.capacity&&this.staticLeases.get(slot)===generation){this.staticLeases.delete(slot);this.staticSlots.push(slot);}
+  }
+  /** Static owner stages decoded bounds on the caller encoder. Descriptor and
+   * payload share the existing 32 MiB pool; admission failure is local unknown. */
+  stageStatic(command:ShadeGPUCommandContext,input:Omit<TextureVariationBuildInput,"slot"|"generation"|"revision">):TextureStaticVariationPublication {
+    if(this.destroyed||command.closed||command.device!==this.device)throw new Error("Invalid static variation publication command");
+    const slot=this.staticSlots.pop();if(slot===undefined)return Object.freeze({slot:0,generation:0,revision:0});
+    if(this.staticGeneration>=0xffffffff){this.staticSlots.push(slot);throw new RangeError("Static variation generation exhausted");}
+    const generation=++this.staticGeneration;this.staticLeases.set(slot,generation);
+    let settled=false;
+    const release=()=>{if(settled)return;settled=true;this.staticLeases.delete(slot);this.staticSlots.push(slot);};
+    command.onAborted.addOne(release);
+    try {
+      if(!this.stage(command,{...input,slot,generation,revision:1})){release();return Object.freeze({slot:0,generation:0,revision:0});}
+      command.onFinished.addOne(()=>{settled=true;});
+      return Object.freeze({slot,generation,revision:1});
+    }catch(error){release();throw error;}
   }
   stats(): Readonly<{ bytes: number; residentTextures: number; freeBytes: number; builds: number; nodes: number; degraded: number; rejected: number; offlineBuilds: number }> {
     return Object.freeze({ bytes: this.bytes, residentTextures: this.entries.size,
@@ -228,7 +252,7 @@ export class TextureVariationResidency {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true; this.buffer.destroy(); if (this.handle) this.accounting!.destroyed(this.handle);
-    this.entries.clear(); this.pending.clear(); this.free.length = 0;
+    this.entries.clear(); this.pending.clear(); this.free.length = 0;this.staticSlots.length=0;this.staticLeases.clear();
   }
   private makeLayout(input: TextureVariationBuildInput, blockSize: number): Layout {
     const shapes: { width: number; height: number; levels: { width: number; height: number; span: number; offset: number }[] }[] = [];

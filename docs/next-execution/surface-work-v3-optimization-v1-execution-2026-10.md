@@ -1,6 +1,6 @@
 # Surface V3 第一版优化执行文档
 
-日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–7 尚未完成**。阶段证据见[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
+日期：2026-10-03。基线：`0676cf28`。状态：**执行中；只有 Phase 0–1 完成，Phase 2 进行中，Phase 3–4 为预备实现，Phase 5–7 尚未开始**。详细状态见[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
 
 唯一配套细化设计：[Surface V3 第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)。保留[第三版总设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)的 owner 边界，按用户最新要求替换初版物理实现。历史执行记录见[原 V3 计划](surface-work-runtime-v3-rebuild-2026.md)；历史测量见[1080p 报告](../performance/2026-10-03-surface-v3-work-bandwidth-report.md)。
 
@@ -101,6 +101,10 @@ dense fields / 四 packet planes → 稳定 FieldStore + 稀疏信号引用
 从 CPU 产品到 GPU Surface consumer 的实际 publication 资源，含版本与容量；不只增加一个 Surface 读不到的接口。字段风险分开，旧全局 domain0 语义在新链上消失。
 
 ## 6. Phase 2：切掉旧 classifier，建立默认跨 primitive 工作
+
+### 当前状态（未完成）
+
+Phase 2 的 plan ABI、CPU/GPU synthetic oracle、Geometry setup 和 production facts 组件已经存在；`SurfaceCellClassifierPass` 已尝试接入 `SurfaceWorkRuntime`。生产 Chromium fixture 最新仍未通过（`unresolved value 'field'`，此前严格 pipeline 还出现 Dawn external-instance/长时间无终态），旧 `CLASSIFY_WGSL` 和旧 pixel-task 分区也尚未删除。因此本阶段不提交为完成，不进入 Phase 3 正式执行。
 
 1. 删除 VisibilityKey equality 的共享准入；winner 只用于覆盖、属性来源和 exact identity。
 2. 接入 domain/side、轻量 depth plane 与 field variation；默认生成 2×2 候选，按设计合并 4×4/低频8×8 或局部细分。

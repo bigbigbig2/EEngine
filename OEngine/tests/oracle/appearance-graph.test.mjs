@@ -8,6 +8,7 @@ import { StandardShadeMaterial } from "../../.test-dist/material/StandardShadeMa
 import { ShadeTexture } from "../../.test-dist/texture/ShadeTexture.js";
 import { ShadeImage } from "../../.test-dist/texture/ShadeImage.js";
 import { Sampler2D } from "../../.test-dist/texture/Sampler2D.js";
+import { lowerAppearanceWgsl } from "../../.test-dist/shaders/appearance_program.js";
 
 const texture = () => ShadeTexture.from(ShadeImage.fromSampler2D(new Sampler2D(new Uint8Array([128, 64, 220, 170]), 4, 1, 1)));
 const sampleValue = [0.2, 0.4, 0.7, 0.6];
@@ -223,29 +224,38 @@ test("Standard and all coated fields match an independent authored-material orac
   assert.equal(p.samples.length, 10);
 });
 
-test("Dungeon has constant metallic/base factor, live dielectric specular, one ORM/AO sample", () => {
+test("Dungeon shares one ORM/AO source and retains zero metallic parameter for numeric edits", () => {
   const m = new StandardShadeMaterial();
   m.texture_orm = m.texture_occlusion = texture();
   const p = compileCanonicalMaterial(m).appearance;
-  assert.equal(p.samples.length, 1); assert.equal(p.samples[0].readMask, 3, "metallic B is dead, roughness G and AO R survive");
+  assert.equal(p.samples.length, 1); assert.equal(p.samples[0].readMask, 7, "metallic B remains reachable when its numeric factor changes");
   const values = evaluateCompiledAppearance(p, context());
   close(values.metallic, [0]); close(values.specularWeight, [1]); close(values.specularColor, [1, 1, 1]);
+  m.metallic_factor = 1;
+  const edited = compileCanonicalMaterial(m).appearance;
+  assert.equal(lowerAppearanceWgsl(edited).source, lowerAppearanceWgsl(p).source);
+  close(evaluateCompiledAppearance(edited, context()).metallic, [0.7]);
   m.occlusion_uv_set = 1;
   assert.equal(compileCanonicalMaterial(m).appearance.samples.length, 2);
 });
 
-test("zero RGB preserves alpha, zero normal scale preserves signed Z, zero coat removes its sources", () => {
+test("zero RGB/normal/coat preserve numeric results and retain sources for zero-to-nonzero edits", () => {
   const m = new StandardShadeMaterial();
   m.texture_albedo = texture(); m.diffuse_color.set(0, 0, 0, 0.7);
   m.texture_normal = texture(); m.normal_scale = 0;
   m.texture_clearcoat = texture(); m.texture_clearcoat_normal = texture();
   const p = compileCanonicalMaterial(m).appearance;
-  assert.equal(p.samples.find(s => s.binding.texture === m.texture_albedo).readMask, 8);
-  assert.equal(p.samples.find(s => s.binding.texture === m.texture_normal).readMask, 4);
-  assert.ok(!p.samples.some(s => s.binding.texture === m.texture_clearcoat));
+  assert.equal(p.samples.find(s => s.binding.texture === m.texture_albedo).readMask, 15);
+  assert.equal(p.samples.find(s => s.binding.texture === m.texture_normal).readMask, 7);
+  assert.equal(p.samples.find(s => s.binding.texture === m.texture_clearcoat).readMask, 1);
   const values = evaluateCompiledAppearance(p, context());
   close(values.baseColor, [0, 0, 0]); close(values.alpha, [0.42]); close(values.normalTS, [0, 0, 0.4]);
-  m.is_unlit = true;
+  m.diffuse_color.set(1, 1, 1, 0.7); m.normal_scale = 1; m.clearcoat_factor = 1;
+  const edited = compileCanonicalMaterial(m).appearance;
+  assert.equal(lowerAppearanceWgsl(edited).source, lowerAppearanceWgsl(p).source);
+  const changed = evaluateCompiledAppearance(edited, context());
+  close(changed.baseColor, [0.06, 0.28, 0.63]); close(changed.normalTS, [-0.6, -0.2, 0.4]); close(changed.coatWeight, [0.2]);
+  m.clearcoat_factor = 0; m.is_unlit = true;
   assert.deepEqual(Object.keys(compileCanonicalMaterial(m).appearance.outputs).sort(), ["alpha", "baseColor"]);
 });
 
