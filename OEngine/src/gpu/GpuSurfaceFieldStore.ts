@@ -19,6 +19,9 @@ export class GpuSurfaceFieldStore {
  private counters={lookupRequests:0,hits:0,misses:0,admissions:0,overflows:0};
  constructor(private readonly device:GPUDevice,budgetBytes=128*1024*1024,private readonly accounting?:ResourceAccounting){
   this.capacity=planSurfaceFieldStoreCapacity(device.limits,budgetBytes);
+  if(this.capacity.segmentBytes.length!==1){
+   throw new RangeError("Surface FieldStore requires one storage-buffer segment on the production profile");
+  }
   this.buffers=Object.freeze(this.capacity.segmentBytes.map((size,index)=>device.createBuffer({label:`Surface/FieldStore segment ${index}`,size,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST|GPUBufferUsage.COPY_SRC})));
   this.handle=accounting?.created({kind:"buffer",category:"resident",owner:"Surface/FieldStore",bytes:this.capacity.bytes,label:"Surface/FieldStore"});
  }

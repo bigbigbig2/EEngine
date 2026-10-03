@@ -86,8 +86,12 @@ fn compose(record:u32)->vec3f {
 
 @compute @workgroup_size(8,8)
 fn reconstruct(@builtin(global_invocation_id) id:vec3u) {
-  let tile=settings.batch_index*settings.batch_tiles+id.x/8u;
-  let pixel=vec2u(tile%settings.tiles_x,(tile/settings.tiles_x)*8u+id.y);
+  let tile_index = settings.batch_index * settings.batch_tiles + id.x / 8u;
+  let local_x = id.x & 7u;
+  let local_y = id.y;
+  let tile_x = tile_index % settings.tiles_x;
+  let tile_y = tile_index / settings.tiles_x;
+  let pixel = vec2u(tile_x * 8u + local_x, tile_y * 8u + local_y);
   if (pixel.x>=settings.width||pixel.y>=settings.height) { return; }
   let pixel_i=vec2i(pixel);
   let record=textureLoad(sample_map,pixel_i,0).x;

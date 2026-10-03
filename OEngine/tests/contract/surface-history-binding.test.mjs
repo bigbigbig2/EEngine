@@ -1,51 +1,60 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import "../webgpu-test-globals.mjs";
-import { FrameGraph, FrameGraphBindingLayout, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
-import { SurfaceReconstructionPass } from "../../.test-dist/render/surface/SurfaceReconstructionPass.js";
+import { FrameGraph, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
+import { planSurfaceReconstructionBatches, SurfaceReconstructionPass } from "../../.test-dist/render/surface/SurfaceReconstructionPass.js";
 
 globalThis.GPUBufferUsage ??= { UNIFORM: 1, COPY_DST: 2, STORAGE: 4, COPY_SRC: 8 };
 
-test("Surface history swaps actual resources on a reused graph and preserves roles on abort", () => {
-  const groups = [], settings = [];
-  let serial = 0;
+test("Surface reconstruct plans bounded tile batches", () => {
+  assert.deepEqual(planSurfaceReconstructionBatches(17, 9, 2), {
+    tilesX: 3, tilesY: 2, tileCount: 6, batchTiles: 2, batchCount: 3
+  });
+  assert.throws(() => planSurfaceReconstructionBatches(0, 9), /positive integers/);
+  assert.throws(() => planSurfaceReconstructionBatches(17, 9, 0), /batchTiles is invalid/);
+});
+
+test("Surface reconstruct consumes packet and TemporalFacts resources", () => {
   const device = {
     createBuffer: descriptor => ({ ...descriptor, destroy() {} }),
-    createTexture: descriptor => {
-      const texture = { ...descriptor, serial: ++serial, destroy() {}, createView() { return { texture }; } };
-      return texture;
-    },
     createBindGroupLayout: () => ({}), createPipelineLayout: () => ({}),
     createShaderModule: () => ({}), createComputePipeline: () => ({}),
-    createBindGroup: descriptor => { groups.push(descriptor); return descriptor; }
+    createBindGroup: descriptor => descriptor
   };
   const command = { gpu_encoder: {}, device,
-    writeBuffer(buffer, _offset, data) { if (buffer.label === "Surface reconstruct settings") settings.push(new Uint32Array(data.slice(0))); },
-    beginComputePass: () => ({ setPipeline() {}, setBindGroup() {}, dispatchWorkgroups() {}, end() {} }) };
+    writeBuffer() {},
+    beginComputePass: () => ({ setPipeline() {}, setBindGroup() {}, dispatchWorkgroups() {},
+      dispatchWorkgroupsIndirect() {}, end() {} }) };
   const owner = new SurfaceReconstructionPass(device);
-  owner.prepareFrame(4, 2);
-  const graph = new FrameGraph("Surface history regression");
-  const layout = new FrameGraphBindingLayout();
-  const initial = {};
-  const resource = graph.import_resource("fixture", { kind: "imported" }, {});
-  owner.addToGraph(graph, { diffuse: resource, specular: resource, coat: resource, ibl: resource,
-    reactive: resource, identity: resource, motion: resource, preExposure: resource, sampleMap: resource,
-    revisions: { environment: 1, light: 1, shadow: 1 }, width: 4, height: 2, recordCount: 8,
-    diagnosticsEnabled: false, historyBinding: (name, resolve) => layout.slot(name, initial, resolve) });
+  owner.prepareFrame(4, 2, 1);
+  const graph = new FrameGraph("Surface packet reconstruct");
+  const texture = { createView: () => ({}) };
+  const resource = graph.import_resource("fixture", { kind: "imported" }, texture);
+  const packets = graph.import_resource("packets", { kind: "imported" }, {});
+  const fullPackets = graph.import_resource("full packets", { kind: "imported" }, {});
+  const preExposure = graph.import_resource("pre exposure", { kind: "imported" }, {});
+  const sampleMap = graph.import_resource("sample map", { kind: "imported" }, texture);
+  const products = owner.addToGraph(graph, { packets, fullPackets, reactive: resource, preExposure, sampleMap,
+    width: 4, height: 2, recordCount: 8, diagnosticsEnabled: true });
+  assert.ok(products.radiance);
+  assert.ok(products.reactiveMask);
+  assert.ok(products.counters);
+  const consume = graph.add("consume reconstruct outputs", {}, () => {});
+  consume.read(products.radiance); consume.read(products.reactiveMask); consume.read(products.counters);
+  consume.make_side_effect();
   const compiled = graph.compile();
-  const execute = () => compiled.execute(new FrameGraphContext({ device, encoder: command }), initial);
-  const textureAt = (frame, binding) => groups[frame].entries.find(entry => entry.binding === binding).resource.texture;
-  execute(); owner.commit(Promise.resolve());
-  owner.prepareFrame(4, 2); execute(); owner.abort();
-  owner.prepareFrame(4, 2); execute(); owner.commit(Promise.resolve());
-  owner.invalidate(); owner.prepareFrame(4, 2); execute(); owner.commit(Promise.resolve());
-  for (const [read, write] of [[11,12], [13,14], [15,16], [17,18], [20,21], [22,23]]) {
-    assert.notEqual(textureAt(0, read), textureAt(0, write));
-    assert.equal(textureAt(1, read), textureAt(0, write));
-    assert.equal(textureAt(1, write), textureAt(0, read));
-    assert.equal(textureAt(2, read), textureAt(1, read), "abort must not swap history");
-    assert.equal(textureAt(3, read), textureAt(2, write));
-  }
-  assert.deepEqual(settings.map(words => words[3]), [0, 1, 1, 0]);
+  const dump = compiled.dump();
+  assert.ok(dump.executablePassOrder.some(id => dump.passes[id].name === "Surface/cheap batched reconstruct"));
+  assert.ok(dump.resources.some(entry => entry.name === "packets"));
+  assert.ok(dump.resources.some(entry => entry.name === "full packets"));
+  assert.ok(dump.resources.some(entry => entry.name === "sample map"));
+  owner.commit();
+  assert.throws(() => owner.commit(), /without prepare/);
+  owner.prepareFrame(4, 2, 1);
+  owner.abort();
+  assert.throws(() => owner.addToGraph(new FrameGraph("aborted"), {
+    packets, fullPackets, reactive: resource, preExposure, sampleMap,
+    width: 4, height: 2, recordCount: 8, diagnosticsEnabled: false
+  }), /not prepared/);
   owner.destroy();
 });

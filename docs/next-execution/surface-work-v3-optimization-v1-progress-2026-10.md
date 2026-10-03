@@ -13,6 +13,7 @@
 | Phase 4：SignalStore、紧凑 packet、稀疏 history | 代码收口完成，正式验收延期 | `b882cc5a`；`git diff --check` 与静态 ABI/WGSL 检索通过 | 六类独立 signal family、按 record 紧凑 packet、lighting 前 SignalStore probe、lighting 后 miss-only pack/publish 已接入；20-word entry、HDR precision spill、age/confidence 与四路 packet plane/dense signal witness 删除已完成。正式整链验收统一留到 Phase 7 |
 | Phase 5：reconstruct/batch | 代码收口完成，正式验收延期 | 当前工作树；`git diff --check`、导航解析和旧 history 静态检索通过 | 已删除四路 Surface history、dense identity/age 与历史交换；reconstruct 只消费 packet/precision packet、TemporalFacts 和 sample map；batch 上限按 extent/profile 推导，GPU 生成每批 indirect count，尾批按 output region 有界写入 |
 | Phase 6：真实 provider/lifecycle | 代码收口完成，正式验收延期 | 本次工作树；`git diff --check` 与静态依赖检索 | 容量预检、Surface 512 MiB ledger、Field/Signal publication generation + submitted epoch、VSM 初始化顺序和真实 FrameGraph provider 依赖已接通；浏览器、GPU、画质与性能统一留到 Phase 7 |
+| Phase 6.5：Production Cutover Fix | 未完成，已提交阻塞修复 checkpoint | 当前工作树；`typecheck`、`build:test`、定向 Surface reconstruct/profiler 测试、`git diff --check` 通过 | reconstruct 8×8 地址、output/reserved capacity 语义、classifier pipeline identity、classifier 地址预算和 FieldStore/SignalStore single-segment capability reject 已修复；classifier workspace 仍按全屏 tile graph build，lighting 仍保留全量 `fullPackets` 镜像，尚未满足 Phase 6.5 完成标准 |
 | Phase 7：整链验收 | 未开始 | 无 | 没有正式 browser matrix、画质对照或四版本性能比较 |
 
 因此当前真正完成的是 **Phase 0–1，Phase 2–5 已完成对应代码切换但尚未完成正式生产验收**。Phase 3 的完整跨帧 FieldStore value 消费、Phase 4/5 的正式 GPU、浏览器与连续画质验收统一留到 Phase 7。

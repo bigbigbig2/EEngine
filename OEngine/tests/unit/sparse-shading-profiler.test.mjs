@@ -12,24 +12,34 @@ import {
 
 test("ADR-0013 Step 7 profiler classifies the production sparse shading stages", () => {
   const segments = [
-    { label: "SparseShading/clear + classify production Visibility MRT", durationMs: 0.2 },
-    { label: "SparseShading/finalize production indirect arguments", durationMs: 0.1 },
-    { label: "SparseShading/active-bin production indirect resolve", durationMs: 0.8 },
-    { label: "Opaque lighting/IBL composition", durationMs: 0.4 }
+    { label: "SurfaceWork/classify implicit-uniform-mixed", durationMs: 0.2 },
+    { label: "SurfaceWork/finalize counters", durationMs: 0.1 },
+    { label: "Surface/material publication lookup", durationMs: 0.3 },
+    { label: "Surface/GeometryRecord cache classify", durationMs: 0.2 },
+    { label: "Surface/GeometryRecord miss finalize", durationMs: 0.1 },
+    { label: "Surface/GeometryRecord miss resolve", durationMs: 0.8 },
+    { label: "Surface/Material miss indirect finalize", durationMs: 0.1 },
+    { label: "Surface/Material miss publication evaluation", durationMs: 0.2 },
+    { label: "Surface/lighting packets", durationMs: 0.4 },
+    { label: "Surface/reconstruct batch 0", durationMs: 0.4 }
   ];
 
-  assert.deepEqual(SURFACE_TIMING_PHASES, ["classify", "finalize", "resolve", "lighting"]);
+  assert.deepEqual(SURFACE_TIMING_PHASES, ["classify", "workFinalize", "materialLookup",
+    "geometryLookup", "geometryFinalize", "geometryResolve", "materialFinalize",
+    "materialEvaluate", "lighting", "reconstruct"]);
   assert.deepEqual(
     segments.map((segment) => classifySurfaceTimingPhase(segment)),
-    ["classify", "finalize", "resolve", "lighting"]
+    ["classify", "workFinalize", "materialLookup", "geometryLookup", "geometryFinalize",
+      "geometryResolve", "materialFinalize", "materialEvaluate", "lighting", "reconstruct"]
   );
   assert.deepEqual(
     [...surfaceTimingTotalsForFrame(segments)],
-    [["classify", 0.2], ["finalize", 0.1], ["resolve", 0.8], ["lighting", 0.4]]
+    [["classify", 0.2], ["workFinalize", 0.1], ["materialLookup", 0.3], ["geometryLookup", 0.2],
+      ["geometryFinalize", 0.1], ["geometryResolve", 0.8], ["materialFinalize", 0.1],
+      ["materialEvaluate", 0.2], ["lighting", 0.4], ["reconstruct", 0.4]]
   );
-  assert.equal(classifyGpuFramePhase(segments[0].label), "material-resolve");
-  assert.equal(classifyGpuFramePhase(segments[1].label), "material-resolve");
-  assert.equal(classifyGpuFramePhase(segments[2].label), "material-resolve");
+  assert.equal(classifyGpuFramePhase(segments[0].label), "unclassified");
+  assert.equal(classifyGpuFramePhase(segments[8].label), "lighting-and-ibl");
 });
 
 test("ADR-0013 diagnostics labels stay outside production surface timing", () => {

@@ -159,7 +159,9 @@ export class SurfaceCellClassifierPass {
     const product = input.product !== null;
     const factLibrary = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
       SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity);
-    const profile = `${product}:${dictionaryCapacity}:${input.publication.surfaceProgramCount}`;
+    const profile = `${product}:${dictionaryCapacity}:${input.publication.surfaceProgramCount}:` +
+      `${input.publication.surfaceCacheGeneration}:${input.workLayout.sampleCapacity}:` +
+      `${input.workLayout.tileCapacity}`;
     let pipelines = this.pipelines.get(profile);
     if (!pipelines) {
       const fullModule = this.device.createShaderModule({ label: "Surface/cell publication and compaction", code:
@@ -187,7 +189,8 @@ export class SurfaceCellClassifierPass {
     const setup = input.geometryPass.addCellSetupsToGraph(graph, {
       visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
       frameInstances: input.frameInstances, product: input.product, width: input.width, height: input.height, tilesX,
-      firstTile: 0, tileCount: tiles, targetCapacity: input.width * input.height, addressBudgetBytes: 32 * 1024 * 1024,
+      firstTile: 0, tileCount: tiles, targetCapacity: input.workLayout.sampleCapacity,
+      addressBudgetBytes: input.workLayout.sampleCapacity * 128,
       generation: input.generation, sourceGeometry: input.sourceGeometry, sourceMeshlet: input.sourceMeshlet,
       sourceMeshletVertices: input.sourceMeshletVertices, sourceMeshletTriangles: input.sourceMeshletTriangles, sourceVertexData: input.sourceVertexData
     });

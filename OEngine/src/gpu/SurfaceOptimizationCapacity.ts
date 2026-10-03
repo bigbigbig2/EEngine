@@ -1,6 +1,6 @@
-/** Surface V3 optimization-v1 capacity policy. Local deterministic integration.
- * This plans the new chain; it does not reconfigure the current dense renderer.
- * Counts are worst-case tile slots, never this-frame CPU-visible work counts. */
+/** Surface V3 optimization-v1 capacity policy and production allocation contract.
+ * Counts are bounded tile/target slots; GPU counters select actual work inside
+ * each fixed range and overflow remains visible in the shared diagnostics. */
 export const SURFACE_OPTIMIZATION_MIB = 1024 * 1024;
 export const SURFACE_OPTIMIZATION_TILE_EDGE = 8;
 export const SURFACE_OPTIMIZATION_DEFAULT_BATCH_PIXELS = 262144;
@@ -125,8 +125,9 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
   };
   const persistentSegments = Object.freeze({ fieldStore: segment("fieldStore"),
     signalStore: segment("signalStore"), variation: segment("variation") });
-  const outputBytes = pixelCount * 12; // HDR rgba16float + reactive r32float worst-case output allocation.
-  if (outputBytes > SURFACE_OPTIMIZATION_BUDGET_MIB.outputs * SURFACE_OPTIMIZATION_MIB) {
+  const requiredOutputBytes = pixelCount * 12; // HDR rgba16float + reactive r32float.
+  const reservedOutputBytes = SURFACE_OPTIMIZATION_BUDGET_MIB.outputs * SURFACE_OPTIMIZATION_MIB;
+  if (requiredOutputBytes > reservedOutputBytes) {
     throw new RangeError("Surface output extent exceeds configured output budget");
   }
   const rawScratchBytes = batchTargetCapacity * scratchProfile.reduce((sum, [, field]) => sum + profile[field], 0)
