@@ -172,8 +172,8 @@ fn compact_cells(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_in
   if lane==0u {
     let total=atomicLoad(&compact_count);
     let base=compact_base;
-    let coverage=compact_plan(tile,0u);
-    let emitted=countOneBits(coverage.coverage_lo)+countOneBits(coverage.coverage_hi);
+    let header=tile*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u;
+    let emitted=countOneBits(compact_workspace.plans[header+2u])+countOneBits(compact_workspace.plans[header+3u]);
     let tileAt=compact_settings.tile_offset+absolute*12u;compact_work[tileAt+0u]=(tx*8u)|((min(8u,compact_settings.width-tx*8u))<<16u);
     compact_work[tileAt+1u]=(ty*8u)|((min(8u,compact_settings.height-ty*8u))<<16u);
     compact_work[tileAt+2u]=select(0u,select(2u,1u,total==1u),total!=0u)|(min(emitted,255u)<<8u);
@@ -191,7 +191,9 @@ export class SurfaceCellClassifierPass {
   private readonly factSettings: GPUBuffer;
   private readonly compactSettings: GPUBuffer;
   private readonly scratch: SurfaceFrameResources;
-  private readonly pipelines = new Map<string, Readonly<{ constants: GPUComputePipeline; facts: GPUComputePipeline; classify: readonly GPUComputePipeline[]; compact: GPUComputePipeline }>>();
+  private readonly pipelines = new Map<string, Readonly<{ constants: GPUComputePipeline; facts: GPUComputePipeline;
+    geometryCertificates: GPUComputePipeline; fieldCertificates: GPUComputePipeline;
+    classify: readonly GPUComputePipeline[]; compact: GPUComputePipeline }>>();
 
   constructor(private readonly device: GPUDevice, scratch: SurfaceFrameResources) {
     this.scratch = scratch;
@@ -215,7 +217,7 @@ export class SurfaceCellClassifierPass {
     const { dictionaryCapacity, setupCapacity } = geometryCapacity;
     const product = input.product !== null;
     const factLibrary = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
-      SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity);
+      SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(), true);
     const profile = `${product}:${dictionaryCapacity}:${input.publication.surfaceProgramCount}:` +
       `${input.publication.surfaceCacheGeneration}:${input.workLayout.sampleCapacity}:` +
       `${input.workLayout.tileCapacity}`;
@@ -224,9 +226,13 @@ export class SurfaceCellClassifierPass {
       const productionLayout = createSurfaceCellPipelineLayout(this.device, product);
       const fullModule = this.device.createShaderModule({ label: "Surface/cell publication and compaction", code:
         `${surfaceCellClassifyStageWgsl(factLibrary, batchTileCapacity, 0, 0, 3, "classify_cells_base", false)}\n${COMPACT_WGSL}` });
-      const modules = SURFACE_CELL_CLASSIFY_STAGES.map(({ first: start, count, fields }, index) => {
+      const fieldFacts = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
+        SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, null, false);
+      const fieldModule = this.device.createShaderModule({ label: "Surface/shared field and texture certificates", code:
+        surfaceCellClassifyStageWgsl(fieldFacts, batchTileCapacity, 0, 0, 0, "unused_field_classifier", false) });
+      const modules = SURFACE_CELL_CLASSIFY_STAGES.map(({ first: start, count }, index) => {
         const stageFacts = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
-          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(fields), false, start >= 15);
+          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(), false);
         return this.device.createShaderModule({
         label: `Surface/cell production classifier stage ${index}`,
         code: surfaceCellClassifyStageWgsl(stageFacts, batchTileCapacity, index, start, count, `classify_cells_stage_${index}`, start < 15 ? "field-geometry" : "full")
@@ -236,6 +242,8 @@ export class SurfaceCellClassifierPass {
       pipelines = Object.freeze({
         constants: this.device.createComputePipeline({ label: "Surface/cell material constants", layout: "auto", compute: { module, entryPoint: "publish_cell_material_constants" } }),
         facts: this.device.createComputePipeline({ label: "Surface/cell lighting facts", layout: productionLayout, compute: { module, entryPoint: "publish_cell_facts" } }),
+        geometryCertificates: this.device.createComputePipeline({ label: "Surface/shared geometry certificates", layout: productionLayout, compute: { module, entryPoint: "publish_cell_geometry_certificates" } }),
+        fieldCertificates: this.device.createComputePipeline({ label: "Surface/shared field and texture certificates", layout: productionLayout, compute: { module: fieldModule, entryPoint: "publish_cell_field_certificates" } }),
         classify: Object.freeze(modules.map((stageModule, index) => this.device.createComputePipeline({ label: `Surface/cell classify stage ${index}`, layout: productionLayout, compute: { module: stageModule, entryPoint: `classify_cells_stage_${index}` } }))),
         compact: this.device.createComputePipeline({ label: "Surface/cell compact representatives", layout: "auto", compute: { module, entryPoint: "compact_cells" } })
       });
@@ -335,6 +343,22 @@ export class SurfaceCellClassifierPass {
       });
       facts.read(input.visibility); facts.read(setup.arena); facts.read(input.meshletWork); facts.read(input.sourceHeap); facts.read(input.vertexPayload); facts.read(input.frameInstances); facts.read(input.appearanceMetadata); facts.read(input.textureVariation); facts.read(input.camera); facts.read(input.lightRecords); facts.read(input.clusters.lookup); facts.read(input.clusters.data); facts.read(input.clusters.parameters); facts.read(workspace); workspace = facts.write(workspace); facts.dependsOn(batchReset);
       previous = facts;
+      for (const [name,pipeline] of [["geometry",pipelines.geometryCertificates],["field and texture",pipelines.fieldCertificates]] as const) {
+        const certificate = graph.add(`Surface/shared ${name} certificates batch ${batch}`, { setup, workspace }, (_data,resources,context) => {
+          const command=context.encoder as ShadeGPUCommandContext;
+          const pass=command.beginComputePass({label:`Surface/shared ${name} certificates`});
+          pass.setPipeline(pipeline);
+          bindFactGroups(pipeline,resources,setup).forEach((group,index) => pass.setBindGroup(index,group));
+          pass.dispatchWorkgroups(tileCount);
+          pass.end();
+        });
+        certificate.read(input.visibility); certificate.read(setup.arena); certificate.read(input.meshletWork);
+        certificate.read(input.sourceHeap); certificate.read(input.vertexPayload); certificate.read(input.frameInstances);
+        certificate.read(input.appearanceMetadata); certificate.read(input.textureVariation); certificate.read(input.camera);
+        certificate.read(input.lightRecords); certificate.read(input.clusters.lookup); certificate.read(input.clusters.data); certificate.read(input.clusters.parameters);
+        if (input.product!==null) { certificate.read(input.product.heap); for (const bank of input.product.banks) { certificate.read(bank); } }
+        certificate.read(workspace); workspace=certificate.write(workspace); certificate.dependsOn(previous); previous=certificate;
+      }
       for (const [stageIndex, pipeline] of pipelines!.classify.entries()) {
         const classify = graph.add(`Surface/cell classify continuity domains ${stageIndex} batch ${batch}`, { setup, workspace }, (_data, resources, context) => {
           const command = context.encoder as ShadeGPUCommandContext;

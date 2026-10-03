@@ -191,7 +191,7 @@ fn surface_material(record: u32) -> StandardMaterial {
   let occlusion = saturate(surface_field(record, 4u).x);
   let emissive = max(surface_field(record, 5u).xyz, vec3f(0.0));
   let specular_weight = saturate(surface_field(record, 8u).x);
-  let specular_color = max(surface_field(record, 9u).xyz, vec3f(1.0));
+  let specular_color = max(surface_field(record, 9u).xyz, vec3f(0.0));
   let coat_factor = saturate(surface_field(record, 10u).x);
   let coat_roughness = clamp(surface_field(record, 11u).x, 0.04, 1.0);
   let coat_raw = surface_field(record, 12u).xyz;
@@ -296,14 +296,18 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   let shading_normal = normalize(geometry[base + 2u].xyz);
   let tangent = normalize(geometry[base + 5u].xyz);
   let view_dir = normalize(geometry[base + 6u].xyz);
-  let material = surface_material(record);
+  var material = surface_material(record);
   let normal_valid = surface_field(record, 13u).x > 0.5;
   var normal = shading_normal;
   if normal_valid {
-    let normal_ts = normalize(surface_field(record, 6u).xyz * 2.0 - vec3f(1.0));
+    // Appearance graph publishes signed tangent-space values already.
+    let normal_ts = normalize(surface_field(record, 6u).xyz);
     let bitangent = normalize(cross(shading_normal, tangent) * geometry[base + 2u].w);
     normal = normalize(tangent * normal_ts.x + bitangent * normal_ts.y + shading_normal * normal_ts.z);
   }
+  let coat_ts=material.coatNormal;
+  let coat_bitangent=normalize(cross(shading_normal,tangent)*geometry[base+2u].w);
+  material.coatNormal=normalize(tangent*coat_ts.x+coat_bitangent*coat_ts.y+shading_normal*coat_ts.z);
   let surface_geometry = SurfaceGeometry(normal, geometric_normal, position, view_dir);
   if setting(10u) == 0u { diagnostic_add(7u, 1u); }
   let has_diffuse = (signal_mask & 1u) != 0u;
@@ -341,7 +345,7 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   var coat_ibl = vec3f(0.0);
   if has_diffuse_env {environment_diffuse = environment_diffuse_irradiance(normal);diagnostic_add(3u, 1u);}
   if has_specular_env {environment_specular = environment_specular_surface(material, normal, view_dir);diagnostic_add(6u, 1u);}
-  if has_coat_env {coat_ibl = coat_environment(material, normal, view_dir);}
+  if has_coat_env {coat_ibl = coat_environment(material, material.coatNormal, view_dir);}
   if has_diffuse {packet_store(record,0u,vec4f(direct_diffuse, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_DIFFUSE);diagnostic_add(20u,1u);}
   if has_diffuse_env {packet_store(record,1u,vec4f(environment_diffuse, 1.0),SURFACE_PACKET_IRRADIANCE|SURFACE_PACKET_DIFFUSE|SURFACE_PACKET_ENVIRONMENT);diagnostic_add(21u,1u);}
   if has_specular {packet_store(record,2u,vec4f(direct_specular, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_SPECULAR);diagnostic_add(22u,1u);}

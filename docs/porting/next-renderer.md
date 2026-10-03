@@ -879,3 +879,22 @@ Directional VSM 的真实 PCF 接收点比较没有删除或换成 page-version 
 | WGSL relaxed atomics 与 workgroup barrier scope；既有 FrameGraph/Store owner | 步骤 1/3/4 准入、评估、发布、消费与退休 | atomic state 不代替跨 word publication；dispatch 边界、uniform barriers、无全局自旋、无本帧 CPU work 回读、无独立 submit |
 
 证书合并与跨帧有效域仍是具名本地 Continuity-Domain Signal Sampling 扩展，尚未实施、尚无数值/GPU 消费证据。复杂实现开工前继续补核读具体相关完整源码、论文和技术资料，并更新实际函数映射；不把上述阶段参考宣称为完整上游移植。步骤 1–4 的定向检查不设性能门槛，步骤 5 同场景实测也不自动等于全 Phase 7 或 claims 通过。
+
+## 2026-10-04：五步修复的共享证书实施来源
+
+此次重新下载并核读固定完整文件：Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ComputeShaderTile.hlsl`（Apache-2.0，完整 coarse/full、零灯写回、组同步）；OSS `473a59bbcdd30e3366cc567d66a5a97353620d48/RenderTaskProcessing.compute`（Apache-2.0，完整 `RenderTaskPrepare/RenderTaskIndirectDispatch`）与 README；Forge `cd5046893faba2dc7869243873bf01f02a6f0df9/VisibilityBufferShadingUtilities.h.fsl`（Apache-2.0，`CalcFullBary/Interpolate2DWithDeriv` 及完整文件）。实际缓存副本在本机 `.local/surface-repair/sources/`，不作为生产依赖。
+
+论文/技术资料：已读 OSS 同 pin 的 [`object_space_shading_preprint.pdf`](https://github.com/WeakKnight/real-time-seamless-object-space-shading/blob/473a59bbcdd30e3366cc567d66a5a97353620d48/object_space_shading_preprint.pdf) 四页全文，关注 §3.2 gradients→occupancy、§3.3 有限 allocator、§3.4 actual task→shade、§4.2 object-space 地址及 §4.3 persistent layer；PDF 自身声明 Creative Commons Attribution，不混用其论文许可与 Apache-2.0 源码许可。重新读 [DAIS](https://cg.ivd.kit.edu/publications/2015/dais/DAIS.pdf) §3–4、§6 和 Appendix A，保留分母/gradient、近裁剪和高属性数量/uber-shader 的限制；上游 spinlock、第二几何 pass、bindless 与低频假设不带入本地执行模型。核读 CPS 的 GPU Pro 7 README 与 [Microsoft 2026-04-09 VRCS 说明](https://developer.microsoft.com/en-us/games/articles/2026/04/variable-rate-compute-shaders-doom-the-dark-ages/)，后者是概述，具体阶段继续依据既有冻结 GPC 幻灯片，不借用其收益数字。
+
+未找到能覆盖本地完整 21-plane/WebGPU 前置 certificate/value lookup 的 donor。以下明确为具名本地 **Continuity-Domain Signal Sampling — Shared Leaf Certificates**，不登记为 CPS/OSS/Forge 完整移植，不提升 R01–R24 或 adoption。
+
+| 核对入口/依据 | 本地产物与阶段 | 输入、输出、不变量与拒绝条件 |
+|---|---|---|
+| CPS fixed coarse candidate/full list；OSS occupancy/tasks；DAIS triangle memoization | `publish_cell_facts` 一次 tile primitive 表；`surface_cell_classify` 固定 16 quad/4 parent/eligible root + bounded domain masks | Visibility/Geometry setup→cheap facts/domain membership；parent 不重新 member×previous 去重，没有 arbitrary shrinking 搜索。未知/混合域仅细化相关需求，无全局 spin |
+| Forge `CalcFullBary/Interpolate2DWithDeriv`、DAIS §3.2/§4.2/Appendix A；既有本地 `cell_scalar_footprint` | `publish_cell_geometry_certificates`、`cell_certificate_box` | 原 Geometry owner 的 coefficients/corners→quad world/normal/tangent/view box、own-plane residual 和 pixel scale；W=0/负 W 数学沿用已实现 helper，分母穿零和原 f32 cancellation/差分余量不删除 |
+| 实际 compiled graph closure/CSE 与本地 interval engine/TextureVariation | `AppearanceFieldDependencyProfile`→紧凑 lazy attribute slots；`publish_cell_field_certificates`→15 logical fields 的窄 f32区间/known bits | profile 来自 DAG live inputs/samples/products/domain，不从 WGSL 正则推合同；同 compiler sample ID 具有完整 binding/sampler/transform/UV DAG/filter 身份，同上下文复用 RGBA query。不同身份不合并，dynamic/nonlocal/缺摘要保持 unknown |
+| 本地支持域与区间合并数学，无完整 donor | `cell_certificate_members/cell_candidate_field` 与 `surface_cell_group_valid_stage` | 至多64份 primitive/quad leaf proof 同时服务所有 field/signal/parent。field 值域和方向盒合并后重新判 parent budget；残差显式加 `(parentPlane-childPlane)·world`，不能直接使用 child-relative residual或 safe boolean |
+| 实际 fine-anchor 与 GeometryRecord gradient 合同 | fixed hierarchy 的 accepted first-covered source | parent source 始终是已覆盖 fine location，material 保持原 fine gradients；quad证书包含其完整 analytic/filter support。因此 parent union 不偷偷扩大发生采样的 footprint；新 anchor/filter 不被覆盖时不能命中（持久有效域由步骤3补全） |
+| 本地资源/ABI集成与 WGSL dispatch/barrier scope | `GpuSurfaceCellPlanAbi` 紧凑 certificate sections、`SurfaceOptimizationCapacity`、FrameGraph geometry/field certificate→classify | 不分配 node×domain×plane 大表；每目标128 B geometry、208 B field 与4 B primitive映射，最大64 leaf/tile；scratch在消费后按batch复用，创建前协商总绑定与512 MiB envelope。跨producer使用 dispatch，组内协作是 uniform barrier；diagnostic按workgroup聚合，timing关闭计数 |
+
+组件检查：真实 production publication/setup→geometry/field certificate→classifier fixture、ORM复用、parent颜色/残差/方向/unknown/roughness小用例已执行；细节见[执行记录](../next-execution/surface-work-v3-classifier-store-repair-progress-2026-10.md)。这些组件结果不证明完整 Showcase、移动视角有效域、连续画质或整帧性能完成。signed normalTS与world coat basis是对既有 Appearance/BRDF 单位的接线修正，未改写原 BRDF公式。

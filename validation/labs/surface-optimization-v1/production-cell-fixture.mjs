@@ -21,7 +21,7 @@ import {createSurfaceCellPipelineLayout} from '../../../OEngine/.test-dist/rende
 import {SURFACE_CELL_CLASSIFY_STAGES} from '../../../OEngine/.test-dist/shaders/surface_cell_group_validation.js';
 
 
-export async function runProductionCellOracle(gpu,assert,onStage=()=>{},onSource=()=>{}) {
+export async function runProductionCellOracle(gpu,assert,onStage=()=>{},onSource=()=>{},withOrm=false) {
 const {SURFACE_CELL_LIGHTING_RISK_WGSL}=await import('../../../OEngine/.test-dist/shaders/surface_cell_lighting_risk.js');
 const adapter=await gpu.requestAdapter({powerPreference:'high-performance'});assert.ok(adapter&&!adapter.info.isFallbackAdapter);
 const device=await adapter.requestDevice({requiredLimits:{maxStorageBuffersPerShaderStage:16}});
@@ -41,10 +41,12 @@ try{
  const material=new StandardShadeMaterial();material.roughness_factor=.8;
  const sourceTexture=ShadeTexture.from(ShadeImage.fromSampler2D(new Sampler2D(new Uint8Array([64,64,64,255]),4,1,1)));
  material.texture_albedo=sourceTexture;
+ const ormTexture=ShadeTexture.from(ShadeImage.fromSampler2D(new Sampler2D(new Uint8Array([128,255,64,255]),4,1,1)));
+ if(withOrm){material.texture_orm=ormTexture;material.metallic_factor=.5;}
  const materialProgram=compileCanonicalMaterial(material).appearance;
  registry=new AppearanceProgramRegistry(device);cache=new GpuAppearanceCache(device);
- publication=new GpuAppearancePublication(device,registry,[{material,materialSlot:0,textureBindingSetId:0,program:materialProgram,textureRefs:new Map([[sourceTexture,encodeGpuTextureRef(0,1)]])}],command,
-  new Map([[sourceTexture,[0,0]]]),new Map([[sourceTexture,{slot:1,generation:7,revision:9,localVariationSlot:1,variation:{known:true,low:[64/255,64/255,64/255,1],high:[64/255,64/255,64/255,1]}}]]),undefined,undefined,cache);
+ publication=new GpuAppearancePublication(device,registry,[{material,materialSlot:0,textureBindingSetId:0,program:materialProgram,textureRefs:new Map([[sourceTexture,encodeGpuTextureRef(0,1)],...(withOrm?[[ormTexture,encodeGpuTextureRef(0,2)]]:[])])}],command,
+  new Map([[sourceTexture,[0,0]],...(withOrm?[[ormTexture,[0,0]]]:[])]),new Map([[sourceTexture,{slot:1,generation:7,revision:9,localVariationSlot:1,variation:{known:true,low:[64/255,64/255,64/255,1],high:[64/255,64/255,64/255,1]}}],...(withOrm?[[ormTexture,{slot:2,generation:11,revision:13,localVariationSlot:2,variation:{known:true,low:[128/255,1,64/255,1],high:[128/255,1,64/255,1]}}]]:[])]),undefined,undefined,cache);
  await publication.ready;
  device.pushErrorScope('validation');
  const identity=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1],instances=new Uint8Array(GPU_FRAME_INSTANCE_STRIDE);
@@ -64,7 +66,12 @@ try{
  device.queue.writeTexture({texture:visibility},Uint32Array.from({length:64},(_,i)=>(i%2)<<24),{bytesPerRow:32},{width:8,height:8});
  const texture=device.createTexture({size:[8,8,2],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});retained.push(texture);
  device.queue.writeTexture({texture,origin:[0,0,1]},Uint8Array.from({length:8*8*4},(_,i)=>i%4===3?255:64),{bytesPerRow:32},{width:8,height:8,depthOrArrayLayers:1});
- variation=new TextureVariationResidency(device,8);assert.equal(variation.stage(command,{slot:1,generation:7,revision:9,texture,layer:1,width:8,height:8,mipCount:1,availableMip:0,decodeSrgb:false}),true);
+ variation=new TextureVariationResidency(device,8);assert.equal(variation.stage(command,{slot:1,generation:7,revision:9,texture,layer:1,width:8,height:8,mipCount:1,availableMip:0,decodeSrgb:true}),true);
+ if(withOrm){
+  const ormGpu=device.createTexture({size:[8,8,2],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});retained.push(ormGpu);
+  device.queue.writeTexture({texture:ormGpu,origin:[0,0,1]},Uint8Array.from({length:8*8*4},(_,i)=>[128,255,64,255][i%4]),{bytesPerRow:32},{width:8,height:8,depthOrArrayLayers:1});
+  assert.equal(variation.stage(command,{slot:2,generation:11,revision:13,texture:ormGpu,layer:1,width:8,height:8,mipCount:1,availableMip:0,decodeSrgb:false}),true);
+ }
  const cameraValues=new Float32Array(164);for(let i=0;i<8;i++)cameraValues.set(identity,i*16);cameraValues[14]=100;cameraValues[32+14]=-100;
  const camera=buffer(cameraValues,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
  const graph=new FrameGraph('diagnostic production cell facts'),imported=(name,value)=>graph.import_resource(name,{kind:'imported'},value);
@@ -72,7 +79,7 @@ try{
  const geometry=owner.addToGraph(graph,{visibility:imported('visibility',visibility),...Object.fromEntries(Object.entries(geometryInputs).map(([name,b])=>[name,imported(name,b)])),product:null,
   width:8,height:8,tilesX:1,firstTile:0,tileCount:1,targetCapacity:64,generation:11,sourceGeometry:0,sourceMeshlet:GPU_GEOMETRY_RECORD_SCHEMA.stride/4,sourceMeshletVertices:0,sourceMeshletTriangles:4,sourceVertexData:0});
  const workspaceLayout=surfaceCellWorkspaceLayout(1),workspace=buffer(new Uint32Array(workspaceLayout.bytes/4),GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST);
- const cellSettings=buffer(new Uint32Array([8,8,1,0,1,64,11,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+ const cellSettings=buffer(new Uint32Array([8,8,1,0,1,64,11,1]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
  const o=publication.surfaceMetadataOffsets;
  const factSettings=buffer(new Uint32Array([0,GPU_GEOMETRY_RECORD_SCHEMA.stride/4,0,4,0,0,0,0,o.constants,o.routes,o.bounds,o.directory,o.materialLookup,o.materialLookupCount,o.directoryCount,publication.surfaceCacheGeneration,
   geometry.dictionaryCapacity,geometry.setupCapacity,11,1,o.constantFields,2,0,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
@@ -80,16 +87,18 @@ try{
  const clusterLookup=buffer(new Uint32Array(24*4)),clusterData=buffer(new Uint32Array([0,0,32,0,0,0,0,0,...Array(32).fill(0)])),clusterParameters=buffer(new Float32Array([0,1,1,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
  const fullFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity);
  const fullModule=device.createShaderModule({code:surfaceCellClassifyStageWgsl(fullFacts,1,0,0,3,'classify_cells_base',false)});
- const ranges=SURFACE_CELL_CLASSIFY_STAGES.map(({first,count,fields})=>[first,count,fields]);
- const modules=ranges.map(([start,count,fields],index)=>{const facts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set(fields),false);return device.createShaderModule({code:surfaceCellClassifyStageWgsl(facts,1,index,start,count,`classify_cells_stage_${index}`,start>=15?'full':'field-geometry')});});
- const moduleInfo=await Promise.all([fullModule,...modules].map(module=>module.getCompilationInfo()));
+ const ranges=SURFACE_CELL_CLASSIFY_STAGES.map(({first,count})=>[first,count]);
+ const fieldFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,null,false);
+ const fieldModule=device.createShaderModule({code:surfaceCellClassifyStageWgsl(fieldFacts,1,0,0,0,'unused_field_classifier',false)});
+ const modules=ranges.map(([start,count],index)=>{const facts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set(),false);return device.createShaderModule({code:surfaceCellClassifyStageWgsl(facts,1,index,start,count,`classify_cells_stage_${index}`,start>=15?'full':'field-geometry')});});
+ const moduleInfo=await Promise.all([fullModule,fieldModule,...modules].map(module=>module.getCompilationInfo()));
  report.compilation=moduleInfo.flatMap(info=>info.messages.filter(m=>m.type==='error').map(m=>({message:m.message,line:m.lineNum})));
  await onSource(surfaceCellClassifyStageWgsl(surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set([0]),false),1,0,0,1,'classify_cells_stage_0','field-geometry')); assert.deepEqual(report.compilation,[]);
  const pipelines={};
  const productionLayout=createSurfaceCellPipelineLayout(device,false);
- for(const entryPoint of ['publish_cell_material_constants','publish_cell_facts']){
+ for(const entryPoint of ['publish_cell_material_constants','publish_cell_facts','publish_cell_geometry_certificates','publish_cell_field_certificates']){
   onStage(`Compiling ${entryPoint}`);const start=performance.now();
-  pipelines[entryPoint]=await device.createComputePipelineAsync({layout:entryPoint==='publish_cell_material_constants'?'auto':productionLayout,compute:{module:fullModule,entryPoint}});
+  pipelines[entryPoint]=await device.createComputePipelineAsync({layout:entryPoint==='publish_cell_material_constants'?'auto':productionLayout,compute:{module:entryPoint==='publish_cell_field_certificates'?fieldModule:fullModule,entryPoint}});
   onStage(`Compiled ${entryPoint} in ${Math.round(performance.now()-start)} ms`);
  }
  pipelines.classify=[];
@@ -105,7 +114,7 @@ try{
   [{binding:0,resource:{buffer:lightRecords}},{binding:1,resource:{buffer:clusterLookup}},{binding:2,resource:{buffer:clusterData}},{binding:3,resource:{buffer:clusterParameters}}]
  ];
  // Each auto layout exposes only the bindings actually consumed by that stage.
- const stages=[['publish_cell_material_constants',pipelines.publish_cell_material_constants,[],[0,7],[]],['publish_cell_facts',pipelines.publish_cell_facts,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],...pipelines.classify.map((pipeline,index)=>[`classify_cells_stage_${index}`,pipeline,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]])];
+ const stages=[['publish_cell_material_constants',pipelines.publish_cell_material_constants,[],[0,7],[]],['publish_cell_facts',pipelines.publish_cell_facts,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],['publish_cell_geometry_certificates',pipelines.publish_cell_geometry_certificates,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],['publish_cell_field_certificates',pipelines.publish_cell_field_certificates,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],...pipelines.classify.map((pipeline,index)=>[`classify_cells_stage_${index}`,pipeline,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]])];
  let previous=null;
  for(const [name,pipeline,b0,b1,b2] of stages){
   const pass=graph.add(name,{},(_data,resources)=>{
@@ -130,7 +139,10 @@ try{
  const plane=field=>{const at=workspaceLayout.plans/4+16+field*SURFACE_CELL_PLANE_BYTES/4;return {mode:words[at]&255,rate:words[at]>>>8,slots:words[at+3]};};
  report.base=plane(0);report.roughness=plane(3);report.diffuseEnvironment=plane(16);report.specularEnvironment=plane(18);report.coat=plane(20);
  assert.equal(words[104],0);assert.equal(words[105],0);assert.ok(words[106]>0);
- assert.equal(report.base.mode,3);assert.equal(report.base.slots,4);assert.equal(report.roughness.mode,1);assert.equal(report.roughness.slots,0);
+ report.certificates={geometry:words[108],fields:words[109],contexts:words[110],textureNodes:words[106],textureQueries:words[111],textureReuses:words[112]};
+ if(withOrm){assert.equal(words[111],64);assert.ok(words[112]>=64);report.ormShared=true;}else{assert.equal(words[111],32);}
+ assert.equal(words[108],32);assert.equal(words[109],32);assert.equal(words[110],64);
+ assert.equal(report.base.mode,3);assert.equal(report.base.slots,4);assert.equal(report.roughness.mode,withOrm?3:1);assert.equal(report.roughness.slots,withOrm?4:0);
  assert.equal(report.diffuseEnvironment.slots,1);assert.ok(report.specularEnvironment.slots<=16);assert.equal(report.coat.mode,0);assert.equal(report.coat.slots,0);
  assert.ok(words[0*4+2]>0);assert.ok(words[16*4+2]>0);assert.deepEqual(errors,[]);assert.equal(loss,null);report.passed=true;
  for(const b of transient)b.destroy();compiled.destroy();

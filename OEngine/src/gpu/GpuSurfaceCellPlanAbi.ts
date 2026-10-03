@@ -1,4 +1,4 @@
-import { APPEARANCE_SURFACE_READ_WGSL } from "./GpuAppearanceCacheAbi.js";
+import { APPEARANCE_SURFACE_READ_WGSL, APPEARANCE_FIELD_WIDTHS } from "./GpuAppearanceCacheAbi.js";
 
 /** Optimization-v1 work plans. A plan describes a span/grid/masked partition;
  * it never expands full-rate coverage into 64 wide pixel tasks. Local ABI. */
@@ -17,11 +17,21 @@ export const SURFACE_CELL_MASKED_PLANE_BYTES = SURFACE_CELL_MAP_BYTES * 2;
 export const SURFACE_CELL_TILE_MAP_BYTES = SURFACE_CELL_PLANE_COUNT * SURFACE_CELL_MASKED_PLANE_BYTES;
 export const SURFACE_CELL_CONTROL_HEADER_WORDS = 128;
 export const SURFACE_CELL_CHEAP_FACT_BYTES = 16;
-export function surfaceCellWorkspaceLayout(tiles: number): Readonly<{ counters: number; plans: number; maps: number; facts: number; bytes: number; tiles: number }> {
+export const SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS = 32;
+export const SURFACE_CELL_FIELD_CERTIFICATE_WORDS = 52;
+export const SURFACE_CELL_CERTIFICATE_BYTES_PER_TARGET = (SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS + SURFACE_CELL_FIELD_CERTIFICATE_WORDS + 1) * 4;
+export const SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS = Object.freeze(APPEARANCE_FIELD_WIDTHS.map((_width, field) =>
+  APPEARANCE_FIELD_WIDTHS.slice(0,field).reduce((sum,width) => sum + width * 2,0)));
+export function surfaceCellWorkspaceLayout(tiles: number): Readonly<{ counters: number; plans: number; maps: number;
+  geometryCertificates: number; fieldCertificates: number; primitives: number; facts: number; bytes: number; tiles: number }> {
   if(!Number.isSafeInteger(tiles)||tiles<1)throw new RangeError("Invalid Surface workspace tile capacity");
   const plans=SURFACE_CELL_CONTROL_HEADER_WORDS*4,maps=plans+tiles*SURFACE_CELL_TILE_PLAN_BYTES;
-  const facts=Math.ceil((maps+tiles*SURFACE_CELL_TILE_MAP_BYTES)/16)*16;
-  return Object.freeze({counters:0,plans,maps,facts,bytes:facts+tiles*64*SURFACE_CELL_CHEAP_FACT_BYTES,tiles});
+  const geometryCertificates=maps+tiles*SURFACE_CELL_TILE_MAP_BYTES;
+  const fieldCertificates=geometryCertificates+tiles*64*SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS*4;
+  const primitives=fieldCertificates+tiles*64*SURFACE_CELL_FIELD_CERTIFICATE_WORDS*4;
+  const facts=Math.ceil((primitives+tiles*64*4)/16)*16;
+  return Object.freeze({counters:0,plans,maps,geometryCertificates,fieldCertificates,primitives,facts,
+    bytes:facts+tiles*64*SURFACE_CELL_CHEAP_FACT_BYTES,tiles});
 }
 export function surfaceCellWorkspaceWgsl(tiles:number):string {
   surfaceCellWorkspaceLayout(tiles);
@@ -29,6 +39,9 @@ export function surfaceCellWorkspaceWgsl(tiles:number):string {
  counters:array<atomic<u32>,${SURFACE_CELL_CONTROL_HEADER_WORDS}>,
  plans:array<u32,${tiles*SURFACE_CELL_TILE_PLAN_BYTES/4}>,
  maps:array<u32,${tiles*SURFACE_CELL_TILE_MAP_BYTES/4}>,
+ geometry_certificates:array<u32,${tiles*64*SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS}>,
+ field_certificates:array<u32,${tiles*64*SURFACE_CELL_FIELD_CERTIFICATE_WORDS}>,
+ primitives:array<u32,${tiles*64}>,
  facts:array<vec4u>,
 }`;
 }
@@ -168,7 +181,7 @@ struct SurfaceFieldRef { kind:u32, index:u32, }
 fn surface_plan_fact(pixel:vec2u)->vec4u {
   let tile=(pixel.y/8u)*${tilesX}+pixel.x/8u-${firstTile};
   let lane=(pixel.y%8u)*8u+pixel.x%8u;
-  let base=(${SURFACE_CELL_CONTROL_HEADER_WORDS}u+${batchTiles}*${(SURFACE_CELL_TILE_PLAN_BYTES + SURFACE_CELL_TILE_MAP_BYTES) / 4}u+3u)&~3u;
+  let base=(${SURFACE_CELL_CONTROL_HEADER_WORDS}u+${batchTiles}*${(SURFACE_CELL_TILE_PLAN_BYTES + SURFACE_CELL_TILE_MAP_BYTES) / 4 + 64 * SURFACE_CELL_CERTIFICATE_BYTES_PER_TARGET / 4}u+3u)&~3u;
   let at=base+(tile*64u+lane)*4u;
   return vec4u(cell_plan_words[at],cell_plan_words[at+1u],cell_plan_words[at+2u],cell_plan_words[at+3u]);
 }

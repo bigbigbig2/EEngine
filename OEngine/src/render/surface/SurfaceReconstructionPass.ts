@@ -97,6 +97,20 @@ fn compose_irradiance(pixel:vec2u,irradiance:vec3f)->vec3f {
   }
   return base_color*(1.0-metallic)*occlusion*ao*irradiance*0.3183098861837907;
 }
+fn compose_unlit(pixel:vec2u)->vec3f {
+  let tile=(pixel.y/8u)*settings.tiles_x+pixel.x/8u-settings.first_tile;
+  let lane=(pixel.y%8u)*8u+pixel.x%8u;
+  let base_coverage=surface_plan_word(tile,0u,4u+lane/32u);
+  if (base_coverage&(1u<<(lane&31u)))==0u { return vec3f(0.0); }
+  for(var field=0u;field<4u;field++) {
+    let lighting_field=array<u32,4>(2u,3u,6u,7u)[field];
+    if (surface_plan_word(tile,lighting_field,4u+lane/32u)&(1u<<(lane&31u)))!=0u { return vec3f(0.0); }
+  }
+  for(var kind=0u;kind<6u;kind++) {
+    if (surface_plan_word(tile,15u+kind,4u+lane/32u)&(1u<<(lane&31u)))!=0u { return vec3f(0.0); }
+  }
+  return max(surface_field_at(pixel,0u).xyz,vec3f(0.0));
+}
 
 @compute @workgroup_size(8,8)
 fn reconstruct(@builtin(global_invocation_id) id:vec3u) {
@@ -111,7 +125,7 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u) {
   let address=surface_plan_fact(pixel);
   let valid=address.x!=0xffffffffu && address.z!=0xffffffffu;
   let facts=textureLoad(source_facts,pixel_i,0);
-  var value=max(surface_field_at(pixel,5u).xyz,vec3f(0.0));
+  var value=max(surface_field_at(pixel,5u).xyz,vec3f(0.0))+compose_unlit(pixel);
   for(var kind=0u;kind<6u;kind++) {
     let record=surface_plan_record(pixel,15u+kind,settings.tiles_x,settings.first_tile);
     if record!=0xffffffffu && (packet_flags[record*6u+kind]&SURFACE_PACKET_VALID)!=0u {

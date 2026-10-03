@@ -118,6 +118,16 @@ fn ab_normal_product(moment:AppearanceBound4,c:u32)->AppearanceBound {
 }
 `;
 
+export interface AppearanceFieldDependencyProfile {
+  readonly inputs: readonly Readonly<{ index: number; channel: number; domain: string }>[];
+  /** Compiler IDs prove binding/sampler/transform/UV DAG equivalence, including
+   * gradients. Different channels of the same sample share one RGBA query. */
+  readonly samples: readonly number[];
+  readonly products: readonly number[];
+  readonly dependencyMask: number;
+  readonly supported: boolean;
+}
+
 export interface AppearanceFieldBoundProgram {
   /** Production geometry semantics in program input order, fixed at publication. */
   readonly inputSemantics?: readonly number[];
@@ -127,6 +137,7 @@ export interface AppearanceFieldBoundProgram {
   /** Complete closure per output: used for field-specific seam compatibility. */
   readonly inputKinds: Readonly<Record<string, readonly string[]>>;
   readonly supported: Readonly<Record<string, boolean>>;
+  readonly dependencyProfiles: Readonly<Record<string, AppearanceFieldDependencyProfile>>;
 }
 
 /** Generated function signature: ab_field_N(field:u32,context:vec4u)->AppearanceBound4.
@@ -143,6 +154,7 @@ export function lowerAppearanceFieldBounds(program: CompiledAppearanceGraph, low
   while (coordinatePending.length) { const ref=coordinatePending.pop()!;if(coordinateAncestors.has(ref))continue;
     coordinateAncestors.add(ref);coordinatePending.push(...program.instructions[ref]!.args); }
   const kinds: Record<string, readonly string[]> = Object.create(null), supported: Record<string, boolean> = Object.create(null);
+  const dependencyProfiles: Record<string, AppearanceFieldDependencyProfile> = Object.create(null);
   const blocks: string[] = [];
   for (const [field, roots] of Object.entries(program.outputs)) {
     const live = new Set<number>(), pending = [...roots];
@@ -202,9 +214,23 @@ export function lowerAppearanceFieldBounds(program: CompiledAppearanceGraph, low
       }
     }
     const channels = Array.from({ length: 4 }, (_, c) => roots[c] === undefined ? "ab_exact(0.0)" : `b${roots[c]}`);
+    const inputComponents = [...live].flatMap(id => {
+      const instruction = program.instructions[id]!;
+      if (instruction.kind !== "input") { return []; }
+      const index = inputs.get(instruction.input!)!;
+      return [Object.freeze({ index, channel: instruction.channel!, domain: program.inputs[index]!.domain })];
+    });
+    dependencyProfiles[field] = Object.freeze({
+      inputs: Object.freeze(inputComponents),
+      samples: Object.freeze([...textures]),
+      products: Object.freeze([...products]),
+      dependencyMask: roots.reduce((mask, root) => mask | program.instructions[root]!.dependency, 0),
+      supported: supported[field]!
+    });
     blocks.push(`case ${blocks.length}u:{\n${declarations.join("\n")}\nreturn AppearanceBound4(vec4f(${channels.map(c=>`${c}.low`).join(",")}),vec4f(${channels.map(c=>`${c}.high`).join(",")}),vec4u(${channels.map(c=>`${c}.known`).join(",")}));}`);
   }
   const source = `fn ${functionName}(field:u32,context:vec4u)->AppearanceBound4 {switch field {\n${blocks.join("\n")}\ndefault:{return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u));}\n}}`;
   return Object.freeze({ source, materialSource: lowerAppearanceMaterialConstants(program,lowered,`${functionName}_material`),
-    fields: Object.freeze(Object.keys(program.outputs)), inputKinds: Object.freeze(kinds), supported: Object.freeze(supported) });
+    fields: Object.freeze(Object.keys(program.outputs)), inputKinds: Object.freeze(kinds), supported: Object.freeze(supported),
+    dependencyProfiles: Object.freeze(dependencyProfiles) });
 }

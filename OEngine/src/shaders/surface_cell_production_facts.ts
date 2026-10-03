@@ -9,6 +9,7 @@ import { GPU_TEXTURE_REF_ROUTING_SHIFT, GPU_TEXTURE_REF_ROUTING_MASK, GPU_TEXTUR
 import { GPU_MATERIAL_VISIBILITY_SAMPLER as S } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { APPEARANCE_MATERIAL_CONSTANT_WGSL } from "./appearance_material_constants.js";
 import { SURFACE_APPEARANCE_BOUND_PROGRAM_WORDS } from "../gpu/GpuSurfaceAppearanceBoundsAbi.js";
+import { SURFACE_CELL_CERTIFICATE_WGSL } from "./surface_cell_certificates.js";
 import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceCacheAbi.js";
 
 /** Complete Geometry/Appearance predicates for the partition producer. The
@@ -17,7 +18,7 @@ import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceCacheAbi.js";
  * always-false/unknown implementation in this production library. */
 export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFieldBoundProgram[],
   product: boolean, directRiskLibrary: string, productBoundLibrary: string | null, dictionaryCapacity=65536,
-  fieldMask: ReadonlySet<number> | null = null, includeGenericValidation = true, signalBounds = true): string {
+  fieldMask: ReadonlySet<number> | null = null, signalBounds = true): string {
   const selected = programs.map(program => {
     // The generated switch uses program-local output ordinals, not Surface ABI
     // field indices. A sparse/reordered graph must select by output name.
@@ -43,41 +44,35 @@ export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFiel
   });
   const hasProductSamples=selected.some(program=>program.source.includes("=ab_product("));
   let textureBoundSlots = 1;
+  let attributeMask = signalBounds ? (0xff | (0xf << 20)) : 0;
   for (const program of selected) {
-    for (const match of program.source.matchAll(/ab_texture\(context,(\d+)u,/g)) {
-      textureBoundSlots = Math.max(textureBoundSlots, Number(match[1]) + 1);
-    }
-  }
-  // Geometry certification always reads position. Signal certification also
-  // reads the normal/tangent frame. Add only the live graph's input attributes;
-  // keep their perspective math in one loop, outside the inlined graph leaves.
-  let attributeMask = 0xf << 20;
-  if (signalBounds) {
-    attributeMask |= 0xff;
-  }
-  for (const program of selected) {
-    if (program.inputSemantics === undefined) {
-      attributeMask = 0xffffff;
-      break;
-    }
-    for (const match of program.source.matchAll(/cell_input_(?:value|gradient)_kind\((\d+)u,(\d+)u/g)) {
-      const kind = Number(match[1]);
-      const channel = Number(match[2]);
-      if (kind === 1) {
-        attributeMask |= 1 << (8 + channel);
-      } else if (kind === 2) {
-        attributeMask |= 1 << (10 + channel);
-      } else if (kind === 3) {
-        attributeMask |= 1 << (16 + channel);
-      } else if (kind === 4) {
-        attributeMask |= 1 << (12 + channel);
-      } else if (kind === 5 || kind === 11 || kind === 14) {
-        attributeMask |= 0xf;
-      } else if (kind === 6 || kind === 12) {
-        attributeMask |= 0xff;
+    for (const [field, profile] of Object.entries(program.dependencyProfiles)) {
+      const fieldIndex = APPEARANCE_FIELD_NAMES.indexOf(field as typeof APPEARANCE_FIELD_NAMES[number]);
+      if (fieldMask !== null && !fieldMask.has(fieldIndex)) { continue; }
+      for (const sample of profile.samples) { textureBoundSlots = Math.max(textureBoundSlots, sample + 1); }
+      for (const input of profile.inputs) {
+        if (input.domain === "dynamic" || input.domain === "nonlocal") { continue; }
+        const kind = program.inputSemantics?.[input.index];
+        if (kind === undefined) { attributeMask = 0xffffff; continue; }
+        if (kind === 1) { attributeMask |= 1 << (8 + input.channel); }
+        else if (kind === 2) { attributeMask |= 1 << (10 + input.channel); }
+        else if (kind === 3) { attributeMask |= 1 << (16 + input.channel); }
+        else if (kind === 4) { attributeMask |= 1 << (12 + input.channel); }
+        else if (kind === 5 || kind === 11 || kind === 14) { attributeMask |= 0x7; }
+        else if (kind === 6 || kind === 12) { attributeMask |= 0x77; }
+        else if (kind === 7 || kind === 10) { attributeMask |= 1 << (20 + input.channel); }
+        else if (kind === 8 || kind === 13) { attributeMask |= 0x7 << 20; }
       }
     }
   }
+  const attributeComponents: number[] = [];
+  for (let component = 0; component < 24; component++) {
+    if ((attributeMask & (1 << component)) !== 0) { attributeComponents.push(component); }
+  }
+  const attributeSlots = Array.from({length:24},(_unused,component) => {
+    const slot=attributeComponents.indexOf(component);
+    return slot<0 ? "0xffffffffu" : `${slot}u`;
+  });
   // Materials with identical bound topology use one function. The context still
   // selects each material's own constants/routes, so sharing code changes no data.
   const boundSources: string[] = [];
@@ -132,11 +127,16 @@ var<private> cell_bound_key:u32;
 var<private> cell_current_rect:vec4f;
 // Each candidate invocation owns its bounds. Parallel candidates must never
 // share writable scratch; only immutable lane facts are workgroup-wide.
-var<private> cell_bound_attributes:array<CellScalarFootprint,24>;
+const CELL_ATTRIBUTE_SLOTS:array<u32,24>=array<u32,24>(${attributeSlots.join(",")});
+var<private> cell_bound_attributes:array<CellScalarFootprint,${Math.max(1, attributeComponents.length)}>;
+var<private> cell_bound_attribute_valid:u32;
+var<private> cell_context_count:u32;
 var<private> cell_bound_setup:CellGeometrySetup;
 var<private> cell_texture_bounds:array<AppearanceBound4,${textureBoundSlots}>;
 var<private> cell_texture_bound_valid:array<u32,${textureBoundSlots}>;
 var<private> cell_texture_nodes:u32;
+var<private> cell_texture_query_count:u32;
+var<private> cell_texture_reuse_count:u32;
 // Compatibility repeatedly compares the same 64 lanes. Publish cheap identity
 // facts once per lane so its inner loops never inline the Product decoder.
 struct CellLaneGeometry {
@@ -185,7 +185,16 @@ fn cell_field_present(program:u32)->u32 {
  var result=0u;for(var field=0u;field<15u;field++){if cell_field_descriptor(program,field).x!=0xffffffffu{result|=1u<<field;}}return result;
 }
 fn cell_scalar_attribute(field:u32,channel:u32)->CellScalarFootprint {
- return cell_bound_attributes[field * 4u + channel];
+ let component=field*4u+channel;
+ let slot=CELL_ATTRIBUTE_SLOTS[component];
+ if slot==0xffffffffu { return cell_address_unknown(); }
+ if (cell_bound_attribute_valid&(1u<<component))==0u {
+  let values=vec3f(cell_bound_setup.corners[field][channel],cell_bound_setup.corners[field+6u][channel],cell_bound_setup.corners[field+12u][channel]);
+  cell_bound_attributes[slot]=cell_scalar_footprint(cell_bound_setup.coefficients,values,cell_current_rect.xy,cell_current_rect.zw,
+    vec2f(f32(cell_settings.width),f32(cell_settings.height)));
+  cell_bound_attribute_valid|=1u<<component;
+ }
+ return cell_bound_attributes[slot];
 }
 fn cell_attribute_box(field:u32)->AppearanceBound4 {
  var result:AppearanceBound4;
@@ -263,7 +272,8 @@ fn cell_uv_transform(u:AppearanceBound,v:AppearanceBound,scale:vec2f,rotation:ve
 fn cell_min_magnitude(a:AppearanceBound)->f32 {if a.low<=0.0&&a.high>=0.0{return 0.0;}return min(abs(a.low),abs(a.high));}
 fn cell_max_magnitude(a:AppearanceBound)->f32 {return max(abs(a.low),abs(a.high));}
 fn ab_texture(context:vec4u,sample:u32,u:AppearanceBound,v:AppearanceBound,udx:AppearanceBound,udy:AppearanceBound,vdx:AppearanceBound,vdy:AppearanceBound)->AppearanceBound4 {
- if cell_texture_bound_valid[sample]!=0u { return cell_texture_bounds[sample]; }
+ if cell_texture_bound_valid[sample]!=0u { cell_texture_reuse_count++; return cell_texture_bounds[sample]; }
+ cell_texture_query_count++;
  let result=cell_texture_bound(context,sample,u,v,udx,udy,vdx,vdy);
  cell_texture_bounds[sample]=result;
  cell_texture_bound_valid[sample]=1u;
@@ -351,23 +361,18 @@ fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
    setup = cell_direct_setup;
  }
  cell_bound_setup=setup;
- let viewport = vec2f(f32(cell_settings.width),f32(cell_settings.height));
- for (var component = 0u; component < 24u; component++) {
-   if (${attributeMask}u & (1u << component)) == 0u { continue; }
-   let field = component / 4u;
-   let channel = component % 4u;
-   let values = vec3f(setup.corners[field][channel],setup.corners[field + 6u][channel],setup.corners[field + 12u][channel]);
-   cell_bound_attributes[component] = cell_scalar_footprint(setup.coefficients,values,rect.xy,rect.zw,viewport);
- }
+ cell_bound_attribute_valid=0u;
+ cell_context_count++;
  let entry=cell_material_entry(setup.source.y);return vec4u(slot,cell_directory(entry).x,entry,fact.winner);
 }
 fn cell_signal_dependencies(plane:u32)->u32 {
  // Ddirect is the complete colored production BRDF residual; Denv is
  // irradiance. Its high-frequency compose factors are independent FieldRefs.
- if plane==15u{return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<7u)|(1u<<8u)|(1u<<9u)|(1u<<10u)|(1u<<13u);}
+ if plane==15u{return (1u<<0u)|(1u<<2u)|(1u<<6u)|(1u<<10u)|(1u<<13u);}
  if plane==16u{return (1u<<6u)|(1u<<13u);}
- if plane>=19u{return (1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<14u);}
- return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<7u)|(1u<<8u)|(1u<<9u)|(1u<<10u)|(1u<<13u);
+ if plane==20u{return (1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<14u);}
+ if plane==18u{return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<7u)|(1u<<8u)|(1u<<9u)|(1u<<13u);}
+ return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<7u)|(1u<<8u)|(1u<<9u)|(1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<13u)|(1u<<14u);
 }
 fn cell_material_signal_dependencies(plane:u32,entry:u32)->u32 {
  var mask=cell_signal_dependencies(plane);
@@ -430,15 +435,6 @@ fn surface_cell_compatible(plane:u32,a:SurfaceCellLane,b:SurfaceCellLane)->bool 
 fn cell_merge_bound(a:AppearanceBound4,b:AppearanceBound4)->AppearanceBound4 {
  return AppearanceBound4(min(a.low,b.low),max(a.high,b.high),a.known&b.known);
 }
-fn cell_group_field(field:u32,mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,64>>,rect:vec4f)->AppearanceBound4 {
- var result=AppearanceBound4(vec4f(1e30),vec4f(-1e30),vec4u(1u));
- for(var i=0u;i<64u;i++) {if !cell_member(mask,i){continue;}var seen=false;
-  for(var j=0u;j<i;j++){if cell_member(mask,j)&&(*lanes)[j].winner==(*lanes)[i].winner{seen=true;break;}}
-  if seen{continue;}
-  let context=cell_bound_context((*lanes)[i],rect);result=cell_merge_bound(result,cell_evaluate_bound(field,context));
- }
- return result;
-}
 fn cell_field_budget(field:u32,value:AppearanceBound4)->bool {
  let width=select(1u,3u,field==0u||field==5u||field==6u||field==9u||field==12u);
  for(var c=0u;c<width;c++){if value.known[c]==0u{return false;}}
@@ -447,79 +443,8 @@ fn cell_field_budget(field:u32,value:AppearanceBound4)->bool {
  for(var c=0u;c<width;c++){if value.high[c]-value.low[c]>tolerance{return false;}}return true;
 }
 ${directRiskLibrary}
-fn surface_cell_group_valid(plane:u32,mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,64>>,origin:vec2u)->bool {
- let first=cell_first(mask);if first==0xffffffffu{return false;}
- let rect=cell_rect_from_mask(mask,origin);
- let root=(*lanes)[first];let root_plane=cell_lane_geometry[root.source].plane;
- var world=AppearanceBound4(vec4f(1e30),vec4f(-1e30),vec4u(1u));
- var normal=world;var tangent=world;var view=world;var scale=1e30;
- for(var i=0u;i<64u;i++){
-  if !cell_member(mask,i){continue;}var seen=false;
-  for(var j=0u;j<i;j++){if cell_member(mask,j)&&(*lanes)[j].winner==(*lanes)[i].winner{seen=true;break;}}
-  if seen{continue;}
-  let context=cell_bound_context((*lanes)[i],rect);let position=cell_attribute_box(5u);world=cell_merge_bound(world,position);
-  var dx2=0.0;var dy2=0.0;
-  for(var c=0u;c<3u;c++){
-   let value=cell_scalar_attribute(5u,c);if !ab_valid(value.value)||!ab_valid(value.dx)||!ab_valid(value.dy){return false;}
-   dx2+=cell_max_magnitude(value.dx)*cell_max_magnitude(value.dx);dy2+=cell_max_magnitude(value.dy)*cell_max_magnitude(value.dy);
-  }
-  let pixel_scale=max(sqrt(dx2),sqrt(dy2));scale=min(scale,pixel_scale);
-  // Preserve correlation across XYZ: an inclined coplanar wall is still a
-  // plane. Summing independent position boxes would reject every coarse cell.
-  let plane_values=vec3f(dot(root_plane,cell_bound_setup.corners[5u]),dot(root_plane,cell_bound_setup.corners[11u]),dot(root_plane,cell_bound_setup.corners[17u]));
-  let distance=cell_scalar_footprint(cell_bound_setup.coefficients,plane_values,rect.xy,rect.zw,vec2f(f32(cell_settings.width),f32(cell_settings.height))).value;
-  if !ab_valid(distance)||max(abs(distance.low),abs(distance.high))>pixel_scale*0.5{return false;}
-  if plane>=15u{normal=cell_merge_bound(normal,cell_world_normal_box());tangent=cell_merge_bound(tangent,cell_world_tangent_box());view=cell_merge_bound(view,cell_view_box());}
-  if plane<15u {
-   let descriptor=cell_field_descriptor(context.y,plane);
-   if (cell_bound_setup.continuity[1u].w&descriptor.y)!=0u{return false;}
-  }
- }
- if plane<15u {
-  let value=cell_group_field(plane,mask,lanes,rect);let valid=cell_field_budget(plane,value);
-  if !valid{atomicAdd(&cell_counts[88u+plane],1u);}return valid;
- }
- if any(normal.known.xyz==vec3u(0u)){return false;}
- let mapped=cell_group_field(select(6u,12u,plane>=19u),mask,lanes,rect);
- if any(mapped.known.xyz==vec3u(0u)){return false;}
- let nc=cell_normal_box_cone(normal.low.xyz,normal.high.xyz);var tc=vec4f(1.0,0.0,0.0,1.0);let mc=cell_normal_box_cone(mapped.low.xyz,mapped.high.xyz);
- if any(mapped.low.xy!=vec2f(0.0))||any(mapped.high.xy!=vec2f(0.0)){
-  if any(tangent.known.xyz==vec3u(0u)){return false;}tc=cell_normal_box_cone(tangent.low.xyz,tangent.high.xyz);
- }
- if min(nc.w,min(tc.w,mc.w))<0.0{return false;}
- if acos(clamp(nc.w,-1.0,1.0))+acos(clamp(tc.w,-1.0,1.0))+acos(clamp(mc.w,-1.0,1.0))>0.05235987756{return false;}
- let dependencies=cell_material_signal_dependencies(plane,cell_material_entry(cell_lane_geometry[root.source].source.y));
- for(var field=0u;field<15u;field++){
-  if (dependencies&(1u<<field))==0u||field==6u||field==12u{continue;}
-  let value=cell_group_field(field,mask,lanes,rect);if !cell_field_budget(field,value){return false;}
- }
- if plane>=17u {
-  let roughness=cell_group_field(select(3u,11u,plane>=19u),mask,lanes,rect);
-  if roughness.known.x==0u||roughness.low.x<0.35{return false;}
-  if any(view.known.xyz==vec3u(0u)){return false;}
-  if cell_normal_box_cone(view.low.xyz,view.high.xyz).w<0.9986295348{return false;}
- }
- if plane==15u{
-  let coat=cell_group_field(10u,mask,lanes,rect);
-  if coat.known.x==0u{return false;}
-  if coat.high.x>0.0 && (any(view.known.xyz==vec3u(0u))||cell_normal_box_cone(view.low.xyz,view.high.xyz).w<0.9986295348){return false;}
- }
- if plane==15u||plane==17u||plane==19u{return cell_direct_group_safe(mask,lanes,origin,rect,world.low.xyz,world.high.xyz,scale);}
- return true;
-}
+${SURFACE_CELL_CERTIFICATE_WGSL}
 `.replaceAll("cell_dictionary[","geometry_arena.dictionary[").replaceAll("geometry_setups[","geometry_arena.setups[");
-  return includeGenericValidation ? source : removeWgslFunction(source, "surface_cell_group_valid");
-}
-
-function removeWgslFunction(source: string, name: string): string {
-  const start = source.indexOf(`fn ${name}`); if (start < 0) return source;
-  const open = source.indexOf("{", start); if (open < 0) return source;
-  let depth = 0, end = open;
-  for (; end < source.length; end++) {
-    const character = source[end];
-    if (character === "{") depth++;
-    else if (character === "}" && --depth === 0) return source.slice(0, start) + source.slice(end + 1);
-  }
   return source;
 }
 

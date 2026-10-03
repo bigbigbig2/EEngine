@@ -24,6 +24,9 @@ var<workgroup> cell_facts:array<SurfaceCellLane,64>;
 var<workgroup> cell_owner:array<u32,64>;
 var<workgroup> cell_representatives:array<u32,64>;
 var<workgroup> cell_plane_state:vec4u;
+var<workgroup> cell_domain:array<u32,64>;
+var<workgroup> cell_domain_lo:array<atomic<u32>,64>;
+var<workgroup> cell_domain_hi:array<atomic<u32>,64>;
 fn cell_bit(lane:u32)->vec2u {if lane<32u{return vec2u(1u<<lane,0u);}return vec2u(0u,1u<<(lane-32u));}
 fn cell_member(mask:vec2u,lane:u32)->bool{return any((mask&cell_bit(lane))!=vec2u(0u));}
 fn cell_first(mask:vec2u)->u32 {if mask.x!=0u{return firstTrailingBit(mask.x);}if mask.y!=0u{return 32u+firstTrailingBit(mask.y);}return 0xffffffffu;}
@@ -72,38 +75,58 @@ ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll(
    var slots=valid;
    if valid==0u { mode=0u; slots=0u; }
    else if (cell_plane_state.w&1u)!=0u { mode=1u; slots=0u; }
-   // Sixteen independent quads, then four parents, then one diffuse parent.
-   // Invocations own disjoint regions; only the level boundary synchronizes.
+   // Build this plane's bounded compatibility-domain list once. Spatial
+   // nodes reference masks; primitive de-duplication is a cheap-facts product.
+   atomicStore(&cell_domain_lo[lane],0u);
+   atomicStore(&cell_domain_hi[lane],0u);
+   var domain=lane;
+   if mode==4u && cell_member(coverage,lane) {
+     for(var member=0u;member<lane;member++) {
+       if cell_member(coverage,member) && surface_cell_compatible(plane,cell_facts[lane],cell_facts[member]) {
+         domain=member;
+         break;
+       }
+     }
+   }
+   cell_domain[lane]=domain;
+   workgroupBarrier();
+   if mode==4u && cell_member(coverage,lane) {
+     let bit=cell_bit(lane);
+     atomicOr(&cell_domain_lo[domain],bit.x);
+     atomicOr(&cell_domain_hi[domain],bit.y);
+   }
+   workgroupBarrier();
+   // Sixteen quads, four parents, then one eligible diffuse root. Parents
+   // consume immutable leaf certificates and re-judge their own error budget.
    for(var exponent=1u;exponent<=3u;exponent++) {
      let width=1u<<exponent;
      let columns=8u>>exponent;
      let supported=exponent<3u || plane==15u || plane==16u;
      if mode==4u && supported && lane<columns*columns {
        let first=(lane/columns)*width*8u+(lane%columns)*width;
-       var remaining=cell_region(first,width,width)&coverage;
-       loop {
-         let representative=cell_first(remaining);
-         if representative==0xffffffffu { break; }
-         var region=cell_bit(representative);
-         for(var candidate=representative+1u;candidate<64u;candidate++) {
-           if cell_member(remaining,candidate) &&
-             (!irregular || surface_cell_compatible(plane,cell_facts[candidate],cell_facts[representative])) {
-             region|=cell_bit(candidate);
-           }
-         }
-         remaining&=~region;
+       let space=cell_region(first,width,width)&coverage;
+       var domains=vec2u(0u);
+       var members=space;
+       for(var count=0u;count<64u;count++) {
+         let member=cell_first(members);
+         if member==0xffffffffu { break; }
+         members&=~cell_bit(member);
+         domains|=cell_bit(cell_domain[member]);
+       }
+       for(var count=0u;count<64u;count++) {
+         let domain=cell_first(domains);
+         if domain==0xffffffffu { break; }
+         domains&=~cell_bit(domain);
+         let region=space&vec2u(atomicLoad(&cell_domain_lo[domain]),atomicLoad(&cell_domain_hi[domain]));
+         let representative=cell_first(region);
          if countOneBits(region.x)+countOneBits(region.y)<=1u { continue; }
-         var children_valid=true;
-         if exponent>1u {
-           for(var member=0u;member<64u;member++) {
-             if !cell_member(region,member) { continue; }
-             let child=cell_region(member,width>>1u,width>>1u)&region;
-             if cell_owner[member]!=cell_first(child) { children_valid=false; break; }
-           }
-         }
-         if children_valid && ${groupPredicate} {
-           for(var member=0u;member<64u;member++) {
-             if cell_member(region,member) { cell_owner[member]=representative; }
+         if ${groupPredicate} {
+           var accepted=region;
+           for(var index=0u;index<64u;index++) {
+             let member=cell_first(accepted);
+             if member==0xffffffffu { break; }
+             accepted&=~cell_bit(member);
+             cell_owner[member]=representative;
            }
          }
        }
@@ -156,7 +179,6 @@ ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll(
    let at=cell_plan_at(tile,plane);cell_workspace.plans[at]=mode|(rate<<8u);
    cell_workspace.plans[at+2u]=cell_map_at(tile,plane);
    cell_workspace.plans[at+3u]=slots;cell_workspace.plans[at+4u]=coverage.x;cell_workspace.plans[at+5u]=coverage.y;
-   if plane==0u{let header=tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u;cell_workspace.plans[header]=origin.x;cell_workspace.plans[header+1u]=origin.y;cell_workspace.plans[header+2u]=coverage.x;cell_workspace.plans[header+3u]=coverage.y;}
    if mode == 4u {
      let map = cell_map_at(tile,plane);
      for (var word = 0u; word < 24u; word++) { cell_workspace.maps[map + word] = 0u; }
@@ -167,8 +189,10 @@ ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll(
        cell_map_write_base(map + 12u,index,cell_representatives[index]);
      }
    }
-   if irregular|| (mode==3u&&valid>slots){atomicAdd(&cell_workspace.counters[plane*4u+2u],1u);}
-   atomicAdd(&cell_workspace.counters[plane*4u],slots);
+   if cell_settings.reserved!=0u {
+     if irregular|| (mode==3u&&valid>slots){atomicAdd(&cell_workspace.counters[plane*4u+2u],1u);}
+     atomicAdd(&cell_workspace.counters[plane*4u],slots);
+   }
    }
   }
    workgroupBarrier();

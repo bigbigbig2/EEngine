@@ -12,7 +12,7 @@ try {
  assertions.ok(navigator.gpu,'WebGPU unavailable');
  const report=await runProductionCellOracle(navigator.gpu,assertions,
   message=>{console.log(message);document.getElementById('status').textContent=message;window.cellOracleStage=message;},
-  code=>{window.cellOracleSource=code;});
+  code=>{window.cellOracleSource=code;},new URLSearchParams(location.search).has('orm'));
  window.cellOracleResult=report;document.getElementById('status').textContent=JSON.stringify(report,null,2);
 }catch(error){window.cellOracleResult={evidenceRole:'diagnostic',passed:false,failure:error.stack};}
 </script></html>

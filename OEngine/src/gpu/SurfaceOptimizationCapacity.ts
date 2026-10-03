@@ -1,3 +1,5 @@
+import { surfaceCellWorkspaceLayout } from "./GpuSurfaceCellPlanAbi.js";
+
 /** Surface V3 optimization-v1 capacity policy and production allocation contract.
  * Counts are bounded tile/target slots; GPU counters select actual work inside
  * each fixed range and overflow remains visible in the shared diagnostics. */
@@ -23,9 +25,9 @@ export interface SurfaceOptimizationProfile {
   readonly resolveMapBytesPerTarget: number;
 }
 export const SURFACE_OPTIMIZATION_DEFAULT_PROFILE: SurfaceOptimizationProfile = Object.freeze({
-  addressBytesPerTarget: 128, geometryHotBytesPerTarget: 64,
-  geometryColdBytesPerTarget: 128, fieldBytesPerTarget: 96,
-  queueBytesPerTarget: 64, signalBytesPerTarget: 676, resolveMapBytesPerTarget: 32
+  addressBytesPerTarget: 128, geometryHotBytesPerTarget: 192,
+  geometryColdBytesPerTarget: 128, fieldBytesPerTarget: 304,
+  queueBytesPerTarget: 64, signalBytesPerTarget: 676, resolveMapBytesPerTarget: 52
 });
 export interface SurfaceOptimizationLimits {
   readonly maxBufferSize: number;
@@ -104,6 +106,9 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
   const planLimit = Math.min(bindingLimit, SURFACE_OPTIMIZATION_BUDGET_MIB.plans * SURFACE_OPTIMIZATION_MIB);
   let batchTiles = Math.min(SURFACE_OPTIMIZATION_DEFAULT_BATCH_PIXELS / 64,
     Math.floor((planLimit - controlBytes) / bytesPerTile));
+  const workspaceFixedBytes=surfaceCellWorkspaceLayout(1).plans;
+  const workspaceTileBytes=surfaceCellWorkspaceLayout(1).bytes-workspaceFixedBytes;
+  batchTiles=Math.min(batchTiles,Math.floor((bindingLimit-workspaceFixedBytes)/workspaceTileBytes));
   for (const [pool, field] of scratchProfile) {
     const stride = integer(profile[field], field);
     if (stride % 4 !== 0) throw new RangeError(`${field} must be word aligned`);

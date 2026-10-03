@@ -5,6 +5,7 @@ import { surfaceCellProductionFactsWgsl } from '../../.test-dist/shaders/surface
 function program(fields) {
   return {
     fields, materialSource: '', inputKinds: {}, supported: {}, inputSemantics: [1, 4],
+    dependencyProfiles:Object.fromEntries(fields.map((field,index)=>[field,{inputs:[{index,channel:0,domain:'geometry'}],samples:[],products:[],dependencyMask:1,supported:true}])),
     source: `fn ab_field_0(field:u32,context:vec4u)->AppearanceBound4 { switch field {
       case 0u:{let ordinal_zero=ab_input(context,0u,0u);return AppearanceBound4(vec4f(ordinal_zero.low),vec4f(ordinal_zero.high),vec4u(ordinal_zero.known));}
       case 1u:{let ordinal_one=ab_input(context,1u,0u);return AppearanceBound4(vec4f(ordinal_one.low),vec4f(ordinal_one.high),vec4u(ordinal_one.known));}

@@ -1,6 +1,7 @@
 import { LIGHT_DATABASE_READ_WGSL, POINT_LIGHT_DESCRIPTOR, SPOT_LIGHT_DESCRIPTOR,
   DIRECTIONAL_LIGHT_DESCRIPTOR, LIGHT_FLAG_CASTS_SHADOW } from "../gpu/LightDatabase.js";
 import { CLUSTER_METADATA_FLAG_FALLBACK } from "../render/ClusteredLightingReference.js";
+import { SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
 
 /** Lighting-owned rate predicate. Reads the SAME current light database and
  * cluster publication as the heavy worker. Full list equality is authoritative;
@@ -91,13 +92,9 @@ fn cell_direct_group_safe(mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,6
  if (settings.appearance2.y&3u)==3u{return false;}
  return true;
 }
-@compute @workgroup_size(64) fn publish_cell_facts(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32){
- if group.x>=cell_settings.tile_count{return;}
- let tile=cell_settings.first_tile+group.x;let pixel=vec2u((tile%cell_settings.tiles_x)*8u+lane%8u,(tile/cell_settings.tiles_x)*8u+lane/8u);
- let at=group.x*64u+lane;
- cell_workspace.facts[at]=vec4u(0xffffffffu);
- if pixel.x>=cell_settings.width||pixel.y>=cell_settings.height{return;}
- let key=textureLoad(cell_visibility,vec2i(pixel),0).x;if key==0xffffffffu{return;}
+fn cell_publish_lane_fact(pixel:vec2u)->vec4u {
+ if pixel.x>=cell_settings.width||pixel.y>=cell_settings.height{return vec4u(0xffffffffu);}
+ let key=textureLoad(cell_visibility,vec2i(pixel),0).x;if key==0xffffffffu{return vec4u(0xffffffffu);}
  let slot=cell_geometry_slot(key);let entry=cell_material_entry(cell_geometry_source(slot,key).y);
  var cluster=0xffffffffu;
  let interpolation=winner_interpolate(cell_geometry_coefficients(slot,key),vec2f(pixel)+vec2f(0.5),vec2f(f32(cell_settings.width),f32(cell_settings.height)));
@@ -108,6 +105,31 @@ fn cell_direct_group_safe(mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,6
    if (metadata.flags&${CLUSTER_METADATA_FLAG_FALLBACK}u)==0u && metadata.point_count+metadata.spot_count==0u &&
      directional_lights_iteration_mask(&cell_light_records)==0u && (settings.appearance2.y&2u)==0u{cluster|=0x80000000u;}}
  }
- cell_workspace.facts[at]=vec4u(key,slot,entry,cluster);
+ return vec4u(key,slot,entry,cluster);
+}
+var<workgroup> cell_published_primitive_keys:array<u32,64>;
+@compute @workgroup_size(64)
+fn publish_cell_facts(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
+ if group.x>=cell_settings.tile_count { return; }
+ let tile=cell_settings.first_tile+group.x;
+ let pixel=vec2u((tile%cell_settings.tiles_x)*8u+lane%8u,(tile/cell_settings.tiles_x)*8u+lane/8u);
+ let fact=cell_publish_lane_fact(pixel);
+ cell_workspace.facts[group.x*64u+lane]=fact;
+ cell_published_primitive_keys[lane]=fact.x;
+ workgroupBarrier();
+ if lane==0u {
+   var coverage=vec2u(0u);
+   for(var member=0u;member<64u;member++) { if cell_published_primitive_keys[member]!=0xffffffffu { coverage|=cell_bit(member); } }
+   let at=group.x*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u;
+   cell_workspace.plans[at]=pixel.x;cell_workspace.plans[at+1u]=pixel.y;
+   cell_workspace.plans[at+2u]=coverage.x;cell_workspace.plans[at+3u]=coverage.y;
+ }
+ var primitive=lane;
+ if fact.x!=0xffffffffu {
+   for(var member=0u;member<lane;member++) {
+     if cell_published_primitive_keys[member]==fact.x { primitive=member; break; }
+   }
+ }
+ cell_workspace.primitives[group.x*64u+lane]=primitive;
 }
 `;

@@ -24,6 +24,7 @@ export async function checkCellDemand(device, assert) {
   device.pushErrorScope('validation');
   try {
     const layout=surfaceCellWorkspaceLayout(1),words=new Uint32Array(layout.bytes/4);
+    words.set([0,0,0xffffffff,0xffffffff],layout.plans/4);
     for(const [plane,mode,rate,slots] of [[0,3,10,4],[3,2,0,64],[15,3,15,1],[17,2,0,64]]) {
       words.set([mode|(rate<<8),0,plane*24,slots,0xffffffff,0xffffffff],layout.plans/4+16+plane*6);
     }

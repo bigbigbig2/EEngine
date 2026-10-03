@@ -94,7 +94,7 @@ export async function runRepairStepOne(gpu,assert,stage=()=>{}) {
     ]});
     const cases=[{name:'E-only',emissive:[1,2,3],signal:0},{name:'checker diffuse and fine AO',emissive:[0,0,0],signal:1},
       {name:'colored direct residual plus E',emissive:[1,2,3],signal:2},{name:'partial E-only',emissive:[1,2,3],signal:0,partial:true},
-      {name:'empty',emissive:[1,2,3],signal:0,empty:true}];
+      {name:'empty',emissive:[1,2,3],signal:0,empty:true},{name:'unlit publication color',emissive:[0,0,0],signal:0,unlit:true}];
     report.compose=[];
     for(const scenario of cases){
       const plan=new Uint32Array(workspaceLayout.bytes/4),palette=new Uint32Array(64),values=new Float32Array(palette.buffer);
@@ -104,6 +104,8 @@ export async function runRepairStepOne(gpu,assert,stage=()=>{}) {
         const covered=!scenario.empty&&(!scenario.partial||lane%8<5);
         plan.set(covered?[lane+1,0,0,0]:[0xffffffff,0xffffffff,0xffffffff,0xffffffff],workspaceLayout.facts/4+lane*4);
       }
+      if(scenario.emissive.some(value=>value!==0))plan.set([1,0,0,0,scenario.empty?0:scenario.partial?0x1f1f1f1f:0xffffffff,scenario.empty?0:scenario.partial?0x1f1f1f1f:0xffffffff],workspaceLayout.plans/4+16+5*6);
+      if(scenario.unlit)plan.set([1,0,0,0,0xffffffff,0xffffffff],workspaceLayout.plans/4+16);
       // Checker color is a publication-independent fine field. Constant
       // irradiance stays one source, proving the entry point resolves both.
       if(scenario.signal===1){palette[0]&=~1;plan.set([2,0,0,64,0xffffffff,0xffffffff],workspaceLayout.plans/4+16);
@@ -128,6 +130,7 @@ export async function runRepairStepOne(gpu,assert,stage=()=>{}) {
         let color=scenario.emissive;
         if(scenario.signal===1)color=[0,0,0].map(()=>lane%2&&aoBytes[lane]?1:0);
         if(scenario.signal===2)color=[3,5,7];
+        if(scenario.unlit)color=[.5,.5,.5];
         const expected=working(covered?color:[0,0,0]);
         for(let c=0;c<3;c++)assert.ok(Math.abs(half(pixels[offset+c])-expected[c])<.006,`${scenario.name} lane ${lane}: ${half(pixels[offset+c])} vs ${expected[c]}`);
         assert.equal(half(pixels[offset+3]),covered?1:0);

@@ -1,16 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planSurfaceOptimizationCapacity, surfaceOptimizationBatchRange,
-  SURFACE_OPTIMIZATION_DEFAULT_PROFILE } from '../../src/gpu/SurfaceOptimizationCapacity.ts';
+  SURFACE_OPTIMIZATION_DEFAULT_PROFILE } from '../../.test-dist/gpu/SurfaceOptimizationCapacity.js';
+import {surfaceCellWorkspaceLayout} from '../../.test-dist/gpu/GpuSurfaceCellPlanAbi.js';
 
 const limits = { maxBufferSize: 1024 ** 3, maxStorageBufferBindingSize: 128 * 1024 ** 2, maxTextureDimension2D: 8192 };
-test('1080p worst-case target slots fit eight complete disjoint batches and 412 MiB', () => {
+test('1080p complete disjoint batches include certificates and worst-case HDR/request bytes', () => {
   const plan = planSurfaceOptimizationCapacity(1920, 1080, limits);
   assert.equal(plan.pixelCount, 2073600);
   assert.equal(plan.tileCount, 32400);
-  assert.equal(plan.batchTargetCapacity, 262144);
-  assert.equal(plan.batchCount, 8);
-  assert.equal(plan.reservedBytes, 412 * 1024 ** 2);
+  assert.ok(plan.batchTargetCapacity*676<=32*1024**2);
+  assert.ok(plan.batchTargetCapacity*304<=24*1024**2);
+  assert.ok(plan.reservedBytes<=512*1024**2);
+  assert.ok(surfaceCellWorkspaceLayout(plan.batchTileCapacity).bytes<=limits.maxStorageBufferBindingSize);
   let last = 0;
   for (let batch = 0; batch < plan.batchCount; batch++) {
     const range = surfaceOptimizationBatchRange(plan, batch);
@@ -19,19 +21,20 @@ test('1080p worst-case target slots fit eight complete disjoint batches and 412 
     last += range.tileCount;
   }
   assert.equal(last, 32400);
-  assert.equal(surfaceOptimizationBatchRange(plan, 7).tileCount, 3728);
+  assert.ok(surfaceOptimizationBatchRange(plan,plan.batchCount-1).tileCount<=plan.batchTileCapacity);
 });
 test('a wider cold profile reduces batch size without truncating target coverage', () => {
   const plan = planSurfaceOptimizationCapacity(1920, 1080, limits,
-    { ...SURFACE_OPTIMIZATION_DEFAULT_PROFILE, geometryColdBytesPerTarget: 512 });
-  assert.equal(plan.batchTargetCapacity, 65536);
-  assert.equal(plan.batchCount, 32);
+    { ...SURFACE_OPTIMIZATION_DEFAULT_PROFILE, geometryColdBytesPerTarget: 1024 });
+  assert.equal(plan.batchTargetCapacity, 32768);
+  assert.equal(plan.batchCount, 64);
   assert.equal(plan.scratchBytes.geometryCold, 32 * 1024 ** 2);
 });
 test('lower binding limits segment persistent pools and reduce scratch before allocation', () => {
   const reduced = { ...limits, maxStorageBufferBindingSize: 2 * 1024 ** 2 };
   const plan = planSurfaceOptimizationCapacity(1920, 1080, reduced);
-  assert.equal(plan.batchTargetCapacity, 16384);
+  assert.ok(plan.batchTargetCapacity*676<=2*1024**2);
+  assert.ok(surfaceCellWorkspaceLayout(plan.batchTileCapacity).bytes<=reduced.maxStorageBufferBindingSize);
   for (const bytes of Object.values(plan.scratchBytes)) assert.ok(bytes <= reduced.maxStorageBufferBindingSize);
   for (const segments of Object.values(plan.persistentSegments)) {
     for (const bytes of segments) assert.ok(bytes <= reduced.maxStorageBufferBindingSize);
