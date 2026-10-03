@@ -110,9 +110,24 @@ dense fields / 四 packet planes → 稳定 FieldStore + 稀疏信号引用
 6. compact 实际代表与少量显式 remap；局部 group/map 溢出转同一新链的 implicit fine cell。
 7. 引入 batch 范围和 bounds，后续阶段只消费本批有界目标；最后一批、空 tile 和局部覆盖有明确写域。
 
+### 6.1 Phase 2 的激进硬门槛
+
+本阶段不能用“SharingDomain 已存在”代替真正的工作量变化。实现完成前必须满足以下代码级条件：
+
+- `SurfaceWorkRuntime`/classifier 中不存在 `allVisibilityKeysEqual`、`samePrimitive` 或等价的共享准入分支；`VisibilityKey` 只能用于 winner coverage、属性来源和 exact identity。
+- 一个真实 cell 的代表集合可以同时包含两个以上 `VisibilityKey`，且可以跨 meshlet；primitive/meshlet 边界不能自动写入 full-rate exception。
+- 默认 profile 必须实际产生 2×2 或更粗的 field/signal cell。若所有非空 tile 都发布 1×1，直接判定失败，不得以“保守画质”为理由接受。
+- 8×8 低频 diffuse/environment 路径必须有独立 rate plan；normal、specular、coat 或 direct 的细分只能影响对应信号。
+- 生产诊断必须输出 `cross_visibility_key_group_count`、`cross_meshlet_group_count`、`multi_key_cell_pixels`、`forced_fine_reason_mask` 和每档 rate 覆盖数。只输出总 sample 数不能证明本阶段有效。
+- 微三角形连续墙、跨 meshlet 平面、UV seam + 高频 normal 三组 fixture 必须分别证明：跨 key 合并、meshlet 不强制断开、字段/信号局部细分。
+
+任一硬门槛失败就留在 Phase 2 返工；不能通过把阈值设为零、关闭跨 key 路径或保留旧 pixel sample 展开器来“通过”。
+
 切断时同步去掉旧 `sample = pixel` 的跨 owner 假设。允许后续 consumer 暂时不匹配，不写长期 adapter 把新 work 展开回全屏旧 work。
 
 ## 7. Phase 3：稳定 FieldStore 与唯一 demand Geometry
+
+> 当前进度（未提交）：Phase 2 的组件分类/Geometry事实仍未完成生产切断；按用户允许的跨阶段推进规则，已先实现 Phase 3 FieldStore owner 预备产物。`GpuSurfaceFieldStoreAbi.ts` / `GpuSurfaceFieldStore.ts` 已通过 4 项 contract tests，包含完整 key、四路 set、128 MiB 分段预算、generation 和 owner 生命周期。它暂未替换 `SurfaceMaterialCachePass` 的 lookup/evaluate/consume，因此 Phase 3 尚未完成，也不产生本阶段 commit。
 
 ### 7.1 先确定字段依赖和持久地址
 

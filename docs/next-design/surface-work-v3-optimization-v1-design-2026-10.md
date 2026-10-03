@@ -166,7 +166,20 @@ skin/morph 改变几何依赖版本，稳定 UV 字段可继续复用；当前�
 
 field variation 对比的是该目标 footprint 的局部 bounds，不是整张纹理 min/max。深度判据在恢复的局部几何平面/投影误差域计算，不在非线性 depth buffer 上使用统一常数。
 
-### 6.4 纹理摘要是正式 producer
+### 6.4 V1 激进共享合同：VisibilityKey 不得再成为隐式门槛
+
+这一版把跨三角形共享作为默认生产路径，而不是一个需要后续打开的实验开关：
+
+1. `VisibilityKey` 只回答“当前像素由哪个 primitive 获胜”，不参与 `SharingDomain`、field cell 或 signal cell 的相等判断。`VisibilityKey` 不同本身不能使 cell 退化为 1×1。
+2. 同一连续域内允许跨 primitive、跨 meshlet、跨 material-bin 组织一个 shading group。primitive、meshlet 和 material-bin 只是 lookup/setup 的输入，不是默认 seam。
+3. 8×8 tile 先建立 2×2 候选；连续性和字段 bounds 通过后，默认尝试合并到 4×4；只要对应信号满足低频条件，diffuse environment 可以继续合并到 8×8。没有理由时不允许直接展开成 64 个 pixel sample。
+4. 不同字段和信号独立升频：UV0 seam 只阻止依赖 UV0 的字段，normal 高频只阻止 normal/specular/coat，shadow 或 light-set 边界只阻止对应 direct signal。不能用一个失败条件把整组材质和照明全部打回全率。
+5. 只有五类硬边界可以拒绝跨 key 合并：coverage 空洞或 alpha 边、front/back 或不同实例、无可信域/非流形连接、字段依赖的 seam/unknown variation、信号依赖的 shadow/light/environment discontinuity。`VisibilityKey`、primitive 边界、meshlet 边界和材质 ID 不在硬边界列表中。
+6. 元数据缺失时只在受影响字段或 signal 使用 2×2/1×1 fine cell，并记录原因；不能因为一个字段未知而把整 tile 或整材质清空成 full-rate。
+
+实现必须发布 `cross_visibility_key_group_count`、`cross_meshlet_group_count`、`multi_key_cell_pixels`、`forced_fine_reason_mask` 和各 rate 的实际覆盖数。若微三角形连续墙测试中这些跨 key 计数为零，或非空 tile 的默认 rate 全部为 1×1，视为 V1 未接线，即使类型名已经改成 `SharingDomain` 也不能算完成。
+
+### 6.5 纹理摘要是正式 producer
 
 当前 `TextureVariation.ts` 的 whole-texture bounds 不足以支持局部降频，压缩/不可读格式的 UNKNOWN 也不能永久把所有纹理表面锁成全率。
 
