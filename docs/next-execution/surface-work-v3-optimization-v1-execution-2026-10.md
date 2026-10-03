@@ -6,6 +6,8 @@
 
 唯一配套细化设计：[Surface V3 第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)。保留[第三版总设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)的 owner 边界，按用户最新要求替换初版物理实现。历史执行记录见[原 V3 计划](surface-work-runtime-v3-rebuild-2026.md)；历史测量见[1080p 报告](../performance/2026-10-03-surface-v3-work-bandwidth-report.md)。
 
+2026-10-04 当前返工按[分类与 Store 五步修复计划](surface-work-v3-classifier-store-repair-plan-2026-10.md)执行：每步做必要定向检查，步骤 1–4 不设单步性能、命中率或 FPS 门槛，允许跨步骤接线后集中修复；最后用同一个 5173 Showcase 采截图与整帧性能。该用户最新节奏覆盖本文件历史阶段门槛在本轮返工范围内的要求，历史通过/失败记录保持原身份，不因此提升验收状态。
+
 ## 1. 执行目标与节奏
 
 本轮不是先做一组保守 patch 再讨论架构，而是一次连续切换：

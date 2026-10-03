@@ -853,3 +853,29 @@ Directional VSM 的真实 PCF 接收点比较没有删除或换成 page-version 
 | 已有 cosine convolution 与 Lambert BRDF 单位修正 | diffuse environment 产品是 irradiance，Surface 消费补 `RECIPROCAL_PI`；示例固定曝光 8→4 | 没有更换 tone mapper、用阴影掩盖问题或改黑色背景；不是新增光照算法 |
 
 本次实际检查记录见 `.local/validation/surface-p0p5-report.md`。仅声明该 fixture 上的检查与测量；真实 GPU oracle 覆盖输入见证/字段失效，Chrome 截图与两档覆盖诊断覆盖生产链。完整 device loss 浏览器矩阵、连续画质与 V3 四版本验收仍待完成，R01–R24 与来源采用等级保持原状。
+# 2026-10-04：Surface 分类搜索与独立需求修复
+
+本轮重新核读现有固定源码 Intel DeferredCoarsePixelShading `63ad5c1adafbfcc2869a200f50a5ea11f28b4887`（shader Apache-2.0）的 `ComputeShaderTile.hlsl::RequiresPerPixelShading/ComputeShaderTileCS`，以及现有 OSS `RenderTaskProcessing.compute::RenderTaskPrepare/RenderTaskIndirectDispatch`（revision/许可证沿用下文已有 OSS pin）。技术依据沿用该仓库 GPU Pro 7 说明和下文已核读的 VRCS/DAIS 资料。CPS 的 GBuffer-first 检测不能直接作为本地材质前置误差证明；没有发现覆盖本地 21-plane bounds 和 WebGPU publication 的完整 donor，不提升任何采用状态。
+
+| 核读阶段 | 本地修复 | 保留条件及差异 |
+| --- | --- | --- |
+| CPS 固定 coarse candidate、精细需求列表、组同步和完整写回 | `surface_cell_classify.ts` 固定 2×2→4×4→diffuse 8×8；失败子组禁止反复尝试同一父组 | 本地连续域与几何/字段/信号区间判据全部保留；不是移植 GBuffer probe，分类证书搜索仍为本地算法 |
+| CPS 独立 coarse/fine 写域；OSS occupancy→实际 task→indirect | `SurfaceCellClassifierPass` 并行代表需求并集、字段 mask 和 signal mask；Lighting/Reconstruct 按各自 plane 映射消费 | 不再按代表编号取最小值；容量仍受每 tile 最多64个代表约束，CPU不读取本帧需求 |
+| 现有完整身份/单producer publication 合同 | FieldStore 仅打包实际 miss 队列，独立 owner state、完整 key 比较、只读已发布 entry | 本地 ABI/并发修复，无全局自旋，无同一首 word 即可覆盖的分支 |
+
+同一候选/primitive 内的纹理区间按编译器 sample ID 复用，切换 context 必须清空；区间并集超预算立即拒绝，纹理节点计数按 tile 聚合并受诊断开关控制。数值、GPU链路、截图与性能结果待本轮实际检查后记录，不将源码修改称作验收通过。
+
+## 2026-10-04：分类、证书与 Store 五步修复设计（尚未实施）
+
+执行入口：[Surface V3 分类与 Store 五步修复计划](../next-execution/surface-work-v3-classifier-store-repair-plan-2026-10.md)。本次仅创建计划与来源映射，不修改生产源码、不运行组件或整帧检查，不提升采用状态。核对基点为 `0bc4e68752ab187a1b508f7a1952e6ebe18bec02` 加创建文档时 dirty 工作树；8 秒报告是另一个 `c28d0292 + 当时 dirty` 身份。
+
+重新访问固定 Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887` 的 `ComputeShaderTile.hlsl`（文件头 Apache-2.0）及 GPU Pro 7 配套 README，固定 OSS `473a59bbcdd30e3366cc567d66a5a97353620d48` 的 `RenderTaskProcessing.compute`、README 和 `License`（Apache-2.0）。OSS 固定 revision preprint 本次 web 提取失败，未声称重读论文全文；既有论文与详细资料研究边界沿用本账本。API 约束核对 [WGSL 2026-09-21 atomic 规范](https://www.w3.org/TR/2026/CRD-WGSL-20260921/#atomic-builtin-functions)。
+
+| 固定源入口/本地依据 | 拟实施阶段 | 必须保留的输入输出、不变量与降级 |
+|---|---|---|
+| CPS `RequiresPerPixelShading/ComputeShaderTileCS` | 步骤 1 独立 source/packet；步骤 2 固定层级 | coverage、coarse/full、无光与边界完整写回；上游 GBuffer-first 不等于本地前置证书。保持原 PBR，未知只细化关联 plane |
+| 本地 `appearance_field_bounds.ts`、Geometry address math 与局部 texture hierarchy；没有完整 donor 覆盖该组合 | 步骤 2 共享 geometry/texture/field/direction certificate；步骤 3 前置 certificate/value lookup | parent 合并支持域后重判预算，不只合并 safe boolean；完整版本、seam/filter/footprint 与 anchor 有效域；未覆盖/dirty 进入实际验证或本批 transient |
+| OSS `RenderTaskPrepare/RenderTaskIndirectDispatch` | 步骤 4 实际 field miss / dirty signal / unique producer 与 indirect | occupancy→实际 task/count→GPU indirect 的阶段参考；本地 full-key dedup、单 slot writer、publish 后消费、有限容量与满表正确求值；不移植 Unity/RT/Htex/GI |
+| WGSL relaxed atomics 与 workgroup barrier scope；既有 FrameGraph/Store owner | 步骤 1/3/4 准入、评估、发布、消费与退休 | atomic state 不代替跨 word publication；dispatch 边界、uniform barriers、无全局自旋、无本帧 CPU work 回读、无独立 submit |
+
+证书合并与跨帧有效域仍是具名本地 Continuity-Domain Signal Sampling 扩展，尚未实施、尚无数值/GPU 消费证据。复杂实现开工前继续补核读具体相关完整源码、论文和技术资料，并更新实际函数映射；不把上述阶段参考宣称为完整上游移植。步骤 1–4 的定向检查不设性能门槛，步骤 5 同场景实测也不自动等于全 Phase 7 或 claims 通过。

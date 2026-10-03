@@ -4,7 +4,6 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { SURFACE_WORK_INDIRECT_OFFSET, SURFACE_WORK_OVERFLOW, SURFACE_INPUT_WITNESS_WORDS } from "../../gpu/GpuSurfaceWorkAbi.js";
-import { APPEARANCE_SURFACE_READ_WGSL } from "../../gpu/GpuAppearanceCacheAbi.js";
 import { SPARSE_LIGHTING_COUNTER_BYTES, SPARSE_LIGHTING_COUNTER_WORDS } from "../../gpu/GpuSparseLightingAbi.js";
 import { createProductionSparseDirectLightingWgsl } from "../../shaders/lighting_direct.js";
 import { OCTAHEDRAL_SAMPLE_WGSL } from "../../shaders/environment_ibl.js";
@@ -17,11 +16,15 @@ import {
   SURFACE_SIGNAL_STORE_FLAGS_WORD,
   SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD,
   SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD,
+  SURFACE_SIGNAL_STORE_STATE_WORD,
+  SURFACE_SIGNAL_STORE_STATE,
   SURFACE_SIGNAL_STORE_FLAG,
   SURFACE_SIGNAL_STORE_REQUEST_WORDS,
   SURFACE_SIGNAL_STORE_WAYS
 } from "../../gpu/GpuSurfaceSignalStoreAbi.js";
 import type { GpuSurfaceSignalStore } from "../../gpu/GpuSurfaceSignalStore.js";
+import { surfaceCellReadWgsl, surfaceCellFieldReadWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
+import { SURFACE_PACKET_CONTRACT_WGSL, SURFACE_PACKET_FLAG_SPILL } from "../../gpu/GpuSurfaceSignalPacketAbi.js";
 
 export interface SurfaceLightingProducts {
   readonly signalPublished?: ResourceId;
@@ -41,6 +44,12 @@ export interface SurfaceLightingInput {
   readonly diagnosticFrame: Readonly<{value:number}>;
   readonly geometry: ResourceId;
   readonly fields: ResourceId;
+  readonly cellWorkspace: ResourceId;
+  readonly sampleMap: ResourceId;
+  readonly cellBatchTiles: number;
+  readonly firstTile: number;
+  readonly appearanceMetadata: ResourceId;
+  readonly constantFieldsOffset: number;
   readonly counts: ResourceId;
   readonly work: ResourceId;
   readonly sampleOffset: number;
@@ -83,18 +92,19 @@ const DIRECT_MATH = createProductionSparseDirectLightingWgsl(true, "vsm")
   .replace(/\bview\.width\b/g, "shading_view.width")
   .replace(/\bview\.height\b/g, "shading_view.height");
 
-const LIGHTING_WGSL = /* wgsl */ `
+export const LIGHTING_WGSL = /* wgsl */ `
 ${DIRECT_MATH}
 ${OCTAHEDRAL_SAMPLE_WGSL}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
-${APPEARANCE_SURFACE_READ_WGSL}
+@group(0) @binding(2) var<storage,read> fields:array<vec2u>;
 ${ATMOSPHERE_RUNTIME_WGSL}
+${SURFACE_PACKET_CONTRACT_WGSL}
 
 struct SurfaceView { width: u32, height: u32, frame_index: u32, _pad: u32 };
 struct SurfaceSettings {
   width: u32, height: u32, record_count: u32, frame: u32,
   sample_offset: u32, light_enabled: u32, environment_enabled: u32, shadow_enabled: u32,
-  cluster_enabled: u32, _environment_enabled_2: u32, ao_enabled: u32, geometry_offset: u32,
+  cluster_enabled: u32, first_tile: u32, constant_fields_offset: u32, geometry_offset: u32,
   diagnostics_enabled: u32, _reserved0: u32, _reserved1: u32, _reserved2: u32,
   environment_revision:u32, light_revision:u32, shadow_revision:u32, ao_revision:u32,
 };
@@ -106,7 +116,6 @@ struct SurfaceSettings {
 @group(0) @binding(7) var<storage, read_write> counters: array<atomic<u32>>;
 @group(0) @binding(10) var<storage, read> surface_counts: array<u32>;
 @group(0) @binding(11) var<storage, read> work: array<u32>;
-@group(0) @binding(12) var<storage, read> scalar_ao: array<u32>;
 @group(0) @binding(13) var environment_diffuse: texture_2d<f32>;
 @group(0) @binding(14) var environment_specular: texture_2d<f32>;
 @group(0) @binding(15) var environment_dfg: texture_2d<f32>;
@@ -114,25 +123,35 @@ struct SurfaceSettings {
 @group(0) @binding(17) var solar_transmittance: texture_2d<f32>;
 @group(0) @binding(18) var solar_sampler: sampler;
 @group(0) @binding(19) var<storage,read> dirty_queue:array<vec2u>;
+@group(0) @binding(20) var<storage,read> cell_plan_words:array<u32>;
+@group(0) @binding(21) var sample_map:texture_2d<u32>;
+@group(0) @binding(22) var<storage,read> appearance_metadata:array<u32>;
+${surfaceCellReadWgsl("settings._reserved1")}
+${surfaceCellFieldReadWgsl("settings._reserved1", "settings.first_tile", "((settings.width+7u)/8u)", "settings.constant_fields_offset")}
+fn surface_field(record:u32,field:u32)->vec4f {
+  let sample_at=settings.sample_offset/4u+record*8u;
+  let pixel=vec2u(work[sample_at]%settings.width,work[sample_at]/settings.width);
+  return surface_field_at(pixel,field);
+}
 
 fn diagnostic_add(index: u32, value: u32) {
   if settings.diagnostics_enabled != 0u { atomicAdd(&counters[index], value); }
 }
-fn packet_store(record:u32, kind:u32, value:vec4f) {
+fn packet_store(record:u32, kind:u32, value:vec4f, semantic:u32) {
   let slot = record * 6u + kind;
-  let spill = any(abs(value) > vec4f(65504.0)) || any(value != value);
+  // Non-finite math is an invalid producer result, never a valid HDR packet.
+  if any(value!=value) || any(abs(value)>vec4f(3.402823466e38)) {
+    atomicOr(&counters[9u], ${SURFACE_WORK_OVERFLOW.signal}u);
+    packet_flags[slot]=0u;
+    return;
+  }
+  let spill = any(abs(value) > vec4f(65504.0));
   packets[slot] = vec2u(pack2x16float(value.xy), pack2x16float(value.zw));
   if (spill) {
-    let spill_index = atomicAdd(&counters[25u], 1u);
-    if (spill_index < settings._reserved2) {
-      full_packets[spill_index] = value;
-      packet_flags[slot] = ${SURFACE_SIGNAL_STORE_FLAG.valid | SURFACE_SIGNAL_STORE_FLAG.spill}u | (spill_index << 8u);
-    } else {
-      atomicOr(&counters[9u], ${SURFACE_WORK_OVERFLOW.signal}u);
-      packet_flags[slot] = ${SURFACE_SIGNAL_STORE_FLAG.valid}u;
-    }
+    full_packets[slot] = value;
+    packet_flags[slot] = semantic | SURFACE_PACKET_VALID | SURFACE_PACKET_SPILL | (slot << 8u);
   } else {
-    packet_flags[slot] = ${SURFACE_SIGNAL_STORE_FLAG.valid}u;
+    packet_flags[slot] = semantic | SURFACE_PACKET_VALID;
   }
 }
 
@@ -158,16 +177,11 @@ fn setting(index: u32) -> u32 {
     case 4u: { return settings.sample_offset; }
     case 8u: { return settings.cluster_enabled; }
     case 9u: { return settings.environment_enabled; }
-    case 10u: { return settings.ao_enabled; }
+    case 10u: { return 0u; }
     case 7u: { return settings.shadow_enabled; }
     case 11u: { return settings.geometry_offset; }
     default: { return 0u; }
   }
-}
-fn ao_at(pixel_index: u32) -> f32 {
-  if setting(10u) == 0u { return 1.0; }
-  let packed = scalar_ao[pixel_index >> 2u];
-  return f32((packed >> ((pixel_index & 3u) * 8u)) & 0xffu) * (1.0 / 255.0);
 }
 
 fn surface_material(record: u32) -> StandardMaterial {
@@ -246,10 +260,10 @@ fn direct_surface(material: StandardMaterial, geometry_in: SurfaceGeometry,
   return reflected;
 }
 
-fn environment_diffuse_surface(material: StandardMaterial, normal: vec3f, ao: f32) -> vec3f {
+fn environment_diffuse_irradiance(normal: vec3f) -> vec3f {
   let diffuse_env = sample_octahedral_bilinear(environment_diffuse, vec2u(0u),
     textureDimensions(environment_diffuse).x, normal, 0u).rgb;
-  return diffuse_env * material.diffuse * material.occlusion * ao * RECIPROCAL_PI;
+  return diffuse_env;
 }
 
 fn environment_specular_surface(material: StandardMaterial, normal: vec3f, view_dir: vec3f) -> vec3f {
@@ -277,7 +291,7 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   let pixel_index=work[sample_at];let base=setting(11u)+work[sample_at+6u]*12u;
   let enabled_mask=work[sample_at+3u];let sample_flags=work[sample_at+7u];
   let pixel=vec2i(i32(pixel_index%setting(0u)),i32(pixel_index/setting(0u)));
-  let position=geometry[base].xyz;let ao=ao_at(pixel_index);
+  let position=geometry[base].xyz;
   let geometric_normal = normalize(geometry[base + 1u].xyz);
   let shading_normal = normalize(geometry[base + 2u].xyz);
   let tangent = normalize(geometry[base + 5u].xyz);
@@ -325,21 +339,22 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   var environment_diffuse = vec3f(0.0);
   var environment_specular = vec3f(0.0);
   var coat_ibl = vec3f(0.0);
-  if has_diffuse_env {environment_diffuse = environment_diffuse_surface(material, normal, ao);diagnostic_add(3u, 1u);}
+  if has_diffuse_env {environment_diffuse = environment_diffuse_irradiance(normal);diagnostic_add(3u, 1u);}
   if has_specular_env {environment_specular = environment_specular_surface(material, normal, view_dir);diagnostic_add(6u, 1u);}
   if has_coat_env {coat_ibl = coat_environment(material, normal, view_dir);}
-  if has_diffuse {packet_store(record,0u,vec4f(direct_diffuse, 1.0));diagnostic_add(20u,1u);}
-  if has_diffuse_env {packet_store(record,1u,vec4f(environment_diffuse + material.emissive, 1.0));diagnostic_add(21u,1u);}
-  if has_specular {packet_store(record,2u,vec4f(direct_specular, 1.0));diagnostic_add(22u,1u);}
-  if has_specular_env {packet_store(record,3u,vec4f(environment_specular, 1.0));diagnostic_add(23u,1u);}
-  if has_coat {packet_store(record,4u,vec4f(coat_direct, 1.0));diagnostic_add(24u,1u);}
-  if has_coat_env {packet_store(record,5u,vec4f(coat_ibl, 1.0));diagnostic_add(25u,1u);}
+  if has_diffuse {packet_store(record,0u,vec4f(direct_diffuse, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_DIFFUSE);diagnostic_add(20u,1u);}
+  if has_diffuse_env {packet_store(record,1u,vec4f(environment_diffuse, 1.0),SURFACE_PACKET_IRRADIANCE|SURFACE_PACKET_DIFFUSE|SURFACE_PACKET_ENVIRONMENT);diagnostic_add(21u,1u);}
+  if has_specular {packet_store(record,2u,vec4f(direct_specular, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_SPECULAR);diagnostic_add(22u,1u);}
+  if has_specular_env {packet_store(record,3u,vec4f(environment_specular, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_SPECULAR|SURFACE_PACKET_ENVIRONMENT);diagnostic_add(23u,1u);}
+  if has_coat {packet_store(record,4u,vec4f(coat_direct, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_COAT);diagnostic_add(24u,1u);}
+  if has_coat_env {packet_store(record,5u,vec4f(coat_ibl, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_COAT|SURFACE_PACKET_ENVIRONMENT);diagnostic_add(25u,1u);}
   diagnostic_add(10u, countOneBits(signal_mask) * 16u);
   if (sample_flags & 2u) != 0u { diagnostic_add(4u, 1u); }
 }
 `;
 
-const LIGHTING_PLAN_WGSL = /* wgsl */ `
+export const LIGHTING_PLAN_WGSL = /* wgsl */ `
+${SURFACE_PACKET_CONTRACT_WGSL}
 struct SurfaceSettings {
   width: u32, height: u32, record_count: u32, frame: u32,
   sample_offset: u32, light_enabled: u32, environment_enabled: u32, shadow_enabled: u32,
@@ -407,9 +422,15 @@ fn signal_store_probe(record:u32,kind:u32)->u32 {
   for(var way=0u;way<4u;way++){
     let entry=set_index*4u+way;let at=entry*${SURFACE_SIGNAL_STORE_ENTRY_WORDS}u;var equal=true;
     for(var word=0u;word<10u;word++){if atomicLoad(&signal_store_entries[at+word])!=signal_key_word(record,kind,word){equal=false;break;}}
-    if equal && (atomicLoad(&signal_store_entries[at+${SURFACE_SIGNAL_STORE_FLAGS_WORD}u])&${SURFACE_SIGNAL_STORE_FLAG.valid}u)!=0u{
-      let previous=atomicCompareExchangeWeak(&signal_store_entries[at+${SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD}u],settings.frame,settings.frame);
-      if !previous.exchanged && previous.old_value!=settings.frame {
+    if equal && atomicLoad(&signal_store_entries[at+${SURFACE_SIGNAL_STORE_STATE_WORD}u])==${SURFACE_SIGNAL_STORE_STATE.published}u{
+      var touched=false;
+      for(var attempt=0u;attempt<4u;attempt++) {
+        let epoch=atomicLoad(&signal_store_entries[at+${SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD}u]);
+        if epoch==settings.frame { break; }
+        let previous=atomicCompareExchangeWeak(&signal_store_entries[at+${SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD}u],epoch,settings.frame);
+        if previous.exchanged { touched=true; break; }
+      }
+      if touched {
         let packed=atomicLoad(&signal_store_entries[at+${SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD}u]);
         let age=min(packed&0xffffu,0xfffeu)+1u;let confidence=packed>>16u;
         let decayed=select(confidence,confidence-1024u,confidence>1024u);
@@ -423,14 +444,14 @@ fn signal_store_probe(record:u32,kind:u32)->u32 {
 fn packet_load_store(record:u32,kind:u32,entry:u32){
   let at=entry*${SURFACE_SIGNAL_STORE_ENTRY_WORDS}u;let slot=record*6u+kind;
   let flags=atomicLoad(&signal_store_entries[at+${SURFACE_SIGNAL_STORE_FLAGS_WORD}u]);
-  if (flags&${SURFACE_SIGNAL_STORE_FLAG.spill}u)!=0u {
+  if (flags&SURFACE_PACKET_SPILL)!=0u {
     let bits=vec4u(atomicLoad(&signal_store_entries[at+10u]),atomicLoad(&signal_store_entries[at+11u]),atomicLoad(&signal_store_entries[at+12u]),atomicLoad(&signal_store_entries[at+13u]));
-    let spill_index=atomicAdd(&counters[25u],1u);
-    if(spill_index<settings._reserved2){full_packets[spill_index]=bitcast<vec4f>(bits);packet_flags[slot]=${SURFACE_SIGNAL_STORE_FLAG.valid | SURFACE_SIGNAL_STORE_FLAG.spill}u|(spill_index<<8u);}
+    full_packets[slot]=bitcast<vec4f>(bits);
+    packet_flags[slot]=(flags&255u)|SURFACE_PACKET_SPILL|(slot<<8u);
     packets[slot]=vec2u(pack2x16float(bitcast<vec4f>(bits).xy),pack2x16float(bitcast<vec4f>(bits).zw));
   } else {
     packets[slot]=vec2u(atomicLoad(&signal_store_entries[at+10u]),atomicLoad(&signal_store_entries[at+11u]));
-    packet_flags[slot]=${SURFACE_SIGNAL_STORE_FLAG.valid}u;
+    packet_flags[slot]=atomicLoad(&signal_store_entries[at+${SURFACE_SIGNAL_STORE_FLAGS_WORD}u])|SURFACE_PACKET_VALID;
   }
 }
 
@@ -492,7 +513,7 @@ struct Settings { record_count:u32, environment_revision:u32, light_revision:u32
 @group(0) @binding(7) var<storage,read> full_packets:array<vec4f>;
 @group(0) @binding(8) var<storage,read> packet_flags:array<u32>;
 fn key_word(record:u32,kind:u32,word:u32)->u32{switch word{case 0u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+12u];}case 1u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u];}case 2u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+1u];}case 3u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+2u];}case 4u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+3u];}case 5u:{return kind;}case 6u:{return settings.environment_revision;}case 7u:{return settings.light_revision;}case 8u:{return settings.shadow_revision;}case 9u:{var h=2166136261u;for(var i=0u;i<19u;i++){h=(h^field_identity[record*19u+i])*16777619u;}h=(h^settings.ao_revision)*16777619u;h=(h^work[settings.sample_offset/4u+record*8u+2u])*16777619u;return h;}default:{return 0u;}}}
-@compute @workgroup_size(64) fn pack(@builtin(global_invocation_id) id:vec3u){let request=id.x;let record=request/6u;let kind=request%6u;if(record>=settings.record_count){return;}let request_base=request*${SURFACE_SIGNAL_STORE_REQUEST_WORDS}u;let bit=1u<<kind;let enabled=(work[settings.sample_offset/4u+record*8u+3u]&bit)!=0u;let publish=(publish_mask[record]&bit)!=0u;let valid_key=geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+12u]!=0xffffffffu;if(!enabled||!publish||!valid_key){requests[request_base]=0xffffffffu;return;}for(var word=0u;word<10u;word++){requests[request_base+word]=key_word(record,kind,word);}let flags=packet_flags[record*6u+kind];if((flags&${SURFACE_SIGNAL_STORE_FLAG.spill}u)!=0u){let value=full_packets[flags>>8u];let bits=bitcast<vec4u>(value);for(var payload=0u;payload<4u;payload++){requests[request_base+10u+payload]=bits[payload];}}else{let packed=packets[record*6u+kind];requests[request_base+10u]=packed.x;requests[request_base+11u]=packed.y;requests[request_base+12u]=0u;requests[request_base+13u]=0u;}requests[request_base+14u]=flags;requests[request_base+15u]=settings.frame;requests[request_base+16u]=0xffff0000u;requests[request_base+17u]=0u;requests[request_base+18u]=0u;requests[request_base+19u]=0u;}
+@compute @workgroup_size(64) fn pack(@builtin(global_invocation_id) id:vec3u){let request=id.x;let record=request/6u;let kind=request%6u;if(record>=settings.record_count){return;}let request_base=request*${SURFACE_SIGNAL_STORE_REQUEST_WORDS}u;let bit=1u<<kind;let enabled=(work[settings.sample_offset/4u+record*8u+3u]&bit)!=0u;let publish=(publish_mask[record]&bit)!=0u;let valid_key=geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+12u]!=0xffffffffu;if(!enabled||!publish||!valid_key){requests[request_base]=0xffffffffu;return;}for(var word=0u;word<10u;word++){requests[request_base+word]=key_word(record,kind,word);}let flags=packet_flags[record*6u+kind];if((flags&${SURFACE_PACKET_FLAG_SPILL}u)!=0u){let value=full_packets[flags>>8u];let bits=bitcast<vec4u>(value);for(var payload=0u;payload<4u;payload++){requests[request_base+10u+payload]=bits[payload];}}else{let packed=packets[record*6u+kind];requests[request_base+10u]=packed.x;requests[request_base+11u]=packed.y;requests[request_base+12u]=0u;requests[request_base+13u]=0u;}requests[request_base+14u]=flags;requests[request_base+15u]=settings.frame;requests[request_base+16u]=0xffff0000u;requests[request_base+17u]=0u;requests[request_base+18u]=0u;requests[request_base+19u]=0u;}
 `;
 
 export class SurfaceLightingWorkPass {
@@ -509,6 +530,7 @@ export class SurfaceLightingWorkPass {
   private readonly signalStorePackPipeline: GPUComputePipeline;
   private readonly signalStoreResetPipeline: GPUComputePipeline;
   private readonly signalStorePublishPipeline: GPUComputePipeline;
+  private readonly signalStoreCommitPipeline: GPUComputePipeline;
   private readonly signalStoreSettings: GPUBuffer;
   private readonly signalPackSettings: GPUBuffer;
   private signalStoreInitialized = false;
@@ -530,6 +552,7 @@ export class SurfaceLightingWorkPass {
     const signalStoreModule = device.createShaderModule({ label: "Surface/SignalStore lookup and publish", code: SURFACE_SIGNAL_STORE_COMPUTE_WGSL });
     this.signalStoreResetPipeline = device.createComputePipeline({ label: "Surface/SignalStore reset", layout: "auto", compute: { module: signalStoreModule, entryPoint: "surface_signal_store_reset" } });
     this.signalStorePublishPipeline = device.createComputePipeline({ label: "Surface/SignalStore publish", layout: "auto", compute: { module: signalStoreModule, entryPoint: "surface_signal_store_publish" } });
+    this.signalStoreCommitPipeline = device.createComputePipeline({ label: "Surface/SignalStore commit", layout: "auto", compute: { module: signalStoreModule, entryPoint: "surface_signal_store_commit" } });
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 80 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -540,13 +563,15 @@ export class SurfaceLightingWorkPass {
       { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ...[13, 14, 15].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
         texture: { sampleType: "float" as GPUTextureSampleType, viewDimension: "2d" as GPUTextureViewDimension } })),
       { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
       { binding: 17, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float" } },
       { binding: 18, visibility: GPUShaderStage.COMPUTE, sampler: { type: "filtering" } },
-      {binding:19,visibility:GPUShaderStage.COMPUTE,buffer:{type:"read-only-storage"}}
+      {binding:19,visibility:GPUShaderStage.COMPUTE,buffer:{type:"read-only-storage"}},
+      {binding:20,visibility:GPUShaderStage.COMPUTE,buffer:{type:"read-only-storage"}},
+      {binding:21,visibility:GPUShaderStage.COMPUTE,texture:{sampleType:"uint"}},
+      {binding:22,visibility:GPUShaderStage.COMPUTE,buffer:{type:"read-only-storage"}}
     ] });
     this.lightLayout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -584,9 +609,9 @@ export class SurfaceLightingWorkPass {
       const settings = new Uint32Array([
         data.width, data.height, data.recordCount, data.frame, data.sampleOffset,
         1, 1, data.shadow === null ? 0 : 1,
-        1, 1, data.scalarAo === null ? 0 : 1, data.geometryOffset,
-        data.diagnosticsEnabled ? 1 : 0, data.physicalSun === null ? 0 : 1, 0,
-        Math.max(1, Math.ceil(data.recordCount * 6 / 8)), data.revisions.environment, data.revisions.light, data.revisions.shadow, data.revisions.ao ?? 0]);
+        1, data.firstTile, data.constantFieldsOffset, data.geometryOffset,
+        data.diagnosticsEnabled ? 1 : 0, data.physicalSun === null ? 0 : 1, data.cellBatchTiles,
+        data.recordCount * 6, data.revisions.environment, data.revisions.light, data.revisions.shadow, data.revisions.ao ?? 0]);
       command.writeBuffer(this.settings, 0, settings.buffer, 0, settings.byteLength);
       const initialCounters = new Uint32Array(SPARSE_LIGHTING_COUNTER_WORDS);
       initialCounters[11] = 1;
@@ -600,14 +625,17 @@ export class SurfaceLightingWorkPass {
         { binding: 4, resource: { buffer: buffer(fullPackets) } },
         { binding: 5, resource: { buffer: buffer(packetFlags) } },
         { binding: 7, resource: { buffer: buffer(counters) } }, { binding: 10, resource: { buffer: buffer(dirtyCounts) } },
-        { binding: 11, resource: { buffer: buffer(data.work) } }, { binding: 12, resource: { buffer: buffer(data.scalarAo ?? data.counts) } },
+        { binding: 11, resource: { buffer: buffer(data.work) } },
         { binding: 13, resource: resolveTextureView(resources.get(data.environment.diffuse)) },
         { binding: 14, resource: resolveTextureView(resources.get(data.environment.specular)) },
         { binding: 15, resource: resolveTextureView(resources.get(data.environment.dfg)) },
         { binding: 16, resource: { buffer: buffer(data.physicalSun?.parameters ?? data.camera) } },
         { binding: 17, resource: resolveTextureView(resources.get(data.physicalSun?.transmittance ?? data.environment.diffuse)) },
         { binding: 18, resource: this.solarSampler },
-        {binding:19,resource:{buffer:buffer(dirtyQueue)}}
+        {binding:19,resource:{buffer:buffer(dirtyQueue)}},
+        {binding:20,resource:{buffer:buffer(data.cellWorkspace)}},
+        {binding:21,resource:resolveTextureView(resources.get(data.sampleMap))},
+        {binding:22,resource:{buffer:buffer(data.appearanceMetadata)}}
       ] });
       const group1 = this.device.createBindGroup({ layout: this.lightLayout, entries: [
         { binding: 0, resource: { buffer: buffer(data.lightRecords) } },
@@ -656,6 +684,7 @@ export class SurfaceLightingWorkPass {
     dirtyQueue=node.write(dirtyQueue);
     node.read(input.geometryKeys); node.read(input.fieldIdentity); node.read(signalStoreBuffer); node.write(signalStoreBuffer);
     node.read(input.geometry); node.read(input.fields); node.read(input.counts); node.read(input.work);
+    node.read(input.cellWorkspace); node.read(input.sampleMap); node.read(input.appearanceMetadata);
     node.read(input.lightRecords); node.read(input.clusters.parameters); node.read(input.clusters.lookup);
     if (input.physicalSun !== null) { node.read(input.physicalSun.parameters); node.read(input.physicalSun.transmittance); }
     node.read(input.clusters.data); node.read(input.clusters.activeLightList);
@@ -669,7 +698,7 @@ export class SurfaceLightingWorkPass {
     if (input.scalarAo !== null) node.read(input.scalarAo);
     node.read(input.environment.diffuse); node.read(input.environment.specular); node.read(input.environment.dfg);
     const bytes = Math.max(8, input.recordCount * 6 * 8);
-    const spillCapacity = Math.max(1, Math.ceil(input.recordCount * 6 / 8));
+    const spillCapacity = Math.max(1, input.recordCount * 6);
     const fullBytes = spillCapacity * 16;
     dispatchIndirect = node.create("Surface/lighting dispatch indirect", { kind: "transient_buffer", size: 16,
       usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST, domain: "internal-full" });
@@ -699,7 +728,7 @@ export class SurfaceLightingWorkPass {
       }) : null;
       if (initialization !== null) { initialization.read(input.work); initialization.read(signalStoreBuffer); initialization.write(signalStoreBuffer); node.dependsOn(initialization); }
       const requestCount = Math.max(1, input.recordCount * 6);
-      let requests!: ResourceId, storeCounters!: ResourceId;
+      let requests!: ResourceId, storeCounters!: ResourceId, owners!: ResourceId;
       const publish = graph.add("Surface/SignalStore publish after lighting", { recordCount: input.recordCount, requestCount, storeEntries, sampleOffset: input.sampleOffset, frame: input.frame, revisions: input.revisions, signalStoreBuffer, packets, fullPackets, packetFlags, publishMask, geometryKeys: input.geometryKeys, fieldIdentity: input.fieldIdentity, work: input.work }, (data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
         command.writeBuffer(this.signalPackSettings, 0, new Uint32Array([data.recordCount, data.revisions.environment, data.revisions.light, data.revisions.shadow, data.revisions.ao ?? 0, data.sampleOffset, data.frame]).buffer, 0, 28);
@@ -712,14 +741,25 @@ export class SurfaceLightingWorkPass {
           { binding: 8, resource: { buffer: resources.get(data.packetFlags) as GPUBuffer } }
         ] });
         const packPass = command.beginComputePass({ label: "Surface/SignalStore request pack" }); packPass.setPipeline(this.signalStorePackPipeline); packPass.setBindGroup(0, packGroup); packPass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); packPass.end();
-        command.writeBuffer(this.signalStoreSettings, 0, new Uint32Array([data.requestCount, data.storeEntries, this.signalStore!.stats().generation, 0]).buffer, 0, 16);
+        command.writeBuffer(this.signalStoreSettings, 0, new Uint32Array([data.requestCount, data.storeEntries, this.signalStore!.stats().generation, data.frame]).buffer, 0, 16);
         command.gpu_encoder.clearBuffer(resources.get(storeCounters) as GPUBuffer, 0, 32);
         const publishGroup = this.device.createBindGroup({ layout: this.signalStorePublishPipeline.getBindGroupLayout(0), entries: [
           { binding: 0, resource: { buffer: this.signalStoreSettings } }, { binding: 1, resource: { buffer: resources.get(requests) as GPUBuffer } },
-          { binding: 2, resource: { buffer: resources.get(data.signalStoreBuffer) as GPUBuffer } }, { binding: 4, resource: { buffer: resources.get(storeCounters) as GPUBuffer } }
+          { binding: 2, resource: { buffer: resources.get(data.signalStoreBuffer) as GPUBuffer } },
+          { binding: 3, resource: { buffer: resources.get(owners) as GPUBuffer } }, { binding: 4, resource: { buffer: resources.get(storeCounters) as GPUBuffer } }
         ] });
         const publishPass = command.beginComputePass({ label: "Surface/SignalStore publish" }); publishPass.setPipeline(this.signalStorePublishPipeline); publishPass.setBindGroup(0, publishGroup); publishPass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); publishPass.end();
+        const commitGroup=this.device.createBindGroup({layout:this.signalStoreCommitPipeline.getBindGroupLayout(0),entries:[
+          {binding:0,resource:{buffer:this.signalStoreSettings}},
+          {binding:2,resource:{buffer:resources.get(data.signalStoreBuffer) as GPUBuffer}},
+          {binding:3,resource:{buffer:resources.get(owners) as GPUBuffer}}
+        ]});
+        const commitPass=command.beginComputePass({label:"Surface/SignalStore commit"});
+        commitPass.setPipeline(this.signalStoreCommitPipeline); commitPass.setBindGroup(0,commitGroup);
+        commitPass.dispatchWorkgroups(Math.ceil(data.requestCount/64)); commitPass.end();
       });
+      owners = publish.create("Surface/SignalStore publication owners", {kind:"transient_buffer",size:requestCount*4,usage:GPUBufferUsage.STORAGE});
+      publish.write(owners);
       requests = publish.create("Surface/SignalStore requests", { kind: "transient_buffer", size: requestCount * SURFACE_SIGNAL_STORE_REQUEST_WORDS * 4, usage: GPUBufferUsage.STORAGE });
       storeCounters = publish.create("Surface/SignalStore counters", { kind: "transient_buffer", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       publish.read(input.geometryKeys); publish.read(input.fieldIdentity); publish.read(input.work); publish.read(packets); publish.read(fullPackets); publish.read(packetFlags); publish.read(publishMask); publish.read(signalStoreBuffer); publish.write(requests); publish.write(storeCounters); publish.write(signalStoreBuffer); publish.dependsOn(node); publish.make_side_effect();

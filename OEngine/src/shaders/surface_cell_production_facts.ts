@@ -17,7 +17,7 @@ import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceCacheAbi.js";
  * always-false/unknown implementation in this production library. */
 export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFieldBoundProgram[],
   product: boolean, directRiskLibrary: string, productBoundLibrary: string | null, dictionaryCapacity=65536,
-  fieldMask: ReadonlySet<number> | null = null, includeGenericValidation = true): string {
+  fieldMask: ReadonlySet<number> | null = null, includeGenericValidation = true, signalBounds = true): string {
   const selected = programs.map(program => {
     // The generated switch uses program-local output ordinals, not Surface ABI
     // field indices. A sparse/reordered graph must select by output name.
@@ -42,6 +42,42 @@ export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFiel
     return { ...program, source };
   });
   const hasProductSamples=selected.some(program=>program.source.includes("=ab_product("));
+  let textureBoundSlots = 1;
+  for (const program of selected) {
+    for (const match of program.source.matchAll(/ab_texture\(context,(\d+)u,/g)) {
+      textureBoundSlots = Math.max(textureBoundSlots, Number(match[1]) + 1);
+    }
+  }
+  // Geometry certification always reads position. Signal certification also
+  // reads the normal/tangent frame. Add only the live graph's input attributes;
+  // keep their perspective math in one loop, outside the inlined graph leaves.
+  let attributeMask = 0xf << 20;
+  if (signalBounds) {
+    attributeMask |= 0xff;
+  }
+  for (const program of selected) {
+    if (program.inputSemantics === undefined) {
+      attributeMask = 0xffffff;
+      break;
+    }
+    for (const match of program.source.matchAll(/cell_input_(?:value|gradient)_kind\((\d+)u,(\d+)u/g)) {
+      const kind = Number(match[1]);
+      const channel = Number(match[2]);
+      if (kind === 1) {
+        attributeMask |= 1 << (8 + channel);
+      } else if (kind === 2) {
+        attributeMask |= 1 << (10 + channel);
+      } else if (kind === 3) {
+        attributeMask |= 1 << (16 + channel);
+      } else if (kind === 4) {
+        attributeMask |= 1 << (12 + channel);
+      } else if (kind === 5 || kind === 11 || kind === 14) {
+        attributeMask |= 0xf;
+      } else if (kind === 6 || kind === 12) {
+        attributeMask |= 0xff;
+      }
+    }
+  }
   // Materials with identical bound topology use one function. The context still
   // selects each material's own constants/routes, so sharing code changes no data.
   const boundSources: string[] = [];
@@ -94,11 +130,13 @@ var<private> cell_direct_setup:CellGeometrySetup;
 var<private> cell_bound_slot:u32;
 var<private> cell_bound_key:u32;
 var<private> cell_current_rect:vec4f;
-// Evaluate each attribute footprint once for a geometry/rectangle context.
-// Material graph leaves only load this cache: they must not inline a complete
-// perspective/derivative program independently at every scalar graph node.
+// Each candidate invocation owns its bounds. Parallel candidates must never
+// share writable scratch; only immutable lane facts are workgroup-wide.
 var<private> cell_bound_attributes:array<CellScalarFootprint,24>;
 var<private> cell_bound_setup:CellGeometrySetup;
+var<private> cell_texture_bounds:array<AppearanceBound4,${textureBoundSlots}>;
+var<private> cell_texture_bound_valid:array<u32,${textureBoundSlots}>;
+var<private> cell_texture_nodes:u32;
 // Compatibility repeatedly compares the same 64 lanes. Publish cheap identity
 // facts once per lane so its inner loops never inline the Product decoder.
 struct CellLaneGeometry {
@@ -225,6 +263,13 @@ fn cell_uv_transform(u:AppearanceBound,v:AppearanceBound,scale:vec2f,rotation:ve
 fn cell_min_magnitude(a:AppearanceBound)->f32 {if a.low<=0.0&&a.high>=0.0{return 0.0;}return min(abs(a.low),abs(a.high));}
 fn cell_max_magnitude(a:AppearanceBound)->f32 {return max(abs(a.low),abs(a.high));}
 fn ab_texture(context:vec4u,sample:u32,u:AppearanceBound,v:AppearanceBound,udx:AppearanceBound,udy:AppearanceBound,vdx:AppearanceBound,vdy:AppearanceBound)->AppearanceBound4 {
+ if cell_texture_bound_valid[sample]!=0u { return cell_texture_bounds[sample]; }
+ let result=cell_texture_bound(context,sample,u,v,udx,udy,vdx,vdy);
+ cell_texture_bounds[sample]=result;
+ cell_texture_bound_valid[sample]=1u;
+ return result;
+}
+fn cell_texture_bound(context:vec4u,sample:u32,u:AppearanceBound,v:AppearanceBound,udx:AppearanceBound,udy:AppearanceBound,vdx:AppearanceBound,vdy:AppearanceBound)->AppearanceBound4 {
  let route=settings.appearance0.y+(cell_directory(context.z).z+sample)*16u;
  let texture_reference=appearance_metadata[route];let sampler=appearance_metadata[route+1u];
  let fallback=bitcast<vec4f>(vec4u(appearance_metadata[route+12u],appearance_metadata[route+13u],appearance_metadata[route+14u],appearance_metadata[route+15u]));
@@ -252,7 +297,7 @@ fn ab_texture(context:vec4u,sample:u32,u:AppearanceBound,v:AppearanceBound,udx:A
  let wrap=vec2u(select(wu,3u-wu,wu!=0u),select(wv,3u-wv,wv!=0u));
  let filters=select(0u,3u,(sampler&${S.LinearBit}u)!=0u);
  let range=tv_query(identity,vec2f(uv[0].low,uv[1].low),vec2f(uv[0].high,uv[1].high),lod,wrap,filters);
- atomicAdd(&cell_counts[106u],range.nodes);
+ cell_texture_nodes+=range.nodes;
  var result=AppearanceBound4(range.low,range.high,vec4u(range.known));
  let routing=(texture_reference&${GPU_TEXTURE_REF_ROUTING_MASK}u)>>${GPU_TEXTURE_REF_ROUTING_SHIFT}u;
  if routing!=0u{let channel=select(3u,0u,routing==1u);let alpha=ab_channel(result,channel);
@@ -295,6 +340,7 @@ fn cell_evaluate_bound(field:u32,context:vec4u)->AppearanceBound4 {
  }
 }
 fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
+  for(var sample=0u;sample<${textureBoundSlots}u;sample++) { cell_texture_bound_valid[sample]=0u; }
  let slot=cell_lane_geometry[fact.source].slot;
  cell_bound_slot=slot;cell_bound_key=fact.winner;cell_current_rect=rect;
  var setup:CellGeometrySetup;
@@ -307,6 +353,7 @@ fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
  cell_bound_setup=setup;
  let viewport = vec2f(f32(cell_settings.width),f32(cell_settings.height));
  for (var component = 0u; component < 24u; component++) {
+   if (${attributeMask}u & (1u << component)) == 0u { continue; }
    let field = component / 4u;
    let channel = component % 4u;
    let values = vec3f(setup.corners[field][channel],setup.corners[field + 6u][channel],setup.corners[field + 12u][channel]);
@@ -315,7 +362,9 @@ fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
  let entry=cell_material_entry(setup.source.y);return vec4u(slot,cell_directory(entry).x,entry,fact.winner);
 }
 fn cell_signal_dependencies(plane:u32)->u32 {
- if plane==15u{return (1u<<6u)|(1u<<10u)|(1u<<13u);}
+ // Ddirect is the complete colored production BRDF residual; Denv is
+ // irradiance. Its high-frequency compose factors are independent FieldRefs.
+ if plane==15u{return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<7u)|(1u<<8u)|(1u<<9u)|(1u<<10u)|(1u<<13u);}
  if plane==16u{return (1u<<6u)|(1u<<13u);}
  if plane>=19u{return (1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<14u);}
  return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<7u)|(1u<<8u)|(1u<<9u)|(1u<<10u)|(1u<<13u);

@@ -6,7 +6,7 @@ export const SURFACE_CELL_CLASSIFY_STAGES = Object.freeze([
   { first: 6, count: 3, fields: [6, 7, 8] },
   { first: 9, count: 3, fields: [9, 10, 11] },
   { first: 12, count: 3, fields: [12, 13, 14] },
-  { first: 15, count: 2, fields: [6, 10, 13] },
+  { first: 15, count: 2, fields: [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13] },
   { first: 17, count: 2, fields: [0, 2, 3, 6, 7, 8, 9, 10, 13] },
   { first: 19, count: 2, fields: [10, 11, 12, 14] }
 ] as const);
@@ -23,7 +23,7 @@ export function surfaceCellGroupValidationWgsl(planeStart: number, planeCount: n
     tangent=cell_merge_bound(tangent,cell_world_tangent_box());
     view=cell_merge_bound(view,cell_view_box());` : "";
   const signalChecks = signals ? `
-  let mapped=fields[mapped_field];
+  let mapped=cell_group_fields[mapped_field];
   if any(normal.known.xyz==vec3u(0u)) || any(mapped.known.xyz==vec3u(0u)) { return false; }
   let nc=cell_normal_box_cone(normal.low.xyz,normal.high.xyz);
   let mc=cell_normal_box_cone(mapped.low.xyz,mapped.high.xyz);
@@ -36,15 +36,15 @@ export function surfaceCellGroupValidationWgsl(planeStart: number, planeCount: n
   if acos(clamp(nc.w,-1.0,1.0))+acos(clamp(tc.w,-1.0,1.0))+acos(clamp(mc.w,-1.0,1.0))>0.05235987756 { return false; }
   for (var field=0u; field<15u; field++) {
     if (dependencies & (1u << field))==0u || field==6u || field==12u { continue; }
-    if !cell_field_budget(field,fields[field]) { return false; }
+    if !cell_field_budget(field,cell_group_fields[field]) { return false; }
   }
   if plane>=17u {
-    let roughness=fields[roughness_field];
+    let roughness=cell_group_fields[roughness_field];
     if roughness.known.x==0u || roughness.low.x<0.35 { return false; }
     if any(view.known.xyz==vec3u(0u)) || cell_normal_box_cone(view.low.xyz,view.high.xyz).w<0.9986295348 { return false; }
   }
   if plane==15u {
-    let coat=fields[10u];
+    let coat=cell_group_fields[10u];
     if coat.known.x==0u { return false; }
     if coat.high.x>0.0 && (any(view.known.xyz==vec3u(0u)) || cell_normal_box_cone(view.low.xyz,view.high.xyz).w<0.9986295348) { return false; }
   }
@@ -53,6 +53,8 @@ export function surfaceCellGroupValidationWgsl(planeStart: number, planeCount: n
   }
   return true;` : "return false;";
   return /* wgsl */ `
+// Candidate-local bounds; disjoint quads evaluate concurrently.
+var<private> cell_group_fields:array<AppearanceBound4,15>;
 fn surface_cell_group_valid_stage(plane:u32,mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,64>>,origin:vec2u)->bool {
   let first = cell_first(mask);
   if first == 0xffffffffu { return false; }
@@ -65,8 +67,7 @@ fn surface_cell_group_valid_stage(plane:u32,mask:vec2u,lanes:ptr<workgroup,array
   var dependencies = 1u << plane;
   ${prepare}
   let empty = AppearanceBound4(vec4f(1e30),vec4f(-1e30),vec4u(1u));
-  var fields:array<AppearanceBound4,15>;
-  for (var field=0u; field<15u; field++) { fields[field]=empty; }
+  for (var field=0u; field<15u; field++) { cell_group_fields[field]=empty; }
   var world=empty;
   var normal=empty;
   var tangent=empty;
@@ -101,14 +102,25 @@ fn surface_cell_group_valid_stage(plane:u32,mask:vec2u,lanes:ptr<workgroup,array
     let distance=cell_scalar_footprint(cell_bound_setup.coefficients,plane_values,rect.xy,rect.zw,vec2f(f32(cell_settings.width),f32(cell_settings.height))).value;
     if !ab_valid(distance) || max(abs(distance.low),abs(distance.high))>pixel_scale*0.5 { return false; }
     ${geometry}
+    // Reject a glossy/unknown lobe before evaluating its other material
+    // dependencies. The same roughness bound is retained for the final test.
+    ${signals ? `if plane>=17u {
+      let roughness=cell_evaluate_bound(roughness_field,context);
+      cell_group_fields[roughness_field]=cell_merge_bound(cell_group_fields[roughness_field],roughness);
+      if roughness.known.x==0u || roughness.low.x<0.35 || !cell_field_budget(roughness_field,cell_group_fields[roughness_field]) { return false; }
+    }` : ""}
     for (var field=0u; field<15u; field++) {
       if (dependencies & (1u << field))==0u { continue; }
+      ${signals ? "if plane>=17u && field==roughness_field { continue; }" : ""}
       let descriptor=cell_field_descriptor(context.y,field);
       if (cell_bound_setup.continuity[1u].w & descriptor.y)!=0u { return false; }
-      fields[field]=cell_merge_bound(fields[field],cell_evaluate_bound(field,context));
+      cell_group_fields[field]=cell_merge_bound(cell_group_fields[field],cell_evaluate_bound(field,context));
+      // Union bounds can only widen; a failed budget cannot recover when
+      // another primitive is added. Stop this candidate immediately.
+      if !cell_field_budget(field,cell_group_fields[field]) { return false; }
     }
   }
-  if plane < 15u { return cell_field_budget(plane,fields[plane]); }
+  if plane < 15u { return cell_field_budget(plane,cell_group_fields[plane]); }
   ${signalChecks}
 }
 `;

@@ -1,0 +1,7 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Surface repair GPU checks</title>
+<pre id="status">Starting…</pre><script type="module">
+import {runRepairStepOne} from './repair-step-one-fixture.mjs';
+const assert={ok(value,message){if(!value)throw Error(message??'Expected true');},equal(a,b,message){if(!Object.is(a,b))throw Error(message??`${a} != ${b}`);},deepEqual(a,b,message){if(JSON.stringify(a)!==JSON.stringify(b))throw Error(message??`${JSON.stringify(a)} != ${JSON.stringify(b)}`);}};
+window.cellOracleResult=await runRepairStepOne(navigator.gpu,assert,message=>{console.log(message);window.cellOracleStage=message;document.querySelector('#status').textContent=message;});
+document.querySelector('#status').textContent=JSON.stringify(window.cellOracleResult,null,2);
+</script></html>

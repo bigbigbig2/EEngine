@@ -25,7 +25,7 @@ export interface SurfaceOptimizationProfile {
 export const SURFACE_OPTIMIZATION_DEFAULT_PROFILE: SurfaceOptimizationProfile = Object.freeze({
   addressBytesPerTarget: 128, geometryHotBytesPerTarget: 64,
   geometryColdBytesPerTarget: 128, fieldBytesPerTarget: 96,
-  queueBytesPerTarget: 64, signalBytesPerTarget: 128, resolveMapBytesPerTarget: 32
+  queueBytesPerTarget: 64, signalBytesPerTarget: 676, resolveMapBytesPerTarget: 32
 });
 export interface SurfaceOptimizationLimits {
   readonly maxBufferSize: number;

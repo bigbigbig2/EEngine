@@ -13,9 +13,10 @@ export const SURFACE_SIGNAL_STORE_FLAGS_WORD = SURFACE_SIGNAL_STORE_PAYLOAD_WORD
 export const SURFACE_SIGNAL_STORE_GENERATION_WORD = SURFACE_SIGNAL_STORE_FLAGS_WORD + 1;
 export const SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD = SURFACE_SIGNAL_STORE_GENERATION_WORD + 1;
 export const SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD = SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD + 1;
+export const SURFACE_SIGNAL_STORE_STATE_WORD = 18;
+export const SURFACE_SIGNAL_STORE_STATE = Object.freeze({ empty: 0, reserved: 1, published: 2 });
 
-// Compatibility name retained for the capacity contract; the physical entry now
-// includes both the default packet and the bounded 16-byte precision spill slot.
+// Payload stores either packed half values or the bounded full precision value.
 export const SURFACE_SIGNAL_STORE_SPILL_WORDS = SURFACE_SIGNAL_STORE_ENTRY_WORDS;
 export const SURFACE_SIGNAL_STORE_PRIMARY_WORDS = 8;
 export const SURFACE_SIGNAL_STORE_KIND = Object.freeze({
@@ -28,10 +29,7 @@ export const SURFACE_SIGNAL_STORE_KIND = Object.freeze({
 });
 export const SURFACE_SIGNAL_STORE_FLAG = Object.freeze({
   valid: 1,
-  owner: 2,
-  spill: 4,
-  pinned: 8,
-  temporal: 16
+  spill: 2
 });
 
 export interface SurfaceSignalStoreKey {
@@ -95,6 +93,8 @@ const SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD:u32 = ${SURFACE_SIGNAL_STORE_AGE_
 const SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD:u32 = ${SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD}u;
 const SURFACE_SIGNAL_STORE_EMPTY:u32 = 0xffffffffu;
 const SURFACE_SIGNAL_STORE_VALID:u32 = ${SURFACE_SIGNAL_STORE_FLAG.valid}u;
+const SURFACE_SIGNAL_STORE_STATE_WORD:u32 = ${SURFACE_SIGNAL_STORE_STATE_WORD}u;
+const SURFACE_SIGNAL_STORE_PUBLISHED:u32 = ${SURFACE_SIGNAL_STORE_STATE.published}u;
 
 fn surface_signal_hash(key:ptr<storage,array<u32>,read>, at:u32)->u32 {
   var hash = 2166136261u;
@@ -148,7 +148,7 @@ fn signal_probe(request:u32)->u32 {
         break;
       }
     }
-    if (equal && (atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_FLAGS_WORD]) & SURFACE_SIGNAL_STORE_VALID) != 0u) {
+    if (equal && atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_STATE_WORD]) == SURFACE_SIGNAL_STORE_PUBLISHED) {
       return entry;
     }
   }
@@ -157,13 +157,16 @@ fn signal_probe(request:u32)->u32 {
 
 fn touch_signal_entry(entry:u32) {
   let at = entry * SURFACE_SIGNAL_STORE_ENTRY_WORDS;
-  let prior = atomicCompareExchangeWeak(
-    &surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD],
-    surface_signal_store_settings.generation,
-    surface_signal_store_settings.generation);
-  if (prior.exchanged || prior.old_value == surface_signal_store_settings.generation) {
-    return;
+  // reserved is the submitted frame epoch; generation is publication identity.
+  let epoch = surface_signal_store_settings.reserved;
+  var touched = false;
+  for (var attempt = 0u; attempt < 4u; attempt++) {
+    let previous = atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD]);
+    if (previous == epoch) { return; }
+    let prior = atomicCompareExchangeWeak(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD], previous, epoch);
+    if (prior.exchanged) { touched = true; break; }
   }
+  if (!touched) { return; }
   let packed = atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD]);
   let age = min(packed & 0xffffu, 0xfffeu) + 1u;
   let confidence = packed >> 16u;
@@ -216,6 +219,7 @@ fn surface_signal_store_publish(@builtin(global_invocation_id) id:vec3u) {
     return;
   }
   let request_at = request * SURFACE_SIGNAL_STORE_REQUEST_WORDS;
+  surface_signal_store_results[request] = SURFACE_SIGNAL_STORE_EMPTY;
   if (surface_signal_store_requests[request_at] == SURFACE_SIGNAL_STORE_EMPTY) {
     return;
   }
@@ -224,10 +228,16 @@ fn surface_signal_store_publish(@builtin(global_invocation_id) id:vec3u) {
   for (var way = 0u; way < SURFACE_SIGNAL_STORE_WAYS; way++) {
     let entry = signal_entry(set_index, way);
     let at = entry * SURFACE_SIGNAL_STORE_ENTRY_WORDS;
-    let old = atomicCompareExchangeWeak(
-      &surface_signal_store_entries[at], SURFACE_SIGNAL_STORE_EMPTY, surface_signal_store_requests[request_at]);
-    if (old.exchanged || old.old_value == surface_signal_store_requests[request_at]) {
-      for (var word = 1u; word < SURFACE_SIGNAL_STORE_KEY_WORDS; word++) {
+    let state = atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_STATE_WORD]);
+    if (state != 0u) { continue; }
+    var owns = false;
+    for (var attempt = 0u; attempt < 4u; attempt++) {
+      let claim = atomicCompareExchangeWeak(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_STATE_WORD], 0u, 1u);
+      if (claim.exchanged) { owns = true; break; }
+      if (claim.old_value != 0u) { break; }
+    }
+    if (owns) {
+      for (var word = 0u; word < SURFACE_SIGNAL_STORE_KEY_WORDS; word++) {
         atomicStore(&surface_signal_store_entries[at + word], surface_signal_store_requests[request_at + word]);
       }
       for (var word = 0u; word < 4u; word++) {
@@ -236,13 +246,23 @@ fn surface_signal_store_publish(@builtin(global_invocation_id) id:vec3u) {
       atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_FLAGS_WORD], surface_signal_store_requests[request_at + SURFACE_SIGNAL_STORE_FLAGS_WORD]);
       atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_GENERATION_WORD], surface_signal_store_settings.generation);
       atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD], 0xffff0000u);
-      atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD], surface_signal_store_settings.generation);
-      atomicStore(&surface_signal_store_entries[at + 18u], 0u);
+      atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD], surface_signal_store_settings.reserved);
+      surface_signal_store_results[request] = entry;
       atomicStore(&surface_signal_store_entries[at + 19u], 0u);
       atomicAdd(&surface_signal_store_counters[3], 1u);
       return;
     }
   }
   atomicAdd(&surface_signal_store_counters[4], 1u);
+}
+
+// A dispatch boundary makes every payload/key write available before readers
+// can observe PUBLISHED. No workgroup waits for another writer.
+@compute @workgroup_size(64)
+fn surface_signal_store_commit(@builtin(global_invocation_id) id:vec3u) {
+  if (id.x >= surface_signal_store_settings.request_count) { return; }
+  let entry = surface_signal_store_results[id.x];
+  if (entry == SURFACE_SIGNAL_STORE_EMPTY) { return; }
+  atomicStore(&surface_signal_store_entries[entry * SURFACE_SIGNAL_STORE_ENTRY_WORDS + SURFACE_SIGNAL_STORE_STATE_WORD], SURFACE_SIGNAL_STORE_PUBLISHED);
 }
 `;

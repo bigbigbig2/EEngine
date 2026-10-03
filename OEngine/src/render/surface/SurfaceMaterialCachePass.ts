@@ -24,6 +24,7 @@ export interface SurfaceMaterialProducts {
     readonly dependencyEpoch: ResourceId;
     readonly fieldStore: ResourceId;
     readonly fieldPublished?: ResourceId;
+    readonly missIndirect: ResourceId;
 }
 const CACHE_WGSL = /* wgsl */ `
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -59,7 +60,7 @@ fn field_store_hit(key_at:u32)->bool {
   if atomicLoad(&field_store_entries[at])==0xffffffffu{continue;}
   var equal=true;
   for(var word=0u;word<12u;word++){if atomicLoad(&field_store_entries[at+word])!=cache[key_at+word]{equal=false;break;}}
-  if equal{return true;}
+  if equal && atomicLoad(&field_store_entries[at+14u])==1u{return true;}
  }
  return false;
 }
@@ -91,9 +92,10 @@ fn field_store_hit(key_at:u32)->bool {
  }
  // Six independent signal bits: Ddirect, Denv, Sdirect, Senv, Cdirect, Cenv.
  // The compact lighting pass can then hit or miss each lobe independently.
- var signals=1u|2u|4u|8u;
- if material_record.family==2u || (material_record.feature_mask&((1u<<7u)|(1u<<8u)|(1u<<9u)))!=0u{signals|=16u|32u;}
- work[at+3u]=signals;work[at+4u]=missing;
+  // The classifier owns independent field and signal demand. Do not restore
+  // all six signals at every representative after compaction.
+  missing &= (work[at+7u]>>8u)&0x7fffu;
+  work[at+4u]=missing;
  work[at+7u]|=select(0u,2u,(material_record.feature_mask&((1u<<1u)|(1u<<2u)|(1u<<5u)|(1u<<6u)))!=0u);
  if missing==0u{
   hit_mask[record]=1u;diagnostic_add(0u,1u);
@@ -148,10 +150,12 @@ struct Settings { request_count:u32, cache_stride:u32, request_stride:u32, reser
 @group(0) @binding(1) var<storage,read> cache:array<u32>;
 @group(0) @binding(2) var<storage,read_write> requests:array<u32>;
 @group(0) @binding(3) var<storage,read> cache_values:array<u32>;
+@group(0) @binding(4) var<storage,read> missed_records:array<vec2u>;
 @compute @workgroup_size(64)
 fn pack_field_store_requests(@builtin(global_invocation_id) id:vec3u){
-  let record=id.x;if(record>=settings.request_count){return;}
-  let source=record*settings.cache_stride;let request_base=record*settings.request_stride;
+  let request=id.x;if(request>=settings.request_count){return;}
+  let record=missed_records[request].x;
+  let source=record*settings.cache_stride;let request_base=request*settings.request_stride;
   for(var word=0u;word<12u;word++){requests[request_base+word]=cache[source+word];}
   for(var word=0u;word<4u;word++){requests[request_base+12u+word]=cache_values[record*12u+word];}
 }
@@ -165,8 +169,8 @@ export class SurfaceMaterialCachePass {
     private readonly compactPipeline: GPUComputePipeline;
     private readonly fieldStorePackPipeline: GPUComputePipeline;
     private readonly fieldStoreResetPipeline: GPUComputePipeline;
-    private readonly fieldStoreLookupPipeline: GPUComputePipeline;
     private readonly fieldStorePublishPipeline: GPUComputePipeline;
+    private readonly fieldStoreCommitPipeline: GPUComputePipeline;
     private readonly settings: GPUBuffer;
     private readonly finalizeSettings: GPUBuffer;
     private readonly fieldStoreSettings: GPUBuffer;
@@ -185,8 +189,8 @@ export class SurfaceMaterialCachePass {
         this.fieldStorePackPipeline = device.createComputePipeline({ label: "Surface/FieldStore request pack", layout: "auto", compute: { module: device.createShaderModule({ label: "Surface/FieldStore request pack", code: FIELD_STORE_PACK_WGSL }), entryPoint: "pack_field_store_requests" } });
         const fieldStoreModule = device.createShaderModule({ label: "Surface/FieldStore lookup and publish", code: SURFACE_FIELD_STORE_COMPUTE_WGSL });
         this.fieldStoreResetPipeline = device.createComputePipeline({ label: "Surface/FieldStore reset", layout: "auto", compute: { module: fieldStoreModule, entryPoint: "surface_field_store_reset" } });
-        this.fieldStoreLookupPipeline = device.createComputePipeline({ label: "Surface/FieldStore lookup", layout: "auto", compute: { module: fieldStoreModule, entryPoint: "surface_field_store_lookup" } });
         this.fieldStorePublishPipeline = device.createComputePipeline({ label: "Surface/FieldStore publish", layout: "auto", compute: { module: fieldStoreModule, entryPoint: "surface_field_store_publish" } });
+        this.fieldStoreCommitPipeline = device.createComputePipeline({ label: "Surface/FieldStore commit", layout: "auto", compute: { module: fieldStoreModule, entryPoint: "surface_field_store_commit" } });
     }
     addLookupToGraph(graph: FrameGraph, input: {
         geometryKeys: ResourceId;
@@ -237,7 +241,6 @@ export class SurfaceMaterialCachePass {
         missQueue = node.write(missQueue);
         if (this.fieldStore !== null) {
             const requestCount = Math.max(1, input.recordCount);
-            let requests!: ResourceId, results!: ResourceId, storeCounters!: ResourceId;
             const storeEntries = this.fieldStore.capacity.segmentBytes[0]! / 4;
             let initialization: ReturnType<typeof graph.add> | null = null;
             if (!this.fieldStoreInitialized) {
@@ -257,35 +260,6 @@ export class SurfaceMaterialCachePass {
                 initialization.read(fieldStoreBuffer); initialization.write(fieldStoreBuffer); node.dependsOn(initialization);
                 initialization.read(input.work);
             }
-            const pack = graph.add("Surface/FieldStore request pack", { cacheKeys, cacheValues: lookupCacheValues, requestCount }, (data, resources, context) => {
-                const command = context.encoder as ShadeGPUCommandContext;
-                command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([data.requestCount, 19, 16, 0]).buffer, 0, 16);
-                command.gpu_encoder.clearBuffer(resources.get(storeCounters) as GPUBuffer, 0, 32);
-                const group = this.device.createBindGroup({ layout: this.fieldStorePackPipeline.getBindGroupLayout(0), entries: [
-                    { binding: 0, resource: { buffer: this.fieldStoreSettings } },
-                    { binding: 1, resource: { buffer: resources.get(data.cacheKeys) as GPUBuffer } },
-                    { binding: 2, resource: { buffer: resources.get(requests) as GPUBuffer } },
-                    { binding: 3, resource: { buffer: resources.get(data.cacheValues) as GPUBuffer } }
-                ] });
-                const pass = command.beginComputePass({ label: "Surface/FieldStore request pack" }); pass.setPipeline(this.fieldStorePackPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); pass.end();
-            });
-            requests = pack.create("Surface/FieldStore requests", { kind: "transient_buffer", size: requestCount * 16 * 4, usage: GPUBufferUsage.STORAGE });
-            results = pack.create("Surface/FieldStore lookup results", { kind: "transient_buffer", size: requestCount * 2 * 4, usage: GPUBufferUsage.STORAGE });
-            storeCounters = pack.create("Surface/FieldStore counters", { kind: "transient_buffer", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-            pack.read(cacheKeys); pack.read(lookupCacheValues); pack.write(requests); pack.write(results); pack.write(storeCounters); if (initialization !== null) pack.dependsOn(initialization);
-            pack.read(input.work);
-            const storeNode = graph.add("Surface/FieldStore lookup", { requests, results, storeCounters, fieldStoreBuffer, requestCount, storeEntries }, (data, resources, context) => {
-                const command = context.encoder as ShadeGPUCommandContext;
-                command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([data.requestCount, data.storeEntries / 24, this.fieldStore!.stats().generation, 0]).buffer, 0, 16);
-                const group = this.device.createBindGroup({ layout: this.fieldStoreLookupPipeline.getBindGroupLayout(0), entries: [
-                    { binding: 0, resource: { buffer: this.fieldStoreSettings } }, { binding: 1, resource: { buffer: resources.get(data.requests) as GPUBuffer } },
-                    { binding: 2, resource: { buffer: resources.get(data.fieldStoreBuffer) as GPUBuffer } }, { binding: 3, resource: { buffer: resources.get(data.results) as GPUBuffer } },
-                    { binding: 4, resource: { buffer: resources.get(data.storeCounters) as GPUBuffer } }
-                ] });
-                const pass = command.beginComputePass({ label: "Surface/FieldStore lookup" }); pass.setPipeline(this.fieldStoreLookupPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); pass.end();
-            });
-            storeNode.read(requests); storeNode.read(fieldStoreBuffer); storeNode.write(results); storeNode.write(storeCounters); storeNode.dependsOn(pack);
-            node.dependsOn(storeNode);
         }
         hitMask = node.write(hitMask);
         const finalize = graph.add("Surface/Material miss indirect finalize", { counters, programCount: input.programCount, recordCount: input.recordCount }, (data, resources, context) => { const command = context.encoder as ShadeGPUCommandContext; command.writeBuffer(this.finalizeSettings, 0, new Uint32Array([data.programCount, data.recordCount, 0, 0]).buffer, 0, 16); const group = this.device.createBindGroup({ layout: this.finalizeLayout, entries: [{ binding: 0, resource: { buffer: this.finalizeSettings } }, { binding: 1, resource: { buffer: resources.get(data.counters) as GPUBuffer } }, { binding: 2, resource: { buffer: resources.get(compactIndirect) as GPUBuffer } }] }); const pass = command.beginComputePass({ label: "Surface/material miss indirect finalize" }); pass.setPipeline(this.finalizePipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end(); });
@@ -300,7 +274,7 @@ export class SurfaceMaterialCachePass {
         orderedMissQueue = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/material ordered miss queue", Math.max(8, input.recordCount * 8), GPUBufferUsage.STORAGE);
         orderedMissQueue = compact.write(orderedMissQueue);
         compactedCounters = compact.write(finalizedCounters);
-        return { work, fields, missQueue, orderedMissQueue, hitMask, counters: compactedCounters, audit, cacheKeys, cacheValues: fields, geometryKeys: input.geometryKeys, dependencyEpoch: input.dependencyEpoch, fieldStore: fieldStoreBuffer };
+        return { missIndirect:compactIndirect, work, fields, missQueue, orderedMissQueue, hitMask, counters: compactedCounters, audit, cacheKeys, cacheValues: fields, geometryKeys: input.geometryKeys, dependencyEpoch: input.dependencyEpoch, fieldStore: fieldStoreBuffer };
     }
     addEvaluateToGraph(graph: FrameGraph, input: SurfaceMaterialProducts & {
         geometry: ResourceId;
@@ -334,31 +308,46 @@ export class SurfaceMaterialCachePass {
         if (this.fieldStore !== null) {
             const requestCount = Math.max(1, input.recordCount);
             const storeEntries = this.fieldStore.capacity.segmentBytes[0]! / 4;
-            let requests!: ResourceId, storeCounters!: ResourceId;
+            let requests!: ResourceId, storeCounters!: ResourceId, owners!: ResourceId;
             const admit = graph.add("Surface/FieldStore publish after evaluation", { cacheKeys, cacheValues, fieldStore: input.fieldStore, requestCount, storeEntries }, (data, resources, context) => {
                 const command = context.encoder as ShadeGPUCommandContext;
-                command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([data.requestCount, 19, 16, 0]).buffer, 0, 16);
+                command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([0, 19, 16, 0]).buffer, 0, 16);
+                command.gpu_encoder.copyBufferToBuffer(resources.get(input.counters) as GPUBuffer,8,this.fieldStoreSettings,0,4);
                 command.gpu_encoder.clearBuffer(resources.get(storeCounters) as GPUBuffer, 0, 32);
                 const packGroup = this.device.createBindGroup({ layout: this.fieldStorePackPipeline.getBindGroupLayout(0), entries: [
                     { binding: 0, resource: { buffer: this.fieldStoreSettings } },
                     { binding: 1, resource: { buffer: resources.get(data.cacheKeys) as GPUBuffer } },
                     { binding: 2, resource: { buffer: resources.get(requests) as GPUBuffer } },
-                    { binding: 3, resource: { buffer: resources.get(data.cacheValues) as GPUBuffer } }
+                    { binding: 3, resource: { buffer: resources.get(data.cacheValues) as GPUBuffer } },
+                    { binding: 4, resource: { buffer: resources.get(input.orderedMissQueue) as GPUBuffer } }
                 ] });
                 const packPass = command.beginComputePass({ label: "Surface/FieldStore request pack after evaluation" });
-                packPass.setPipeline(this.fieldStorePackPipeline); packPass.setBindGroup(0, packGroup); packPass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); packPass.end();
-                command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([data.requestCount, data.storeEntries / 24, this.fieldStore!.stats().generation, 0]).buffer, 0, 16);
+                packPass.setPipeline(this.fieldStorePackPipeline); packPass.setBindGroup(0, packGroup); packPass.dispatchWorkgroupsIndirect(resources.get(input.missIndirect) as GPUBuffer,0); packPass.end();
+                command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([0, data.storeEntries / 24, this.fieldStore!.stats().generation, 0]).buffer, 0, 16);
+                command.gpu_encoder.copyBufferToBuffer(resources.get(input.counters) as GPUBuffer,8,this.fieldStoreSettings,0,4);
                 const publishGroup = this.device.createBindGroup({ layout: this.fieldStorePublishPipeline.getBindGroupLayout(0), entries: [
                     { binding: 0, resource: { buffer: this.fieldStoreSettings } },
                     { binding: 1, resource: { buffer: resources.get(requests) as GPUBuffer } },
                     { binding: 2, resource: { buffer: resources.get(data.fieldStore) as GPUBuffer } },
+                    { binding: 3, resource: { buffer: resources.get(owners) as GPUBuffer } },
                     { binding: 4, resource: { buffer: resources.get(storeCounters) as GPUBuffer } }
                 ] });
                 const publishPass = command.beginComputePass({ label: "Surface/FieldStore publish after evaluation" });
-                publishPass.setPipeline(this.fieldStorePublishPipeline); publishPass.setBindGroup(0, publishGroup); publishPass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); publishPass.end();
+                publishPass.setPipeline(this.fieldStorePublishPipeline); publishPass.setBindGroup(0, publishGroup); publishPass.dispatchWorkgroupsIndirect(resources.get(input.missIndirect) as GPUBuffer,0); publishPass.end();
+                const commitGroup=this.device.createBindGroup({layout:this.fieldStoreCommitPipeline.getBindGroupLayout(0),entries:[
+                    {binding:0,resource:{buffer:this.fieldStoreSettings}},
+                    {binding:2,resource:{buffer:resources.get(data.fieldStore) as GPUBuffer}},
+                    {binding:3,resource:{buffer:resources.get(owners) as GPUBuffer}}
+                ]});
+                const commitPass=command.beginComputePass({label:"Surface/FieldStore commit"});
+                commitPass.setPipeline(this.fieldStoreCommitPipeline); commitPass.setBindGroup(0,commitGroup);
+                commitPass.dispatchWorkgroupsIndirect(resources.get(input.missIndirect) as GPUBuffer,0); commitPass.end();
             });
+            owners = admit.create("Surface/FieldStore publication owners",{kind:"transient_buffer",size:requestCount*4,usage:GPUBufferUsage.STORAGE});
+            admit.write(owners);
             requests = admit.create("Surface/FieldStore evaluation requests", { kind: "transient_buffer", size: requestCount * 16 * 4, usage: GPUBufferUsage.STORAGE });
             storeCounters = admit.create("Surface/FieldStore evaluation counters", { kind: "transient_buffer", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+            admit.read(input.missIndirect); admit.read(input.orderedMissQueue); admit.read(input.counters);
             admit.read(cacheKeys); admit.read(cacheValues); admit.read(input.fieldStore); admit.write(requests); admit.write(storeCounters); admit.write(input.fieldStore); admit.dependsOn(node); admit.make_side_effect();
             fieldPublished = requests;
         }

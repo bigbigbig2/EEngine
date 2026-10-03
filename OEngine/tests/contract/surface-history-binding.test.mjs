@@ -35,7 +35,7 @@ test("Surface reconstruct consumes packet and TemporalFacts resources", () => {
   const packetFlags = graph.import_resource("packet flags", { kind: "imported" }, {});
   const preExposure = graph.import_resource("pre exposure", { kind: "imported" }, {});
   const sampleMap = graph.import_resource("sample map", { kind: "imported" }, texture);
-  const products = owner.addToGraph(graph, { packets, fullPackets, packetFlags, reactive: resource, preExposure, sampleMap,
+  const products = owner.addToGraph(graph, { packets, fullPackets, packetFlags, reactive: resource, preExposure, sampleMap, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
     width: 4, height: 2, recordCount: 8, diagnosticsEnabled: true });
   assert.ok(products.radiance);
   assert.ok(products.reactiveMask);
@@ -54,7 +54,7 @@ test("Surface reconstruct consumes packet and TemporalFacts resources", () => {
   owner.prepareFrame(4, 2, 1);
   owner.abort();
   assert.throws(() => owner.addToGraph(new FrameGraph("aborted"), {
-    packets, fullPackets, packetFlags, reactive: resource, preExposure, sampleMap,
+    packets, fullPackets, packetFlags, reactive: resource, preExposure, sampleMap, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
     width: 4, height: 2, recordCount: 8, diagnosticsEnabled: false
   }), /not prepared/);
   owner.destroy();

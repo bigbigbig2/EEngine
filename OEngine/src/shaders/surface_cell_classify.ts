@@ -1,9 +1,8 @@
 import { surfaceCellGroupValidationWgsl } from "./surface_cell_group_validation.js";
 import { SURFACE_CELL_PLANE_COUNT, SURFACE_CELL_TILE_PLAN_BYTES, SURFACE_CELL_PLANE_BYTES, surfaceCellWorkspaceWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 
-/** Compact reference classifier. It keeps the production fact ABI explicit and
- * performs the bounded 8x8 partition in one workgroup. The production cutover
- * may split this source into merge stages without changing the workspace ABI. */
+/** Fixed bottom-up cell hierarchy. Disjoint candidates execute cooperatively;
+ * lane zero only publishes the final compact plan. */
 export function surfaceCellClassifyStageWgsl(factLibrary: string, tileCapacity = 4096,
   stageIndex = 0, planeStart = 0, planeCount = SURFACE_CELL_PLANE_COUNT,
   entryPoint = "classify_cells", validateBounds: boolean | "field" | "field-geometry" | "full" | "single" = true): string {
@@ -24,6 +23,7 @@ ${surfaceCellWorkspaceWgsl(tileCapacity)}
 var<workgroup> cell_facts:array<SurfaceCellLane,64>;
 var<workgroup> cell_owner:array<u32,64>;
 var<workgroup> cell_representatives:array<u32,64>;
+var<workgroup> cell_plane_state:vec4u;
 fn cell_bit(lane:u32)->vec2u {if lane<32u{return vec2u(1u<<lane,0u);}return vec2u(0u,1u<<(lane-32u));}
 fn cell_member(mask:vec2u,lane:u32)->bool{return any((mask&cell_bit(lane))!=vec2u(0u));}
 fn cell_first(mask:vec2u)->u32 {if mask.x!=0u{return firstTrailingBit(mask.x);}if mask.y!=0u{return 32u+firstTrailingBit(mask.y);}return 0xffffffffu;}
@@ -40,56 +40,91 @@ ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll(
  let absolute=cell_settings.first_tile+tile;let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);let pixel=origin+vec2u(lane%8u,lane/8u);
  var fact=SurfaceCellLane(vec4u(0u),0xffffffffu,0u,0u,0u);if pixel.x<cell_settings.width&&pixel.y<cell_settings.height{let winner=textureLoad(cell_visibility,vec2i(pixel),0).x;if winner!=0xffffffffu{fact=surface_cell_load(pixel,winner);}}
  cell_facts[lane]=fact;workgroupBarrier();
- if lane==0u {
-  for(var plane=${planeStart}u;plane<${planeStart + planeCount}u;plane++){
-   var valid=0u;var publication=true;var coverage=vec2u(0u);for(var i=0u;i<64u;i++){cell_owner[i]=i;if (cell_facts[i].enabled&(1u<<plane))!=0u{valid++;coverage|=cell_bit(i);publication=publication&&(cell_facts[i].publication&(1u<<plane))!=0u;}}
-   // The compatibility producer compares exact domain/side/material/seam
-   // tuples. Equality is transitive: compare the root once per active lane.
-   var irregular=false;
-   if valid > 1u && !publication {
-     let root=cell_first(coverage);
-     for (var member=root+1u; member<64u; member++) {
-       if cell_member(coverage,member) && !surface_cell_compatible(plane,cell_facts[root],cell_facts[member]) {
-         irregular=true;
-         break;
+ for(var plane=${planeStart}u;plane<${planeStart + planeCount}u;plane++) {
+   cell_owner[lane]=lane;
+   if lane==0u {
+     var coverage=vec2u(0u);
+     var publication=true;
+     for(var member=0u;member<64u;member++) {
+       if (cell_facts[member].enabled&(1u<<plane))!=0u {
+         coverage|=cell_bit(member);
+         publication=publication && (cell_facts[member].publication&(1u<<plane))!=0u;
        }
      }
+     var irregular=false;
+     let root=cell_first(coverage);
+     if root!=0xffffffffu && !publication {
+       for(var member=root+1u;member<64u;member++) {
+         if cell_member(coverage,member) && !surface_cell_compatible(plane,cell_facts[root],cell_facts[member]) {
+           irregular=true;
+           break;
+         }
+       }
+     }
+     cell_plane_state=vec4u(coverage,countOneBits(coverage.x)+countOneBits(coverage.y),select(0u,1u,publication)|select(0u,2u,irregular));
    }
-   var mode=4u;var rate=0u;var slots=valid;
-   if valid==0u{mode=0u;slots=0u;}else if publication{mode=1u;slots=0u;}
-   // Domains and seams determine compatibility, not a representative lane's
-   // numeric address. Every accepted group has an independent error certificate.
-   if mode == 4u {
-     var remaining = coverage;
-     slots = 0u;
-     while any(remaining != vec2u(0u)) {
-       let representative = cell_first(remaining);
-       var width = select(4u,8u,irregular || plane==15u || plane==16u);
-       var accepted = cell_bit(representative);
+   workgroupBarrier();
+   let coverage=cell_plane_state.xy;
+   let valid=cell_plane_state.z;
+   let irregular=(cell_plane_state.w&2u)!=0u;
+   var mode=4u;
+   var rate=0u;
+   var slots=valid;
+   if valid==0u { mode=0u; slots=0u; }
+   else if (cell_plane_state.w&1u)!=0u { mode=1u; slots=0u; }
+   // Sixteen independent quads, then four parents, then one diffuse parent.
+   // Invocations own disjoint regions; only the level boundary synchronizes.
+   for(var exponent=1u;exponent<=3u;exponent++) {
+     let width=1u<<exponent;
+     let columns=8u>>exponent;
+     let supported=exponent<3u || plane==15u || plane==16u;
+     if mode==4u && supported && lane<columns*columns {
+       let first=(lane/columns)*width*8u+(lane%columns)*width;
+       var remaining=cell_region(first,width,width)&coverage;
        loop {
-         let window = cell_region(representative, width, width) & remaining;
-         var region = cell_bit(representative);
-         for (var candidate = representative + 1u; candidate < 64u; candidate++) {
-           if !cell_member(window, candidate) { continue; }
-           let compatible = !irregular || surface_cell_compatible(plane, cell_facts[candidate], cell_facts[representative]);
-           if compatible { region |= cell_bit(candidate); }
+         let representative=cell_first(remaining);
+         if representative==0xffffffffu { break; }
+         var region=cell_bit(representative);
+         for(var candidate=representative+1u;candidate<64u;candidate++) {
+           if cell_member(remaining,candidate) &&
+             (!irregular || surface_cell_compatible(plane,cell_facts[candidate],cell_facts[representative])) {
+             region|=cell_bit(candidate);
+           }
          }
-         if countOneBits(region.x) + countOneBits(region.y) == 1u {
-           accepted = region;
-           break;
+         remaining&=~region;
+         if countOneBits(region.x)+countOneBits(region.y)<=1u { continue; }
+         var children_valid=true;
+         if exponent>1u {
+           for(var member=0u;member<64u;member++) {
+             if !cell_member(region,member) { continue; }
+             let child=cell_region(member,width>>1u,width>>1u)&region;
+             if cell_owner[member]!=cell_first(child) { children_valid=false; break; }
+           }
          }
-         if ${groupPredicate} {
-           accepted = region;
-           break;
+         if children_valid && ${groupPredicate} {
+           for(var member=0u;member<64u;member++) {
+             if cell_member(region,member) { cell_owner[member]=representative; }
+           }
          }
-         width >>= 1u;
        }
-       cell_representatives[slots] = representative;
-       for (var member = 0u; member < 64u; member++) {
-         if cell_member(accepted, member) { cell_owner[member] = slots; }
+     }
+     workgroupBarrier();
+   }
+   if lane==0u {
+    if mode==4u {
+     slots = 0u;
+     for (var member = 0u; member < 64u; member++) {
+       if cell_member(coverage,member) && cell_owner[member] == member {
+         cell_representatives[slots] = member;
+         slots++;
        }
-       slots++;
-       remaining &= ~accepted;
+     }
+     for (var member = 0u; member < 64u; member++) {
+       if !cell_member(coverage,member) { continue; }
+       let representative = cell_owner[member];
+       for (var index = 0u; index < slots; index++) {
+         if cell_representatives[index] == representative { cell_owner[member] = index; break; }
+       }
      }
      // A genuinely all-fine tile uses implicit lane addressing, not a map.
      if slots == valid { mode = 2u; slots = 64u; }
@@ -117,6 +152,7 @@ ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll(
        }
      }
    }
+   if lane==0u {
    let at=cell_plan_at(tile,plane);cell_workspace.plans[at]=mode|(rate<<8u);
    cell_workspace.plans[at+2u]=cell_map_at(tile,plane);
    cell_workspace.plans[at+3u]=slots;cell_workspace.plans[at+4u]=coverage.x;cell_workspace.plans[at+5u]=coverage.y;
@@ -133,16 +169,16 @@ ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll(
    }
    if irregular|| (mode==3u&&valid>slots){atomicAdd(&cell_workspace.counters[plane*4u+2u],1u);}
    atomicAdd(&cell_workspace.counters[plane*4u],slots);
+   }
   }
+   workgroupBarrier();
  }
- workgroupBarrier();
+ ${factLibrary.includes("var<private> cell_texture_nodes") ? "if cell_settings.reserved!=0u && cell_texture_nodes!=0u { atomicAdd(&cell_workspace.counters[106u],cell_texture_nodes); }" : ""}
 }
 `;
 }
 
-/** Complete production entry point retained for small fixtures. Runtime uses
- * the five bounded stage entry points so Chromium does not compile one
- * monolithic dynamic-plane kernel on the frame path. */
+/** Synthetic GPU fixtures use the same bounded hierarchy and coverage ABI. */
 export function surfaceCellClassifyWgsl(factLibrary: string, tileCapacity = 4096): string {
   return surfaceCellClassifyStageWgsl(factLibrary, tileCapacity, 0, 0, SURFACE_CELL_PLANE_COUNT, "classify_cells");
 }

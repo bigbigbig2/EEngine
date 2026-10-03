@@ -41,7 +41,7 @@ fn identity(@builtin(global_invocation_id) id:vec3u) {
     keys[base+12u]=select(keys[base+12u]+1u,0xffffffffu,keys[base+12u]>=0xfffffffeu);
   }
   // Bit 2 carries the exact geometry hit to the sole GeometryRecord producer.
-  work[sample+7u]=select(1u,5u,same);
+  work[sample+7u]=(work[sample+7u]&~5u)|select(1u,5u,same);
 }
 `;
 export class SurfaceCacheIdentityPass {

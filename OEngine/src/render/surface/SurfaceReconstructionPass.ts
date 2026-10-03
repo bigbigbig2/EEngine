@@ -3,6 +3,9 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "../../shaders/working_color.js";
+import { surfaceCellReadWgsl, surfaceCellFieldReadWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
+
+import { SURFACE_PACKET_CONTRACT_WGSL } from "../../gpu/GpuSurfaceSignalPacketAbi.js";
 
 export const SURFACE_RECONSTRUCT_COUNTER_WORDS = 8;
 export const SURFACE_RECONSTRUCT_COUNTER_BYTES = SURFACE_RECONSTRUCT_COUNTER_WORDS * 4;
@@ -48,12 +51,13 @@ fn plan(@builtin(global_invocation_id) id:vec3u) {
 }
 `;
 
-const RECONSTRUCT_WGSL = /* wgsl */ `
+export const RECONSTRUCT_WGSL = /* wgsl */ `
 ${LINEAR_REC709_TO_REC2020_WGSL}
+${SURFACE_PACKET_CONTRACT_WGSL}
 struct Settings {
   width:u32, height:u32, record_count:u32, batch_index:u32,
   tiles_x:u32, batch_tiles:u32, batch_count:u32, diagnostics_enabled:u32,
-  pre_exposure:f32, _reserved0:u32, _reserved1:u32, _reserved2:u32
+  constant_fields_offset:u32, first_tile:u32, ao_enabled:u32, _reserved2:u32
 };
 @group(0) @binding(0) var<uniform> settings:Settings;
 @group(0) @binding(1) var<storage,read> packets:array<vec2u>;
@@ -65,6 +69,12 @@ struct Settings {
 @group(0) @binding(7) var output:texture_storage_2d<rgba16float,write>;
 @group(0) @binding(8) var reactive:texture_storage_2d<rgba8unorm,write>;
 @group(0) @binding(9) var<storage,read_write> diagnostics:array<atomic<u32>>;
+@group(0) @binding(10) var<storage,read> cell_plan_words:array<u32>;
+@group(0) @binding(11) var<storage,read> material_fields:array<vec2u>;
+@group(0) @binding(12) var<storage,read> appearance_metadata:array<u32>;
+@group(0) @binding(13) var<storage,read> scalar_ao:array<u32>;
+${surfaceCellReadWgsl("settings.batch_tiles")}
+${surfaceCellFieldReadWgsl("settings.batch_tiles", "settings.first_tile", "settings.tiles_x", "settings.constant_fields_offset", "material_fields")}
 
 fn diagnostic_add(index:u32,value:u32) {
   if (settings.diagnostics_enabled!=0u) { atomicAdd(&diagnostics[index],value); }
@@ -72,23 +82,25 @@ fn diagnostic_add(index:u32,value:u32) {
 fn packet_value(record:u32,kind:u32)->vec4f {
   let slot=record*6u+kind;
   let flags=packet_flags[slot];
-  if ((flags&2u)!=0u) { return full_packets[flags>>8u]; }
+  if ((flags&SURFACE_PACKET_SPILL)!=0u) { return full_packets[flags>>8u]; }
   let packed=packets[slot];
   return vec4f(unpack2x16float(packed.x),unpack2x16float(packed.y));
 }
-fn has_signal(record:u32)->bool {
-  for (var kind=0u;kind<6u;kind++) { if ((packet_flags[record*6u+kind]&1u)!=0u) { return true; } }
-  return false;
-}
-fn compose(record:u32)->vec3f {
-  var value=vec3f(0.0);
-  for (var kind=0u;kind<6u;kind++) { value+=packet_value(record,kind).xyz; }
-  return value;
+fn compose_irradiance(pixel:vec2u,irradiance:vec3f)->vec3f {
+  let base_color=max(surface_field_at(pixel,0u).xyz,vec3f(0.0));
+  let metallic=clamp(surface_field_at(pixel,2u).x,0.0,1.0);
+  let occlusion=clamp(surface_field_at(pixel,4u).x,0.0,1.0);
+  var ao=1.0;
+  if settings.ao_enabled!=0u {
+    let index=pixel.y*settings.width+pixel.x;
+    ao=f32((scalar_ao[index>>2u]>>((index&3u)*8u))&255u)*(1.0/255.0);
+  }
+  return base_color*(1.0-metallic)*occlusion*ao*irradiance*0.3183098861837907;
 }
 
 @compute @workgroup_size(8,8)
 fn reconstruct(@builtin(global_invocation_id) id:vec3u) {
-  let tile_index = settings.batch_index * settings.batch_tiles + id.x / 8u;
+  let tile_index = settings.first_tile + id.x / 8u;
   let local_x = id.x & 7u;
   let local_y = id.y;
   let tile_x = tile_index % settings.tiles_x;
@@ -96,12 +108,19 @@ fn reconstruct(@builtin(global_invocation_id) id:vec3u) {
   let pixel = vec2u(tile_x * 8u + local_x, tile_y * 8u + local_y);
   if (pixel.x>=settings.width||pixel.y>=settings.height) { return; }
   let pixel_i=vec2i(pixel);
-  let record=textureLoad(sample_map,pixel_i,0).x;
-  var valid=record<settings.record_count && record!=0xffffffffu;
-  if (valid) { valid=has_signal(record); }
+  let address=surface_plan_fact(pixel);
+  let valid=address.x!=0xffffffffu && address.z!=0xffffffffu;
   let facts=textureLoad(source_facts,pixel_i,0);
-  var value=vec3f(0.0);
-  if (valid) { value=compose(record); diagnostic_add(0u,1u); diagnostic_add(7u,1u); }
+  var value=max(surface_field_at(pixel,5u).xyz,vec3f(0.0));
+  for(var kind=0u;kind<6u;kind++) {
+    let record=surface_plan_record(pixel,15u+kind,settings.tiles_x,settings.first_tile);
+    if record!=0xffffffffu && (packet_flags[record*6u+kind]&SURFACE_PACKET_VALID)!=0u {
+      let packet=packet_value(record,kind).xyz;
+      if kind==1u { value+=compose_irradiance(pixel,packet); }
+      else { value+=packet; }
+    }
+  }
+  if (valid) { diagnostic_add(0u,1u); diagnostic_add(7u,1u); }
   else { diagnostic_add(1u,1u); }
   let exposure=max(pre_exposure[0],1e-4);
   textureStore(output,pixel_i,vec4f(oengine_linear_rec709_to_rec2020(value)*exposure,select(0.0,1.0,valid)));
@@ -137,7 +156,11 @@ export class SurfaceReconstructionPass {
       { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 7, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float" } },
       { binding: 8, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba8unorm" } },
-      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
+      ,{ binding: 11, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
+      { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
     ] });
     this.batchLayout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
@@ -163,6 +186,13 @@ export class SurfaceReconstructionPass {
     reactive: ResourceId;
     preExposure: ResourceId;
     sampleMap: ResourceId;
+    cellWorkspace: ResourceId;
+    cellBatchTiles: number;
+    firstTile: number;
+    appearanceMetadata: ResourceId;
+    constantFieldsOffset: number;
+    scalarAo: ResourceId | null;
+    fields: ResourceId;
     width: number;
     height: number;
     recordCount: number;
@@ -200,7 +230,9 @@ export class SurfaceReconstructionPass {
         view.setUint32(8, data.recordCount, true); view.setUint32(12, batch, true);
         view.setUint32(16, data.batchPlan.tilesX, true); view.setUint32(20, data.batchPlan.batchTiles, true);
         view.setUint32(24, data.batchPlan.batchCount, true); view.setUint32(28, data.diagnosticsEnabled ? 1 : 0, true);
-        view.setFloat32(32, 1, true);
+        view.setUint32(32, data.constantFieldsOffset, true);
+        view.setUint32(36, data.firstTile, true);
+        view.setUint32(40, data.scalarAo===null ? 0 : 1, true);
         command.writeBuffer(this.settings, 0, settings, 0, settings.byteLength);
         const group = this.device.createBindGroup({ layout: this.layout, entries: [
           { binding: 0, resource: { buffer: this.settings } },
@@ -212,13 +244,21 @@ export class SurfaceReconstructionPass {
           { binding: 6, resource: { buffer: resources.get(data.preExposure) as GPUBuffer } },
           { binding: 7, resource: resolveTextureView(resources.get(radiance)) },
           { binding: 8, resource: resolveTextureView(resources.get(reactiveMask)) },
-          { binding: 9, resource: { buffer: countersBuffer } }
+          { binding: 9, resource: { buffer: countersBuffer } },
+          { binding: 10, resource: { buffer: resources.get(data.cellWorkspace) as GPUBuffer } },
+          { binding: 11, resource: { buffer: resources.get(data.fields) as GPUBuffer } },
+          { binding: 12, resource: { buffer: resources.get(data.appearanceMetadata) as GPUBuffer } },
+          { binding: 13, resource: { buffer: resources.get(data.scalarAo ?? data.preExposure) as GPUBuffer } }
         ] });
         const pass = command.beginComputePass({ label: `Surface/reconstruct batch ${batch}` });
         pass.setPipeline(this.pipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroupsIndirect(indirect, batch * 16); pass.end();
       }
     });
     node.read(input.packets); node.read(input.fullPackets); node.read(input.packetFlags); node.read(input.reactive); node.read(input.preExposure); node.read(input.sampleMap);
+    node.read(input.cellWorkspace);
+    node.read(input.fields);
+    node.read(input.appearanceMetadata);
+    if (input.scalarAo!==null) { node.read(input.scalarAo); }
     for (const resource of input.after ?? []) { node.read(resource); }
     batchIndirect = node.create("Surface/reconstruct batch indirect", { kind: "transient_buffer", size: batchPlan.batchCount * 16,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST, domain: "internal-full" });

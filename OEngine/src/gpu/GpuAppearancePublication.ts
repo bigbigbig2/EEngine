@@ -159,7 +159,10 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
   surface_cache[cacheAt+3u]=surface_residency_epoch[0];
   for(var field=0u;field<15u;field++){
     let fieldIndex=surface_metadata[publication+4u+field];
-    if fieldIndex!=0xffffffffu {surface_cache[cacheAt+4u+field]=surface_field_versions[(surface_metadata[publication+1u]+fieldIndex)*4u];}
+    surface_cache[cacheAt+4u+field]=0u;
+    if fieldIndex!=0xffffffffu && (surface_work[sample_at+7u]&(1u<<(field+8u)))!=0u {
+      surface_cache[cacheAt+4u+field]=surface_field_versions[(surface_metadata[publication+1u]+fieldIndex)*4u];
+    }
   }
   surface_store_layer(record,0u,layer0);surface_store_layer(record,1u,layer1);
   surface_store_layer(record,2u,layer2);surface_store_layer(record,3u,layer3);

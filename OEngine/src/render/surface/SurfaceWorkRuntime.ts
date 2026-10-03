@@ -254,7 +254,7 @@ export class SurfaceWorkRuntime {
       publication: input.publication, textureBanks: input.textureBanks, work, sampleOffset: layout.sampleOffset,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null,
       viewRevision: input.viewRevision, nonlocalRevision: input.nonlocalRevision });
-    const lighting = this.lighting.addToGraph(graph, { geometryKeys:witness.keys,fieldIdentity: material.cacheKeys,revisions:input.revisions,diagnosticFrame:input.diagnosticFrame,resourceBinding: input.historyBinding, geometry: geometry.records, fields: evaluatedMaterial.fields,
+    const lighting = this.lighting.addToGraph(graph, { firstTile, appearanceMetadata:input.appearanceMetadata, constantFieldsOffset:input.publication.surfaceMetadataOffsets.constantFields, cellWorkspace:cells.workspace,cellBatchTiles: batchTiles,sampleMap,geometryKeys:witness.keys,fieldIdentity: material.cacheKeys,revisions:input.revisions,diagnosticFrame:input.diagnosticFrame,resourceBinding: input.historyBinding, geometry: geometry.records, fields: evaluatedMaterial.fields,
       work, sampleOffset: layout.sampleOffset, geometryOffset: 0, width: input.width, height: input.height,
       recordCount, frame: input.frame.generation, counts, camera: input.camera,
       lightRecords: input.lightRecords, clusters: input.clusters, shadow: input.shadow,
@@ -265,7 +265,9 @@ export class SurfaceWorkRuntime {
       after: [evaluatedMaterial.fieldPublished, lighting.signalPublished].filter((id): id is ResourceId => id !== undefined),
       packetFlags: lighting.packetFlags,
       reactive: input.factsMask, preExposure: input.preExposure,
-      width: input.width, height: input.height, recordCount: recordCount, sampleMap,
+      width: input.width, height: input.height, recordCount: recordCount, sampleMap, cellWorkspace:cells.workspace, fields: evaluatedMaterial.fields,
+      cellBatchTiles: batchTiles, firstTile, appearanceMetadata:input.appearanceMetadata,
+      constantFieldsOffset:input.publication.surfaceMetadataOffsets.constantFields, scalarAo:input.scalarAo,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     previousReconstruction = reconstruction;
     const diagnostics = this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null ? this.diagnostics.addToGraph(graph, {

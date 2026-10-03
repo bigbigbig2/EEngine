@@ -67,7 +67,7 @@ test('all producers of the next batch follow prior reconstruction and cache publ
       const published=publish.create(`published ${first}`,{kind:'transient_buffer',size:4,usage:GPUBufferUsage.STORAGE});
       previous=f.reconstruction.addToGraph(graph,{
         packets,fullPackets:packets,packetFlags:packets,reactive:imported(`facts ${first}`),preExposure:imported(`exposure ${first}`),
-        sampleMap:cells.sampleMap,width:17,height:9,recordCount:128,diagnosticsEnabled:true,
+        sampleMap:cells.sampleMap,cellWorkspace:cells.workspace,cellBatchTiles:batchTiles,firstTile:first,fields:packets,appearanceMetadata:f.ids.appearanceMetadata,constantFieldsOffset:0,scalarAo:null,width:17,height:9,recordCount:128,diagnosticsEnabled:true,
         batch:{index:first/batchTiles,batchTiles},previous,after:[published]
       });
       return [previous.radiance,previous.reactiveMask];

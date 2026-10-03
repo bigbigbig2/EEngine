@@ -64,9 +64,10 @@ export interface SurfaceCellClassifierProducts {
   readonly counts: ResourceId;
   readonly sampleMap: ResourceId;
   readonly workspace: ResourceId;
+  readonly batchTileCapacity: number;
 }
 
-const COMPACT_WGSL = /* wgsl */ `
+export const COMPACT_WGSL = /* wgsl */ `
 struct CompactSettings {
   width:u32, height:u32, tiles_x:u32, first_tile:u32,
   tile_count:u32, sample_offset:u32, tile_offset:u32, sample_capacity:u32, generation:u32,
@@ -81,6 +82,7 @@ var<workgroup> compact_rep:array<u32,64>;
 var<workgroup> compact_slot:array<u32,64>;
 var<workgroup> compact_active:array<u32,64>;
 var<workgroup> compact_count:atomic<u32>;
+var<workgroup> compact_base:u32;
 
 fn compact_plan(tile:u32,plane:u32)->SurfaceCellPlanePlan {
   let at=tile*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u+16u+plane*6u;
@@ -118,11 +120,11 @@ fn compact_rep_for(tile:u32,plane:u32,lane:u32)->u32 {
   let group=compact_group(plan,lane);
   return compact_representative(plan,group);
 }
-fn compact_write_sample(slot:u32,pixel:u32,key:u32,tile:u32) {
+fn compact_write_sample(slot:u32,pixel:u32,key:u32,tile:u32,signals:u32,fields:u32) {
   let at=compact_settings.sample_offset+slot*8u;
   compact_work[at]=pixel;compact_work[at+1u]=key;compact_work[at+2u]=key;
-  compact_work[at+3u]=0u;compact_work[at+4u]=0u;compact_work[at+5u]=tile;
-  compact_work[at+6u]=slot;compact_work[at+7u]=0u;
+  compact_work[at+3u]=signals;compact_work[at+4u]=fields;compact_work[at+5u]=tile;
+  compact_work[at+6u]=slot;compact_work[at+7u]=fields<<8u;
 }
 @compute @workgroup_size(64)
 fn compact_cells(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32){
@@ -134,29 +136,44 @@ fn compact_cells(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_in
   compact_rep[lane]=0xffffffffu;compact_slot[lane]=0xffffffffu;compact_active[lane]=0u;
   if lane==0u{atomicStore(&compact_count,0u);}
   workgroupBarrier();
+  // Demand is a union of actual representative lanes, never the numeric
+  // minimum of unrelated field/signal representatives. Each lane owns one
+  // possible record; all lanes inspect their plans concurrently.
+  var fields=0u;
+  var constants=0u;
+  var present=0u;
+  var signals=0u;
+  for(var plane=0u;plane<${SURFACE_CELL_PLANE_COUNT}u;plane++) {
+    let plan=compact_plan(tile,plane);
+    if !surface_cell_mask_member(vec2u(plan.coverage_lo,plan.coverage_hi),lane) { continue; }
+    if plane<15u { present|=1u<<plane; }
+    if plane<15u && (plan.mode_rate&255u)==SURFACE_CELL_PLAN_PUBLICATION {
+      constants |= 1u<<plane;
+    } else if compact_rep_for(tile,plane,lane)==lane {
+      if plane<15u { fields |= 1u<<plane; }
+      else { signals |= 1u<<(plane-15u); }
+    }
+  }
+  compact_active[lane]=select(0u,1u,inside && (fields!=0u || signals!=0u));
+  workgroupBarrier();
+  var local_slot=0u;
+  for(var previous=0u;previous<lane;previous++) { local_slot+=compact_active[previous]; }
+  if lane==63u { atomicStore(&compact_count,local_slot+compact_active[lane]); }
+  workgroupBarrier();
+  if lane==0u { compact_base=atomicAdd(&compact_counts[0],atomicLoad(&compact_count)); }
+  workgroupBarrier();
+  if compact_active[lane]!=0u {
+    let slot=compact_base+local_slot;
+    if slot<compact_settings.sample_capacity {
+      compact_write_sample(slot,py*compact_settings.width+px,compact_workspace.facts[tile*64u+lane].x,absolute,signals,fields|constants|(~present&0x7fffu));
+      textureStore(compact_sample_map,vec2i(i32(px),i32(py)),vec4u(slot));
+    }
+  }
   if lane==0u {
-    for(var i=0u;i<64u;i++){
-      if ((tx*8u+i%8u)>=compact_settings.width||(ty*8u+i/8u)>=compact_settings.height){continue;}
-      var rep=0xffffffffu;
-      for(var plane=0u;plane<${SURFACE_CELL_PLANE_COUNT}u;plane++){
-        let candidate=compact_rep_for(tile,plane,i);
-        rep=min(rep,candidate);
-      }
-      if rep==0xffffffffu{continue;}
-      var seen=false;for(var j=0u;j<i;j++){if compact_rep[j]==rep{seen=true;break;}}
-      compact_rep[i]=rep;compact_active[i]=1u;
-      if !seen{let slot=atomicAdd(&compact_count,1u);compact_slot[i]=slot;}
-    }
-    let total=atomicLoad(&compact_count);let base=atomicAdd(&compact_counts[0],total);
-    var emitted=0u;
-    for(var i=0u;i<64u;i++){
-      if compact_active[i]==0u{continue;}
-      var owner=0xffffffffu;for(var j=0u;j<=i;j++){if compact_rep[j]==compact_rep[i]&&compact_slot[j]!=0xffffffffu{owner=compact_slot[j];break;}}
-      if owner==0xffffffffu{continue;}
-      let slot=base+owner;let rep=compact_rep[i];let repPixel=(ty*8u+rep/8u)*compact_settings.width+tx*8u+rep%8u;
-      let fact=compact_workspace.facts[tile*64u+rep];
-      if slot<compact_settings.sample_capacity{if compact_slot[i]==owner{compact_write_sample(slot,repPixel,fact.x,absolute);}textureStore(compact_sample_map,vec2i(i32(tx*8u+i%8u),i32(ty*8u+i/8u)),vec4u(slot));emitted++;}
-    }
+    let total=atomicLoad(&compact_count);
+    let base=compact_base;
+    let coverage=compact_plan(tile,0u);
+    let emitted=countOneBits(coverage.coverage_lo)+countOneBits(coverage.coverage_hi);
     let tileAt=compact_settings.tile_offset+absolute*12u;compact_work[tileAt+0u]=(tx*8u)|((min(8u,compact_settings.width-tx*8u))<<16u);
     compact_work[tileAt+1u]=(ty*8u)|((min(8u,compact_settings.height-ty*8u))<<16u);
     compact_work[tileAt+2u]=select(0u,select(2u,1u,total==1u),total!=0u)|(min(emitted,255u)<<8u);
@@ -209,7 +226,7 @@ export class SurfaceCellClassifierPass {
         `${surfaceCellClassifyStageWgsl(factLibrary, batchTileCapacity, 0, 0, 3, "classify_cells_base", false)}\n${COMPACT_WGSL}` });
       const modules = SURFACE_CELL_CLASSIFY_STAGES.map(({ first: start, count, fields }, index) => {
         const stageFacts = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
-          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(fields), false);
+          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(fields), false, start >= 15);
         return this.device.createShaderModule({
         label: `Surface/cell production classifier stage ${index}`,
         code: surfaceCellClassifyStageWgsl(stageFacts, batchTileCapacity, index, start, count, `classify_cells_stage_${index}`, start < 15 ? "field-geometry" : "full")
@@ -306,7 +323,7 @@ export class SurfaceCellClassifierPass {
         const command = context.encoder as ShadeGPUCommandContext;
         command.gpu_encoder.clearBuffer(resources.get(workspace) as GPUBuffer, 0, batchWorkspaceLayout.bytes);
         command.gpu_encoder.clearBuffer(resources.get(counts) as GPUBuffer, 0, SURFACE_WORK_COUNTER_BYTES);
-        command.writeBuffer(this.cellSettings, 0, new Uint32Array([input.width, input.height, tilesX, firstTile, tileCount, input.workLayout.sampleCapacity, input.generation, 0]).buffer, 0, 32);
+        command.writeBuffer(this.cellSettings, 0, new Uint32Array([input.width, input.height, tilesX, firstTile, tileCount, input.workLayout.sampleCapacity, input.generation, input.diagnosticsEnabled ? 1 : 0]).buffer, 0, 32);
         command.writeBuffer(this.compactSettings, 0, new Uint32Array([input.width, input.height, tilesX, firstTile, tileCount,
           input.workLayout.sampleOffset / 4, input.workLayout.tileOffset / 4, input.workLayout.sampleCapacity, input.generation]).buffer, 0, 36);
       });
@@ -337,14 +354,14 @@ export class SurfaceCellClassifierPass {
       });
       compact.read(workspace); work = compact.write(work); counts = compact.write(counts); sampleMap = compact.write(sampleMap); compact.dependsOn(previous as any); previous = compact;
       if (input.consumeBatch !== undefined) {
-        consumed = input.consumeBatch({ work, counts, sampleMap, workspace }, firstTile, tileCount, batchTileCapacity);
+        consumed = input.consumeBatch({ work, counts, sampleMap, workspace, batchTileCapacity }, firstTile, tileCount, batchTileCapacity);
         const complete = graph.add(`Surface/cell batch ${batch} consumed`, {}, () => {});
         for (const resource of consumed) { complete.read(resource); }
         complete.make_side_effect();
         previous = complete;
       }
     }
-    return { work, counts, sampleMap, workspace };
+    return { work, counts, sampleMap, workspace, batchTileCapacity };
   }
 
   destroy(): void { this.cellSettings.destroy(); this.factSettings.destroy(); this.compactSettings.destroy(); this.pipelines.clear(); }

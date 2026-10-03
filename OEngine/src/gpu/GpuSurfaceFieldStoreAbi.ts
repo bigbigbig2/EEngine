@@ -10,6 +10,10 @@ export const SURFACE_FIELD_STORE_WAYS = 4;
 export const SURFACE_FIELD_STORE_EMPTY = 0xffffffff;
 export const SURFACE_FIELD_STORE_BUDGET_BYTES = 128 * 1024 * 1024;
 export const SURFACE_FIELD_STORE_MAX_PROBE = 4;
+export const SURFACE_FIELD_STORE_STATE_WORD = 14;
+export const SURFACE_FIELD_STORE_GENERATION_WORD = 15;
+export const SURFACE_FIELD_STORE_VALUE_WORD = 16;
+export const SURFACE_FIELD_STORE_STATE = Object.freeze({ empty: 0, reserved: 2, published: 1 });
 
 export const SURFACE_FIELD_STORE_FLAGS = Object.freeze({
   valid: 1, owner: 2, exact: 4, bounded: 8, spilled: 16, pinned: 32
@@ -75,8 +79,9 @@ struct SurfaceFieldStoreSettings {request_count:u32,entry_count:u32,generation:u
 fn surface_field_store_probe(request:u32)->u32 {
  let hash=surface_field_store_hash(&surface_field_store_requests,request*16u);
  let setIndex=hash%(surface_field_store_settings.entry_count/SURFACE_FIELD_STORE_WAYS);
- for(var way=0u;way<SURFACE_FIELD_STORE_WAYS;way++){let entry=surface_field_store_entry(setIndex,way);let at=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
-  if surface_field_store_equal_atomic(&surface_field_store_entries,entry,&surface_field_store_requests,request*16u){return entry;}
+  for(var way=0u;way<SURFACE_FIELD_STORE_WAYS;way++){let entry=surface_field_store_entry(setIndex,way);let at=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
+   let state=atomicLoad(&surface_field_store_entries[at+14u]);
+   if (state&1u)!=0u && surface_field_store_equal_atomic(&surface_field_store_entries,entry,&surface_field_store_requests,request*16u){return entry;}
   if atomicLoad(&surface_field_store_entries[at])==SURFACE_FIELD_STORE_EMPTY{return 0xffffffffu;}
  }
  return 0xffffffffu;
@@ -88,15 +93,33 @@ fn surface_field_store_probe(request:u32)->u32 {
 }
 @compute @workgroup_size(64) fn surface_field_store_publish(@builtin(global_invocation_id) id:vec3u){
  let request=id.x;if request>=surface_field_store_settings.request_count{return;}
+ surface_field_store_results[request]=SURFACE_FIELD_STORE_EMPTY;
  let hash=surface_field_store_hash(&surface_field_store_requests,request*16u);let setIndex=hash%(surface_field_store_settings.entry_count/SURFACE_FIELD_STORE_WAYS);
  for(var way=0u;way<SURFACE_FIELD_STORE_WAYS;way++){let entry=surface_field_store_entry(setIndex,way);let at=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
-  let old=atomicCompareExchangeWeak(&surface_field_store_entries[at],SURFACE_FIELD_STORE_EMPTY,surface_field_store_requests[request*16u]);
-  if old.exchanged||old.old_value==surface_field_store_requests[request*16u]{
-   for(var word=1u;word<SURFACE_FIELD_STORE_KEY_WORDS;word++){atomicStore(&surface_field_store_entries[at+word],surface_field_store_requests[request*16u+word]);}
+   // Immutable full-key entries. The state word, not the first key word,
+   // elects the sole writer. Readers consume publication in a later pass.
+   let state=atomicLoad(&surface_field_store_entries[at+14u]);
+   if (state&1u)!=0u {
+     if surface_field_store_equal_atomic(&surface_field_store_entries,entry,&surface_field_store_requests,request*16u) { return; }
+     continue;
+   }
+   if state!=0u { continue; }
+   let owner=atomicCompareExchangeWeak(&surface_field_store_entries[at+14u],0u,2u);
+   if owner.exchanged {
+    for(var word=0u;word<SURFACE_FIELD_STORE_KEY_WORDS;word++){atomicStore(&surface_field_store_entries[at+word],surface_field_store_requests[request*16u+word]);}
    for(var value=0u;value<4u;value++){atomicStore(&surface_field_store_entries[at+16u+value],surface_field_store_requests[request*16u+12u+value]);}
-   atomicStore(&surface_field_store_entries[at+15u],surface_field_store_settings.generation);atomicOr(&surface_field_store_entries[at+14u],1u);atomicAdd(&surface_field_store_counters[3],1u);return;
+    atomicStore(&surface_field_store_entries[at+15u],surface_field_store_settings.generation);
+    surface_field_store_results[request]=entry;
+    atomicAdd(&surface_field_store_counters[3],1u);return;
   }
  }
  atomicAdd(&surface_field_store_counters[4],1u);
+}
+@compute @workgroup_size(64)
+fn surface_field_store_commit(@builtin(global_invocation_id) id:vec3u) {
+ if id.x>=surface_field_store_settings.request_count { return; }
+ let entry=surface_field_store_results[id.x];
+ if entry==SURFACE_FIELD_STORE_EMPTY { return; }
+ atomicStore(&surface_field_store_entries[entry*SURFACE_FIELD_STORE_ENTRY_WORDS+14u],1u);
 }
 `;
