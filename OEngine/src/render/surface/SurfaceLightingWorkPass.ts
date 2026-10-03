@@ -3,7 +3,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
-import { SURFACE_WORK_INDIRECT_OFFSET, SURFACE_WORK_OVERFLOW } from "../../gpu/GpuSurfaceWorkAbi.js";
+import { SURFACE_WORK_INDIRECT_OFFSET, SURFACE_WORK_OVERFLOW, SURFACE_INPUT_WITNESS_WORDS } from "../../gpu/GpuSurfaceWorkAbi.js";
 import { APPEARANCE_SURFACE_READ_WGSL } from "../../gpu/GpuAppearanceCacheAbi.js";
 import { SPARSE_LIGHTING_COUNTER_BYTES, SPARSE_LIGHTING_COUNTER_WORDS } from "../../gpu/GpuSparseLightingAbi.js";
 import { createProductionSparseDirectLightingWgsl } from "../../shaders/lighting_direct.js";
@@ -24,6 +24,7 @@ import {
 import type { GpuSurfaceSignalStore } from "../../gpu/GpuSurfaceSignalStore.js";
 
 export interface SurfaceLightingProducts {
+  readonly signalPublished?: ResourceId;
   readonly packets: ResourceId;
   /** Spill-only full precision values indexed by packet_flags high bits. */
   readonly fullPackets: ResourceId;
@@ -344,7 +345,7 @@ struct SurfaceSettings {
   sample_offset: u32, light_enabled: u32, environment_enabled: u32, shadow_enabled: u32,
   cluster_enabled: u32, _environment_enabled_2: u32, ao_enabled: u32, geometry_offset: u32,
   diagnostics_enabled: u32, _reserved0: u32, _reserved1: u32, _reserved2: u32,
-  environment_revision:u32, light_revision:u32, shadow_revision:u32, _revision_pad:u32,
+  environment_revision:u32, light_revision:u32, shadow_revision:u32, ao_revision:u32,
 };
 
 @group(0) @binding(0) var<uniform> settings:SurfaceSettings;
@@ -384,7 +385,7 @@ fn ao_at(pixel_index: u32) -> f32 {
   return f32((packed >> ((pixel_index & 3u) * 8u)) & 0xffu) * (1.0 / 255.0);
 }
 fn signal_key_word(record:u32,kind:u32,word:u32)->u32 {
-  let geometry_base=record*13u;
+  let geometry_base=record*${SURFACE_INPUT_WITNESS_WORDS}u;
   switch word {
     case 0u:{return geometry_keys[geometry_base+12u];}
     case 1u:{return geometry_keys[geometry_base+0u];}
@@ -490,8 +491,8 @@ struct Settings { record_count:u32, environment_revision:u32, light_revision:u32
 @group(0) @binding(6) var<storage,read> publish_mask:array<u32>;
 @group(0) @binding(7) var<storage,read> full_packets:array<vec4f>;
 @group(0) @binding(8) var<storage,read> packet_flags:array<u32>;
-fn key_word(record:u32,kind:u32,word:u32)->u32{switch word{case 0u:{return geometry_keys[record*13u+12u];}case 1u:{return geometry_keys[record*13u];}case 2u:{return geometry_keys[record*13u+1u];}case 3u:{return geometry_keys[record*13u+2u];}case 4u:{return geometry_keys[record*13u+3u];}case 5u:{return kind;}case 6u:{return settings.environment_revision;}case 7u:{return settings.light_revision;}case 8u:{return settings.shadow_revision;}case 9u:{var h=2166136261u;for(var i=0u;i<19u;i++){h=(h^field_identity[record*19u+i])*16777619u;}h=(h^settings.ao_revision)*16777619u;h=(h^work[settings.sample_offset/4u+record*8u+2u])*16777619u;return h;}default:{return 0u;}}}
-@compute @workgroup_size(64) fn pack(@builtin(global_invocation_id) id:vec3u){let request=id.x;let record=request/6u;let kind=request%6u;if(record>=settings.record_count){return;}let target=request*${SURFACE_SIGNAL_STORE_REQUEST_WORDS}u;let bit=1u<<kind;let enabled=(work[settings.sample_offset/4u+record*8u+3u]&bit)!=0u;let publish=(publish_mask[record]&bit)!=0u;let valid_key=geometry_keys[record*13u+12u]!=0xffffffffu;if(!enabled||!publish||!valid_key){requests[target]=0xffffffffu;return;}for(var word=0u;word<10u;word++){requests[target+word]=key_word(record,kind,word);}let flags=packet_flags[record*6u+kind];if((flags&${SURFACE_SIGNAL_STORE_FLAG.spill}u)!=0u){let value=full_packets[flags>>8u];let bits=bitcast<vec4u>(value);for(var payload=0u;payload<4u;payload++){requests[target+10u+payload]=bits[payload];}}else{let packed=packets[record*6u+kind];requests[target+10u]=packed.x;requests[target+11u]=packed.y;requests[target+12u]=0u;requests[target+13u]=0u;}requests[target+14u]=flags;requests[target+15u]=settings.frame;requests[target+16u]=0xffff0000u;requests[target+17u]=0u;requests[target+18u]=0u;requests[target+19u]=0u;}
+fn key_word(record:u32,kind:u32,word:u32)->u32{switch word{case 0u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+12u];}case 1u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u];}case 2u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+1u];}case 3u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+2u];}case 4u:{return geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+3u];}case 5u:{return kind;}case 6u:{return settings.environment_revision;}case 7u:{return settings.light_revision;}case 8u:{return settings.shadow_revision;}case 9u:{var h=2166136261u;for(var i=0u;i<19u;i++){h=(h^field_identity[record*19u+i])*16777619u;}h=(h^settings.ao_revision)*16777619u;h=(h^work[settings.sample_offset/4u+record*8u+2u])*16777619u;return h;}default:{return 0u;}}}
+@compute @workgroup_size(64) fn pack(@builtin(global_invocation_id) id:vec3u){let request=id.x;let record=request/6u;let kind=request%6u;if(record>=settings.record_count){return;}let request_base=request*${SURFACE_SIGNAL_STORE_REQUEST_WORDS}u;let bit=1u<<kind;let enabled=(work[settings.sample_offset/4u+record*8u+3u]&bit)!=0u;let publish=(publish_mask[record]&bit)!=0u;let valid_key=geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+12u]!=0xffffffffu;if(!enabled||!publish||!valid_key){requests[request_base]=0xffffffffu;return;}for(var word=0u;word<10u;word++){requests[request_base+word]=key_word(record,kind,word);}let flags=packet_flags[record*6u+kind];if((flags&${SURFACE_SIGNAL_STORE_FLAG.spill}u)!=0u){let value=full_packets[flags>>8u];let bits=bitcast<vec4u>(value);for(var payload=0u;payload<4u;payload++){requests[request_base+10u+payload]=bits[payload];}}else{let packed=packets[record*6u+kind];requests[request_base+10u]=packed.x;requests[request_base+11u]=packed.y;requests[request_base+12u]=0u;requests[request_base+13u]=0u;}requests[request_base+14u]=flags;requests[request_base+15u]=settings.frame;requests[request_base+16u]=0xffff0000u;requests[request_base+17u]=0u;requests[request_base+18u]=0u;requests[request_base+19u]=0u;}
 `;
 
 export class SurfaceLightingWorkPass {
@@ -569,6 +570,7 @@ export class SurfaceLightingWorkPass {
   }
 
   addToGraph(graph: FrameGraph, input: SurfaceLightingInput): SurfaceLightingProducts {
+    let signalPublished: ResourceId | undefined;
     let packets!: ResourceId, fullPackets!: ResourceId, packetFlags!: ResourceId, publishMask!: ResourceId, counters!: ResourceId;
     let dispatchIndirect!: ResourceId;
     let dirtyCounts!:ResourceId;
@@ -675,7 +677,7 @@ export class SurfaceLightingWorkPass {
     packets = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/compact signal packets", bytes, GPUBufferUsage.STORAGE);
     fullPackets = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/precision signal values", fullBytes, GPUBufferUsage.STORAGE);
     packetFlags = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/signal packet flags", Math.max(4, input.recordCount * 6 * 4), GPUBufferUsage.STORAGE);
-    publishMask = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/signal publish mask", Math.max(4, input.recordCount * 4), GPUBufferUsage.STORAGE);
+    publishMask = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/signal publish mask", Math.max(4, input.recordCount * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     counters = node.create("Surface/lighting counters", { kind: "transient_buffer", size: SPARSE_LIGHTING_COUNTER_BYTES, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     node.read(packets); packets = node.write(packets);
     node.read(fullPackets); fullPackets = node.write(fullPackets);
@@ -685,6 +687,7 @@ export class SurfaceLightingWorkPass {
     if (this.signalStore !== null) {
       const storeEntries = this.signalStore.capacity.segmentBytes[0]! / SURFACE_SIGNAL_STORE_ENTRY_BYTES;
       const initialization = !this.signalStoreInitialized ? graph.add("Surface/SignalStore initialize", { signalStoreBuffer, storeEntries }, (data, resources, context) => {
+        if (this.signalStoreInitialized) { return; }
         const command = context.encoder as ShadeGPUCommandContext;
         command.writeBuffer(this.signalStoreSettings, 0, new Uint32Array([0, data.storeEntries, 1, 0]).buffer, 0, 16);
         const group = this.device.createBindGroup({ layout: this.signalStoreResetPipeline.getBindGroupLayout(0), entries: [
@@ -692,8 +695,9 @@ export class SurfaceLightingWorkPass {
         ] });
         const pass = command.beginComputePass({ label: "Surface/SignalStore initialize" }); pass.setPipeline(this.signalStoreResetPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(data.storeEntries / 64)); pass.end();
         command.onFinished.addOne(() => { this.signalStoreInitialized = true; }); command.onAborted?.addOne(() => { this.signalStoreInitialized = false; });
+        this.signalStoreInitialized = true;
       }) : null;
-      if (initialization !== null) { initialization.read(signalStoreBuffer); initialization.write(signalStoreBuffer); node.dependsOn(initialization); }
+      if (initialization !== null) { initialization.read(input.work); initialization.read(signalStoreBuffer); initialization.write(signalStoreBuffer); node.dependsOn(initialization); }
       const requestCount = Math.max(1, input.recordCount * 6);
       let requests!: ResourceId, storeCounters!: ResourceId;
       const publish = graph.add("Surface/SignalStore publish after lighting", { recordCount: input.recordCount, requestCount, storeEntries, sampleOffset: input.sampleOffset, frame: input.frame, revisions: input.revisions, signalStoreBuffer, packets, fullPackets, packetFlags, publishMask, geometryKeys: input.geometryKeys, fieldIdentity: input.fieldIdentity, work: input.work }, (data, resources, context) => {
@@ -719,8 +723,9 @@ export class SurfaceLightingWorkPass {
       requests = publish.create("Surface/SignalStore requests", { kind: "transient_buffer", size: requestCount * SURFACE_SIGNAL_STORE_REQUEST_WORDS * 4, usage: GPUBufferUsage.STORAGE });
       storeCounters = publish.create("Surface/SignalStore counters", { kind: "transient_buffer", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
       publish.read(input.geometryKeys); publish.read(input.fieldIdentity); publish.read(input.work); publish.read(packets); publish.read(fullPackets); publish.read(packetFlags); publish.read(publishMask); publish.read(signalStoreBuffer); publish.write(requests); publish.write(storeCounters); publish.write(signalStoreBuffer); publish.dependsOn(node); publish.make_side_effect();
+      signalPublished = requests;
     }
-    return { packets, fullPackets, packetFlags, counters };
+    return { packets, fullPackets, packetFlags, counters, signalPublished };
   }
 
   destroy(): void { this.signalStoreInitialized = false; this.settings.destroy(); this.viewBuffer.destroy(); this.signalStoreSettings.destroy(); this.signalPackSettings.destroy(); }

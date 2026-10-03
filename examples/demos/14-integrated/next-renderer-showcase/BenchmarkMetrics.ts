@@ -32,7 +32,7 @@ export function summarizeCapture(frames: readonly TimedFrame[]) {
       if (!surfacePhaseSeries.has(phase)) surfacePhaseSeries.set(phase, []);
       surfacePhaseSeries.get(phase)!.push(ms);
     }
-    const ticks = frame.gpu.segments.filter(segment => classifySurfaceTimingPhase(segment) !== null).flatMap(segment => segment.startTick !== undefined && segment.endTick !== undefined
+    const ticks = frame.gpu.segments.filter(segment => classifySurfaceTimingPhase({ label: segment.label }) !== null).flatMap(segment => segment.startTick !== undefined && segment.endTick !== undefined
       ? [{ start: BigInt(segment.startTick), end: BigInt(segment.endTick) }] : []);
     if (ticks.length > 0) surfaceSpan.push(Number(Math.max(...ticks.map(t => Number(t.end))) - Math.min(...ticks.map(t => Number(t.start))) ) * 1e-6);
     for (const [label, ms] of passes) {

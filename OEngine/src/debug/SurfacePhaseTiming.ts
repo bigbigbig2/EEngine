@@ -1,10 +1,9 @@
-import {
-  classifyGpuFramePhase,
-  type GpuFramePhase
-} from "./GpuFramePhase.js";
+import type { GpuFramePhase } from "./GpuFramePhase.js";
 
 export const SURFACE_TIMING_PHASES = [
   "classify",
+  "geometrySetup",
+  "cacheMaintenance",
   "workFinalize",
   "materialLookup",
   "geometryLookup",
@@ -33,6 +32,19 @@ export function classifySurfaceTimingPhase(
 ): SurfaceTimingPhase | null {
   const label = segment.label.trim().toLocaleLowerCase("en-US");
   if (label.length === 0) return null;
+
+  if (label.includes("surface/cell ")) {
+    return "classify";
+  }
+  if (/surfacegeometry\/(?:reset|request|finalize|build)_cell_geometry/.test(label)) {
+    return "geometrySetup";
+  }
+  if (label.includes("surface/fieldstore lookup")) {
+    return "materialLookup";
+  }
+  if (/surface\/(?:fieldstore|signalstore) /.test(label)) {
+    return "cacheMaintenance";
+  }
 
   if (/surfacework\/classify(?: implicit-uniform-mixed)?$/.test(label)) {
     return "classify";

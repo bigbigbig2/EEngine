@@ -26,6 +26,7 @@ export interface SurfaceCellGeometrySetupInput {
   readonly sourceMeshletVertices: number;
   readonly sourceMeshletTriangles: number;
   readonly sourceVertexData: number;
+  readonly after?: readonly ResourceId[];
 }
 export interface SurfaceCellGeometrySetupProducts {
   readonly arena: ResourceId;
@@ -89,6 +90,7 @@ export class SurfaceCellGeometrySetup {
         compute.end();
       });
       if(stage==="reset_cell_geometry") {
+        for (const resource of input.after ?? []) { pass.read(resource); }
         const storage=GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC;
         arena=pass.create("Surface cell primitive setup and directory",{kind:"transient_buffer",size:dictionaryCapacity*SURFACE_CELL_GEOMETRY_DICTIONARY_BYTES+setupCapacity*SURFACE_CELL_GEOMETRY_SETUP_BYTES,usage:storage});
         counts=pass.create("Surface cell geometry counters",{kind:"transient_buffer",size:32,usage:storage});

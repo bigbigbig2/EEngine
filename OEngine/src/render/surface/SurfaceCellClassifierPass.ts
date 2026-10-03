@@ -13,6 +13,9 @@ import { SURFACE_WORK_COUNTER_BYTES, SURFACE_WORK_HEADER_STRIDE, SURFACE_WORK_IN
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import type { SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 import { SurfaceFrameResources } from "./SurfaceFrameResources.js";
+import { planSurfaceCellGeometryCapacity } from "../../gpu/GpuSurfaceCellGeometryAbi.js";
+import { createSurfaceCellPipelineLayout } from "./SurfaceCellPipelineLayout.js";
+import { SURFACE_CELL_CLASSIFY_STAGES } from "../../shaders/surface_cell_group_validation.js";
 import type { SurfaceGeometryPass } from "./SurfaceGeometryPass.js";
 import type { SurfaceCellGeometrySetupProducts } from "./SurfaceCellGeometrySetup.js";
 
@@ -52,6 +55,8 @@ export interface SurfaceCellClassifierInput {
   readonly physicalSunEnabled: boolean;
   readonly workLayout: SurfaceWorkLayout;
   readonly diagnosticsEnabled: boolean;
+  /** Consume and reconstruct each bounded batch before its scratch is reused. */
+  readonly consumeBatch?: (products: SurfaceCellClassifierProducts, firstTile: number, tileCount: number, batchTiles: number) => readonly ResourceId[];
 }
 
 export interface SurfaceCellClassifierProducts {
@@ -63,11 +68,11 @@ export interface SurfaceCellClassifierProducts {
 
 const COMPACT_WGSL = /* wgsl */ `
 struct CompactSettings {
-  width:u32, height:u32, tiles_x:u32, tile_count:u32,
-  first_tile:u32, sample_offset:u32, tile_offset:u32, sample_capacity:u32, generation:u32,
+  width:u32, height:u32, tiles_x:u32, first_tile:u32,
+  tile_count:u32, sample_offset:u32, tile_offset:u32, sample_capacity:u32, generation:u32,
 }
 @group(0) @binding(0) var<uniform> compact_settings:CompactSettings;
-@group(0) @binding(1) var<storage,read> compact_workspace:SurfaceCellWorkspace;
+@group(0) @binding(1) var<storage,read_write> compact_workspace:SurfaceCellWorkspace;
 @group(0) @binding(2) var<storage,read_write> compact_work:array<u32>;
 @group(0) @binding(3) var<storage,read_write> compact_counts:array<atomic<u32>>;
 @group(0) @binding(4) var compact_sample_map:texture_storage_2d<r32uint,write>;
@@ -81,13 +86,39 @@ fn compact_plan(tile:u32,plane:u32)->SurfaceCellPlanePlan {
   let at=tile*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u+16u+plane*6u;
   return SurfaceCellPlanePlan(compact_workspace.plans[at],compact_workspace.plans[at+1u],compact_workspace.plans[at+2u],compact_workspace.plans[at+3u],compact_workspace.plans[at+4u],compact_workspace.plans[at+5u]);
 }
+fn compact_map_entry(offset:u32,entry:u32)->u32 {
+  let bit=entry*6u;let at=offset+(bit>>5u);let shift=bit&31u;
+  var result=compact_workspace.maps[at]>>shift;
+  if shift>26u {result|=compact_workspace.maps[at+1u]<<(32u-shift);}
+  return result&63u;
+}
+fn compact_group(plan:SurfaceCellPlanePlan,lane:u32)->u32 {
+  let mode=plan.mode_rate&255u;
+  if mode==SURFACE_CELL_PLAN_MASKED {return compact_map_entry(plan.map_word_offset,lane);}
+  if mode==SURFACE_CELL_PLAN_GRID {return surface_cell_grid_index(lane,(plan.mode_rate>>8u)&15u);}
+  return lane;
+}
+fn compact_representative(plan:SurfaceCellPlanePlan,group:u32)->u32 {
+  let coverage=vec2u(plan.coverage_lo,plan.coverage_hi);
+  let mode=plan.mode_rate&255u;
+  if mode==SURFACE_CELL_PLAN_MASKED {return compact_map_entry(plan.map_word_offset+12u,group);}
+  if mode==SURFACE_CELL_PLAN_FINE {return select(0xffffffffu,group,surface_cell_mask_member(coverage,group));}
+  if mode==SURFACE_CELL_PLAN_GRID {
+    let rate=(plan.mode_rate>>8u)&15u;let sx=rate&3u;let sy=(rate>>2u)&3u;
+    let columns=8u>>sx;let origin=vec2u((group%columns)<<sx,(group/columns)<<sy);
+    for(var y=0u;y<(1u<<sy);y++){for(var x=0u;x<(1u<<sx);x++){
+      let lane=(origin.y+y)*8u+origin.x+x;if surface_cell_mask_member(coverage,lane){return lane;}
+    }}
+  }
+  return 0xffffffffu;
+}
 fn compact_rep_for(tile:u32,plane:u32,lane:u32)->u32 {
   let plan=compact_plan(tile,plane);let coverage=vec2u(plan.coverage_lo,plan.coverage_hi);
   if !surface_cell_mask_member(coverage,lane){return 0xffffffffu;}
-  let group=surface_cell_group(plan,&compact_workspace.maps,lane);
-  return surface_cell_representative(plan,&compact_workspace.maps,group);
+  let group=compact_group(plan,lane);
+  return compact_representative(plan,group);
 }
-fn compact_write_sample(slot:u32,pixel:u32,key:u32,tile:u32)->void {
+fn compact_write_sample(slot:u32,pixel:u32,key:u32,tile:u32) {
   let at=compact_settings.sample_offset+slot*8u;
   compact_work[at]=pixel;compact_work[at+1u]=key;compact_work[at+2u]=key;
   compact_work[at+3u]=0u;compact_work[at+4u]=0u;compact_work[at+5u]=tile;
@@ -99,7 +130,7 @@ fn compact_cells(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_in
   let absolute=compact_settings.first_tile+tile;
   let tx=absolute%compact_settings.tiles_x;let ty=absolute/compact_settings.tiles_x;
   let px=tx*8u+lane%8u;let py=ty*8u+lane/8u;let inside=px<compact_settings.width&&py<compact_settings.height;
-  if inside{textureStore(compact_sample_map,vec2i(px,py),vec4u(0xffffffffu));}
+  if inside{textureStore(compact_sample_map,vec2i(i32(px),i32(py)),vec4u(0xffffffffu));}
   compact_rep[lane]=0xffffffffu;compact_slot[lane]=0xffffffffu;compact_active[lane]=0u;
   if lane==0u{atomicStore(&compact_count,0u);}
   workgroupBarrier();
@@ -108,7 +139,8 @@ fn compact_cells(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_in
       if ((tx*8u+i%8u)>=compact_settings.width||(ty*8u+i/8u)>=compact_settings.height){continue;}
       var rep=0xffffffffu;
       for(var plane=0u;plane<${SURFACE_CELL_PLANE_COUNT}u;plane++){
-        let candidate=compact_rep_for(tile,plane,i);if candidate!=0xffffffffu{rep=select(candidate,rep,candidate<rep);}
+        let candidate=compact_rep_for(tile,plane,i);
+        rep=min(rep,candidate);
       }
       if rep==0xffffffffu{continue;}
       var seen=false;for(var j=0u;j<i;j++){if compact_rep[j]==rep{seen=true;break;}}
@@ -123,7 +155,7 @@ fn compact_cells(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_in
       if owner==0xffffffffu{continue;}
       let slot=base+owner;let rep=compact_rep[i];let repPixel=(ty*8u+rep/8u)*compact_settings.width+tx*8u+rep%8u;
       let fact=compact_workspace.facts[tile*64u+rep];
-      if slot<compact_settings.sample_capacity{if compact_slot[i]==owner{compact_write_sample(slot,repPixel,fact.x,absolute);}textureStore(compact_sample_map,vec2i(tx*8u+i%8u,ty*8u+i/8u),vec4u(slot));emitted++;}
+      if slot<compact_settings.sample_capacity{if compact_slot[i]==owner{compact_write_sample(slot,repPixel,fact.x,absolute);}textureStore(compact_sample_map,vec2i(i32(tx*8u+i%8u),i32(ty*8u+i/8u)),vec4u(slot));emitted++;}
     }
     let tileAt=compact_settings.tile_offset+absolute*12u;compact_work[tileAt+0u]=(tx*8u)|((min(8u,compact_settings.width-tx*8u))<<16u);
     compact_work[tileAt+1u]=(ty*8u)|((min(8u,compact_settings.height-ty*8u))<<16u);
@@ -158,7 +190,12 @@ export class SurfaceCellClassifierPass {
     if (workspaceLayout.bytes > this.device.limits.maxStorageBufferBindingSize) {
       throw new RangeError("Surface cell workspace exceeds the negotiated storage binding limit; batch splitting is required");
     }
-    const dictionaryCapacity = Math.min(65536, 2 ** Math.ceil(Math.log2(Math.max(16, batchTileCapacity * 2))));
+    const geometryCapacity = planSurfaceCellGeometryCapacity(
+      input.workLayout.sampleCapacity,
+      input.workLayout.sampleCapacity * 128,
+      this.device.limits
+    );
+    const { dictionaryCapacity, setupCapacity } = geometryCapacity;
     const product = input.product !== null;
     const factLibrary = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
       SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity);
@@ -167,11 +204,10 @@ export class SurfaceCellClassifierPass {
       `${input.workLayout.tileCapacity}`;
     let pipelines = this.pipelines.get(profile);
     if (!pipelines) {
+      const productionLayout = createSurfaceCellPipelineLayout(this.device, product);
       const fullModule = this.device.createShaderModule({ label: "Surface/cell publication and compaction", code:
         `${surfaceCellClassifyStageWgsl(factLibrary, batchTileCapacity, 0, 0, 3, "classify_cells_base", false)}\n${COMPACT_WGSL}` });
-      const stageRanges = [[0, 3, [0, 1, 2]], [3, 3, [3, 4, 5]], [6, 3, [6, 7, 8]], [9, 3, [9, 10, 11]],
-        [12, 3, [12, 13, 14]], [15, 3, [6, 10, 13]], [18, 3, [0, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14]]] as const;
-      const modules = stageRanges.map(([start, count, fields], index) => {
+      const modules = SURFACE_CELL_CLASSIFY_STAGES.map(({ first: start, count, fields }, index) => {
         const stageFacts = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
           SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(fields), false);
         return this.device.createShaderModule({
@@ -182,8 +218,8 @@ export class SurfaceCellClassifierPass {
       const module = fullModule;
       pipelines = Object.freeze({
         constants: this.device.createComputePipeline({ label: "Surface/cell material constants", layout: "auto", compute: { module, entryPoint: "publish_cell_material_constants" } }),
-        facts: this.device.createComputePipeline({ label: "Surface/cell lighting facts", layout: "auto", compute: { module, entryPoint: "publish_cell_facts" } }),
-        classify: Object.freeze(modules.map((stageModule, index) => this.device.createComputePipeline({ label: `Surface/cell classify stage ${index}`, layout: "auto", compute: { module: stageModule, entryPoint: `classify_cells_stage_${index}` } }))),
+        facts: this.device.createComputePipeline({ label: "Surface/cell lighting facts", layout: productionLayout, compute: { module, entryPoint: "publish_cell_facts" } }),
+        classify: Object.freeze(modules.map((stageModule, index) => this.device.createComputePipeline({ label: `Surface/cell classify stage ${index}`, layout: productionLayout, compute: { module: stageModule, entryPoint: `classify_cells_stage_${index}` } }))),
         compact: this.device.createComputePipeline({ label: "Surface/cell compact representatives", layout: "auto", compute: { module, entryPoint: "compact_cells" } })
       });
       this.pipelines.set(profile, pipelines);
@@ -214,11 +250,22 @@ export class SurfaceCellClassifierPass {
       this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries });
     const constants = graph.add("Surface/cell publish material constants", { input, workspace, work, counts }, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
+      const metadata = input.publication.surfaceMetadataOffsets;
+      // Match CellFactSettings vec4 blocks, before the first publication read.
+      const settings = new Uint32Array([
+        input.sourceGeometry, input.sourceMeshlet, input.sourceMeshletVertices, input.sourceMeshletTriangles,
+        input.sourceVertexData, 0, 0, 0,
+        metadata.constants, metadata.routes, metadata.bounds, metadata.directory,
+        metadata.materialLookup, metadata.materialLookupCount, metadata.directoryCount, input.publication.surfaceCacheGeneration,
+        dictionaryCapacity, setupCapacity, input.generation, 1,
+        metadata.constantFields, (input.shadowEnabled ? 1 : 0) | (input.physicalSunEnabled ? 2 : 0), 0, 0
+      ]);
+      command.writeBuffer(this.factSettings, 0, settings.buffer, 0, settings.byteLength);
       const pass = command.beginComputePass({ label: "Surface/cell publish material constants" }); pass.setPipeline(pipelines!.constants);
-      pass.setBindGroup(0, this.device.createBindGroup({ layout: pipelines!.constants.getBindGroupLayout(1), entries: [
+      pass.setBindGroup(1, this.device.createBindGroup({ layout: pipelines!.constants.getBindGroupLayout(1), entries: [
         { binding: 0, resource: { buffer: this.factSettings } }, { binding: 7, resource: { buffer: resources.get(input.appearanceMetadata) as GPUBuffer } }
       ] }));
-      pass.dispatchWorkgroups(Math.ceil(input.publication.surfaceProgramCount / 64)); pass.end();
+      pass.dispatchWorkgroups(Math.ceil(metadata.directoryCount / 64)); pass.end();
     });
     constants.read(input.appearanceMetadata); constants.write(input.appearanceMetadata);
 
@@ -242,14 +289,15 @@ export class SurfaceCellClassifierPass {
         this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: group1 }),
         this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(2), entries: group2 })];
     };
-    let previous: { dependsOn(pass: any): void } = constants;
+    let previous = constants;
+    let consumed: readonly ResourceId[] = [];
     for (let batch = 0; batch < batchCount; batch++) {
       const firstTile = batch * batchTileCapacity;
       const tileCount = Math.min(batchTileCapacity, tiles - firstTile);
       const setup = input.geometryPass.addCellSetupsToGraph(graph, {
         visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
         frameInstances: input.frameInstances, product: input.product, width: input.width, height: input.height, tilesX,
-        firstTile, tileCount, targetCapacity: input.workLayout.sampleCapacity,
+        firstTile, tileCount, targetCapacity: input.workLayout.sampleCapacity, after: consumed,
         addressBudgetBytes: input.workLayout.sampleCapacity * 128,
         generation: input.generation, sourceGeometry: input.sourceGeometry, sourceMeshlet: input.sourceMeshlet,
         sourceMeshletVertices: input.sourceMeshletVertices, sourceMeshletTriangles: input.sourceMeshletTriangles, sourceVertexData: input.sourceVertexData
@@ -257,21 +305,12 @@ export class SurfaceCellClassifierPass {
       const batchReset = graph.add(`Surface/cell batch ${batch} workspace reset`, { firstTile, tileCount, setup }, (_data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
         command.gpu_encoder.clearBuffer(resources.get(workspace) as GPUBuffer, 0, batchWorkspaceLayout.bytes);
+        command.gpu_encoder.clearBuffer(resources.get(counts) as GPUBuffer, 0, SURFACE_WORK_COUNTER_BYTES);
         command.writeBuffer(this.cellSettings, 0, new Uint32Array([input.width, input.height, tilesX, firstTile, tileCount, input.workLayout.sampleCapacity, input.generation, 0]).buffer, 0, 32);
-        command.writeBuffer(this.factSettings, 0, new Uint32Array([
-          input.sourceGeometry, input.sourceMeshlet, input.publication.surfaceMetadataOffsets.constants, input.publication.surfaceMetadataOffsets.routes,
-          input.publication.surfaceMetadataOffsets.bounds, input.publication.surfaceMetadataOffsets.directory,
-          input.publication.surfaceMetadataOffsets.materialLookup, input.publication.surfaceMetadataOffsets.materialLookupCount,
-          input.publication.surfaceProgramCount, input.publication.surfaceCacheGeneration,
-          setup.dictionaryCapacity, setup.setupCapacity, input.generation, 1,
-          input.publication.surfaceMetadataOffsets.constantFields, (input.shadowEnabled ? 1 : 0) | (input.physicalSunEnabled ? 2 : 0), 0, 0,
-          input.sourceMeshletVertices, input.sourceMeshletTriangles, input.sourceVertexData, input.directoryAt,
-          input.frameAt, 0, 0, 0
-        ]).buffer, 0, 96);
         command.writeBuffer(this.compactSettings, 0, new Uint32Array([input.width, input.height, tilesX, firstTile, tileCount,
           input.workLayout.sampleOffset / 4, input.workLayout.tileOffset / 4, input.workLayout.sampleCapacity, input.generation]).buffer, 0, 36);
       });
-      batchReset.read(setup.arena); batchReset.read(workspace); workspace = batchReset.write(workspace); batchReset.dependsOn(previous as any);
+      batchReset.read(setup.arena); batchReset.read(workspace); workspace = batchReset.write(workspace); counts = batchReset.write(counts); batchReset.dependsOn(previous);
       const facts = graph.add(`Surface/cell publish geometry and lighting facts batch ${batch}`, { setup, workspace }, (_data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
         const pass = command.beginComputePass({ label: "Surface/cell publish geometry and lighting facts" }); pass.setPipeline(pipelines!.facts);
@@ -297,6 +336,13 @@ export class SurfaceCellClassifierPass {
         ])); pass.dispatchWorkgroups(tileCount); pass.end();
       });
       compact.read(workspace); work = compact.write(work); counts = compact.write(counts); sampleMap = compact.write(sampleMap); compact.dependsOn(previous as any); previous = compact;
+      if (input.consumeBatch !== undefined) {
+        consumed = input.consumeBatch({ work, counts, sampleMap, workspace }, firstTile, tileCount, batchTileCapacity);
+        const complete = graph.add(`Surface/cell batch ${batch} consumed`, {}, () => {});
+        for (const resource of consumed) { complete.read(resource); }
+        complete.make_side_effect();
+        previous = complete;
+      }
     }
     return { work, counts, sampleMap, workspace };
   }

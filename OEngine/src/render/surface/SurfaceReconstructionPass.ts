@@ -167,12 +167,21 @@ export class SurfaceReconstructionPass {
     height: number;
     recordCount: number;
     diagnosticsEnabled: boolean;
+    batch?: Readonly<{ index: number; batchTiles: number }>;
+    previous?: SurfaceReconstructionProducts;
+    after?: readonly ResourceId[];
   }): SurfaceReconstructionProducts {
     if (!this.prepared || this.extent[0] !== input.width || this.extent[1] !== input.height) {
       throw new Error("Surface reconstruction frame is not prepared for this extent");
     }
     let radiance!: ResourceId, reactiveMask!: ResourceId, counters!: ResourceId, batchIndirect!: ResourceId;
-    const node = graph.add("Surface/cheap batched reconstruct", { ...input, batchPlan: this.batchPlan }, (data, resources, context) => {
+    const batchPlan = input.batch === undefined ? this.batchPlan : planSurfaceReconstructionBatches(input.width, input.height, input.batch.batchTiles);
+    const firstBatch = input.batch?.index ?? 0;
+    const endBatch = input.batch === undefined ? batchPlan.batchCount : firstBatch + 1;
+    if (!Number.isSafeInteger(firstBatch) || firstBatch < 0 || endBatch > batchPlan.batchCount) {
+      throw new RangeError("Surface reconstruction batch is outside the output extent");
+    }
+    const node = graph.add("Surface/cheap batched reconstruct", { ...input, batchPlan }, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const indirect = resources.get(batchIndirect) as GPUBuffer;
       const batchGroup = this.device.createBindGroup({ layout: this.batchLayout, entries: [
@@ -183,9 +192,9 @@ export class SurfaceReconstructionPass {
       const planner = command.beginComputePass({ label: "Surface/reconstruct batch counts" });
       planner.setPipeline(this.batchPipeline); planner.setBindGroup(0, batchGroup); planner.dispatchWorkgroups(Math.ceil(data.batchPlan.batchCount / 64)); planner.end();
       const countersBuffer = resources.get(counters) as GPUBuffer;
-      if (data.diagnosticsEnabled) command.writeBuffer(countersBuffer, 0,
+      if (data.diagnosticsEnabled && data.previous === undefined) command.writeBuffer(countersBuffer, 0,
         new Uint32Array(SURFACE_RECONSTRUCT_COUNTER_WORDS).buffer, 0, SURFACE_RECONSTRUCT_COUNTER_BYTES);
-      for (let batch = 0; batch < data.batchPlan.batchCount; batch++) {
+      for (let batch = firstBatch; batch < endBatch; batch++) {
         const settings = new ArrayBuffer(48); const view = new DataView(settings);
         view.setUint32(0, data.width, true); view.setUint32(4, data.height, true);
         view.setUint32(8, data.recordCount, true); view.setUint32(12, batch, true);
@@ -210,9 +219,15 @@ export class SurfaceReconstructionPass {
       }
     });
     node.read(input.packets); node.read(input.fullPackets); node.read(input.packetFlags); node.read(input.reactive); node.read(input.preExposure); node.read(input.sampleMap);
-    batchIndirect = node.create("Surface/reconstruct batch indirect", { kind: "transient_buffer", size: this.batchPlan.batchCount * 16,
+    for (const resource of input.after ?? []) { node.read(resource); }
+    batchIndirect = node.create("Surface/reconstruct batch indirect", { kind: "transient_buffer", size: batchPlan.batchCount * 16,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     node.write(batchIndirect);
+    if (input.previous !== undefined) {
+      radiance = node.write(input.previous.radiance);
+      reactiveMask = node.write(input.previous.reactiveMask);
+      counters = node.write(input.previous.counters);
+    } else {
     radiance = node.create("Surface/HDR reconstructed", { kind: "transient_texture", width: input.width,
       height: input.height, format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT, domain: "internal-full" });
     reactiveMask = node.create("Surface/reactive reconstructed", { kind: "transient_texture", width: input.width,
@@ -220,6 +235,7 @@ export class SurfaceReconstructionPass {
     counters = node.create("Surface/reconstruct diagnostics", { kind: "transient_buffer", size: SURFACE_RECONSTRUCT_COUNTER_BYTES,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
     node.write(counters); node.write(radiance); node.write(reactiveMask);
+    }
     return { radiance, reactiveMask, counters };
   }
 

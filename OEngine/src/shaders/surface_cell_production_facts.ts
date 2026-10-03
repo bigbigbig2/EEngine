@@ -9,6 +9,7 @@ import { GPU_TEXTURE_REF_ROUTING_SHIFT, GPU_TEXTURE_REF_ROUTING_MASK, GPU_TEXTUR
 import { GPU_MATERIAL_VISIBILITY_SAMPLER as S } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { APPEARANCE_MATERIAL_CONSTANT_WGSL } from "./appearance_material_constants.js";
 import { SURFACE_APPEARANCE_BOUND_PROGRAM_WORDS } from "../gpu/GpuSurfaceAppearanceBoundsAbi.js";
+import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceCacheAbi.js";
 
 /** Complete Geometry/Appearance predicates for the partition producer. The
  * Lighting owner supplies the direct-light set/shadow/spatial predicate; the
@@ -17,9 +18,48 @@ import { SURFACE_APPEARANCE_BOUND_PROGRAM_WORDS } from "../gpu/GpuSurfaceAppeara
 export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFieldBoundProgram[],
   product: boolean, directRiskLibrary: string, productBoundLibrary: string | null, dictionaryCapacity=65536,
   fieldMask: ReadonlySet<number> | null = null, includeGenericValidation = true): string {
-  const selected = fieldMask === null ? programs : programs.map(program => ({ ...program,
-    source: restrictAppearanceBoundSource(program.source, fieldMask) }));
+  const selected = programs.map(program => {
+    // The generated switch uses program-local output ordinals, not Surface ABI
+    // field indices. A sparse/reordered graph must select by output name.
+    const ordinals = new Set<number>();
+    for (let ordinal = 0; ordinal < program.fields.length; ordinal++) {
+      const field = APPEARANCE_FIELD_NAMES.indexOf(program.fields[ordinal] as typeof APPEARANCE_FIELD_NAMES[number]);
+      if (fieldMask === null || fieldMask.has(field)) { ordinals.add(ordinal); }
+    }
+    let source = restrictAppearanceBoundSource(program.source, ordinals);
+    if (program.inputSemantics !== undefined) {
+      source = source.replace(/ab_input\(context,(\d+)u,/g, (_, index: string) => {
+        const kind = program.inputSemantics![Number(index)];
+        if (kind === undefined) { throw new Error("Missing Appearance input semantic"); }
+        return `cell_input_value_kind(${kind}u,`;
+      });
+      source = source.replace(/ab_input_gradient\(context,(\d+)u,/g, (_, index: string) => {
+        const kind = program.inputSemantics![Number(index)];
+        if (kind === undefined) { throw new Error("Missing Appearance gradient semantic"); }
+        return `cell_input_gradient_kind(${kind}u,`;
+      });
+    }
+    return { ...program, source };
+  });
   const hasProductSamples=selected.some(program=>program.source.includes("=ab_product("));
+  // Materials with identical bound topology use one function. The context still
+  // selects each material's own constants/routes, so sharing code changes no data.
+  const boundSources: string[] = [];
+  const boundFunctions: string[] = [];
+  const canonicalBounds = new Map<string, string>();
+  for (const program of selected) {
+    const declaration = /fn\s+(\w+)\s*\(/.exec(program.source);
+    if (declaration === null) { throw new Error("Missing generated Appearance bound function"); }
+    const name = declaration[1]!;
+    const key = program.source.replace(`fn ${name}(`, "fn canonical_bound(");
+    let canonical = canonicalBounds.get(key);
+    if (canonical === undefined) {
+      canonical = name;
+      canonicalBounds.set(key, name);
+      boundSources.push(program.source);
+    }
+    boundFunctions.push(canonical);
+  }
   if (!directRiskLibrary.includes("fn cell_direct_group_safe(") || (hasProductSamples&&!productBoundLibrary?.includes("fn ab_product("))) {
     throw new Error("Surface cell facts require real Lighting and static-product bound providers");
   }
@@ -54,6 +94,23 @@ var<private> cell_direct_setup:CellGeometrySetup;
 var<private> cell_bound_slot:u32;
 var<private> cell_bound_key:u32;
 var<private> cell_current_rect:vec4f;
+// Evaluate each attribute footprint once for a geometry/rectangle context.
+// Material graph leaves only load this cache: they must not inline a complete
+// perspective/derivative program independently at every scalar graph node.
+var<private> cell_bound_attributes:array<CellScalarFootprint,24>;
+var<private> cell_bound_setup:CellGeometrySetup;
+// Compatibility repeatedly compares the same 64 lanes. Publish cheap identity
+// facts once per lane so its inner loops never inline the Product decoder.
+struct CellLaneGeometry {
+ identity:vec4u,
+ source:vec4u,
+ continuity0:vec4u,
+ continuity1:vec4u,
+ address:vec4u,
+ plane:vec4f,
+ slot:u32,
+}
+var<workgroup> cell_lane_geometry:array<CellLaneGeometry,64>;
 fn cell_geometry_hash(key:u32)->u32 {var v=key;v^=v>>16u;v*=0x7feb352du;v^=v>>15u;v*=0x846ca68bu;return v^(v>>16u);}
 fn cell_geometry_slot(key:u32)->u32 {
  let hash=cell_geometry_hash(key);let mask=settings.geometry.x-1u;
@@ -90,8 +147,7 @@ fn cell_field_present(program:u32)->u32 {
  var result=0u;for(var field=0u;field<15u;field++){if cell_field_descriptor(program,field).x!=0xffffffffu{result|=1u<<field;}}return result;
 }
 fn cell_scalar_attribute(field:u32,channel:u32)->CellScalarFootprint {
- return cell_scalar_footprint(cell_geometry_coefficients(cell_bound_slot,cell_bound_key),vec3f(cell_geometry_corner(cell_bound_slot,cell_bound_key,field)[channel],cell_geometry_corner(cell_bound_slot,cell_bound_key,field+6u)[channel],cell_geometry_corner(cell_bound_slot,cell_bound_key,field+12u)[channel]),
-  cell_current_rect.xy,cell_current_rect.zw,vec2f(f32(cell_settings.width),f32(cell_settings.height)));
+ return cell_bound_attributes[field * 4u + channel];
 }
 fn cell_attribute_box(field:u32)->AppearanceBound4 {
  var result:AppearanceBound4;
@@ -135,7 +191,9 @@ fn ab_constant(context:vec4u,slot:u32)->f32 {
  return bitcast<f32>(appearance_metadata[settings.appearance0.x+cell_directory(context.z).y+slot]);
 }
 fn ab_input(context:vec4u,index:u32,channel:u32)->AppearanceBound {
- let kind=cell_input_kind(context,index);
+ return cell_input_value_kind(cell_input_kind(context,index),channel);
+}
+fn cell_input_value_kind(kind:u32,channel:u32)->AppearanceBound {
  if kind==1u{return cell_scalar_attribute(2u,channel).value;}
  if kind==2u{return cell_scalar_attribute(2u,channel+2u).value;}
  if kind==3u{return cell_scalar_attribute(4u,channel).value;}
@@ -150,7 +208,10 @@ fn ab_input(context:vec4u,index:u32,channel:u32)->AppearanceBound {
  return ab_unknown();
 }
 fn ab_input_gradient(context:vec4u,index:u32,channel:u32,axis:u32)->AppearanceBound {
- let kind=cell_input_kind(context,index);var value:CellScalarFootprint;
+ return cell_input_gradient_kind(cell_input_kind(context,index),channel,axis);
+}
+fn cell_input_gradient_kind(kind:u32,channel:u32,axis:u32)->AppearanceBound {
+ var value:CellScalarFootprint;
  if kind==1u{value=cell_scalar_attribute(2u,channel);}else if kind==2u{value=cell_scalar_attribute(2u,channel+2u);}
  else if kind==3u{value=cell_scalar_attribute(4u,channel);}else if kind==4u{value=cell_scalar_attribute(3u,channel);}
  else if kind==7u||kind==10u{value=cell_scalar_attribute(5u,channel);}else if kind==9u{return ab_exact(0.0);}else{return ab_unknown();}
@@ -199,7 +260,7 @@ fn ab_texture(context:vec4u,sample:u32,u:AppearanceBound,v:AppearanceBound,udx:A
  return result;
 }
 ${productBoundLibrary??""}
-${selected.map(program=>program.source).join("\n")}
+${boundSources.join("\n")}
 ${selected.map(program=>program.materialSource).join("\n")}
 fn cell_constant_palette(entry:u32)->u32 {return settings.appearance2.x+entry*64u;}
 @compute @workgroup_size(64) fn publish_cell_material_constants(@builtin(global_invocation_id) id:vec3u){
@@ -229,13 +290,29 @@ fn cell_evaluate_bound(field:u32,context:vec4u)->AppearanceBound4 {
   return AppearanceBound4(fallback,fallback,vec4u(1u));
  }
  switch context.y {
- ${programs.map((_p,i)=>`case ${i}u:{return ab_field_${i}(descriptor.x,context);}`).join("\n")}
+ ${boundFunctions.map((name,i)=>`case ${i}u:{return ${name}(descriptor.x,context);}`).join("\n")}
  default:{return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u));}
  }
 }
 fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
- cell_bound_slot=fact.source;cell_bound_key=fact.winner;cell_current_rect=rect;
- let entry=cell_material_entry(cell_geometry_source(fact.source,fact.winner).y);return vec4u(fact.source,cell_directory(entry).x,entry,fact.winner);
+ let slot=cell_lane_geometry[fact.source].slot;
+ cell_bound_slot=slot;cell_bound_key=fact.winner;cell_current_rect=rect;
+ var setup:CellGeometrySetup;
+ if slot < settings.geometry.y {
+   setup = geometry_setups[slot];
+ } else {
+   cell_ensure_direct_geometry(fact.winner);
+   setup = cell_direct_setup;
+ }
+ cell_bound_setup=setup;
+ let viewport = vec2f(f32(cell_settings.width),f32(cell_settings.height));
+ for (var component = 0u; component < 24u; component++) {
+   let field = component / 4u;
+   let channel = component % 4u;
+   let values = vec3f(setup.corners[field][channel],setup.corners[field + 6u][channel],setup.corners[field + 12u][channel]);
+   cell_bound_attributes[component] = cell_scalar_footprint(setup.coefficients,values,rect.xy,rect.zw,viewport);
+ }
+ let entry=cell_material_entry(setup.source.y);return vec4u(slot,cell_directory(entry).x,entry,fact.winner);
 }
 fn cell_signal_dependencies(plane:u32)->u32 {
  if plane==15u{return (1u<<6u)|(1u<<10u)|(1u<<13u);}
@@ -255,7 +332,11 @@ fn surface_cell_load(pixel:vec2u,winner:u32)->SurfaceCellLane {
  let tile=(pixel.y/8u)*cell_settings.tiles_x+pixel.x/8u;let lane=(pixel.y%8u)*8u+pixel.x%8u;
  let published=cell_workspace.facts[(tile-cell_settings.first_tile)*64u+lane];
  if published.x!=winner{atomicAdd(&cell_counts[104u],1u);return SurfaceCellLane(vec4u(0u),winner,0xffffffffu,0u,0u);}
- let identity=cell_geometry_identity(published.y,winner);let continuity=cell_geometry_continuity(published.y,winner,0u);let entry=published.z;
+ var setup:CellGeometrySetup;
+ if published.y < settings.geometry.y { setup=geometry_setups[published.y]; }
+ else { cell_ensure_direct_geometry(winner); setup=cell_direct_setup; }
+ let identity=setup.identity;let continuity=setup.continuity[0u];let entry=published.z;
+ cell_lane_geometry[lane]=CellLaneGeometry(identity,setup.source,continuity,setup.continuity[1u],setup.source_address,setup.world_plane,published.y);
  if entry>=settings.appearance1.z{atomicAdd(&cell_counts[104u],1u);return SurfaceCellLane(vec4u(0u),winner,published.y,0u,0u);}
  let program=cell_directory(entry).x;let palette=cell_constant_palette(entry);
  let presence=cell_field_present(program);var enabled=presence;
@@ -268,11 +349,13 @@ fn surface_cell_load(pixel:vec2u,winner:u32)->SurfaceCellLane {
   let coat=bitcast<f32>(appearance_metadata[palette+4u+10u*4u]);
   if coat<=0.0{enabled&=~((1u<<19u)|(1u<<20u));}
  }
- return SurfaceCellLane(vec4u(identity.xyz,continuity.x),winner,published.y,enabled,publication);
+ // Production source is the workgroup fact index; the setup slot is preserved
+ // in CellLaneGeometry. Generic fixture source values remain fixture-defined.
+ return SurfaceCellLane(vec4u(identity.xyz,continuity.x),winner,lane,enabled,publication);
 }
 fn cell_seam_compatible(mask:u32,a:SurfaceCellLane,b:SurfaceCellLane)->bool {
- let ac=cell_geometry_continuity(a.source,a.winner,0u);let bc=cell_geometry_continuity(b.source,b.winner,0u);
- let ad=cell_geometry_continuity(a.source,a.winner,1u);let bd=cell_geometry_continuity(b.source,b.winner,1u);
+ let ac=cell_lane_geometry[a.source].continuity0;let bc=cell_lane_geometry[b.source].continuity0;
+ let ad=cell_lane_geometry[a.source].continuity1;let bd=cell_lane_geometry[b.source].continuity1;
  if (mask&1u)!=0u && ac.y!=bc.y{return false;}
  if (mask&2u)!=0u && ac.z!=bc.z{return false;}
  if (mask&4u)!=0u && ac.w!=bc.w{return false;}
@@ -280,13 +363,13 @@ fn cell_seam_compatible(mask:u32,a:SurfaceCellLane,b:SurfaceCellLane)->bool {
  if (mask&16u)!=0u && ad.y!=bd.y{return false;}
  // UV2 has no chart lineage publication yet. Only this field's closure uses a
  // representation-local primitive namespace, never the blanket winner gate.
- if (mask&64u)!=0u && any(cell_geometry_address(a.source,a.winner).xyz!=cell_geometry_address(b.source,b.winner).xyz){return false;}
+ if (mask&64u)!=0u && any(cell_lane_geometry[a.source].address.xyz!=cell_lane_geometry[b.source].address.xyz){return false;}
  return true;
 }
 fn surface_cell_compatible(plane:u32,a:SurfaceCellLane,b:SurfaceCellLane)->bool {
  if a.identity.w==0u || any(a.identity!=b.identity){return false;}
- let sa=cell_geometry_source(a.source,a.winner);let sb=cell_geometry_source(b.source,b.winner);
- if cell_geometry_identity(a.source,a.winner).w!=cell_geometry_identity(b.source,b.winner).w||any(sa.zw!=sb.zw)||sa.y!=sb.y{return false;}
+ let sa=cell_lane_geometry[a.source].source;let sb=cell_lane_geometry[b.source].source;
+ if cell_lane_geometry[a.source].identity.w!=cell_lane_geometry[b.source].identity.w||any(sa.zw!=sb.zw)||sa.y!=sb.y{return false;}
  let entry=cell_material_entry(sa.y);let program=cell_directory(entry).x;
  var fields=cell_material_signal_dependencies(plane,entry);if plane<15u{fields=1u<<plane;}
  for(var field=0u;field<15u;field++){if (fields&(1u<<field))!=0u{
@@ -318,7 +401,7 @@ ${directRiskLibrary}
 fn surface_cell_group_valid(plane:u32,mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,64>>,origin:vec2u)->bool {
  let first=cell_first(mask);if first==0xffffffffu{return false;}
  let rect=cell_rect_from_mask(mask,origin);
- let root=(*lanes)[first];let root_plane=cell_geometry_plane(root.source,root.winner);
+ let root=(*lanes)[first];let root_plane=cell_lane_geometry[root.source].plane;
  var world=AppearanceBound4(vec4f(1e30),vec4f(-1e30),vec4u(1u));
  var normal=world;var tangent=world;var view=world;var scale=1e30;
  for(var i=0u;i<64u;i++){
@@ -334,13 +417,13 @@ fn surface_cell_group_valid(plane:u32,mask:vec2u,lanes:ptr<workgroup,array<Surfa
   let pixel_scale=max(sqrt(dx2),sqrt(dy2));scale=min(scale,pixel_scale);
   // Preserve correlation across XYZ: an inclined coplanar wall is still a
   // plane. Summing independent position boxes would reject every coarse cell.
-  let plane_values=vec3f(dot(root_plane,cell_geometry_corner(cell_bound_slot,cell_bound_key,5u)),dot(root_plane,cell_geometry_corner(cell_bound_slot,cell_bound_key,11u)),dot(root_plane,cell_geometry_corner(cell_bound_slot,cell_bound_key,17u)));
-  let distance=cell_scalar_footprint(cell_geometry_coefficients(cell_bound_slot,cell_bound_key),plane_values,rect.xy,rect.zw,vec2f(f32(cell_settings.width),f32(cell_settings.height))).value;
+  let plane_values=vec3f(dot(root_plane,cell_bound_setup.corners[5u]),dot(root_plane,cell_bound_setup.corners[11u]),dot(root_plane,cell_bound_setup.corners[17u]));
+  let distance=cell_scalar_footprint(cell_bound_setup.coefficients,plane_values,rect.xy,rect.zw,vec2f(f32(cell_settings.width),f32(cell_settings.height))).value;
   if !ab_valid(distance)||max(abs(distance.low),abs(distance.high))>pixel_scale*0.5{return false;}
   if plane>=15u{normal=cell_merge_bound(normal,cell_world_normal_box());tangent=cell_merge_bound(tangent,cell_world_tangent_box());view=cell_merge_bound(view,cell_view_box());}
   if plane<15u {
    let descriptor=cell_field_descriptor(context.y,plane);
-   if (cell_geometry_continuity(cell_bound_slot,cell_bound_key,1u).w&descriptor.y)!=0u{return false;}
+   if (cell_bound_setup.continuity[1u].w&descriptor.y)!=0u{return false;}
   }
  }
  if plane<15u {
@@ -356,7 +439,7 @@ fn surface_cell_group_valid(plane:u32,mask:vec2u,lanes:ptr<workgroup,array<Surfa
  }
  if min(nc.w,min(tc.w,mc.w))<0.0{return false;}
  if acos(clamp(nc.w,-1.0,1.0))+acos(clamp(tc.w,-1.0,1.0))+acos(clamp(mc.w,-1.0,1.0))>0.05235987756{return false;}
- let dependencies=cell_material_signal_dependencies(plane,cell_material_entry(cell_geometry_source(root.source,root.winner).y));
+ let dependencies=cell_material_signal_dependencies(plane,cell_material_entry(cell_lane_geometry[root.source].source.y));
  for(var field=0u;field<15u;field++){
   if (dependencies&(1u<<field))==0u||field==6u||field==12u{continue;}
   let value=cell_group_field(field,mask,lanes,rect);if !cell_field_budget(field,value){return false;}
@@ -397,7 +480,7 @@ function removeWgslFunction(source: string, name: string): string {
  * a semantic approximation of the appearance graph. */
 function restrictAppearanceBoundSource(source: string, fields: ReadonlySet<number>): string {
   const switchAt = source.indexOf("switch field");
-  if (switchAt < 0 || fields.size === 0) return source;
+  if (switchAt < 0) return source;
   const open = source.indexOf("{", switchAt);
   if (open < 0) return source;
   const cases: string[] = [];
@@ -417,6 +500,5 @@ function restrictAppearanceBoundSource(source: string, fields: ReadonlySet<numbe
     if (fields.has(number)) cases.push(source.slice(match.index, end + 1));
     pattern.lastIndex = end + 1;
   }
-  if (cases.length === 0) return source;
   return `${source.slice(0, open + 1)}\n${cases.join("\n")}\ndefault:{return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u));}\n}}`;
 }

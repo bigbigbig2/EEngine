@@ -8,14 +8,14 @@ import { SurfaceGeometryPass, type SurfaceGeometryProducts } from "./SurfaceGeom
 import { SurfaceMaterialCachePass, type SurfaceMaterialProducts } from "./SurfaceMaterialCachePass.js";
 import { SurfaceLightingWorkPass } from "./SurfaceLightingWorkPass.js";
 import type { SurfaceLightingInput } from "./SurfaceLightingWorkPass.js";
-import { SurfaceReconstructionPass } from "./SurfaceReconstructionPass.js";
+import { SurfaceReconstructionPass, type SurfaceReconstructionProducts } from "./SurfaceReconstructionPass.js";
 import { SurfaceDiagnosticsPass } from "./SurfaceDiagnosticsPass.js";
 import { SURFACE_DIAGNOSTICS_BYTE_SIZE, type SurfaceDiagnosticsMode, type SurfaceDiagnosticsIdentity } from "../../gpu/SurfaceDiagnosticsAbi.js";
 import type { SurfaceDiagnosticsCapture } from "../../debug/SurfaceDiagnosticsCapture.js";
 import { SurfaceCacheIdentityPass } from "./SurfaceCacheIdentityPass.js";
 import { SurfaceDependencyEpochPass } from "./SurfaceDependencyEpochPass.js";
 import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
-import { SurfaceCellClassifierPass } from "./SurfaceCellClassifierPass.js";
+import { SurfaceCellClassifierPass, type SurfaceCellClassifierProducts } from "./SurfaceCellClassifierPass.js";
 import type { ResourceAccounting } from "../../debug/profiling/ResourceAccounting.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import type { GpuSurfaceFieldStore } from "../../gpu/GpuSurfaceFieldStore.js";
@@ -137,7 +137,11 @@ export class SurfaceWorkRuntime {
     // Preflight the complete V3 profile before any extent-dependent scratch is
     // created. A rejected profile must not silently clamp visible work.
     this.capacity = planSurfaceOptimizationCapacity(width, height, this.device.limits);
-    this.layout = surfaceWorkLayout(width, height, this.budget, this.device.limits);
+    this.layout = surfaceWorkLayout(width, height, {
+      ...this.budget,
+      maxSamples: Math.min(this.budget.maxSamples, this.capacity.batchTargetCapacity),
+      maxGeometryRecords: Math.min(this.budget.maxGeometryRecords, this.capacity.batchTargetCapacity)
+    }, this.device.limits);
     this.fieldStore?.preparePublication(publicationGeneration);
     this.signalStore?.preparePublication(publicationGeneration);
     this.scratch.prepare(width, height);
@@ -174,9 +178,29 @@ export class SurfaceWorkRuntime {
     revisions: SurfaceSignalRevisions; viewRevision: Readonly<{value:number}>; nonlocalRevision: Readonly<{value:number}>; diagnosticFrame: Readonly<{value:number}>;
     frame: SurfaceWorkFrame & { sourceGeometry: number; sourceMeshlet: number; sourceMeshletVertices: number;
       sourceMeshletTriangles: number; sourceVertexData: number } }): SurfaceWorkProducts {
-    if (!this.layout) this.layout = surfaceWorkLayout(input.width, input.height, this.budget, this.device.limits);
+    if (!this.prepared || this.layout === null) { throw new Error("SurfaceWork graph requires a prepared capacity profile"); }
     const layout = this.layout;
-    const cells = this.cellClassifier.addToGraph(graph, { resourceBinding: input.historyBinding, geometryPass: this.geometry,
+    // A graph binding slot is unique, while all queue-ordered batches deliberately
+    // reference the same physical scratch. Memoize the proxy, not the buffer.
+    const bindings = new Map<string, object>();
+    const originalBinding = input.historyBinding;
+    const historyBinding: SurfaceResourceBinding = <T extends object>(name: string, resolve: () => T): T => {
+      let binding = bindings.get(name);
+      if (binding === undefined) {
+        binding = originalBinding(name, resolve);
+        bindings.set(name, binding);
+      }
+      return binding as T;
+    };
+    input = { ...input, historyBinding };
+    const dependencyEpoch = this.dependencyEpoch.addToGraph(graph,input.residencyVersions,input.historyBinding);
+    let result!: SurfaceWorkProducts;
+    let previousReconstruction: SurfaceReconstructionProducts | undefined;
+    const consumeBatch = (cells: SurfaceCellClassifierProducts, firstTile: number, tileCount: number, batchTiles: number): readonly ResourceId[] => {
+      result = consume(cells, firstTile, batchTiles);
+      return [result.radiance, result.reactiveMask, ...(result.diagnostics === undefined ? [] : [result.diagnostics])];
+    };
+    const classify = (): void => { this.cellClassifier.addToGraph(graph, { resourceBinding: input.historyBinding, geometryPass: this.geometry,
       visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
       frameInstances: input.frameInstances, camera: input.camera, textureVariation: input.textureVariation,
       appearanceMetadata: input.appearanceMetadata, width: input.width, height: input.height,
@@ -185,7 +209,8 @@ export class SurfaceWorkRuntime {
       sourceMeshletTriangles: input.frame.sourceMeshletTriangles, sourceVertexData: input.frame.sourceVertexData,
       publication: input.publication, product: input.product, lightRecords: input.lightRecords,
       clusters: input.clusters, shadowEnabled: input.shadow !== null, physicalSunEnabled: input.physicalSun !== null,
-      workLayout: layout, diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
+      workLayout: layout, consumeBatch, diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null }); };
+    const consume = (cells: SurfaceCellClassifierProducts, firstTile: number, batchTiles: number): SurfaceWorkProducts => {
     let work = cells.work;
     let sampleMap = cells.sampleMap;
     let counts = cells.counts;
@@ -206,7 +231,6 @@ export class SurfaceWorkRuntime {
       sampleOffset:layout.sampleOffset,capacity:recordCount,
       view:input.viewRevision,scene:input.nonlocalRevision,bind:input.historyBinding});
     work=witness.work;
-    const dependencyEpoch=this.dependencyEpoch.addToGraph(graph,input.residencyVersions,input.historyBinding);
     const material = this.material.addLookupToGraph(graph, { geometryKeys:witness.keys,dependencyEpoch,visibility: input.visibility, work,
       meshletWork: input.meshletWork, fieldVersions: input.fieldVersions, residencyVersions: input.residencyVersions,
       counts, materialLookup: input.materialLookup, surfaceIdentity: input.surfaceIdentity, materials: input.materials,
@@ -237,10 +261,13 @@ export class SurfaceWorkRuntime {
       scalarAo: input.scalarAo, environment: input.environment, physicalSun: input.physicalSun,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
     const reconstruction = this.reconstruction.addToGraph(graph, { packets: lighting.packets, fullPackets: lighting.fullPackets,
+      batch: { index: firstTile / batchTiles, batchTiles }, previous: previousReconstruction,
+      after: [evaluatedMaterial.fieldPublished, lighting.signalPublished].filter((id): id is ResourceId => id !== undefined),
       packetFlags: lighting.packetFlags,
       reactive: input.factsMask, preExposure: input.preExposure,
       width: input.width, height: input.height, recordCount: recordCount, sampleMap,
       diagnosticsEnabled: this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null });
+    previousReconstruction = reconstruction;
     const diagnostics = this.diagnosticsMode === "detailed" && this.diagnosticsCapture !== null ? this.diagnostics.addToGraph(graph, {
       work, counts, materialCounters: evaluatedMaterial.counters, materialAudit: evaluatedMaterial.audit, geometryCount: geometry.count,
       geometryMissCounters: geometry.missCounters, lightingCounters: lighting.counters,
@@ -249,7 +276,10 @@ export class SurfaceWorkRuntime {
       geometryOffset: 0
     }) : null;
     return { counts, sampleMap, ...geometry, ...evaluatedMaterial, ...lighting, ...reconstruction,
-      ...(diagnostics === null ? {} : diagnostics) };
+        ...(diagnostics === null ? {} : diagnostics) };
+    };
+    classify();
+    return result;
   }
 
   commit(gpuDone: Promise<void>, publicationGeneration = 0): void {

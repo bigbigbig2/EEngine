@@ -2,7 +2,7 @@
 
 当前推进：Phase 4 代码收口已提交（`b882cc5a`），Phase 5 代码收口已完成，Phase 6 资源、真实 provider 与生命周期接线已完成；Phase 6.5 production cutover 已完成，正式浏览器、GPU、画质与性能验收进入 Phase 7。
 
-日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–6 已完成代码切换但正式验收延期，Phase 7 尚未开始**。详细状态见[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
+日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–6 已完成代码切换但正式验收延期；Phase 7 已执行首轮验证，mixed cell GPU 正确性失败且生产浏览器编译阻塞，未通过**。详细结果见[Phase 7 验证记录](surface-work-v3-optimization-v1-phase7-validation-2026-10.md)、[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
 
 唯一配套细化设计：[Surface V3 第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)。保留[第三版总设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)的 owner 边界，按用户最新要求替换初版物理实现。历史执行记录见[原 V3 计划](surface-work-runtime-v3-rebuild-2026.md)；历史测量见[1080p 报告](../performance/2026-10-03-surface-v3-work-bandwidth-report.md)。
 

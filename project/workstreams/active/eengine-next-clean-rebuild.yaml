@@ -15,6 +15,13 @@ currentSlice:
   id: surface-work-v3-optimization-v1
   title: Surface V3 第一版优化：连续域跨 primitive 共享与有界缓存和信号
   status: active
+  phase7Status: >-
+    用户 2026-10-03 明确启动 Phase 7，首轮验收未通过。OEngine typecheck/build、50 项定向测试、
+    Showcase 独立 typecheck 与 4 项 benchmark metrics 测试通过，checked-in WASM artifact 6 项通过；
+    mixed cell GPU oracle 复现非紧凑 map 索引与误差边界绕过。Chrome 154 / GTX 1650 Ti / 1080p
+    Showcase 的 VSM-off/on 均在 90 秒后停在 frameCount 2，独立 production fixture 停在 stage 0 编译。
+    尚无有效渲染质量截图、连续画质序列、生产生命周期矩阵或四版本 P50/P95；Native 构建工具链失败。
+    详见 docs/next-execution/surface-work-v3-optimization-v1-phase7-validation-2026-10.md，未提升 claims/adoption。
   phase6Status: >-
     代码收口完成，正式整链验收延期至 Phase 7。容量预检、512 MiB Surface ledger、
     FieldStore/SignalStore publication generation 与 submitted epoch、VSM 初始化顺序和真实

@@ -17,6 +17,8 @@ import {TextureVariationResidency} from '../../../OEngine/.test-dist/gpu/Texture
 import {surfaceCellWorkspaceLayout,SURFACE_CELL_TILE_PLAN_BYTES,SURFACE_CELL_PLANE_BYTES} from '../../../OEngine/.test-dist/gpu/GpuSurfaceCellPlanAbi.js';
 import {surfaceCellClassifyStageWgsl} from '../../../OEngine/.test-dist/shaders/surface_cell_classify.js';
 import {surfaceCellProductionFactsWgsl} from '../../../OEngine/.test-dist/shaders/surface_cell_production_facts.js';
+import {createSurfaceCellPipelineLayout} from '../../../OEngine/.test-dist/render/surface/SurfaceCellPipelineLayout.js';
+import {SURFACE_CELL_CLASSIFY_STAGES} from '../../../OEngine/.test-dist/shaders/surface_cell_group_validation.js';
 
 
 export async function runProductionCellOracle(gpu,assert,onStage=()=>{},onSource=()=>{}) {
@@ -78,21 +80,22 @@ try{
  const clusterLookup=buffer(new Uint32Array(24*4)),clusterData=buffer(new Uint32Array([0,0,32,0,0,0,0,0,...Array(32).fill(0)])),clusterParameters=buffer(new Float32Array([0,1,1,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
  const fullFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity);
  const fullModule=device.createShaderModule({code:surfaceCellClassifyStageWgsl(fullFacts,1,0,0,3,'classify_cells_base',false)});
- const ranges=Array.from({length:15},(_,field)=>[field,1,[field]]).concat([[15,1,[6,10,13]],[16,1,[6,13]],[17,1,[0,2,3,6,7,8,9,10,13]],[18,1,[0,2,3,6,7,8,9,10,13]],[19,1,[10,11,12,14]],[20,1,[10,11,12,14]]]);
+ const ranges=SURFACE_CELL_CLASSIFY_STAGES.map(({first,count,fields})=>[first,count,fields]);
  const modules=ranges.map(([start,count,fields],index)=>{const facts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set(fields),false);return device.createShaderModule({code:surfaceCellClassifyStageWgsl(facts,1,index,start,count,`classify_cells_stage_${index}`,start>=15?'full':'field-geometry')});});
  const moduleInfo=await Promise.all([fullModule,...modules].map(module=>module.getCompilationInfo()));
  report.compilation=moduleInfo.flatMap(info=>info.messages.filter(m=>m.type==='error').map(m=>({message:m.message,line:m.lineNum})));
  await onSource(surfaceCellClassifyStageWgsl(surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set([0]),false),1,0,0,1,'classify_cells_stage_0','field-geometry')); assert.deepEqual(report.compilation,[]);
  const pipelines={};
+ const productionLayout=createSurfaceCellPipelineLayout(device,false);
  for(const entryPoint of ['publish_cell_material_constants','publish_cell_facts']){
   onStage(`Compiling ${entryPoint}`);const start=performance.now();
-  pipelines[entryPoint]=await device.createComputePipelineAsync({layout:'auto',compute:{module:fullModule,entryPoint}});
+  pipelines[entryPoint]=await device.createComputePipelineAsync({layout:entryPoint==='publish_cell_material_constants'?'auto':productionLayout,compute:{module:fullModule,entryPoint}});
   onStage(`Compiled ${entryPoint} in ${Math.round(performance.now()-start)} ms`);
  }
  pipelines.classify=[];
  for(let index=0;index<modules.length;index++){
   const entryPoint=`classify_cells_stage_${index}`;onStage(`Compiling ${entryPoint}`);const start=performance.now();
-  pipelines.classify[index]=await device.createComputePipelineAsync({layout:'auto',compute:{module:modules[index],entryPoint}});
+  pipelines.classify[index]=await device.createComputePipelineAsync({layout:productionLayout,compute:{module:modules[index],entryPoint}});
   onStage(`Compiled ${entryPoint} in ${Math.round(performance.now()-start)} ms`);
  }
  const all=[
@@ -102,7 +105,7 @@ try{
   [{binding:0,resource:{buffer:lightRecords}},{binding:1,resource:{buffer:clusterLookup}},{binding:2,resource:{buffer:clusterData}},{binding:3,resource:{buffer:clusterParameters}}]
  ];
  // Each auto layout exposes only the bindings actually consumed by that stage.
- const stages=[['publish_cell_material_constants',pipelines.publish_cell_material_constants,[],[0,7],[]],['publish_cell_facts',pipelines.publish_cell_facts,[0,1,2],[0,1,3,4,5,6,7,14],[0,1,3]],...pipelines.classify.map((pipeline,index)=>[`classify_cells_stage_${index}`,pipeline,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2]])];
+ const stages=[['publish_cell_material_constants',pipelines.publish_cell_material_constants,[],[0,7],[]],['publish_cell_facts',pipelines.publish_cell_facts,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],...pipelines.classify.map((pipeline,index)=>[`classify_cells_stage_${index}`,pipeline,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]])];
  let previous=null;
  for(const [name,pipeline,b0,b1,b2] of stages){
   const pass=graph.add(name,{},(_data,resources)=>{

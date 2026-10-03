@@ -1,6 +1,6 @@
 # Surface V3 第一版优化进度记录
 
-日期：2026-10-03。当前 HEAD：`ec2b3fec`。本记录只描述真实源码、提交和验证状态，不把组件 oracle 或设计文档当作生产链完成证据。
+日期：2026-10-03。Phase 7 测试 HEAD：`c28d0292` 加工作树修正。本记录只描述真实源码、提交和验证状态，不把组件 oracle 或设计文档当作生产链完成证据。
 
 ## 已完成阶段
 
@@ -14,7 +14,7 @@
 | Phase 5：reconstruct/batch | 代码收口完成，正式验收延期 | 当前工作树；`git diff --check`、导航解析和旧 history 静态检索通过 | 已删除四路 Surface history、dense identity/age 与历史交换；reconstruct 只消费 packet/precision packet、TemporalFacts 和 sample map；batch 上限按 extent/profile 推导，GPU 生成每批 indirect count，尾批按 output region 有界写入 |
 | Phase 6：真实 provider/lifecycle | 代码收口完成，正式验收延期 | 本次工作树；`git diff --check` 与静态依赖检索 | 容量预检、Surface 512 MiB ledger、Field/Signal publication generation + submitted epoch、VSM 初始化顺序和真实 FrameGraph provider 依赖已接通；浏览器、GPU、画质与性能统一留到 Phase 7 |
 | Phase 6.5：Production Cutover Fix | 代码与 bounded production cutover 完成，正式 Phase 7 验收待执行 | 当前提交；`typecheck`、`build`、`build:test`、Surface reconstruct/FieldStore/profiler 定向测试、`git diff --check` 通过 | classifier 使用固定 batch workspace 与 `firstTile/tileCount`，geometry setup/facts/continuity/compact 逐批串接并写回全帧 sampleMap；lighting precision spill 使用稀疏 spill storage 与 flags index，普通 packet 不再写 full mirror；single-segment store policy、overflow flags、非 8 对齐 tail 与 batch lifecycle 已接通 |
-| Phase 7：整链验收 | 未开始 | 无 | 没有正式 browser matrix、画质对照或四版本性能比较 |
+| Phase 7：整链验收 | 已执行首轮，未通过 | [验证记录](surface-work-v3-optimization-v1-phase7-validation-2026-10.md) | 引擎编译与 50 项定向测试通过；mixed cell 两项 GPU 不变量失败；Showcase VSM off/on 均启动超时；有效画质序列、生命周期矩阵和四版本性能比较尚未完成 |
 
 因此当前真正完成的是 **Phase 0–1，Phase 2–5 已完成对应代码切换但尚未完成正式生产验收**。Phase 3 的完整跨帧 FieldStore value 消费、Phase 4/5 的正式 GPU、浏览器与连续画质验收统一留到 Phase 7。
 

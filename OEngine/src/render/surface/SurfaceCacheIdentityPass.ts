@@ -5,7 +5,7 @@ import { GPU_INSTANCE_RECORD_WGSL } from "../../gpu/GpuInstanceAbi.js";
 import { GPU_FRAME_INSTANCE_WGSL } from "../../gpu/GpuFrameInstanceAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../../gpu/GpuVisibilityKeyAbi.js";
-import { SURFACE_WORK_INDIRECT_OFFSET } from "../../gpu/GpuSurfaceWorkAbi.js";
+import { SURFACE_WORK_INDIRECT_OFFSET, SURFACE_INPUT_WITNESS_WORDS, SURFACE_INPUT_WITNESS_BYTES } from "../../gpu/GpuSurfaceWorkAbi.js";
 import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 /** Exact producer-input witness. No geometry decoding, texture sampling or hashes.
@@ -26,16 +26,18 @@ fn identity(@builtin(global_invocation_id) id:vec3u) {
   let record=id.x; if record>=counts[0] || record>=settings.capacity { return; }
   let sample=settings.sample_offset+record*8u;
   let pixel=work[sample]; let key=oengine_visibility_key_resolve(work[sample+1u],meshlets.header.generation,meshlets.header.written_count);
-  work[sample+6u]=pixel;
+  work[sample+6u]=record;
   if key.valid==0u { work[sample+7u]=0u; return; }
   let item=meshlets.elements[key.meshlet_work_slot]; let instance=instances[item.instance_slot].source;
   let witness=array<u32,12>(view_epoch[0],settings.scene,item.geometry_slot,item.meshlet_slot,item.instance_slot,
     key.local_primitive,oengine_instance_geometry_generation(instance),instance.dynamic_revision,
     item.packed_profile_lod,oengine_instance_product_table_slot(instance),instance.instance_set_generation,instance.flags);
-  let base=record*13u; var same=keys[base+12u]!=0u && keys[base+12u]!=0xffffffffu && view_epoch[0]!=0xffffffffu;
+  let base=record*${SURFACE_INPUT_WITNESS_WORDS}u;
+  var same=keys[base+12u]!=0u && keys[base+12u]!=0xffffffffu && view_epoch[0]!=0xffffffffu && keys[base+13u]==pixel;
   for(var i=0u;i<12u;i++){same=same && keys[base+i]==witness[i];}
   if !same {
     for(var i=0u;i<12u;i++){keys[base+i]=witness[i];}
+    keys[base+13u]=pixel;
     keys[base+12u]=select(keys[base+12u]+1u,0xffffffffu,keys[base+12u]>=0xfffffffeu);
   }
   // Bit 2 carries the exact geometry hit to the sole GeometryRecord producer.
@@ -81,7 +83,7 @@ export class SurfaceCacheIdentityPass {
         keys: ResourceId;
         work: ResourceId;
     } {
-        let keys = this.scratch.importBuffer(graph, input.bind, "Surface/compact input witness", Math.max(52, input.capacity * 52), GPUBufferUsage.STORAGE);
+        let keys = this.scratch.importBuffer(graph, input.bind, "Surface/compact input witness", Math.max(SURFACE_INPUT_WITNESS_BYTES, input.capacity * SURFACE_INPUT_WITNESS_BYTES), GPUBufferUsage.STORAGE);
         let viewEpoch = this.scratch.importBuffer(graph, input.bind, "Surface/exact view epoch", PACKED_CAMERA_TYPE.size + 4, GPUBufferUsage.STORAGE);
         const viewNode = graph.add("Surface/exact view epoch", {}, (_data, resources, context) => {
             const cmd = context.encoder as ShadeGPUCommandContext;
@@ -95,6 +97,7 @@ export class SurfaceCacheIdentityPass {
             pass.end();
         });
         viewNode.read(input.camera);
+        viewNode.read(input.counts);
         viewNode.read(viewEpoch);
         viewEpoch = viewNode.write(viewEpoch);
         let indirect!: ResourceId;

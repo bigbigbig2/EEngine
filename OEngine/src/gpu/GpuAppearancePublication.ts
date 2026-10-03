@@ -23,6 +23,7 @@ import { appearanceCoverageKernel, COVERAGE_DIRECTORY_STRIDE } from "../shaders/
 import { ShadeTransparencyMode } from "../material/enums.js";
 import { lowerAppearanceFieldBounds, type AppearanceFieldBoundProgram } from "../shaders/appearance_field_bounds.js";
 import { packSurfaceAppearanceBounds } from "./GpuSurfaceAppearanceBoundsAbi.js";
+import { SURFACE_INPUT_WITNESS_WORDS } from "./GpuSurfaceWorkAbi.js";
 
 const APPEARANCE_FRAME_MAX_TASKS = 262144;
 const APPEARANCE_FRAME_MAX_PIXELS = 4194304;
@@ -154,7 +155,7 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
   let cacheAt=record*19u;
   surface_cache[cacheAt]=surface_metadata[publication+3u];
   surface_cache[cacheAt+1u]=material;
-  surface_cache[cacheAt+2u]=surface_geometry_keys[record*13u+12u];
+  surface_cache[cacheAt+2u]=surface_geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+12u];
   surface_cache[cacheAt+3u]=surface_residency_epoch[0];
   for(var field=0u;field<15u;field++){
     let fieldIndex=surface_metadata[publication+4u+field];
@@ -512,7 +513,10 @@ export class GpuAppearancePublication {
           const surfaceKernel = appearanceResidentKernel(source.program, resources, productResources,
             surfaceKernelIntegration(source.program, kernel.lowered));
           surfaceKernels.push(surfaceKernel);
-          boundPrograms.push(lowerAppearanceFieldBounds(source.program, kernel.lowered, `ab_field_${programIndex}`));
+          boundPrograms.push(Object.freeze({
+            ...lowerAppearanceFieldBounds(source.program, kernel.lowered, `ab_field_${programIndex}`),
+            inputSemantics: Object.freeze(source.program.inputs.map(input => appearanceGeometryInputKind(input, source.program)))
+          }));
           boundGraphs.push(source.program);
           surfaceDescriptors.push(surfaceKernel.descriptor);
           leaseIndices.set(kernelKey, programIndex);

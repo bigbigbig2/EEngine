@@ -8,6 +8,10 @@ export const SURFACE_EXCEPTION_RECORD_STRIDE = 16;
 export const SURFACE_COUNTER_BLOCK_STRIDE = 128;
 export const SURFACE_GEOMETRY_RECORD_STRIDE = 192;
 export const SURFACE_WORK_TILE_SIZE = 8;
+/** Twelve exact geometry inputs, generation at word 12, representative pixel
+ * at word 13. Scratch record indices are never absolute screen addresses. */
+export const SURFACE_INPUT_WITNESS_WORDS = 14;
+export const SURFACE_INPUT_WITNESS_BYTES = SURFACE_INPUT_WITNESS_WORDS * 4;
 
 // SurfaceWork counter buffer layout. The first four words are atomics while
 // the indirect dispatch triplet starts at byte 16 and is written by finalize.

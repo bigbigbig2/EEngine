@@ -6,7 +6,7 @@ import { resolveTextureView } from "../RenderTargetViews.js";
 import { GPU_VISIBILITY_KEY_WGSL } from "../../gpu/GpuVisibilityKeyAbi.js";
 import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../gpu/GpuMeshletRasterWorkAbi.js";
 import { GPU_SHADING_MATERIAL_WGSL } from "../../gpu/GpuShadingMaterialAbi.js";
-import { SURFACE_WORK_INDIRECT_OFFSET } from "../../gpu/GpuSurfaceWorkAbi.js";
+import { SURFACE_WORK_INDIRECT_OFFSET, SURFACE_INPUT_WITNESS_WORDS } from "../../gpu/GpuSurfaceWorkAbi.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import { SURFACE_FIELD_STORE_COMPUTE_WGSL, SURFACE_FIELD_STORE_ENTRY_BYTES } from "../../gpu/GpuSurfaceFieldStoreAbi.js";
 import type { GpuSurfaceFieldStore } from "../../gpu/GpuSurfaceFieldStore.js";
@@ -23,6 +23,7 @@ export interface SurfaceMaterialProducts {
     readonly geometryKeys: ResourceId;
     readonly dependencyEpoch: ResourceId;
     readonly fieldStore: ResourceId;
+    readonly fieldPublished?: ResourceId;
 }
 const CACHE_WGSL = /* wgsl */ `
 ${GPU_VISIBILITY_KEY_WGSL}
@@ -74,7 +75,7 @@ fn field_store_hit(key_at:u32)->bool {
  if entry==0xffffffffu || publication+19u>=arrayLength(&surface_identity){diagnostic_add(3u,1u);return;}
  let pixel=work[at];let cached=record*19u;let material_record=materials[material];
  let same=cache[cached]==surface_identity[publication+3u] && cache[cached+1u]==material && field_store_hit(cached);
- let same_geometry=cache[cached+2u]==geometry_keys[record*13u+12u] && (work[at+7u]&4u)!=0u;
+ let same_geometry=cache[cached+2u]==geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+12u] && (work[at+7u]&4u)!=0u;
  let same_texture=cache[cached+3u]==residency_epoch[0] && residency_epoch[0]!=0xffffffffu;
  // Replacing a publication also clears fields absent from its new program.
  var missing=select(0x7fffu,0u,same);
@@ -150,9 +151,9 @@ struct Settings { request_count:u32, cache_stride:u32, request_stride:u32, reser
 @compute @workgroup_size(64)
 fn pack_field_store_requests(@builtin(global_invocation_id) id:vec3u){
   let record=id.x;if(record>=settings.request_count){return;}
-  let source=record*settings.cache_stride;let target=record*settings.request_stride;
-  for(var word=0u;word<12u;word++){requests[target+word]=cache[source+word];}
-  for(var word=0u;word<4u;word++){requests[target+12u+word]=cache_values[record*12u+word];}
+  let source=record*settings.cache_stride;let request_base=record*settings.request_stride;
+  for(var word=0u;word<12u;word++){requests[request_base+word]=cache[source+word];}
+  for(var word=0u;word<4u;word++){requests[request_base+12u+word]=cache_values[record*12u+word];}
 }
 `;
 export class SurfaceMaterialCachePass {
@@ -241,6 +242,7 @@ export class SurfaceMaterialCachePass {
             let initialization: ReturnType<typeof graph.add> | null = null;
             if (!this.fieldStoreInitialized) {
                 initialization = graph.add("Surface/FieldStore initialize", { fieldStoreBuffer, storeEntries }, (data, resources, context) => {
+                    if (this.fieldStoreInitialized) { return; }
                     const command = context.encoder as ShadeGPUCommandContext;
                     command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([0, data.storeEntries / 24, 1, 0]).buffer, 0, 16);
                     const group = this.device.createBindGroup({ layout: this.fieldStoreResetPipeline.getBindGroupLayout(0), entries: [
@@ -249,9 +251,11 @@ export class SurfaceMaterialCachePass {
                     ] });
                     const pass = command.beginComputePass({ label: "Surface/FieldStore initialize" }); pass.setPipeline(this.fieldStoreResetPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(data.storeEntries / 24 / 64)); pass.end();
                     command.onFinished.addOne(() => { this.fieldStoreInitialized = true; });
+                    this.fieldStoreInitialized = true;
                     command.onAborted?.addOne(() => { this.fieldStoreInitialized = false; });
                 });
                 initialization.read(fieldStoreBuffer); initialization.write(fieldStoreBuffer); node.dependsOn(initialization);
+                initialization.read(input.work);
             }
             const pack = graph.add("Surface/FieldStore request pack", { cacheKeys, cacheValues: lookupCacheValues, requestCount }, (data, resources, context) => {
                 const command = context.encoder as ShadeGPUCommandContext;
@@ -269,6 +273,7 @@ export class SurfaceMaterialCachePass {
             results = pack.create("Surface/FieldStore lookup results", { kind: "transient_buffer", size: requestCount * 2 * 4, usage: GPUBufferUsage.STORAGE });
             storeCounters = pack.create("Surface/FieldStore counters", { kind: "transient_buffer", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
             pack.read(cacheKeys); pack.read(lookupCacheValues); pack.write(requests); pack.write(results); pack.write(storeCounters); if (initialization !== null) pack.dependsOn(initialization);
+            pack.read(input.work);
             const storeNode = graph.add("Surface/FieldStore lookup", { requests, results, storeCounters, fieldStoreBuffer, requestCount, storeEntries }, (data, resources, context) => {
                 const command = context.encoder as ShadeGPUCommandContext;
                 command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([data.requestCount, data.storeEntries / 24, this.fieldStore!.stats().generation, 0]).buffer, 0, 16);
@@ -325,6 +330,7 @@ export class SurfaceMaterialCachePass {
         const fields = node.write(input.fields);
         const audit = node.write(input.audit);
         const cacheKeys = node.write(input.cacheKeys), cacheValues = fields;
+        let fieldPublished: ResourceId | undefined;
         if (this.fieldStore !== null) {
             const requestCount = Math.max(1, input.recordCount);
             const storeEntries = this.fieldStore.capacity.segmentBytes[0]! / 4;
@@ -354,8 +360,9 @@ export class SurfaceMaterialCachePass {
             requests = admit.create("Surface/FieldStore evaluation requests", { kind: "transient_buffer", size: requestCount * 16 * 4, usage: GPUBufferUsage.STORAGE });
             storeCounters = admit.create("Surface/FieldStore evaluation counters", { kind: "transient_buffer", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
             admit.read(cacheKeys); admit.read(cacheValues); admit.read(input.fieldStore); admit.write(requests); admit.write(storeCounters); admit.write(input.fieldStore); admit.dependsOn(node); admit.make_side_effect();
+            fieldPublished = requests;
         }
-        return { ...input, fields, audit, cacheKeys, cacheValues };
+        return { ...input, fields, audit, cacheKeys, cacheValues, fieldPublished };
     }
     destroy(): void { this.fieldStoreInitialized = false; this.settings.destroy(); this.finalizeSettings.destroy(); this.fieldStoreSettings.destroy(); }
 }

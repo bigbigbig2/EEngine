@@ -17,26 +17,34 @@ fn ab_unknown()->AppearanceBound{return AppearanceBound(0.0,0.0,0u);}
 fn ab_exact(value:f32)->AppearanceBound{return AppearanceBound(value,value,1u);}
 fn ab_valid(a:AppearanceBound)->bool{return a.known!=0u && a.low<=a.high && all(vec2f(a.low,a.high)==vec2f(a.low,a.high));}
 fn ab_expand(low:f32,high:f32)->AppearanceBound {
- if !(low<=high) || any(abs(vec2f(low,high))>vec2f(1e30)){return ab_unknown();}
+ let valid = low <= high && all(abs(vec2f(low,high)) <= vec2f(1e30));
  let margin=max(abs(vec2f(low,high))*4.76837158203125e-7,vec2f(1e-30));
- return AppearanceBound(low-margin.x,high+margin.y,1u);
+ return AppearanceBound(select(0.0,low-margin.x,valid),select(0.0,high+margin.y,valid),u32(valid));
+}
+// Keep interval arithmetic straight-line. Inlining repeated early-return
+// branches through a material graph otherwise expands the driver compiler CFG
+// dramatically. Invalid intervals retain the exact same unknown result.
+fn ab_checked(value:AppearanceBound,valid:bool)->AppearanceBound {
+ return AppearanceBound(select(0.0,value.low,valid),select(0.0,value.high,valid),select(0u,value.known,valid));
 }
 fn ab_channel(a:AppearanceBound4,c:u32)->AppearanceBound{return AppearanceBound(a.low[c],a.high[c],a.known[c]);}
 fn ab_add(a:AppearanceBound,b:AppearanceBound)->AppearanceBound {
- if !ab_valid(a)||!ab_valid(b){return ab_unknown();}return ab_expand(a.low+b.low,a.high+b.high);
+ return ab_checked(ab_expand(a.low+b.low,a.high+b.high),ab_valid(a)&&ab_valid(b));
 }
 fn ab_subtract(a:AppearanceBound,b:AppearanceBound)->AppearanceBound {
- if !ab_valid(a)||!ab_valid(b){return ab_unknown();}return ab_expand(a.low-b.high,a.high-b.low);
+ return ab_checked(ab_expand(a.low-b.high,a.high-b.low),ab_valid(a)&&ab_valid(b));
 }
 fn ab_multiply(a:AppearanceBound,b:AppearanceBound)->AppearanceBound {
- if (ab_valid(a)&&a.low==0.0&&a.high==0.0)||(ab_valid(b)&&b.low==0.0&&b.high==0.0){return ab_exact(0.0);}
- if !ab_valid(a)||!ab_valid(b){return ab_unknown();}
+ let zero = (ab_valid(a)&&a.low==0.0&&a.high==0.0)||(ab_valid(b)&&b.low==0.0&&b.high==0.0);
  let products=vec4f(a.low*b.low,a.low*b.high,a.high*b.low,a.high*b.high);
- return ab_expand(min(min(products.x,products.y),min(products.z,products.w)),max(max(products.x,products.y),max(products.z,products.w)));
+ let result=ab_checked(ab_expand(min(min(products.x,products.y),min(products.z,products.w)),max(max(products.x,products.y),max(products.z,products.w))),ab_valid(a)&&ab_valid(b));
+ return AppearanceBound(select(result.low,0.0,zero),select(result.high,0.0,zero),select(result.known,1u,zero));
 }
 fn ab_divide(a:AppearanceBound,b:AppearanceBound)->AppearanceBound {
- if !ab_valid(a)||!ab_valid(b)||(b.low<=0.0&&b.high>=0.0){return ab_unknown();}
- return ab_multiply(a,ab_expand(1.0/b.high,1.0/b.low));
+ let valid=ab_valid(a)&&ab_valid(b)&&!(b.low<=0.0&&b.high>=0.0);
+ // Avoid executing singular divisions even when the final interval is unknown.
+ let divisor=select(vec2f(1.0),vec2f(b.high,b.low),vec2<bool>(valid));
+ return ab_checked(ab_multiply(a,ab_expand(1.0/divisor.x,1.0/divisor.y)),valid);
 }
 fn ab_min(a:AppearanceBound,b:AppearanceBound)->AppearanceBound {
  if !ab_valid(a)||!ab_valid(b){return ab_unknown();}return AppearanceBound(min(a.low,b.low),min(a.high,b.high),1u);
@@ -111,6 +119,8 @@ fn ab_normal_product(moment:AppearanceBound4,c:u32)->AppearanceBound {
 `;
 
 export interface AppearanceFieldBoundProgram {
+  /** Production geometry semantics in program input order, fixed at publication. */
+  readonly inputSemantics?: readonly number[];
   readonly source: string;
   readonly fields: readonly string[];
   readonly materialSource: string;

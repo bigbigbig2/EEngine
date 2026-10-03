@@ -60,8 +60,12 @@ try {
   {name:'varying base only base fine',width:8,height:8,first:0,count:1,lane:i=>({domain:1,winner:i,enabled:1,low:i*.1})},
   {name:'tail batch sparse coverage and disabled planes',width:13,height:11,first:1,count:3,lane:i=>({domain:1,winner:i,enabled:i%3?1:0,covered:i%7!==0})},
   {name:'empty tile',width:8,height:8,first:0,count:1,lane:i=>({domain:1,winner:i,enabled:0,covered:false})},
+  {name:'separated mixed domains use compact group indices',width:8,height:8,first:0,count:1,lane:i=>({domain:i<32?1:2,winner:i,enabled:1})},
+  {name:'mixed domains preserve field error bounds',width:8,height:8,first:0,count:1,lane:i=>({domain:i%2+1,winner:i,enabled:1,low:i*.1})},
  ];
  for(const test of fixtures){
+  if(process.env.SURFACE_CELL_CASE && !test.name.includes(process.env.SURFACE_CELL_CASE))continue;
+  report.currentCase=test.name;
   const retained=[], n=test.width*test.height;
   const buffer=(size,usage)=>{const b=device.createBuffer({size,usage});retained.push(b);return b;};
   const storage=GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST|GPUBufferUsage.COPY_SRC;
@@ -80,7 +84,7 @@ try {
    {binding:0,resource:{buffer:settings}},{binding:1,resource:texture.createView()},
    {binding:2,resource:{buffer:workspace}},{binding:5,resource:{buffer:input}}]});
   const encoder=device.createCommandEncoder(),pass=encoder.beginComputePass();
-  pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(test.count,21);pass.end();
+  pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(test.count);pass.end();
   const staging=await Promise.all([
    capture(encoder,workspace,test.count*SURFACE_CELL_TILE_PLAN_BYTES,workspaceLayout.plans),
    capture(encoder,workspace,test.count*SURFACE_CELL_TILE_MAP_BYTES,workspaceLayout.maps),
@@ -101,17 +105,17 @@ try {
      if(mode===1){assert.ok(l.publication&(1<<plane));continue;}
      assert.ok(mode>=2&&mode<=4);
      const g=mode===2?lane:mode===3?(Math.floor(lane/8)>>(rate>>2&3))*(8>>(rate&3))+((lane%8)>>(rate&3)):surfaceCellSixBit(m,lane,p[at+2]);
-     assert.ok(g<slots);if(!partition.has(g))partition.set(g,[]);partition.get(g).push({lane,l});
+     assert.ok(g<slots,`${test.name}: tile ${tile}, plane ${plane}, lane ${lane}, group ${g} exceeds ${slots} slots`);if(!partition.has(g))partition.set(g,[]);partition.get(g).push({lane,l});
     }
     for(const [g,members] of partition){
      assert.ok(members.every(({l})=>l.domain===members[0].l.domain));
-     assert.ok(Math.max(...members.map(({l})=>l.low))-Math.min(...members.map(({l})=>l.low))<=.020001);
+     assert.ok(Math.max(...members.map(({l})=>l.low))-Math.min(...members.map(({l})=>l.low))<=.020001,`${test.name}: tile ${tile}, plane ${plane}, group ${g} exceeds the 0.02 field error budget`);
      if(plane===6&&!members[0].l.normal)assert.equal(members.length,1);
      if(mode===4){const representative=surfaceCellSixBit(m,g,p[at+2]+12);assert.ok(members.some(({lane})=>lane===representative));}
     }
     groups+=partition.size;if(mode===4)mapBytes+=96;
     if(test.name==='cross-winner continuous'&&plane===0){assert.equal(mode,3);assert.equal(slots,4);}
-    if(test.name.startsWith('mixed')&&plane===0){assert.equal(mode,4);assert.ok(partition.size<32);}
+    if(test.name==='mixed interleaved domains retain low rate'&&plane===0){assert.equal(mode,4);assert.ok(partition.size<32);}
     if(test.name.startsWith('fine')&&plane===0){assert.equal(mode,2);assert.equal(slots,64);}
     if(test.name.startsWith('constant')){assert.equal(mode,1);assert.equal(slots,0);}
     if(test.name.startsWith('unknown')&&plane===0)assert.equal(slots,4);
