@@ -1,4 +1,4 @@
 interface:
   display_name: "EEngine Code Style"
-  short_description: "Readable TypeScript/WGSL for auditable WebGPU renderer code"
+  short_description: "Readable, auditable, performance-aware EEngine GPU code"
   default_prompt: "Use $eengine-code-style when writing or reviewing EEngine TypeScript, WGSL, or WebGPU renderer code."

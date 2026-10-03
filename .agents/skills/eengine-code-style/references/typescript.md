@@ -136,3 +136,21 @@ Do not comment obvious increments or loop syntax.
 Use repository Prettier or ESLint if configured, but keep GPU-specific decisions
 in source. Do not add a formatter dependency or reformat unrelated files as a
 side effect of a renderer change.
+
+## Performance boundary
+
+For a steady-state renderer path, reuse suitable scratch arrays, typed buffers,
+descriptors, and stable objects. Avoid hidden `clone`, `copy`, `slice`,
+`Array.from`, or large temporary allocations in helpers that are expected to be
+hot. Do not replace a readable loop with an index loop or a bit trick without a
+measured CPU bottleneck.
+
+Pipeline, shader module, layout, sampler, and stable bind-group creation belongs
+at publication, initialization, prewarm, or a deliberate cache-miss path. A
+per-frame `createComputePipeline` or `createRenderPipeline` is a design smell;
+cache it or explain the dynamic identity. Keep `queue.writeBuffer` updates
+packed enough to avoid many tiny submissions, but do not introduce a generic
+parameter system for an insignificant reduction.
+
+When a TypeScript change creates a new GPU resource, keep its capacity, stride,
+usage, lifetime, overflow behavior, and owner obvious in the same local flow.

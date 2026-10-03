@@ -1,6 +1,6 @@
 ---
 name: eengine-code-style
-description: "Use when writing, modifying, reviewing, or refactoring EEngine TypeScript, WGSL, WebGPU renderer, FrameGraph, GPU ABI, shader-generator, Surface, lighting, temporal, or residency code under OEngine/src; apply the project's readable, GPU-auditable style without triggering for ordinary documentation or unrelated application code."
+description: "Use when writing, modifying, reviewing, or refactoring EEngine TypeScript, WGSL, WebGPU renderer, FrameGraph, GPU ABI, shader-generator, Surface, lighting, temporal, or residency code under OEngine/src; apply readable, GPU-auditable, data-oriented, performance-aware defaults without triggering for ordinary documentation or unrelated application code."
 metadata:
   short-description: "Readable, auditable TypeScript and WGSL for EEngine"
 ---
@@ -22,6 +22,15 @@ generic abstraction. Explicit GPU state is preferred over generic wrappers.
 Apply the guidance silently during normal coding; do not emit a style report,
 checklist, or governance artifact unless the user explicitly asks for a style
 review.
+
+Performance defaults are equally important to source shape. Prefer data-oriented,
+GPU-driven, bandwidth-aware, allocation-aware, cache-aware, batch-oriented, and
+WebGPU-portable designs. Start by asking whether work can be avoided, then
+reduce synchronization, memory traffic, dispatch and binding overhead, and
+steady-state allocation pressure. Do not trade readable code for speculative
+micro-optimizations. Read [references/performance.md](references/performance.md)
+when the change affects workload generation, GPU data layout, caching, resource
+lifetime, dispatch, or a hot path.
 
 ## Scope and workflow
 
@@ -74,6 +83,14 @@ review.
 - Preserve explicit typed buffers, loops, bit operations, indirect dispatch,
   and resource state in performance-sensitive paths. Do not replace them with
   generic collections, callback chains, or wrapper objects merely for style.
+- Keep per-frame hot paths allocation-aware. Reuse scratch arrays, typed
+  buffers, descriptors, and stable objects where the workload warrants it;
+  avoid introducing `Array.from`, `slice`, `map`, `filter`, or new typed arrays
+  without a clear reason in a steady-state path.
+- Keep pipeline, shader module, layout, sampler, and other GPU object creation
+  out of steady-state encoding. Cache stable bind groups and pipelines when
+  their resource identity permits it; create dynamic views only when they
+  actually change.
 
 ## WGSL rules
 
@@ -100,6 +117,32 @@ then compose them with clear template-string paragraphs. Avoid deeply nested
 `${...}` expressions, chained `map(...).join(...)` source construction, and
 large conditional template expressions. Do not add a template library solely
 for formatting.
+
+## Performance-sensitive renderer judgment
+
+- Prefer actual or bounded demand (`visibleCount`, `activeCount`, `missCount`,
+  `dirtyCount`, `requestedCount`, or `signalCount`) over max-capacity work.
+  Compact and dispatch actual work, preferably with GPU-produced indirect
+  arguments, instead of dispatching a worst-case queue and returning from idle
+  lanes.
+- Keep persistent caches, frame scratch, batch scratch, history, and transient
+  resources separate. Make capacity, stride, bytes, overflow, retirement, and
+  lifetime recoverable from the owner without producing a performance report.
+- Keep producer, consumer, and dependency locality visible. Use fewer
+  meaningful passes, not many tiny dispatches; split when a real dependency,
+  rate, lifetime, or indirect-work boundary requires it.
+- Keep the portable WebGPU baseline semantically complete. Optional features
+  such as subgroups, shader-f16, or buffer views may provide bounded fast paths,
+  but must not become an implicit baseline.
+- Preserve output quality and correctness while reducing work. A performance
+  change must be measured or architecturally obvious; a speculative ALU trick
+  does not justify obscuring GPU state or data flow.
+
+The normal design order favors auditability before generic abstraction. When a
+measured or architecturally obvious optimization conflicts with style, use this
+tradeoff order: correctness, GPU semantic correctness, measured performance,
+auditability, readability, then generic style preference. “Might be faster” is
+not sufficient justification for an opaque implementation.
 
 ## Renderer-specific judgment
 

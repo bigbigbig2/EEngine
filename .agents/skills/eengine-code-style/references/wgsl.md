@@ -123,3 +123,29 @@ When changing WGSL, keep these visible in the same local region:
 Read the repository `webgpu` skill for API validity, memory layout, feature
 support, atomics, barriers, or uniformity questions. This style skill does not
 replace that technical review.
+
+## Performance shape
+
+Prefer demand-sized or indirect work over a max-capacity dispatch with idle
+lanes. If a kernel mixes materially different work types, classify or compact
+them into a bounded number of coherent families rather than adding a giant
+divergent switch or one dispatch per tiny type. Keep subgroup assumptions
+capability-aware; do not assume a subgroup is 32 lanes or maps to a screen
+quad.
+
+Use workgroup or subgroup aggregation before a contended global atomic when the
+queue or counter allows it. Keep barriers, storage access, bounds checks,
+overflow behavior, and producer/consumer phase boundaries explicit. A separate
+dispatch and FrameGraph dependency is preferable to an imagined GPU-wide
+barrier inside one dispatch.
+
+Do not hide copies, large temporary arrays, or full-screen products in a helper.
+For a new record or buffer, keep the hot fields compact and make cold or
+optional data a separate product when consumers do not all need it. Preserve
+high-frequency visual signals when considering a lower rate; a lower rate is a
+workload decision, not permission to drop quality.
+
+Avoid speculative bit hacks, loop unrolling, or `select` rewrites. Consider
+them only for a measured hot kernel with a clear, maintainable benefit. Keep
+diagnostic counters and rare fallback branches out of the common path when the
+feature is disabled.
