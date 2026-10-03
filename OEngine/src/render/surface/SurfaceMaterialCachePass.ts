@@ -8,6 +8,8 @@ import { GPU_MESHLET_RASTER_WORK_WGSL } from "../../gpu/GpuMeshletRasterWorkAbi.
 import { GPU_SHADING_MATERIAL_WGSL } from "../../gpu/GpuShadingMaterialAbi.js";
 import { SURFACE_WORK_INDIRECT_OFFSET } from "../../gpu/GpuSurfaceWorkAbi.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
+import { SURFACE_FIELD_STORE_COMPUTE_WGSL } from "../../gpu/GpuSurfaceFieldStoreAbi.js";
+import type { GpuSurfaceFieldStore } from "../../gpu/GpuSurfaceFieldStore.js";
 export interface SurfaceMaterialProducts {
     readonly work: ResourceId;
     readonly fields: ResourceId;
@@ -120,6 +122,20 @@ fn compact(@builtin(global_invocation_id) id:vec3u){
   if dst<count { ordered[atomicLoad(&counters[at+5u])+dst]=pair; }
 }
 `;
+
+const FIELD_STORE_PACK_WGSL = /* wgsl */ `
+struct Settings { request_count:u32, cache_stride:u32, request_stride:u32, reserved:u32 }
+@group(0) @binding(0) var<uniform> settings:Settings;
+@group(0) @binding(1) var<storage,read> cache:array<u32>;
+@group(0) @binding(2) var<storage,read_write> requests:array<u32>;
+@compute @workgroup_size(64)
+fn pack_field_store_requests(@builtin(global_invocation_id) id:vec3u){
+  let record=id.x;if(record>=settings.request_count){return;}
+  let source=record*settings.cache_stride;let target=record*settings.request_stride;
+  for(var word=0u;word<12u;word++){requests[target+word]=cache[source+word];}
+  requests[target+12u]=0u;requests[target+13u]=0u;requests[target+14u]=0u;requests[target+15u]=0u;
+}
+`;
 export class SurfaceMaterialCachePass {
     private readonly lookupLayout: GPUBindGroupLayout;
     private readonly lookupPipeline: GPUComputePipeline;
@@ -127,9 +143,16 @@ export class SurfaceMaterialCachePass {
     private readonly finalizePipeline: GPUComputePipeline;
     private readonly compactLayout: GPUBindGroupLayout;
     private readonly compactPipeline: GPUComputePipeline;
+    private readonly fieldStorePackPipeline: GPUComputePipeline;
+    private readonly fieldStoreResetPipeline: GPUComputePipeline;
+    private readonly fieldStoreLookupPipeline: GPUComputePipeline;
+    private readonly fieldStorePublishPipeline: GPUComputePipeline;
     private readonly settings: GPUBuffer;
     private readonly finalizeSettings: GPUBuffer;
-    constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources) {
+    private readonly fieldStoreSettings: GPUBuffer;
+    private fieldStoreInitialized = false;
+    constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources,
+        private readonly fieldStore: GpuSurfaceFieldStore | null = null) {
         this.settings = device.createBuffer({ label: "Surface material lookup settings", size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         this.finalizeSettings = device.createBuffer({ label: "Surface material miss finalize settings", size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
         this.lookupLayout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d" } }, ...[2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: (binding === 3 || binding === 4 || binding === 5 || binding === 6 || binding === 7 || binding === 16 || binding === 12 || binding === 13 || binding === 14 || binding === 15 ? "read-only-storage" : "storage") as GPUBufferBindingType } })), { binding: 11, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float", viewDimension: "2d-array" } }] });
@@ -138,6 +161,12 @@ export class SurfaceMaterialCachePass {
         this.finalizePipeline = device.createComputePipeline({ label: "Surface/material miss indirect finalize", layout: device.createPipelineLayout({ bindGroupLayouts: [this.finalizeLayout] }), compute: { module: device.createShaderModule({ code: FINALIZE_WGSL }), entryPoint: "finalize" } });
         this.compactLayout = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } }, { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }, { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }, { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }] });
         this.compactPipeline = device.createComputePipeline({ label: "Surface/material miss queue compact", layout: device.createPipelineLayout({ bindGroupLayouts: [this.compactLayout] }), compute: { module: device.createShaderModule({ code: COMPACT_WGSL }), entryPoint: "compact" } });
+        this.fieldStoreSettings = device.createBuffer({ label: "Surface/FieldStore settings", size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+        this.fieldStorePackPipeline = device.createComputePipeline({ label: "Surface/FieldStore request pack", layout: "auto", compute: { module: device.createShaderModule({ label: "Surface/FieldStore request pack", code: FIELD_STORE_PACK_WGSL }), entryPoint: "pack_field_store_requests" } });
+        const fieldStoreModule = device.createShaderModule({ label: "Surface/FieldStore lookup and publish", code: SURFACE_FIELD_STORE_COMPUTE_WGSL });
+        this.fieldStoreResetPipeline = device.createComputePipeline({ label: "Surface/FieldStore reset", layout: "auto", compute: { module: fieldStoreModule, entryPoint: "surface_field_store_reset" } });
+        this.fieldStoreLookupPipeline = device.createComputePipeline({ label: "Surface/FieldStore lookup", layout: "auto", compute: { module: fieldStoreModule, entryPoint: "surface_field_store_lookup" } });
+        this.fieldStorePublishPipeline = device.createComputePipeline({ label: "Surface/FieldStore publish", layout: "auto", compute: { module: fieldStoreModule, entryPoint: "surface_field_store_publish" } });
     }
     addLookupToGraph(graph: FrameGraph, input: {
         geometryKeys: ResourceId;
@@ -182,6 +211,64 @@ export class SurfaceMaterialCachePass {
         audit = node.create("Surface/material evaluator audit", { kind: "transient_buffer", size: 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });
         const work = node.write(input.work);
         missQueue = node.write(missQueue);
+        if (this.fieldStore !== null) {
+            const fieldStoreBuffer = graph.import_resource("Surface/FieldStore entries", { kind: "imported", label: "Surface/FieldStore entries", domain: "internal-full" }, input.resourceBinding("surface-field-store", () => this.fieldStore!.buffer));
+            const requestCount = Math.max(1, input.recordCount);
+            let requests!: ResourceId, results!: ResourceId, storeCounters!: ResourceId;
+            const storeEntries = this.fieldStore.capacity.segmentBytes[0]! / 4;
+            let initialization: ReturnType<typeof graph.add> | null = null;
+            if (!this.fieldStoreInitialized) {
+                initialization = graph.add("Surface/FieldStore initialize", { fieldStoreBuffer, storeEntries }, (data, resources, context) => {
+                    const command = context.encoder as ShadeGPUCommandContext;
+                    command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([0, data.storeEntries / 24, 1, 0]).buffer, 0, 16);
+                    const group = this.device.createBindGroup({ layout: this.fieldStoreResetPipeline.getBindGroupLayout(0), entries: [
+                        { binding: 0, resource: { buffer: this.fieldStoreSettings } },
+                        { binding: 2, resource: { buffer: resources.get(data.fieldStoreBuffer) as GPUBuffer } }
+                    ] });
+                    const pass = command.beginComputePass({ label: "Surface/FieldStore initialize" }); pass.setPipeline(this.fieldStoreResetPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(data.storeEntries / 24 / 64)); pass.end();
+                    command.onFinished.addOne(() => { this.fieldStoreInitialized = true; });
+                    command.onAborted?.addOne(() => { this.fieldStoreInitialized = false; });
+                });
+                initialization.read(fieldStoreBuffer); initialization.write(fieldStoreBuffer); initialization.dependsOn(node);
+            }
+            const pack = graph.add("Surface/FieldStore request pack", { cacheKeys, requestCount }, (data, resources, context) => {
+                const command = context.encoder as ShadeGPUCommandContext;
+                command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([data.requestCount, 19, 16, 0]).buffer, 0, 16);
+                command.gpu_encoder.clearBuffer(resources.get(storeCounters) as GPUBuffer, 0, 32);
+                const group = this.device.createBindGroup({ layout: this.fieldStorePackPipeline.getBindGroupLayout(0), entries: [
+                    { binding: 0, resource: { buffer: this.fieldStoreSettings } },
+                    { binding: 1, resource: { buffer: resources.get(data.cacheKeys) as GPUBuffer } },
+                    { binding: 2, resource: { buffer: resources.get(requests) as GPUBuffer } }
+                ] });
+                const pass = command.beginComputePass({ label: "Surface/FieldStore request pack" }); pass.setPipeline(this.fieldStorePackPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); pass.end();
+            });
+            requests = pack.create("Surface/FieldStore requests", { kind: "transient_buffer", size: requestCount * 16 * 4, usage: GPUBufferUsage.STORAGE });
+            results = pack.create("Surface/FieldStore lookup results", { kind: "transient_buffer", size: requestCount * 2 * 4, usage: GPUBufferUsage.STORAGE });
+            storeCounters = pack.create("Surface/FieldStore counters", { kind: "transient_buffer", size: 32, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+            pack.read(cacheKeys); pack.write(requests); pack.write(results); pack.write(storeCounters); pack.dependsOn(initialization ?? node);
+            const storeNode = graph.add("Surface/FieldStore lookup", { requests, results, storeCounters, fieldStoreBuffer, requestCount, storeEntries }, (data, resources, context) => {
+                const command = context.encoder as ShadeGPUCommandContext;
+                command.writeBuffer(this.fieldStoreSettings, 0, new Uint32Array([data.requestCount, data.storeEntries / 24, this.fieldStore!.stats().generation, 0]).buffer, 0, 16);
+                const group = this.device.createBindGroup({ layout: this.fieldStoreLookupPipeline.getBindGroupLayout(0), entries: [
+                    { binding: 0, resource: { buffer: this.fieldStoreSettings } }, { binding: 1, resource: { buffer: resources.get(data.requests) as GPUBuffer } },
+                    { binding: 2, resource: { buffer: resources.get(data.fieldStoreBuffer) as GPUBuffer } }, { binding: 3, resource: { buffer: resources.get(data.results) as GPUBuffer } },
+                    { binding: 4, resource: { buffer: resources.get(data.storeCounters) as GPUBuffer } }
+                ] });
+                const pass = command.beginComputePass({ label: "Surface/FieldStore lookup" }); pass.setPipeline(this.fieldStoreLookupPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); pass.end();
+            });
+            storeNode.read(requests); storeNode.read(fieldStoreBuffer); storeNode.write(results); storeNode.write(storeCounters); storeNode.dependsOn(pack);
+            const publish = graph.add("Surface/FieldStore publish", { requests, fieldStoreBuffer, storeCounters, requestCount, storeEntries }, (data, resources, context) => {
+                const command = context.encoder as ShadeGPUCommandContext;
+                const group = this.device.createBindGroup({ layout: this.fieldStorePublishPipeline.getBindGroupLayout(0), entries: [
+                    { binding: 0, resource: { buffer: this.fieldStoreSettings } }, { binding: 1, resource: { buffer: resources.get(data.requests) as GPUBuffer } },
+                    { binding: 2, resource: { buffer: resources.get(data.fieldStoreBuffer) as GPUBuffer } },
+                    { binding: 4, resource: { buffer: resources.get(data.storeCounters) as GPUBuffer } }
+                ] });
+                const pass = command.beginComputePass({ label: "Surface/FieldStore publish" }); pass.setPipeline(this.fieldStorePublishPipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(Math.ceil(data.requestCount / 64)); pass.end();
+            });
+            publish.read(requests); publish.read(fieldStoreBuffer); publish.read(results); publish.write(storeCounters); publish.dependsOn(storeNode);
+            publish.make_side_effect();
+        }
         hitMask = node.write(hitMask);
         const finalize = graph.add("Surface/Material miss indirect finalize", { counters, programCount: input.programCount, recordCount: input.recordCount }, (data, resources, context) => { const command = context.encoder as ShadeGPUCommandContext; command.writeBuffer(this.finalizeSettings, 0, new Uint32Array([data.programCount, data.recordCount, 0, 0]).buffer, 0, 16); const group = this.device.createBindGroup({ layout: this.finalizeLayout, entries: [{ binding: 0, resource: { buffer: this.finalizeSettings } }, { binding: 1, resource: { buffer: resources.get(data.counters) as GPUBuffer } }, { binding: 2, resource: { buffer: resources.get(compactIndirect) as GPUBuffer } }] }); const pass = command.beginComputePass({ label: "Surface/material miss indirect finalize" }); pass.setPipeline(this.finalizePipeline); pass.setBindGroup(0, group); pass.dispatchWorkgroups(1); pass.end(); });
         finalize.read(counters);
@@ -227,5 +314,5 @@ export class SurfaceMaterialCachePass {
         const cacheKeys = node.write(input.cacheKeys), cacheValues = node.write(input.cacheValues);
         return { ...input, fields, audit, cacheKeys, cacheValues };
     }
-    destroy(): void { this.settings.destroy(); this.finalizeSettings.destroy(); }
+    destroy(): void { this.settings.destroy(); this.finalizeSettings.destroy(); this.fieldStoreSettings.destroy(); }
 }

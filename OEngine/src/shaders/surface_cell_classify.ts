@@ -71,7 +71,7 @@ function surfaceCellStageGroupValidWgsl(planeStart: number, planeCount: number, 
   return /* wgsl */ `${fixedFunction}
 fn surface_cell_group_valid_stage(plane:u32,mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,64>>,origin:vec2u)->bool {
  let first=cell_first(mask);if first==0xffffffffu{return false;}let rect=cell_rect_from_mask(mask,origin);${common}
- ${fieldStage ? `${mode === "single" ? `if plane<${SURFACE_CELL_FIELD_COUNT}u{return cell_field_budget(${fixedField},cell_evaluate_bound(${fixedField},cell_bound_context((*lanes)[first],rect)));}` : `if plane<${SURFACE_CELL_FIELD_COUNT}u{let value=${fixedGroup};return cell_field_budget(${fixedField},value);}`}` : ""}
+ ${fieldStage ? `${mode === "single" ? `if plane<${SURFACE_CELL_FIELD_COUNT}u{return cell_field_budget(${fixedField},cell_evaluate_bound(${fixedField},cell_bound_context((*lanes)[first],rect)));}` : `if plane<${SURFACE_CELL_FIELD_COUNT}u{let value=${fixedGroup};return cell_field_budget(${planeCount === 1 && fieldStage ? fixedField : "plane"},value);}`}` : ""}
  ${signalStage ? `
  if plane>=${SURFACE_CELL_FIELD_COUNT}u{
   let normal=cell_group_field(6u,mask,lanes,rect);let mapped=cell_group_field(select(6u,12u,plane>=19u),mask,lanes,rect);

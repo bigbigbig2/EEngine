@@ -18,6 +18,7 @@ import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFra
 import { SurfaceCellClassifierPass } from "./SurfaceCellClassifierPass.js";
 import type { ResourceAccounting } from "../../debug/profiling/ResourceAccounting.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
+import type { GpuSurfaceFieldStore } from "../../gpu/GpuSurfaceFieldStore.js";
 
 export interface SurfaceWorkFrame {
   readonly generation: number;
@@ -40,156 +41,11 @@ export interface SurfaceWorkProducts extends SurfaceGeometryProducts, SurfaceMat
   readonly diagnostics?: ResourceId;
 }
 
-const CLASSIFY_WGSL = /* wgsl */ `
-${SURFACE_WORK_HEADER_WGSL}
-struct Settings {
-  width: u32, height: u32, tiles_x: u32, tiles_y: u32,
-  tile_offset: u32, sample_offset: u32, exception_offset: u32,
-  generation: u32, tile_capacity: u32, sample_capacity: u32,
-  exception_capacity: u32, exception_stride: u32
-}
-@group(0) @binding(0) var<uniform> settings: Settings;
-@group(0) @binding(1) var visibility: texture_2d<u32>;
-@group(0) @binding(2) var<storage, read_write> work: array<u32>;
-@group(0) @binding(3) var<storage, read_write> counts: array<atomic<u32>>;
-@group(0) @binding(4) var sample_map: texture_storage_2d<r32uint, write>;
-
-var<workgroup> keys: array<u32, 64>;
-var<workgroup> valid: array<u32, 64>;
-var<workgroup> tile_class: u32;
-var<workgroup> uniform_key: u32;
-var<workgroup> uniform_lane: u32;
-var<workgroup> tile_base:u32;
-var<workgroup> lane_offset:array<u32,64>;
-var<workgroup> tile_samples: atomic<u32>;
-var<workgroup> overflow_lo: atomic<u32>;
-var<workgroup> overflow_hi: atomic<u32>;
-
-fn write_sample(slot: u32, pixel: u32, key: u32, tile: u32, lane: u32) {
-  let at = settings.sample_offset + slot * 8u;
-  work[at + 0u] = pixel;
-  work[at + 1u] = key;
-  work[at + 2u] = key;
-  work[at + 3u] = 15u;
-  work[at + 4u] = 0xffffffffu;
-  work[at + 5u] = tile | (lane << 16u);
-  work[at + 6u] = slot;
-  work[at + 7u] = 1u;
-  textureStore(sample_map, vec2i(i32(pixel % settings.width), i32(pixel / settings.width)), vec4u(pixel));
-}
-
-@compute @workgroup_size(64)
-fn classify(@builtin(workgroup_id) wg: vec3u, @builtin(local_invocation_id) lid: vec3u) {
-  let tile = wg.x;
-  let lane = lid.x;
-  let tile_count = settings.tiles_x * settings.tiles_y;
-  if tile >= tile_count || tile >= settings.tile_capacity { return; }
-  if lane == 0u {
-    atomicStore(&tile_samples, 0u);
-    atomicStore(&overflow_lo, 0u);
-    atomicStore(&overflow_hi, 0u);
-  }
-  workgroupBarrier();
-  let tx = tile % settings.tiles_x;
-  let ty = tile / settings.tiles_x;
-  let px = tx * 8u + (lane % 8u);
-  let py = ty * 8u + (lane / 8u);
-  let inside = px < settings.width && py < settings.height;
-  let sample_x = min(px, settings.width - 1u);
-  let sample_y = min(py, settings.height - 1u);
-  let key = select(0xffffffffu, textureLoad(visibility, vec2i(i32(sample_x), i32(sample_y)), 0).x, inside);
-  keys[lane] = key;
-  valid[lane] = select(0u, 1u, key != 0xffffffffu && inside);
-  if inside { textureStore(sample_map, vec2i(i32(px), i32(py)), vec4u(0xffffffffu)); }
-  workgroupBarrier();
-  if lane == 0u {
-    var visible = 0u;
-    var first = 0xffffffffu;
-    var same = true;
-    for (var i = 0u; i < 64u; i++) {
-      if valid[i] != 0u {
-        visible += 1u;
-        if first == 0xffffffffu { first = keys[i]; uniform_lane = i; }
-        else if keys[i] != first { same = false; }
-      }
-    }
-    var prefix=0u;
-    for(var i=0u;i<64u;i++){lane_offset[i]=prefix;prefix+=valid[i];}
-    uniform_key = first;
-    tile_class = 0u;
-    if visible != 0u { tile_class = select(2u, 1u, same); }
-    if tile_class==2u {tile_base=atomicAdd(&counts[0],visible);}
-    let tile_at = settings.tile_offset + tile * 12u;
-    let origin_x = tx * 8u;
-    let origin_y = ty * 8u;
-    let tile_w = min(8u, settings.width - origin_x);
-    let tile_h = min(8u, settings.height - origin_y);
-    work[tile_at + 0u] = origin_x | (tile_w << 16u);
-    work[tile_at + 1u] = origin_y | (tile_h << 16u);
-    work[tile_at + 2u] = tile_class | (visible << 8u);
-    work[tile_at + 3u] = 1u;
-    work[tile_at + 4u] = 1u;
-    work[tile_at + 5u] = 1u;
-    work[tile_at + 6u] = 1u;
-    work[tile_at + 7u] = tile * settings.exception_stride;
-    work[tile_at + 8u] = 0u;
-    work[tile_at + 9u] = tile;
-    work[tile_at + 10u] = 0u;
-    work[tile_at + 11u] = 0u;
-    atomicAdd(&counts[3], visible);
-    if tile_class == 0u { atomicAdd(&counts[4], 1u); }
-    else if tile_class == 1u { atomicAdd(&counts[5], 1u); }
-    else { atomicAdd(&counts[6], 1u); }
-  }
-  workgroupBarrier();
-  if tile_class == 1u && lane == 0u && uniform_key != 0xffffffffu {
-    atomicStore(&tile_samples, 1u);
-    let slot = atomicAdd(&counts[0], 1u);
-    if slot < settings.sample_capacity {
-      // A partially covered uniform tile can have background at its origin.
-      // Geometry must resolve a covered representative and publish only covered pixels.
-      let representative=(ty*8u+uniform_lane/8u)*settings.width+tx*8u+uniform_lane%8u;
-      write_sample(slot, representative, uniform_key, tile, uniform_lane);
-      for (var i = 0u; i < 64u; i++) {
-        let sx = tx * 8u + (i % 8u); let sy = ty * 8u + (i / 8u);
-        if sx < settings.width && sy < settings.height && valid[i] != 0u {
-          textureStore(sample_map, vec2i(i32(sx), i32(sy)), vec4u(representative));
-        }
-      }
-    } else {
-      atomicAdd(&counts[14], 1u);
-      atomicOr(&overflow_lo, 1u);
-    }
-  }
-  if tile_class == 2u && valid[lane] != 0u {
-    atomicAdd(&tile_samples, 1u);
-    let slot = tile_base+lane_offset[lane];
-    if slot < settings.sample_capacity {
-      write_sample(slot, py * settings.width + px, key, tile, lane);
-    } else if lane < 32u { atomicAdd(&counts[14], 1u); atomicOr(&overflow_lo, 1u << lane); }
-    else { atomicAdd(&counts[14], 1u); atomicOr(&overflow_hi, 1u << (lane - 32u)); }
-  }
-  workgroupBarrier();
-  if lane == 0u {
-    let tile_at = settings.tile_offset + tile * 12u;
-    work[tile_at + 8u] = atomicLoad(&tile_samples);
-    let lo = atomicLoad(&overflow_lo); let hi = atomicLoad(&overflow_hi);
-    if lo != 0u || hi != 0u {
-      atomicAdd(&counts[13], 1u);
-      atomicOr(&counts[2], 2u);
-      if settings.exception_stride > 0u && tile * settings.exception_stride < settings.exception_capacity {
-        let e = settings.exception_offset + tile * settings.exception_stride * 4u;
-        work[e + 0u] = lo; work[e + 1u] = 1u; work[e + 2u] = 15u; work[e + 3u] = 1u;
-        if settings.exception_stride > 1u {
-          work[e + 4u] = hi; work[e + 5u] = 1u; work[e + 6u] = 15u; work[e + 7u] = 1u;
-          atomicAdd(&counts[1], 2u);
-        } else { atomicAdd(&counts[1], 1u); }
-      }
-    }
-  }
-}
-`;
-
+/*
+ * The production classifier is SurfaceCellClassifierPass. The former
+ * winner/pixel classifier was removed from the runtime source so there is no
+ * second production scheduling model left to accidentally instantiate.
+ */
 const FINALIZE_WGSL = /* wgsl */ `
 ${SURFACE_WORK_HEADER_WGSL}
 struct Settings { max_samples: u32, max_exceptions: u32, indirect_offset: u32, reserved: u32 }
@@ -238,13 +94,13 @@ export class SurfaceWorkRuntime {
 
   constructor(private readonly device: GPUDevice, private readonly budget: SurfaceWorkBudget = {
     maxTiles: 262144, maxSamples: 262144, maxExceptions: 65536, maxGeometryRecords: 262144, maxBytes: 128 * 1024 * 1024
-  }, accounting?: ResourceAccounting) {
+  }, accounting?: ResourceAccounting, fieldStore: GpuSurfaceFieldStore | null = null) {
     this.scratch = new SurfaceFrameResources(device, accounting);
     this.cellClassifier = new SurfaceCellClassifierPass(device, this.scratch);
     this.cacheIdentity = new SurfaceCacheIdentityPass(device,this.scratch);
     this.dependencyEpoch = new SurfaceDependencyEpochPass(device,this.scratch);
     this.geometry = new SurfaceGeometryPass(device, this.scratch);
-    this.material = new SurfaceMaterialCachePass(device, this.scratch);
+    this.material = new SurfaceMaterialCachePass(device, this.scratch, fieldStore);
     this.lighting = new SurfaceLightingWorkPass(device, this.scratch);
     this.reconstruction = new SurfaceReconstructionPass(device);
     this.diagnostics = new SurfaceDiagnosticsPass(device, (command, source, frameId) => {

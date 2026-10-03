@@ -67,6 +67,11 @@ struct SurfaceFieldStoreSettings {request_count:u32,entry_count:u32,generation:u
 @group(0) @binding(2) var<storage,read_write> surface_field_store_entries:array<atomic<u32>>;
 @group(0) @binding(3) var<storage,read_write> surface_field_store_results:array<u32>;
 @group(0) @binding(4) var<storage,read_write> surface_field_store_counters:array<atomic<u32>>;
+@compute @workgroup_size(64) fn surface_field_store_reset(@builtin(global_invocation_id) id:vec3u){
+ let entry=id.x;if(entry>=surface_field_store_settings.entry_count){return;}
+ let at=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
+ for(var word=0u;word<SURFACE_FIELD_STORE_ENTRY_WORDS;word++){atomicStore(&surface_field_store_entries[at+word],select(0u,SURFACE_FIELD_STORE_EMPTY,word==0u));}
+}
 fn surface_field_store_probe(request:u32)->u32 {
  let hash=surface_field_store_hash(&surface_field_store_requests,request*16u);
  let setIndex=hash%(surface_field_store_settings.entry_count/SURFACE_FIELD_STORE_WAYS);

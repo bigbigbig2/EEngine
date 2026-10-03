@@ -22,7 +22,7 @@ currentSlice:
     Phase 1 已完成六域 continuity-v2、源/LOD逐字段lineage、普通Geometry真实metadata upload、Native与两种WASM v6发布，
     offline RGBA8摘要和实际GPU decoded mip/footprint摘要；所有表/节点在32 MiB pool中，接现有TextureResidency encoder。
     typecheck/build、Native/core ABI oracle、两个WASM编译、33项定向checks和5个生产纹理摘要GPU cases通过；
-    组件结果不证明整帧画质性能。Phase 2 正在接入 production cell classifier，但尚未通过真实 Chromium producer/consumer 检查；Phase 3–4 只有 FieldStore/SignalStore owner 与 ABI 预备实现，Phase 5–7 尚未开始。capacity policy、旧winner equality 和旧 pixel-task 分区仍未完成最终切断。
+    组件结果不证明整帧画质性能。Phase 2 已完成代码切换：runtime 旧 classifier 源码已删除，多字段 WGSL 生成错误已修复；真实 Chromium producer/consumer fixture 在 pipeline compile 阶段仍未完成，因此不提升为正式整链验收。Phase 3 已开始把 FieldStore request pack、GPU lookup、初始化和 publish 接入材质 lookup；旧 dense keys/values/fields 仍待替换，Phase 4–7 尚未开始。
     以下为 0676cf28 历史基线能力和诊断记录，不是本轮新算法完成证据。
     用户 2026-10-03 明确请求的 Showcase 修复已接入：diffuse irradiance 消费补 1/pi、示例曝光 8→4；
     Surface 队列有序单份 extent 资源、精确 pixel/input witness、逐字段版本 lookup、masked miss evaluation、

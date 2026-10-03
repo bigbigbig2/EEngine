@@ -27,7 +27,7 @@ export class GpuSurfaceFieldStore {
   let offset=0;for(const buffer of this.buffers){const size=buffer.size;command.writeBuffer(buffer,0,new Uint32Array(size/4).buffer,0,size);offset+=size;}
  }
  recordLookup(requests:number,hits:number,misses:number,admissions=0,overflows=0):void{this.counters.lookupRequests+=requests;this.counters.hits+=hits;this.counters.misses+=misses;this.counters.admissions+=admissions;this.counters.overflows+=overflows;}
- stats():SurfaceFieldStoreStats{return Object.freeze({capacity:this.capacity,allocatedBytes:this.capacity.bytes,...this.counters});}
+ stats():SurfaceFieldStoreStats & { readonly generation:number } {return Object.freeze({capacity:this.capacity,allocatedBytes:this.capacity.bytes,generation:this.generation,...this.counters});}
  destroy():void{if(this.destroyed)return;this.destroyed=true;for(const buffer of this.buffers)buffer.destroy();if(this.handle)this.accounting!.destroyed(this.handle);}
 }
 
