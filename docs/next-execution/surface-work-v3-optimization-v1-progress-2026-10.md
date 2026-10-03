@@ -1,6 +1,6 @@
 # Surface V3 第一版优化进度记录
 
-日期：2026-10-03。当前 HEAD：`b76e8670`。本记录只描述真实源码、提交和验证状态，不把组件 oracle 或设计文档当作生产链完成证据。
+日期：2026-10-03。当前 HEAD：`ec2b3fec`。本记录只描述真实源码、提交和验证状态，不把组件 oracle 或设计文档当作生产链完成证据。
 
 ## 已完成阶段
 
@@ -8,7 +8,7 @@
 |---|---|---|---|
 | Phase 0：基线、容量和删除边界 | 已完成 | `3c0113d8` | GTX 1650 Ti/1080p、Dungeon 指纹、412 MiB/512 MiB policy、来源和旧产品清单已冻结 |
 | Phase 1：连续域、LOD lineage、局部纹理 variation | 已完成 | `5057c8dd`；Phase 1 发布记录 | Native/WASM、普通 Geometry metadata、Product lineage、32 MiB variation pool 和实际纹理摘要发布已检查 |
-| Phase 2：连续域 classifier、跨 VisibilityKey、多率 SurfaceWork、Geometry setup | 进行中 | 未提交；本机检查点见 `.local/validation/surface-optimization-v1/phase2-checkpoint.md` | 组件产物存在，生产主链尚未通过，不能提交为完成 |
+| Phase 2：连续域 classifier、跨 VisibilityKey、多率 SurfaceWork、Geometry setup | 进行中 | 检查点提交 `ec2b3fec`；本机记录见 `.local/validation/surface-optimization-v1/phase2-checkpoint.md` | 检查点已提交，但组件产物和生产主链尚未通过，不能视为 Phase 2 完成 |
 | Phase 3：FieldStore 与 demand Geometry | 预备实现 | 未提交 `GpuSurfaceFieldStore*` | owner、ABI、预算和 GPU lookup/publish 诊断存在，尚未替换 `SurfaceMaterialCachePass` |
 | Phase 4：SignalStore、紧凑 packet、稀疏 history | 预备实现 | 未提交 `GpuSurfaceSignalStore*` | owner、ABI 和预算存在，尚未替换 `SurfaceLightingWorkPass` |
 | Phase 5：reconstruct/batch | 未开始 | 无 | 仍使用旧 dense history/reconstruct 生产路径 |
@@ -44,4 +44,4 @@
 5. 接着接入 SignalStore 和独立 signal rate，删除 dense packet/history owner，完成检查后提交 Phase 4。
 6. 最后推进 reconstruct、固定 batches、providers/lifecycle，全部接线完成后才执行 Phase 7 的整链浏览器、画质和性能报告。
 
-当前用户已要求先停在讨论和进度记录阶段；本记录之后不继续修改生产实现，等待下一步指令。
+当前先停在讨论和进度记录阶段；不继续修改生产实现，等待下一步指令。
