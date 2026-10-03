@@ -384,8 +384,8 @@ export class SurfaceGeometryPass {
     for (const resource of [input.visibility, input.work, input.arena, input.meshletWork,
       input.sourceHeap, input.vertexPayload, input.frameInstances, input.frameAttributes, input.camera]) classify.read(resource);
     classify.read(input.counts); classify.read(input.materialHitMask);
-    records = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/GeometryRecord buffer",
-      input.width * input.height * SURFACE_GEOMETRY_RECORD_STRIDE, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+    records = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/GeometryRecord compact arena",
+      Math.max(SURFACE_GEOMETRY_RECORD_STRIDE, input.geometryCapacity * SURFACE_GEOMETRY_RECORD_STRIDE), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     records = classify.write(records);
     count = classify.create("Surface/GeometryRecord count", { kind: "transient_buffer", size: 96,
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST, domain: "internal-full" });

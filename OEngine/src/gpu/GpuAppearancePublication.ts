@@ -79,7 +79,7 @@ function surfaceKernelIntegration(program: CompiledAppearanceGraph,
     const dy = kind === 1 ? "surface_geometry[base + 7u].zw" : "vec2f(0.0)";
     return `${center} appearance_inputs[${inputLayout.neighborBase + index * 2}u]=${value} + vec4f(${dx},0.0,0.0); appearance_inputs[${inputLayout.neighborBase + index * 2 + 1}u]=${value} + vec4f(${dy},0.0,0.0);`;
   }).join("\n  ");
-  const layers = `${Array.from({ length: APPEARANCE_SURFACE_LAYER_COUNT }, (_, layer) => `var layer${layer}=surface_cached_layer(pixel_word,${layer}u);`).join("\n  ")}\n  var validityBits=u32(layer5.w);`;
+const layers = `${Array.from({ length: APPEARANCE_SURFACE_LAYER_COUNT }, (_, layer) => `var layer${layer}=surface_cached_layer(record,${layer}u);`).join("\n  ")}\n  var validityBits=u32(layer5.w);`;
   const writes = APPEARANCE_FIELD_NAMES.map((name, field) => {
     const expression = surfaceFieldExpr(lowered.outputSlots[name]);
     const [layer, channel] = APPEARANCE_SURFACE_CHANNELS[field]!;
@@ -97,7 +97,6 @@ struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: 
 @group(0) @binding(14) var<storage, read> surface_misses: array<vec2u>;
 @group(0) @binding(15) var<storage, read> surface_hit_mask: array<u32>;
 @group(0) @binding(16) var<storage, read> surface_metadata: array<u32>;
-@group(0) @binding(18) var surface_fields: texture_storage_2d_array<rgba16float, write>;
 @group(0) @binding(19) var<uniform> surface_settings: SurfaceSettings;
 @group(0) @binding(20) var<storage, read_write> surface_cache: array<u32>;
 @group(0) @binding(21) var<storage, read_write> surface_cache_values: array<vec2u>;
@@ -110,10 +109,10 @@ struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: 
 @group(0) @binding(28) var<storage, read_write> surface_audit: array<atomic<u32>>;
 var<private> appearance_task: vec4u;
 var<private> appearance_missing:u32;
-fn surface_cached_layer(pixel:u32,layer:u32)->vec4f {
- let packed=surface_cache_values[pixel*6u+layer];return vec4f(unpack2x16float(packed.x),unpack2x16float(packed.y));
+fn surface_cached_layer(record:u32,layer:u32)->vec4f {
+ let packed=surface_cache_values[record*6u+layer];return vec4f(unpack2x16float(packed.x),unpack2x16float(packed.y));
 }
-fn surface_store_layer(pixel:u32,layer:u32,value:vec4f){surface_cache_values[pixel*6u+layer]=vec2u(pack2x16float(value.xy),pack2x16float(value.zw));}
+fn surface_store_layer(record:u32,layer:u32,value:vec4f){surface_cache_values[record*6u+layer]=vec2u(pack2x16float(value.xy),pack2x16float(value.zw));}
 var<private> appearance_inputs: array<vec4f, ${Math.max(1, inputLayout.vectors)}>;
 fn appearance_constant(index:u32)->f32 { return appearance_constants[appearance_task.x+index]; }
 fn appearance_input(index:u32,channel:u32)->f32 { return appearance_inputs[index][channel]; }
@@ -147,26 +146,23 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
   ${writes}
   layer5.w=f32(validityBits);
   let pixel=vec2i(i32(pixel_word%surface_settings.width),i32(pixel_word/surface_settings.width));
-  textureStore(surface_fields,pixel,0,layer0); textureStore(surface_fields,pixel,1,layer1);
-  textureStore(surface_fields,pixel,2,layer2); textureStore(surface_fields,pixel,3,layer3);
-  textureStore(surface_fields,pixel,4,layer4); textureStore(surface_fields,pixel,5,layer5);
   surface_audit_add(2u);
   surface_audit_add(1u);
   // One representative owns this pixel cell; all fields publish after evaluation.
   // Epoch is an exact witness, never a hash used as proof of equality.
   let publication=surface_settings.identity_offset+entry*20u;
-  let cacheAt=pixel_word*19u;
+  let cacheAt=record*19u;
   surface_cache[cacheAt]=surface_metadata[publication+3u];
   surface_cache[cacheAt+1u]=material;
-  surface_cache[cacheAt+2u]=surface_geometry_keys[pixel_word*13u+12u];
+  surface_cache[cacheAt+2u]=surface_geometry_keys[record*13u+12u];
   surface_cache[cacheAt+3u]=surface_residency_epoch[0];
   for(var field=0u;field<15u;field++){
     let fieldIndex=surface_metadata[publication+4u+field];
     if fieldIndex!=0xffffffffu {surface_cache[cacheAt+4u+field]=surface_field_versions[(surface_metadata[publication+1u]+fieldIndex)*4u];}
   }
-  surface_store_layer(pixel_word,0u,layer0);surface_store_layer(pixel_word,1u,layer1);
-  surface_store_layer(pixel_word,2u,layer2);surface_store_layer(pixel_word,3u,layer3);
-  surface_store_layer(pixel_word,4u,layer4);surface_store_layer(pixel_word,5u,layer5);
+  surface_store_layer(record,0u,layer0);surface_store_layer(record,1u,layer1);
+  surface_store_layer(record,2u,layer2);surface_store_layer(record,3u,layer3);
+  surface_store_layer(record,4u,layer4);surface_store_layer(record,5u,layer5);
 }
 `;
   const fixed: GPUBindGroupLayoutEntry[] = [
@@ -176,7 +172,6 @@ fn surface_main(@builtin(global_invocation_id) id: vec3u) {
     { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 8 } },
     { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
     { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
-    { binding: 18, visibility: GPUShaderStage.COMPUTE, storageTexture: { access: "write-only", format: "rgba16float", viewDimension: "2d-array" } },
     { binding: 19, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 64 } },
     { binding: 20, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: APPEARANCE_SURFACE_CACHE_KEY_WORDS * 4 } },
     { binding: 21, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
@@ -825,7 +820,6 @@ export class GpuAppearancePublication {
     readonly counters: GPUBuffer;
     readonly fieldVersions: GPUBuffer;
     readonly residencyVersions: GPUBuffer;
-    readonly fields: GPUTextureView;
     readonly cache: GPUBuffer;
     readonly cacheValues: GPUBuffer;
     readonly audit: GPUBuffer;
@@ -862,7 +856,6 @@ export class GpuAppearancePublication {
         { binding: 0, resource: { buffer: this.constants } }, { binding: 1, resource: { buffer: this.routes } },
         { binding: 13, resource: { buffer: input.geometry } }, { binding: 14, resource: { buffer: input.misses } },
         { binding: 15, resource: { buffer: input.hitMask } }, { binding: 16, resource: { buffer: this.surfaceMetadata } },
-        { binding: 18, resource: input.fields },
         { binding: 19, resource: { buffer: settings } }, { binding: 20, resource: { buffer: input.cache } },
         { binding: 21, resource: { buffer: input.cacheValues } },
         { binding: 23, resource: { buffer: input.counters } },

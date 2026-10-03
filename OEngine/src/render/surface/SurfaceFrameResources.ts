@@ -13,10 +13,6 @@ export class SurfaceFrameResources {
         usage: number;
         handle?: ResourceHandle;
     }>();
-    private textures = new Map<string, {
-        texture: GPUTexture;
-        handle?: ResourceHandle;
-    }>();
     private extent = "";
     private done: Promise<void> = Promise.resolve();
     constructor(private readonly device: GPUDevice, private readonly accounting?: ResourceAccounting) { }
@@ -46,32 +42,12 @@ export class SurfaceFrameResources {
         }));
     }
     commit(done: Promise<void>): void { this.done = done; }
-    importFields(graph: FrameGraph, bind: SurfaceResourceBinding, width: number, height: number): ResourceId {
-        const name = "Surface/material fields";
-        return graph.import_resource(name, { kind: "imported", label: name, domain: "internal-full" }, bind("surface-scratch/fields", () => {
-            let entry = this.textures.get(name);
-            if (!entry) {
-                const texture = this.device.createTexture({ label: name, size: [width, height, 6], format: "rgba16float", usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING });
-                const handle = this.accounting?.created({ kind: "texture", category: "transient", owner: "Surface/scratch", label: name, bytes: width * height * 48 });
-                entry = { texture, ...(handle === undefined ? {} : { handle }) };
-                this.textures.set(name, entry);
-            }
-            return entry.texture;
-        }));
-    }
     private retire(): void {
         const retired = [...this.buffers.values()];
         this.buffers.clear();
-        const textures = [...this.textures.values()];
-        this.textures.clear();
         const destroy = () => {
             for (const entry of retired) {
                 entry.buffer.destroy();
-                if (entry.handle)
-                    this.accounting!.destroyed(entry.handle);
-            }
-            for (const entry of textures) {
-                entry.texture.destroy();
                 if (entry.handle)
                     this.accounting!.destroyed(entry.handle);
             }

@@ -85,7 +85,6 @@ struct SurfaceSettings {
 };
 @group(0) @binding(0) var<uniform> settings: SurfaceSettings;
 @group(0) @binding(1) var<storage, read> geometry: array<vec4f>;
-@group(0) @binding(2) var fields: texture_2d_array<f32>;
 @group(0) @binding(3) var<storage, read_write> diffuse: array<vec4f>;
 @group(0) @binding(4) var<storage, read_write> specular: array<vec4f>;
 @group(0) @binding(5) var<storage, read_write> coat: array<vec4f>;
@@ -140,17 +139,17 @@ fn ao_at(pixel_index: u32) -> f32 {
   return f32((packed >> ((pixel_index & 3u) * 8u)) & 0xffu) * (1.0 / 255.0);
 }
 
-fn surface_material(pixel: vec2i) -> StandardMaterial {
-  let albedo = max(surface_field(fields, pixel, 0u).xyz, vec3f(0.0));
-  let metallic = saturate(surface_field(fields, pixel, 2u).x);
-  let roughness = clamp(surface_field(fields, pixel, 3u).x, 0.04, 1.0);
-  let occlusion = saturate(surface_field(fields, pixel, 4u).x);
-  let emissive = max(surface_field(fields, pixel, 5u).xyz, vec3f(0.0));
-  let specular_weight = saturate(surface_field(fields, pixel, 8u).x);
-  let specular_color = max(surface_field(fields, pixel, 9u).xyz, vec3f(1.0));
-  let coat_factor = saturate(surface_field(fields, pixel, 10u).x);
-  let coat_roughness = clamp(surface_field(fields, pixel, 11u).x, 0.04, 1.0);
-  let coat_raw = surface_field(fields, pixel, 12u).xyz;
+fn surface_material(record: u32) -> StandardMaterial {
+  let albedo = max(surface_field(record, 0u).xyz, vec3f(0.0));
+  let metallic = saturate(surface_field(record, 2u).x);
+  let roughness = clamp(surface_field(record, 3u).x, 0.04, 1.0);
+  let occlusion = saturate(surface_field(record, 4u).x);
+  let emissive = max(surface_field(record, 5u).xyz, vec3f(0.0));
+  let specular_weight = saturate(surface_field(record, 8u).x);
+  let specular_color = max(surface_field(record, 9u).xyz, vec3f(1.0));
+  let coat_factor = saturate(surface_field(record, 10u).x);
+  let coat_roughness = clamp(surface_field(record, 11u).x, 0.04, 1.0);
+  let coat_raw = surface_field(record, 12u).xyz;
   let coat_normal = select(vec3f(0.0, 0.0, 1.0), normalize(coat_raw), dot(coat_raw, coat_raw) > 1e-8);
   let f0 = mix(vec3f(0.04), albedo, metallic) * specular_weight * specular_color;
   return StandardMaterial(albedo * (1.0 - metallic), roughness, occlusion, f0, 1.0,
@@ -251,11 +250,11 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   let shading_normal = normalize(geometry[base + 2u].xyz);
   let tangent = normalize(geometry[base + 5u].xyz);
   let view_dir = normalize(geometry[base + 6u].xyz);
-  let material = surface_material(pixel);
-  let normal_valid = surface_field(fields, pixel, 13u).x > 0.5;
+  let material = surface_material(record);
+  let normal_valid = surface_field(record, 13u).x > 0.5;
   var normal = shading_normal;
   if normal_valid {
-    let normal_ts = normalize(surface_field(fields, pixel, 6u).xyz * 2.0 - vec3f(1.0));
+    let normal_ts = normalize(surface_field(record, 6u).xyz * 2.0 - vec3f(1.0));
     let bitangent = normalize(cross(shading_normal, tangent) * geometry[base + 2u].w);
     normal = normalize(tangent * normal_ts.x + bitangent * normal_ts.y + shading_normal * normal_ts.z);
   }
@@ -371,8 +370,8 @@ fn classify_record(record:u32)->u32 {
   }
   diagnostic_add(12u,1u);
   let ao=ao_at(pixel_index);
-  let epoch=geometry_keys[pixel_index*13u+12u];
-  let cached=pixel_index*8u;
+  let epoch=geometry_keys[record*13u+12u];
+  let cached=record*8u;
   let features=settings.ao_enabled | (settings.shadow_enabled<<1u) | (settings._reserved0<<2u);
   let same=(sample_flags&4u)!=0u && work[sample_at+4u]==0u && epoch!=0xffffffffu &&
     signal_cache[cached]==epoch && signal_cache[cached+4u]==enabled_mask && signal_cache[cached+6u]==features;
@@ -437,7 +436,7 @@ export class SurfaceLightingWorkPass {
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 80 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
-      { binding: 2, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "float", viewDimension: "2d-array" } },
+      { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       ...[3, 4, 5, 6, 7].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE,
         buffer: { type: "storage" as GPUBufferBindingType } })),
       { binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -477,7 +476,7 @@ export class SurfaceLightingWorkPass {
     let dispatchIndirect!: ResourceId;
     let dirtyCounts!:ResourceId;
     let dirtyQueue=this.scratch.importBuffer(graph,input.resourceBinding,"Surface/dirty lighting queue",input.recordCount*8,GPUBufferUsage.STORAGE);
-    let signalCache=this.scratch.importBuffer(graph,input.resourceBinding,"Surface/signal witnesses",input.width*input.height*32,GPUBufferUsage.STORAGE);
+    let signalCache=this.scratch.importBuffer(graph,input.resourceBinding,"Surface/compact signal witnesses",Math.max(32,input.recordCount*32),GPUBufferUsage.STORAGE);
     let shadowConstantsId!: ResourceId, shadowPageTableId!: ResourceId, shadowAtlasId!: ResourceId;
     const node = graph.add("Surface/independent lighting packets", input, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
@@ -494,7 +493,7 @@ export class SurfaceLightingWorkPass {
       const buffer = (id: ResourceId): GPUBuffer => resources.get(id) as GPUBuffer;
       const group0 = this.device.createBindGroup({ layout: this.layout, entries: [
         { binding: 0, resource: { buffer: this.settings } }, { binding: 1, resource: { buffer: buffer(data.geometry) } },
-        { binding: 2, resource: resolveTextureView(resources.get(data.fields)) },
+        { binding: 2, resource: { buffer: buffer(data.fields) } },
         { binding: 3, resource: { buffer: buffer(diffusePackets) } }, { binding: 4, resource: { buffer: buffer(specularPackets) } },
         { binding: 5, resource: { buffer: buffer(coatPackets) } }, { binding: 6, resource: { buffer: buffer(iblPackets) } },
         { binding: 7, resource: { buffer: buffer(counters) } }, { binding: 10, resource: { buffer: buffer(dirtyCounts) } },

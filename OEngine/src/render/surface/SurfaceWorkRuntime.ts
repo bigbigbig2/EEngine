@@ -188,7 +188,7 @@ export class SurfaceWorkRuntime {
     finalize.read(work); work = finalize.write(work); finalize.read(counts); counts = finalize.write(counts);
     const recordCount = layout.sampleCapacity;
     const witness=this.cacheIdentity.addToGraph(graph,{camera:input.camera,work,counts,meshlets:input.meshletWork,instances:input.frameInstances,
-      sampleOffset:layout.sampleOffset,capacity:recordCount,pixelCount:input.width*input.height,
+      sampleOffset:layout.sampleOffset,capacity:recordCount,
       view:input.viewRevision,scene:input.nonlocalRevision,bind:input.historyBinding});
     work=witness.work;
     const dependencyEpoch=this.dependencyEpoch.addToGraph(graph,input.residencyVersions,input.historyBinding);

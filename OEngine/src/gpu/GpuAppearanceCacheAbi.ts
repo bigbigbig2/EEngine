@@ -27,10 +27,11 @@ export const APPEARANCE_SURFACE_CHANNELS: readonly (readonly [number, number])[]
   [5, 1], [3, 3], [3, 0], [5, 2], [4, 3], [4, 0], [5, 3], [5, 3]
 ]);
 export const APPEARANCE_SURFACE_READ_WGSL = /* wgsl */ `
-fn surface_field(fields: texture_2d_array<f32>, pixel: vec2i, field: u32) -> vec4f {
+@group(0) @binding(2) var<storage, read> fields: array<vec2u>;
+fn surface_field(record: u32, field: u32) -> vec4f {
   switch field {
 ${APPEARANCE_SURFACE_CHANNELS.map(([layer, channel],field)=>
-  `    case ${field}u: { let v=textureLoad(fields,pixel,${layer},0); return ${field>=13 ? `vec4f(f32((u32(v.w)>>${field-13}u)&1u),0.0,0.0,0.0)` : APPEARANCE_FIELD_WIDTHS[field]===3?"vec4f(v.xyz,0.0)":`vec4f(v[${channel}],0.0,0.0,0.0)`}; }`).join("\n")}
+  `    case ${field}u: { let packed=fields[record*${APPEARANCE_SURFACE_LAYER_COUNT}u+${layer}u]; let v=vec4f(unpack2x16float(packed.x),unpack2x16float(packed.y)); return ${field>=13 ? `vec4f(f32((u32(v.w)>>${field-13}u)&1u),0.0,0.0,0.0)` : APPEARANCE_FIELD_WIDTHS[field]===3?"vec4f(v.xyz,0.0)":`vec4f(v[${channel}],0.0,0.0,0.0)`}; }`).join("\n")}
     default: { return vec4f(0.0); }
   }
 }

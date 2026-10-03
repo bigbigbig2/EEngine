@@ -1,6 +1,6 @@
 # Surface V3 第一版优化执行文档
 
-日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2 已完成代码切换但正式验收延期，Phase 3 已开始接入 FieldStore，Phase 4–7 尚未开始**。详细状态见[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
+日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2 已完成代码切换但正式验收延期，Phase 3 核心代码已接通但正式验收延期，Phase 4–7 尚未开始**。详细状态见[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。
 
 唯一配套细化设计：[Surface V3 第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)。保留[第三版总设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)的 owner 边界，按用户最新要求替换初版物理实现。历史执行记录见[原 V3 计划](surface-work-runtime-v3-rebuild-2026.md)；历史测量见[1080p 报告](../performance/2026-10-03-surface-v3-work-bandwidth-report.md)。
 
@@ -104,7 +104,7 @@ dense fields / 四 packet planes → 稳定 FieldStore + 稀疏信号引用
 
 ### 当前状态（代码切换完成，正式验收延期）
 
-Phase 2 的 plan ABI、CPU/GPU synthetic oracle、Geometry setup 和 production facts 组件已经存在；`SurfaceCellClassifierPass` 已接入 `SurfaceWorkRuntime`，runtime 旧 `CLASSIFY_WGSL` 源码已删除，多字段生成器的 `field` 未声明错误已修复。当前只完成了降低范围的源码生成检查和 TypeScript 构建检查；Chromium fixture 在 pipeline compile 阶段长时间无终态，因此不把正式 producer/consumer 验收记作通过。Phase 3 已按迁移规则开始接入 FieldStore，但旧 pixel-capacity/record consumer 仍需后续替换。
+Phase 2 的 plan ABI、CPU/GPU synthetic oracle、Geometry setup 和 production facts 组件已经存在；`SurfaceCellClassifierPass` 已接入 `SurfaceWorkRuntime`，runtime 旧 `CLASSIFY_WGSL` 源码已删除，多字段生成器的 `field` 未声明错误已修复。当前只完成了降低范围的源码生成检查和 TypeScript 构建检查；Chromium fixture 在 pipeline compile 阶段长时间无终态，因此不把正式 producer/consumer 验收记作通过。Phase 3 已完成 compact record 字段、FieldStore lookup gate、评估后 publish/admit 与 bounded GeometryRecord arena 的接线；完整跨帧 value 消费及正式 GPU/browser 验收仍后置。
 
 1. 删除 VisibilityKey equality 的共享准入；winner 只用于覆盖、属性来源和 exact identity。
 2. 接入 domain/side、轻量 depth plane 与 field variation；默认生成 2×2 候选，按设计合并 4×4/低频8×8 或局部细分。
@@ -131,7 +131,7 @@ Phase 2 的 plan ABI、CPU/GPU synthetic oracle、Geometry setup 和 production 
 
 ## 7. Phase 3：稳定 FieldStore 与唯一 demand Geometry
 
-> 当前进度（迁移中）：Phase 2 classifier 已完成代码切换但等待正式 Chromium 验收；按用户允许的跨阶段推进规则，Phase 3 已把 FieldStore 首帧初始化、request pack、GPU lookup 和 publish dispatch 接入 `SurfaceMaterialCachePass`。它暂未替换旧 dense keys/values/fields 的最终消费，因此 Phase 3 仍未完成，也不宣称整链 adoption。
+> 当前进度（核心代码已接通，正式验收延期）：Phase 3 已完成 compact record 字段缓冲、FieldStore 初始化与 lookup gate、评估后 publish/admit，以及 bounded GeometryRecord arena 的生产接线；旧六层全屏 field texture、pixel-capacity witness/value 分配已删除。仍保留 19-word compact identity 作为发布元数据，FieldStore value 当前为 4-word admission 摘要，完整跨帧 value 消费、溢出/驱逐与 Phase 7 GPU/browser 验收继续后置。
 
 ### 7.1 先确定字段依赖和持久地址
 

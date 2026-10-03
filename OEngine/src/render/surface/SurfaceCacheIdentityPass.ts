@@ -32,7 +32,7 @@ fn identity(@builtin(global_invocation_id) id:vec3u) {
   let witness=array<u32,12>(view_epoch[0],settings.scene,item.geometry_slot,item.meshlet_slot,item.instance_slot,
     key.local_primitive,oengine_instance_geometry_generation(instance),instance.dynamic_revision,
     item.packed_profile_lod,oengine_instance_product_table_slot(instance),instance.instance_set_generation,instance.flags);
-  let base=pixel*13u; var same=keys[base+12u]!=0u && keys[base+12u]!=0xffffffffu && view_epoch[0]!=0xffffffffu;
+  let base=record*13u; var same=keys[base+12u]!=0u && keys[base+12u]!=0xffffffffu && view_epoch[0]!=0xffffffffu;
   for(var i=0u;i<12u;i++){same=same && keys[base+i]==witness[i];}
   if !same {
     for(var i=0u;i<12u;i++){keys[base+i]=witness[i];}
@@ -70,7 +70,6 @@ export class SurfaceCacheIdentityPass {
         instances: ResourceId;
         sampleOffset: number;
         capacity: number;
-        pixelCount: number;
         view: Readonly<{
             value: number;
         }>;
@@ -82,7 +81,7 @@ export class SurfaceCacheIdentityPass {
         keys: ResourceId;
         work: ResourceId;
     } {
-        let keys = this.scratch.importBuffer(graph, input.bind, "Surface/exact input witness", input.pixelCount * 52, GPUBufferUsage.STORAGE);
+        let keys = this.scratch.importBuffer(graph, input.bind, "Surface/compact input witness", Math.max(52, input.capacity * 52), GPUBufferUsage.STORAGE);
         let viewEpoch = this.scratch.importBuffer(graph, input.bind, "Surface/exact view epoch", PACKED_CAMERA_TYPE.size + 4, GPUBufferUsage.STORAGE);
         const viewNode = graph.add("Surface/exact view epoch", {}, (_data, resources, context) => {
             const cmd = context.encoder as ShadeGPUCommandContext;

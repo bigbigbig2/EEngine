@@ -22,7 +22,7 @@ currentSlice:
     Phase 1 已完成六域 continuity-v2、源/LOD逐字段lineage、普通Geometry真实metadata upload、Native与两种WASM v6发布，
     offline RGBA8摘要和实际GPU decoded mip/footprint摘要；所有表/节点在32 MiB pool中，接现有TextureResidency encoder。
     typecheck/build、Native/core ABI oracle、两个WASM编译、33项定向checks和5个生产纹理摘要GPU cases通过；
-    组件结果不证明整帧画质性能。Phase 2 已完成代码切换：runtime 旧 classifier 源码已删除，多字段 WGSL 生成错误已修复；真实 Chromium producer/consumer fixture 在 pipeline compile 阶段仍未完成，因此不提升为正式整链验收。Phase 3 已开始把 FieldStore request pack、GPU lookup、初始化和 publish 接入材质 lookup；旧 dense keys/values/fields 仍待替换，Phase 4–7 尚未开始。
+    组件结果不证明整帧画质性能。Phase 2 已完成代码切换：runtime 旧 classifier 源码已删除，多字段 WGSL 生成错误已修复；真实 Chromium producer/consumer fixture 在 pipeline compile 阶段仍未完成，因此不提升为正式整链验收。Phase 3 已接通 compact record 字段 buffer、FieldStore 初始化与 lookup gate、评估后 publish/admit、bounded GeometryRecord arena；旧六层全屏 fields 与 pixel-capacity 分配已删除，仍保留 19-word compact identity 元数据和 4-word admission 摘要，完整跨帧 value 消费及 Phase 4–7 尚未开始。
     以下为 0676cf28 历史基线能力和诊断记录，不是本轮新算法完成证据。
     用户 2026-10-03 明确请求的 Showcase 修复已接入：diffuse irradiance 消费补 1/pi、示例曝光 8→4；
     Surface 队列有序单份 extent 资源、精确 pixel/input witness、逐字段版本 lookup、masked miss evaluation、
@@ -37,8 +37,8 @@ currentSlice:
     每 Phase 完整完成实际 producer/consumer 和必要定向检查后提交一次，失败返工；整帧验收在 Phase 7。
     保留以下原 V3 目标与历史阶段记录，旧物理布局按新计划删除，不建立运行时新旧桥。
     Phase 0 已冻结 GTX 1650 Ti/1080p、Dungeon fingerprint、功能集、覆盖率和 P50/P95 口径，配置见
-    validation/profiles/surface-work-v3-phase0-baseline.yaml。Phase 2–6 的最终生产链尚未完成；当前源码中的旧 material cache、dense packet/history 和 reconstruct 仍是事实，
-    FieldStore/SignalStore 预备 owner 尚未替换它们。始终保持唯一 Renderer、唯一 FrameGraph/submit，
+    validation/profiles/surface-work-v3-phase0-baseline.yaml。Phase 2–6 的最终生产链尚未完成；当前源码已切换为 compact record 字段与 FieldStore gate，但 19-word identity/admission 摘要、dense packet/history 和 reconstruct 仍有后续收敛工作，
+    FieldStore/SignalStore owner 尚未完成全部跨帧 value 与 signal 替换。始终保持唯一 Renderer、唯一 FrameGraph/submit，
     不恢复旧链、适配桥或中间 A/B 路径。
 
 nextModules:

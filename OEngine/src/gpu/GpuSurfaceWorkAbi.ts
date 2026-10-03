@@ -122,14 +122,15 @@ export function surfaceWorkLayout(width: number, height: number, budget: Surface
   const exceptionOffset = align(sampleOffset + sampleCapacity * SURFACE_SAMPLE_RECORD_STRIDE, 256);
   const counterOffset = align(exceptionOffset + exceptionCapacity * SURFACE_EXCEPTION_RECORD_STRIDE, 256);
   const geometryOffset = align(counterOffset + SURFACE_COUNTER_BLOCK_STRIDE, 256);
-  const geometryBytes = width * height * SURFACE_GEOMETRY_RECORD_STRIDE;
+  const geometryCapacity = sampleCapacity;
+  const geometryBytes = geometryCapacity * SURFACE_GEOMETRY_RECORD_STRIDE;
   const byteLength = geometryOffset + geometryBytes;
   if (byteLength > budget.maxBytes || Math.max(geometryOffset, geometryBytes) > Number(limits.maxBufferSize) ||
       Math.max(geometryOffset, geometryBytes) > Number(limits.maxStorageBufferBindingSize)) {
     throw new RangeError("SurfaceWork allocation exceeds the negotiated storage budget");
   }
   return Object.freeze({ tileCapacity: tiles, sampleCapacity,
-    exceptionCapacity, geometryCapacity: width * height,
+    exceptionCapacity, geometryCapacity,
     tileOffset, sampleOffset, exceptionOffset, counterOffset, geometryOffset, byteLength });
 }
 
