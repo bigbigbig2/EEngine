@@ -6,8 +6,8 @@ import { SURFACE_SIGNAL_REQUEST_WGSL } from "./surface_signal_request.js";
 /** Local task/indirect integration of the pinned OSS occupancy/task boundary.
  * Tables hold request IDs only. Request inputs are immutable during nomination;
  * aliases are published separately, so no workgroup reads a partial reservation.
- * Hash exhaustion uses a later exact fallback search over the actual request
- * stream. It preserves one producer per complete key without spinning or loss. */
+ * Hash exhaustion retains an independent transient destination. Persistent
+ * identity never uses a transient field slot, and no full request scan exists. */
 export function surfaceDemandWgsl(targets: number, programs: number): string {
   const layout = surfaceDemandLayout(targets, programs);
   const fieldGetter = SURFACE_FIELD_REQUEST_WGSL.replaceAll("field_request_settings", "demand_settings")
@@ -184,6 +184,7 @@ fn demand_signal_equal(a: u32, b: u32) -> bool {
   let y = demand_arena.signal_requests[b];
   let x_fields = signal_request_fields(x.x, x.y);
   let y_fields = signal_request_fields(y.x, y.y);
+  if !signal_request_cacheable(x.x, x_fields, x.y) || !signal_request_cacheable(y.x, y_fields, y.y) { return false; }
   for (var word = 0u; word < SIGNAL_REQUEST_KEY_WORDS; word++) {
     if signal_request_word(x.x, x.y, word, x_fields) != signal_request_word(y.x, y.y, word, y_fields) {
       return false;
@@ -199,6 +200,11 @@ fn demand_signal_hash(request: u32) -> u32 {
 fn nominate_signal_producers(@builtin(global_invocation_id) id: vec3u) {
   let request = id.x;
   if request >= atomicLoad(&demand_arena.control[2u]) { return; }
+  let item = demand_arena.signal_requests[request];
+  if !signal_request_cacheable(item.x, signal_request_fields(item.x, item.y), item.y) {
+    demand_arena.signal_aliases[request] = request;
+    return;
+  }
   let hash = demand_signal_hash(request);
   for (var probe = 0u; probe < DEMAND_PROBES; probe++) {
     let slot = (hash + probe) & DEMAND_SIGNAL_HASH_MASK;

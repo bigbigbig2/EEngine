@@ -1,7 +1,12 @@
+import { SURFACE_CELL_TREE_WORKGROUP_BYTES } from "../../gpu/GpuSurfaceCellTreeAbi.js";
+
 /** Finite producer/consumer binding contract shared by runtime and GPU fixtures.
  * Explicit layouts keep unused resources legal across compiler specializations.
  * Ordinary sources consume 11 storage bindings; Product sources consume 16. */
 export function createSurfaceCellPipelineLayout(device: GPUDevice, product: boolean): GPUPipelineLayout {
+  if (device.limits.maxComputeWorkgroupStorageSize < SURFACE_CELL_TREE_WORKGROUP_BYTES) {
+    throw new RangeError(`Surface cell tree requires ${SURFACE_CELL_TREE_WORKGROUP_BYTES} workgroup bytes`);
+  }
   const storageCount = product ? 16 : 11;
   if (device.limits.maxStorageBuffersPerShaderStage < storageCount) {
     throw new RangeError(`Surface cell profile requires ${storageCount} storage bindings`);

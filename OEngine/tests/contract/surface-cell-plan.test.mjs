@@ -36,9 +36,9 @@ test('unknown normal texture leaves base and constant roughness independent; low
 test('incompatible instance/side, normal cone, geometry residual and unsafe direct are local rejections',()=>{
  const input=lanes();for(let i=0;i<64;i++){input[i].geometryIdentity=[i%2,2,9,i>>3&1];input[i].directSafe=false;}
  const plans=referenceSurfaceCellPlans(input);
- assert.ok(plans[0].groups.length>4&&plans[0].groups.length<=64);
+ assert.equal(plans[0].mode,MODE.fine);
  assert.equal(plans[SIGNAL.directDiffuse].mode,MODE.fine);
- assert.ok(plans[SIGNAL.environmentDiffuse].groups.length<64);
+ assert.equal(plans[SIGNAL.environmentDiffuse].mode,MODE.fine);
  const crease=lanes();for(let i=0;i<64;i++)if(i%8>=4){crease[i].worldPosition[2]=2;crease[i].normal=[0,1,0];}
  assert.ok(referenceSurfaceCellPlans(crease)[SIGNAL.environmentDiffuse].groups.length>1);
 });

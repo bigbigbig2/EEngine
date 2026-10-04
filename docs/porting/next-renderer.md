@@ -978,3 +978,20 @@ Phase 2 实际实现位于 `SurfaceCellGeometrySetup`、`GpuSurfaceCellGeometryA
 WGSL workgroupUniformLoad 按 [WGSL规范](https://www.w3.org/TR/WGSL/#workgroupUniformLoad-builtin) 使用，uniform路径不会在不一致控制流中执行barrier。API绑定/indirect copy/生命周期为本地集成。
 
 完整实现与实际检查见 Phase 3实施记录；45 targeted tests、GPU组件、production完整小链和Showcase短诊断通过。未运行donor工程，未提升claims/完整来源采用、跨浏览器/连续质量或历史性能验收。Phase 2旧“已验证memo”等完成声明已更正，不以源码正则或虚假consumer充当证据。
+
+## 2026-10-05：Phase 4 固定树/source/provider 实施核读与映射
+
+实施前重新完整核读并在线核对既有 Apache-2.0 pin：Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ComputeShaderTile.hlsl`（RequiresPerPixelShading、coarse/full、DEFER_PER_PIXEL、零灯与完整写回），OSS `473a59bbcdd30e3366cc567d66a5a97353620d48/ObjectSpaceShading/Assets/Shaders/Resources/RenderTaskProcessing.compute`（occupancy→task、actual offset/count→indirect）及根 `License`。同时复读两份固定 README、OSS preprint 的 pipeline/gradient/occupancy/task 与 DAIS 的 triangle memo/interpolation 相关部分；具体 URL/许可证与完整源映射沿用前文。
+
+检索/来源边界：这些既有完整实现覆盖固定区域 eligibility/fine 与占用任务调度；没有单一 donor 覆盖本项目三合同、全 closure bounds、完整DomainKey及独立 Field/Signal 四child树。因此本轮具名为本地 FixedDomainTree/SharedProviderProof 方案，沿用原 interval、Geometry/TextureVariation 与实际Lighting数学，不宣称完整 CPS/OSS 算法移植或 adoption。
+
+| 来源阶段/本地依据 | 实际生产实现 | 不变量/失败覆盖 |
+|---|---|---|
+| CPS RequiresPerPixelShading→coarse/full 写域 | 16 quad/4 parent/1 root，四child归并与parent重判 | rejected parent保留child；不枚举任意member子集，空/constant/逐点hit退出 |
+| OSS occupancy/task + actual counts | 覆盖内真实source→并行rank→直接slot/packed maps→Field/Signal consumers | 每map word唯一writer；完整map reservation后发布，满额implicit fine不漏工作 |
+| 原DAIS/Forge/本地Geometry interval与字段证书 | world/support范围归并，child residual转换到parent anchor plane | outward rounding、normal/roughness/coat/view原规则保留；parent不能只AND child safe |
+| publication完整 interning及连续域 | 实际DomainKey、dependency-group相等复用、Field source先于Signal identity | side/generation/deformation/必要seam；保留合法跨meshlet连续性；仅UV2限制local表示 |
+| 实际Cluster/LightDatabase/Lighting provider | 同完整cluster充分条件、同node/coverage provider复用、8 punctual风险上限 | 不比较不同cluster完整列表，不缩减heavy合法光源集合；无receiver证明direct fine |
+| 本地有界reservation/prefix协议 | provider typed kind4并入原R/2总账，workgroup一次预留，root/parent优先 | 八次有限CAS；满额/竞争Unknown，不自旋、不部分接受proof；修复实测有空位却只接纳8/21的问题 |
+
+实际验证：52 targeted tests；17 tree/domain/provider、8 parent、10 Field与12 selected Field→Signal GPU用例；26 module两个Store生产链完整HDR；Showcase短smoke可用。累计generic counter drop=1，采样帧计数/Surface coverage完整，未用短采样作性能或完整质量判定。详细命令/身份/边界见[Phase 4实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md)。未运行donor工程，未提升正式claims或完整来源采用。

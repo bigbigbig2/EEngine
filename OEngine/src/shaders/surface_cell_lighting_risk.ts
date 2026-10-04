@@ -4,8 +4,8 @@ import { CLUSTER_METADATA_FLAG_FALLBACK } from "../render/ClusteredLightingRefer
 import { SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
 
 /** Lighting-owned rate predicate. Reads the SAME current light database and
- * cluster publication as the heavy worker. Full list equality is authoritative;
- * an equal hash or material is never a proof of light-set identity. Punctual
+ * cluster publication as the heavy worker. Exact cluster identity is required;
+ * different clusters reject sharing without comparing their light lists. Punctual
  * distance/cutoff/cone ranges use existing production attenuation math. Shadow
  * state without a receiver-region certificate rejects this direct component;
  * environment and unrelated fields retain their own rates. */
@@ -25,19 +25,6 @@ fn cell_cluster_at(pixel:vec2f,depth:f32)->u32 {
  let slice=min(23u,u32(max(0.0,log2(projected)*cell_cluster_parameters.z)));
  let xy=vec2u(u32(pixel.x/32.0),u32((f32(cell_settings.height)-pixel.y)/32.0));
  return xy.x+(xy.y+slice*dimensions.y)*dimensions.x;
-}
-fn cell_light_lists_equal(a:u32,b:u32)->bool {
- if a>=arrayLength(&cell_cluster_lookup)||b>=arrayLength(&cell_cluster_lookup){return false;}
- let left=cell_cluster_lookup[a];let right=cell_cluster_lookup[b];
- if ((left.flags|right.flags)&${CLUSTER_METADATA_FLAG_FALLBACK}u)!=0u{return false;}
- if left.point_count!=right.point_count||left.spot_count!=right.spot_count{return false;}
- let count=left.point_count+left.spot_count;
- if count > 8u { return false; }
- if left.offset+count>min(cell_cluster_data.written,arrayLength(&cell_cluster_data.data))||
-  right.offset+count>min(cell_cluster_data.written,arrayLength(&cell_cluster_data.data)){return false;}
- if a==b{return true;}
- for(var i=0u;i<count;i++){if cell_cluster_data.data[left.offset+i]!=cell_cluster_data.data[right.offset+i]{return false;}}
- return true;
 }
 fn cell_punctual_safe(position:vec3f,radius:f32,cutoff:f32,flags:u32,spot:bool,direction:vec3f,cone_cos:f32,penumbra_cos:f32,
  world_low:vec3f,world_high:vec3f)->bool {
@@ -59,15 +46,9 @@ fn cell_punctual_safe(position:vec3f,radius:f32,cutoff:f32,flags:u32,spot:bool,d
  }
  return true;
 }
-fn cell_direct_group_safe(mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,64>>,origin:vec2u,rect:vec4f,world_low:vec3f,world_high:vec3f,pixel_scale:f32)->bool {
- let first=cell_first(mask);var cluster=0xffffffffu;
- for(var lane=0u;lane<64u;lane++){
-  if !cell_member(mask,lane){continue;}
-  let pixel=origin+vec2u(lane%8u,lane/8u);let local_tile=cell_local_tile;
-  let facts=cell_workspace.facts[local_tile*64u+lane];let candidate=facts.w&0x7fffffffu;
- if facts.w==0xffffffffu{return false;}
-  if cluster==0xffffffffu{cluster=candidate;}else if !cell_light_lists_equal(cluster,candidate){return false;}
- }
+fn cell_direct_node_safe(cluster_fact:u32,world_low:vec3f,world_high:vec3f)->bool {
+ if cluster_fact==0xffffffffu { return false; }
+ let cluster=cluster_fact&0x7fffffffu;
  if cluster>=arrayLength(&cell_cluster_lookup){return false;}
  let metadata=cell_cluster_lookup[cluster];
  if (metadata.flags&${CLUSTER_METADATA_FLAG_FALLBACK}u)!=0u{return false;}
@@ -122,3 +103,8 @@ fn publish_cell_facts(@builtin(workgroup_id) group:vec3u,@builtin(local_invocati
  cell_workspace.primitives[group.x*64u+lane]=fact.y;
 }
 `;
+
+/** Same complete predicate, isolated from the geometry fact producer for
+ * independent numeric/provider fixtures. No alternative runtime algorithm. */
+export const SURFACE_CELL_LIGHTING_RISK_PREDICATE_WGSL = SURFACE_CELL_LIGHTING_RISK_WGSL.slice(0,
+  SURFACE_CELL_LIGHTING_RISK_WGSL.indexOf("fn cell_publish_lane_fact"));

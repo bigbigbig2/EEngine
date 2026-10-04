@@ -14,7 +14,7 @@ function program(fields) {
   };
 }
 function body(fields, selected) {
-  const source = surfaceCellProductionFactsWgsl([program(fields)], false, 'fn cell_direct_group_safe() {}', null, 16, new Set(selected), false);
+  const source = surfaceCellProductionFactsWgsl([program(fields)], false, 'fn cell_direct_node_safe() {}', null, 16, new Set(selected), false);
   return source.slice(source.indexOf('fn ab_field_0('), source.indexOf('fn cell_constant_palette('));
 }
 test('bound stages translate Surface fields into sparse program output ordinals', () => {
@@ -39,7 +39,7 @@ test('equal bound code shares a function while each call retains its material co
   const first=program(['roughness','baseColor']);
   const second={...first,source:first.source.replace('fn ab_field_0(','fn ab_field_1('),
     materialSource:first.materialSource.replace('fn ab_field_0_material(','fn ab_field_1_material(')};
-  const source=surfaceCellProductionFactsWgsl([first,second],false,'fn cell_direct_group_safe() {}',null,16,new Set([0]),false);
+  const source=surfaceCellProductionFactsWgsl([first,second],false,'fn cell_direct_node_safe() {}',null,16,new Set([0]),false);
   assert.ok(source.includes('fn ab_field_0('));
   assert.ok(!source.includes('fn ab_field_1('));
   assert.ok(source.includes('case 0u, 1u:{return ab_field_0(descriptor.x,context);}'));

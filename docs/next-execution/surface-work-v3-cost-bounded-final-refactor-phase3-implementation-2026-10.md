@@ -83,6 +83,6 @@ node validation/labs/surface-optimization-v1/run-phase1-showcase-smoke.mjs .loca
 
 ## 性能与验收边界
 
-最终短诊断 GPU pass sum P50=569.002336ms，Surface pass sum P50=434.887776ms，frame span P50=645.216480ms，CPU P50=108.430ms；仅 3 samples。此前同轮另一份成功短诊断约 490ms/367ms，说明不能用几次小样本宣称固定收益；正式同条件历史性能比较尚未运行。当前性能仍未达到目标，原两份 classifier、lookup 与调度仍是后继任务。
+最终短诊断 GPU pass sum P50=569.002336ms，Surface pass sum P50=434.887776ms，frame span P50=645.216480ms，CPU P50=108.430ms；仅 3 samples。此前同轮另一份成功短诊断约 490ms/367ms，说明不能用几次小样本宣称固定收益；正式同条件历史性能比较尚未运行。最终性能尚未验收，不以该阶段短诊断判断最终目标或收益；当时两份 classifier、lookup 与调度仍是后继任务。
 
 未运行完整跨浏览器、resize/cut/device loss、所有 skin/morph/材质/provider 组合、连续质量及 V1/V2 同条件正式比较；这些属于 Phase 7。当前截图仍有历史版本也可见的黑斑，不把短 smoke 推广为画质验收。完整来源 adoption 和 claims 未提升。

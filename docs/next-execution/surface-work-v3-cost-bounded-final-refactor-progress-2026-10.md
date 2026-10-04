@@ -1,10 +1,10 @@
 # Surface V3 有界前端重构执行记录
 
-日期：2026-10-04（Asia/Hong_Kong）。目标见[最终设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)，顺序见[执行计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。
+日期：2026-10-05（Asia/Hong_Kong）。目标见[最终设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)，顺序见[执行计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。
 
 ## 当前状态
 
-**Phase 0–3 的当前生产切换和阶段检查已完成；Phase 2 的原收口不足已在 Phase 3 补齐并更正。当前停止于 Phase 3，Phase 4–7 未实施。** 不把短诊断当作正式性能验收。
+**Phase 0–4 的当前生产切换和阶段检查已完成；Phase 2 的原收口不足已在 Phase 3 补齐并更正。当前停止于 Phase 4，Phase 5–7 未实施。** 不把短诊断当作正式性能验收。
 
 | 阶段 | 状态 |
 |---|---|
@@ -13,7 +13,7 @@
 | Phase 1：publication/工作表示 | 已完成；代码、语义测试、WGSL/GPU 小链与 Showcase 短 smoke 通过；实现记录见 [Phase 1记录](surface-work-v3-cost-bounded-final-refactor-phase1-implementation-2026-10.md) |
 | Phase 2：geometry/setup/容量 | 已完成；固定 64-key setup、local/memo 分离、唯一 GeometryRecord 接线、语义测试与真实 GPU 小链通过；实现记录见 [Phase 2记录](surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md) |
 | Phase 3：Field候选/验证/proof | 已完成；前置更正、45 targeted checks、真实 GPU 组件/生产链与 Showcase 短 smoke 通过；见 [Phase 3记录](surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md) |
-| Phase 4：固定Field/Signal层级 | 未开始 |
+| Phase 4：固定Field/Signal层级 | 已完成；52 targeted tests、固定树/parent/provider/source真实GPU组件、两个Store生产链与Showcase短smoke通过；见 [Phase 4记录](surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md) |
 | Phase 5：worker/发布/重建 | 未开始 |
 | Phase 6：reset/调度/lifetime | 未开始 |
 | Phase 7：集中验证/性能比较 | 未开始 |
@@ -38,7 +38,15 @@
 
 检查：typecheck/build/build:test、45 targeted tests；Geometry/record/Field/proof 真 GPU 组件；26 module production→HDR 四帧；最终 Showcase timing/detailed complete、coverage=pass、sourceDrift=false、API/GPU/device-loss 错误 0。
 
-最终短诊断（3 samples）：GPU pass sum P50=569.002336ms、Surface=434.887776ms、frame span=645.216480ms；此前同轮成功短诊断约 490/367ms，波动明显。性能目标未达成，不能推算为固定收益。画质矩阵、历史同条件比较与正式 claims 尚未运行。Phase 4 未开始。
+最终短诊断（3 samples）：GPU pass sum P50=569.002336ms、Surface=434.887776ms、frame span=645.216480ms；此前同轮成功短诊断约 490/367ms，波动明显。最终性能尚未验收，不能推算为固定收益。画质矩阵、历史同条件比较与正式 claims 尚未运行。Phase 4 未开始。
+
+## Phase 4：固定 Field/Signal 树与来源绑定完成
+
+日期：2026-10-05。实现及验证见 [Phase 4实施记录](surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md)。四child固定树、完整DomainKey、parent范围/平面重判、并行source→slot与packed maps；Field来源先于Signal identity，point hit保留fine引用；不同cluster拒绝direct，provider有界共享及cooperative proof总账预留。原pair/member/代表线性搜索已从生产入口删除。
+
+检查：typecheck/build/build:test、13文件52项测试；17个tree/provider、8个parent、10个Field、12个Signal source GPU用例；26 module真实生产链四帧HDR覆盖，warm 16 Field hits/35 Signal hits。Showcase短smoke complete、coverage=pass、sourceDrift=false、GPU/API/device-loss错误0；累计generic counter drop=1，采样detailed的计数/Surface产品完整可用，未称所有计数零。
+
+最终性能与完整质量尚未验收；不以阶段短诊断判断最终目标或V1/V2收益。Phase5未开始。
 
 ## 重构前代码身份
 
@@ -73,9 +81,9 @@
 
 ## 下一步与保留风险
 
-Phase 0–3 已按当前源码补齐实现与阶段检查，后继是 Phase 4 固定 Field/Signal 树；仍须每阶段检查通过后推进。不得跳过source/support/overflow/写域合同。
+Phase 0–4 已按当前源码补齐实现与阶段检查，后继是 Phase 5 实际 worker/发布/重建；仍须每阶段检查通过后推进。不得跳过source/support/overflow/写域合同。
 
-历史约800ms属于重构前诊断；当前最终小样本 Surface 约435ms、整帧 pass sum 约569ms，性能目标仍未达成。目标profile和32-batch示例不是实测性能保证。高program数B×P开销、近似误差累积、memo/cold gather收益及retired overlap在最终验收前保持待证状态。
+历史约800ms属于重构前诊断；Phase3末短诊断 Surface 约435ms、整帧 pass sum 约569ms；这不是当前Phase4或最终性能验收结论。目标profile和32-batch示例不是实测性能保证。高program数B×P开销、近似误差累积、memo/cold gather收益及retired overlap在最终验收前保持待证状态。
 
 ## 2026-10-04 执行节奏修订
 

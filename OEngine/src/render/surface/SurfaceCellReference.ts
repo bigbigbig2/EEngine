@@ -20,6 +20,8 @@ export interface SurfaceCellReferenceLane {
   readonly publicationMask: number;
   readonly unknownMask: number;
   readonly directSafe: boolean;
+  readonly valueHitMask?: number;
+  readonly clusterIdentity?: readonly number[];
   readonly bounds: readonly { readonly low: readonly number[]; readonly high: readonly number[] }[];
 }
 export interface SurfaceCellReferencePlan {
@@ -49,11 +51,13 @@ function canShare(lanes: readonly SurfaceCellReferenceLane[], members: readonly 
     // Winner equality deliberately does not appear here.
     if (!tupleEqual(item.geometryIdentity, first.geometryIdentity) || !tupleEqual(item.planeIdentity[plane]!, first.planeIdentity[plane]!) ||
       (item.unknownMask & bit) !== 0) return false;
+    const distance = Math.abs(first.plane[0] * item.worldPosition[0] + first.plane[1] * item.worldPosition[1] + first.plane[2] * item.worldPosition[2] + first.plane[3]);
+    if (!(item.worldUnitsPerPixel > 0) || distance / item.worldUnitsPerPixel > SURFACE_CELL_DEFAULT_ERROR.planePixels) return false;
     if (plane >= SURFACE_CELL_FIELD_COUNT) {
       if (angle(item.normal, first.normal) + item.normalCone + first.normalCone > SURFACE_CELL_DEFAULT_ERROR.normalRadians) return false;
-      const distance = Math.abs(first.plane[0] * item.worldPosition[0] + first.plane[1] * item.worldPosition[1] + first.plane[2] * item.worldPosition[2] + first.plane[3]);
-      if (!(item.worldUnitsPerPixel > 0) || distance / item.worldUnitsPerPixel > SURFACE_CELL_DEFAULT_ERROR.planePixels) return false;
       if ((plane === SIGNAL.directDiffuse || plane === SIGNAL.directSpecular || plane === SIGNAL.directCoat) && !item.directSafe) return false;
+      if ((plane === SIGNAL.directDiffuse || plane === SIGNAL.directSpecular || plane === SIGNAL.directCoat) &&
+        !tupleEqual(item.clusterIdentity ?? [0], first.clusterIdentity ?? [0])) return false;
       if (!diffuse) {
         const roughness = coat ? item.coatRoughnessLow : item.roughnessLow;
         if (roughness < SURFACE_CELL_DEFAULT_ERROR.roughness || angle(item.view, first.view) > roughness * 0.1) return false;
@@ -84,9 +88,8 @@ const rectangles = (width: number, height: number): readonly (readonly number[])
   return result;
 };
 
-/** Reference partitions compatible lanes and then attempts larger geometric
- * rectangles. The production shader may use parallel hierarchical election;
- * this exhaustive oracle does not prescribe lane/control-flow organization. */
+/** Independent exhaustive numeric oracle for the same fixed rectangles. It
+ * checks every member of each parent directly, without sharing GPU reductions. */
 export function referenceSurfaceCellPlans(lanes: readonly SurfaceCellReferenceLane[]): readonly SurfaceCellReferencePlan[] {
   if (lanes.length !== 64) throw new RangeError("Surface tile oracle requires 64 lanes");
   const plans: SurfaceCellReferencePlan[] = [];
@@ -97,28 +100,15 @@ export function referenceSurfaceCellPlans(lanes: readonly SurfaceCellReferenceLa
         ownerMap: new Uint32Array(0), representativeMap: new Uint32Array(0), crossWinnerGroups: 0 }); continue;
     }
     const owner = Uint8Array.from({ length: 64 }, (_, i) => i);
-    const merge = (region: readonly number[], partition: boolean): void => {
+    const merge = (region: readonly number[]): void => {
       const members = region.filter(index => lanes[index]!.covered && (lanes[index]!.enabledMask & bit) !== 0);
       if (members.length === 0) return;
-      if (!partition) {
-        // Cannot merge a region through a pre-existing group that extends outside it.
-        const included = new Set(members);
-        for (const member of members) for (let i = 0; i < 64; i++) if (owner[i] === owner[member] && lanes[i]!.covered && !included.has(i)) return;
-        if (canShare(lanes, members, plane)) for (const member of members) owner[member] = members[0]!;
-        return;
-      }
-      const remaining = members.slice();
-      while (remaining.length !== 0) {
-        const representative = remaining.shift()!, group = [representative];
-        for (let i = 0; i < remaining.length;) {
-          if (canShare(lanes, [...group, remaining[i]!], plane)) group.push(remaining.splice(i, 1)[0]!); else i++;
-        }
-        for (const member of group) owner[member] = representative;
-      }
+      if (members.every(index => ((lanes[index]!.valueHitMask ?? 0) & bit) !== 0)) return;
+      if (canShare(lanes, members, plane)) for (const member of members) owner[member] = members[0]!;
     };
-    for (const region of rectangles(2, 2)) merge(region, true);
-    for (const region of rectangles(4, 4)) merge(region, true);
-    if (plane === SIGNAL.directDiffuse || plane === SIGNAL.environmentDiffuse) merge(Array.from({ length: 64 }, (_, i) => i), true);
+    for (const region of rectangles(2, 2)) merge(region);
+    for (const region of rectangles(4, 4)) merge(region);
+    if (plane === SIGNAL.directDiffuse || plane === SIGNAL.environmentDiffuse) merge(Array.from({ length: 64 }, (_, i) => i));
     const grouped = new Map<number, number[]>();
     for (const { index } of active) { const key = owner[index]!; const group = grouped.get(key) ?? []; group.push(index); grouped.set(key, group); }
     const groups = [...grouped.values()], map = new Uint8Array(64), representatives = new Uint8Array(64);

@@ -8,7 +8,7 @@ OEngine 是面向桌面浏览器 WebGPU、中大型高几何密度场景的 GPU-
 
 - 协作和开发节奏：[AGENTS.md](AGENTS.md)。
 - 当前设计：[Surface V3 最终性能重构设计](docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。
-- 当前执行：[有界前端重构计划](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)，[进度与基线](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)；Phase 0–3当前实现与阶段检查已完成（Phase 2前置在本轮更正），当前待Phase 4。
+- 当前执行：[有界前端重构计划](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)，[进度与基线](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)；Phase 0–4当前实现与阶段检查已完成（Phase 2前置已更正），当前待Phase 5。
 - 整体边界、源码现状、来源和验收：[docs/README.md](docs/README.md)。
 - 路径导航：`node tools/vibe.mjs context <path>`。
 - 浏览器示例：[examples/README.md](examples/README.md)。

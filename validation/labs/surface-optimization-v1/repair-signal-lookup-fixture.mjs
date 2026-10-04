@@ -1,5 +1,8 @@
 import { surfaceCellWorkspaceLayout, surfaceCellWorkspaceWgsl, SURFACE_CELL_TILE_PLAN_BYTES } from '../../../OEngine/.test-dist/gpu/GpuSurfaceCellPlanAbi.js';
 import { SURFACE_CELL_ADDRESS_WORDS } from '../../../OEngine/.test-dist/gpu/GpuSurfaceReferenceAbi.js';
+import { SURFACE_FIELD_IDENTITY_WORDS as I, SURFACE_FIELD_EXECUTION_PROFILE_WORD as PW } from '../../../OEngine/.test-dist/gpu/GpuSurfaceFieldIdentityAbi.js';
+import { SURFACE_EXECUTION_WORDS, SURFACE_FIELD_EXECUTION_WORDS as FW, SURFACE_SIGNAL_EXECUTION_WORDS as SW } from '../../../OEngine/.test-dist/gpu/GpuSurfaceExecutionProfileAbi.js';
+import { SURFACE_SIGNAL_FIELD_MASKS } from '../../../OEngine/.test-dist/material/AppearanceExecutionProfile.js';
 import { SURFACE_SIGNAL_LOOKUP_WGSL } from '../../../OEngine/.test-dist/shaders/surface_signal_lookup.js';
 import { VSM_CONTENT_VERSION_WGSL } from '../../../OEngine/.test-dist/shaders/vsm_content_version.js';
 import { VSM_ALLOCATE_PAGES_WGSL } from '../../../OEngine/.test-dist/shaders/vsm_allocate_pages.js';
@@ -45,12 +48,14 @@ export async function runSignalLookupRepair(gpu, assert, onStage=()=>{}) {
       workspaceWords.set([5,slot,generation],layout.fieldReferences/4+(leaf*15+field)*3);
     }
     const workspace=buffer(workspaceWords);
-    const constants=15*8,metadataWords=new Uint32Array(constants+64);
-    metadataWords[constants]=0x7fff;
+    const constants=15*I,execution=constants+64,metadataWords=new Uint32Array(execution+SURFACE_EXECUTION_WORDS);
+    metadataWords[constants]=0x7fff&~((1<<3)|(1<<6));
+    metadataWords[constants+3]=0x7fff;
     for(let field=0;field<15;field++) {
-      metadataWords.set([100+field,field,0,0,0,0,0,0],field*8);
+      metadataWords.set([100+field,field,0,0,0,0,0,0,execution+8+field*FW],field*I);
       metadataWords.set(bits([.5,.5,.5,0]),constants+4+field*4);
     }
+    SURFACE_SIGNAL_FIELD_MASKS.forEach((fields,kind)=>{metadataWords[execution+8+15*FW+kind*SW+1]=fields;});
     metadataWords.set(bits([1,0,0,0]),constants+4+10*4);
     const metadata=buffer(metadataWords),versionWords=new Uint32Array(15*4);
     for(let field=0;field<15;field++)versionWords[field*4]=1;
@@ -125,7 +130,10 @@ export async function runSignalLookupRepair(gpu, assert, onStage=()=>{}) {
     device.queue.writeBuffer(versions,5*4*4,new Uint32Array([2]));
     await sample('compose AO occlusion and E do not invalidate lighting',0);
     device.queue.writeBuffer(workspace,(layout.fieldReferences/4+(1*15+3)*3+2)*4,new Uint32Array([24]));
-    await sample('selected roughness producer generation only',28);
+    await sample('selected roughness producer generation only',29);
+    device.queue.writeBuffer(workspace,(layout.fieldReferences/4+(1*15+3)*3)*4,new Uint32Array([4,17,24]));
+    await sample('transient selected Field keeps dependent signals dirty',29);
+    device.queue.writeBuffer(workspace,(layout.fieldReferences/4+(1*15+3)*3)*4,new Uint32Array([5,17,23]));
     onStage('Actual VSM content publication and allocation API');
     const contentModule=device.createShaderModule({code:VSM_CONTENT_VERSION_WGSL});
     const allocationModule=device.createShaderModule({code:VSM_ALLOCATE_PAGES_WGSL});

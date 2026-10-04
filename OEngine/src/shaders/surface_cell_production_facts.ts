@@ -1,3 +1,4 @@
+import { SURFACE_CELL_DOMAIN_WGSL } from "./surface_cell_domain.js";
 import type { AppearanceFieldBoundProgram } from "./appearance_field_bounds.js";
 import { APPEARANCE_FIELD_BOUND_WGSL } from "./appearance_field_bounds.js";
 import { SURFACE_CELL_ADDRESS_MATH_WGSL } from "./surface_cell_address_math.js";
@@ -137,7 +138,7 @@ export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFiel
   for (const [name, selectors] of materialSelectors) {
     materialDispatch.push(`case ${selectors.map(index => `${index}u`).join(", ")}:{result=${name}(context);}`);
   }
-  if (!directRiskLibrary.includes("fn cell_direct_group_safe(") || (hasProductSamples&&!productBoundLibrary?.includes("fn ab_product("))) {
+  if (!directRiskLibrary.includes("fn cell_direct_node_safe(") || (hasProductSamples&&!productBoundLibrary?.includes("fn ab_product("))) {
     throw new Error("Surface cell facts require real Lighting and static-product bound providers");
   }
   const source = /* wgsl */ `
@@ -190,8 +191,8 @@ var<private> cell_proof_exhausted:bool;
 var<private> cell_texture_nodes:u32;
 var<private> cell_texture_query_count:u32;
 var<private> cell_texture_reuse_count:u32;
-// Compatibility repeatedly compares the same 64 lanes. Publish cheap identity
-// facts once per lane so its inner loops never inline the Product decoder.
+// Load complete lane keys once. Fixed tree nodes compare four child summaries
+// without inlining Geometry/Product decode or searching arbitrary members.
 struct CellLaneGeometry {
  identity:vec4u,
  source:vec4u,
@@ -470,37 +471,13 @@ fn surface_cell_load(pixel:vec2u,winner:u32)->SurfaceCellLane {
  // in CellLaneGeometry. Generic fixture source values remain fixture-defined.
  return SurfaceCellLane(vec4u(identity.xyz,continuity.x),winner,lane,enabled,publication);
 }
-fn cell_seam_compatible(mask:u32,a:SurfaceCellLane,b:SurfaceCellLane)->bool {
- let ac=cell_lane_geometry[a.source].continuity0;let bc=cell_lane_geometry[b.source].continuity0;
- let ad=cell_lane_geometry[a.source].continuity1;let bd=cell_lane_geometry[b.source].continuity1;
- if (mask&1u)!=0u && ac.y!=bc.y{return false;}
- if (mask&2u)!=0u && ac.z!=bc.z{return false;}
- if (mask&4u)!=0u && ac.w!=bc.w{return false;}
- if (mask&8u)!=0u && ad.x!=bd.x{return false;}
- if (mask&16u)!=0u && ad.y!=bd.y{return false;}
- // UV2 has no chart lineage publication yet. Only this field's closure uses a
- // representation-local primitive namespace, never the blanket winner gate.
- if (mask&64u)!=0u && any(cell_lane_geometry[a.source].address.xyz!=cell_lane_geometry[b.source].address.xyz){return false;}
- return true;
-}
-fn surface_cell_compatible(plane:u32,a:SurfaceCellLane,b:SurfaceCellLane)->bool {
- if a.identity.w==0u || any(a.identity!=b.identity){return false;}
- let sa=cell_lane_geometry[a.source].source;let sb=cell_lane_geometry[b.source].source;
- if cell_lane_geometry[a.source].identity.w!=cell_lane_geometry[b.source].identity.w||any(sa.zw!=sb.zw)||sa.y!=sb.y{return false;}
- let entry=cell_material_entry(sa.y);let program=cell_directory(entry).x;
- let base=settings.appearance2.w+entry*${SURFACE_EXECUTION_WORDS}u+8u;
- var seam=0u;
- if plane<15u { seam=appearance_metadata[base+plane*${SURFACE_FIELD_EXECUTION_WORDS}u+2u]; }
- else { seam=appearance_metadata[base+15u*${SURFACE_FIELD_EXECUTION_WORDS}u+(plane-15u)*${SURFACE_SIGNAL_EXECUTION_WORDS}u+3u]; }
- if !cell_seam_compatible(seam,a,b){return false;}
- return true;
-}
+${SURFACE_CELL_DOMAIN_WGSL}
 fn cell_merge_bound(a:AppearanceBound4,b:AppearanceBound4)->AppearanceBound4 {
  return AppearanceBound4(min(a.low,b.low),max(a.high,b.high),a.known&b.known);
 }
 fn cell_field_budget(field:u32,value:AppearanceBound4)->bool {
  let width=select(1u,3u,field==0u||field==5u||field==6u||field==9u||field==12u);
- for(var c=0u;c<width;c++){if value.known[c]==0u{return false;}}
+ for(var c=0u;c<width;c++){if !ab_valid(ab_channel(value,c)){return false;}}
  if field==6u||field==12u{return cell_normal_box_cone(value.low.xyz,value.high.xyz).w>=0.99965732498;}
  var tolerance=0.02;if field==5u{tolerance*=max(1.0,max(max(abs(value.high.x),abs(value.high.y)),abs(value.high.z)));}
  for(var c=0u;c<width;c++){if value.high[c]-value.low[c]>tolerance{return false;}}return true;

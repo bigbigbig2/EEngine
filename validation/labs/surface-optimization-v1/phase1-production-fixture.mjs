@@ -1,4 +1,5 @@
 import {GpuSurfaceFieldStore} from '../../../OEngine/.test-dist/gpu/GpuSurfaceFieldStore.js';
+import {GpuSurfaceSignalStore} from '../../../OEngine/.test-dist/gpu/GpuSurfaceSignalStore.js';
 import {SurfaceDependencyEpochPass} from '../../../OEngine/.test-dist/render/surface/SurfaceDependencyEpochPass.js';
 import {SurfaceDemandPass} from '../../../OEngine/.test-dist/render/surface/SurfaceDemandPass.js';
 import {SurfaceGeometryPass} from '../../../OEngine/.test-dist/render/surface/SurfaceGeometryPass.js';
@@ -117,13 +118,14 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  const scratch=new SurfaceFrameResources(device);scratch.prepare(width,height);
  const geometryOwner=new SurfaceGeometryPass(device,scratch);
  const fieldStore=options.fieldStore?new GpuSurfaceFieldStore(device,8*1024**2+16*256):null;
- const classifier=new SurfaceCellClassifierPass(device,scratch,fieldStore);
+ const signalStore=options.signalStore?new GpuSurfaceSignalStore(device,256*352):null;
+ const classifier=new SurfaceCellClassifierPass(device,scratch,fieldStore,signalStore);
  const dependency=options.fieldStore?new SurfaceDependencyEpochPass(device,fieldStore):null;
  const demandOwner=new SurfaceDemandPass(device,scratch);
  const lightingOwner=new SurfaceLightingPass(device,scratch);
  const publishOwner=new SurfaceStorePublishPass(device);
  const reconstructOwner=new SurfaceReconstructionPass(device);reconstructOwner.prepareFrame(width,height,2);
- retained.push({destroy(){classifier.destroy();fieldStore?.destroy();dependency?.destroy();geometryOwner.destroy();demandOwner.destroy();lightingOwner.destroy();publishOwner.destroy();reconstructOwner.destroy();scratch.destroy();}});
+ retained.push({destroy(){classifier.destroy();fieldStore?.destroy();signalStore?.destroy();dependency?.destroy();geometryOwner.destroy();demandOwner.destroy();lightingOwner.destroy();publishOwner.destroy();reconstructOwner.destroy();scratch.destroy();}});
  const ids=Object.fromEntries(Object.entries(geometryInputs).map(([name,value])=>[name,imported(name,value)]));
  const visibilityId=imported('visibility',visibility),versionsId=imported('versions',publication.fields),cameraId=imported('camera',camera);
  let metadataId=imported('metadata',publication.surfaceMetadata);
@@ -160,7 +162,7 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
     const lighting=lightingOwner.addToGraph(graph,{resourceBinding:bind,demand,geometry:geometry.records,fields:valuesId,appearanceMetadata:metadataId,
       constantFieldsOffset:o.constantFields,width,height,frame:11,camera:cameraId,physicalSun:null,lightRecords:lightId,clusters,shadow:null,scalarAo:null,
       environment:{diffuse:envId,specular:envId,dfg:envId},diagnosticsEnabled:true});
-    demand=publishOwner.addToGraph(graph,{...request,demand:lighting.demand,values:lighting.values,signal:true,entries:4,enabled:false});
+    demand=publishOwner.addToGraph(graph,{...request,demand:lighting.demand,values:lighting.values,signal:true,entries:signalStore?.capacity.entries??4,enabled:signalStore!==null});
     final=reconstructOwner.addToGraph(graph,{signalValues:lighting.values,signalStore:demand.signalStore,fieldStore:demand.fieldStore,fields:valuesId,
       reactive:factsId,preExposure:exposureId,cellWorkspace:demand.workspace,cellBatchTiles:batchTiles,coverage:cells.coverage,activeIndirect:cells.activeIndirect,
       firstTile,appearanceMetadata:metadataId,constantFieldsOffset:o.constantFields,scalarAo:null,width,height,recordCount:128,diagnosticsEnabled:true,batch:{index:firstTile/batchTiles,batchTiles},previous:final});
@@ -238,9 +240,11 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
    assert.equal(counters[0],visible);assert.equal(counters[5],width*height);
    for(const words of batches){assert.equal(words[words.length-4],words[127]);assert.ok(words[126]<=2*21*24);}
    const fieldHits=batches.reduce((sum,words)=>sum+words[113],0);
+   const signalHits=batches.reduce((sum,words)=>sum+words[117],0);
    for(const words of batches)assert.ok(words[120]<=64,'All proof families share R/2');
    if(frame===3)assert.ok(fieldHits>0,'Repeated real production Appearance values are read from the FieldStore');
-   report.frames.push({frame,fieldHits,proofSlots:batches.map(words=>words[120]),active,batches:batches.map(words=>words[127]),visible,completeHdr:true});
+   if(frame===3&&options.signalStore)assert.ok(signalHits>0,'Actual selected Field sources produce reusable SignalStore identity and HDR');
+   report.frames.push({frame,fieldHits,signalHits,proofSlots:batches.map(words=>words[120]),active,batches:batches.map(words=>words[127]),visible,completeHdr:true});
  }
  const error=await device.popErrorScope();assert.equal(error,null,error?.message);assert.deepEqual(errors,[]);
  report.maskProfiles=publication.surfaceExecutionProfiles.map(profile=>({enabled:profile.enabledMask,input:profile.inputMask,fields:profile.fields.length,signals:profile.signals.length}));

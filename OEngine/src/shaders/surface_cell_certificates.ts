@@ -79,17 +79,6 @@ fn cell_leaf_certificate(tile:u32,lane:u32)->u32 {
   }
   return lane;
 }
-fn cell_certificate_members(tile:u32,mask:vec2u)->vec2u {
-  var result=vec2u(0u);
-  var pending=mask;
-  for(var count=0u;count<64u;count++) {
-    let member=cell_first(pending);
-    if member==0xffffffffu { break; }
-    pending&=~cell_bit(member);
-    result|=cell_bit(cell_leaf_certificate(tile,member));
-  }
-  return result;
-}
 fn cell_certificate_box(tile:u32,leaf:u32,component:u32)->AppearanceBound4 {
   let at=(tile*64u+leaf)*CELL_CERTIFICATE_GEOMETRY_WORDS;
   let base=at+component*6u;
@@ -108,17 +97,6 @@ fn cell_certificate_field(tile:u32,leaf:u32,field:u32)->AppearanceBound4 {
     value.low[channel]=bitcast<f32>(cell_workspace.field_certificates[at+offset+channel]);
     value.high[channel]=bitcast<f32>(cell_workspace.field_certificates[at+offset+width+channel]);
     value.known[channel]=(known>>channel)&1u;
-  }
-  return value;
-}
-fn cell_candidate_field(tile:u32,leaves:vec2u,field:u32)->AppearanceBound4 {
-  var value=AppearanceBound4(vec4f(1e30),vec4f(-1e30),vec4u(1u));
-  var pending=leaves;
-  for(var count=0u;count<64u;count++) {
-    let leaf=cell_first(pending);
-    if leaf==0xffffffffu { break; }
-    pending&=~cell_bit(leaf);
-    value=cell_merge_bound(value,cell_certificate_field(tile,leaf,field));
   }
   return value;
 }
@@ -377,5 +355,8 @@ fn publish_cell_field_certificates(@builtin(workgroup_id) group:vec3u,@builtin(l
 
 /** Independent numerical fixtures exercise the exact production reader and
  * parent merge without constructing a second geometry/material producer. */
-export const SURFACE_CELL_CERTIFICATE_READ_WGSL = SURFACE_CELL_CERTIFICATE_WGSL.slice(0,
-  SURFACE_CELL_CERTIFICATE_WGSL.indexOf("fn cell_write_certificate_box"));
+export const SURFACE_CELL_CERTIFICATE_READ_WGSL =
+  SURFACE_CELL_CERTIFICATE_WGSL.slice(SURFACE_CELL_CERTIFICATE_WGSL.indexOf("const CELL_CERTIFICATE_ACTIVE_FIELDS"),
+    SURFACE_CELL_CERTIFICATE_WGSL.indexOf("fn cell_admit_field_proof")) +
+  SURFACE_CELL_CERTIFICATE_WGSL.slice(SURFACE_CELL_CERTIFICATE_WGSL.indexOf("fn cell_leaf_certificate"),
+    SURFACE_CELL_CERTIFICATE_WGSL.indexOf("fn cell_write_certificate_box"));
