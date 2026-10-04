@@ -1,4 +1,6 @@
+import { SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
+import { SURFACE_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
 
 /** Geometry owner address stage. It uses the admitted primitive setup and the
  * same winner interpolation as the sole GeometryRecord producer. Only the
@@ -18,14 +20,14 @@ fn cell_address_scalar(setup:CellGeometrySetup,attribute_index:u32,channel:u32,r
 @compute @workgroup_size(64)
 fn publish_cell_addresses(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
   if group.x>=cell_settings.tile_count { return; }
-  let tile=group.x;
+  let tile=group.x;cell_local_tile=tile;
   let leaf=tile*64u+lane;
   let published=cell_workspace.facts[leaf];
   if published.x==0xffffffffu || published.z>=settings.appearance1.z { return; }
   var setup:CellGeometrySetup;
   if published.y<settings.geometry.y { setup=geometry_arena.setups[published.y]; }
   else { cell_ensure_direct_geometry(published.x);setup=cell_direct_setup; }
-  let absolute=cell_settings.first_tile+tile;
+  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
   let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);
   let pixel=origin+vec2u(lane%8u,lane/8u);
   let interpolation=winner_interpolate(setup.coefficients,vec2f(pixel)+vec2f(0.5),vec2f(f32(cell_settings.width),f32(cell_settings.height)));
@@ -62,18 +64,7 @@ fn publish_cell_addresses(@builtin(workgroup_id) group:vec3u,@builtin(local_invo
     }
   }
   cell_workspace.addresses[at+131u]=flips;
-  var input_mask=0u;
-  for(var field=0u;field<15u;field++) {
-    let descriptor=settings.appearance2.z+(published.z*15u+field)*8u;
-    input_mask|=appearance_metadata[descriptor+3u]>>8u;
-  }
-  var lit=false;
-  for(var ordinal=0u;ordinal<4u;ordinal++) {
-    let field=array<u32,4>(2u,3u,6u,7u)[ordinal];
-    let descriptor=settings.appearance2.z+(published.z*15u+field)*8u;
-    lit=lit || appearance_metadata[descriptor+1u]!=0xffffffffu;
-  }
-  if lit { input_mask|=(1u<<5u)|(1u<<6u)|(1u<<7u); }
+  let input_mask=appearance_metadata[settings.appearance2.w+published.z*${SURFACE_EXECUTION_WORDS}u+2u];
   let rect=cell_rect_from_mask(cell_region(lane,2u,2u),origin);
   var valid_uv=0u;
   for(var uv=0u;uv<3u;uv++) {

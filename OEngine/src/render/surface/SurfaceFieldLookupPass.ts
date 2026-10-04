@@ -9,6 +9,7 @@ import type { SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 
 export interface SurfaceFieldLookupInput {
   readonly workspace: ResourceId;
+  readonly activeIndirect: ResourceId;
   readonly metadata: ResourceId;
   readonly versions: ResourceId;
   readonly publication: GpuAppearancePublication;
@@ -74,10 +75,11 @@ export class SurfaceFieldLookupPass {
       const pass = command.beginComputePass({ label: "Surface/field value and certificate lookup" });
       pass.setPipeline(pipeline!);
       pass.setBindGroup(0, group);
-      pass.dispatchWorkgroups(data.tileCount);
+      pass.dispatchWorkgroupsIndirect(resources.get(data.activeIndirect) as GPUBuffer, 0);
       pass.end();
     });
     node.read(input.workspace);
+    node.read(input.activeIndirect);
     node.read(input.metadata);
     node.read(input.versions);
     node.read(store);

@@ -62,7 +62,7 @@ fn cell_direct_group_safe(mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,6
  let first=cell_first(mask);var cluster=0xffffffffu;
  for(var lane=0u;lane<64u;lane++){
   if !cell_member(mask,lane){continue;}
-  let pixel=origin+vec2u(lane%8u,lane/8u);let local_tile=(pixel.y/8u)*cell_settings.tiles_x+pixel.x/8u-cell_settings.first_tile;
+  let pixel=origin+vec2u(lane%8u,lane/8u);let local_tile=cell_local_tile;
   let facts=cell_workspace.facts[local_tile*64u+lane];let candidate=facts.w&0x7fffffffu;
  if facts.w==0xffffffffu{return false;}
   if cluster==0xffffffffu{cluster=candidate;}else if !cell_light_lists_equal(cluster,candidate){return false;}
@@ -111,19 +111,13 @@ var<workgroup> cell_published_primitive_keys:array<u32,64>;
 @compute @workgroup_size(64)
 fn publish_cell_facts(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
  if group.x>=cell_settings.tile_count { return; }
- let tile=cell_settings.first_tile+group.x;
+ cell_local_tile=group.x;
+ let tile=cell_workspace.plans[group.x*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
  let pixel=vec2u((tile%cell_settings.tiles_x)*8u+lane%8u,(tile/cell_settings.tiles_x)*8u+lane/8u);
  let fact=cell_publish_lane_fact(pixel);
  cell_workspace.facts[group.x*64u+lane]=fact;
  cell_published_primitive_keys[lane]=fact.x;
  workgroupBarrier();
- if lane==0u {
-   var coverage=vec2u(0u);
-   for(var member=0u;member<64u;member++) { if cell_published_primitive_keys[member]!=0xffffffffu { coverage|=cell_bit(member); } }
-   let at=group.x*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u;
-   cell_workspace.plans[at]=pixel.x;cell_workspace.plans[at+1u]=pixel.y;
-   cell_workspace.plans[at+2u]=coverage.x;cell_workspace.plans[at+3u]=coverage.y;
- }
  var primitive=lane;
  if fact.x!=0xffffffffu {
    for(var member=0u;member<lane;member++) {

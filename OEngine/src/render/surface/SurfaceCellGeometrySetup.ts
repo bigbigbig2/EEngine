@@ -18,6 +18,8 @@ export interface SurfaceCellGeometrySetupInput {
   readonly tilesX: number;
   readonly firstTile: number;
   readonly tileCount: number;
+  readonly workspace: ResourceId;
+  readonly activeIndirect: ResourceId;
   readonly targetCapacity: number;
   readonly addressBudgetBytes?: number;
   readonly generation: number;
@@ -48,7 +50,7 @@ export class SurfaceCellGeometrySetup {
     const hasProduct = input.product !== null;
     if (hasProduct && input.product!.banks.length !== 4) throw new RangeError("Cell Geometry requires four published Product banks");
     // Both ordinary and Product source inputs are finite resource profiles.
-    if (this.device.limits.maxStorageBuffersPerShaderStage < (hasProduct ? 11 : 6)) {
+    if (this.device.limits.maxStorageBuffersPerShaderStage < (hasProduct ? 12 : 7)) {
       throw new RangeError("Cell Geometry source profile exceeds negotiated storage binding limit");
     }
     const capacity=planSurfaceCellGeometryCapacity(input.targetCapacity,input.addressBudgetBytes??input.targetCapacity*128,this.device.limits);
@@ -80,13 +82,17 @@ export class SurfaceCellGeometrySetup {
         }
         const group1:GPUBindGroupEntry[]=[{binding:2,resource:{buffer:resources.get(counts) as GPUBuffer}}];
         if(stage!=="finalize_cell_geometry")group1.push({binding:0,resource:{buffer:resources.get(arena) as GPUBuffer}});
-        if(stage==="request_cell_geometry")group1.push({binding:3,resource:resolveTextureView(resources.get(data.visibility))});
+        if(stage==="request_cell_geometry") {
+          group1.push({binding:3,resource:resolveTextureView(resources.get(data.visibility))});
+          group1.push({binding:5,resource:{buffer:resources.get(data.workspace) as GPUBuffer}});
+        }
         if(stage==="finalize_cell_geometry")group1.push({binding:4,resource:{buffer:resources.get(indirect) as GPUBuffer}});
         const compute=command.beginComputePass({label:`SurfaceGeometry/${stage}`});compute.setPipeline(pipeline);
         compute.setBindGroup(0,this.device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:group0}));
         compute.setBindGroup(1,this.device.createBindGroup({layout:pipeline.getBindGroupLayout(1),entries:group1}));
         if(stage==="build_cell_geometry")compute.dispatchWorkgroupsIndirect(resources.get(indirect) as GPUBuffer,0);
-        else compute.dispatchWorkgroups(stage==="reset_cell_geometry"?Math.ceil(dictionaryCapacity/64):stage==="request_cell_geometry"?data.tileCount:1);
+        else if(stage==="request_cell_geometry") { compute.dispatchWorkgroupsIndirect(resources.get(data.activeIndirect) as GPUBuffer,0); }
+        else compute.dispatchWorkgroups(stage==="reset_cell_geometry"?Math.ceil(dictionaryCapacity/64):1);
         compute.end();
       });
       if(stage==="reset_cell_geometry") {
@@ -97,7 +103,7 @@ export class SurfaceCellGeometrySetup {
         settings=pass.create("Surface cell geometry settings",{kind:"transient_buffer",size:SURFACE_CELL_GEOMETRY_SETTINGS_BYTES,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
         indirect=pass.create("Surface cell geometry indirect",{kind:"transient_buffer",size:16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_SRC});
       } else {pass.read(settings);pass.read(arena);pass.read(counts);counts=pass.write(counts);
-        if(stage==="request_cell_geometry"){pass.read(input.visibility);arena=pass.write(arena);}
+        if(stage==="request_cell_geometry"){pass.read(input.visibility);pass.read(input.workspace);pass.read(input.activeIndirect);arena=pass.write(arena);}
         if(stage==="finalize_cell_geometry")indirect=pass.write(indirect);
         if(stage==="build_cell_geometry"){pass.read(indirect);arena=pass.write(arena);
           for(const id of [input.meshletWork,input.sourceHeap,input.vertexPayload,input.frameInstances])pass.read(id);

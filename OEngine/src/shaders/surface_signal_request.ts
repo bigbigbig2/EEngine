@@ -1,6 +1,7 @@
 import { SURFACE_CELL_ADDRESS_WORDS, SURFACE_REFERENCE_WGSL } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_SIGNAL_STORE_KEY_WORDS } from "../gpu/GpuSurfaceSignalStoreAbi.js";
+import { SURFACE_FIELD_EXECUTION_WORDS, SURFACE_SIGNAL_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
 
 /** Exact selected-source witness. Each field contributes its immutable producer
  * and numeric version, or the immutable Store slot/generation chosen by its plan.
@@ -8,7 +9,7 @@ import { SURFACE_SIGNAL_STORE_KEY_WORDS } from "../gpu/GpuSurfaceSignalStoreAbi.
  * revisions are kind-specific; compose-only E/albedo/AO never enter Denv. */
 export const SURFACE_SIGNAL_REQUEST_WGSL = /* wgsl */ `
 ${SURFACE_REFERENCE_WGSL}
-${surfaceCellSelectionWgsl("signal_request_workspace")}
+${surfaceCellSelectionWgsl("signal_request_workspace", "signal_request_metadata", "signal_request_settings.constants")}
 const SIGNAL_REQUEST_KEY_WORDS:u32=${SURFACE_SIGNAL_STORE_KEY_WORDS}u;
 fn signal_request_field_descriptor(leaf:u32,field:u32)->u32 {
   return signal_request_settings.identities+(signal_request_workspace.facts[leaf].z*15u+field)*8u;
@@ -20,11 +21,9 @@ fn signal_request_uniform_value(leaf:u32,field:u32)->vec4f {
     signal_request_metadata[at+2u],signal_request_metadata[at+3u]));
 }
 fn signal_request_fields(leaf:u32,kind:u32)->u32 {
-  if kind==0u { return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<8u)|(1u<<9u)|(1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<13u)|(1u<<14u); }
-  if kind==1u { return (1u<<6u)|(1u<<13u); }
-  if kind==5u { return (1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<14u); }
-  var mask=(1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<7u)|(1u<<8u)|(1u<<9u)|(1u<<13u);
-  if kind==2u || kind==4u { mask|=(1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<14u); }
+  let field_profile=signal_request_metadata[signal_request_field_descriptor(leaf,0u)+7u];
+  let signal_profile=field_profile+15u*${SURFACE_FIELD_EXECUTION_WORDS}u+kind*${SURFACE_SIGNAL_EXECUTION_WORDS}u;
+  var mask=signal_request_metadata[signal_profile+1u];
   let metallic=reference_field(leaf,2u);
   if (kind==2u || kind==3u) && (metallic.kind==SURFACE_REFERENCE_PUBLICATION || metallic.kind==SURFACE_REFERENCE_DEFAULT) && signal_request_uniform_value(leaf,2u).x==0.0 {
     mask&=~1u;

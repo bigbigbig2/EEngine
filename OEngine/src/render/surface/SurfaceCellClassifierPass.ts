@@ -6,7 +6,7 @@ import { surfaceCellClassifyStageWgsl } from "../../shaders/surface_cell_classif
 import { surfaceCellProductionFactsWgsl } from "../../shaders/surface_cell_production_facts.js";
 import { SURFACE_CELL_LIGHTING_RISK_WGSL } from "../../shaders/surface_cell_lighting_risk.js";
 import { SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL } from "../../shaders/surface_cell_static_product_bounds.js";
-import { SURFACE_CELL_PLAN_WGSL, SURFACE_CELL_PLANE_COUNT,
+import { SURFACE_CELL_PLANE_COUNT,
   SURFACE_CELL_TILE_PLAN_BYTES, surfaceCellWorkspaceLayout, surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import type { SurfaceResourceBinding } from "./SurfaceFrameResources.js";
@@ -20,6 +20,7 @@ import type { GpuSurfaceFieldStore } from "../../gpu/GpuSurfaceFieldStore.js";
 import { SurfaceFieldLookupPass } from "./SurfaceFieldLookupPass.js";
 import type { GpuSurfaceSignalStore } from "../../gpu/GpuSurfaceSignalStore.js";
 import { SurfaceSignalLookupPass, type SurfaceSignalLookupInput } from "./SurfaceSignalLookupPass.js";
+import { SurfaceCoveragePass } from "./SurfaceCoveragePass.js";
 
 /**
  * The production cell classifier owns the complete coverage -> cell plan
@@ -67,6 +68,8 @@ export interface SurfaceCellClassifierInput {
 }
 
 export interface SurfaceCellClassifierProducts {
+  readonly coverage: ResourceId;
+  readonly activeIndirect: ResourceId;
   readonly workspace: ResourceId;
   readonly fieldStore: ResourceId;
   readonly signalStore: ResourceId;
@@ -79,6 +82,7 @@ export class SurfaceCellClassifierPass {
   private readonly cellSettings: GPUBuffer;
   private readonly factSettings: GPUBuffer;
   private readonly scratch: SurfaceFrameResources;
+  private readonly coveragePass: SurfaceCoveragePass;
   private readonly pipelines = new Map<string, Readonly<{ constants: GPUComputePipeline; facts: GPUComputePipeline;
     addresses: GPUComputePipeline; geometryCertificates: GPUComputePipeline; fieldCertificates: readonly GPUComputePipeline[];
     classify: readonly GPUComputePipeline[] }>>();
@@ -86,6 +90,7 @@ export class SurfaceCellClassifierPass {
   constructor(private readonly device: GPUDevice, scratch: SurfaceFrameResources,
     fieldStore: GpuSurfaceFieldStore | null = null, signalStore: GpuSurfaceSignalStore | null = null) {
     this.scratch = scratch;
+    this.coveragePass = new SurfaceCoveragePass(device, scratch);
     this.fieldLookup = new SurfaceFieldLookupPass(device, fieldStore);
     this.signalLookup = new SurfaceSignalLookupPass(device, signalStore);
     this.cellSettings = device.createBuffer({ label: "Surface/cell settings", size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -151,6 +156,10 @@ export class SurfaceCellClassifierPass {
     }
 
     const batchCount = Math.ceil(tiles / batchTileCapacity);
+    const coverage = this.coveragePass.addToGraph(graph, { visibility: input.visibility, meshletWork: input.meshletWork,
+      metadata: input.appearanceMetadata, publication: input.publication, width: input.width, height: input.height,
+      generation: input.generation, bind: input.resourceBinding });
+    let activeIndirect!: ResourceId;
     const batchWorkspaceLayout = surfaceCellWorkspaceLayout(batchTileCapacity);
     let workspace=this.scratch.importBuffer(graph,input.resourceBinding,"Surface/cell plan workspace",batchWorkspaceLayout.bytes,
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST);
@@ -167,7 +176,7 @@ export class SurfaceCellClassifierPass {
         metadata.constants, metadata.routes, metadata.bounds, metadata.directory,
         metadata.materialLookup, metadata.materialLookupCount, metadata.directoryCount, input.publication.surfaceCacheGeneration,
         dictionaryCapacity, setupCapacity, input.generation, 1,
-        metadata.constantFields, (input.shadowEnabled ? 1 : 0) | (input.physicalSunEnabled ? 2 : 0), metadata.fieldIdentities, 0
+        metadata.constantFields, (input.shadowEnabled ? 1 : 0) | (input.physicalSunEnabled ? 2 : 0), metadata.fieldIdentities, metadata.executionProfiles
       ]);
       command.writeBuffer(this.factSettings, 0, settings.buffer, 0, settings.byteLength);
       const pass = command.beginComputePass({ label: "Surface/cell publish material constants" }); pass.setPipeline(pipelines!.constants);
@@ -203,44 +212,50 @@ export class SurfaceCellClassifierPass {
     for (let batch = 0; batch < batchCount; batch++) {
       const firstTile = batch * batchTileCapacity;
       const tileCount = Math.min(batchTileCapacity, tiles - firstTile);
+      const batchReset = graph.add(`Surface/cell batch ${batch} workspace reset`, { firstTile, tileCount }, (_data, resources, context) => {
+        const command = context.encoder as ShadeGPUCommandContext;
+        command.gpu_encoder.clearBuffer(resources.get(workspace) as GPUBuffer, 0, batchWorkspaceLayout.bytes);
+        command.writeBuffer(this.cellSettings, 0, new Uint32Array([input.width, input.height, tilesX, firstTile, tileCount, input.targetCapacity, input.generation, input.diagnosticsEnabled ? 1 : 0]).buffer, 0, 32);
+      });
+      for (const resource of consumed) { batchReset.read(resource); }
+      batchReset.read(workspace); workspace = batchReset.write(workspace); batchReset.dependsOn(previous);
+      const range = this.coveragePass.addRangeToGraph(graph, { coverage, workspace, first: firstTile,
+        capacity: tileCount, tiles, tilesX, after: consumed, bind: input.resourceBinding });
+      workspace = range.workspace;
+      activeIndirect = range.indirect;
       const setup = input.geometryPass.addCellSetupsToGraph(graph, {
         visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
         frameInstances: input.frameInstances, product: input.product, width: input.width, height: input.height, tilesX,
-        firstTile, tileCount, targetCapacity: input.targetCapacity, after: consumed,
+        firstTile, tileCount, workspace, activeIndirect, targetCapacity: input.targetCapacity, after: [workspace, activeIndirect],
         addressBudgetBytes: input.targetCapacity * 128,
         generation: input.generation, sourceGeometry: input.sourceGeometry, sourceMeshlet: input.sourceMeshlet,
         sourceMeshletVertices: input.sourceMeshletVertices, sourceMeshletTriangles: input.sourceMeshletTriangles, sourceVertexData: input.sourceVertexData
       });
-      const batchReset = graph.add(`Surface/cell batch ${batch} workspace reset`, { firstTile, tileCount, setup }, (_data, resources, context) => {
-        const command = context.encoder as ShadeGPUCommandContext;
-        command.gpu_encoder.clearBuffer(resources.get(workspace) as GPUBuffer, 0, batchWorkspaceLayout.bytes);
-        command.writeBuffer(this.cellSettings, 0, new Uint32Array([input.width, input.height, tilesX, firstTile, tileCount, input.targetCapacity, input.generation, input.diagnosticsEnabled ? 1 : 0]).buffer, 0, 32);
-
-      });
-      batchReset.read(setup.arena); batchReset.read(workspace); workspace = batchReset.write(workspace); batchReset.dependsOn(previous);
       const facts = graph.add(`Surface/cell publish geometry and lighting facts batch ${batch}`, { setup, workspace }, (_data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
         const pass = command.beginComputePass({ label: "Surface/cell publish geometry and lighting facts" }); pass.setPipeline(pipelines!.facts);
-        bindFactGroups(pipelines!.facts, resources, setup).forEach((group, index) => pass.setBindGroup(index, group)); pass.dispatchWorkgroups(tileCount); pass.end();
+        bindFactGroups(pipelines!.facts, resources, setup).forEach((group, index) => pass.setBindGroup(index, group)); pass.dispatchWorkgroupsIndirect(resources.get(activeIndirect) as GPUBuffer, 0); pass.end();
       });
       facts.read(input.visibility); facts.read(setup.arena); facts.read(input.meshletWork); facts.read(input.sourceHeap); facts.read(input.vertexPayload); facts.read(input.frameInstances); facts.read(input.appearanceMetadata); facts.read(input.textureVariation); facts.read(input.camera); facts.read(input.lightRecords); facts.read(input.clusters.lookup); facts.read(input.clusters.data); facts.read(input.clusters.parameters); facts.read(workspace); workspace = facts.write(workspace); facts.dependsOn(batchReset);
+      facts.read(activeIndirect);
       previous = facts;
       const addresses = graph.add(`Surface/canonical field addresses batch ${batch}`, { setup, workspace }, (_data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
         const pass = command.beginComputePass({ label: "Surface/canonical field addresses" });
         pass.setPipeline(pipelines!.addresses);
         bindFactGroups(pipelines!.addresses, resources, setup).forEach((group, index) => pass.setBindGroup(index, group));
-        pass.dispatchWorkgroups(tileCount);
+        pass.dispatchWorkgroupsIndirect(resources.get(activeIndirect) as GPUBuffer, 0);
         pass.end();
       });
       addresses.read(input.visibility); addresses.read(setup.arena); addresses.read(input.meshletWork);
+      addresses.read(activeIndirect);
       addresses.read(input.sourceHeap); addresses.read(input.vertexPayload); addresses.read(input.frameInstances);
       addresses.read(input.appearanceMetadata); addresses.read(input.textureVariation); addresses.read(input.camera);
       addresses.read(input.lightRecords); addresses.read(input.clusters.lookup); addresses.read(input.clusters.data); addresses.read(input.clusters.parameters);
       if (input.product !== null) { addresses.read(input.product.heap); for (const bank of input.product.banks) { addresses.read(bank); } }
       addresses.read(workspace); workspace = addresses.write(workspace); addresses.dependsOn(previous);
       const lookedUp = this.fieldLookup.addToGraph(graph, {
-        workspace, metadata: input.appearanceMetadata, versions: input.fieldVersions,
+        workspace, activeIndirect, metadata: input.appearanceMetadata, versions: input.fieldVersions,
         publication: input.publication, batchTiles: batchTileCapacity, tileCount,
         viewRevision: input.viewRevision, diagnostics: input.diagnosticsEnabled, bind: input.resourceBinding
       });
@@ -255,10 +270,11 @@ export class SurfaceCellClassifierPass {
           const pass=command.beginComputePass({label:`Surface/shared ${name} certificates`});
           pass.setPipeline(pipeline);
           bindFactGroups(pipeline,resources,setup).forEach((group,index) => pass.setBindGroup(index,group));
-          pass.dispatchWorkgroups(tileCount);
+          pass.dispatchWorkgroupsIndirect(resources.get(activeIndirect) as GPUBuffer, 0);
           pass.end();
         });
         certificate.read(input.visibility); certificate.read(setup.arena); certificate.read(input.meshletWork);
+        certificate.read(activeIndirect);
         certificate.read(input.sourceHeap); certificate.read(input.vertexPayload); certificate.read(input.frameInstances);
         certificate.read(input.appearanceMetadata); certificate.read(input.textureVariation); certificate.read(input.camera);
         certificate.read(input.lightRecords); certificate.read(input.clusters.lookup); certificate.read(input.clusters.data); certificate.read(input.clusters.parameters);
@@ -269,12 +285,13 @@ export class SurfaceCellClassifierPass {
         const classify = graph.add(`Surface/cell classify continuity domains ${stageIndex} batch ${batch}`, { setup, workspace }, (_data, resources, context) => {
           const command = context.encoder as ShadeGPUCommandContext;
           const pass = command.beginComputePass({ label: `Surface/cell classify continuity domains ${stageIndex}` }); pass.setPipeline(pipeline);
-          bindFactGroups(pipeline, resources, setup).forEach((group, index) => pass.setBindGroup(index, group)); pass.dispatchWorkgroups(tileCount); pass.end();
+          bindFactGroups(pipeline, resources, setup).forEach((group, index) => pass.setBindGroup(index, group)); pass.dispatchWorkgroupsIndirect(resources.get(activeIndirect) as GPUBuffer, 0); pass.end();
         });
         classify.read(input.visibility); classify.read(setup.arena); classify.read(input.meshletWork); classify.read(input.sourceHeap); classify.read(input.vertexPayload); classify.read(input.frameInstances); classify.read(input.appearanceMetadata); classify.read(input.textureVariation); classify.read(input.camera); classify.read(input.lightRecords); classify.read(input.clusters.lookup); classify.read(input.clusters.data); classify.read(input.clusters.parameters); classify.read(workspace); workspace = classify.write(workspace); classify.dependsOn(previous as any); previous = classify;
+        classify.read(activeIndirect);
         if (stageIndex === 0) {
           const lookedUpSignals = this.signalLookup.addToGraph(graph, {
-            workspace, metadata: input.appearanceMetadata, versions: input.fieldVersions,
+            workspace, activeIndirect, metadata: input.appearanceMetadata, versions: input.fieldVersions,
             publication: input.publication, batchTiles: batchTileCapacity, tileCount,
             viewRevision: input.viewRevision, revisions: input.signalRevisions, sun: input.sun,
             shadowVersion: input.shadowVersion,
@@ -285,14 +302,14 @@ export class SurfaceCellClassifierPass {
         }
       }
       if (input.consumeBatch !== undefined) {
-        consumed = input.consumeBatch({ workspace, fieldStore, signalStore, batchTileCapacity }, firstTile, tileCount, batchTileCapacity);
+        consumed = input.consumeBatch({ workspace, fieldStore, signalStore, batchTileCapacity, coverage, activeIndirect }, firstTile, tileCount, batchTileCapacity);
         const complete = graph.add(`Surface/cell batch ${batch} consumed`, {}, () => {});
         for (const resource of consumed) { complete.read(resource); }
         complete.make_side_effect();
         previous = complete;
       }
     }
-    return { workspace, fieldStore, signalStore, batchTileCapacity };
+    return { workspace, fieldStore, signalStore, batchTileCapacity, coverage, activeIndirect };
   }
 
   destroy(): void { this.fieldLookup.destroy(); this.signalLookup.destroy(); this.cellSettings.destroy(); this.factSettings.destroy();  this.pipelines.clear(); }

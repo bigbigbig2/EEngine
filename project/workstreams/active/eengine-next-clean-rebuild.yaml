@@ -13,13 +13,13 @@ goal: >-
 
 currentSlice:
   id: surface-work-v3-cost-bounded-final-refactor
-  title: Surface V3 有界前端最终重构：Phase 0 已完成，待 Phase 1 实施
+  title: Surface V3 有界前端最终重构：Phase 1 已完成，待 Phase 2 实施
   status: active
   goal: >-
     按 docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md
     与 docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md
     每阶段实现并检查，通过后进入下一阶段。当前完成设计、基线提交 14c17078 与 Phase 0 静态消费/容量清单；
-    Phase 0 身份、消费者矩阵、字段/信号依赖、物理账、来源与静态检查已完成；Phase 1–7 未开始。
+    Phase 0 身份、消费者矩阵、字段/信号依赖、物理账、来源与静态检查已完成；Phase 1 publication/工作表示代码、阶段检查与短 GPU/Showcase 检查已完成；Phase 2–7 未开始。
     run06 的约 801.7ms 为历史诊断，accepted=false，不宣称性能完成。
     详细状态维护于对应 progress 文档。
 

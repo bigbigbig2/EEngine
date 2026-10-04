@@ -1,3 +1,4 @@
+import { surfaceCoverageLayout } from "./GpuSurfaceCoverageAbi.js";
 import { surfaceCellWorkspaceLayout } from "./GpuSurfaceCellPlanAbi.js";
 import { surfaceDemandLayout } from "./GpuSurfaceDemandAbi.js";
 import { SURFACE_GEOMETRY_RECORD_BYTES } from "./GpuSurfaceGeometryRecordAbi.js";
@@ -141,7 +142,8 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
     demand:surfaceDemandLayout(batchTargetCapacity,256).bytes,
     demandIndirect:512+256*32,
     controlAndSettings:64*1024,
-    reconstructionIndirect:Math.ceil(tileCount/batchTiles)*16,
+    coverage:surfaceCoverageLayout(tileCount).bytes,
+    activeRange:32,
     dependencyOwners:256*15*4
   });
   const scratchBytes = { plans: align(controlBytes + batchTiles * bytesPerTile), addresses: 0,
@@ -169,8 +171,8 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
     ...persistentSegments.variation].reduce((sum, bytes) => sum + bytes, 0);
   const alignmentBytes = Math.max(0, scratchTotalBytes - rawScratchBytes);
   const payloadBytes = productionAllocations.geometryRecords+productionAllocations.fieldValues+productionAllocations.signalValues;
-  const metadataBytes = productionAllocations.workspace+productionAllocations.geometrySetup+productionAllocations.dependencyOwners;
-  const queueBytes = productionAllocations.demand+productionAllocations.demandIndirect+productionAllocations.reconstructionIndirect+productionAllocations.controlAndSettings;
+  const metadataBytes = productionAllocations.workspace+productionAllocations.geometrySetup+productionAllocations.dependencyOwners+productionAllocations.coverage;
+  const queueBytes = productionAllocations.demand+productionAllocations.demandIndirect+productionAllocations.activeRange+productionAllocations.controlAndSettings;
   const historyBytes = 0;
   const retiredOverlapBytes = scratchTotalBytes;
   const outputBytes = SURFACE_OPTIMIZATION_BUDGET_MIB.outputs * SURFACE_OPTIMIZATION_MIB;

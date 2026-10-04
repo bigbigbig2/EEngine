@@ -33,22 +33,26 @@ export function planSurfaceReconstructionBatches(width: number, height: number,
   return Object.freeze({ tilesX, tilesY, tileCount, batchTiles, batchCount: Math.max(1, Math.ceil(tileCount / batchTiles)) });
 }
 
-const BATCH_PLAN_WGSL = /* wgsl */ `
-struct BatchSettings { tiles_x:u32, tile_count:u32, batch_tiles:u32, batch_count:u32 };
-@group(0) @binding(0) var<uniform> settings:BatchSettings;
-@group(0) @binding(1) var<storage,read_write> indirect:array<atomic<u32>>;
-@compute @workgroup_size(64)
-fn plan(@builtin(global_invocation_id) id:vec3u) {
-  let batch=id.x;
-  if (batch>=settings.batch_count) { return; }
-  let first=batch*settings.batch_tiles;
-  var count=0u;
-  if (first<settings.tile_count) { count=min(settings.batch_tiles,settings.tile_count-first); }
-  let at=batch*4u;
-  atomicStore(&indirect[at],count);
-  atomicStore(&indirect[at+1u],select(0u,1u,count!=0u));
-  atomicStore(&indirect[at+2u],select(0u,1u,count!=0u));
-  atomicStore(&indirect[at+3u],count);
+const BACKGROUND_WGSL = /* wgsl */ `
+struct BackgroundSettings { width:u32, height:u32, pad:vec2u }
+@group(0) @binding(0) var<uniform> settings:BackgroundSettings;
+@group(0) @binding(1) var<storage,read> coverage:array<u32>;
+@group(0) @binding(2) var facts:texture_2d<f32>;
+@group(0) @binding(3) var output:texture_storage_2d<rgba16float,write>;
+@group(0) @binding(4) var reactive:texture_storage_2d<rgba8unorm,write>;
+@group(0) @binding(5) var<storage,read_write> diagnostics:array<atomic<u32>>;
+@compute @workgroup_size(8,8)
+fn write_surface_background(@builtin(global_invocation_id) id:vec3u) {
+  if id.x>=settings.width || id.y>=settings.height { return; }
+  let tiles_x=(settings.width+7u)/8u;
+  let tile=(id.y/8u)*tiles_x+id.x/8u;
+  let lane=(id.y%8u)*8u+id.x%8u;
+  let mask=coverage[4u+tile*8u+1u+lane/32u];
+  if (mask&(1u<<(lane&31u)))!=0u { return; }
+  let source=textureLoad(facts,vec2i(id.xy),0);
+  textureStore(output,vec2i(id.xy),vec4f(0.0));
+  textureStore(reactive,vec2i(id.xy),vec4f(max(source.x,0.35),source.yzw));
+  if settings.pad.x!=0u { atomicAdd(&diagnostics[1u],1u);atomicAdd(&diagnostics[5u],1u); }
 }
 `;
 
@@ -94,7 +98,7 @@ fn compose_irradiance(leaf:u32,pixel:vec2u,irradiance:vec3f)->vec3f {
   return base_color*(1.0-metallic)*occlusion*ao*irradiance*0.3183098861837907;
 }
 fn compose_unlit(leaf:u32,pixel:vec2u)->vec3f {
-  let tile=(pixel.y/8u)*settings.tiles_x+pixel.x/8u-settings.first_tile;
+  let tile=leaf/64u;
   let lane=(pixel.y%8u)*8u+pixel.x%8u;
   let base_coverage=reconstruct_plan_word(tile,0u,4u+lane/32u);
   if (base_coverage&(1u<<(lane&31u)))==0u { return vec3f(0.0); }
@@ -111,10 +115,13 @@ fn compose_unlit(leaf:u32,pixel:vec2u)->vec3f {
 
 @compute @workgroup_size(8,8)
 fn reconstruct(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_id) lane:vec3u) {
- let tile=settings.first_tile+group.x;
+ let tile=surface_workspace.plans[group.x*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
  let pixel=vec2u((tile%settings.tiles_x)*8u+lane.x,(tile/settings.tiles_x)*8u+lane.y);
  if pixel.x>=settings.width || pixel.y>=settings.height { return; }
- let leaf=group.x*64u+lane.y*8u+lane.x;
+ let local_lane=lane.y*8u+lane.x;
+ let coverage=surface_workspace.plans[group.x*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+2u+local_lane/32u];
+ if (coverage&(1u<<(local_lane&31u)))==0u { return; }
+ let leaf=group.x*64u+local_lane;
  let fact=surface_workspace.facts[leaf];
  let valid=fact.x!=0xffffffffu && fact.z!=0xffffffffu;
  var value=vec3f(0.0);
@@ -137,19 +144,15 @@ fn reconstruct(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_id) 
 
 export class SurfaceReconstructionPass {
   private readonly layout: GPUBindGroupLayout;
-  private readonly batchLayout: GPUBindGroupLayout;
   private readonly pipelines = new Map<number,GPUComputePipeline>();
-  private readonly batchPipeline: GPUComputePipeline;
+  private readonly backgroundPipeline: GPUComputePipeline;
   private readonly settings: GPUBuffer;
-  private readonly batchSettings: GPUBuffer;
   private prepared = false;
   private extent: readonly [number, number] = [0, 0];
   private batchPlan = planSurfaceReconstructionBatches(1, 1);
 
   constructor(private readonly device: GPUDevice) {
     this.settings = device.createBuffer({ label: "Surface reconstruct settings", size: 48,
-      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.batchSettings = device.createBuffer({ label: "Surface reconstruct batch settings", size: 16,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
@@ -166,12 +169,8 @@ export class SurfaceReconstructionPass {
       { binding: 12, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
       { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
     ] });
-    this.batchLayout = device.createBindGroupLayout({ entries: [
-      { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 16 } },
-      { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
-    ] });
-    this.batchPipeline = device.createComputePipeline({ label: "Surface reconstruct batch indirect", layout: device.createPipelineLayout({ bindGroupLayouts: [this.batchLayout] }),
-      compute: { module: device.createShaderModule({ code: BATCH_PLAN_WGSL }), entryPoint: "plan" } });
+    this.backgroundPipeline = device.createComputePipeline({ label: "Surface/background write domain", layout: "auto",
+      compute: { module: device.createShaderModule({ code: BACKGROUND_WGSL }), entryPoint: "write_surface_background" } });
 
   }
 
@@ -189,6 +188,8 @@ export class SurfaceReconstructionPass {
     reactive: ResourceId;
     preExposure: ResourceId;
     cellWorkspace: ResourceId;
+    coverage: ResourceId;
+    activeIndirect: ResourceId;
     cellBatchTiles: number;
     firstTile: number;
     appearanceMetadata: ResourceId;
@@ -212,23 +213,16 @@ export class SurfaceReconstructionPass {
         compute:{module:this.device.createShaderModule({code:surfaceReconstructWgsl(input.cellBatchTiles)}),entryPoint:"reconstruct"}});
       this.pipelines.set(input.cellBatchTiles,pipeline);
     }
-    let radiance!: ResourceId, reactiveMask!: ResourceId, counters!: ResourceId, batchIndirect!: ResourceId;
+    let radiance!: ResourceId, reactiveMask!: ResourceId, counters!: ResourceId;
     const batchPlan = input.batch === undefined ? this.batchPlan : planSurfaceReconstructionBatches(input.width, input.height, input.batch.batchTiles);
     const firstBatch = input.batch?.index ?? 0;
-    const endBatch = input.batch === undefined ? batchPlan.batchCount : firstBatch + 1;
+    const endBatch = firstBatch + 1;
     if (!Number.isSafeInteger(firstBatch) || firstBatch < 0 || endBatch > batchPlan.batchCount) {
       throw new RangeError("Surface reconstruction batch is outside the output extent");
     }
     const node = graph.add("Surface/cheap batched reconstruct", { ...input, batchPlan }, (data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      const indirect = resources.get(batchIndirect) as GPUBuffer;
-      const batchGroup = this.device.createBindGroup({ layout: this.batchLayout, entries: [
-        { binding: 0, resource: { buffer: this.batchSettings } }, { binding: 1, resource: { buffer: indirect } }
-      ] });
-      command.writeBuffer(this.batchSettings, 0, new Uint32Array([data.batchPlan.tilesX, data.batchPlan.tileCount,
-        data.batchPlan.batchTiles, data.batchPlan.batchCount]).buffer, 0, 16);
-      const planner = command.beginComputePass({ label: "Surface/reconstruct batch counts" });
-      planner.setPipeline(this.batchPipeline); planner.setBindGroup(0, batchGroup); planner.dispatchWorkgroups(Math.ceil(data.batchPlan.batchCount / 64)); planner.end();
+      const indirect = resources.get(data.activeIndirect) as GPUBuffer;
       const countersBuffer = resources.get(counters) as GPUBuffer;
       if (data.diagnosticsEnabled && data.previous === undefined) command.writeBuffer(countersBuffer, 0,
         new Uint32Array(SURFACE_RECONSTRUCT_COUNTER_WORDS).buffer, 0, SURFACE_RECONSTRUCT_COUNTER_BYTES);
@@ -242,6 +236,21 @@ export class SurfaceReconstructionPass {
         view.setUint32(36, data.firstTile, true);
         view.setUint32(40, data.scalarAo===null ? 0 : 1, true);
         command.writeBuffer(this.settings, 0, settings, 0, settings.byteLength);
+        if (data.previous === undefined) {
+          const backgroundSettings=command.allocateTransientBuffer(GPUBufferUsage.UNIFORM,16);
+          command.writeBuffer(backgroundSettings,0,new Uint32Array([data.width,data.height,data.diagnosticsEnabled?1:0,0]).buffer,0,16);
+          const backgroundGroup=this.device.createBindGroup({layout:this.backgroundPipeline.getBindGroupLayout(0),entries:[
+            {binding:0,resource:{buffer:backgroundSettings}},
+            {binding:1,resource:{buffer:resources.get(data.coverage) as GPUBuffer}},
+            {binding:2,resource:resolveTextureView(resources.get(data.reactive))},
+            {binding:3,resource:resolveTextureView(resources.get(radiance))},
+            {binding:4,resource:resolveTextureView(resources.get(reactiveMask))},
+            {binding:5,resource:{buffer:countersBuffer}}
+          ]});
+          const background=command.beginComputePass({label:"Surface/background write domain"});
+          background.setPipeline(this.backgroundPipeline);background.setBindGroup(0,backgroundGroup);
+          background.dispatchWorkgroups(Math.ceil(data.width/8),Math.ceil(data.height/8));background.end();
+        }
         const group = this.device.createBindGroup({ layout: this.layout, entries: [
           { binding: 0, resource: { buffer: this.settings } },
           { binding: 1, resource: { buffer: resources.get(data.signalValues) as GPUBuffer } },
@@ -258,7 +267,7 @@ export class SurfaceReconstructionPass {
           { binding: 13, resource: { buffer: resources.get(data.scalarAo ?? data.preExposure) as GPUBuffer } }
         ] });
         const pass = command.beginComputePass({ label: `Surface/reconstruct batch ${batch}` });
-        pass.setPipeline(pipeline!); pass.setBindGroup(0, group); pass.dispatchWorkgroupsIndirect(indirect, batch * 16); pass.end();
+        pass.setPipeline(pipeline!); pass.setBindGroup(0, group); pass.dispatchWorkgroupsIndirect(indirect, 0); pass.end();
       }
     });
     node.read(input.signalValues); node.read(input.signalStore); node.read(input.fieldStore); node.read(input.reactive); node.read(input.preExposure);
@@ -267,9 +276,8 @@ export class SurfaceReconstructionPass {
     node.read(input.appearanceMetadata);
     if (input.scalarAo!==null) { node.read(input.scalarAo); }
     for (const resource of input.after ?? []) { node.read(resource); }
-    batchIndirect = node.create("Surface/reconstruct batch indirect", { kind: "transient_buffer", size: batchPlan.batchCount * 16,
-      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST, domain: "internal-full" });
-    node.write(batchIndirect);
+    node.read(input.coverage);
+    node.read(input.activeIndirect);
     if (input.previous !== undefined) {
       radiance = node.write(input.previous.radiance);
       reactiveMask = node.write(input.previous.reactiveMask);
@@ -293,5 +301,5 @@ export class SurfaceReconstructionPass {
 
   abort(): void { this.prepared = false; }
   invalidate(): void { /* TemporalFacts and FSR3 own temporal validity now. */ }
-  destroy(): void { this.settings.destroy(); this.batchSettings.destroy(); }
+  destroy(): void { this.settings.destroy(); }
 }

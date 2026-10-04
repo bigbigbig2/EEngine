@@ -7,6 +7,7 @@ import { surfaceDemandWgsl } from "../../shaders/surface_demand.js";
 import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 export interface SurfaceDemandProducts {
     readonly workspace: ResourceId;
+    readonly activeIndirect: ResourceId;
     readonly arena: ResourceId;
     readonly indirect: ResourceId;
     readonly settings: ResourceId;
@@ -16,6 +17,7 @@ export interface SurfaceDemandProducts {
 }
 export interface SurfaceDemandInput {
     readonly workspace: ResourceId;
+    readonly activeIndirect: ResourceId;
     readonly fieldStore: ResourceId;
     readonly signalStore: ResourceId;
     readonly metadata: ResourceId;
@@ -135,11 +137,13 @@ export class SurfaceDemandPass {
                     pass.dispatchWorkgroupsIndirect(resources.get(data.indirect) as GPUBuffer, indirectWord * 4);
                 }
                 else {
-                    pass.dispatchWorkgroups(entryPoint.startsWith("finalize_") ? 1 : input.leaves / 64);
+                    if (entryPoint.startsWith("finalize_")) { pass.dispatchWorkgroups(1); }
+                    else { pass.dispatchWorkgroupsIndirect(resources.get(input.activeIndirect) as GPUBuffer, 0); }
                 }
                 pass.end();
             });
             node.read(settings);
+            node.read(input.activeIndirect);
             node.read(workspace);
             node.read(arena);
             node.read(input.metadata);
@@ -161,7 +165,7 @@ export class SurfaceDemandPass {
                 copy.read(arena);indirect=copy.write(indirect);copy.dependsOn(previous);previous=copy;
             }
         }
-        return { workspace, arena,indirect, settings, fieldStore: input.fieldStore, signalStore: input.signalStore, layout };
+        return { workspace, arena,indirect, activeIndirect: input.activeIndirect, settings, fieldStore: input.fieldStore, signalStore: input.signalStore, layout };
     }
     destroy(): void { this.disabledSun.destroy(); this.disabledShadow.destroy(); this.pipelines.clear(); }
 }

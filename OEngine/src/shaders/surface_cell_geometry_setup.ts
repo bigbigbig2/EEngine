@@ -5,6 +5,7 @@ import { GPU_VISIBILITY_KEY_WGSL } from "../gpu/GpuVisibilityKeyAbi.js";
 import { WINNER_INTERPOLATION_WGSL } from "./winner_interpolation.js";
 import { surfaceGeometryDecodeWgsl } from "./surface_geometry_reader.js";
 import { SURFACE_CELL_GEOMETRY_WGSL, SURFACE_CELL_GEOMETRY_PROBE_LIMIT, surfaceCellGeometryArenaWgsl } from "../gpu/GpuSurfaceCellGeometryAbi.js";
+import { SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
 
 /** Geometry-owned setup math, shared between admitted build and bounded direct
  * address misses. No second GeometryRecord writer; no per-pixel material probe.
@@ -86,6 +87,7 @@ ${Array.from({length:4},(_,i)=>`@group(0) @binding(${i+6}) var<storage,read> pro
 @group(1) @binding(2) var<storage,read_write> setup_counts:array<atomic<u32>>;
 @group(1) @binding(3) var setup_visibility:texture_2d<u32>;
 @group(1) @binding(4) var<storage,read_write> setup_indirect:array<u32>;
+@group(1) @binding(5) var<storage,read> setup_workspace:array<u32>;
 ${surfaceCellGeometryMathWgsl(product)}
 ${surfaceCellGeometryArenaWgsl(dictionaryCapacity,true)}
 fn cell_setup_hash(key:u32)->u32 {var v=key;v^=v>>16u;v*=0x7feb352du;v^=v>>15u;v*=0x846ca68bu;return v^(v>>16u);}
@@ -96,7 +98,8 @@ fn cell_setup_hash(key:u32)->u32 {var v=key;v^=v>>16u;v*=0x7feb352du;v^=v>>15u;v
 var<workgroup> request_keys:array<u32,64>;
 @compute @workgroup_size(64) fn request_cell_geometry(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32){
  if group.x>=settings.tile_count{return;}
- let tile=settings.first_tile+group.x;let pixel=vec2u((tile%settings.tiles_x)*8u+lane%8u,(tile/settings.tiles_x)*8u+lane/8u);
+ let at=128u+group.x*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u;
+ let pixel=vec2u(setup_workspace[at]+lane%8u,setup_workspace[at+1u]+lane/8u);
  var key=0xffffffffu;if pixel.x<settings.width&&pixel.y<settings.height{key=textureLoad(setup_visibility,vec2i(pixel),0).x;}
  request_keys[lane]=key;workgroupBarrier();if key==0xffffffffu{return;}
  for(var i=0u;i<lane;i++){if request_keys[i]==key{return;}}

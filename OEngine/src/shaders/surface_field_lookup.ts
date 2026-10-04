@@ -79,9 +79,6 @@ fn lookup_surface_fields(@builtin(global_invocation_id) id:vec3u) {
     let reference=(leaf*15u+field)*3u;
     let absent=field_request_metadata[field_request_descriptor(leaf,field)+1u]==0xffffffffu;
     if (constants&(1u<<field))!=0u || absent {
-      field_request_workspace.field_references[reference]=select(SURFACE_REFERENCE_PUBLICATION,SURFACE_REFERENCE_DEFAULT,absent);
-      field_request_workspace.field_references[reference+1u]=fact.z;
-      field_request_workspace.field_references[reference+2u]=field_request_word(leaf,field,1u);
       let at=palette+4u+field*4u;
       let value=vec4u(field_request_metadata[at],field_request_metadata[at+1u],field_request_metadata[at+2u],field_request_metadata[at+3u]);
       known|=field_lookup_write_bounds(leaf,field,value,value);

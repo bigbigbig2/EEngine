@@ -174,7 +174,7 @@ export class SurfaceWorkRuntime {
         let previousDiagnostics: ResourceId | undefined;
         const consume = (cells: SurfaceCellClassifierProducts, firstTile: number, tileCount: number, batchTiles: number): readonly ResourceId[] => {
             const epoch = input.historyBinding("surface-submitted-epoch", () => ({ value: (this.fieldStore?.stats().submittedEpoch ?? this.signalStore?.stats().submittedEpoch ?? 0) + 1 }));
-            const request: SurfaceDemandInput = { workspace: cells.workspace, fieldStore: cells.fieldStore, signalStore: cells.signalStore,
+            const request: SurfaceDemandInput = { workspace: cells.workspace, activeIndirect: cells.activeIndirect, fieldStore: cells.fieldStore, signalStore: cells.signalStore,
                 metadata: input.appearanceMetadata, versions: input.fieldVersions, publication: input.publication, targets: batchTiles * 64,
                 leaves: tileCount * 64, epoch, viewRevision: input.viewRevision, revisions: input.revisions,
                 sun: input.physicalSun?.parameters ?? null, shadow: input.shadow?.contentVersion ?? null, firstTile,
@@ -211,7 +211,8 @@ export class SurfaceWorkRuntime {
                 entries: this.signalStore?.capacity.entries ?? 4, enabled: this.signalStore !== null });
             const reconstructed = this.reconstruction.addToGraph(graph, { signalValues: lighting.values, signalStore: demand.signalStore,
                 fieldStore: demand.fieldStore, fields, reactive: input.factsMask, preExposure: input.preExposure,
-                cellWorkspace: demand.workspace, cellBatchTiles: batchTiles, firstTile, appearanceMetadata: input.appearanceMetadata,
+                cellWorkspace: demand.workspace, cellBatchTiles: batchTiles, activeIndirect: cells.activeIndirect, coverage: cells.coverage,
+                firstTile, appearanceMetadata: input.appearanceMetadata,
                 constantFieldsOffset: input.publication.surfaceMetadataOffsets.constantFields, scalarAo: input.scalarAo,
                 width: input.width, height: input.height, recordCount: request.targets, diagnosticsEnabled: this.mode === "detailed",
                 batch: { index: firstTile / batchTiles, batchTiles }, previous });

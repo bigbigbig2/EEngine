@@ -9,6 +9,7 @@ import type { SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 
 export interface SurfaceSignalLookupInput {
   readonly workspace: ResourceId;
+  readonly activeIndirect: ResourceId;
   readonly metadata: ResourceId;
   readonly versions: ResourceId;
   readonly publication: GpuAppearancePublication;
@@ -82,9 +83,10 @@ export class SurfaceSignalLookupPass {
         ]
       });
       const pass = command.beginComputePass({ label: "Surface/kind-specific signal value lookup" });
-      pass.setPipeline(pipeline!);pass.setBindGroup(0, group);pass.dispatchWorkgroups(data.tileCount);pass.end();
+      pass.setPipeline(pipeline!);pass.setBindGroup(0, group);pass.dispatchWorkgroupsIndirect(resources.get(data.activeIndirect) as GPUBuffer,0);pass.end();
     });
     node.read(input.workspace);node.read(input.metadata);node.read(input.versions);node.read(sun);node.read(store);
+    node.read(input.activeIndirect);
     node.read(shadowVersion);
     store = node.write(store);
     const workspace = node.write(input.workspace);

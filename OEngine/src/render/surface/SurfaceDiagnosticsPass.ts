@@ -49,7 +49,7 @@ fn publish_snapshot() {
  atomicStore(&snapshot[4u],settings.frame);
  atomicStore(&snapshot[6u],${SURFACE_DIAGNOSTICS_COUNTER_WORDS}u);
  var visible=0u;var empty=0u;var uniform=0u;var mixed=0u;
- for(var tile=0u;tile<settings.tiles;tile++) {
+ for(var tile=0u;tile<atomicLoad(&workspace.counters[127u]);tile++) {
   var count=0u;var material=0xffffffffu;var same=true;
   for(var lane=0u;lane<64u;lane++) {
    let fact=workspace.facts[tile*64u+lane];
@@ -58,7 +58,7 @@ fn publish_snapshot() {
   visible+=count;
   if count==0u {empty++;} else if same {uniform++;} else {mixed++;}
  }
- ${add(C.totalTiles, "settings.tiles")}
+ ${add(C.totalTiles, "atomicLoad(&workspace.counters[127u])")}
  ${add(C.emptyTiles, "empty")}${add(C.uniformTiles, "uniform")}${add(C.mixedTiles, "mixed")}${add(C.visiblePixels, "visible")}
  let fields=atomicLoad(&demand.control[1u]);let unique_fields=atomicLoad(&demand.control[3u]);
  let geometry=atomicLoad(&demand.control[0u]);let materials=atomicLoad(&demand.control[5u]);let lighting=atomicLoad(&demand.control[6u]);
@@ -77,6 +77,11 @@ fn publish_snapshot() {
  ${add(C.iblPacketWrites, "atomicLoad(&demand.control[85u])+atomicLoad(&demand.control[87u])+atomicLoad(&demand.control[89u])")}
  ${add(C.packetWriteBytes, "atomicLoad(&demand.control[4u])*16u")}
  if settings.last!=0u {
+  let all_tiles=((settings.width+7u)/8u)*((settings.height+7u)/8u);
+  let active_tiles=atomicLoad(&workspace.counters[125u]);
+  ${add(C.totalTiles, "all_tiles-active_tiles")}
+  ${add(C.emptyTiles, "all_tiles-active_tiles")}
+
   atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.reconstructOutputPixels}u],reconstruct[0u]);
   atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.reconstructUncoveredPixels}u],reconstruct[1u]);
   atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.reconstructMappedPixels}u],reconstruct[7u]);

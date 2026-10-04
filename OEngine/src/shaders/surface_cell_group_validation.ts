@@ -20,7 +20,7 @@ export function surfaceCellGroupValidationWgsl(planeStart: number, planeCount: n
 fn surface_cell_group_valid_stage(plane:u32,mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,64>>,origin:vec2u)->bool {
   let first=cell_first(mask);
   if first==0xffffffffu { return false; }
-  let tile=(origin.y/8u)*cell_settings.tiles_x+origin.x/8u-cell_settings.first_tile;
+  let tile=cell_local_tile;
   let leaves=cell_certificate_members(tile,mask);
   let root=(*lanes)[first];
   let root_plane=cell_lane_geometry[root.source].plane;

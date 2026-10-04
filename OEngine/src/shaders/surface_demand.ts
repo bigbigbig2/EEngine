@@ -55,7 +55,9 @@ fn emit_surface_requests(@builtin(global_invocation_id) id: vec3u,
   var signals = 0u;
   if leaf < demand_settings.leaves && demand_workspace.facts[leaf].x != 0xffffffffu &&
     demand_workspace.facts[leaf].z != 0xffffffffu {
+    let publication_mask=demand_metadata[demand_settings.constants+demand_workspace.facts[leaf].z*64u];
     for (var field = 0u; field < 15u; field++) {
+      if (publication_mask&(1u<<field))!=0u { continue; }
       let reference = (leaf * 15u + field) * 3u;
       if reference_plan_leaf(leaf, field) == leaf &&
         demand_workspace.field_references[reference] == SURFACE_REFERENCE_INVALID {

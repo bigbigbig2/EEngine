@@ -20,6 +20,7 @@ ${surfaceCellWorkspaceWgsl(tileCapacity)}
 @group(0) @binding(0) var<uniform> cell_settings:CellSettings;
 @group(0) @binding(1) var cell_visibility:texture_2d<u32>;
 @group(0) @binding(2) var<storage,read_write> cell_workspace:SurfaceCellWorkspace;
+var<private> cell_local_tile:u32;
 var<workgroup> cell_facts:array<SurfaceCellLane,64>;
 var<workgroup> cell_owner:array<u32,64>;
 var<workgroup> cell_representatives:array<u32,64>;
@@ -32,15 +33,15 @@ fn cell_member(mask:vec2u,lane:u32)->bool{return any((mask&cell_bit(lane))!=vec2
 fn cell_first(mask:vec2u)->u32 {if mask.x!=0u{return firstTrailingBit(mask.x);}if mask.y!=0u{return 32u+firstTrailingBit(mask.y);}return 0xffffffffu;}
 fn cell_region(lane:u32,width:u32,height:u32)->vec2u {let origin=vec2u((lane%8u)/width*width,(lane/8u)/height*height);var mask=vec2u(0u);for(var y=0u;y<height;y++){for(var x=0u;x<width;x++){mask|=cell_bit((origin.y+y)*8u+origin.x+x);}}return mask;}
 fn cell_plan_at(tile:u32,plane:u32)->u32{return tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+16u+plane*${SURFACE_CELL_PLANE_BYTES/4}u;}
-fn cell_map_at(tile:u32,plane:u32)->u32{return (tile*${SURFACE_CELL_PLANE_COUNT}u+plane)*24u;}
+fn cell_map_at(tile:u32,plane:u32)->u32{return cell_workspace.plans[cell_plan_at(tile,plane)+2u];}
 fn cell_map_write(tile:u32,plane:u32,lane:u32,value:u32){let bit=lane*6u;let at=cell_map_at(tile,plane)+(bit>>5u);let shift=bit&31u;cell_workspace.maps[at]=cell_workspace.maps[at]|(value<<shift);if shift>26u{cell_workspace.maps[at+1u]=cell_workspace.maps[at+1u]|(value>>(32u-shift));}}
 fn cell_map_write_base(base:u32,lane:u32,value:u32){let bit=lane*6u;let at=base+(bit>>5u);let shift=bit&31u;cell_workspace.maps[at]=cell_workspace.maps[at]|(value<<shift);if shift>26u{cell_workspace.maps[at+1u]=cell_workspace.maps[at+1u]|(value>>(32u-shift));}}
 fn cell_region_compatible(plane:u32,region:vec2u)->bool{for(var i=0u;i<64u;i++){if !cell_member(region,i){continue;}for(var j=0u;j<i;j++){if cell_member(region,j)&&!surface_cell_compatible(plane,cell_facts[i],cell_facts[j]){return false;}}}return true;}
 ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll("cell_plans[", "cell_workspace.plans[").replaceAll("cell_maps[", "cell_workspace.maps[")}
   ${specializedBounds ? surfaceCellGroupValidationWgsl(planeStart, planeCount) : ""}
 @compute @workgroup_size(64) fn ${entryPoint}(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32){
- let tile=group.x;if tile>=cell_settings.tile_count{return;}
- let absolute=cell_settings.first_tile+tile;let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);let pixel=origin+vec2u(lane%8u,lane/8u);
+ let tile=group.x;cell_local_tile=tile;if tile>=cell_settings.tile_count{return;}
+ let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);let pixel=origin+vec2u(lane%8u,lane/8u);
  var fact=SurfaceCellLane(vec4u(0u),0xffffffffu,0u,0u,0u);if pixel.x<cell_settings.width&&pixel.y<cell_settings.height{let winner=textureLoad(cell_visibility,vec2i(pixel),0).x;if winner!=0xffffffffu{fact=surface_cell_load(pixel,winner);}}
  cell_facts[lane]=fact;workgroupBarrier();
  for(var plane=${planeStart}u;plane<${planeStart + planeCount}u;plane++) {
@@ -176,8 +177,14 @@ ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll(
      }
    }
    if lane==0u {
-   let at=cell_plan_at(tile,plane);cell_workspace.plans[at]=mode|(rate<<8u);
-   cell_workspace.plans[at+2u]=cell_map_at(tile,plane);
+   let at=cell_plan_at(tile,plane);
+   var map=0u;
+   if mode==4u {
+     map=atomicAdd(&cell_workspace.counters[126u],24u);
+     // A complete 24-word reservation precedes optional mode publication.
+     if map+24u>${tileCapacity*SURFACE_CELL_PLANE_COUNT*24}u { mode=2u;slots=64u;map=0u; }
+   }
+   cell_workspace.plans[at+2u]=map;
    cell_workspace.plans[at+3u]=slots;cell_workspace.plans[at+4u]=coverage.x;cell_workspace.plans[at+5u]=coverage.y;
    if mode == 4u {
      let map = cell_map_at(tile,plane);
@@ -188,21 +195,12 @@ ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll(
      for (var index = 0u; index < slots; index++) {
        cell_map_write_base(map + 12u,index,cell_representatives[index]);
      }
-   } else if mode == 3u {
-     // One published anchor per grid group. Hot consumers use formula + two
-     // packed loads, including partial coverage, instead of scanning support.
-     let map=cell_map_at(tile,plane);
-     for(var word=12u;word<24u;word++) { cell_workspace.maps[map+word]=0u; }
-     let width=1u<<(rate&3u);
-     let height=1u<<((rate>>2u)&3u);
-     let columns=8u/width;
-     for(var index=0u;index<slots;index++) {
-       let first=(index/columns)*height*8u+(index%columns)*width;
-       let covered=cell_region(first,width,height)&coverage;
-       let anchor=cell_first(covered);
-       if anchor!=0xffffffffu { cell_map_write_base(map+12u,index,anchor); }
-     }
    }
+   cell_workspace.plans[at+1u]=select(select(0u,4u,mode==3u),1u,mode==1u);
+   cell_workspace.plans[at]=mode|(rate<<8u);
+   let template_at=tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+8u;
+   if mode==4u { cell_workspace.plans[template_at]=4u; }
+   else if (mode==1u || mode==3u) && cell_workspace.plans[template_at]==2u { cell_workspace.plans[template_at]=3u; }
    if cell_settings.reserved!=0u {
      if irregular|| (mode==3u&&valid>slots){atomicAdd(&cell_workspace.counters[plane*4u+2u],1u);}
      atomicAdd(&cell_workspace.counters[plane*4u],slots);

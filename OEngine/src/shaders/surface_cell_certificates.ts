@@ -1,6 +1,6 @@
 import { APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
 import { SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS, SURFACE_CELL_FIELD_CERTIFICATE_WORDS,
-  SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS } from "../gpu/GpuSurfaceCellPlanAbi.js";
+  SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS, SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
 
 /** Local Continuity-Domain Signal Sampling certificate integration. Scratch is
@@ -155,8 +155,8 @@ fn cell_finish_certificate_diagnostics(lane:u32,geometry_count:u32,field_count:u
 @compute @workgroup_size(64)
 fn publish_cell_geometry_certificates(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
   if group.x>=cell_settings.tile_count { return; }
-  let tile=group.x;
-  let absolute=cell_settings.first_tile+tile;
+  let tile=group.x;cell_local_tile=tile;
+  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
   let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);
   let pixel=origin+vec2u(lane%8u,lane/8u);
   let published=cell_workspace.facts[tile*64u+lane];
@@ -194,8 +194,8 @@ fn publish_cell_geometry_certificates(@builtin(workgroup_id) group:vec3u,@builti
 @compute @workgroup_size(64)
 fn publish_cell_parameter_certificates(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
   if group.x>=cell_settings.tile_count { return; }
-  let tile=group.x;
-  let absolute=cell_settings.first_tile+tile;
+  let tile=group.x;cell_local_tile=tile;
+  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
   let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);
   let pixel=origin+vec2u(lane%8u,lane/8u);
   let published=cell_workspace.facts[tile*64u+lane];
@@ -259,9 +259,9 @@ fn cell_persistent_certificate_covers(leaf:u32,field:u32)->bool {
 @compute @workgroup_size(64)
 fn publish_cell_field_certificates(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
   if group.x>=cell_settings.tile_count { return; }
-  let tile=group.x;
+  let tile=group.x;cell_local_tile=tile;
   let leaf=tile*64u+lane;
-  let absolute=cell_settings.first_tile+tile;
+  let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
   let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);
   let published=cell_workspace.facts[leaf];
   var count=0u;

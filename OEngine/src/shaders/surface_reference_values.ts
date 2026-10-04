@@ -5,7 +5,7 @@ import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
  * Hot consumers resolve a ref once and do not re-probe its key/state. */
 export const SURFACE_FIELD_REFERENCE_VALUES_WGSL = /* wgsl */ `
 ${SURFACE_REFERENCE_WGSL}
-${surfaceCellSelectionWgsl("surface_workspace")}
+${surfaceCellSelectionWgsl("surface_workspace", "appearance_metadata", "settings.constant_fields_offset")}
 fn surface_field(leaf:u32,field:u32)->vec4f {
   let reference=reference_field(leaf,field);
   switch reference.kind {

@@ -106,6 +106,8 @@ fn field_request_hash(leaf:u32,field:u32)->u32 {
 }
 fn field_request_cacheable(leaf:u32,field:u32)->bool {
   let descriptor=field_request_descriptor(leaf,field);
+  let profile=field_request_metadata[descriptor+7u];
+  if field_request_metadata[profile+3u]!=1u { return false; }
   let flags=field_request_metadata[descriptor+3u];
   let uv_mask=field_request_metadata[descriptor+6u];
   let at=leaf*${SURFACE_CELL_ADDRESS_WORDS}u;

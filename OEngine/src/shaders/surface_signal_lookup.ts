@@ -47,9 +47,6 @@ fn lookup_surface_signals(@builtin(global_invocation_id) id:vec3u) {
   var hits=0u;
   for(var kind=0u;kind<6u;kind++) {
     let reference=(leaf*6u+kind)*3u;
-    signal_request_workspace.signal_references[reference]=SURFACE_REFERENCE_ZERO;
-    signal_request_workspace.signal_references[reference+1u]=0u;
-    signal_request_workspace.signal_references[reference+2u]=0u;
     if (enabled&(1u<<kind))==0u { continue; }
     signal_request_workspace.signal_references[reference]=SURFACE_REFERENCE_INVALID;
     dirty|=1u<<kind;

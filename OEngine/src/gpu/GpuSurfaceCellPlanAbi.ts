@@ -1,8 +1,9 @@
 import { APPEARANCE_FIELD_WIDTHS } from "./GpuAppearanceFieldAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS, SURFACE_CELL_DEMAND_WORDS, SURFACE_REFERENCE_WORDS } from "./GpuSurfaceReferenceAbi.js";
 
-/** Optimization-v1 work plans. A plan describes a span/grid/masked partition;
- * it never expands full-rate coverage into 64 wide pixel tasks. Local ABI. */
+/** Batch work templates: publication, implicit fine, uniform rate or mixed
+ * sources. Maps are a reserved append pool used ONLY by non-formula Mixed
+ * associations. Proof/value payloads remain cold scratch owned by their stages. */
 export const SURFACE_CELL_TILE_EDGE = 8;
 export const SURFACE_CELL_FIELD_COUNT = 15;
 export const SURFACE_CELL_SIGNAL_COUNT = 6;
@@ -83,54 +84,7 @@ export function surfaceCellSixBit(words: ArrayLike<number>, entry: number, wordO
   const low = words[at]! >>> shift;
   return (low | (shift > 26 ? words[at + 1]! << (32 - shift) : 0)) & 63;
 }
-export const SURFACE_CELL_PLAN_WGSL = /* wgsl */ `
-const SURFACE_CELL_PLAN_EMPTY:u32=0u;
-const SURFACE_CELL_PLAN_PUBLICATION:u32=1u;
-const SURFACE_CELL_PLAN_FINE:u32=2u;
-const SURFACE_CELL_PLAN_GRID:u32=3u;
-const SURFACE_CELL_PLAN_MASKED:u32=4u;
-const SURFACE_CELL_PLANE_COUNT:u32=${SURFACE_CELL_PLANE_COUNT}u;
-struct SurfaceCellPlanePlan {
- mode_rate:u32,
- result_base:u32,
- map_word_offset:u32,
- group_count:u32,
- coverage_lo:u32,
- coverage_hi:u32,
-}
-fn surface_cell_map_entry(words:ptr<storage,array<u32>,read>,offset:u32,entry:u32)->u32 {
- let bit=entry*6u;let at=offset+(bit>>5u);let shift=bit&31u;
- var result=(*words)[at]>>shift;
- if shift>26u {result|=(*words)[at+1u]<<(32u-shift);}
- return result&63u;
-}
-fn surface_cell_grid_index(lane:u32,rate:u32)->u32 {
- let sx=rate&3u;let sy=(rate>>2u)&3u;
- return ((lane/8u)>>sy)*(8u>>sx)+((lane%8u)>>sx);
-}
-fn surface_cell_group(plan:SurfaceCellPlanePlan,words:ptr<storage,array<u32>,read>,lane:u32)->u32 {
- let mode=plan.mode_rate&255u;
- if mode==SURFACE_CELL_PLAN_MASKED {return surface_cell_map_entry(words,plan.map_word_offset,lane);}
- if mode==SURFACE_CELL_PLAN_GRID {return surface_cell_grid_index(lane,(plan.mode_rate>>8u)&15u);}
- return lane;
-}
-fn surface_cell_mask_member(mask:vec2u,lane:u32)->bool {
- if lane<32u {return (mask.x&(1u<<lane))!=0u;}
- return (mask.y&(1u<<(lane-32u)))!=0u;
-}
-fn surface_cell_representative(plan:SurfaceCellPlanePlan,words:ptr<storage,array<u32>,read>,group:u32)->u32 {
- let coverage=vec2u(plan.coverage_lo,plan.coverage_hi);
- let mode=plan.mode_rate&255u;
- if mode==SURFACE_CELL_PLAN_MASKED {return surface_cell_map_entry(words,plan.map_word_offset+12u,group);}
- if mode==SURFACE_CELL_PLAN_FINE {return select(0xffffffffu,group,surface_cell_mask_member(coverage,group));}
- if mode==SURFACE_CELL_PLAN_GRID {
-  return surface_cell_map_entry(words,plan.map_word_offset+12u,group);
- }
- return 0xffffffffu;
-}
-`;
-
-export function surfaceCellSelectionWgsl(workspace: string): string {
+export function surfaceCellSelectionWgsl(workspace: string, metadata: string, constants: string): string {
   return /* wgsl */ `
 fn reference_plan_word(leaf:u32,plane:u32,word:u32)->u32 {
   return ${workspace}.plans[(leaf/64u)*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+16u+plane*6u+word];
@@ -151,15 +105,32 @@ fn reference_plan_leaf(leaf:u32,plane:u32)->u32 {
   let coverage=reference_plan_word(leaf,plane,4u+lane/32u);
   if mode==0u || (coverage&(1u<<(lane&31u)))==0u { return 0xffffffffu; }
   if mode==1u || mode==2u { return leaf; }
-  var group=reference_plan_map(leaf,plane,lane);
   if mode==3u {
     let rate=(mode_rate>>8u)&15u;
-    group=((lane/8u)>>((rate>>2u)&3u))*(8u>>(rate&3u))+((lane%8u)>>(rate&3u));
+    let width=1u<<(rate&3u);
+    let height=1u<<((rate>>2u)&3u);
+    let origin=vec2u((lane%8u)/width*width,(lane/8u)/height*height);
+    let mask=vec2u(reference_plan_word(leaf,plane,4u),reference_plan_word(leaf,plane,5u));
+    // Select from real partial coverage, independent of storage map payload.
+    let row_mask=((1u<<width)-1u)<<origin.x;
+    for(var y=0u;y<height;y++) {
+      let row=origin.y+y;
+      let covered=(mask[row/4u]>>((row&3u)*8u))&row_mask;
+      if covered!=0u { return (leaf/64u)*64u+row*8u+firstTrailingBit(covered); }
+    }
+    return 0xffffffffu;
   }
+  let group=reference_plan_map(leaf,plane,lane);
   let anchor=reference_plan_map(leaf,plane,64u+group);
   return (leaf/64u)*64u+anchor;
 }
 fn reference_field(leaf:u32,field:u32)->SurfaceReference {
+  let entry=${workspace}.facts[leaf].z;
+  let palette=${constants}+entry*64u;
+  if (${metadata}[palette]&(1u<<field))!=0u {
+    let present=(${metadata}[palette+3u]&(1u<<field))!=0u;
+    return SurfaceReference(select(SURFACE_REFERENCE_DEFAULT,SURFACE_REFERENCE_PUBLICATION,present),entry,${metadata}[palette+2u]);
+  }
   let source=reference_plan_leaf(leaf,field);
   if source==0xffffffffu { return SurfaceReference(SURFACE_REFERENCE_DEFAULT,${workspace}.facts[leaf].z,0u); }
   let at=(source*15u+field)*3u;

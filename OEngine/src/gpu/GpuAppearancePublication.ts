@@ -22,6 +22,8 @@ import { ShadeTransparencyMode } from "../material/enums.js";
 import { lowerAppearanceFieldBounds, type AppearanceFieldBoundProgram } from "../shaders/appearance_field_bounds.js";
 import { packSurfaceAppearanceBounds } from "./GpuSurfaceAppearanceBoundsAbi.js";
 import { publishSurfaceFieldIdentities, SURFACE_FIELD_IDENTITY_WORDS } from "./GpuSurfaceFieldIdentityAbi.js";
+import { appearanceExecutionProfiles, type AppearanceExecutionProfiles } from "../material/AppearanceExecutionProfile.js";
+import { packSurfaceExecutionProfiles, SURFACE_EXECUTION_WORDS, SURFACE_EXECUTION_HEADER_WORDS, SURFACE_FIELD_EXECUTION_WORDS } from "./GpuSurfaceExecutionProfileAbi.js";
 
 export const APPEARANCE_DIRECTORY_STRIDE = 32;
 /** u32 version, scalar output base, width, dependency mask. */
@@ -95,6 +97,7 @@ export class GpuAppearancePublication {
     readonly constantFields: number;
     readonly fieldIdentities: number;
     readonly fieldTextureDependencies: number;
+    readonly executionProfiles: number;
     readonly materialLookupCount: number;
     readonly directoryCount: number;
   }>;
@@ -103,6 +106,7 @@ export class GpuAppearancePublication {
   readonly surfaceIdentity: GPUBuffer;
   readonly surfaceProgramCount: number;
   readonly surfaceBoundPrograms: readonly AppearanceFieldBoundProgram[];
+  readonly surfaceExecutionProfiles: readonly AppearanceExecutionProfiles[];
   readonly surfaceMaxInputVectors: number;
   readonly surfaceMaxOutputs: number;
   /** Eight u32s: material, PSO, constants, routes, resources, field base, field count, reserved. */
@@ -348,6 +352,17 @@ export class GpuAppearancePublication {
         fieldTextureDependencies.push(...publication.textureSlots);
       });
       const fieldTextureData=Uint32Array.from(fieldTextureDependencies);
+      this.surfaceExecutionProfiles = Object.freeze(sources.map(source =>
+        appearanceExecutionProfiles(source.program, witness => registry.internFieldPublication(witness))));
+      const executionData = packSurfaceExecutionProfiles(this.surfaceExecutionProfiles);
+      const executionOffset = materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length +
+        constantData.length + routeData.byteLength / 4 + Math.max(1, sources.length) * 64 + fieldIdentityData.length + fieldTextureData.length;
+      for (let entry = 0; entry < sources.length; entry++) {
+        for (let field = 0; field < 15; field++) {
+          fieldIdentityData[(entry * 15 + field) * SURFACE_FIELD_IDENTITY_WORDS + 7] =
+            executionOffset + entry * SURFACE_EXECUTION_WORDS + SURFACE_EXECUTION_HEADER_WORDS + field * SURFACE_FIELD_EXECUTION_WORDS;
+        }
+      }
       const surfaceMetadataOffsets = {
         materialLookup: 0,
         identity: materialLookupData.length,
@@ -360,11 +375,12 @@ export class GpuAppearancePublication {
         fieldIdentities: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length + constantData.length + routeData.byteLength/4 + Math.max(1,sources.length)*64,
         fieldTextureDependencies: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length + constantData.length + routeData.byteLength/4 + Math.max(1,sources.length)*64 + fieldIdentityData.length,
         materialLookupCount: materialLookupData.length,
-        directoryCount: directoryData.length / directoryWords
+        directoryCount: directoryData.length / directoryWords,
+        executionProfiles: executionOffset
       } as const;
       // GPU publication substage fills one submitted-epoch constant palette per
       // material. The immutable descriptor/input ranges precede this write domain.
-      const surfaceMetadataData = new Uint32Array(surfaceMetadataOffsets.fieldTextureDependencies+fieldTextureData.length);
+      const surfaceMetadataData = new Uint32Array(executionOffset + executionData.length);
       surfaceMetadataData.set(materialLookupData, surfaceMetadataOffsets.materialLookup);
       surfaceMetadataData.set(identityData, surfaceMetadataOffsets.identity);
       surfaceMetadataData.set(directoryData, surfaceMetadataOffsets.directory);
@@ -374,6 +390,7 @@ export class GpuAppearancePublication {
       surfaceMetadataData.set(new Uint32Array(routeData.buffer),surfaceMetadataOffsets.routes);
       surfaceMetadataData.set(fieldIdentityData,surfaceMetadataOffsets.fieldIdentities);
       surfaceMetadataData.set(fieldTextureData,surfaceMetadataOffsets.fieldTextureDependencies);
+      surfaceMetadataData.set(executionData, executionOffset);
       const maximum = Math.min(Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize));
       for (const data of [constantData, routeData, directoryData, fieldData, inputData, materialLookupData, identityData, surfaceMetadataData]) if (data.byteLength > maximum) {
         throw new RangeError(`Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`);

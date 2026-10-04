@@ -5,7 +5,7 @@
 ## 从这里开始
 
 1. [第三版最终重构设计](next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)：用户指定原文，后续 Surface/Appearance/Lighting 的唯一目标依据。
-2. [最终性能重构设计](next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)、[当前执行计划](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)：有界前端、Phase 0–7、源码切换与最终验收。重构前代码为14c17078，Phase 0已通过静态核对，Phase 1–7未开始。
+2. [最终性能重构设计](next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)、[当前执行计划](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)：有界前端、Phase 0–7、源码切换与最终验收。重构前代码为14c17078，Phase 0与Phase 1已完成，当前待Phase 2。
 3. [整体架构](next-design/eengine-next-overall-architecture-final-2026.md)与[架构层计划](next-execution/eengine-next-architecture-layer-plan-2026.md)：保留系统边界与后续 SSSR/GI/VT/Transparency 方向；Surface 部分服从第三版原文。
 4. [当前 workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml)：当前切片和待完成目标。
 5. [方向一致性核对](reviews/surface-work-runtime-v3-direction-alignment-2026-10-02.md)：原文条目到活动入口的映射及本次检查范围。
