@@ -18,7 +18,7 @@ Phase 0核对基线身份、消费矩阵、容量与文档。Phase 1–6每阶�
 
 只复用最终架构需要的数学、资源 owner 和 GPU 产品，删除旧协调器及无消费者依赖，不为旧测试修改新架构。Winner/Sharing/Cache identity 分开；cache lookup 在 material miss compact 前，命中字段不重跑其 geometry/material heavy work，其他 dirty consumer 仍可请求唯一 record；Appearance/Lighting 只消费唯一 GeometryRecord；reconstruct 不重新执行完整几何、材质或 PBR。最终 bounded full-rate exception、身份失效和写域互斥集中在权威生产/发布边界保证，热 consumer 不重复检查已保证的不变量。具体删除顺序与范围见[有界前端执行计划](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。此覆盖规则优先于近目录和历史计划中的逐阶段检查要求。
 
-2026-10-04 当前状态：已有代码固定为14c17078；Phase 0实际消费/容量清单及静态核对、Phase 1 publication/工作表示代码与阶段检查已完成，当前待Phase 2。Phase 7保留正式全链验收，不要求每阶段一次提交。CandidateKey、ValueWitness、SharingCertificate分开；proof/cache按成本受理，固定空间树、bounded setup及预留implicit fine同链完成。不以所有未知材质永久fine、裁剪key、截断证明或漏工作换性能。
+2026-10-04 当前状态：已有代码固定为14c17078；Phase 0实际消费/容量清单及静态核对、Phase 1 publication/工作表示与 Phase 2 Geometry owner/bounded setup 代码及阶段检查已完成，当前待Phase 3。Phase 7保留正式全链验收，不要求每阶段一次提交。CandidateKey、ValueWitness、SharingCertificate分开；proof/cache按成本受理，固定空间树、bounded setup及预留implicit fine同链完成。不以所有未知材质永久fine、裁剪key、截断证明或漏工作换性能。
 
 文档用于导航与架构约束，不是编码许可系统。快速变化的 current facts 可以在大模块完成后集中同步。活跃 Next workstream 只维护 currentSlice、goal、nextModules、architectureRules 和 deferredValidation。正式验收细节见 [VALIDATION](docs/VALIDATION.md)；开发时不会因文档、claim、evidence 或未来阶段缺口停工。
 

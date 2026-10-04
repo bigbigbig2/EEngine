@@ -107,7 +107,7 @@ export class SurfaceCellClassifierPass {
     }
     const geometryCapacity = planSurfaceCellGeometryCapacity(
       input.targetCapacity,
-      input.targetCapacity * 128,
+      input.targetCapacity * 1280,
       this.device.limits
     );
     const { dictionaryCapacity, setupCapacity } = geometryCapacity;
@@ -224,10 +224,10 @@ export class SurfaceCellClassifierPass {
       workspace = range.workspace;
       activeIndirect = range.indirect;
       const setup = input.geometryPass.addCellSetupsToGraph(graph, {
-        visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
+        resourceBinding: input.resourceBinding, visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
         frameInstances: input.frameInstances, product: input.product, width: input.width, height: input.height, tilesX,
         firstTile, tileCount, workspace, activeIndirect, targetCapacity: input.targetCapacity, after: [workspace, activeIndirect],
-        addressBudgetBytes: input.targetCapacity * 128,
+        addressBudgetBytes: input.targetCapacity * 1280,
         generation: input.generation, sourceGeometry: input.sourceGeometry, sourceMeshlet: input.sourceMeshlet,
         sourceMeshletVertices: input.sourceMeshletVertices, sourceMeshletTriangles: input.sourceMeshletTriangles, sourceVertexData: input.sourceVertexData
       });
@@ -237,6 +237,7 @@ export class SurfaceCellClassifierPass {
         bindFactGroups(pipelines!.facts, resources, setup).forEach((group, index) => pass.setBindGroup(index, group)); pass.dispatchWorkgroupsIndirect(resources.get(activeIndirect) as GPUBuffer, 0); pass.end();
       });
       facts.read(input.visibility); facts.read(setup.arena); facts.read(input.meshletWork); facts.read(input.sourceHeap); facts.read(input.vertexPayload); facts.read(input.frameInstances); facts.read(input.appearanceMetadata); facts.read(input.textureVariation); facts.read(input.camera); facts.read(input.lightRecords); facts.read(input.clusters.lookup); facts.read(input.clusters.data); facts.read(input.clusters.parameters); facts.read(workspace); workspace = facts.write(workspace); facts.dependsOn(batchReset);
+      facts.read(setup.memo);
       facts.read(activeIndirect);
       previous = facts;
       const addresses = graph.add(`Surface/canonical field addresses batch ${batch}`, { setup, workspace }, (_data, resources, context) => {
@@ -274,6 +275,7 @@ export class SurfaceCellClassifierPass {
           pass.end();
         });
         certificate.read(input.visibility); certificate.read(setup.arena); certificate.read(input.meshletWork);
+        certificate.read(setup.memo);
         certificate.read(activeIndirect);
         certificate.read(input.sourceHeap); certificate.read(input.vertexPayload); certificate.read(input.frameInstances);
         certificate.read(input.appearanceMetadata); certificate.read(input.textureVariation); certificate.read(input.camera);
@@ -288,6 +290,7 @@ export class SurfaceCellClassifierPass {
           bindFactGroups(pipeline, resources, setup).forEach((group, index) => pass.setBindGroup(index, group)); pass.dispatchWorkgroupsIndirect(resources.get(activeIndirect) as GPUBuffer, 0); pass.end();
         });
         classify.read(input.visibility); classify.read(setup.arena); classify.read(input.meshletWork); classify.read(input.sourceHeap); classify.read(input.vertexPayload); classify.read(input.frameInstances); classify.read(input.appearanceMetadata); classify.read(input.textureVariation); classify.read(input.camera); classify.read(input.lightRecords); classify.read(input.clusters.lookup); classify.read(input.clusters.data); classify.read(input.clusters.parameters); classify.read(workspace); workspace = classify.write(workspace); classify.dependsOn(previous as any); previous = classify;
+        classify.read(setup.memo);
         classify.read(activeIndirect);
         if (stageIndex === 0) {
           const lookedUpSignals = this.signalLookup.addToGraph(graph, {

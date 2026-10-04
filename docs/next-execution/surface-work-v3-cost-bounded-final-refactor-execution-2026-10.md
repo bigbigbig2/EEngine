@@ -1,6 +1,6 @@
 # Surface V3 有界前端最终重构执行计划
 
-日期：2026-10-04（Asia/Hong_Kong）。状态：Phase 0静态清单与 Phase 1生产重构及阶段检查已完成，当前待 Phase 2。
+日期：2026-10-04（Asia/Hong_Kong）。状态：Phase 0静态清单、Phase 1 publication/工作表示与 Phase 2 Geometry owner/bounded setup 及阶段检查已完成，当前待 Phase 3。
 
 目标：[最终性能重构设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。总架构/画质边界仍以[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)为准。当前切片：[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)；状态与基线：[执行记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
 
@@ -91,7 +91,7 @@
 
 交付：实现所需的消费矩阵、分配公式和删除定位，可保存在本执行记录的阶段条目中，不提前生成稳定specs/contracts。来源仍维护 docs/porting/next-renderer.md。
 
-后继：Phase 1（已完成）。此阶段只读/静态推算，不采新benchmark。
+后继：Phase 1、Phase 2（均已完成）。此阶段只读/静态推算，不采新benchmark。
 
 ## 4. Phase 1：Publication 与 Surface 工作产品
 

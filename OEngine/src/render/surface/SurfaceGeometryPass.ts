@@ -67,7 +67,12 @@ fn produce_geometry(@builtin(global_invocation_id) id: vec3u) {
       }
       record.inputs[(kind-1u)*3u+point]=value;
     }
-    if point==0u { record.metrics=vec4f(-(camera.view_matrix*vec4f(position.xyz,1.0)).z,raw_tangent.w,0.0,0.0); }
+    if point==0u {
+      // z carries the exact union mask selected by Demand; w is reserved for
+      // the cold/profile segment token. Consumers never reconstruct missing
+      // attributes from source vertices.
+      record.metrics=vec4f(-(camera.view_matrix*vec4f(position.xyz,1.0)).z,raw_tangent.w,bitcast<f32>(mask),0.0);
+    }
   }
   records[leaf]=record;
 }
@@ -78,7 +83,7 @@ export class SurfaceGeometryPass {
     private readonly setup: SurfaceCellGeometrySetup;
     private readonly pipelines = new Map<string, GPUComputePipeline>();
     constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources) {
-        this.setup = new SurfaceCellGeometrySetup(device);
+        this.setup = new SurfaceCellGeometrySetup(device, scratch);
     }
     addCellSetupsToGraph(graph: FrameGraph, input: SurfaceCellGeometrySetupInput): SurfaceCellGeometrySetupProducts {
         return this.setup.addToGraph(graph, input);

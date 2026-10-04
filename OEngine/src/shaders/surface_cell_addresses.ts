@@ -24,9 +24,8 @@ fn publish_cell_addresses(@builtin(workgroup_id) group:vec3u,@builtin(local_invo
   let leaf=tile*64u+lane;
   let published=cell_workspace.facts[leaf];
   if published.x==0xffffffffu || published.z>=settings.appearance1.z { return; }
-  var setup:CellGeometrySetup;
-  if published.y<settings.geometry.y { setup=geometry_arena.setups[published.y]; }
-  else { cell_ensure_direct_geometry(published.x);setup=cell_direct_setup; }
+  if published.y>=settings.geometry.y { return; }
+  let setup:CellGeometrySetup=geometry_arena.setups[published.y];
   let absolute=cell_workspace.plans[tile*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+4u];
   let origin=vec2u((absolute%cell_settings.tiles_x)*8u,(absolute/cell_settings.tiles_x)*8u);
   let pixel=origin+vec2u(lane%8u,lane/8u);

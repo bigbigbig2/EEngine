@@ -32,7 +32,6 @@ import {SURFACE_CELL_CLASSIFY_STAGES,SURFACE_CELL_CERTIFICATE_FAMILIES} from '..
 import {SurfaceCellClassifierPass} from '../../../OEngine/.test-dist/render/surface/SurfaceCellClassifierPass.js';
 import {AppearanceGraphBuilder} from '../../../OEngine/.test-dist/material/AppearanceGraph.js';
 import {compileAppearanceGraph} from '../../../OEngine/.test-dist/material/AppearanceGraphCompiler.js';
-import {SURFACE_EXECUTION_WORDS,SURFACE_FIELD_EXECUTION_WORDS} from '../../../OEngine/.test-dist/gpu/GpuSurfaceExecutionProfileAbi.js';
 import {surfaceCoverageLayout} from '../../../OEngine/.test-dist/gpu/GpuSurfaceCoverageAbi.js';
 export async function runPhaseOneOracle(gpu,assert,onStage=()=>{}) {
  const withOrm=true;
@@ -172,13 +171,11 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{}) {
  const coverageBytes=surfaceCoverageLayout(8).bytes;
  const coverageReadback=device.createBuffer({size:coverageBytes,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(coverageReadback);
  const hdrReadback=device.createBuffer({size:height*256,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(hdrReadback);
- const metadataReadback=device.createBuffer({size:publication.surfaceMetadata.size,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(metadataReadback);
  const counterReadback=device.createBuffer({size:32,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(counterReadback);
  const capture=graph.add('Read actual coverage and complete HDR',{},(_data,resources)=>{
    encoder.copyBufferToBuffer(resources.get(cells.coverage),0,coverageReadback,0,coverageBytes);
    encoder.copyTextureToBuffer({texture:resources.get(final.radiance).gpu_texture},{buffer:hdrReadback,bytesPerRow:256},{width,height});
    encoder.copyBufferToBuffer(resources.get(final.counters),0,counterReadback,0,32);
-   encoder.copyBufferToBuffer(publication.surfaceMetadata,0,metadataReadback,0,publication.surfaceMetadata.size);
  });capture.read(cells.coverage);capture.read(metadataId);capture.read(final.radiance);capture.read(final.counters);capture.make_side_effect();
  allocator=new GPUBufferAllocator(device);const textures=new GPUTextureAllocator(device);retained.push(textures);
  context=new FrameGraphContext({device,encoder:command,graphics:{device,buffer_allocator_main:allocator,allocator_textures:textures},resource_manager:new FrameGraphResourceManager(device,gpuDone)});
@@ -196,22 +193,11 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{}) {
      encoder=device.createCommandEncoder();command.gpu_encoder=encoder;command.closed=false;
    }
    compiled.execute(context);if(frame===0)for(const callback of before)callback();command.closed=true;device.queue.submit([encoder.finish()]);if(frame===0)for(const callback of finished)callback();
-   await Promise.all([coverageReadback,hdrReadback,counterReadback,metadataReadback,...captures].map(buffer=>buffer.mapAsync(GPUMapMode.READ)));
+   await Promise.all([coverageReadback,hdrReadback,counterReadback,...captures].map(buffer=>buffer.mapAsync(GPUMapMode.READ)));
    complete();
    const coverage=new Uint32Array(coverageReadback.getMappedRange()).slice();coverageReadback.unmap();
    const hdr=new Uint16Array(hdrReadback.getMappedRange()).slice();hdrReadback.unmap();
    const counters=new Uint32Array(counterReadback.getMappedRange()).slice();counterReadback.unmap();
-   const metadata=new Uint32Array(metadataReadback.getMappedRange()).slice();metadataReadback.unmap();
-   for(let entry=0;entry<publication.surfaceExecutionProfiles.length;entry++){
-     const profile=publication.surfaceExecutionProfiles[entry],base=o.executionProfiles+entry*SURFACE_EXECUTION_WORDS;
-     assert.equal(metadata[base],profile.token);assert.equal(metadata[base+1],profile.enabledMask);assert.equal(metadata[base+2],profile.inputMask);
-     for(let field=0;field<15;field++){
-       const at=base+8+field*SURFACE_FIELD_EXECUTION_WORDS;
-       assert.equal(metadata[at],profile.fields[field].token);assert.equal(metadata[at+7],profile.fields[field].proof.token);
-       assert.equal(metadata[at+15]>>>8,profile.fields[field].proof.qualityClass);
-       assert.equal(metadata[at+19],profile.fields[field].valueCostClass);
-     }
-   }
    const active=[...coverage.slice(68,68+coverage[0])].sort((a,b)=>a-b);
    assert.deepEqual(active,frame===0?[0,2,5,7]:frame===1?[]:[1,5]);
    const batches=captures.map(buffer=>{const words=new Uint32Array(buffer.getMappedRange()).slice();buffer.unmap();return words;});

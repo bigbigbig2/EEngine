@@ -12,7 +12,7 @@ owner: shading
 - 总架构：[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。
 - 当前目标：[有界前端最终性能设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。
 - 当前执行：[重构计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
-- 状态：Phase 0、Phase 1生产切换与阶段检查完成；当前待Phase 2。完整数值/画质/性能与来源采用仍未验收。
+- 状态：Phase 0–2生产切换与阶段检查完成；当前待Phase 3。完整数值/画质/性能与来源采用仍未验收。
 
 ## 当前唯一生产链
 

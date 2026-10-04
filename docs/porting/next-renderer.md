@@ -955,3 +955,8 @@ VSM content version/namespace 是原 owner 的发布胶水：实际 allocation/t
 本地数学复用核对Winner value/DX/DY独立有效性、interval Unknown/除零/pow/坐标导数分支、texture wrap/mip/filter/halo与sample CSE、完整DAG身份、原lighting有限性/颜色合同。当前texture query尚无最终operation/visit总预算；普通UV2无独立chart、Product无authored UV2格式、deformation revision不证明当前/previous属性producer已完成。IOR、coatValidity、packet semantic消费缺口在Phase0清单登记，不通过删除材质功能掩盖。
 
 论文资料沿用账本既有DAIS/OSS/CPS详细资料核读，本次未重新读PDF全文。复杂实现前继续核读实际修改的完整依赖，相应阶段GPU/数值检查与最终正式性能分别记录；本条仅标静态调查完成，不提高任何port/adoption/claims。
+### 2026-10-04 Phase 2：Geometry owner 与 bounded setup 已实施
+
+Phase 2 实际实现位于 `SurfaceCellGeometrySetup`、`GpuSurfaceCellGeometryAbi`、`SurfaceGeometryPass`、`SurfaceFrameResources` 与 `SurfaceOptimizationCapacity`。Microsoft `ComputeShaderSort11` 只作为固定比较/交换网络的阶段参考；本地 64-key tile run leader、prefix、SetupRef、memo generation、capacity reservation 和 WebGPU bindings 是本地集成，不宣称完整上游排序算法移植或 adoption 完成。
+
+生产链已删除 `cell_ensure_direct_geometry` / `cell_direct_setup` 及容量不足后的 consumer 解码；setup producer 统一写 local arena，Geometry/Appearance/Lighting 继续消费唯一 GeometryRecord。Phase 2 真实 GPU 小链已验证固定 sort、local/memo 独立容量、overflow 局部正确性、mixed map、空帧与移动覆盖；未提升正式 claim/adoption 或性能结论。

@@ -95,31 +95,42 @@ fn cell_setup_hash(key:u32)->u32 {var v=key;v^=v>>16u;v*=0x7feb352du;v^=v>>15u;v
  if id.x<settings.dictionary_capacity{atomicStore(&setup_dictionary[id.x].key,0xffffffffu);setup_dictionary[id.x].slot=0xffffffffu;}
  if id.x<8u{atomicStore(&setup_counts[id.x],0u);}
 }
-var<workgroup> request_keys:array<u32,64>;
+var<workgroup> request_keys:array<vec2u,64>;
+var<workgroup> request_slots:array<u32,64>;
 @compute @workgroup_size(64) fn request_cell_geometry(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32){
  if group.x>=settings.tile_count{return;}
  let at=128u+group.x*${SURFACE_CELL_TILE_PLAN_BYTES / 4}u;
  let pixel=vec2u(setup_workspace[at]+lane%8u,setup_workspace[at+1u]+lane/8u);
  var key=0xffffffffu;if pixel.x<settings.width&&pixel.y<settings.height{key=textureLoad(setup_visibility,vec2i(pixel),0).x;}
- request_keys[lane]=key;workgroupBarrier();if key==0xffffffffu{return;}
- for(var i=0u;i<lane;i++){if request_keys[i]==key{return;}}
- let hash=cell_setup_hash(key);let mask=settings.dictionary_capacity-1u;
- for(var probe=0u;probe<${SURFACE_CELL_GEOMETRY_PROBE_LIMIT}u;probe++){
-  let cell=(hash+probe)&mask;
-  for(var retry=0u;retry<4u;retry++){
-   let claim=atomicCompareExchangeWeak(&setup_dictionary[cell].key,0xffffffffu,key);
-   if claim.exchanged{
-    let slot=atomicAdd(&setup_counts[0],1u);
-    if slot<settings.setup_capacity{setup_dictionary[cell].slot=slot;geometry_setups[slot].source.x=key;}
-    else{setup_dictionary[cell].slot=0xffffffffu;atomicAdd(&setup_counts[2],1u);}return;
-   }
-   if claim.old_value==key{return;}
-   if claim.old_value!=0xffffffffu{break;}
-   // A failed weak CAS on empty cannot safely advance and insert a duplicate.
-   if retry==3u{atomicAdd(&setup_counts[3],1u);return;}
+ request_keys[lane]=vec2u(key,lane);workgroupBarrier();
+ // Fixed 64-key bitonic network. Only key/lane pairs move; setup payload stays
+ // in the bounded storage pool and is written once by the build stage.
+ for(var k=2u;k<=64u;k<<=1u){
+  for(var j=k>>1u;j>0u;j>>=1u){
+   let partner=lane^j;let left=request_keys[lane];let right=request_keys[partner];
+   let ascending=(lane&k)==0u;
+   var swap=left.x>right.x;
+   if(left.x==right.x){swap=left.y>right.y;}
+   if(!ascending){swap=!swap;}
+   if((lane&j)!=0u){swap=!swap;}
+   if(swap){request_keys[lane]=right;}
+   workgroupBarrier();
   }
  }
- atomicAdd(&setup_counts[3],1u);
+ let sorted_key=request_keys[lane].x;request_slots[lane]=0xffffffffu;workgroupBarrier();
+ if sorted_key!=0xffffffffu && (lane==0u || request_keys[lane-1u].x!=sorted_key) {
+  let hash=cell_setup_hash(sorted_key);let mask=settings.dictionary_capacity-1u;var assigned=0xffffffffu;
+  for(var probe=0u;probe<${SURFACE_CELL_GEOMETRY_PROBE_LIMIT}u;probe++){
+   let cell=(hash+probe)&mask;let claim=atomicCompareExchangeWeak(&setup_dictionary[cell].key,0xffffffffu,sorted_key);
+   if claim.exchanged { assigned=atomicAdd(&setup_counts[0],1u);if assigned<settings.setup_capacity{setup_dictionary[cell].slot=assigned;geometry_setups[assigned].source.x=sorted_key;}else{atomicAdd(&setup_counts[2],1u);}break; }
+   if claim.old_value==sorted_key { assigned=setup_dictionary[cell].slot;break; }
+  }
+  request_slots[lane]=assigned;
+ }
+ workgroupBarrier();
+ // Prefix-propagate each run leader slot in log2(64) uniform steps.
+ for(var offset=1u;offset<64u;offset<<=1u){if lane>=offset && request_slots[lane]==0xffffffffu{request_slots[lane]=request_slots[lane-offset];}workgroupBarrier();}
+ if sorted_key!=0xffffffffu && request_slots[lane]==0xffffffffu { atomicAdd(&setup_counts[3],1u); }
 }
 @compute @workgroup_size(64) fn build_cell_geometry(@builtin(global_invocation_id) id:vec3u){
  if id.x>=min(atomicLoad(&setup_counts[0]),settings.setup_capacity){return;}

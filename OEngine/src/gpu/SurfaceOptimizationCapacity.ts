@@ -130,12 +130,21 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
     Math.min(bindingLimit,SURFACE_OPTIMIZATION_BUDGET_MIB.queues*SURFACE_OPTIMIZATION_MIB)) {
     batchTiles--;
   }
+  while (batchTiles > 0) {
+    try {
+      const candidate = planSurfaceCellGeometryCapacity(batchTiles * 64, batchTiles * 64 * 1280, limits);
+      if (candidate.setupCapacity >= batchTiles * 64) { break; }
+    } catch {
+      // Reduce the negotiated extent until the complete local setup contract fits.
+    }
+    batchTiles--;
+  }
   if (batchTiles < 1) throw new RangeError("Surface profile cannot fit one complete tile in negotiated limits");
   const batchTargetCapacity = batchTiles * 64;
-  const setup=planSurfaceCellGeometryCapacity(batchTargetCapacity,batchTargetCapacity*128,limits);
+  const setup=planSurfaceCellGeometryCapacity(batchTargetCapacity,batchTargetCapacity*1280,limits);
   const productionAllocations=Object.freeze({
     workspace:surfaceCellWorkspaceLayout(batchTiles).bytes,
-    geometrySetup:setup.setupBytes+setup.dictionaryBytes+512,
+    geometrySetup:setup.setupBytes+setup.dictionaryBytes+setup.memoBytes+512,
     geometryRecords:batchTargetCapacity*SURFACE_GEOMETRY_RECORD_BYTES,
     fieldValues:batchTargetCapacity*15*16,
     signalValues:batchTargetCapacity*6*16,

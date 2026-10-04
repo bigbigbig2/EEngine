@@ -164,8 +164,6 @@ ${APPEARANCE_FIELD_BOUND_WGSL}
 ${APPEARANCE_MATERIAL_CONSTANT_WGSL}
 ${SURFACE_CELL_ADDRESS_MATH_WGSL}
 ${textureLocalVariationQueryWgsl()}
-var<private> cell_direct_key:u32=0xffffffffu;
-var<private> cell_direct_setup:CellGeometrySetup;
 var<private> cell_bound_slot:u32;
 var<private> cell_bound_key:u32;
 var<private> cell_current_rect:vec4f;
@@ -207,16 +205,13 @@ fn cell_geometry_slot(key:u32)->u32 {
  }
  return 0xffffffffu;
 }
-fn cell_ensure_direct_geometry(key:u32) {
- if cell_direct_key!=key{cell_direct_setup=cell_build_geometry_setup(key);cell_direct_key=key;atomicAdd(&cell_counts[105u],1u);}
-}
-fn cell_geometry_identity(slot:u32,key:u32)->vec4u {if slot<settings.geometry.y{return geometry_setups[slot].identity;}cell_ensure_direct_geometry(key);return cell_direct_setup.identity;}
-fn cell_geometry_source(slot:u32,key:u32)->vec4u {if slot<settings.geometry.y{return geometry_setups[slot].source;}cell_ensure_direct_geometry(key);return cell_direct_setup.source;}
-fn cell_geometry_continuity(slot:u32,key:u32,row:u32)->vec4u {if slot<settings.geometry.y{return geometry_setups[slot].continuity[row];}cell_ensure_direct_geometry(key);return cell_direct_setup.continuity[row];}
-fn cell_geometry_address(slot:u32,key:u32)->vec4u {if slot<settings.geometry.y{return geometry_setups[slot].source_address;}cell_ensure_direct_geometry(key);return cell_direct_setup.source_address;}
-fn cell_geometry_plane(slot:u32,key:u32)->vec4f {if slot<settings.geometry.y{return geometry_setups[slot].world_plane;}cell_ensure_direct_geometry(key);return cell_direct_setup.world_plane;}
-fn cell_geometry_coefficients(slot:u32,key:u32)->WinnerCoefficients {if slot<settings.geometry.y{return geometry_setups[slot].coefficients;}cell_ensure_direct_geometry(key);return cell_direct_setup.coefficients;}
-fn cell_geometry_corner(slot:u32,key:u32,index:u32)->vec4f {if slot<settings.geometry.y{return geometry_setups[slot].corners[index];}cell_ensure_direct_geometry(key);return cell_direct_setup.corners[index];}
+fn cell_geometry_identity(slot:u32,key:u32)->vec4u { if slot<settings.geometry.y { return geometry_setups[slot].identity; } return vec4u(0xffffffffu); }
+fn cell_geometry_source(slot:u32,key:u32)->vec4u { if slot<settings.geometry.y { return geometry_setups[slot].source; } return vec4u(0xffffffffu); }
+fn cell_geometry_continuity(slot:u32,key:u32,row:u32)->vec4u { if slot<settings.geometry.y { return geometry_setups[slot].continuity[row]; } return vec4u(0xffffffffu); }
+fn cell_geometry_address(slot:u32,key:u32)->vec4u { if slot<settings.geometry.y { return geometry_setups[slot].source_address; } return vec4u(0xffffffffu); }
+fn cell_geometry_plane(slot:u32,key:u32)->vec4f { if slot<settings.geometry.y { return geometry_setups[slot].world_plane; } return vec4f(0.0); }
+fn cell_geometry_coefficients(slot:u32,key:u32)->WinnerCoefficients { if slot<settings.geometry.y { return geometry_setups[slot].coefficients; } var result:WinnerCoefficients; return result; }
+fn cell_geometry_corner(slot:u32,key:u32,index:u32)->vec4f { if slot<settings.geometry.y { return geometry_setups[slot].corners[index]; } return vec4f(0.0); }
 fn cell_material_entry(material:u32)->u32 {
  if material>=settings.appearance1.y{return 0xffffffffu;}
  let entry=appearance_metadata[settings.appearance1.x+material];return select(0xffffffffu,entry,entry<settings.appearance1.z);
@@ -430,13 +425,8 @@ fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
   for(var sample=0u;sample<${textureBoundSlots}u;sample++) { cell_texture_bound_valid[sample]=0u; }
  let slot=cell_lane_geometry[fact.source].slot;
  cell_bound_slot=slot;cell_bound_key=fact.winner;cell_current_rect=rect;
- var setup:CellGeometrySetup;
- if slot < settings.geometry.y {
-   setup = geometry_setups[slot];
- } else {
-   cell_ensure_direct_geometry(fact.winner);
-   setup = cell_direct_setup;
- }
+ if slot >= settings.geometry.y { return vec4u(0xffffffffu); }
+ var setup:CellGeometrySetup = geometry_setups[slot];
  cell_bound_setup=setup;
  cell_bound_attribute_valid=0u;
  cell_context_count++;
@@ -455,9 +445,8 @@ fn surface_cell_load(pixel:vec2u,winner:u32)->SurfaceCellLane {
  let tile=(pixel.y/8u)*cell_settings.tiles_x+pixel.x/8u;let lane=(pixel.y%8u)*8u+pixel.x%8u;
  let published=cell_workspace.facts[cell_local_tile*64u+lane];
  if published.x!=winner{atomicAdd(&cell_counts[104u],1u);return SurfaceCellLane(vec4u(0u),winner,0xffffffffu,0u,0u);}
- var setup:CellGeometrySetup;
- if published.y < settings.geometry.y { setup=geometry_setups[published.y]; }
- else { cell_ensure_direct_geometry(winner); setup=cell_direct_setup; }
+ if published.y >= settings.geometry.y { return SurfaceCellLane(vec4u(0u),winner,0xffffffffu,0u,0u); }
+ let setup:CellGeometrySetup=geometry_setups[published.y];
  let identity=setup.identity;let continuity=setup.continuity[0u];let entry=published.z;
  cell_lane_geometry[lane]=CellLaneGeometry(identity,setup.source,continuity,setup.continuity[1u],setup.source_address,setup.world_plane,published.y);
  if entry>=settings.appearance1.z{atomicAdd(&cell_counts[104u],1u);return SurfaceCellLane(vec4u(0u),winner,published.y,0u,0u);}

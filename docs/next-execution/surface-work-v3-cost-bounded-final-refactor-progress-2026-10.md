@@ -4,14 +4,14 @@
 
 ## 当前状态
 
-**Phase 0、Phase 1 已完成并通过各自检查；当前停在 Phase 1，未进入 Phase 2。** 不把短诊断当作正式性能验收。
+**Phase 0、Phase 1、Phase 2 已完成并通过各自检查；当前停在 Phase 2，未进入 Phase 3。** 不把短诊断当作正式性能验收。
 
 | 阶段 | 状态 |
 |---|---|
 | 准备：保存当前代码与文档入口 | 已完成 |
 | Phase 0：新协议消费矩阵/物理清单 | 已完成；静态检查通过，见独立Phase 0清单 |
 | Phase 1：publication/工作表示 | 已完成；代码、语义测试、WGSL/GPU 小链与 Showcase 短 smoke 通过；实现记录见 [Phase 1记录](surface-work-v3-cost-bounded-final-refactor-phase1-implementation-2026-10.md) |
-| Phase 2：geometry/setup/容量 | 未开始 |
+| Phase 2：geometry/setup/容量 | 已完成；固定 64-key setup、local/memo 分离、唯一 GeometryRecord 接线、语义测试与真实 GPU 小链通过；实现记录见 [Phase 2记录](surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md) |
 | Phase 3：Field候选/验证/proof | 未开始 |
 | Phase 4：固定Field/Signal层级 | 未开始 |
 | Phase 5：worker/发布/重建 | 未开始 |
@@ -27,6 +27,10 @@
 检查完成：typecheck/build/build:test；39 项 targeted semantic/oracle tests；真实生成 WGSL 25 modules compilation；production classifier→demand→Geometry→Appearance→Lighting→Store→reconstruct GPU 小链覆盖 constant/empty/mixed/full masks；串行 Showcase 3-frame timing + 1-frame detailed smoke。错误与 device loss 为 0，coverage=pass，sourceDrift=false。
 
 性能只写短诊断：GPU pass sum P50 480.126624ms、Surface P50 469.271904ms，3 samples，不作历史收益或正式目标结论。Phase 2–6、跨浏览器/生命周期/正式性能与 claims 仍未完成。
+
+## Phase 2：Geometry owner 与 bounded setup 完成
+
+日期：2026-10-04。固定 64-key bitonic/run leader、完整 local setup capacity、独立 bounded memo、SetupRef-only consumer、Geometry input union/hot depth 及实际 allocation 账已接入。真实 phase2-geometry GPU 小链通过；详细范围与限制见 [Phase 2实施记录](surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md)。
 
 ## 重构前代码身份
 
@@ -87,4 +91,4 @@ Phase0消费矩阵/真实buffer账已补齐并核对，下一步按计划Phase1�
 
 实际命令/结果：node .local/surface-phase0/audit-capacity.cjs（exit0，加载9个纯ABI/planner源码模块，容量断言通过）；Node静态链接/YAML/640文件指纹检查（exit0，missingLinks=[]、yamlErrors=[]、sourceDrift=[]）；31份归档WGSL校验（无hash mismatch）；node tools/vibe.mjs context OEngine/src/render/surface（exit0，当前Phase0完成/待Phase1）；git diff --check（exit0）。原报告613文件与资产/报告字节hash均重新核对。本机详细输出见static-checks.json，不把此静态检查称作typecheck或GPU验证。
 
-下一步：Phase2 Geometry owner/setup/容量；本轮按用户范围止于Phase1。
+下一步：Phase3 Field 候选、验证与受理 proof；本轮按用户范围止于 Phase2。

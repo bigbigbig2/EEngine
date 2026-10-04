@@ -5,8 +5,10 @@ import { resolveTextureView } from "../RenderTargetViews.js";
 import { surfaceCellGeometrySetupWgsl } from "../../shaders/surface_cell_geometry_setup.js";
 import { SURFACE_CELL_GEOMETRY_SETUP_BYTES, SURFACE_CELL_GEOMETRY_DICTIONARY_BYTES,
   SURFACE_CELL_GEOMETRY_SETTINGS_BYTES, planSurfaceCellGeometryCapacity } from "../../gpu/GpuSurfaceCellGeometryAbi.js";
+import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 
 export interface SurfaceCellGeometrySetupInput {
+  readonly resourceBinding?: SurfaceResourceBinding;
   readonly visibility: ResourceId;
   readonly meshletWork: ResourceId;
   readonly sourceHeap: ResourceId;
@@ -34,6 +36,9 @@ export interface SurfaceCellGeometrySetupProducts {
   readonly arena: ResourceId;
   readonly counts: ResourceId;
   readonly indirect: ResourceId;
+  /** Separate bounded memo storage; mandatory local setup never borrows it. */
+  readonly memo: ResourceId;
+  readonly memoCapacity: number;
   readonly dictionaryCapacity: number;
   readonly setupCapacity: number;
 }
@@ -45,7 +50,7 @@ const stages: readonly Stage[] = ["reset_cell_geometry", "request_cell_geometry"
  * private encoder/submit, readback or separate geometry owner is introduced. */
 export class SurfaceCellGeometrySetup {
   private readonly pipelines = new Map<string, Readonly<Record<Stage, GPUComputePipeline>>>();
-  constructor(private readonly device: GPUDevice) {}
+  constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources | null = null) {}
   addToGraph(graph: FrameGraph, input: SurfaceCellGeometrySetupInput): SurfaceCellGeometrySetupProducts {
     const hasProduct = input.product !== null;
     if (hasProduct && input.product!.banks.length !== 4) throw new RangeError("Cell Geometry requires four published Product banks");
@@ -53,9 +58,12 @@ export class SurfaceCellGeometrySetup {
     if (this.device.limits.maxStorageBuffersPerShaderStage < (hasProduct ? 12 : 7)) {
       throw new RangeError("Cell Geometry source profile exceeds negotiated storage binding limit");
     }
-    const capacity=planSurfaceCellGeometryCapacity(input.targetCapacity,input.addressBudgetBytes??input.targetCapacity*128,this.device.limits);
+    const capacity=planSurfaceCellGeometryCapacity(input.targetCapacity,input.addressBudgetBytes??input.targetCapacity*1280,this.device.limits);
     const {setupCapacity,dictionaryCapacity}=capacity;
-    const profile=`${hasProduct}:${dictionaryCapacity}`;
+    if (setupCapacity < input.targetCapacity) {
+      throw new RangeError("Surface Geometry local setup capacity must cover the complete bounded target range");
+    }
+    const profile=`${hasProduct}:${dictionaryCapacity}:${setupCapacity}:${capacity.memoCapacity}`;
     let pipelines = this.pipelines.get(profile);
     if (!pipelines) {
       const module = this.device.createShaderModule({label:"SurfaceGeometry/cell setup",code:surfaceCellGeometrySetupWgsl(hasProduct,dictionaryCapacity)});
@@ -64,13 +72,18 @@ export class SurfaceCellGeometrySetup {
       this.pipelines.set(profile,pipelines);
     }
     let arena!: ResourceId,counts!: ResourceId,indirect!: ResourceId,settings!: ResourceId;
+    const bind: SurfaceResourceBinding = input.resourceBinding ?? ((_name, resolve) => resolve());
+    const memo = this.scratch === null
+      ? graph.import_resource("Surface/frame geometry memo", { kind: "imported", domain: "internal-full" }, bind("surface-frame-geometry-memo", () => ({})))
+      : this.scratch.importBuffer(graph, bind, "Surface/frame geometry memo", capacity.memoBytes,
+        GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST);
     for (const stage of stages) {
       const pipeline=pipelines[stage];
       const pass=graph.add(`SurfaceGeometry/${stage} batch ${input.firstTile}`, input, (data,resources,context)=>{
         const command=context.encoder as ShadeGPUCommandContext;
         if(stage==="reset_cell_geometry") {
           const values=new Uint32Array([data.width,data.height,data.tilesX,data.firstTile,data.tileCount,dictionaryCapacity,setupCapacity,data.generation,
-            0,0,0,0,data.sourceGeometry,data.sourceMeshlet,data.sourceMeshletVertices,data.sourceMeshletTriangles,data.sourceVertexData,0,0,0]);
+            data.firstTile,0,capacity.memoCapacity,data.generation,data.sourceGeometry,data.sourceMeshlet,data.sourceMeshletVertices,data.sourceMeshletTriangles,data.sourceVertexData,0,0,0]);
           command.writeBuffer(resources.get(settings) as GPUBuffer,0,values.buffer,0,values.byteLength);
         }
         const group0:GPUBindGroupEntry[]=[{binding:0,resource:{buffer:resources.get(settings) as GPUBuffer}}];
@@ -97,12 +110,13 @@ export class SurfaceCellGeometrySetup {
       });
       if(stage==="reset_cell_geometry") {
         for (const resource of input.after ?? []) { pass.read(resource); }
+        pass.read(memo);
         const storage=GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC;
         arena=pass.create("Surface cell primitive setup and directory",{kind:"transient_buffer",size:dictionaryCapacity*SURFACE_CELL_GEOMETRY_DICTIONARY_BYTES+setupCapacity*SURFACE_CELL_GEOMETRY_SETUP_BYTES,usage:storage});
         counts=pass.create("Surface cell geometry counters",{kind:"transient_buffer",size:32,usage:storage});
         settings=pass.create("Surface cell geometry settings",{kind:"transient_buffer",size:SURFACE_CELL_GEOMETRY_SETTINGS_BYTES,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
         indirect=pass.create("Surface cell geometry indirect",{kind:"transient_buffer",size:16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_SRC});
-      } else {pass.read(settings);pass.read(arena);pass.read(counts);counts=pass.write(counts);
+      } else {pass.read(settings);pass.read(arena);pass.read(counts);pass.read(memo);counts=pass.write(counts);
         if(stage==="request_cell_geometry"){pass.read(input.visibility);pass.read(input.workspace);pass.read(input.activeIndirect);arena=pass.write(arena);}
         if(stage==="finalize_cell_geometry")indirect=pass.write(indirect);
         if(stage==="build_cell_geometry"){pass.read(indirect);arena=pass.write(arena);
@@ -110,7 +124,7 @@ export class SurfaceCellGeometrySetup {
           if(input.product){pass.read(input.product.heap);for(const bank of input.product.banks)pass.read(bank);}}
       }
     }
-    return {arena,counts,indirect,dictionaryCapacity,setupCapacity};
+    return {arena,counts,indirect,memo,memoCapacity:capacity.memoCapacity,dictionaryCapacity,setupCapacity};
   }
   destroy(): void {this.pipelines.clear();}
 }

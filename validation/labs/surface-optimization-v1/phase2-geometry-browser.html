@@ -1,0 +1,11 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Surface Phase 2 Geometry diagnostic</title>
+<pre id="status">Starting Phase 2 Geometry owner diagnostic…</pre>
+<script type="module">
+import {runPhaseOneOracle} from './phase1-production-fixture.mjs';
+const fail=message=>{throw new Error(message);};
+const assertions={ok(value,message='Expected truthy value'){if(!value)fail(message);},equal(actual,expected,message){if(!Object.is(actual,expected))fail(message??`Expected ${actual} to equal ${expected}`);},deepEqual(actual,expected,message){if(JSON.stringify(actual)!==JSON.stringify(expected))fail(message??`Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}`);}};
+try {
+  const report=await runPhaseOneOracle(navigator.gpu,assertions,message=>{document.getElementById('status').textContent=`Phase 2 · ${message}`;window.cellOracleStage=message;});
+  report.phase='Phase 2 Geometry owner and bounded setup';window.cellOracleResult=report;document.getElementById('status').textContent=JSON.stringify(report,null,2);
+} catch(error) { window.cellOracleResult={evidenceRole:'diagnostic',passed:false,failure:error.stack}; }
+</script></html>
