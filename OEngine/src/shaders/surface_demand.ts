@@ -108,6 +108,7 @@ fn emit_surface_requests(@builtin(global_invocation_id) id: vec3u,
 fn demand_field_equal(a: u32, b: u32) -> bool {
   let x = demand_arena.field_requests[a];
   let y = demand_arena.field_requests[b];
+  if !field_request_cacheable(x.x, x.y) || !field_request_cacheable(y.x, y.y) { return false; }
   for (var word = 0u; word < FIELD_REQUEST_KEY_WORDS; word++) {
     if field_request_word(x.x, x.y, word) != field_request_word(y.x, y.y, word) { return false; }
   }
@@ -125,6 +126,11 @@ fn demand_field_hash(request: u32) -> u32 {
 fn nominate_field_producers(@builtin(global_invocation_id) id: vec3u) {
   let request = id.x;
   if request >= atomicLoad(&demand_arena.control[1u]) { return; }
+  let item = demand_arena.field_requests[request];
+  if !field_request_cacheable(item.x, item.y) {
+    demand_arena.field_aliases[request] = request;
+    return;
+  }
   let hash = demand_field_hash(request);
   for (var probe = 0u; probe < DEMAND_PROBES; probe++) {
     let slot = (hash + probe) & DEMAND_FIELD_HASH_MASK;
@@ -156,9 +162,6 @@ fn resolve_field_producers(@builtin(global_invocation_id) id: vec3u) {
     }
     if owner == 0xffffffffu {
       owner = request;
-      for (var previous = 0u; previous < request; previous++) {
-        if demand_field_equal(request, previous) { owner = previous;break; }
-      }
       atomicAdd(&demand_arena.control[44u], 1u);
     }
     demand_arena.field_aliases[request] = owner;
@@ -227,9 +230,6 @@ fn resolve_signal_producers(@builtin(global_invocation_id) id: vec3u) {
     }
     if owner == 0xffffffffu {
       owner = request;
-      for (var previous = 0u; previous < request; previous++) {
-        if demand_signal_equal(request, previous) { owner = previous; break; }
-      }
       atomicAdd(&demand_arena.control[45u], 1u);
     }
     demand_arena.signal_aliases[request] = owner;

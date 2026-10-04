@@ -9,7 +9,7 @@ import { PACKED_CAMERA_TYPE } from "../../shaders/packed_camera.js";
 import { ATMOSPHERE_RUNTIME_WGSL } from "../../shaders/atmosphere/runtime.js";
 import { surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
 import { surfaceDemandArenaWgsl } from "../../gpu/GpuSurfaceDemandAbi.js";
-import { SURFACE_GEOMETRY_RECORD_WGSL } from "../../gpu/GpuSurfaceGeometryRecordAbi.js";
+import { SURFACE_GEOMETRY_RECORD_WGSL, surfaceGeometryReadWgsl } from "../../gpu/GpuSurfaceGeometryRecordAbi.js";
 import { SURFACE_FIELD_REFERENCE_VALUES_WGSL } from "../../shaders/surface_reference_values.js";
 import { SURFACE_PACKET_CONTRACT_WGSL } from "../../gpu/GpuSurfaceSignalPacketAbi.js";
 import type { SurfaceDemandProducts } from "./SurfaceDemandPass.js";
@@ -53,6 +53,7 @@ ${PACKED_CAMERA_TYPE.wgsl_declaration}
 ${ATMOSPHERE_RUNTIME_WGSL}
 ${SURFACE_PACKET_CONTRACT_WGSL}
 ${SURFACE_GEOMETRY_RECORD_WGSL}
+${surfaceGeometryReadWgsl("geometry")}
 ${surfaceCellWorkspaceWgsl(targets/64)}
 ${surfaceDemandArenaWgsl(targets,programs)}
 struct SurfaceView {width:u32,height:u32,frame_index:u32,pad:u32}
@@ -61,7 +62,7 @@ struct SurfaceSettings {
  _reserved0:u32,diagnostics_enabled:u32,pad0:u32,pad1:u32,
 }
 @group(0) @binding(0) var<uniform> settings:SurfaceSettings;
-@group(0) @binding(1) var<storage,read> geometry:array<SurfaceGeometryRecord>;
+@group(0) @binding(1) var<storage,read> geometry:array<u32>;
 @group(0) @binding(2) var<storage,read> field_values:array<vec4f>;
 @group(0) @binding(3) var<storage,read> field_store:array<u32>;
 @group(0) @binding(4) var<storage,read_write> lighting_demand:SurfaceDemandArena;
@@ -202,14 +203,14 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   if id.x>=atomicLoad(&lighting_demand.control[6u]) { return; }
   let record=lighting_demand.lighting_queue[id.x];
   let signal_mask=atomicLoad(&lighting_demand.lighting_masks[record]);
-  let geometry_in=geometry[record];
+  let geometry_in=geometry_product_hot(record);
   let pixel_index=geometry_in.identity.x;
   let pixel=vec2i(i32(pixel_index%settings.width),i32(pixel_index/settings.width));
-  let position=geometry_in.inputs[18u].xyz;
+  let position=geometry_in.position.xyz;
   let geometric_normal=geometry_in.geometric.xyz;
-  let shading_normal=geometry_in.inputs[12u].xyz;
-  let tangent=geometry_in.inputs[15u].xyz;
-  let view_dir=geometry_in.inputs[21u].xyz;
+  let shading_normal=geometry_in.normal.xyz;
+  let tangent=geometry_in.tangent.xyz;
+  let view_dir=geometry_in.view.xyz;
   var material = surface_material(record);
   let normal_valid = surface_field(record, 13u).x > 0.5;
   var normal = shading_normal;

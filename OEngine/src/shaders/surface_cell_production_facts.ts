@@ -4,7 +4,7 @@ import { SURFACE_CELL_ADDRESS_MATH_WGSL } from "./surface_cell_address_math.js";
 import { surfaceCellGeometryMathWgsl } from "./surface_cell_geometry_setup.js";
 import { textureLocalVariationQueryWgsl } from "./texture_local_variation_query.js";
 import { PACKED_CAMERA_TYPE } from "./packed_camera.js";
-import { SURFACE_CELL_GEOMETRY_PROBE_LIMIT, surfaceCellGeometryArenaWgsl } from "../gpu/GpuSurfaceCellGeometryAbi.js";
+import { surfaceCellGeometryArenaWgsl } from "../gpu/GpuSurfaceCellGeometryAbi.js";
 import { GPU_TEXTURE_REF_ROUTING_SHIFT, GPU_TEXTURE_REF_ROUTING_MASK, GPU_TEXTURE_REF_INVALID } from "../gpu/GpuTextureRefAbi.js";
 import { GPU_MATERIAL_VISIBILITY_SAMPLER as S } from "../gpu/GpuMaterialVisibilityAbi.js";
 import { APPEARANCE_MATERIAL_CONSTANT_WGSL } from "./appearance_material_constants.js";
@@ -19,7 +19,7 @@ import { SURFACE_EXECUTION_WORDS, SURFACE_FIELD_EXECUTION_WORDS, SURFACE_SIGNAL_
  * Appearance static owner supplies actual product bounds. Neither has a silent
  * always-false/unknown implementation in this production library. */
 export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFieldBoundProgram[],
-  product: boolean, directRiskLibrary: string, productBoundLibrary: string | null, dictionaryCapacity=65536,
+  product: boolean, directRiskLibrary: string, productBoundLibrary: string | null, referenceCapacity=65536,
   fieldMask: ReadonlySet<number> | null = null, signalBounds = true, parameterBounds = false): string {
   const selected = programs.map(program => {
     // The generated switch uses program-local output ordinals, not Surface ABI
@@ -46,11 +46,13 @@ export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFiel
   });
   const hasProductSamples=selected.some(program=>program.source.includes("=ab_product("));
   let textureBoundSlots = 1;
+  let productBoundSlots = 1;
   let attributeMask = signalBounds ? (0xff | (0xf << 20)) : 0;
   for (const program of selected) {
     for (const [field, profile] of Object.entries(program.dependencyProfiles)) {
       const fieldIndex = APPEARANCE_FIELD_NAMES.indexOf(field as typeof APPEARANCE_FIELD_NAMES[number]);
       if (fieldMask !== null && !fieldMask.has(fieldIndex)) { continue; }
+      for (const product of profile.products) { productBoundSlots = Math.max(productBoundSlots,product+1); }
       for (const sample of profile.samples) { textureBoundSlots = Math.max(textureBoundSlots, sample + 1); }
       for (const input of profile.inputs) {
         if (input.domain === "dynamic" || input.domain === "nonlocal") { continue; }
@@ -158,12 +160,12 @@ ${product ? `@group(1) @binding(9) var<storage,read> product_heap:array<u32>;
 ${Array.from({length:4},(_,i)=>`@group(1) @binding(${i+10}) var<storage,read> product_bank_${i}:array<u32>;`).join("\n")}` : ""}
 ${PACKED_CAMERA_TYPE.wgsl_declaration}
 @group(1) @binding(14) var<uniform> cell_camera:CommandEncoder;
-${surfaceCellGeometryMathWgsl(product)}
-${surfaceCellGeometryArenaWgsl(dictionaryCapacity,false)}
+${surfaceCellGeometryMathWgsl(product, false)}
+${surfaceCellGeometryArenaWgsl(referenceCapacity,false)}
 ${APPEARANCE_FIELD_BOUND_WGSL}
 ${APPEARANCE_MATERIAL_CONSTANT_WGSL}
 ${SURFACE_CELL_ADDRESS_MATH_WGSL}
-${textureLocalVariationQueryWgsl()}
+${textureLocalVariationQueryWgsl("texture_variation", 32)}
 var<private> cell_bound_slot:u32;
 var<private> cell_bound_key:u32;
 var<private> cell_current_rect:vec4f;
@@ -179,8 +181,12 @@ var<private> cell_bound_attributes:array<CellScalarFootprint,${Math.max(1, attri
 var<private> cell_bound_attribute_valid:u32;
 var<private> cell_context_count:u32;
 var<private> cell_bound_setup:CellGeometrySetup;
+var<private> cell_product_bounds:array<AppearanceBound4,${productBoundSlots}>;
+var<private> cell_product_bound_valid:array<u32,${productBoundSlots}>;
 var<private> cell_texture_bounds:array<AppearanceBound4,${textureBoundSlots}>;
 var<private> cell_texture_bound_valid:array<u32,${textureBoundSlots}>;
+var<private> cell_proof_queries:u32;
+var<private> cell_proof_exhausted:bool;
 var<private> cell_texture_nodes:u32;
 var<private> cell_texture_query_count:u32;
 var<private> cell_texture_reuse_count:u32;
@@ -196,14 +202,9 @@ struct CellLaneGeometry {
  slot:u32,
 }
 var<workgroup> cell_lane_geometry:array<CellLaneGeometry,64>;
-fn cell_geometry_hash(key:u32)->u32 {var v=key;v^=v>>16u;v*=0x7feb352du;v^=v>>15u;v*=0x846ca68bu;return v^(v>>16u);}
-fn cell_geometry_slot(key:u32)->u32 {
- let hash=cell_geometry_hash(key);let mask=settings.geometry.x-1u;
- for(var probe=0u;probe<${SURFACE_CELL_GEOMETRY_PROBE_LIMIT}u;probe++){
-  let entry=cell_dictionary[(hash+probe)&mask];if entry.key==0xffffffffu{break;}
-  if entry.key==key{return entry.slot;}
- }
- return 0xffffffffu;
+fn cell_geometry_slot(pixel: vec2u)->u32 {
+  let lane = (pixel.y % 8u) * 8u + pixel.x % 8u;
+  return geometry_arena.references[cell_local_tile * 64u + lane].slot;
 }
 fn cell_geometry_identity(slot:u32,key:u32)->vec4u { if slot<settings.geometry.y { return geometry_setups[slot].identity; } return vec4u(0xffffffffu); }
 fn cell_geometry_source(slot:u32,key:u32)->vec4u { if slot<settings.geometry.y { return geometry_setups[slot].source; } return vec4u(0xffffffffu); }
@@ -343,6 +344,8 @@ fn cell_min_magnitude(a:AppearanceBound)->f32 {if a.low<=0.0&&a.high>=0.0{return
 fn cell_max_magnitude(a:AppearanceBound)->f32 {return max(abs(a.low),abs(a.high));}
 fn ab_texture(context:vec4u,sample:u32,u:AppearanceBound,v:AppearanceBound,udx:AppearanceBound,udy:AppearanceBound,vdx:AppearanceBound,vdy:AppearanceBound)->AppearanceBound4 {
  if cell_texture_bound_valid[sample]!=0u { cell_texture_reuse_count++; return cell_texture_bounds[sample]; }
+ if cell_proof_queries >= 4u { cell_proof_exhausted = true; return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u)); }
+ cell_proof_queries++;
  cell_texture_query_count++;
  let result=cell_texture_bound(context,sample,u,v,udx,udy,vdx,vdy);
  cell_texture_bounds[sample]=result;
@@ -377,7 +380,8 @@ fn cell_texture_bound(context:vec4u,sample:u32,u:AppearanceBound,v:AppearanceBou
  let wrap=vec2u(select(wu,3u-wu,wu!=0u),select(wv,3u-wv,wv!=0u));
  let filters=select(0u,3u,(sampler&${S.LinearBit}u)!=0u);
  let range=tv_query(identity,vec2f(uv[0].low,uv[1].low),vec2f(uv[0].high,uv[1].high),lod,wrap,filters);
- cell_texture_nodes+=range.nodes;
+ cell_texture_nodes+=range.visits;
+ if range.exhausted != 0u { cell_proof_exhausted = true; }
  var result=AppearanceBound4(range.low,range.high,vec4u(range.known));
  let routing=(texture_reference&${GPU_TEXTURE_REF_ROUTING_MASK}u)>>${GPU_TEXTURE_REF_ROUTING_SHIFT}u;
  if routing!=0u{let channel=select(3u,0u,routing==1u);let alpha=ab_channel(result,channel);
@@ -423,6 +427,7 @@ fn cell_evaluate_bound(field:u32,context:vec4u)->AppearanceBound4 {
 fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
  cell_parameter_enabled=false;
   for(var sample=0u;sample<${textureBoundSlots}u;sample++) { cell_texture_bound_valid[sample]=0u; }
+  for(var product=0u;product<${productBoundSlots}u;product++) { cell_product_bound_valid[product]=0u; }
  let slot=cell_lane_geometry[fact.source].slot;
  cell_bound_slot=slot;cell_bound_key=fact.winner;cell_current_rect=rect;
  if slot >= settings.geometry.y { return vec4u(0xffffffffu); }
@@ -496,14 +501,14 @@ fn cell_merge_bound(a:AppearanceBound4,b:AppearanceBound4)->AppearanceBound4 {
 fn cell_field_budget(field:u32,value:AppearanceBound4)->bool {
  let width=select(1u,3u,field==0u||field==5u||field==6u||field==9u||field==12u);
  for(var c=0u;c<width;c++){if value.known[c]==0u{return false;}}
- if field==6u||field==12u{return cell_normal_box_cone(value.low.xyz,value.high.xyz).w>=0.9986295348;}
+ if field==6u||field==12u{return cell_normal_box_cone(value.low.xyz,value.high.xyz).w>=0.99965732498;}
  var tolerance=0.02;if field==5u{tolerance*=max(1.0,max(max(abs(value.high.x),abs(value.high.y)),abs(value.high.z)));}
  for(var c=0u;c<width;c++){if value.high[c]-value.low[c]>tolerance{return false;}}return true;
 }
 ${directRiskLibrary}
 ${SURFACE_CELL_ADDRESSES_WGSL}
 ${SURFACE_CELL_CERTIFICATE_WGSL}
-`.replaceAll("cell_dictionary[","geometry_arena.dictionary[").replaceAll("geometry_setups[","geometry_arena.setups[");
+`.replaceAll("geometry_setups[","geometry_arena.setups[");
   const activeFields=fieldMask===null ? 0x7fff : [...fieldMask].reduce((mask,field) => mask | (1<<field),0);
   return source.replace("const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=32767u;",`const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=${activeFields}u;`);
 }

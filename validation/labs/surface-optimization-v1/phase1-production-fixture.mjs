@@ -1,3 +1,5 @@
+import {GpuSurfaceFieldStore} from '../../../OEngine/.test-dist/gpu/GpuSurfaceFieldStore.js';
+import {SurfaceDependencyEpochPass} from '../../../OEngine/.test-dist/render/surface/SurfaceDependencyEpochPass.js';
 import {SurfaceDemandPass} from '../../../OEngine/.test-dist/render/surface/SurfaceDemandPass.js';
 import {SurfaceGeometryPass} from '../../../OEngine/.test-dist/render/surface/SurfaceGeometryPass.js';
 import {SurfaceLightingPass} from '../../../OEngine/.test-dist/render/surface/SurfaceLightingPass.js';
@@ -32,8 +34,9 @@ import {SURFACE_CELL_CLASSIFY_STAGES,SURFACE_CELL_CERTIFICATE_FAMILIES} from '..
 import {SurfaceCellClassifierPass} from '../../../OEngine/.test-dist/render/surface/SurfaceCellClassifierPass.js';
 import {AppearanceGraphBuilder} from '../../../OEngine/.test-dist/material/AppearanceGraph.js';
 import {compileAppearanceGraph} from '../../../OEngine/.test-dist/material/AppearanceGraphCompiler.js';
+import {SURFACE_EXECUTION_WORDS,SURFACE_FIELD_EXECUTION_WORDS} from '../../../OEngine/.test-dist/gpu/GpuSurfaceExecutionProfileAbi.js';
 import {surfaceCoverageLayout} from '../../../OEngine/.test-dist/gpu/GpuSurfaceCoverageAbi.js';
-export async function runPhaseOneOracle(gpu,assert,onStage=()=>{}) {
+export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  const withOrm=true;
  const adapter=await gpu.requestAdapter({powerPreference:'high-performance'});assert.ok(adapter&&!adapter.info.isFallbackAdapter);
  const device=await adapter.requestDevice({requiredLimits:{maxStorageBuffersPerShaderStage:16}});
@@ -113,14 +116,18 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{}) {
  const bind=(_name,resolve)=>resolve();
  const scratch=new SurfaceFrameResources(device);scratch.prepare(width,height);
  const geometryOwner=new SurfaceGeometryPass(device,scratch);
- const classifier=new SurfaceCellClassifierPass(device,scratch);
+ const fieldStore=options.fieldStore?new GpuSurfaceFieldStore(device,8*1024**2+16*256):null;
+ const classifier=new SurfaceCellClassifierPass(device,scratch,fieldStore);
+ const dependency=options.fieldStore?new SurfaceDependencyEpochPass(device,fieldStore):null;
  const demandOwner=new SurfaceDemandPass(device,scratch);
  const lightingOwner=new SurfaceLightingPass(device,scratch);
  const publishOwner=new SurfaceStorePublishPass(device);
  const reconstructOwner=new SurfaceReconstructionPass(device);reconstructOwner.prepareFrame(width,height,2);
- retained.push({destroy(){classifier.destroy();geometryOwner.destroy();demandOwner.destroy();lightingOwner.destroy();publishOwner.destroy();reconstructOwner.destroy();scratch.destroy();}});
+ retained.push({destroy(){classifier.destroy();fieldStore?.destroy();dependency?.destroy();geometryOwner.destroy();demandOwner.destroy();lightingOwner.destroy();publishOwner.destroy();reconstructOwner.destroy();scratch.destroy();}});
  const ids=Object.fromEntries(Object.entries(geometryInputs).map(([name,value])=>[name,imported(name,value)]));
- const visibilityId=imported('visibility',visibility),metadataId=imported('metadata',publication.surfaceMetadata),versionsId=imported('versions',publication.fields),cameraId=imported('camera',camera);
+ const visibilityId=imported('visibility',visibility),versionsId=imported('versions',publication.fields),cameraId=imported('camera',camera);
+ let metadataId=imported('metadata',publication.surfaceMetadata);
+ if(dependency)metadataId=dependency.addToGraph(graph,{metadata:metadataId,versions:imported('real resident revisions',buffer(new Uint32Array([0,9,13]))),publication,bind});
  const lightWords=new Uint32Array(32768);lightWords.fill(0xffffffff,0,3);
  const lightId=imported('light records',buffer(lightWords));
  const clusters={parameters:imported('cluster parameters',buffer(new Float32Array([0,1,1,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST)),
@@ -149,7 +156,7 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{}) {
       geometry:resources.get(data.geometry.records),demand:resources.get(data.demand.arena),indirect:resources.get(data.demand.indirect),values,layout:data.demand.layout,
       textureBanks:[[texture.createView({dimension:'2d-array'})]]}));
     materialNode.read(geometry.records);materialNode.read(demand.arena);materialNode.read(demand.indirect);materialNode.read(bankId);materialNode.write(valuesId);
-    demand=publishOwner.addToGraph(graph,{...request,demand,values:valuesId,signal:false,entries:4,enabled:false});
+    demand=publishOwner.addToGraph(graph,{...request,demand,values:valuesId,signal:false,entries:fieldStore?.capacity.entries??4,enabled:fieldStore!==null});
     const lighting=lightingOwner.addToGraph(graph,{resourceBinding:bind,demand,geometry:geometry.records,fields:valuesId,appearanceMetadata:metadataId,
       constantFieldsOffset:o.constantFields,width,height,frame:11,camera:cameraId,physicalSun:null,lightRecords:lightId,clusters,shadow:null,scalarAo:null,
       environment:{diffuse:envId,specular:envId,dfg:envId},diagnosticsEnabled:true});
@@ -171,11 +178,13 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{}) {
  const coverageBytes=surfaceCoverageLayout(8).bytes;
  const coverageReadback=device.createBuffer({size:coverageBytes,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(coverageReadback);
  const hdrReadback=device.createBuffer({size:height*256,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(hdrReadback);
+ const metadataReadback=device.createBuffer({size:publication.surfaceMetadata.size,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(metadataReadback);
  const counterReadback=device.createBuffer({size:32,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(counterReadback);
  const capture=graph.add('Read actual coverage and complete HDR',{},(_data,resources)=>{
    encoder.copyBufferToBuffer(resources.get(cells.coverage),0,coverageReadback,0,coverageBytes);
    encoder.copyTextureToBuffer({texture:resources.get(final.radiance).gpu_texture},{buffer:hdrReadback,bytesPerRow:256},{width,height});
    encoder.copyBufferToBuffer(resources.get(final.counters),0,counterReadback,0,32);
+   encoder.copyBufferToBuffer(publication.surfaceMetadata,0,metadataReadback,0,publication.surfaceMetadata.size);
  });capture.read(cells.coverage);capture.read(metadataId);capture.read(final.radiance);capture.read(final.counters);capture.make_side_effect();
  allocator=new GPUBufferAllocator(device);const textures=new GPUTextureAllocator(device);retained.push(textures);
  context=new FrameGraphContext({device,encoder:command,graphics:{device,buffer_allocator_main:allocator,allocator_textures:textures},resource_manager:new FrameGraphResourceManager(device,gpuDone)});
@@ -184,24 +193,37 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{}) {
  assert.deepEqual(report.compilation,[]);
  report.modules=modules.length;report.order=compiled.dump().executablePassOrder.map(id=>compiled.dump().passes[id].name);
  report.frames=[];
- for(let frame=0;frame<3;frame++){
+ for(let frame=0;frame<(options.fieldStore?4:3);frame++){
    onStage(`Executing production frame ${frame}: sparse / empty / moved`);
    if(frame>0){
      visibilityPixels.fill(0xffffffff);
      if(frame===2)for(let y=0;y<height;y++)for(let x=8;x<16;x++)visibilityPixels[y*width+x]=1;
      device.queue.writeTexture({texture:visibility},visibilityPixels,{bytesPerRow:width*4},{width,height});
+     if(frame===3)for(let y=0;y<height;y++)for(let x=0;x<width;x++){const tile=(y>>3)*4+(x>>3);if([0,2,5,7].includes(tile))visibilityPixels[y*width+x]=((x&1)<<24)|(tile===0?1:tile===2?(x&1):tile===5?2:1);}
+     if(frame===3)device.queue.writeTexture({texture:visibility},visibilityPixels,{bytesPerRow:width*4},{width,height});
      encoder=device.createCommandEncoder();command.gpu_encoder=encoder;command.closed=false;
    }
    compiled.execute(context);if(frame===0)for(const callback of before)callback();command.closed=true;device.queue.submit([encoder.finish()]);if(frame===0)for(const callback of finished)callback();
-   await Promise.all([coverageReadback,hdrReadback,counterReadback,...captures].map(buffer=>buffer.mapAsync(GPUMapMode.READ)));
+   await Promise.all([coverageReadback,hdrReadback,counterReadback,metadataReadback,...captures].map(buffer=>buffer.mapAsync(GPUMapMode.READ)));
    complete();
    const coverage=new Uint32Array(coverageReadback.getMappedRange()).slice();coverageReadback.unmap();
    const hdr=new Uint16Array(hdrReadback.getMappedRange()).slice();hdrReadback.unmap();
    const counters=new Uint32Array(counterReadback.getMappedRange()).slice();counterReadback.unmap();
+   const metadata=new Uint32Array(metadataReadback.getMappedRange()).slice();metadataReadback.unmap();
+   for(let entry=0;entry<publication.surfaceExecutionProfiles.length;entry++){
+     const profile=publication.surfaceExecutionProfiles[entry],base=o.executionProfiles+entry*SURFACE_EXECUTION_WORDS;
+     assert.equal(metadata[base],profile.token);assert.equal(metadata[base+1],profile.enabledMask);assert.equal(metadata[base+2],profile.inputMask);
+     for(let field=0;field<15;field++){
+       const at=base+8+field*SURFACE_FIELD_EXECUTION_WORDS;
+       assert.equal(metadata[at],profile.fields[field].token);assert.equal(metadata[at+7],profile.fields[field].proof.token);
+       assert.equal(metadata[at+15]>>>8,profile.fields[field].proof.qualityClass);
+       assert.equal(metadata[at+19],profile.fields[field].valueCostClass);
+     }
+   }
    const active=[...coverage.slice(68,68+coverage[0])].sort((a,b)=>a-b);
-   assert.deepEqual(active,frame===0?[0,2,5,7]:frame===1?[]:[1,5]);
+   assert.deepEqual(active,frame===0||frame===3?[0,2,5,7]:frame===1?[]:[1,5]);
    const batches=captures.map(buffer=>{const words=new Uint32Array(buffer.getMappedRange()).slice();buffer.unmap();return words;});
-   assert.deepEqual(batches.map(words=>words[127]),frame===0?[2,2,0,0]:frame===1?[0,0,0,0]:[2,0,0,0]);
+   assert.deepEqual(batches.map(words=>words[127]),frame===0||frame===3?[2,2,0,0]:frame===1?[0,0,0,0]:[2,0,0,0]);
    if(frame===0){
      assert.ok(batches.some(words=>words[126]>0),'Mixed sources use the reserved append map pool');
      const absolute=batches.flatMap(words=>Array.from({length:words[127]},(_,tile)=>words[128+tile*(SURFACE_CELL_TILE_PLAN_BYTES/4)+4])).sort((a,b)=>a-b);
@@ -215,7 +237,10 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{}) {
    }
    assert.equal(counters[0],visible);assert.equal(counters[5],width*height);
    for(const words of batches){assert.equal(words[words.length-4],words[127]);assert.ok(words[126]<=2*21*24);}
-   report.frames.push({frame,active,batches:batches.map(words=>words[127]),visible,completeHdr:true});
+   const fieldHits=batches.reduce((sum,words)=>sum+words[113],0);
+   for(const words of batches)assert.ok(words[120]<=64,'All proof families share R/2');
+   if(frame===3)assert.ok(fieldHits>0,'Repeated real production Appearance values are read from the FieldStore');
+   report.frames.push({frame,fieldHits,proofSlots:batches.map(words=>words[120]),active,batches:batches.map(words=>words[127]),visible,completeHdr:true});
  }
  const error=await device.popErrorScope();assert.equal(error,null,error?.message);assert.deepEqual(errors,[]);
  report.maskProfiles=publication.surfaceExecutionProfiles.map(profile=>({enabled:profile.enabledMask,input:profile.inputMask,fields:profile.fields.length,signals:profile.signals.length}));

@@ -1,3 +1,4 @@
+import { SURFACE_FIELD_IDENTITY_WORDS as I, SURFACE_FIELD_EXECUTION_PROFILE_WORD as PW } from "../../../OEngine/.test-dist/gpu/GpuSurfaceFieldIdentityAbi.js";
 import { surfaceCellWorkspaceLayout, surfaceCellWorkspaceWgsl } from '../../../OEngine/.test-dist/gpu/GpuSurfaceCellPlanAbi.js';
 import { SURFACE_CELL_ADDRESS_WORDS } from '../../../OEngine/.test-dist/gpu/GpuSurfaceReferenceAbi.js';
 import { SURFACE_FIELD_LOOKUP_WGSL } from '../../../OEngine/.test-dist/shaders/surface_field_lookup.js';
@@ -40,27 +41,45 @@ export async function runFieldLookupRepair(gpu, assert, onStage = () => {}) {
     workspaceWords[a + 93] = 7;
     workspaceWords.set([1, 0, 0, 0], layout.facts / 4);
     const workspace = buffer(workspaceWords);
-    const metadataWords = new Uint32Array(15 * 8 + 64);
-    const constants = 15 * 8;
+    const metadataWords = new Uint32Array(15 * I + 64 + 15 * 20);
+    const constants = 15 * I;
+    const profiles = constants + 64;
     metadataWords[constants] = 0x7fff & ~((1 << 0) | (1 << 3) | (1 << 4));
-    for (let field = 0; field < 15; field++) metadataWords.set([field + 1, 0xffffffff, 0, 0, 0, 0, 0, 0], field * 8);
-    for (const field of [0, 3, 4]) metadataWords.set([101 + field, field, 0, 1 | (1 << 9), 0, 0, 1, 47], field * 8);
+    for (let field = 0; field < 15; field++) metadataWords.set([field + 1, 0xffffffff, 0, 0, 0, 0, 0, 0], field * I);
+    for (const field of [0, 3, 4]) metadataWords.set([101 + field, field, 0, 1 | (1 << 9), 0, 0, 1, 47], field * I);
+    for(let field=0;field<15;field++) {
+      const profile=profiles+field*20;
+      metadataWords[field*I+PW]=profile;
+      metadataWords[profile]=1;
+      metadataWords[profile+3]=1;
+    }
     const metadata = buffer(metadataWords);
     const versionsWords = new Uint32Array(15 * 4);
     for (const field of [0, 3, 4]) versionsWords[field * 4] = 53 + field;
     const versions = buffer(versionsWords);
     const entries = 16;
     const store = buffer(new Uint32Array(entries * SURFACE_FIELD_STORE_ENTRY_WORDS));
-    const lookupSettings = buffer(new Uint32Array([0, constants, 1, entries, 1, 59, 1, 1]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+    const lookupSettings = buffer(new Uint32Array([0, constants, 1, entries, 1, 59, 1, 1, 8, 8, 0, 0]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     const source = `${surfaceCellWorkspaceWgsl(1)}\n${SURFACE_FIELD_LOOKUP_WGSL}`;
     const module = device.createShaderModule({ code: source });
     assert.deepEqual((await module.getCompilationInfo()).messages.filter(m => m.type === 'error').map(m => m.message), []);
     onStage('Compiling actual field lookup');
-    const lookup = await device.createComputePipelineAsync({ layout: 'auto', compute: { module, entryPoint: 'lookup_surface_fields' } });
-    const lookupGroup = device.createBindGroup({ layout: lookup.getBindGroupLayout(0), entries: [
-      { binding: 0, resource: { buffer: lookupSettings } }, { binding: 1, resource: { buffer: workspace } },
-      { binding: 2, resource: { buffer: metadata } }, { binding: 3, resource: { buffer: versions } }, { binding: 4, resource: { buffer: store } }
-    ] });
+    const pipelineLayout=device.createBindGroupLayout({entries:[
+      {binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:'uniform'}},
+      ...[1,2,3,4,5,6].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:[2,3,6].includes(binding)?'read-only-storage':'storage'}}))
+    ]});
+    const supportArgs=buffer(new Uint32Array(4));
+    const supportIndirect=buffer(new Uint32Array(4),GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_DST);
+    const lookupPipelines=[];
+    for(const entryPoint of ['lookup_surface_fields','finalize_field_support','validate_field_support','commit_field_support']) {
+      lookupPipelines.push(await device.createComputePipelineAsync({layout:device.createPipelineLayout({bindGroupLayouts:[pipelineLayout]}),compute:{module,entryPoint}}));
+    }
+    const arenaWords=new Uint32Array(64*2+64*128);
+    const arenaFloats=new Float32Array(arenaWords.buffer),setupBase=64*2;
+    arenaFloats.set([-.5,-.5,0,1,.5,0,.5,0,0,.5,.5,0],setupBase+24);
+    for(const [corner,uv] of [[0,[.222,.329]],[1,[.230,.345]],[2,[.198,.297]]])arenaFloats.set(uv,setupBase+36+corner*24+8);
+    const geometryArena=buffer(arenaWords);
+    const lookupGroup = device.createBindGroup({ layout: pipelineLayout, entries: [lookupSettings,workspace,metadata,versions,store,supportArgs,geometryArena].map((b,binding)=>({binding,resource:{buffer:b}})) });
     const workerModule = device.createShaderModule({ code: `${surfaceCellWorkspaceWgsl(1)}
       @group(0) @binding(0) var<storage,read_write> w:SurfaceCellWorkspace;
       @compute @workgroup_size(1) fn unresolved_worker() {
@@ -69,18 +88,27 @@ export async function runFieldLookupRepair(gpu, assert, onStage = () => {}) {
       }` });
     const worker = await device.createComputePipelineAsync({ layout: 'auto', compute: { module: workerModule, entryPoint: 'unresolved_worker' } });
     const workerGroup = device.createBindGroup({ layout: worker.getBindGroupLayout(0), entries: [{ binding: 0, resource: { buffer: workspace } }] });
-    const sample = async (name, valueMisses, certificateMisses, epoch = 1, view = 59) => {
+    const pendingCapture=device.createBuffer({size:workspace.size,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});retained.push(pendingCapture);
+    const sample = async (name, valueMisses, certificateMisses, epoch = 1, view = 59, exhausted = false) => {
       onStage(name);
-      device.queue.writeBuffer(lookupSettings, 0, new Uint32Array([0, constants, 1, entries, epoch, view, 1, 1]));
+      device.queue.writeBuffer(lookupSettings, 0, new Uint32Array([0, constants, 1, entries, epoch, view, 1, 1, 8, 8, 0, 0]));
       const encoder = device.createCommandEncoder();encoder.clearBuffer(workspace, 0, 128 * 4);
-      for (const [pipeline, group] of [[lookup, lookupGroup], [worker, workerGroup]]) {
-        const pass = encoder.beginComputePass();pass.setPipeline(pipeline);pass.setBindGroup(0, group);pass.dispatchWorkgroups(1);pass.end();
+      if(exhausted){encoder.copyBufferToBuffer(buffer(new Uint32Array([32]),GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST),0,workspace,120*4,4);}
+      for (const [index,pipeline] of lookupPipelines.entries()) {
+        if(index===1)encoder.copyBufferToBuffer(workspace,0,pendingCapture,0,workspace.size);
+        if(index===2)encoder.copyBufferToBuffer(supportArgs,0,supportIndirect,0,16);
+        const pass=encoder.beginComputePass();pass.setPipeline(pipeline);pass.setBindGroup(0,lookupGroup);
+        if(index===2)pass.dispatchWorkgroupsIndirect(supportIndirect,0);else pass.dispatchWorkgroups(1);pass.end();
       }
+      {const pass=encoder.beginComputePass();pass.setPipeline(worker);pass.setBindGroup(0,workerGroup);pass.dispatchWorkgroups(1);pass.end();}
       device.queue.submit([encoder.finish()]);
+      const validation = await device.popErrorScope();assert.equal(validation,null,validation?.message);device.pushErrorScope('validation');
       const words = await read(workspace);
+      await pendingCapture.mapAsync(GPUMapMode.READ);const pending=new Uint32Array(pendingCapture.getMappedRange()).slice();pendingCapture.unmap();
+      if(pending[120]>0&&!exhausted)for(let proof=0;proof<pending[120];proof++)assert.equal(pending[layout.proofs/4+proof*8+4],5,'Before validation, a candidate remains PendingValidation');
       assert.equal(words[117], valueMisses, `${name}: value worker`);
       assert.equal(words[118], certificateMisses, `${name}: expensive bound worker`);
-      report.cases.push({ name, valuesEvaluated: words[117], boundsEvaluated: words[118], valueHits: words[113], certificateHits: words[114] });
+      report.cases.push({ name, valuesEvaluated: words[117], boundsEvaluated: words[118], valueHits: words[113], certificateHits: words[114], pending: exhausted?0:pending[120],states:exhausted?[]:Array.from({length:words[120]},(_,proof)=>words[layout.proofs/4+proof*8+4]) });
       return words;
     };
     await sample('cold miss', 3, 3);
@@ -91,7 +119,7 @@ export async function runFieldLookupRepair(gpu, assert, onStage = () => {}) {
       const exponent = maximum => ((wordsOf([maximum])[0] >>> 23) & 255) + 1;
       const key = encodeSurfaceFieldStoreKey({ producer: 101 + field, version: 53 + field, dependencyEpoch: 47,
         material: 17, instance: 3, instanceGeneration: 7, geometry: 11, geometryGeneration: 13,
-        sourceMeshlet: 19, sourcePrimitive: 23, lod: 29, chart: 31, side: 1, scope: 1,
+        sourceMeshlet: 19, sourcePrimitive: 0, lod: 29, chart: 31, side: 1, scope: 1,
         cellX: 6, cellY: 9, gradientX: exponent(.003), gradientY: exponent(.004), geometryRevision: 43, viewRevision: 0,
         pointWitness: [...point] });
       const at = request * SURFACE_FIELD_STORE_ENTRY_WORDS;
@@ -100,7 +128,7 @@ export async function runFieldLookupRepair(gpu, assert, onStage = () => {}) {
       requestWords.set(wordsOf([.495, .495, .495, 0, .505, .505, .505, 0]), at + SURFACE_FIELD_STORE_BOUNDS_WORD);
       requestWords.set(wordsOf([.18, .28, .22, .32]), at + SURFACE_FIELD_STORE_DOMAIN_WORD);
       requestWords.set(wordsOf([0, 0, 0, 0, .01, .01, .01, .01]), at + SURFACE_FIELD_STORE_GRADIENT_WORD);
-      requestWords[at + SURFACE_FIELD_STORE_FLAGS_WORD] = 7;
+      requestWords[at + SURFACE_FIELD_STORE_FLAGS_WORD] = 19;
     }
     const requests = buffer(requestWords);
     const publicationSettings = buffer(new Uint32Array([3, entries, 1, 1]), GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
@@ -127,28 +155,40 @@ export async function runFieldLookupRepair(gpu, assert, onStage = () => {}) {
     device.queue.submit([commitEncoder.finish()]);
     await sample('warm value and certificate bypass', 0, 0);
     await sample('UV local camera movement survives', 0, 0, 2, 61);
+    await sample('proof full preserves ExactPoint but rejects domain certificate',0,3,2,61,true);
     // Only one actual texture dependency changes; A/B remain published hits.
-    device.queue.writeBuffer(metadata, (4 * 8 + 7) * 4, new Uint32Array([67]));
+    device.queue.writeBuffer(metadata, (4 * I + 7) * 4, new Uint32Array([67]));
     await sample('partial texture change', 1, 1, 3);
-    device.queue.writeBuffer(metadata, (4 * 8 + 7) * 4, new Uint32Array([47]));
-    device.queue.writeBuffer(workspace, (a + 48) * 4, wordsOf([.25]));
+    device.queue.writeBuffer(metadata, (4 * I + 7) * 4, new Uint32Array([47]));
+    const replaceDomain=async high=>{const data=await read(store);for(let at=0;at<data.length;at+=SURFACE_FIELD_STORE_ENTRY_WORDS)data.set(wordsOf([high]),at+SURFACE_FIELD_STORE_DOMAIN_WORD+2);device.queue.writeBuffer(store,0,data);};
+    await replaceDomain(.199);
     await sample('exact point value hit with certificate outside domain', 0, 3, 4);
-    device.queue.writeBuffer(workspace, (a + 48) * 4, wordsOf([.21]));
+    await replaceDomain(.22);
     device.queue.writeBuffer(workspace, (a + 16) * 4, wordsOf([.201]));
     await sample('certified value covers another point', 0, 0, 5);
+    assert.deepEqual(report.cases.at(-1).states, [4, 4, 4], 'BoundedDomain is independent of ExactPoint');
+    const constantStore = await read(store);
+    for (let at = 0; at < constantStore.length; at += SURFACE_FIELD_STORE_ENTRY_WORDS) {
+      if (constantStore[at + SURFACE_FIELD_STORE_STATE_WORD] !== 2) continue;
+      constantStore.set(wordsOf([.5, .5, .5, 0, .5, .5, .5, 0]), at + SURFACE_FIELD_STORE_BOUNDS_WORD);
+      constantStore[at + SURFACE_FIELD_STORE_FLAGS_WORD] = 7;
+    }
+    device.queue.writeBuffer(store, 0, constantStore);
+    await sample('constant domain covers another point', 0, 0, 6);
+    assert.deepEqual(report.cases.at(-1).states, [3, 3, 3], 'ConstantDomain has its own accepted state');
     device.queue.writeBuffer(workspace, (a + 8) * 4, new Uint32Array([0]));
-    await sample('side identity rejects reuse', 3, 3, 6);
+    await sample('side identity rejects reuse', 3, 3, 7);
     onStage('Actual selective dependency epoch producer');
-    const dependencyWords=new Uint32Array(3*8+3);
-    dependencyWords.set([101,0,0,1,0,1,1,0],0);
-    dependencyWords.set([103,0,0,1,1,1,1,0],8);
-    dependencyWords.set([104,0,0,1,2,1,1,0],16);
-    dependencyWords.set([1,1,2],24);
+    const dependencyWords=new Uint32Array(3*I+3);
+    dependencyWords.set([101,0,0,1,0,1,1,0,1234],0);
+    dependencyWords.set([103,0,0,1,1,1,1,0,5678],I);
+    dependencyWords.set([104,0,0,1,2,1,1,0,9012],I*2);
+    dependencyWords.set([1,1,2],3*I);
     const dependencyMetadata=buffer(dependencyWords);
     const dependencyVersions=buffer(new Uint32Array([0,7,9,11]));
     const dependencyCache=buffer(new Uint32Array(SURFACE_FIELD_DEPENDENCY_HEADER_WORDS+16*SURFACE_FIELD_DEPENDENCY_ENTRY_WORDS));
     const dependencyOwners=buffer(new Uint32Array(3));
-    const dependencySettings=buffer(new Uint32Array([3,0,24,1,4,1,0,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+    const dependencySettings=buffer(new Uint32Array([3,0,3*I,1,4,1,0,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
     const dependencyModule=device.createShaderModule({code:SURFACE_FIELD_DEPENDENCY_EPOCH_WGSL});
     assert.deepEqual((await dependencyModule.getCompilationInfo()).messages.filter(m=>m.type==='error').map(m=>m.message),[]);
     const dependencyPipelines=[];
@@ -160,13 +200,13 @@ export async function runFieldLookupRepair(gpu, assert, onStage = () => {}) {
       dependencyPipelines.push([pipeline,group]);
     }
     const dependencies=async(epoch,publish=true)=>{
-      device.queue.writeBuffer(dependencySettings,0,new Uint32Array([3,0,24,epoch,4,1,0,0]));
+      device.queue.writeBuffer(dependencySettings,0,new Uint32Array([3,0,3*I,epoch,4,1,0,0]));
       const encoder=device.createCommandEncoder();
       for(const [pipeline,group] of dependencyPipelines.slice(0,publish?4:1)) {
         const pass=encoder.beginComputePass();pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(1);pass.end();
       }
       device.queue.submit([encoder.finish()]);
-      const words=await read(dependencyMetadata);return [words[7],words[15],words[23]];
+      const words=await read(dependencyMetadata);assert.deepEqual([words[PW],words[I+PW],words[2*I+PW]],[1234,5678,9012]);return [words[7],words[I+7],words[2*I+7]];
     };
     const coldDependencies=await dependencies(1);
     assert.ok(coldDependencies.every(version=>version!==0&&version!==0xffffffff));

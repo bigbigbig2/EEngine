@@ -1,3 +1,5 @@
+import { surfaceProofAdmissionWgsl } from "../gpu/GpuSurfaceProofAbi.js";
+import { SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
 import { APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
 import { SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS, SURFACE_CELL_FIELD_CERTIFICATE_WORDS,
   SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS, SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
@@ -10,12 +12,61 @@ import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
  * retains its original GeometryRecord gradients. The leaf interval includes the
  * complete analytic/filter support, not just the four sampled values. */
 export const SURFACE_CELL_CERTIFICATE_WGSL = /* wgsl */ `
+${surfaceProofAdmissionWgsl("cell_workspace")}
 const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=32767u;
 const CELL_CERTIFICATE_GEOMETRY_WORDS:u32=${SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS}u;
 const CELL_CERTIFICATE_FIELD_WORDS:u32=${SURFACE_CELL_FIELD_CERTIFICATE_WORDS}u;
 const CELL_CERTIFICATE_FIELD_OFFSET:array<u32,15>=array<u32,15>(${SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS.map(n=>`${n}u`).join(",")});
 const CELL_CERTIFICATE_FIELD_WIDTH:array<u32,15>=array<u32,15>(${APPEARANCE_FIELD_WIDTHS.map(n=>`${n}u`).join(",")});
 
+fn cell_admit_field_proof(leaf: u32, field: u32, kind: u32)->u32 {
+  let entry = cell_workspace.facts[leaf].z;
+  let identity = settings.appearance2.z + (entry*15u+field)*${SURFACE_FIELD_IDENTITY_WORDS}u;
+  let profile = appearance_metadata[identity+${SURFACE_FIELD_EXECUTION_PROFILE_WORD}u];
+  if (appearance_metadata[profile+15u]&4u)==0u ||
+    appearance_metadata[profile+8u]>64u || appearance_metadata[profile+10u]>4u { return 0xffffffffu; }
+  // One typed Field candidate per leaf/context, shared by its compile families.
+  // Lower 15 bits are field validity; upper bits name the admitted proof slot.
+  let at=leaf*CELL_CERTIFICATE_FIELD_WORDS+51u;
+  var tag=0u;
+  if kind==2u { tag=cell_workspace.persistent_certificates[at]>>15u; }
+  else { tag=cell_workspace.field_certificates[at]>>15u; }
+  var proof=tag-1u;
+  if tag==0u {
+    proof=surface_proof_admit(leaf,kind,0u,0xffffffffu);
+    if proof==0xffffffffu { return proof; }
+    cell_workspace.proof_requests[proof][4u]=0u;
+    if kind==2u { cell_workspace.persistent_certificates[at]|=(proof+1u)<<15u; }
+    else { cell_workspace.field_certificates[at]|=(proof+1u)<<15u; }
+  }
+  let members=appearance_metadata[profile+13u]&CELL_CERTIFICATE_ACTIVE_FIELDS;
+  let admitted=cell_workspace.proof_requests[proof][2u];
+  if (admitted&(1u<<field))!=0u { return proof; }
+  let nodes=appearance_metadata[profile+8u]*countOneBits(members);
+  let queries=appearance_metadata[profile+10u];
+  if cell_workspace.proof_requests[proof][6u]+nodes>64u || cell_workspace.proof_requests[proof][7u]+queries>4u { return 0xffffffffu; }
+  cell_workspace.proof_requests[proof][6u]+=nodes;
+  cell_workspace.proof_requests[proof][7u]+=queries;
+  cell_workspace.proof_requests[proof][2u]|=members;
+  return proof;
+}
+fn cell_begin_field_proof() {
+  cell_proof_queries = 0u;
+  cell_proof_exhausted = false;
+}
+fn cell_finish_field_proof(proof: u32, field: u32, value: AppearanceBound4) -> AppearanceBound4 {
+  var result = value;
+  if cell_proof_exhausted {
+    result.known = vec4u(0u);
+    atomicAdd(&cell_workspace.counters[123u],1u);
+  }
+  let width=CELL_CERTIFICATE_FIELD_WIDTH[field];
+  var known=true;
+  for(var channel=0u;channel<width;channel++) { known=known && result.known[channel]!=0u; }
+  if known { cell_workspace.proof_requests[proof][5u]|=1u<<field; }
+  cell_workspace.proof_requests[proof][4u]=select(0u,4u,cell_workspace.proof_requests[proof][5u]==cell_workspace.proof_requests[proof][2u]);
+  return result;
+}
 fn cell_leaf_certificate(tile:u32,lane:u32)->u32 {
   let primitive=cell_workspace.primitives[tile*64u+lane];
   let x=(lane%8u)&~1u;
@@ -85,7 +136,7 @@ var<workgroup> cell_parameter_certificate_diagnostics:array<u32,64>;
 var<private> cell_parameter_uv:u32=0xffffffffu;
 fn cell_certificate_parameter_context(fact:SurfaceCellLane,rect:vec4f,leaf:u32,field:u32)->vec4u {
   let entry=cell_workspace.facts[leaf].z;
-  let descriptor=settings.appearance2.z+(entry*15u+field)*8u;
+  let descriptor=settings.appearance2.z+(entry*15u+field)*${SURFACE_FIELD_IDENTITY_WORDS}u;
   let flags=appearance_metadata[descriptor+3u];
   let uv_mask=appearance_metadata[descriptor+6u];
   if (flags&1u)==0u || countOneBits(uv_mask)!=1u {
@@ -116,8 +167,7 @@ fn cell_certificate_parameter_context(fact:SurfaceCellLane,rect:vec4f,leaf:u32,f
     var maximum=0.0;
     for(var step=0u;step<2u;step++) {
       let component=step*2u+axis;
-      maximum=max(maximum,max(abs(bitcast<f32>(cell_workspace.addresses[address+58u+uv*8u+component])),
-        abs(bitcast<f32>(cell_workspace.addresses[address+62u+uv*8u+component]))));
+      maximum=max(maximum,abs(bitcast<f32>(cell_workspace.addresses[address+18u+uv*6u+component])));
     }
     let exponent=(bitcast<u32>(maximum)>>23u)&255u;
     if maximum!=maximum || exponent>=254u { return vec4u(0xffffffffu); }
@@ -162,6 +212,8 @@ fn publish_cell_geometry_certificates(@builtin(workgroup_id) group:vec3u,@builti
   let published=cell_workspace.facts[tile*64u+lane];
   var count=0u;
   if published.x!=0xffffffffu && cell_leaf_certificate(tile,lane)==lane {
+    let proof = surface_proof_admit(tile*64u+lane,1u,0xffffffffu,0xffffffffu);
+    if proof != 0xffffffffu {
     let fact=surface_cell_load(pixel,published.x);
     let rect=cell_rect_from_mask(cell_region(lane,2u,2u),origin);
     let context=cell_bound_context(fact,rect);
@@ -187,7 +239,9 @@ fn publish_cell_geometry_certificates(@builtin(workgroup_id) group:vec3u,@builti
     for(var channel=0u;channel<4u;channel++) { cell_workspace.geometry_certificates[at+26u+channel]=bitcast<u32>(plane[channel]); }
     cell_workspace.geometry_certificates[at+30u]=bitcast<u32>(max(sqrt(dx2),sqrt(dy2)));
     cell_workspace.geometry_certificates[at+31u]=known|select(0u,16u,valid && ab_valid(residual));
+    cell_workspace.proof_requests[proof][4u] = select(0u,4u,known==15u && valid && ab_valid(residual));
     count=1u;
+    }
   }
   cell_finish_certificate_diagnostics(lane,count,0u,0u);
 }
@@ -213,15 +267,31 @@ fn publish_cell_parameter_certificates(@builtin(workgroup_id) group:vec3u,@built
       var fields=0u;
       for(var field=0u;field<15u;field++) {
         if (unresolved&(1u<<field))==0u { continue; }
-        let identity=settings.appearance2.z+(published.z*15u+field)*8u;
+        let identity=settings.appearance2.z+(published.z*15u+field)*${SURFACE_FIELD_IDENTITY_WORDS}u;
         if appearance_metadata[identity+6u]==(1u<<uv) && (appearance_metadata[identity+3u]&1u)!=0u { fields|=1u<<field; }
       }
+      if fields==0u { continue; }
+      var slots: array<u32,15>;
+      var admitted_fields=0u;
+      for (var field=0u;field<15u;field++) {
+        slots[field]=0xffffffffu;
+        if (fields&(1u<<field))==0u { continue; }
+        let proof=cell_admit_field_proof(leaf,field,2u);
+        if proof!=0xffffffffu {
+          slots[field]=proof;
+          admitted_fields|=1u<<field;
+          cell_workspace.proof_requests[proof][4u]=0u;
+        }
+      }
+      fields=admitted_fields;
       if fields==0u { continue; }
       let parameter=cell_certificate_parameter_context(fact,rect,leaf,firstTrailingBit(fields));
       if parameter.x==0xffffffffu { continue; }
       for(var field=0u;field<15u;field++) {
         if (fields&(1u<<field))==0u { continue; }
-        var value=cell_evaluate_bound(field,parameter);
+        let proof = slots[field];
+        cell_begin_field_proof();
+        var value=cell_finish_field_proof(proof,field,cell_evaluate_bound(field,parameter));
         let descriptor=cell_field_descriptor(parameter.y,field);
         if (cell_bound_setup.continuity[1u].w&descriptor.y)!=0u { value.known=vec4u(0u); }
         let offset=CELL_CERTIFICATE_FIELD_OFFSET[field];
@@ -235,14 +305,14 @@ fn publish_cell_parameter_certificates(@builtin(workgroup_id) group:vec3u,@built
       }
     }
     cell_workspace.persistent_certificates[at+50u]=persistent_known;
-    cell_workspace.persistent_certificates[at+51u]=persistent_fields;
+    cell_workspace.persistent_certificates[at+51u]=(persistent_fields&32767u)|(cell_workspace.persistent_certificates[at+51u]&~32767u);
     count=select(0u,1u,unresolved!=0u);
   }
   cell_finish_certificate_diagnostics(lane,0u,0u,count);
 }
 fn cell_persistent_certificate_covers(leaf:u32,field:u32)->bool {
   let entry=cell_workspace.facts[leaf].z;
-  let identity=settings.appearance2.z+(entry*15u+field)*8u;
+  let identity=settings.appearance2.z+(entry*15u+field)*${SURFACE_FIELD_IDENTITY_WORDS}u;
   let uv_mask=appearance_metadata[identity+6u];
   if countOneBits(uv_mask)!=1u { return false; }
   let uv=firstTrailingBit(uv_mask);
@@ -282,11 +352,14 @@ fn publish_cell_field_certificates(@builtin(workgroup_id) group:vec3u,@builtin(l
         known|=cell_workspace.persistent_certificates[at+50u]&(((1u<<width)-1u)<<(offset/2u));
         continue;
       }
+      let proof = cell_admit_field_proof(leaf,field,3u);
+      if proof == 0xffffffffu { continue; }
       if context.x==0xffffffffu {
         let fact=surface_cell_load(origin+vec2u(lane%8u,lane/8u),published.x);
         context=cell_bound_context(fact,cell_rect_from_mask(cell_region(lane,2u,2u),origin));
       }
-      var value=cell_evaluate_bound(field,context);
+      cell_begin_field_proof();
+      var value=cell_finish_field_proof(proof,field,cell_evaluate_bound(field,context));
       let descriptor=cell_field_descriptor(context.y,field);
       if (cell_bound_setup.continuity[1u].w&descriptor.y)!=0u { value.known=vec4u(0u); }
       for(var channel=0u;channel<width;channel++) {

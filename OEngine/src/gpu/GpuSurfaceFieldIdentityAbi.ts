@@ -5,7 +5,11 @@ import { lowerAppearanceWgsl } from "../shaders/appearance_program.js";
 import { appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
 import type { AppearanceProgramRegistry } from "./AppearanceProgramRegistry.js";
 
-export const SURFACE_FIELD_IDENTITY_WORDS = 8;
+// Words 0–6 are immutable identity, word 7 is the GPU dependency epoch.
+// The immutable execution-profile address has its own word; it must survive
+// the dependency-version producer running before Field lookup.
+export const SURFACE_FIELD_IDENTITY_WORDS = 9;
+export const SURFACE_FIELD_EXECUTION_PROFILE_WORD = 8;
 export const SURFACE_FIELD_MAX_TEXTURE_DEPENDENCIES = 256;
 export const SURFACE_FIELD_DEPENDENCY_BUDGET_BYTES = 8 * 1024 * 1024;
 export const SURFACE_FIELD_DEPENDENCY_HEADER_WORDS = 8;

@@ -1,35 +1,38 @@
-# Surface V3 Phase 2：Geometry owner 与 bounded setup 实施记录
+# Surface V3 Phase 2：Geometry 前置实施与收口更正
 
-日期：2026-10-04。入口：[执行计划 §5](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)、[设计 §7、§13](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。Phase 1 提交为 d07bfa61/03bdd8c；本阶段提交后停止，不进入 Phase 3。
+日期：2026-10-04。入口：[执行计划 §5](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)、[设计 §7、§13](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。
 
-## 实际切换
+## 原判定的不足与当前事实
 
-SurfaceCellGeometrySetup 现在按完整 bounded target 预留 local setup capacity；mandatory local setup 与 frame memo 使用不同物理 buffer/账目。生产 batch 用 `target × 1280B` 的真实 setup/address 预算协商容量，避免旧 `target × 128B` 预算把 setup 压缩到容量不足后再回退解码。memo 物理入口按二次幂容量和 generation 预留，miss/full 不改变 local correctness；本阶段不让未完成的 memo admission 参与主链调度，实际 Candidate/ValueWitness admission 前移到 Phase 3。memo 字节单独计入 `totalReservedBytes`，不从 mandatory local pool 借空间。
+原提交 2ae78f33 预留 local/memo 容量，但 local reservation 仍依赖有界 dictionary；满表能留下无效引用。排序和 prefix 缺少读后写同步，传播产物没有成为真实 SetupRef。memo 没有实际 shader admission/consumer。720B record 整块写未切 hot/cold。新增测试中的源码正则及沿用 Phase 1 的小链不能证明满表、竞态和 memo 正确性，且 Phase 1 metadata 断言曾被删除。因此原“Phase 2 已完成”的判定不足，不能把后移 memo 称作前移接线。
 
-tile 内 winner request 改为固定 64-key bitonic compare/exchange 网络：key 与 lane 成对排序，相等 key 按 lane 稳定排序；run leader 才触发 bounded dictionary reservation，prefix propagation 将 slot 传给整段。没有前序 member 搜索。空 lane、相等 key、dictionary overflow 都有确定状态；setup indirect 只来自 GPU count。
+Phase 3 开始时按实际源码补齐这些前置，并恢复、扩展检查；修复与当前验证见 [Phase 3 实施记录](surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md)。原提交仍保留在 Git 历史，以下为更正后的实现事实。
 
-setup producer 完整写入 `CellGeometrySetup`；memo storage 由同一 Geometry owner 分配、generation-scoped 并保持独立，实际 admission 留给 Phase 3。所有 facts、address、certificate 和 GeometryRecord consumer 只能读取合法 SetupRef；`cell_ensure_direct_geometry`、`cell_direct_setup` 及容量不足后的 invocation-local 完整 decode 已从生产生成链删除。无效 SetupRef 局部拒绝，不偷偷恢复旧 decoder。
+## 唯一生产链
 
-唯一 GeometryRecord producer 继续保留 14 类 center/X/Y finite-difference 语义，记录 metrics.z 发布 demand 的实际 geometry input union mask；记录 hot depth/flags 与 cold 输入共用一个 owner，消费者不再从三顶点或 source heap 补数据。当前 45×vec4 物理 record 仍作为 cold 最坏兼容容量，`SURFACE_GEOMETRY_RECORD_HOT_BYTES=128` 作为后续 hot/cold 压缩合同起点，不删除任何输入能力。
+SurfaceGeometry owner：uniform winner 直接分组；mixed 固定 64-key compare/exchange、run leader 与 inclusive prefix，比较/前缀先读、barrier、写、barrier。一次 atomic reservation 预留全部 local run，最坏 R；每 leaf 的显式 SetupRef 不依赖哈希接纳。facts 的 primitive 等价类直接使用它，删除前序 member 搜索。消费者仅取 setup，不包含完整 source decoder。
 
-## 物理容量
+frame memo 独立有界：四次 probe 查询已提交前批 payload，miss 完整 local build；publish/commit 分派边界保证后批可读。满表只放弃缓存 admission，每帧首批 reset；没有空对象导入或无用分配。
 
-| 产品 | Phase 2 合同 |
+唯一 GeometryRecord 使用 128B hot 加按需 append cold。14 个 kind 保留实际 C/X/Y；同源的 7/10、5/11、6/12 共用物理槽但语义 mask 独立。最坏 cold=528B、总容量=656B/target；只写实际 union。Appearance 的 cold reader 与 Lighting 的 hot reader 同时切换。
+
+## 当前物理合同
+
+| 产品 | 实际合同 |
 |---|---|
-| local setup | 512B/setup；production batch 必须 `setupCapacity >= targetCapacity` |
-| local dictionary | 8B/entry，容量为 bounded power-of-two；当前生产目标可覆盖完整 batch key 数 |
-| frame memo | 528B/entry 的独立 bounded envelope（key、generation、完整 setup 预留）；本阶段只建立 owner/capacity/lifetime 合同，实际 admission 属于 Phase 3 |
-| setup arena | dictionary + local setup；reset/request/build/finalize 由 SurfaceGeometry owner 统一管理 |
-| GeometryRecord | 720B 最坏完整语义；metrics.z 记录实际 input union；hot 起始目标 128B，不提前压缩 cold |
+| local setup | 512B/slot，完整 tile range 必须被 target capacity 覆盖 |
+| explicit refs | 每 target 8B，setup segment 起点按 16B 对齐；不再是 hash dictionary |
+| memo | 528B/entry，独立 power-of-two cap，满表不影响输出 |
+| record | hot 128B + cold 最坏 11×3×16B；单 buffer、唯一 producer |
+| retirement | planner 计入双 scratch/输出；owner 实际 active+retired 字节配额，GPU fence 完成后才释放 |
 
-`SurfaceOptimizationCapacity` 将 setup、memo、GeometryRecord、field/signal values、demand、coverage、indirect 和 retirement scratch 纳入实际 allocation；资源创建前检查 storage/buffer limit。最终 512MiB 和 R=65536 仍是设计目标，未在 Phase 2 宣称达成。
+布局/资源创建前检查 buffer/storage/binding limits。R=65536 和最终性能仍是目标，不把当前 planner 或小链推广为完整生命周期与质量验收。
 
-## 本阶段验证
+## 已运行的更正后验证
 
-- `npm --prefix OEngine run typecheck`：exit 0。
-- `npm --prefix OEngine run build`：exit 0，生产 tsc、Vite bundle、build declarations。
-- `npm --prefix OEngine run build:test`：exit 0，使用新鲜 `.test-dist`。
-- 43 项 targeted semantic/oracle tests通过，新增 `surface-geometry-phase2.test.mjs` 覆盖完整 local capacity/memo 分离、bitonic/run leader、direct fallback 删除、Geometry input union/hot depth。
-- `phase2-geometry` 真实 Chrome 154 WebGPU 小链：25 个生产 WGSL modules 编译无错误；真实 setup→facts→addresses→certificates→Field/Signal→GeometryRecord→Appearance→Lighting→reconstruct 接线；active `[0,2,5,7]`、空帧、移动 `[1,5]` 三帧均完成，HDR 写域正确，mixed append map cursor 实际出现，page errors/API errors 均为空。
+- typecheck/build/build:test 通过；Phase 3 的 45 项 targeted checks 通过，源码正则不再作为算法完成证明。
+- 真实 Geometry GPU：64 distinct winner 的全部 local refs；warm memo 51 hits/13 decodes；强制满 memo 64 decodes/64 rejected admissions；uniform/mixed partial 全部通过。
+- 真实 record producer→reader：3 records、14 kinds×C/X/Y，含非线性 normal/tangent、邻点翻面，最大误差 9.56e-8。
+- 26 modules 的真实完整 production 小链及 Showcase timing/detailed 通过；删除 primitive 前序搜索后重跑受影响项。
 
-本阶段没有运行跨浏览器、resize/cut/device recovery、完整 Showcase timing、四版本同条件性能比较或 Phase 7 正式质量/性能验收。memo admission/hit/miss 的详细 GPU counter 尚未导出，且 admission 明确留在 Phase 3；本阶段验证的是独立容量、统一 producer、overflow 局部正确性和真实 consumer 接线，不能把 setup 次数或短诊断当正式性能收益。
+上述检查在 Phase 3 本轮完成，不回写为 2ae78f33 当时已经通过。跨浏览器、所有 deformation/provider 组合、连续质量、正式历史性能比较仍属 Phase 7，尚未运行。

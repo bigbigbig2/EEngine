@@ -960,3 +960,21 @@ VSM content version/namespace 是原 owner 的发布胶水：实际 allocation/t
 Phase 2 实际实现位于 `SurfaceCellGeometrySetup`、`GpuSurfaceCellGeometryAbi`、`SurfaceGeometryPass`、`SurfaceFrameResources` 与 `SurfaceOptimizationCapacity`。Microsoft `ComputeShaderSort11` 只作为固定比较/交换网络的阶段参考；本地 64-key tile run leader、prefix、SetupRef、memo generation、capacity reservation 和 WebGPU bindings 是本地集成，不宣称完整上游排序算法移植或 adoption 完成。
 
 生产链已删除 `cell_ensure_direct_geometry` / `cell_direct_setup` 及容量不足后的 consumer 解码；setup producer 统一写 local arena，Geometry/Appearance/Lighting 继续消费唯一 GeometryRecord。Phase 2 真实 GPU 小链已验证固定 sort、local/memo 独立容量、overflow 局部正确性、mixed map、空帧与移动覆盖；未提升正式 claim/adoption 或性能结论。
+
+### 2026-10-04 Phase 3：前置更正与 Field/证明预算实际切换
+
+实查 2ae78f33 的 Phase 2 记录不能证明 local 满表/同步/memo/hot-cold 完成，本轮更正生产链及记录。重新核读固定 Microsoft MIT 的 [完整 ComputeShaderSort11.hlsl](https://github.com/walbourn/directx-sdk-samples/blob/1ad8f0f6a3e4d9be7e54ca52640ac12b6565ab0c/ComputeShaderSort11/ComputeShaderSort11.hlsl)：保留比较结果先读、同步后写、再同步。64-key/run/prefix 与 guaranteed local refs 为本地集成；不移植全帧 transpose。
+
+完整核读既有 Apache-2.0 OSS pin 473a59bbcdd30e3366cc567d66a5a97353620d48 的 [ShadelAllocator.cginc](https://github.com/WeakKnight/real-time-seamless-object-space-shading/blob/473a59bbcdd30e3366cc567d66a5a97353620d48/ObjectSpaceShading/Assets/Shaders/Resources/ShadelAllocator.cginc) 与 [VirtualRenderTexture.cginc](https://github.com/WeakKnight/real-time-seamless-object-space-shading/blob/473a59bbcdd30e3366cc567d66a5a97353620d48/ObjectSpaceShading/Assets/Shaders/Resources/VirtualRenderTexture.cginc)。参考阶段/occupancy/filter/有限容量；不照搬后验overflow或Unity/Htex绑定，不宣称上游完整adoption。
+
+| 来源/本地依据 | 本轮真实实现 | 分支/检查 |
+|---|---|---|
+| Microsoft BitonicSort读/写双同步 | uniform直分组、mixed64网络及run prefix | 空lane/相等key/64 distinct真实GPU |
+| OSS mapped/occupancy/filter与原Store发布分派边界 | local保证、optional frame memo；bounded Field reserve/publish/commit | memo满/Reserved拒绝/完整miss输出 |
+| 本地原DAG/interval/TextureVariation及既有DAIS/Forge数学 | 8-word候选、完整32-word profile、UV canonical/support/anchor、获准support | complete identity/Point≠domain/版本/side/Unknown |
+| 具名本地SharedProofBudget | 所有family共用R/2、64 SSA nodes/4 queries/32实际hierarchy visits/8 lights | 超限Unknown，RGBA reuse，保留舍入与wrap/LOD |
+| 本地单Geometry产品ABI | hot128B+按union cold，14语义C/X/Y，物理alias | 实际producer→reader最大误差9.56e-8 |
+
+WGSL workgroupUniformLoad 按 [WGSL规范](https://www.w3.org/TR/WGSL/#workgroupUniformLoad-builtin) 使用，uniform路径不会在不一致控制流中执行barrier。API绑定/indirect copy/生命周期为本地集成。
+
+完整实现与实际检查见 Phase 3实施记录；45 targeted tests、GPU组件、production完整小链和Showcase短诊断通过。未运行donor工程，未提升claims/完整来源采用、跨浏览器/连续质量或历史性能验收。Phase 2旧“已验证memo”等完成声明已更正，不以源码正则或虚假consumer充当证据。

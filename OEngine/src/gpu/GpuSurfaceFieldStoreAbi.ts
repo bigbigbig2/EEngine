@@ -2,27 +2,27 @@
  * prefix contains publication-version proofs, canonical domain and footprint
  * class. The point suffix is an exact input witness. Certified entries may cover
  * another point only after the value AND certificate support tests succeed. */
-export const SURFACE_FIELD_STORE_ABI_VERSION = 2;
+export const SURFACE_FIELD_STORE_ABI_VERSION = 3;
 export const SURFACE_FIELD_STORE_IDENTITY_WORDS = 20;
-export const SURFACE_FIELD_STORE_KEY_WORDS = 88;
+export const SURFACE_FIELD_STORE_KEY_WORDS = 32;
 export const SURFACE_FIELD_STORE_VALUE_WORDS = 4;
-export const SURFACE_FIELD_STORE_ENTRY_WORDS = 120;
+export const SURFACE_FIELD_STORE_ENTRY_WORDS = 64;
 export const SURFACE_FIELD_STORE_REQUEST_WORDS = SURFACE_FIELD_STORE_ENTRY_WORDS;
 export const SURFACE_FIELD_STORE_ENTRY_BYTES = SURFACE_FIELD_STORE_ENTRY_WORDS * 4;
 export const SURFACE_FIELD_STORE_WAYS = 4;
 export const SURFACE_FIELD_STORE_EMPTY = 0xffffffff;
 export const SURFACE_FIELD_STORE_BUDGET_BYTES = 128 * 1024 * 1024;
 export const SURFACE_FIELD_STORE_MAX_PROBE = SURFACE_FIELD_STORE_WAYS;
-export const SURFACE_FIELD_STORE_VALUE_WORD = 88;
-export const SURFACE_FIELD_STORE_BOUNDS_WORD = 92;
-export const SURFACE_FIELD_STORE_DOMAIN_WORD = 100;
-export const SURFACE_FIELD_STORE_GRADIENT_WORD = 104;
-export const SURFACE_FIELD_STORE_FLAGS_WORD = 112;
-export const SURFACE_FIELD_STORE_GENERATION_WORD = 113;
-export const SURFACE_FIELD_STORE_STATE_WORD = 114;
-export const SURFACE_FIELD_STORE_TOUCHED_WORD = 115;
+export const SURFACE_FIELD_STORE_VALUE_WORD = 32;
+export const SURFACE_FIELD_STORE_BOUNDS_WORD = 36;
+export const SURFACE_FIELD_STORE_DOMAIN_WORD = 44;
+export const SURFACE_FIELD_STORE_GRADIENT_WORD = 48;
+export const SURFACE_FIELD_STORE_FLAGS_WORD = 56;
+export const SURFACE_FIELD_STORE_GENERATION_WORD = 57;
+export const SURFACE_FIELD_STORE_STATE_WORD = 58;
+export const SURFACE_FIELD_STORE_TOUCHED_WORD = 59;
 export const SURFACE_FIELD_STORE_STATE = Object.freeze({ empty: 0, reserved: 1, published: 2 });
-export const SURFACE_FIELD_STORE_FLAGS = Object.freeze({ value: 1, certificate: 2, certifiedValue: 4, negativeCertificate: 8 });
+export const SURFACE_FIELD_STORE_FLAGS = Object.freeze({ value: 1, certificate: 2, certifiedValue: 4, negativeCertificate: 8, boundedValue: 16 });
 
 export interface SurfaceFieldStoreKey {
   readonly producer: number;
@@ -102,7 +102,8 @@ const SURFACE_FIELD_CERTIFIED_VALUE:u32=${SURFACE_FIELD_STORE_FLAGS.certifiedVal
 const SURFACE_FIELD_NEGATIVE_CERTIFICATE:u32=${SURFACE_FIELD_STORE_FLAGS.negativeCertificate}u;
 fn surface_field_store_hash(key:ptr<storage,array<u32>,read>,at:u32)->u32 {
   var hash=2166136261u;
-  for(var word=0u;word<SURFACE_FIELD_STORE_IDENTITY_WORDS;word++) { hash=(hash^(*key)[at+word])*16777619u; }
+  let index = array<u32,8>(0u,1u,2u,4u,5u,11u,14u,15u);
+  for (var word=0u;word<8u;word++) { hash=(hash^(*key)[at+index[word]])*16777619u; }
   return hash;
 }
 fn surface_field_store_equal(store:ptr<storage,array<u32>,read>,entry:u32,key:ptr<storage,array<u32>,read>,at:u32)->bool {

@@ -17,7 +17,7 @@ ${PACKED_CAMERA_TYPE.wgsl_declaration}
 @group(0) @binding(0) var<storage, read_write> workspace: SurfaceCellWorkspace;
 @group(0) @binding(1) var<storage, read_write> demand: SurfaceDemandArena;
 @group(0) @binding(2) var<uniform> camera: CommandEncoder;
-@group(0) @binding(3) var<storage, read_write> records: array<SurfaceGeometryRecord>;
+@group(0) @binding(3) var<storage, read_write> records: array<u32>;
 fn geometry_address(at: u32) -> vec4f {
   return bitcast<vec4f>(vec4u(workspace.addresses[at], workspace.addresses[at+1u], workspace.addresses[at+2u], workspace.addresses[at+3u]));
 }
@@ -26,6 +26,10 @@ fn geometry_normal(value: vec3f, fallback: vec3f) -> vec3f {
   if length2 > 1e-20 && all(value == value) { return value * inverseSqrt(length2); }
   return fallback;
 }
+fn geometry_write4(at: u32, value: vec4f) {
+  let words = bitcast<vec4u>(value);
+  for (var channel=0u;channel<4u;channel++) { records[at+channel]=words[channel]; }
+}
 @compute @workgroup_size(64)
 fn produce_geometry(@builtin(global_invocation_id) id: vec3u) {
   if id.x >= atomicLoad(&demand.control[0u]) { return; }
@@ -33,6 +37,13 @@ fn produce_geometry(@builtin(global_invocation_id) id: vec3u) {
   let at = leaf * 144u;
   let mask = atomicLoad(&demand.geometry_masks[leaf]);
   var record: SurfaceGeometryRecord;
+  var physical_mask=0u;
+  for(var kind=1u;kind<=14u;kind++) {
+    if (mask&(1u<<kind))!=0u { physical_mask|=1u<<SURFACE_GEOMETRY_PHYSICAL[kind-1u]; }
+  }
+  let cold_words=countOneBits(physical_mask)*12u;
+  let cold=${targets*32}u+atomicAdd(&demand.control[46u],cold_words);
+  record.cold=vec4u(cold,physical_mask,mask,0u);
   let geometric = geometry_normal(geometry_address(at+132u).xyz, vec3f(0.0,0.0,1.0));
   record.geometric = vec4f(geometric, 1.0);
   record.identity = vec4u(workspace.addresses[at+13u], workspace.addresses[at+4u], workspace.facts[leaf].z, workspace.addresses[at+130u]);
@@ -45,8 +56,12 @@ fn produce_geometry(@builtin(global_invocation_id) id: vec3u) {
       geometry_normal(cross(select(vec3f(0.0,0.0,1.0),vec3f(0.0,1.0,0.0),abs(normal.z)>0.99),normal),vec3f(1.0,0.0,0.0)));
     if (workspace.addresses[at+131u] & (1u<<point)) != 0u { normal=-normal;tangent=-tangent; }
     let direction = geometry_normal(camera.transform[3u].xyz-position.xyz,normal);
+    var written_mask=0u;
     for (var kind = 1u; kind <= 14u; kind++) {
       if (mask & (1u<<kind)) == 0u { continue; }
+      let physical=SURFACE_GEOMETRY_PHYSICAL[kind-1u];
+      if (written_mask&(1u<<physical))!=0u { continue; }
+      written_mask|=1u<<physical;
       var value: vec4f;
       switch kind {
         case 1u, 2u, 3u: {
@@ -65,16 +80,30 @@ fn produce_geometry(@builtin(global_invocation_id) id: vec3u) {
         case 14u: { value=vec4f((camera.view_matrix*vec4f(normal,0.0)).xyz,raw_normal.w); }
         default: {}
       }
-      record.inputs[(kind-1u)*3u+point]=value;
+      let rank=countOneBits(physical_mask&((1u<<physical)-1u));
+      // Each alias writes the same physical value; a single invocation owns
+      // this record and preserves independent requested semantic bits.
+      geometry_write4(cold+rank*12u+point*4u,value);
     }
     if point==0u {
+      record.position=position;
+      record.normal=vec4f(normal,raw_normal.w);
+      record.tangent=vec4f(tangent,raw_tangent.w);
+      record.view=vec4f(direction,0.0);
       // z carries the exact union mask selected by Demand; w is reserved for
       // the cold/profile segment token. Consumers never reconstruct missing
       // attributes from source vertices.
       record.metrics=vec4f(-(camera.view_matrix*vec4f(position.xyz,1.0)).z,raw_tangent.w,bitcast<f32>(mask),0.0);
     }
   }
-  records[leaf]=record;
+  let hot=leaf*32u;
+  geometry_write4(hot,record.position);
+  geometry_write4(hot+4u,record.normal);
+  geometry_write4(hot+8u,record.tangent);
+  geometry_write4(hot+12u,record.view);
+  geometry_write4(hot+16u,record.geometric);
+  for(var word=0u;word<4u;word++) { records[hot+20u+word]=record.identity[word];records[hot+28u+word]=record.cold[word]; }
+  geometry_write4(hot+24u,record.metrics);
 }
 `;
 }

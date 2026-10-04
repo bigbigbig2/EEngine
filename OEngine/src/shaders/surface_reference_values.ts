@@ -1,3 +1,4 @@
+import { SURFACE_FIELD_STORE_ENTRY_WORDS, SURFACE_FIELD_STORE_VALUE_WORD } from "../gpu/GpuSurfaceFieldStoreAbi.js";
 import { SURFACE_REFERENCE_WGSL } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 
@@ -15,7 +16,7 @@ fn surface_field(leaf:u32,field:u32)->vec4f {
     }
     case SURFACE_REFERENCE_TRANSIENT: { return field_values[reference.index]; }
     case SURFACE_REFERENCE_STORE: {
-      let at=reference.index*120u+88u;
+      let at=reference.index*${SURFACE_FIELD_STORE_ENTRY_WORDS}u+${SURFACE_FIELD_STORE_VALUE_WORD}u;
       return bitcast<vec4f>(vec4u(field_store[at],field_store[at+1u],field_store[at+2u],field_store[at+3u]));
     }
     default: { return vec4f(0.0); }

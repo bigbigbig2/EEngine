@@ -1,3 +1,7 @@
+import { SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
+import { SURFACE_FIELD_STORE_ENTRY_WORDS, SURFACE_FIELD_STORE_KEY_WORDS, SURFACE_FIELD_STORE_VALUE_WORD,
+  SURFACE_FIELD_STORE_FLAGS_WORD, SURFACE_FIELD_STORE_GENERATION_WORD, SURFACE_FIELD_STORE_STATE_WORD, SURFACE_FIELD_STORE_TOUCHED_WORD,
+  SURFACE_FIELD_STORE_BOUNDS_WORD, SURFACE_FIELD_STORE_DOMAIN_WORD, SURFACE_FIELD_STORE_GRADIENT_WORD } from "../gpu/GpuSurfaceFieldStoreAbi.js";
 import { surfaceCellWorkspaceWgsl, SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { surfaceDemandArenaWgsl } from "../gpu/GpuSurfaceDemandAbi.js";
 import { SURFACE_REFERENCE_WGSL } from "../gpu/GpuSurfaceReferenceAbi.js";
@@ -16,7 +20,7 @@ export function surfaceStorePublishWgsl(targets: number, programs: number, signa
         .replaceAll(`${prefix}_request_versions`, "publish_versions")
         .replaceAll("signal_request_sun", "publish_sun")
         .replaceAll("signal_request_shadow", "publish_shadow");
-    const stride = signal ? 88 : 120, key = signal ? 72 : 88, value = key, flags = signal ? 76 : 112, generation = signal ? 77 : 113, state = signal ? 80 : 114, touched = signal ? 79 : 115;
+    const stride = signal ? 88 : SURFACE_FIELD_STORE_ENTRY_WORDS, key = signal ? 72 : SURFACE_FIELD_STORE_KEY_WORDS, value = signal ? 72 : SURFACE_FIELD_STORE_VALUE_WORD, flags = signal ? 76 : SURFACE_FIELD_STORE_FLAGS_WORD, generation = signal ? 77 : SURFACE_FIELD_STORE_GENERATION_WORD, state = signal ? 80 : SURFACE_FIELD_STORE_STATE_WORD, touched = signal ? 79 : SURFACE_FIELD_STORE_TOUCHED_WORD;
     const count = signal ? 4 : 3, requestCount = signal ? 2 : 1;
     const word = signal ? "signal_request_word(item.x,item.y,word,fields)" : "field_request_word(item.x,item.y,word)";
     const hash = signal ? "signal_request_hash(item.x,item.y,fields)" : "field_request_hash(item.x,item.y)";
@@ -39,19 +43,45 @@ export function surfaceStorePublishWgsl(targets: number, programs: number, signa
   let descriptor=field_request_descriptor(item.x,item.y);
   let supported=(publish_metadata[descriptor+3u]&1u)!=0u && countOneBits(publish_metadata[descriptor+6u])<=1u;
   var constant=true;
+  var bounded=true;
+  var anchor_valid=true;
+  var finite_bounds=true;
+  let profile=publish_metadata[descriptor+${SURFACE_FIELD_EXECUTION_PROFILE_WORD}u];
+  var tolerance=bitcast<f32>(publish_metadata[profile+14u])*0.5;
+  if item.y==5u { tolerance*=max(1.0,max(max(abs(payload.x),abs(payload.y)),abs(payload.z))); }
+  var low_vector=vec3f(0.0);
+  var high_vector=vec3f(0.0);
   for(var channel=0u;channel<4u;channel++) {
     var low=0u;var high=0u;
     if channel<width {
       low=publish_workspace.persistent_certificates[certificate+offset+channel];
       high=publish_workspace.persistent_certificates[certificate+offset+width+channel];
       constant=constant && low==high && low==bitcast<u32>(payload[channel]);
+      let minimum=bitcast<f32>(low);
+      let maximum=bitcast<f32>(high);
+      finite_bounds=finite_bounds && minimum==minimum && maximum==maximum && abs(minimum)<=3.402823466e38 && abs(maximum)<=3.402823466e38 && minimum<=maximum;
+      anchor_valid=anchor_valid && payload[channel]>=minimum && payload[channel]<=maximum;
+      bounded=bounded && payload[channel]>=minimum && payload[channel]<=maximum && maximum-minimum<=tolerance;
+      if channel<3u { low_vector[channel]=minimum;high_vector[channel]=maximum; }
     }
-    atomicStore(&publish_store[base+92u+channel],low);
-    atomicStore(&publish_store[base+96u+channel],high);
+    atomicStore(&publish_store[base+${SURFACE_FIELD_STORE_BOUNDS_WORD}u+channel],low);
+    atomicStore(&publish_store[base+${SURFACE_FIELD_STORE_BOUNDS_WORD+4}u+channel],high);
   }
-  for(var axis=0u;axis<4u;axis++) { atomicStore(&publish_store[base+100u+axis],field_request_domain(item.x,item.y,axis)); }
-  for(var axis=0u;axis<8u;axis++) { atomicStore(&publish_store[base+104u+axis],field_request_gradient(item.x,item.y,axis)); }
-  if supported && known==mask { published_flags|=2u;if constant { published_flags|=4u; } }
+  for(var axis=0u;axis<4u;axis++) { atomicStore(&publish_store[base+${SURFACE_FIELD_STORE_DOMAIN_WORD}u+axis],field_request_canonical_domain(item.x,item.y,axis)); }
+  for(var axis=0u;axis<8u;axis++) { atomicStore(&publish_store[base+${SURFACE_FIELD_STORE_GRADIENT_WORD}u+axis],field_request_canonical_gradient(item.x,item.y,axis)); }
+  // A normal error is angular. Use a half-angle box radius bound rather than
+  // a component tolerance. The complete box is carried into spatial proof.
+  if item.y==6u || item.y==12u {
+    let center=(low_vector+high_vector)*0.5;
+    let radius=length((high_vector-low_vector)*0.5);
+    let magnitude=length(center);
+    bounded=anchor_valid && magnitude>radius && radius/magnitude<=0.01308959557;
+  }
+  if supported && finite_bounds && known==mask {
+    published_flags|=2u;
+    if constant { published_flags|=4u; }
+    else if bounded { published_flags|=16u; }
+  }
 `;
     return /* wgsl */ `
 ${surfaceCellWorkspaceWgsl(targets / 64)}

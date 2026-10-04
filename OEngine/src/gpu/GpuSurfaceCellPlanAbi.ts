@@ -1,5 +1,6 @@
 import { APPEARANCE_FIELD_WIDTHS } from "./GpuAppearanceFieldAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS, SURFACE_CELL_DEMAND_WORDS, SURFACE_REFERENCE_WORDS } from "./GpuSurfaceReferenceAbi.js";
+import { SURFACE_PROOF_RECORD_BYTES } from "./GpuSurfaceProofAbi.js";
 
 /** Batch work templates: publication, implicit fine, uniform rate or mixed
  * sources. Maps are a reserved append pool used ONLY by non-formula Mixed
@@ -27,7 +28,7 @@ export const SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS = Object.freeze(APPEARANCE_F
   APPEARANCE_FIELD_WIDTHS.slice(0,field).reduce((sum,width) => sum + width * 2,0)));
 export function surfaceCellWorkspaceLayout(tiles: number): Readonly<{ counters: number; plans: number; maps: number;
   geometryCertificates: number; fieldCertificates: number; persistentCertificates: number; primitives: number; addresses: number; fieldReferences: number;
-  signalReferences: number; demands: number; facts: number; bytes: number; tiles: number }> {
+  signalReferences: number; demands: number; facts: number; proofs: number; pendingSupport: number; bytes: number; tiles: number }> {
   if(!Number.isSafeInteger(tiles)||tiles<1)throw new RangeError("Invalid Surface workspace tile capacity");
   const plans=SURFACE_CELL_CONTROL_HEADER_WORDS*4,maps=plans+tiles*SURFACE_CELL_TILE_PLAN_BYTES;
   const geometryCertificates=maps+tiles*SURFACE_CELL_TILE_MAP_BYTES;
@@ -39,12 +40,15 @@ export function surfaceCellWorkspaceLayout(tiles: number): Readonly<{ counters: 
   const signalReferences=fieldReferences+tiles*64*SURFACE_CELL_FIELD_COUNT*SURFACE_REFERENCE_WORDS*4;
   const demands=signalReferences+tiles*64*SURFACE_CELL_SIGNAL_COUNT*SURFACE_REFERENCE_WORDS*4;
   const facts=Math.ceil((demands+tiles*64*SURFACE_CELL_DEMAND_WORDS*4)/16)*16;
-  return Object.freeze({counters:0,plans,maps,geometryCertificates,fieldCertificates,persistentCertificates,primitives,addresses,fieldReferences,signalReferences,demands,facts,
-    bytes:facts+tiles*64*SURFACE_CELL_CHEAP_FACT_BYTES,tiles});
+  const proofs = facts + tiles * 64 * SURFACE_CELL_CHEAP_FACT_BYTES;
+  const pendingSupport = proofs + tiles * 32 * SURFACE_PROOF_RECORD_BYTES;
+  return Object.freeze({counters:0,plans,maps,geometryCertificates,fieldCertificates,persistentCertificates,primitives,addresses,fieldReferences,signalReferences,demands,facts,proofs,pendingSupport,
+    bytes: pendingSupport + tiles * 64 * 15 * 4,tiles});
 }
 export function surfaceCellWorkspaceWgsl(tiles:number):string {
   surfaceCellWorkspaceLayout(tiles);
-  return `struct SurfaceCellWorkspace {
+  return `const SURFACE_PROOF_CAPACITY: u32 = ${tiles*32}u;
+struct SurfaceCellWorkspace {
  counters:array<atomic<u32>,${SURFACE_CELL_CONTROL_HEADER_WORDS}>,
  plans:array<u32,${tiles*SURFACE_CELL_TILE_PLAN_BYTES/4}>,
  maps:array<u32,${tiles*SURFACE_CELL_TILE_MAP_BYTES/4}>,
@@ -56,7 +60,9 @@ export function surfaceCellWorkspaceWgsl(tiles:number):string {
  field_references:array<u32,${tiles*64*SURFACE_CELL_FIELD_COUNT*SURFACE_REFERENCE_WORDS}>,
  signal_references:array<u32,${tiles*64*SURFACE_CELL_SIGNAL_COUNT*SURFACE_REFERENCE_WORDS}>,
  demands:array<u32,${tiles*64*SURFACE_CELL_DEMAND_WORDS}>,
- facts:array<vec4u>,
+ facts:array<vec4u,${tiles*64}>,
+ proof_requests:array<array<u32,8>,${tiles*32}>,
+ pending_support:array<u32,${tiles*64*15}>,
 }`;
 }
 export const SURFACE_CELL_PLAN_MODE = Object.freeze({ empty: 0, publication: 1, fine: 2, grid: 3, masked: 4 });

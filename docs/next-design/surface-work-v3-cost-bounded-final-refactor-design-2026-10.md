@@ -1,6 +1,6 @@
 # Surface V3 最终性能重构设计：有界前端、真实复用与单一生产链
 
-> 执行入口：[独立执行计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)；状态与冻结基线：[执行记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。2026-10-04 Phase 0静态清单、Phase 1 publication/工作表示与 Phase 2 Geometry owner/bounded setup 实现及阶段检查已完成，当前待 Phase 3；重构前代码14c17078。实际消费/容量及缺口见[Phase 0清单](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10.md)、[Phase 1实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase1-implementation-2026-10.md)与[Phase 2实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md)。
+> 执行入口：[独立执行计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)；状态与冻结基线：[执行记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。2026-10-04 Phase 0静态清单、Phase 1 publication/工作表示与 Phase 2 Geometry owner/bounded setup 实现及阶段检查已补齐；Phase 3 Field 候选/验证/proof 已完成，当前待 Phase 4；重构前代码14c17078。实际消费/容量及缺口见[Phase 0清单](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10.md)、[Phase 1实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase1-implementation-2026-10.md)、[Phase 2实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md)与[Phase 3实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md)。
 
 日期：2026-10-04
 
@@ -419,7 +419,7 @@ SignalStore 初始保留当前完整 identity 类别，仅缩减真实无关依�
 
 ## 13. 唯一 GeometryRecord：语义完整，物理 hot/cold
 
-当前 45×vec4=720B 固定物化 14 类 center/X/Y 等输入。改为消费者矩阵驱动：
+重构前 45×vec4=720B 固定物化 14 类 center/X/Y 等输入。目标改为消费者矩阵驱动；当前 Phase 3 已切 128B hot+最坏528B按需cold，见[实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md)：
 
 - Hot：重复消费的 position/depth、合法 frame/flags、generation、cold/profile refs。
 - Cold：实际需要的 UV sets/梯度、color、tangent、高精度 normal、view/previous/deformation 语义。

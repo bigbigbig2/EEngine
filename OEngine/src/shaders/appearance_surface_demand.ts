@@ -2,7 +2,7 @@ import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompile
 import type { AppearanceResidentKernel, AppearanceKernelIntegration } from "./appearance_resident_kernel.js";
 import { appearanceInputLayout, appearanceGeometryInputKind } from "./appearance_demand_inputs.js";
 import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
-import { SURFACE_GEOMETRY_RECORD_WGSL } from "../gpu/GpuSurfaceGeometryRecordAbi.js";
+import { SURFACE_GEOMETRY_RECORD_WGSL, surfaceGeometryReadWgsl } from "../gpu/GpuSurfaceGeometryRecordAbi.js";
 /** Compiler integration: one invocation per actual geometry/material group.
  * Evaluate the union of its missing output closures once. Values retain f32
  * precision and each field writes its nominated producer's independent slot. */
@@ -26,9 +26,9 @@ export function appearanceSurfaceDemandIntegration(program: CompiledAppearanceGr
     }
     const inputs = program.inputs.map((input, index) => {
         const kind = appearanceGeometryInputKind(input, program);
-        const expression = kind === 0 ? `surface_runtime_input(directory[7u]+${index}u)` : `surface_geometry[leaf].inputs[${(kind - 1) * 3}u]`;
-        const x = kind === 0 ? expression : `surface_geometry[leaf].inputs[${(kind - 1) * 3 + 1}u]`;
-        const y = kind === 0 ? expression : `surface_geometry[leaf].inputs[${(kind - 1) * 3 + 2}u]`;
+        const expression = kind === 0 ? `surface_runtime_input(directory[7u]+${index}u)` : `geometry_product_input(leaf,${kind}u,0u)`;
+        const x = kind === 0 ? expression : `geometry_product_input(leaf,${kind}u,1u)`;
+        const y = kind === 0 ? expression : `geometry_product_input(leaf,${kind}u,2u)`;
         return `if (appearance_missing & ${inputMasks.get(input.name)??0}u)!=0u {
   appearance_inputs[${index}u]=${expression};
   appearance_inputs[${layout.neighborBase + index * 2}u]=${x};
@@ -55,11 +55,12 @@ struct SurfaceAppearanceSettings {
 }
 @group(0) @binding(0) var<storage,read> appearance_constants:array<f32>;
 @group(0) @binding(1) var<storage,read> appearance_routes:array<AppearanceRoute>;
-@group(0) @binding(2) var<storage,read> surface_geometry:array<SurfaceGeometryRecord>;
+@group(0) @binding(2) var<storage,read> surface_geometry:array<u32>;
 @group(0) @binding(3) var<storage,read> surface_demand:array<u32>;
 @group(0) @binding(4) var<storage,read> surface_metadata:array<u32>;
 @group(0) @binding(5) var<storage,read_write> surface_values:array<vec4f>;
 @group(0) @binding(6) var<uniform> surface_settings:SurfaceAppearanceSettings;
+${surfaceGeometryReadWgsl("surface_geometry")}
 var<private> appearance_task:vec4u;
 var<private> appearance_missing:u32;
 var<private> appearance_inputs:array<vec4f,${Math.max(1, layout.vectors)}>;

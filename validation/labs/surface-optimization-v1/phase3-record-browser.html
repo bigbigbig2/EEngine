@@ -1,0 +1,18 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>Surface cell component diagnostic</title>
+<pre id="status">Starting isolated GPU component diagnostic…</pre>
+<script type="module">
+import { runRecordOracle } from './phase3-record-fixture.mjs';
+const fail=message=>{throw new Error(message);};
+const assertions={
+ ok(value,message='Expected truthy value'){if(!value)fail(message);},
+ equal(actual,expected,message){if(!Object.is(actual,expected))fail(message??`Expected ${actual} to equal ${expected}`);},
+ deepEqual(actual,expected,message){if(JSON.stringify(actual)!==JSON.stringify(expected))fail(message??`Expected ${JSON.stringify(actual)} to equal ${JSON.stringify(expected)}`);}
+};
+try {
+ assertions.ok(navigator.gpu,'WebGPU unavailable');
+ const report=await runRecordOracle(navigator.gpu,assertions,
+  message=>{console.log(message);document.getElementById('status').textContent=message;window.cellOracleStage=message;},
+  code=>{window.cellOracleSource=code;},new URLSearchParams(location.search).has('orm'));
+ window.cellOracleResult=report;document.getElementById('status').textContent=JSON.stringify(report,null,2);
+}catch(error){window.cellOracleResult={evidenceRole:'diagnostic',passed:false,failure:error.stack};}
+</script></html>

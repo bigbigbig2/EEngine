@@ -23,8 +23,8 @@ export interface ProofProfile {
   readonly nodes: number;
   readonly coordinateNodes: number;
   readonly queries: number;
-  /** Complete old variation implementation bound: 32 mips × 9 wrapped
-   * rectangles × 4 hierarchy nodes, per equivalent RGBA query. */
+  /** Complete accepted visitor ceiling, including mip and level selection
+   * metadata plus bound payload reads, per equivalent RGBA query. */
   readonly visitBound: number;
   /** Total visitor admission ceiling; exhaustion must yield Unknown in Phase 3. */
   readonly visitLimit: number;
@@ -169,14 +169,18 @@ export function appearanceExecutionProfiles(program: CompiledAppearanceGraph,
         program.productReads![node.product!]!.field.constant === undefined)) { supported = false; }
     }
     const queries = samples.size + products.size;
-    const visitBound = queries * 32 * 9 * 4;
+    // Bound SSA values, both coordinate-derivative axes, and one RGBA query
+    // declaration per independent texture/product. Query-internal hierarchy
+    // selection and payload visits share their own 32-visit ceiling.
+    const proofNodes = live.length + coordinateNodes * 2 + queries;
+    const visitBound = queries * 32;
     const identity = roots === undefined ? `default:${name}` : appearanceFieldIdentity(program, roots).key;
     const qualityClass = field === 6 || field === 12 ? 1 : field === 5 ? 2 : 0;
-    const proofFacts = [supported, live.length, coordinateNodes, queries, visitBound, 32, 0.02, 0.9986295348];
+    const proofFacts = [supported, proofNodes, coordinateNodes, queries, visitBound, 32, 0.02, 0.99965732498];
     const proof: ProofProfile = Object.freeze({ token: intern(JSON.stringify([
       "proof-profile-v1", name, identity, domain.token, qualityClass, proofFacts])),
-      supported, nodes: live.length, coordinateNodes, queries, visitBound, visitLimit: 32,
-      tolerance: 0.02, normalConeCos: 0.9986295348, qualityClass });
+      supported, nodes: proofNodes, coordinateNodes, queries, visitBound, visitLimit: 32,
+      tolerance: 0.02, normalConeCos: 0.99965732498, qualityClass });
     const queryIdentities = sampleIds.map(sample => appearanceFieldIdentity(program, [
       program.instructions.findIndex(node => node.sample === sample)]).key);
     const productIdentities = productIds.map(product => appearanceFieldIdentity(program, [
@@ -189,8 +193,9 @@ export function appearanceExecutionProfiles(program: CompiledAppearanceGraph,
       groups.push({ token: intern(dependencyKey), fields: 0, inputMask, seamMask, samples: sampleIds, products: productIds });
     }
     groups[group] = { ...groups[group]!, fields: groups[group]!.fields | (1 << field) };
-    const cacheClass = publication ? FIELD_CACHE_CLASS.publication : !supported || view ? FIELD_CACHE_CLASS.transient :
-      (inputMask & ~((1 << 1) | (1 << 2) | (1 << 3))) === 0 ? FIELD_CACHE_CLASS.stable : FIELD_CACHE_CLASS.share;
+    const cacheClass = publication ? FIELD_CACHE_CLASS.publication : view || (dependencyMask & (8 | 32)) !== 0 ||
+      (queries === 0 && live.length + coordinateNodes * 3 <= 8) ? FIELD_CACHE_CLASS.transient :
+      (inputMask & ~((1 << 1) | (1 << 2) | (1 << 3))) === 0 && [1, 2, 4].includes(uvMask) ? FIELD_CACHE_CLASS.stable : FIELD_CACHE_CLASS.share;
     // The existing value compiler executes coordinate ancestors at C/X/Y, then
     // the live value closure. Nested coordinate RGBA queries are separate from
     // the final output query; four channels of one sample are still one query.

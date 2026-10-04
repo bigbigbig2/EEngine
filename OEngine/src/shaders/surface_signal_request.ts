@@ -1,3 +1,4 @@
+import { SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS, SURFACE_REFERENCE_WGSL } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_SIGNAL_STORE_KEY_WORDS } from "../gpu/GpuSurfaceSignalStoreAbi.js";
@@ -12,7 +13,7 @@ ${SURFACE_REFERENCE_WGSL}
 ${surfaceCellSelectionWgsl("signal_request_workspace", "signal_request_metadata", "signal_request_settings.constants")}
 const SIGNAL_REQUEST_KEY_WORDS:u32=${SURFACE_SIGNAL_STORE_KEY_WORDS}u;
 fn signal_request_field_descriptor(leaf:u32,field:u32)->u32 {
-  return signal_request_settings.identities+(signal_request_workspace.facts[leaf].z*15u+field)*8u;
+  return signal_request_settings.identities+(signal_request_workspace.facts[leaf].z*15u+field)*${SURFACE_FIELD_IDENTITY_WORDS}u;
 }
 fn signal_request_uniform_value(leaf:u32,field:u32)->vec4f {
   let reference=reference_field(leaf,field);
@@ -21,7 +22,7 @@ fn signal_request_uniform_value(leaf:u32,field:u32)->vec4f {
     signal_request_metadata[at+2u],signal_request_metadata[at+3u]));
 }
 fn signal_request_fields(leaf:u32,kind:u32)->u32 {
-  let field_profile=signal_request_metadata[signal_request_field_descriptor(leaf,0u)+7u];
+  let field_profile=signal_request_metadata[signal_request_field_descriptor(leaf,0u)+${SURFACE_FIELD_EXECUTION_PROFILE_WORD}u];
   let signal_profile=field_profile+15u*${SURFACE_FIELD_EXECUTION_WORDS}u+kind*${SURFACE_SIGNAL_EXECUTION_WORDS}u;
   var mask=signal_request_metadata[signal_profile+1u];
   let metallic=reference_field(leaf,2u);

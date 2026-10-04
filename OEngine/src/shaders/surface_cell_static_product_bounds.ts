@@ -6,6 +6,15 @@ import { SURFACE_APPEARANCE_BOUND_PROGRAM_WORDS } from "../gpu/GpuSurfaceAppeara
  * r-form moments. No original-source bound is substituted for baked data. */
 export const SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL = /* wgsl */ `
 fn ab_product(context:vec4u,index:u32,u:AppearanceBound,v:AppearanceBound,udx:AppearanceBound,udy:AppearanceBound,vdx:AppearanceBound,vdy:AppearanceBound)->AppearanceBound4 {
+ if cell_product_bound_valid[index]!=0u { cell_texture_reuse_count++;return cell_product_bounds[index]; }
+ if cell_proof_queries >= 4u { cell_proof_exhausted = true; return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u)); }
+ cell_proof_queries++;
+ let result=cell_product_bound(context,index,u,v,udx,udy,vdx,vdy);
+ cell_product_bounds[index]=result;
+ cell_product_bound_valid[index]=1u;
+ return result;
+}
+fn cell_product_bound(context:vec4u,index:u32,u:AppearanceBound,v:AppearanceBound,udx:AppearanceBound,udy:AppearanceBound,vdx:AppearanceBound,vdy:AppearanceBound)->AppearanceBound4 {
  let header=settings.appearance0.z+context.y*${SURFACE_APPEARANCE_BOUND_PROGRAM_WORDS}u;
  let table=settings.appearance0.z+appearance_metadata[header+5u]+index*2u;
  let ordinal=appearance_metadata[table];
@@ -25,6 +34,8 @@ fn ab_product(context:vec4u,index:u32,u:AppearanceBound,v:AppearanceBound,udx:Ap
  let upper=max(length(vec2f(cell_max_magnitude(dxu),cell_max_magnitude(dxv))*dimensions),length(vec2f(cell_max_magnitude(dyu),cell_max_magnitude(dyv))*dimensions));
  let lod=vec2f(max(0.0,log2(max(lower,1.0))-1.0),log2(max(upper,1.0))+1.0);
  let range=tv_query(identity,vec2f(mapped_u.low,mapped_v.low),vec2f(mapped_u.high,mapped_v.high),lod,vec2u(0u),3u);
- atomicAdd(&cell_counts[106u],range.nodes);return AppearanceBound4(range.low,range.high,vec4u(range.known));
+ cell_texture_nodes += range.visits;
+ if range.exhausted != 0u { cell_proof_exhausted = true; }
+ return AppearanceBound4(range.low,range.high,vec4u(range.known));
 }
 `;

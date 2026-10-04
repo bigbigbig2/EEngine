@@ -7,24 +7,25 @@ owner: shading
 
 ## 当前事实与执行入口
 
-核对日期：2026-10-04。重构前代码已保存为 **14c170785505b316c273a8aed0257fe22056b0d3**。本页描述该代码事实，不把待实施设计当作已实现。
+核对日期：2026-10-04。重构前代码已保存为 **14c170785505b316c273a8aed0257fe22056b0d3**。本页描述当前 Phase 3 源码事实；14c17078 的旧布局与诊断另列为历史基线。
 
 - 总架构：[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。
 - 当前目标：[有界前端最终性能设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。
 - 当前执行：[重构计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
-- 状态：Phase 0–2生产切换与阶段检查完成；当前待Phase 3。完整数值/画质/性能与来源采用仍未验收。
+- 状态：Phase 0–3当前生产切换与阶段检查完成，Phase 2原判定不足已更正；当前待Phase 4。完整数值/画质/性能与来源采用仍未验收。
 
 ## 当前唯一生产链
 
 ~~~
 Visibility / Depth / MeshletWork / Geometry source
   → SurfaceWorkRuntime
-  → per-batch Geometry setup / facts / canonical addresses
-  → Field value + certificate lookup
-  → unresolved Geometry / Field certificates
+  → single coverage / ActiveTileList / actual batch ranges
+  → guaranteed local setup / committed frame memo / facts / point addresses
+  → bounded Field candidate + ExactPoint / admitted support validation
+  → shared-budget Geometry / Field proofs
   → Field classify / source binding
   → Signal value lookup / Signal classify
-  → actual field miss / dirty signal demand + full-key dedup
+  → actual field miss / dirty signal demand + eligible bounded dedup
   → unique GeometryRecord
   → missing Appearance closure / dirty Lighting
   → independent FieldStore / SignalStore publish and references
@@ -40,17 +41,17 @@ SurfaceCellClassifierPass 是当前前端composition入口，SurfaceDemandPass�
 
 ### Appearance / FieldStore
 
-当前前置查询是SurfaceFieldLookupPass与surface_field_request/lookup；20-word identity和68-word点见证由getter按实际依赖生成，完整比较而非hash命中。ValueHit与CertificateHit分开：值命中提供FieldRef；支持域证书可填入leaf bounds；未知仍走本批需求。
+当前 SurfaceFieldLookupPass 以 8-word candidate hash 定位，匹配时完整比较 20-word 身份与必要 6-word UV C/X/Y（key 上限32words）。完整静态 interning、数值版本、纹理/content epoch、实例/表示/LOD/side/deformation、质量策略 token 均保留；不合该 profile 的 witness 走完整 DirectTransient。
 
-完整DAG/参数/纹理版本等由publication/field identity owner提供。Constant/Default/Transient/Store使用独立引用；GpuAppearancePublication复用实际compiler/resident sampler/Product闭包，只执行实际缺失字段需求。normal缺失不应使命中字段重新求值。
+Constant/Default 公式 ref、ExactPoint、ConstantDomain/BoundedDomain 与空间证书独立。detailed support 在获准队列中使用唯一 setup/原 interval 数学；PendingValidation 完成后每 leaf 单一 commit。点值命中不保证 quad 证书。support/Geometry/Field families 共用 R/2 slots；64 bound SSA nodes、4 queries、32 mip/level/payload visits、8 risk lights 上限，超限完整 Unknown。
 
-当前dense逐leaf查询、canonical/屏幕证书和宽见证成本仍高；本次新设计的廉价候选、受理proof、选择性缓存尚未实施。
+Field identity 9 words，epoch word7 与 profile 地址 word8 分域。FieldStore 实际256B/entry，全部生产 reader/writer 已切换；错误版本、Reserved/域外或预算满不读取未发布值。Field/Signal hash 满不扫描全 request stream，未接纳者自己的 transient 工作仍完整。实际缺失闭包和原 sampler/Product 计算保留。
 
 ### Geometry / setup
 
-SurfaceCellGeometrySetup提供有界batch primitive setup；满表/容量不足仍可能由消费者内invocation-local直接解码。当前planner在run06配置下setup仅2655槽位，实际fallback量缺完整导出，不能宣称已证明主导耗时。
+SurfaceGeometry owner 以固定 64-key run/prefix 保证 local slots，逐 leaf 显式 SetupRef；uniform winner 直接分组，consumer 完整 decoder 与 primitive 前序扫描均已删除。frame memo 实际查询/publish/commit，满表仍完成 local 输出。
 
-唯一SurfaceGeometryRecord当前为45×vec4=720B，包含14类center/X/Y等完整输入。Appearance/Lighting读取记录。新hot/cold、guaranteed local setup+memo和消费者隐藏decode删除尚未实施。
+唯一 Geometry product 为128B hot header与按 union append的cold池，同一buffer、一个writer。14种输入C/X/Y完整保留，三个同源alias物理共用；最坏cold528B，总预留656B/target。Appearance读取cold offset/rank，Lighting读取hot输入；f32精度保留。
 
 Product/LOD/source/seam、skin/morph/previous deformation的完整覆盖和验收仍是待核对范围，不将局部接线/fixture推广为全部功能完成。
 
@@ -64,7 +65,13 @@ Signal identity按真实选中FieldRef构造；Published Store slot/generation�
 
 SurfaceReconstructionPass只消费refs/results/TemporalFacts及合成输入，不重新解码三角形或执行完整材质/PBR。epoch/generation、reserve/publish和提交完成退休属于对应Store/资源owner；完整lifecycle/质量矩阵仍待验收。
 
-## 已有诊断与已知性能问题
+## 当前阶段验证与性能边界
+
+详见[Phase 3实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md)：45 targeted checks、真实 Geometry/record/Field/proof GPU组件、26 module生产链及Showcase timing/detailed通过。最终3样本GPU pass sum约569ms、Surface约435ms；另一份短诊断约490/367ms。没有正式同条件性能收益结论，目标仍未达成。
+
+当前R25536、399 tiles/batch、最大82batch，真实GPU active ranges裁空；retirement计入planner及owner配额。arbitrary classifier和共同Workspace输出仍待Phase4–6切换/收口，不把阶段检查当最终质量/生命周期/历史性能验收。
+
+## 历史基线诊断与问题
 
 run06为本机diagnostic，非正式accepted evidence：
 GTX1650Ti、Chrome154、1080p Dungeon overview、AO/FSR3/Bloom开、VSM/jitter关、exposure4。30个GPU timing样本；独立detailed/movement完成。GPU pass sum P50约801.7ms，Surface约790.4ms，frame span约867.4ms。
@@ -82,11 +89,11 @@ GTX1650Ti、Chrome154、1080p Dungeon overview、AO/FSR3/Bloom开、VSM/jitter�
 
 | 方向 | 尚待实现 |
 |---|---|
-| Publication | dependency/cost/proof profiles、精确DomainRecipe、真实依赖缩减 |
-| Work/classifier | active tiles、implicit/uniform/mixed、固定空间树、删除pair/member搜索 |
-| Query/proof | CandidateKey/ValueWitness/SharingCertificate分离；受理预算与复合误差 |
-| Geometry | 唯一hot/cold记录、local保证/memo、删除consumer直接decode |
-| Demand/store | 选择性dedup/admission、满表transient完整覆盖、mask/template需求 |
+| Publication | 画像/真实依赖已实施；随后继consumer合同更新 |
+| Work/classifier | 固定空间树与pair/member搜索切断；active/templates已实施 |
+| Query/proof | 本轮分离/预算已实施；后继树consumer与完整质量验证 |
+| Geometry | 本轮切换已实施；完整deformation/生命周期组合验证 |
+| Demand/store | 前置bounded失败覆盖已实施；Phase5 mask/template与worker完整切换 |
 | Lighting | Ddirect因子分离及前端key/rate/proof同步，独立provider风险 |
 | Runtime | 最坏mandatory容量、必要reset、稳定bindings、合法pass合并和retire账 |
 | 验收 | 完整数值/coverage/lifecycle/连续质量/同条件历史版本比较 |

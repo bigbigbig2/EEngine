@@ -17,27 +17,13 @@ test('Phase 2 reserves complete local setup independently from the bounded memo'
   assert.ok(profile.setupBytes<=limits.maxStorageBufferBindingSize);
 });
 
-test('fixed 64-key sorting and run leader are in the setup producer',()=>{
-  const source=surfaceCellGeometrySetupWgsl(false,1024);
-  assert.match(source,/bitonic network/u);
-  assert.match(source,/request_keys\[lane\]=vec2u\(key,lane\)/u);
-  assert.match(source,/request_slots\[lane\]/u);
-  assert.match(source,/offset<64u/u);
-  assert.doesNotMatch(source,/for\(var i=0u;i<lane;i\+\+\)/u);
-});
-
-test('Geometry consumers cannot invoke an invocation-local direct setup fallback',()=>{
-  const facts=surfaceCellProductionFactsWgsl([],false,'fn cell_direct_group_safe() {}',null,1024,new Set(),false);
-  assert.doesNotMatch(facts,/cell_ensure_direct_geometry/u);
-  assert.doesNotMatch(facts,/cell_direct_setup/u);
-  assert.match(facts,/if slot\s*>=\s*settings\.geometry\.y/u);
-});
-
-test('record producer publishes the actual geometry input union with the hot depth contract',()=>{
-  const source=surfaceGeometryRecordWgsl(64,1);
-  assert.match(source,/bitcast<f32>\(mask\)/u);
-  assert.match(source,/record\.metrics/u);
+test('Geometry physically shares aliases while retaining independently requested semantic kinds',async()=>{
+  const {SURFACE_GEOMETRY_PHYSICAL_INPUTS:map,SURFACE_GEOMETRY_RECORD_HOT_BYTES:hot,
+    SURFACE_GEOMETRY_RECORD_COLD_MAX_BYTES:cold,SURFACE_GEOMETRY_RECORD_BYTES:bytes}=await import('../../.test-dist/gpu/GpuSurfaceGeometryRecordAbi.js');
+  assert.equal(map.length,14);assert.equal(new Set(map).size,11);
+  assert.equal(map[4],map[10]);assert.equal(map[5],map[11]);assert.equal(map[6],map[9]);
+  assert.equal(hot,128);assert.equal(cold,11*3*16);assert.equal(bytes,656);
   const plan=planSurfaceOptimizationCapacity(1920,1080,limits);
-  assert.ok(plan.productionAllocations.geometrySetup>0);
-  assert.ok(plan.productionAllocations.geometrySetup<=limits.maxStorageBufferBindingSize);
+  assert.equal(plan.productionAllocations.geometryRecords,plan.batchTargetCapacity*bytes);
+  assert.ok(plan.reservedBytes>=plan.ledger.scratchBytes*2+plan.ledger.persistentBytes+plan.ledger.outputBytes*2);
 });

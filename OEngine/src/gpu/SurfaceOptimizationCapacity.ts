@@ -11,6 +11,7 @@ export const SURFACE_OPTIMIZATION_MIB = 1024 * 1024;
 export const SURFACE_OPTIMIZATION_TILE_EDGE = 8;
 export const SURFACE_OPTIMIZATION_DEFAULT_BATCH_PIXELS = 262144;
 export const SURFACE_OPTIMIZATION_ENVELOPE_BYTES = 512 * SURFACE_OPTIMIZATION_MIB;
+export const SURFACE_OPTIMIZATION_SCRATCH_ENVELOPE_BYTES = 240 * SURFACE_OPTIMIZATION_MIB;
 export const SURFACE_OPTIMIZATION_BUDGET_MIB = Object.freeze({
   plans: 4, addresses: 32, geometryHot: 16, geometryCold: 32,
   fields: 32, queues: 64, signals: 32, resolveMaps: 8,
@@ -144,7 +145,7 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
   const setup=planSurfaceCellGeometryCapacity(batchTargetCapacity,batchTargetCapacity*1280,limits);
   const productionAllocations=Object.freeze({
     workspace:surfaceCellWorkspaceLayout(batchTiles).bytes,
-    geometrySetup:setup.setupBytes+setup.dictionaryBytes+setup.memoBytes+512,
+    geometrySetup:setup.setupBytes+setup.referenceBytes+setup.memoBytes+512,
     geometryRecords:batchTargetCapacity*SURFACE_GEOMETRY_RECORD_BYTES,
     fieldValues:batchTargetCapacity*15*16,
     signalValues:batchTargetCapacity*6*16,
@@ -185,7 +186,7 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
   const historyBytes = 0;
   const retiredOverlapBytes = scratchTotalBytes;
   const outputBytes = SURFACE_OPTIMIZATION_BUDGET_MIB.outputs * SURFACE_OPTIMIZATION_MIB;
-  const reservedBytes = scratchTotalBytes + persistentBytes + outputBytes;
+  const reservedBytes = scratchTotalBytes + retiredOverlapBytes + persistentBytes + outputBytes * 2;
   if (reservedBytes > SURFACE_OPTIMIZATION_ENVELOPE_BYTES) throw new RangeError("Surface envelope exceeded");
   const ledger = Object.freeze({ payloadBytes, metadataBytes, queueBytes, alignmentBytes, outputBytes,
     scratchBytes: scratchTotalBytes, persistentBytes, historyBytes, retiredOverlapBytes,

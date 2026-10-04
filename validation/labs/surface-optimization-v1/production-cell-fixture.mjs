@@ -82,21 +82,21 @@ try{
  const cellSettings=buffer(new Uint32Array([8,8,1,0,1,64,11,1]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
  const o=publication.surfaceMetadataOffsets;
  const factSettings=buffer(new Uint32Array([0,GPU_GEOMETRY_RECORD_SCHEMA.stride/4,0,4,0,0,0,0,o.constants,o.routes,o.bounds,o.directory,o.materialLookup,o.materialLookupCount,o.directoryCount,publication.surfaceCacheGeneration,
-  geometry.dictionaryCapacity,geometry.setupCapacity,11,1,o.constantFields,2,o.fieldIdentities,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+  geometry.referenceCapacity,geometry.setupCapacity,11,1,o.constantFields,2,o.fieldIdentities,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
  const lightRecords=buffer(new Uint32Array(32768).fill(0xffffffff));
  const clusterLookup=buffer(new Uint32Array(24*4)),clusterData=buffer(new Uint32Array([0,0,32,0,0,0,0,0,...Array(32).fill(0)])),clusterParameters=buffer(new Float32Array([0,1,1,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
- const fullFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set(),true);
+ const fullFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.referenceCapacity,new Set(),true);
  const fullModule=device.createShaderModule({code:surfaceCellClassifyStageWgsl(fullFacts,1,0,0,3,'classify_cells_base',false)});
  const ranges=SURFACE_CELL_CLASSIFY_STAGES.map(({first,count})=>[first,count]);
  const fieldModules=SURFACE_CELL_CERTIFICATE_FAMILIES.flatMap(fields=>[true,false].map(parameterBounds=>{
-  const fieldFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set(fields),false,parameterBounds);
+  const fieldFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.referenceCapacity,new Set(fields),false,parameterBounds);
   return {entryPoint:parameterBounds?'publish_cell_parameter_certificates':'publish_cell_field_certificates',
    module:device.createShaderModule({code:surfaceCellClassifyStageWgsl(fieldFacts,1,0,0,0,'unused_field_classifier',false)})};
  }));
- const modules=ranges.map(([start,count],index)=>{const facts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set(),false);return device.createShaderModule({code:surfaceCellClassifyStageWgsl(facts,1,index,start,count,`classify_cells_stage_${index}`,start>=15?'full':'field-geometry')});});
+ const modules=ranges.map(([start,count],index)=>{const facts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.referenceCapacity,new Set(),false);return device.createShaderModule({code:surfaceCellClassifyStageWgsl(facts,1,index,start,count,`classify_cells_stage_${index}`,start>=15?'full':'field-geometry')});});
  const moduleInfo=await Promise.all([fullModule,...fieldModules.map(({module})=>module),...modules].map(module=>module.getCompilationInfo()));
  report.compilation=moduleInfo.flatMap(info=>info.messages.filter(m=>m.type==='error').map(m=>({message:m.message,line:m.lineNum})));
- await onSource(surfaceCellClassifyStageWgsl(surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set([0]),false),1,0,0,1,'classify_cells_stage_0','field-geometry')); assert.deepEqual(report.compilation,[]);
+ await onSource(surfaceCellClassifyStageWgsl(surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.referenceCapacity,new Set([0]),false),1,0,0,1,'classify_cells_stage_0','field-geometry')); assert.deepEqual(report.compilation,[]);
  const pipelines={};
  const productionLayout=createSurfaceCellPipelineLayout(device,false);
  for(const entryPoint of ['publish_cell_material_constants','publish_cell_facts','publish_cell_addresses','publish_cell_geometry_certificates']){

@@ -21,7 +21,7 @@ import { appearanceCoverageKernel, COVERAGE_DIRECTORY_STRIDE } from "../shaders/
 import { ShadeTransparencyMode } from "../material/enums.js";
 import { lowerAppearanceFieldBounds, type AppearanceFieldBoundProgram } from "../shaders/appearance_field_bounds.js";
 import { packSurfaceAppearanceBounds } from "./GpuSurfaceAppearanceBoundsAbi.js";
-import { publishSurfaceFieldIdentities, SURFACE_FIELD_IDENTITY_WORDS } from "./GpuSurfaceFieldIdentityAbi.js";
+import { publishSurfaceFieldIdentities, SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "./GpuSurfaceFieldIdentityAbi.js";
 import { appearanceExecutionProfiles, type AppearanceExecutionProfiles } from "../material/AppearanceExecutionProfile.js";
 import { packSurfaceExecutionProfiles, SURFACE_EXECUTION_WORDS, SURFACE_EXECUTION_HEADER_WORDS, SURFACE_FIELD_EXECUTION_WORDS } from "./GpuSurfaceExecutionProfileAbi.js";
 
@@ -359,7 +359,7 @@ export class GpuAppearancePublication {
         constantData.length + routeData.byteLength / 4 + Math.max(1, sources.length) * 64 + fieldIdentityData.length + fieldTextureData.length;
       for (let entry = 0; entry < sources.length; entry++) {
         for (let field = 0; field < 15; field++) {
-          fieldIdentityData[(entry * 15 + field) * SURFACE_FIELD_IDENTITY_WORDS + 7] =
+          fieldIdentityData[(entry * 15 + field) * SURFACE_FIELD_IDENTITY_WORDS + SURFACE_FIELD_EXECUTION_PROFILE_WORD] =
             executionOffset + entry * SURFACE_EXECUTION_WORDS + SURFACE_EXECUTION_HEADER_WORDS + field * SURFACE_FIELD_EXECUTION_WORDS;
         }
       }

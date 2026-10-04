@@ -79,14 +79,8 @@ fn publish_cell_addresses(@builtin(workgroup_id) group:vec3u,@builtin(local_invo
       cell_workspace.addresses[at+16u+uv*6u+channel]=bitcast<u32>(center[c]);
       cell_workspace.addresses[at+18u+uv*6u+channel]=bitcast<u32>(dx[c]);
       cell_workspace.addresses[at+20u+uv*6u+channel]=bitcast<u32>(dy[c]);
-      let support=cell_address_scalar(setup,attribute_index,c,rect);
-      cell_workspace.addresses[at+46u+uv*4u+channel]=bitcast<u32>(support.value.low);
-      cell_workspace.addresses[at+48u+uv*4u+channel]=bitcast<u32>(support.value.high);
-      cell_workspace.addresses[at+58u+uv*8u+channel]=bitcast<u32>(support.dx.low);
-      cell_workspace.addresses[at+60u+uv*8u+channel]=bitcast<u32>(support.dy.low);
-      cell_workspace.addresses[at+62u+uv*8u+channel]=bitcast<u32>(support.dx.high);
-      cell_workspace.addresses[at+64u+uv*8u+channel]=bitcast<u32>(support.dy.high);
-      known=known && ab_valid(support.value) && ab_valid(support.dx) && ab_valid(support.dy);
+      known=known && center[c]==center[c] && dx[c]==dx[c] && dy[c]==dy[c] &&
+        max(abs(center[c]),max(abs(dx[c]),abs(dy[c])))<=3.402823466e38;
     }
     valid_uv|=select(0u,1u<<uv,known);
   }

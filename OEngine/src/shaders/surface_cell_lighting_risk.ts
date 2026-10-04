@@ -32,6 +32,7 @@ fn cell_light_lists_equal(a:u32,b:u32)->bool {
  if ((left.flags|right.flags)&${CLUSTER_METADATA_FLAG_FALLBACK}u)!=0u{return false;}
  if left.point_count!=right.point_count||left.spot_count!=right.spot_count{return false;}
  let count=left.point_count+left.spot_count;
+ if count > 8u { return false; }
  if left.offset+count>min(cell_cluster_data.written,arrayLength(&cell_cluster_data.data))||
   right.offset+count>min(cell_cluster_data.written,arrayLength(&cell_cluster_data.data)){return false;}
  if a==b{return true;}
@@ -71,6 +72,7 @@ fn cell_direct_group_safe(mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,6
  let metadata=cell_cluster_lookup[cluster];
  if (metadata.flags&${CLUSTER_METADATA_FLAG_FALLBACK}u)!=0u{return false;}
  let count=metadata.point_count+metadata.spot_count;
+ if count > 8u { return false; }
  if metadata.offset+count>min(cell_cluster_data.written,arrayLength(&cell_cluster_data.data)){return false;}
  for(var i=0u;i<count;i++){
   let light_index=cell_cluster_data.data[metadata.offset+i];
@@ -95,7 +97,7 @@ fn cell_direct_group_safe(mask:vec2u,lanes:ptr<workgroup,array<SurfaceCellLane,6
 fn cell_publish_lane_fact(pixel:vec2u)->vec4u {
  if pixel.x>=cell_settings.width||pixel.y>=cell_settings.height{return vec4u(0xffffffffu);}
  let key=textureLoad(cell_visibility,vec2i(pixel),0).x;if key==0xffffffffu{return vec4u(0xffffffffu);}
- let slot=cell_geometry_slot(key);let entry=cell_material_entry(cell_geometry_source(slot,key).y);
+ let slot=cell_geometry_slot(pixel);let entry=cell_material_entry(cell_geometry_source(slot,key).y);
  var cluster=0xffffffffu;
  let interpolation=winner_interpolate(cell_geometry_coefficients(slot,key),vec2f(pixel)+vec2f(0.5),vec2f(f32(cell_settings.width),f32(cell_settings.height)));
  if (interpolation.flags&1u)!=0u {
@@ -107,7 +109,6 @@ fn cell_publish_lane_fact(pixel:vec2u)->vec4u {
  }
  return vec4u(key,slot,entry,cluster);
 }
-var<workgroup> cell_published_primitive_keys:array<u32,64>;
 @compute @workgroup_size(64)
 fn publish_cell_facts(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_index) lane:u32) {
  if group.x>=cell_settings.tile_count { return; }
@@ -116,14 +117,8 @@ fn publish_cell_facts(@builtin(workgroup_id) group:vec3u,@builtin(local_invocati
  let pixel=vec2u((tile%cell_settings.tiles_x)*8u+lane%8u,(tile/cell_settings.tiles_x)*8u+lane/8u);
  let fact=cell_publish_lane_fact(pixel);
  cell_workspace.facts[group.x*64u+lane]=fact;
- cell_published_primitive_keys[lane]=fact.x;
- workgroupBarrier();
- var primitive=lane;
- if fact.x!=0xffffffffu {
-   for(var member=0u;member<lane;member++) {
-     if cell_published_primitive_keys[member]==fact.x { primitive=member; break; }
-   }
- }
- cell_workspace.primitives[group.x*64u+lane]=primitive;
+ // Guaranteed local setup is one-to-one with this tile's winner runs.
+ // Certificate readers compare the tag; they never interpret it as a lane.
+ cell_workspace.primitives[group.x*64u+lane]=fact.y;
 }
 `;

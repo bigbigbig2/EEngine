@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**Phase 0、Phase 1、Phase 2 已完成并通过各自检查；当前停在 Phase 2，未进入 Phase 3。** 不把短诊断当作正式性能验收。
+**Phase 0–3 的当前生产切换和阶段检查已完成；Phase 2 的原收口不足已在 Phase 3 补齐并更正。当前停止于 Phase 3，Phase 4–7 未实施。** 不把短诊断当作正式性能验收。
 
 | 阶段 | 状态 |
 |---|---|
@@ -12,7 +12,7 @@
 | Phase 0：新协议消费矩阵/物理清单 | 已完成；静态检查通过，见独立Phase 0清单 |
 | Phase 1：publication/工作表示 | 已完成；代码、语义测试、WGSL/GPU 小链与 Showcase 短 smoke 通过；实现记录见 [Phase 1记录](surface-work-v3-cost-bounded-final-refactor-phase1-implementation-2026-10.md) |
 | Phase 2：geometry/setup/容量 | 已完成；固定 64-key setup、local/memo 分离、唯一 GeometryRecord 接线、语义测试与真实 GPU 小链通过；实现记录见 [Phase 2记录](surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md) |
-| Phase 3：Field候选/验证/proof | 未开始 |
+| Phase 3：Field候选/验证/proof | 已完成；前置更正、45 targeted checks、真实 GPU 组件/生产链与 Showcase 短 smoke 通过；见 [Phase 3记录](surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md) |
 | Phase 4：固定Field/Signal层级 | 未开始 |
 | Phase 5：worker/发布/重建 | 未开始 |
 | Phase 6：reset/调度/lifetime | 未开始 |
@@ -30,7 +30,15 @@
 
 ## Phase 2：Geometry owner 与 bounded setup 完成
 
-日期：2026-10-04。固定 64-key bitonic/run leader、完整 local setup capacity、独立 bounded memo、SetupRef-only consumer、Geometry input union/hot depth 及实际 allocation 账已接入。真实 phase2-geometry GPU 小链通过；详细范围与限制见 [Phase 2实施记录](surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md)。
+日期：2026-10-04。原 2ae78f33 的哈希依赖、同步、memo、hot/cold 与完成证明不足已在本轮实查后补齐；当前真实 local refs/memo/hot-cold 的 GPU 验证通过。不能把本轮修复和检查回写成旧提交已经完成；更正说明见 [Phase 2实施记录](surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md)。
+
+## Phase 3：Field 候选、验证与有界证明完成
+
+日期：2026-10-04。完整实现与实际验证见 [Phase 3实施记录](surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md)。画像地址/epoch 分域，8-word candidate 与最大 32-word 完整匹配；正式 UV canonical/support/anchor；独立 point/domain/certificate 和 PendingValidation；全部 family 共用 R/2 proof 总账；64 SSA nodes、4 query、32 hierarchy visits、8 punctual risk lights；Unknown/满表仍完成真实 transient/fine 工作，删除 full request scan。补齐 guaranteed local setup、可消费 memo 和唯一 128B hot/按 union cold record。
+
+检查：typecheck/build/build:test、45 targeted tests；Geometry/record/Field/proof 真 GPU 组件；26 module production→HDR 四帧；最终 Showcase timing/detailed complete、coverage=pass、sourceDrift=false、API/GPU/device-loss 错误 0。
+
+最终短诊断（3 samples）：GPU pass sum P50=569.002336ms、Surface=434.887776ms、frame span=645.216480ms；此前同轮成功短诊断约 490/367ms，波动明显。性能目标未达成，不能推算为固定收益。画质矩阵、历史同条件比较与正式 claims 尚未运行。Phase 4 未开始。
 
 ## 重构前代码身份
 
@@ -65,9 +73,9 @@
 
 ## 下一步与保留风险
 
-Phase0消费矩阵/真实buffer账已补齐并核对，下一步按计划Phase1–6逐阶段实施、检查并通过后推进。不得跳过source/support/overflow/写域合同。
+Phase 0–3 已按当前源码补齐实现与阶段检查，后继是 Phase 4 固定 Field/Signal 树；仍须每阶段检查通过后推进。不得跳过source/support/overflow/写域合同。
 
-现有约800ms问题尚未修复；setup实际fallback量、probe流量、proof成本等仍缺完整counter。目标profile和32-batch示例不是实测性能保证。高program数B×P开销、近似误差累积、memo/cold gather收益及retired overlap在最终验收前保持待证状态。
+历史约800ms属于重构前诊断；当前最终小样本 Surface 约435ms、整帧 pass sum 约569ms，性能目标仍未达成。目标profile和32-batch示例不是实测性能保证。高program数B×P开销、近似误差累积、memo/cold gather收益及retired overlap在最终验收前保持待证状态。
 
 ## 2026-10-04 执行节奏修订
 

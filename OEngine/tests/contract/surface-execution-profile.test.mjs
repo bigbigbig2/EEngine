@@ -27,8 +27,8 @@ test('ORM shares exact query/dependency groups while cost accounts for the compl
     assert.equal(field.inputMask,1<<1);assert.equal(field.domain.seamMask,1);assert.equal(field.domain.uvMask,1);
     assert.equal(field.cacheClass,FIELD_CACHE_CLASS.stable);assert.equal(field.proof.queries,1);
     assert.equal(field.valueSamples,1,'Ordinary UV arithmetic does not duplicate the final sample');
-    assert.equal(field.proof.nodes,appearanceExecutionClosure(program,program.outputs[APPEARANCE_FIELD_NAMES[p.fields.indexOf(field)]]).length);
-    assert.ok(field.proof.coordinateNodes>=6);assert.equal(field.proof.visitBound,1152);
+    assert.equal(field.proof.nodes,appearanceExecutionClosure(program,program.outputs[APPEARANCE_FIELD_NAMES[p.fields.indexOf(field)]]).length+field.proof.coordinateNodes*2+field.proof.queries);
+    assert.ok(field.proof.coordinateNodes>=6);assert.equal(field.proof.visitBound,32);
   }
   assert.equal(p.groups[fields[0].group].fields,(1<<2)|(1<<3)|(1<<4));
 });
@@ -40,7 +40,7 @@ test('texture-driven coordinates count C/X/Y queries and reject unsupported deri
   g.output('roughness',g.swizzle(value,[1]));g.output('normalTS',g.swizzle(g.texture(snapshotAppearanceTexture(texture,'linear-rgb'),uv),[0,1,2]));
   const p=profile(compile(g));
   assert.equal(p.fields[3].proof.queries,2);assert.equal(p.fields[3].valueSamples,5);
-  assert.equal(p.fields[3].proof.supported,false);assert.equal(p.fields[3].cacheClass,FIELD_CACHE_CLASS.transient);
+  assert.equal(p.fields[3].proof.supported,false);assert.equal(p.fields[3].cacheClass,FIELD_CACHE_CLASS.stable,'Unsupported domain proof retains complete UV ExactPoint caching');
   assert.equal(p.fields[6].proof.supported,true);assert.equal(p.fields[6].cacheClass,FIELD_CACHE_CLASS.stable);
 });
 
@@ -69,7 +69,7 @@ test('default/constant, geometry, view and nonlocal routes remain independent',(
   assert.equal(p.fields[0].cacheClass,FIELD_CACHE_CLASS.publication);
   assert.equal(p.fields[1].present,false);assert.equal(p.fields[1].publication,true);
   assert.equal(p.fields[3].cacheClass,FIELD_CACHE_CLASS.transient);assert.equal(p.fields[3].proof.supported,false);
-  assert.equal(p.fields[5].cacheClass,FIELD_CACHE_CLASS.transient);assert.equal(p.fields[6].cacheClass,FIELD_CACHE_CLASS.share);
+  assert.equal(p.fields[5].cacheClass,FIELD_CACHE_CLASS.transient);assert.equal(p.fields[6].cacheClass,FIELD_CACHE_CLASS.transient,'Cheap geometry input skips persistent cache work');
   assert.equal(p.fields[6].domain.seamMask,4);
   assert.ok(p.inputMask&(1<<8));assert.ok(p.inputMask&(1<<0));
 });

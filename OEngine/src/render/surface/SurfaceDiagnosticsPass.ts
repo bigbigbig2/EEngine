@@ -67,7 +67,7 @@ fn publish_snapshot() {
  ${add(C.materialHit, "atomicLoad(&workspace.counters[113u])")}${add(C.materialMissRequested, "fields")}${add(C.materialMissQueued, "unique_fields")}
  ${add(C.materialEvaluatorEntered, "materials")}${add(C.materialEvaluatorCompleted, "materials")}${add(C.materialFieldsPublished, "unique_fields")}
  ${add(C.geometryRecordsRequested, "geometry")}${add(C.geometryMissQueued, "geometry")}${add(C.geometryMissCompleted, "geometry")}${add(C.geometryRecordsValid, "geometry")}
- ${add(C.geometryRecordWriteBytes, `geometry*${SURFACE_GEOMETRY_RECORD_BYTES}u`)}
+ ${add(C.geometryRecordWriteBytes, `geometry*128u+atomicLoad(&demand.control[46u])*4u`)}
  ${add(C.lightingRecordsProcessed, "lighting")}
  ${add(C.diffuseEvaluations, "atomicLoad(&demand.control[64u])")}${add(C.specularEvaluations, "atomicLoad(&demand.control[65u])")}${add(C.coatEvaluations, "atomicLoad(&demand.control[66u])")}
  ${add(C.iblEvaluations, "atomicLoad(&demand.control[67u])")}

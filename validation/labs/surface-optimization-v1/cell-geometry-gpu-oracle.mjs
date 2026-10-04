@@ -41,10 +41,10 @@ try{
  owner=new SurfaceCellGeometrySetup(device);
  const product=owner.addToGraph(graph,{visibility:imported('visibility',visibility),meshletWork:imported('work',buffer(meshlets)),sourceHeap:imported('source',buffer(source)),vertexPayload:imported('attributes',buffer(attributes)),frameInstances:imported('instances',buffer(instances)),product:null,
   width:8,height:8,tilesX:1,firstTile:0,tileCount:1,targetCapacity:64,generation:11,sourceGeometry:0,sourceMeshlet:GPU_GEOMETRY_RECORD_SCHEMA.stride/4,sourceMeshletVertices:0,sourceMeshletTriangles:4,sourceVertexData:0});
- const sizes=[32,16,product.setupCapacity*SURFACE_CELL_GEOMETRY_SETUP_BYTES,product.dictionaryCapacity*8];
+ const sizes=[32,16,product.setupCapacity*SURFACE_CELL_GEOMETRY_SETUP_BYTES,product.referenceCapacity*8];
  const staging=sizes.map(size=>{const b=device.createBuffer({size,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});retained.push(b);return b;});
  const capture=graph.add('diagnostic copy',{},(_data,resources,ctx)=>{
-  [product.counts,product.indirect,product.arena,product.arena].forEach((id,i)=>ctx.gpu_encoder.copyBufferToBuffer(resources.get(id),i===2?product.dictionaryCapacity*8:0,staging[i],0,sizes[i]));
+  [product.counts,product.indirect,product.arena,product.arena].forEach((id,i)=>ctx.gpu_encoder.copyBufferToBuffer(resources.get(id),i===2?product.referenceCapacity*8:0,staging[i],0,sizes[i]));
  });for(const id of [product.counts,product.indirect,product.arena])capture.read(id);capture.make_side_effect();
  const encoder=device.createCommandEncoder(),transient=[];
  const command={device,gpu_encoder:encoder,beginComputePass(options){return encoder.beginComputePass(options);},

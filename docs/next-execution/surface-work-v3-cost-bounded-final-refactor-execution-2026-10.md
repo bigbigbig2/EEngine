@@ -1,6 +1,6 @@
 # Surface V3 有界前端最终重构执行计划
 
-日期：2026-10-04（Asia/Hong_Kong）。状态：Phase 0静态清单、Phase 1 publication/工作表示与 Phase 2 Geometry owner/bounded setup 及阶段检查已完成，当前待 Phase 3。
+日期：2026-10-04（Asia/Hong_Kong）。状态：Phase 0静态清单、Phase 1 publication/工作表示与 Phase 2 Geometry owner/bounded setup 及阶段检查已补齐；Phase 3 Field 候选/验证/proof 已完成，当前待 Phase 4。
 
 目标：[最终性能重构设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。总架构/画质边界仍以[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)为准。当前切片：[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)；状态与基线：[执行记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
 
@@ -240,4 +240,4 @@
 
 ## 12. 当前下一步
 
-准备文档与基线已就位。Phase 0清单及核对已完成，下一步进入 **Phase 1的publication/工作表示与真实consumer切换**；随后每阶段完成实现与对应检查再推进。正式同条件benchmark在Phase7，阶段短诊断尽早发现数量级错误，不以旧链/占位实现维持检查通过。
+准备文档与基线已就位。Phase 0清单及核对已完成，Phase 1–3 的真实切换与阶段检查已完成，Phase 2 原判定不足已更正并补齐；下一阶段为 **Phase 4 固定 Field/Signal 树**，完成实现与对应检查后再推进。正式同条件benchmark在Phase7，阶段短诊断尽早发现数量级错误，不以旧链/占位实现维持检查通过。

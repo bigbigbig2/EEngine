@@ -56,16 +56,16 @@ test('masked group maps resolve covered representatives exactly, including packe
  const values=Uint8Array.from({length:64},(_,i)=>63-i),words=packSurfaceCellSixBit(values);
  for(let i=0;i<64;i++)assert.equal(surfaceCellSixBit(words,i),values[i]);
 });
-test('primitive setup, dictionary and complete frame addresses share the actual 32 MiB budget',()=>{
+test('primitive setup, explicit references and complete frame addresses share the actual 32 MiB budget',()=>{
  const limits={maxBufferSize:1024**3,maxStorageBufferBindingSize:128*1024**2};
  const capacity=planSurfaceCellGeometryCapacity(262144,32*1024**2,limits);
- assert.equal(capacity.setupCapacity,24576);assert.equal(capacity.dictionaryCapacity,65536);
+ assert.equal(capacity.referenceCapacity,262144);assert.equal(capacity.setupBytes,capacity.setupCapacity*512);assert.ok(capacity.setupCapacity>0);
  assert.ok(capacity.reservedBytes<=32*1024**2);
  for(const targets of [64,384,16384,65536]){
   const binding=Math.min(2*1024**2,targets*128),budget=targets*128;
   const p=planSurfaceCellGeometryCapacity(targets,budget,{...limits,maxStorageBufferBindingSize:binding});
-  assert.ok(p.reservedBytes<=budget);assert.ok(p.setupBytes<=binding);assert.ok(p.dictionaryBytes<=binding);
-  assert.ok(p.setupCapacity>=1&&p.setupCapacity<=targets);assert.equal(p.dictionaryCapacity&(p.dictionaryCapacity-1),0);
+  assert.ok(p.reservedBytes<=budget);assert.ok(p.setupBytes<=binding);assert.ok(p.referenceBytes<=binding);
+  assert.ok(p.setupCapacity>=1&&p.setupCapacity<=targets);assert.equal(p.referenceCapacity,targets);
  }
  assert.throws(()=>planSurfaceCellGeometryCapacity(64,4096,limits),RangeError);
 });

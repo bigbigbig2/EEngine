@@ -110,14 +110,14 @@ export class SurfaceCellClassifierPass {
       input.targetCapacity * 1280,
       this.device.limits
     );
-    const { dictionaryCapacity, setupCapacity } = geometryCapacity;
+    const { referenceCapacity, setupCapacity } = geometryCapacity;
     const product = input.product !== null;
     const factLibrary = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
-      SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(), true);
+      SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, referenceCapacity, new Set(), true);
     // Extent and first/tile count are uniforms. Only the bounded workspace and
     // publication shape change generated code; resize must not recompile the
     // same heavy certificate shaders just because the total tile count changed.
-    const profile = `${product}:${dictionaryCapacity}:${input.publication.surfaceProgramCount}:` +
+    const profile = `${product}:${referenceCapacity}:${input.publication.surfaceProgramCount}:` +
       `${input.publication.surfaceCacheGeneration}:${input.targetCapacity}`;
     let pipelines = this.pipelines.get(profile);
     if (!pipelines) {
@@ -126,7 +126,7 @@ export class SurfaceCellClassifierPass {
         `${surfaceCellClassifyStageWgsl(factLibrary, batchTileCapacity, 0, 0, 3, "classify_cells_base", false)}` });
       const fieldModules = SURFACE_CELL_CERTIFICATE_FAMILIES.flatMap((fields, family) => [true, false].map(parameterBounds => {
         const fieldFacts = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
-          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(fields), false, parameterBounds);
+          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, referenceCapacity, new Set(fields), false, parameterBounds);
         return {
           entryPoint: parameterBounds ? "publish_cell_parameter_certificates" : "publish_cell_field_certificates",
           module: this.device.createShaderModule({ label: `Surface/shared field certificates family ${family}`, code:
@@ -135,7 +135,7 @@ export class SurfaceCellClassifierPass {
       }));
       const modules = SURFACE_CELL_CLASSIFY_STAGES.map(({ first: start, count }, index) => {
         const stageFacts = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
-          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(), false);
+          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, referenceCapacity, new Set(), false);
         return this.device.createShaderModule({
         label: `Surface/cell production classifier stage ${index}`,
         code: surfaceCellClassifyStageWgsl(stageFacts, batchTileCapacity, index, start, count, `classify_cells_stage_${index}`, start < 15 ? "field-geometry" : "full")
@@ -175,7 +175,7 @@ export class SurfaceCellClassifierPass {
         input.sourceVertexData, 0, 0, 0,
         metadata.constants, metadata.routes, metadata.bounds, metadata.directory,
         metadata.materialLookup, metadata.materialLookupCount, metadata.directoryCount, input.publication.surfaceCacheGeneration,
-        dictionaryCapacity, setupCapacity, input.generation, 1,
+        referenceCapacity, setupCapacity, input.generation, 1,
         metadata.constantFields, (input.shadowEnabled ? 1 : 0) | (input.physicalSunEnabled ? 2 : 0), metadata.fieldIdentities, metadata.executionProfiles
       ]);
       command.writeBuffer(this.factSettings, 0, settings.buffer, 0, settings.byteLength);
@@ -256,7 +256,8 @@ export class SurfaceCellClassifierPass {
       if (input.product !== null) { addresses.read(input.product.heap); for (const bank of input.product.banks) { addresses.read(bank); } }
       addresses.read(workspace); workspace = addresses.write(workspace); addresses.dependsOn(previous);
       const lookedUp = this.fieldLookup.addToGraph(graph, {
-        workspace, activeIndirect, metadata: input.appearanceMetadata, versions: input.fieldVersions,
+        workspace, activeIndirect, geometry: setup.arena, referenceCapacity: setup.referenceCapacity, width: input.width, height: input.height,
+        metadata: input.appearanceMetadata, versions: input.fieldVersions,
         publication: input.publication, batchTiles: batchTileCapacity, tileCount,
         viewRevision: input.viewRevision, diagnostics: input.diagnosticsEnabled, bind: input.resourceBinding
       });

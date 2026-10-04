@@ -75,7 +75,7 @@ fn surface_cell_group_valid_stage(plane:u32,mask:vec2u,lanes:ptr<workgroup,array
     tangent_cone=cell_normal_box_cone(tangent.low.xyz,tangent.high.xyz);
   }
   if min(mapped_cone.w,tangent_cone.w)<0.0 { return false; }
-  if acos(clamp(normal_cone.w,-1.0,1.0))+acos(clamp(mapped_cone.w,-1.0,1.0))+acos(clamp(tangent_cone.w,-1.0,1.0))>0.05235987756 { return false; }
+  if acos(clamp(normal_cone.w,-1.0,1.0))+acos(clamp(mapped_cone.w,-1.0,1.0))+acos(clamp(tangent_cone.w,-1.0,1.0))>0.02617993878 { return false; }
   if plane==19u {
     let base_normal=cell_candidate_field(tile,leaves,6u);
     if any(base_normal.known.xyz==vec3u(0u)) || cell_normal_box_cone(base_normal.low.xyz,base_normal.high.xyz).w<0.9986295348 { return false; }

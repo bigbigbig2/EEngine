@@ -38,3 +38,17 @@ test("Surface queue-ordered allocation is shared and resize retirement waits for
   owner.destroy(); await Promise.resolve();
   assert(allocations.every(resource => resource.destroyed));
 });
+
+test('Retired bytes remain in the physical quota until the actual fence completes',async()=>{
+  const made=[],device={limits:{maxBufferSize:4096,maxStorageBufferBindingSize:4096},createBuffer(d){const b={...d,destroy(){}};made.push(b);return b;}};
+  const owner=new SurfaceFrameResources(device,undefined,192);
+  const graph={import_resource:(_name,_descriptor,binding)=>binding},bind=(_name,resolve)=>resolve();
+  owner.prepare(1,1);owner.importBuffer(graph,bind,'pool',128,GPUBufferUsage.STORAGE);
+  let done;owner.commit(new Promise(resolve=>done=resolve));owner.prepare(2,2);
+  assert.equal(owner.physicalBytes().retired,128);
+  assert.throws(()=>owner.importBuffer(graph,bind,'pool',128,GPUBufferUsage.STORAGE),RangeError);
+  assert.equal(made.length,1,'Reject before allocating the new physical buffer');
+  done();await Promise.resolve();assert.equal(owner.physicalBytes().retired,0);
+  owner.importBuffer(graph,bind,'pool',128,GPUBufferUsage.STORAGE);assert.equal(made.length,2);
+  owner.destroy();await Promise.resolve();
+});

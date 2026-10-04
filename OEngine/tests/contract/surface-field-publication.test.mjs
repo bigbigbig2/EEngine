@@ -4,7 +4,7 @@ import { AppearanceGraphBuilder, snapshotAppearanceTexture } from '../../.test-d
 import { compileAppearanceGraph } from '../../.test-dist/material/AppearanceGraphCompiler.js';
 import { ShadeTexture } from '../../.test-dist/texture/ShadeTexture.js';
 import { AppearanceProgramRegistry } from '../../.test-dist/gpu/AppearanceProgramRegistry.js';
-import { publishSurfaceFieldIdentities } from '../../.test-dist/gpu/GpuSurfaceFieldIdentityAbi.js';
+import { publishSurfaceFieldIdentities, SURFACE_FIELD_IDENTITY_WORDS } from '../../.test-dist/gpu/GpuSurfaceFieldIdentityAbi.js';
 
 const texture = new ShadeTexture();
 const registry = new AppearanceProgramRegistry({ lost: new Promise(() => {}) });
@@ -23,8 +23,8 @@ test('publication identities preserve unchanged closures across unrelated output
   const a = publish(graph()).identities;
   const b = publish(graph(.75, true)).identities;
   assert.equal(a[0], b[0]);
-  assert.notEqual(a[3 * 8], b[3 * 8]);
-  assert.equal(a[5 * 8], b[5 * 8]);
+  assert.notEqual(a[3 * SURFACE_FIELD_IDENTITY_WORDS], b[3 * SURFACE_FIELD_IDENTITY_WORDS]);
+  assert.equal(a[5 * SURFACE_FIELD_IDENTITY_WORDS], b[5 * SURFACE_FIELD_IDENTITY_WORDS]);
   assert.notEqual(a[0], publish(graph(.5, false, 2)).identities[0]);
   assert.equal(a[3] & 3, 1, 'UV-local field excludes camera revision');
   assert.deepEqual([...publish(graph()).textureSlots], [11]);
@@ -37,6 +37,6 @@ test('actual view semantics and f32 signed zero remain distinct publication proo
   assert.equal(build('worldNormal')[3] & 2, 0);
   assert.equal(build('viewNormal')[3] & 2, 2);
   assert.equal(build('viewDirection')[3] & 2, 2);
-  const signed = value => { const g = new AppearanceGraphBuilder();g.output('emissive', g.parameter('E', [value, 0, 0]));return publish(compileAppearanceGraph(g.build())).identities[5 * 8]; };
+  const signed = value => { const g = new AppearanceGraphBuilder();g.output('emissive', g.parameter('E', [value, 0, 0]));return publish(compileAppearanceGraph(g.build())).identities[5 * SURFACE_FIELD_IDENTITY_WORDS]; };
   assert.notEqual(signed(0), signed(-0));
 });
