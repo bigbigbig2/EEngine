@@ -1,6 +1,6 @@
 import type { ResourceAccounting,ResourceHandle } from "../debug/profiling/ResourceAccounting.js";
 import type { ShadeGPUCommandContext } from "../framegraph/ShadeGPUCommandContext.js";
-import { planSurfaceSignalStoreCapacity,SURFACE_SIGNAL_STORE_WGSL,SURFACE_SIGNAL_STORE_COMPUTE_WGSL,type SurfaceSignalStoreKey } from "./GpuSurfaceSignalStoreAbi.js";
+import { planSurfaceSignalStoreCapacity,encodeSurfaceSignalStoreKey,SURFACE_SIGNAL_STORE_WGSL,SURFACE_SIGNAL_STORE_COMPUTE_WGSL,type SurfaceSignalStoreKey } from "./GpuSurfaceSignalStoreAbi.js";
 export class GpuSurfaceSignalStore {
  readonly capacity:ReturnType<typeof planSurfaceSignalStoreCapacity>;readonly buffers:readonly GPUBuffer[];private destroyed=false;private generation=1;private readonly handle?:ResourceHandle;
  private publicationGeneration=0;private submittedEpoch=0;private readonly inFlight=new Set<number>();
@@ -25,7 +25,7 @@ export class GpuSurfaceSignalStore {
   return epoch;
  }
  reset(command:ShadeGPUCommandContext):void{if(this.destroyed||command.device!==this.device||command.closed)throw new Error("SignalStore reset requires an open command");for(const b of this.buffers)command.writeBuffer(b,0,new Uint32Array(b.size/4).buffer,0,b.size);}
- encodeKey(key:SurfaceSignalStoreKey):Uint32Array<ArrayBuffer>{return Uint32Array.from(Object.values(key).map(v=>v>>>0));}
+ encodeKey(key:SurfaceSignalStoreKey):Uint32Array<ArrayBuffer>{return encodeSurfaceSignalStoreKey(key);}
  destroy():void{if(this.destroyed)return;this.destroyed=true;for(const b of this.buffers)b.destroy();if(this.handle)this.accounting!.destroyed(this.handle);}
  stats(){return Object.freeze({allocatedBytes:this.capacity.bytes,entries:this.capacity.entries,sets:this.capacity.sets,generation:this.generation,publicationGeneration:this.publicationGeneration,submittedEpoch:this.submittedEpoch,inFlightSubmissions:this.inFlight.size});}
 }

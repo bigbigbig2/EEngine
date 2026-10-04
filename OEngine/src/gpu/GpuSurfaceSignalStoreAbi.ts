@@ -2,9 +2,9 @@
  * motion/identity producer; this key identifies one signal result and its
  * complete validity domain. Hashes select bounded sets and never prove equality. */
 export const SURFACE_SIGNAL_STORE_BUDGET_BYTES = 64 * 1024 * 1024;
-export const SURFACE_SIGNAL_STORE_KEY_WORDS = 10;
+export const SURFACE_SIGNAL_STORE_KEY_WORDS = 72;
 export const SURFACE_SIGNAL_STORE_PAYLOAD_WORDS = 4;
-export const SURFACE_SIGNAL_STORE_ENTRY_WORDS = 20;
+export const SURFACE_SIGNAL_STORE_ENTRY_WORDS = 88;
 export const SURFACE_SIGNAL_STORE_REQUEST_WORDS = SURFACE_SIGNAL_STORE_ENTRY_WORDS;
 export const SURFACE_SIGNAL_STORE_WAYS = 4;
 export const SURFACE_SIGNAL_STORE_ENTRY_BYTES = SURFACE_SIGNAL_STORE_ENTRY_WORDS * 4;
@@ -13,7 +13,7 @@ export const SURFACE_SIGNAL_STORE_FLAGS_WORD = SURFACE_SIGNAL_STORE_PAYLOAD_WORD
 export const SURFACE_SIGNAL_STORE_GENERATION_WORD = SURFACE_SIGNAL_STORE_FLAGS_WORD + 1;
 export const SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD = SURFACE_SIGNAL_STORE_GENERATION_WORD + 1;
 export const SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD = SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD + 1;
-export const SURFACE_SIGNAL_STORE_STATE_WORD = 18;
+export const SURFACE_SIGNAL_STORE_STATE_WORD = SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD + 1;
 export const SURFACE_SIGNAL_STORE_STATE = Object.freeze({ empty: 0, reserved: 1, published: 2 });
 
 // Payload stores either packed half values or the bounded full precision value.
@@ -33,20 +33,16 @@ export const SURFACE_SIGNAL_STORE_FLAG = Object.freeze({
 });
 
 export interface SurfaceSignalStoreKey {
-  readonly surfaceDomain: number;
-  readonly cell: number;
-  readonly signal: number;
-  readonly geometryGeneration: number;
-  readonly materialGeneration: number;
-  readonly lightRevision: number;
-  readonly environmentRevision: number;
-  readonly shadowRevision: number;
-  readonly aoRevision: number;
-  readonly footprint: number;
+  /** Complete kind/provider/geometry/actual-FieldRef proof. No dependency digest
+   * is accepted as equality; the shader getter uses these same fixed slots. */
+  readonly words: readonly number[];
 }
 
 export function encodeSurfaceSignalStoreKey(key: SurfaceSignalStoreKey): Uint32Array<ArrayBuffer> {
-  return Uint32Array.from(Object.values(key).map((value, index) => {
+  if (key.words.length !== SURFACE_SIGNAL_STORE_KEY_WORDS) {
+    throw new RangeError("Signal identity requires every complete witness word");
+  }
+  return Uint32Array.from(key.words.map((value, index) => {
     if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) {
       throw new RangeError(`Signal key word ${index} is invalid`);
     }
@@ -64,8 +60,9 @@ export function planSurfaceSignalStoreCapacity(
   if (bytes < SURFACE_SIGNAL_STORE_ENTRY_BYTES * SURFACE_SIGNAL_STORE_WAYS) {
     throw new RangeError("SignalStore cannot fit one four-way set");
   }
-  const segmentLimit = Math.floor(binding / SURFACE_SIGNAL_STORE_ENTRY_BYTES) * SURFACE_SIGNAL_STORE_ENTRY_BYTES;
-  if (segmentLimit < SURFACE_SIGNAL_STORE_ENTRY_BYTES) {
+  const setBytes = SURFACE_SIGNAL_STORE_ENTRY_BYTES * SURFACE_SIGNAL_STORE_WAYS;
+  const segmentLimit = Math.floor(binding / setBytes) * setBytes;
+  if (segmentLimit < setBytes) {
     throw new RangeError("SignalStore binding cannot fit one entry");
   }
   const segments: number[] = [];
@@ -88,6 +85,7 @@ const SURFACE_SIGNAL_STORE_ENTRY_WORDS:u32 = ${SURFACE_SIGNAL_STORE_ENTRY_WORDS}
 const SURFACE_SIGNAL_STORE_REQUEST_WORDS:u32 = ${SURFACE_SIGNAL_STORE_REQUEST_WORDS}u;
 const SURFACE_SIGNAL_STORE_WAYS:u32 = ${SURFACE_SIGNAL_STORE_WAYS}u;
 const SURFACE_SIGNAL_STORE_FLAGS_WORD:u32 = ${SURFACE_SIGNAL_STORE_FLAGS_WORD}u;
+const SURFACE_SIGNAL_STORE_PAYLOAD_WORD:u32 = ${SURFACE_SIGNAL_STORE_PAYLOAD_WORD}u;
 const SURFACE_SIGNAL_STORE_GENERATION_WORD:u32 = ${SURFACE_SIGNAL_STORE_GENERATION_WORD}u;
 const SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD:u32 = ${SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD}u;
 const SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD:u32 = ${SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD}u;
@@ -159,14 +157,8 @@ fn touch_signal_entry(entry:u32) {
   let at = entry * SURFACE_SIGNAL_STORE_ENTRY_WORDS;
   // reserved is the submitted frame epoch; generation is publication identity.
   let epoch = surface_signal_store_settings.reserved;
-  var touched = false;
-  for (var attempt = 0u; attempt < 4u; attempt++) {
-    let previous = atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD]);
-    if (previous == epoch) { return; }
-    let prior = atomicCompareExchangeWeak(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD], previous, epoch);
-    if (prior.exchanged) { touched = true; break; }
-  }
-  if (!touched) { return; }
+  let previous=atomicMax(&surface_signal_store_entries[at+SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD],epoch);
+  if previous>=epoch { return; }
   let packed = atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD]);
   let age = min(packed & 0xffffu, 0xfffeu) + 1u;
   let confidence = packed >> 16u;
@@ -204,7 +196,7 @@ fn surface_signal_store_lookup(@builtin(global_invocation_id) id:vec3u) {
   let at = hit * SURFACE_SIGNAL_STORE_ENTRY_WORDS;
   surface_signal_store_results[result] = hit;
   for (var word = 0u; word < 4u; word++) {
-    surface_signal_store_results[result + 1u + word] = atomicLoad(&surface_signal_store_entries[at + 10u + word]);
+    surface_signal_store_results[result + 1u + word] = atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_PAYLOAD_WORD + word]);
   }
   surface_signal_store_results[result + 5u] = atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_FLAGS_WORD]);
   surface_signal_store_results[result + 6u] = atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_GENERATION_WORD]);
@@ -223,32 +215,43 @@ fn surface_signal_store_publish(@builtin(global_invocation_id) id:vec3u) {
   if (surface_signal_store_requests[request_at] == SURFACE_SIGNAL_STORE_EMPTY) {
     return;
   }
+  let payload=surface_signal_store_requests[request_at+SURFACE_SIGNAL_STORE_PAYLOAD_WORD];
+  let payload1=surface_signal_store_requests[request_at+SURFACE_SIGNAL_STORE_PAYLOAD_WORD+1u];
+  let flags=surface_signal_store_requests[request_at+SURFACE_SIGNAL_STORE_FLAGS_WORD];
+  var value=vec4f(unpack2x16float(payload),unpack2x16float(payload1));
+  if (flags&2u)!=0u {
+    value=bitcast<vec4f>(vec4u(payload,payload1,
+      surface_signal_store_requests[request_at+SURFACE_SIGNAL_STORE_PAYLOAD_WORD+2u],
+      surface_signal_store_requests[request_at+SURFACE_SIGNAL_STORE_PAYLOAD_WORD+3u]));
+  }
+  if (flags&1u)==0u || any(value!=value) || any(abs(value)>vec4f(3.402823466e38)) { return; }
   let hash = surface_signal_hash(&surface_signal_store_requests, request_at);
   let set_index = hash % (surface_signal_store_settings.entry_count / SURFACE_SIGNAL_STORE_WAYS);
   for (var way = 0u; way < SURFACE_SIGNAL_STORE_WAYS; way++) {
     let entry = signal_entry(set_index, way);
     let at = entry * SURFACE_SIGNAL_STORE_ENTRY_WORDS;
     let state = atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_STATE_WORD]);
-    if (state != 0u) { continue; }
+    if (state == 1u || (state == 2u && atomicLoad(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD]) >= surface_signal_store_settings.reserved)) { continue; }
+    let generation=atomicLoad(&surface_signal_store_entries[at+SURFACE_SIGNAL_STORE_GENERATION_WORD]);
+    if generation>=0xfffffffeu { continue; }
     var owns = false;
     for (var attempt = 0u; attempt < 4u; attempt++) {
-      let claim = atomicCompareExchangeWeak(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_STATE_WORD], 0u, 1u);
+      let claim = atomicCompareExchangeWeak(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_STATE_WORD], state, 1u);
       if (claim.exchanged) { owns = true; break; }
-      if (claim.old_value != 0u) { break; }
+      if (claim.old_value != state) { break; }
     }
     if (owns) {
       for (var word = 0u; word < SURFACE_SIGNAL_STORE_KEY_WORDS; word++) {
         atomicStore(&surface_signal_store_entries[at + word], surface_signal_store_requests[request_at + word]);
       }
       for (var word = 0u; word < 4u; word++) {
-        atomicStore(&surface_signal_store_entries[at + 10u + word], surface_signal_store_requests[request_at + 10u + word]);
+        atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_PAYLOAD_WORD + word], surface_signal_store_requests[request_at + SURFACE_SIGNAL_STORE_PAYLOAD_WORD + word]);
       }
       atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_FLAGS_WORD], surface_signal_store_requests[request_at + SURFACE_SIGNAL_STORE_FLAGS_WORD]);
-      atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_GENERATION_WORD], surface_signal_store_settings.generation);
+      atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_GENERATION_WORD], generation+1u);
       atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_AGE_CONFIDENCE_WORD], 0xffff0000u);
       atomicStore(&surface_signal_store_entries[at + SURFACE_SIGNAL_STORE_TOUCHED_GENERATION_WORD], surface_signal_store_settings.reserved);
       surface_signal_store_results[request] = entry;
-      atomicStore(&surface_signal_store_entries[at + 19u], 0u);
       atomicAdd(&surface_signal_store_counters[3], 1u);
       return;
     }

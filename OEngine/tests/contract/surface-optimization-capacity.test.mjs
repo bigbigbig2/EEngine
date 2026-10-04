@@ -10,7 +10,9 @@ test('1080p complete disjoint batches include certificates and worst-case HDR/re
   assert.equal(plan.pixelCount, 2073600);
   assert.equal(plan.tileCount, 32400);
   assert.ok(plan.batchTargetCapacity*676<=32*1024**2);
-  assert.ok(plan.batchTargetCapacity*304<=24*1024**2);
+  assert.ok(plan.batchTargetCapacity*SURFACE_OPTIMIZATION_DEFAULT_PROFILE.fieldBytesPerTarget<=24*1024**2);
+  assert.ok(plan.batchTargetCapacity*SURFACE_OPTIMIZATION_DEFAULT_PROFILE.addressBytesPerTarget<=32*1024**2);
+  assert.ok(plan.batchTargetCapacity*SURFACE_OPTIMIZATION_DEFAULT_PROFILE.queueBytesPerTarget<=16*1024**2);
   assert.ok(plan.reservedBytes<=512*1024**2);
   assert.ok(surfaceCellWorkspaceLayout(plan.batchTileCapacity).bytes<=limits.maxStorageBufferBindingSize);
   let last = 0;

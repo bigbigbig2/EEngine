@@ -63,6 +63,7 @@ struct VsmLockBuffer { values: array<atomic<u32>>, };
 @group(0) @binding(5) var<storage, read_write> page_locks: VsmLockBuffer;
 @group(0) @binding(6) var<storage, read_write> slot_locks: VsmLockBuffer;
 @group(0) @binding(7) var<storage, read_write> telemetry: VsmTelemetryBuffer;
+@group(0) @binding(8) var<storage, read_write> content_version:array<atomic<u32>>;
 
 const VSM_PAGE_DIRTY: u32 = 2u;
 const VSM_PAGE_IN_FLIGHT: u32 = 4u;
@@ -141,6 +142,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             verified.slot_x == current.slot_x && verified.slot_y == current.slot_y &&
             meta_table.entries[slot].virtual_page == virtual_page) {
           if (verified.generation == generation) {
+            if (verified.flags & VSM_PAGE_DIRTY)!=0u { atomicStore(&content_version[1u],1u); }
             meta_table.entries[slot].last_visited = generation;
             let work = VsmPageWork(virtual_page, slot, request.priority, generation,
               verified.flags, verified.fallback_mip, 0u, 0u);
@@ -154,6 +156,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             page_table.entries[virtual_page] = VsmPageEntry(
               verified.slot_x, verified.slot_y, request.mip, flags, generation,
               fallback, 0u, 0u);
+            atomicStore(&content_version[1u],1u);
             meta_table.entries[slot] = VsmMetaEntry(virtual_page, request.mip,
               generation, flags, generation, slot, 0u, 0u);
             _ = append_work(VsmPageWork(virtual_page, slot, request.priority,
@@ -218,6 +221,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
               page_table.entries[old_virtual].slot_y = VSM_INVALID;
               page_table.entries[old_virtual].flags = 0u;
               page_table.entries[old_virtual].generation = verify_meta.generation;
+              atomicStore(&content_version[1u],1u);
               meta_table.entries[candidate].flags = 0u;
               atomicAdd(&telemetry.evictions, 1u);
               selected_slot = candidate;
@@ -243,6 +247,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let page = VsmPageEntry(slot_x, slot_y, request.mip, flags, generation,
     fallback_mip(request.mip), 0u, 0u);
   page_table.entries[virtual_page] = page;
+  atomicStore(&content_version[1u],1u);
   meta_table.entries[selected_slot] = VsmMetaEntry(virtual_page, request.mip, generation,
     flags, generation, selected_slot, 0u, 0u);
   _ = append_work(VsmPageWork(virtual_page, selected_slot, request.priority, generation,

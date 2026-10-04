@@ -1544,6 +1544,7 @@ export class Renderer {
           ? (environment.lights.authoredIbl.publicationRevision | 0x80000000) >>> 0
           : environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0,
         lightingLightRevision: environment.lights.publicationRevision,
+        lightingSunRevision: environmentGeneration ?? this._environmentRuntime?.state.active?.snapshot.generation ?? 0,
         environment: this._environmentRuntime,
         vsm: this._vsm,
         vsmFrame: vsmEnabled

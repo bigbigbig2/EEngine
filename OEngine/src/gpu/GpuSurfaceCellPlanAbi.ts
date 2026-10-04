@@ -1,4 +1,5 @@
 import { APPEARANCE_SURFACE_READ_WGSL, APPEARANCE_FIELD_WIDTHS } from "./GpuAppearanceCacheAbi.js";
+import { SURFACE_CELL_ADDRESS_WORDS, SURFACE_CELL_DEMAND_WORDS, SURFACE_REFERENCE_WORDS } from "./GpuSurfaceReferenceAbi.js";
 
 /** Optimization-v1 work plans. A plan describes a span/grid/masked partition;
  * it never expands full-rate coverage into 64 wide pixel tasks. Local ABI. */
@@ -19,18 +20,25 @@ export const SURFACE_CELL_CONTROL_HEADER_WORDS = 128;
 export const SURFACE_CELL_CHEAP_FACT_BYTES = 16;
 export const SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS = 32;
 export const SURFACE_CELL_FIELD_CERTIFICATE_WORDS = 52;
-export const SURFACE_CELL_CERTIFICATE_BYTES_PER_TARGET = (SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS + SURFACE_CELL_FIELD_CERTIFICATE_WORDS + 1) * 4;
+export const SURFACE_CELL_CERTIFICATE_BYTES_PER_TARGET = (SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS + SURFACE_CELL_FIELD_CERTIFICATE_WORDS * 2 + 1 +
+  SURFACE_CELL_ADDRESS_WORDS + SURFACE_CELL_DEMAND_WORDS + SURFACE_REFERENCE_WORDS * SURFACE_CELL_PLANE_COUNT) * 4;
 export const SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS = Object.freeze(APPEARANCE_FIELD_WIDTHS.map((_width, field) =>
   APPEARANCE_FIELD_WIDTHS.slice(0,field).reduce((sum,width) => sum + width * 2,0)));
 export function surfaceCellWorkspaceLayout(tiles: number): Readonly<{ counters: number; plans: number; maps: number;
-  geometryCertificates: number; fieldCertificates: number; primitives: number; facts: number; bytes: number; tiles: number }> {
+  geometryCertificates: number; fieldCertificates: number; persistentCertificates: number; primitives: number; addresses: number; fieldReferences: number;
+  signalReferences: number; demands: number; facts: number; bytes: number; tiles: number }> {
   if(!Number.isSafeInteger(tiles)||tiles<1)throw new RangeError("Invalid Surface workspace tile capacity");
   const plans=SURFACE_CELL_CONTROL_HEADER_WORDS*4,maps=plans+tiles*SURFACE_CELL_TILE_PLAN_BYTES;
   const geometryCertificates=maps+tiles*SURFACE_CELL_TILE_MAP_BYTES;
   const fieldCertificates=geometryCertificates+tiles*64*SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS*4;
-  const primitives=fieldCertificates+tiles*64*SURFACE_CELL_FIELD_CERTIFICATE_WORDS*4;
-  const facts=Math.ceil((primitives+tiles*64*4)/16)*16;
-  return Object.freeze({counters:0,plans,maps,geometryCertificates,fieldCertificates,primitives,facts,
+  const persistentCertificates=fieldCertificates+tiles*64*SURFACE_CELL_FIELD_CERTIFICATE_WORDS*4;
+  const primitives=persistentCertificates+tiles*64*SURFACE_CELL_FIELD_CERTIFICATE_WORDS*4;
+  const addresses=primitives+tiles*64*4;
+  const fieldReferences=addresses+tiles*64*SURFACE_CELL_ADDRESS_WORDS*4;
+  const signalReferences=fieldReferences+tiles*64*SURFACE_CELL_FIELD_COUNT*SURFACE_REFERENCE_WORDS*4;
+  const demands=signalReferences+tiles*64*SURFACE_CELL_SIGNAL_COUNT*SURFACE_REFERENCE_WORDS*4;
+  const facts=Math.ceil((demands+tiles*64*SURFACE_CELL_DEMAND_WORDS*4)/16)*16;
+  return Object.freeze({counters:0,plans,maps,geometryCertificates,fieldCertificates,persistentCertificates,primitives,addresses,fieldReferences,signalReferences,demands,facts,
     bytes:facts+tiles*64*SURFACE_CELL_CHEAP_FACT_BYTES,tiles});
 }
 export function surfaceCellWorkspaceWgsl(tiles:number):string {
@@ -41,7 +49,12 @@ export function surfaceCellWorkspaceWgsl(tiles:number):string {
  maps:array<u32,${tiles*SURFACE_CELL_TILE_MAP_BYTES/4}>,
  geometry_certificates:array<u32,${tiles*64*SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS}>,
  field_certificates:array<u32,${tiles*64*SURFACE_CELL_FIELD_CERTIFICATE_WORDS}>,
+ persistent_certificates:array<u32,${tiles*64*SURFACE_CELL_FIELD_CERTIFICATE_WORDS}>,
  primitives:array<u32,${tiles*64}>,
+ addresses:array<u32,${tiles*64*SURFACE_CELL_ADDRESS_WORDS}>,
+ field_references:array<u32,${tiles*64*SURFACE_CELL_FIELD_COUNT*SURFACE_REFERENCE_WORDS}>,
+ signal_references:array<u32,${tiles*64*SURFACE_CELL_SIGNAL_COUNT*SURFACE_REFERENCE_WORDS}>,
+ demands:array<u32,${tiles*64*SURFACE_CELL_DEMAND_WORDS}>,
  facts:array<vec4u>,
 }`;
 }
@@ -111,11 +124,7 @@ fn surface_cell_representative(plan:SurfaceCellPlanePlan,words:ptr<storage,array
  if mode==SURFACE_CELL_PLAN_MASKED {return surface_cell_map_entry(words,plan.map_word_offset+12u,group);}
  if mode==SURFACE_CELL_PLAN_FINE {return select(0xffffffffu,group,surface_cell_mask_member(coverage,group));}
  if mode==SURFACE_CELL_PLAN_GRID {
-  let rate=(plan.mode_rate>>8u)&15u;let sx=rate&3u;let sy=(rate>>2u)&3u;
-  let columns=8u>>sx;let origin=vec2u((group%columns)<<sx,(group/columns)<<sy);
-  for(var y=0u;y<(1u<<sy);y++){for(var x=0u;x<(1u<<sx);x++){
-   let lane=(origin.y+y)*8u+origin.x+x;if surface_cell_mask_member(coverage,lane){return lane;}
-  }}
+  return surface_cell_map_entry(words,plan.map_word_offset+12u,group);
  }
  return 0xffffffffu;
 }
@@ -150,19 +159,51 @@ fn surface_plan_record(pixel:vec2u,plane:u32,tiles_x:u32,first_tile:u32)->u32 {
     representative=surface_plan_map(offset+12u,surface_plan_map(offset,lane));
   } else if mode==3u {
     let rate=(mode_rate>>8u)&15u;
-    let width=1u<<(rate&3u);
-    let height=1u<<(rate>>2u);
-    let origin=vec2u((lane%8u)/width*width,(lane/8u)/height*height);
-    representative=0xffffffffu;
-    for(var y=0u;y<height;y++) { for(var x=0u;x<width;x++) {
-      let candidate=(origin.y+y)*8u+origin.x+x;
-      if (surface_plan_word(tile,plane,4u+candidate/32u)&(1u<<(candidate&31u)))!=0u {
-        representative=min(representative,candidate);
-      }
-    }}
+    let group=((lane/8u)>>((rate>>2u)&3u))*(8u>>(rate&3u))+((lane%8u)>>(rate&3u));
+    representative=surface_plan_map(surface_plan_word(tile,plane,2u)+12u,group);
   }
   let coordinate=(pixel/8u)*8u+vec2u(representative%8u,representative/8u);
   return textureLoad(sample_map,vec2i(coordinate),0).x;
+}
+`;
+}
+
+/** Selection over the batch workspace. Every grid anchor is published once by
+ * the classifier; masked remaps use the same bounded packed representation. */
+export function surfaceCellSelectionWgsl(workspace: string): string {
+  return /* wgsl */ `
+fn reference_plan_word(leaf:u32,plane:u32,word:u32)->u32 {
+  return ${workspace}.plans[(leaf/64u)*${SURFACE_CELL_TILE_PLAN_BYTES/4}u+16u+plane*6u+word];
+}
+fn reference_plan_map(leaf:u32,plane:u32,entry:u32)->u32 {
+  let base=reference_plan_word(leaf,plane,2u);
+  let bit=entry*6u;
+  let at=base+(bit>>5u);
+  let shift=bit&31u;
+  var value=${workspace}.maps[at]>>shift;
+  if shift>26u { value|=${workspace}.maps[at+1u]<<(32u-shift); }
+  return value&63u;
+}
+fn reference_plan_leaf(leaf:u32,plane:u32)->u32 {
+  let lane=leaf%64u;
+  let mode_rate=reference_plan_word(leaf,plane,0u);
+  let mode=mode_rate&255u;
+  let coverage=reference_plan_word(leaf,plane,4u+lane/32u);
+  if mode==0u || (coverage&(1u<<(lane&31u)))==0u { return 0xffffffffu; }
+  if mode==1u || mode==2u { return leaf; }
+  var group=reference_plan_map(leaf,plane,lane);
+  if mode==3u {
+    let rate=(mode_rate>>8u)&15u;
+    group=((lane/8u)>>((rate>>2u)&3u))*(8u>>(rate&3u))+((lane%8u)>>(rate&3u));
+  }
+  let anchor=reference_plan_map(leaf,plane,64u+group);
+  return (leaf/64u)*64u+anchor;
+}
+fn reference_field(leaf:u32,field:u32)->SurfaceReference {
+  let source=reference_plan_leaf(leaf,field);
+  if source==0xffffffffu { return SurfaceReference(SURFACE_REFERENCE_DEFAULT,${workspace}.facts[leaf].z,0u); }
+  let at=(source*15u+field)*3u;
+  return SurfaceReference(${workspace}.field_references[at],${workspace}.field_references[at+1u],${workspace}.field_references[at+2u]);
 }
 `;
 }

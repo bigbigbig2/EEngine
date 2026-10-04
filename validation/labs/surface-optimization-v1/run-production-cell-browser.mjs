@@ -5,9 +5,11 @@ import assert from 'node:assert/strict';
 const {chromium}=createRequire(resolve('validation/package.json'))('playwright-core');
 const {createServer}=await import('../../../OEngine/node_modules/vite/dist/node/index.js');
 const fixture=process.argv[2]??'production-cell';
-if(!['production-cell','production-orm','repair-step-one','repair-certificate'].includes(fixture))throw new RangeError('Unknown GPU fixture');
+if(!['production-cell','production-orm','repair-step-one','repair-certificate','repair-field-lookup','repair-signal-lookup'].includes(fixture))throw new RangeError('Unknown GPU fixture');
 const outputDirectory=process.argv[3]??'.local/validation/surface-optimization-v1';
-const server=await createServer({configFile:false,root:process.cwd(),server:{host:'127.0.0.1',port:5187,strictPort:true},logLevel:'error'});
+const pollBudget=Number(process.argv[4]??30);
+if(!Number.isSafeInteger(pollBudget)||pollBudget<1||pollBudget>90)throw new RangeError('GPU fixture host wait budget must be 1..90 ten-second polls');
+const server=await createServer({configFile:false,root:process.cwd(),server:{host:'127.0.0.1',port:5187,strictPort:true,hmr:false,watch:{ignored:['**']}},logLevel:'error'});
 const logs=[],errors=[];let browser,context;
 try {
  await server.listen();browser=await chromium.launch({executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',headless:true,args:['--enable-unsafe-webgpu']});
@@ -16,12 +18,13 @@ try {
  const fixturePage=fixture==='production-orm'?'production-cell-browser.html?orm=1':`${fixture}-browser.html`;
  await page.goto(`http://127.0.0.1:5187/validation/labs/surface-optimization-v1/${fixturePage}`,{waitUntil:'load'});
  let report;
- for(let poll=0;poll<30;poll++){
+ for(let poll=0;poll<pollBudget;poll++){
   try{await page.waitForFunction(()=>!!window.cellOracleResult,{},{timeout:10000});}catch(error){if(error.name!=='TimeoutError')throw error;}
   report=await page.evaluate(()=>window.cellOracleResult);if(report)break;
   console.log(`Waiting for ${await page.evaluate(()=>window.cellOracleStage??'module initialization')}`);
  }
- assert.ok(report,'Component oracle timed out');report.browser=browser.version();report.pageErrors=errors;report.logs=logs;
+ if(!report){report={passed:false,evidenceRole:'diagnostic',failure:`Component oracle exceeded ${pollBudget} x 10 second host waits`,stage:await page.evaluate(()=>window.cellOracleStage??'module initialization')};}
+ report.browser=browser.version();report.pageErrors=errors;report.logs=logs;
  await mkdir(outputDirectory,{recursive:true});
  await writeFile(resolve(outputDirectory,`${fixture}-browser.json`),JSON.stringify(report,null,2));
  const code=await page.evaluate(()=>window.cellOracleSource);if(code)await writeFile(resolve(outputDirectory,`${fixture}-browser.wgsl`),code);

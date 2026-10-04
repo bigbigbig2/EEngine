@@ -13,6 +13,7 @@ import { publishedRasterPrograms,coverageRasterResourceGroups } from "../Coverag
 import type { VsmDirectionalFrameConstants } from "./VsmReceiverDemandPass.js";
 import type { VsmResources } from "./VsmResources.js";
 import type { VsmCasterRecordFrame } from "./VsmCasterRecordPass.js";
+import { VSM_CONTENT_VERSION_WGSL } from "../../shaders/vsm_content_version.js";
 
 const DIRTY_COMMIT_WGSL = /* wgsl */ `
 struct Constants { generation: u32, reserved0: u32, reserved1: u32, reserved2: u32 };
@@ -28,6 +29,7 @@ struct Locks { values: array<atomic<u32>>, }
 @group(0) @binding(2) var<storage, read_write> page_table: Table;
 @group(0) @binding(3) var<storage, read_write> meta_table: Metas;
 @group(0) @binding(4) var<storage, read_write> page_locks: Locks;
+@group(0) @binding(5) var<storage, read_write> content_version:array<atomic<u32>>;
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
   // A truncated caster list cannot prove that any dirty page is complete.
@@ -44,6 +46,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       // This lock owns publication of the completed page content. Multiple
       // caster records for one page advance its content version only once.
       entry.reserved_0 = max(1u, entry.reserved_0 + 1u);
+      atomicStore(&content_version[1u],1u);
     }
     entry.flags = entry.flags & ~2u;
     page_table.entries[record.virtual_page] = entry;
@@ -72,6 +75,7 @@ export interface VsmAtlasRasterInputs {
   readonly allocation:ResourceId;
   readonly metaTable:ResourceId;
   readonly pageLocks:ResourceId;
+  readonly contentVersion:ResourceId;
   readonly instances:ResourceId;
   readonly meshlets:ResourceId;
   readonly meshletVertices:ResourceId;
@@ -143,6 +147,8 @@ export class VsmAtlasRasterPass {
   private readonly commitLayout:GPUBindGroupLayoutDescriptor;
   private readonly clearPipeline:GPURenderPipeline;
   private readonly commitPipeline:GPUComputePipeline;
+  private readonly contentPipeline:GPUComputePipeline;
+  private readonly contentLayout:GPUBindGroupLayoutDescriptor;
   constructor(private readonly graphics:GraphicsContext) {
     const device=graphics.device;
     this.constants=device.createBuffer({label:"VSM/atlas constants",size:CONSTANT_BYTES,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
@@ -155,11 +161,17 @@ export class VsmAtlasRasterPass {
       depthStencil:{format:"depth32float",depthWriteEnabled:true,depthCompare:"always"}});
     this.commitLayout={entries:[{binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:"uniform"}},
       {binding:1,visibility:GPUShaderStage.COMPUTE,buffer:{type:"read-only-storage"}},
-      ...[2,3,4].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:"storage" as GPUBufferBindingType}}))]};
+      ...[2,3,4,5].map(binding=>({binding,visibility:GPUShaderStage.COMPUTE,buffer:{type:"storage" as GPUBufferBindingType}}))]};
     this.commitPipeline=graphics.compute_pipelines.obtain({label:"VSM/dirty content commit",layout:{bindGroupLayouts:[this.commitLayout]},
       compute:{module:{code:DIRTY_COMMIT_WGSL},entryPoint:"main"}});
+    this.contentLayout={entries:[
+      {binding:0,visibility:GPUShaderStage.COMPUTE,buffer:{type:"uniform"}},
+      {binding:1,visibility:GPUShaderStage.COMPUTE,buffer:{type:"storage"}}
+    ]};
+    this.contentPipeline=graphics.compute_pipelines.obtain({label:"VSM/content version publication",layout:{bindGroupLayouts:[this.contentLayout]},
+      compute:{module:{code:VSM_CONTENT_VERSION_WGSL},entryPoint:"publish_vsm_content_version"}});
   }
-  addToGraph(graph:FrameGraph,input:VsmAtlasRasterInputs):{readonly atlasDepth:ResourceId} {
+  addToGraph(graph:FrameGraph,input:VsmAtlasRasterInputs):{readonly atlasDepth:ResourceId;readonly pageTable:ResourceId;readonly metaTable:ResourceId;readonly contentVersion:ResourceId} {
     if(!input.resources.atlasDepth || !input.resources.casterRecords)throw new Error("VSM raster resources are absent");
     const constants=graph.import_resource("VSM/atlas constants",{kind:"imported",label:"VSM atlas constants"},this.constants);
     const atlas=graph.import_resource("VSM/depth atlas",{kind:"imported",label:"VSM depth atlas"},input.resources.atlasDepth);
@@ -198,18 +210,33 @@ export class VsmAtlasRasterPass {
     });
     for(const id of [currentConstants,input.allocation,caster,indirect,pageTable,input.instances,input.meshlets,input.meshletVertices,input.meshletTriangles,input.vertexData,input.geometries,input.materials,input.frameInstances,input.camera,
       ...(input.productHeap===undefined ? [] : [input.productHeap]),...(input.productBanks ?? [])])raster.read(id);
-    raster.write(atlas);raster.make_side_effect();
+    const rasteredAtlas=raster.write(atlas);raster.make_side_effect();
     const commitConstants=graph.import_resource("VSM/content commit constants",{kind:"imported",label:"VSM content commit constants"},this.commitConstants);
     const commit=graph.add("VSM/commit complete dirty pages",input,(data,resolved,context)=>{
       const command=context.encoder as ShadeGPUCommandContext;
       command.writeBuffer(this.commitConstants,0,new Uint32Array([data.generation>>>0,0,0,0]).buffer,0,16);
       const group=this.graphics.bind_groups.obtain({layout:this.commitLayout,entries:[{buffer:this.commitConstants},{buffer:resolved.get(caster) as GPUBuffer},
-        {buffer:resolved.get(pageTable) as GPUBuffer},{buffer:resolved.get(data.metaTable) as GPUBuffer},{buffer:resolved.get(data.pageLocks) as GPUBuffer}]});
+        {buffer:resolved.get(pageTable) as GPUBuffer},{buffer:resolved.get(data.metaTable) as GPUBuffer},{buffer:resolved.get(data.pageLocks) as GPUBuffer},
+        {buffer:resolved.get(data.contentVersion) as GPUBuffer}]});
       const pass=command.beginComputePass({label:"VSM/content commit"});pass.setPipeline(this.commitPipeline);pass.setBindGroup(0,group);
       pass.dispatchWorkgroups(Math.ceil(data.caster.capacity/64));pass.end();
     });
-    commit.read(caster);commit.read(atlas);commit.read(commitConstants);commit.write(pageTable);commit.write(input.metaTable);commit.write(input.pageLocks);commit.make_side_effect();commit.dependsOn(raster);
-    return {atlasDepth:atlas};
+    commit.read(caster);commit.read(rasteredAtlas);commit.read(commitConstants);
+    const publishedPageTable=commit.write(pageTable),publishedMetaTable=commit.write(input.metaTable);
+    const dirtyContent=commit.write(input.contentVersion);
+    commit.write(input.pageLocks);commit.make_side_effect();commit.dependsOn(raster);
+    const publishContent=graph.add("VSM/publish sampled content version",{contentVersion:dirtyContent},(data,resolved,context)=>{
+      const command=context.encoder as ShadeGPUCommandContext;
+      const group=this.graphics.bind_groups.obtain({layout:this.contentLayout,entries:[
+        {buffer:this.commitConstants},{buffer:resolved.get(data.contentVersion) as GPUBuffer}
+      ]});
+      const pass=command.beginComputePass({label:"VSM/publish sampled content version"});
+      pass.setPipeline(this.contentPipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(1);pass.end();
+    });
+    publishContent.read(dirtyContent);publishContent.read(publishedPageTable);publishContent.read(publishedMetaTable);publishContent.read(rasteredAtlas);
+    publishContent.dependsOn(commit);
+    const contentVersion=publishContent.write(dirtyContent);
+    return {atlasDepth:rasteredAtlas,pageTable:publishedPageTable,metaTable:publishedMetaTable,contentVersion};
   }
   destroy():void{this.constants.destroy();this.commitConstants.destroy();}
 }

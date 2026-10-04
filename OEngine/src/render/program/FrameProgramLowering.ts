@@ -118,6 +118,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
   let vsmAllocation: VsmAllocationFrame | null = null;
   let vsmAtlasDepth: ResourceId | null = null;
   let vsmSamplingConstants: ResourceId | null = null;
+  let vsmContentVersion: ResourceId | null = null;
   let shadowContract: ShadowVisibilityFrame | null = null;
   if (plan.products.includes("shadow-demand")) {
     if (initial.vsm === null || initial.vsmFrame === null) {
@@ -133,7 +134,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     });
     vsmOwnerBinding = vsmOwner;
     vsmFrameBinding = vsmFrame;
-    owners.vsmInvalidation.addToGraph(graph, {
+    const contentVersion=owners.vsmInvalidation.addToGraph(graph, {
       resources: vsmOwner,
       state: bind("vsm-generation-state", bindings => bindings.vsmGeneration)
     });
@@ -149,10 +150,12 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       clipOriginExtent: vsmFrame.clipOriginExtent
     });
     if (plan.products.includes("shadow-allocation")) {
+      if(contentVersion===null) { throw new Error("Enabled VSM requires its content publication"); }
       vsmAllocation = owners.vsmAllocatePages.addToGraph(graph, {
         demand: demand.demand,
         resources: vsmOwner,
-        generation: demand.generation
+        generation: demand.generation,
+        contentVersion
       });
     }
   }
@@ -249,6 +252,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       allocation: vsmAllocation.allocation,
       metaTable: vsmAllocation.metaTable,
       pageLocks: vsmAllocation.pageLocks,
+      contentVersion: vsmAllocation.contentVersion,
       instances,
       meshlets: meshletRecords,
       meshletVertices: meshletVertexIndices,
@@ -260,6 +264,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       productBanks: virtualBanks
     });
     vsmAtlasDepth = atlas.atlasDepth;
+    vsmContentVersion = atlas.contentVersion;
     if (vsmOwnerBinding.pageConstants === null) {
       throw new Error("Frame Program VSM sampling constants are unavailable");
     }
@@ -267,9 +272,9 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       { kind: "imported", label: "VSM sampling constants" }, vsmOwnerBinding.pageConstants);
     shadowContract = shadowVisibilityFrame({
       profile: vsmOwnerBinding.profile,
-      virtualPageTable: vsmAllocation.pageTable,
+      virtualPageTable: atlas.pageTable,
       physicalAtlasDepth: vsmAtlasDepth,
-      pageMeta: vsmAllocation.metaTable,
+      pageMeta: atlas.metaTable,
       lightProjection: vsmSamplingConstants,
       overflowMask: null,
       generation: vsmFrameBinding.generation,
@@ -399,7 +404,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       shadowContract.physicalAtlasDepth === null || shadowContract.lightProjection === null ? null : {
       virtualPageTable: shadowContract.virtualPageTable,
       physicalAtlasDepth: shadowContract.physicalAtlasDepth,
-      lightProjection: shadowContract.lightProjection
+      lightProjection: shadowContract.lightProjection,
+      contentVersion: vsmContentVersion!
     },
     scalarAo: scalarAo ?? null,
     environment: surfaceEnvironment,
@@ -412,6 +418,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     revisions: bind("surface-signal-revisions", bindings => ({
       environment: bindings.lightingEnvironmentRevision,
       light: bindings.lightingLightRevision,
+      sun: bindings.lightingSunRevision,
       shadow: bindings.vsmGeneration.generation,
       ao: scalarAo === undefined ? 0 : 1
     })),

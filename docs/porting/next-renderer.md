@@ -898,3 +898,11 @@ Directional VSM 的真实 PCF 接收点比较没有删除或换成 page-version 
 | 本地资源/ABI集成与 WGSL dispatch/barrier scope | `GpuSurfaceCellPlanAbi` 紧凑 certificate sections、`SurfaceOptimizationCapacity`、FrameGraph geometry/field certificate→classify | 不分配 node×domain×plane 大表；每目标128 B geometry、208 B field 与4 B primitive映射，最大64 leaf/tile；scratch在消费后按batch复用，创建前协商总绑定与512 MiB envelope。跨producer使用 dispatch，组内协作是 uniform barrier；diagnostic按workgroup聚合，timing关闭计数 |
 
 组件检查：真实 production publication/setup→geometry/field certificate→classifier fixture、ORM复用、parent颜色/残差/方向/unknown/roughness小用例已执行；细节见[执行记录](../next-execution/surface-work-v3-classifier-store-repair-progress-2026-10.md)。这些组件结果不证明完整 Showcase、移动视角有效域、连续画质或整帧性能完成。signed normalTS与world coat basis是对既有 Appearance/BRDF 单位的接线修正，未改写原 BRDF公式。
+
+### 同一来源范围下的步骤 3：有效域与精确 publication proof
+
+仍依据上述已经核读的 Forge/DAIS 插值、OSS persistent layer/task、CPS coarse/full 与 WGSL dispatch 边界；未发现完整 donor，实现继续具名为本地 Continuity-Domain Signal Sampling。`cell_parameter_scalar_footprint` 将已有 homogeneous Winner 系数用于 W=1 的 UV 三角形，保留分母穿零、f32 cancellation/差分余量与 unknown；其 attribute 梯度由参数平面的导数与实际 UV finite-difference 支持域运输，不把 screen quad 的范围冒充完整 UV 矩形证明。`publish_cell_parameter_certificates` 与 `publish_cell_field_certificates` 分别生产持久 canonical 和当前 screen proof，未知/域外请求仍进入当前新链。
+
+`publishSurfaceFieldIdentities` 是 compiler/ABI 本地集成：完整 per-output immutable witness 精确 intern；`surface_field_dependency_epoch` 的 lookup→reserve→publish→resolve 比较实际 texture revision 列表，ID 不 wrap/reuse。`surface_field_request/lookup` 比较完整 identity/point/domain/gradient，分别发布 ValueHit/CertificateHit。`surface_signal_request/lookup` 根据实际被 plan 选择的 FieldRef 构造每 kind 的精确 key，Store slot/generation 是不可变 payload 的发布证明，不是 dependency hash；AO/E 在 compose 的 kind 不绑定它们。未准入/未知为 transient，不等待另一个 workgroup。
+
+VSM content version/namespace 是原 owner 的发布胶水：实际 allocation/table/depth mutation 标记 dirty；后续 dispatch 发布单调版本，Surface 读取真实 FrameGraph product；无变化不推进，耗尽返回 unknown，namespace 不复用。未将此集成宣称为新的 VSM 算法移植。实际组件检查和消费者断点见执行记录；完整新链消费证据与同场景计量仍归步骤 4/5，不提升 adoption/claims。

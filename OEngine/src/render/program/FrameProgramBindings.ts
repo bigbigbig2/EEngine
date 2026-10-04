@@ -35,6 +35,7 @@ export type SceneFrameBindings = Readonly<{
   lightingEnvironmentRevision: number;
   /** GPU light collection publication revision; independent from sky/IBL revision. */
   lightingLightRevision: number;
+  lightingSunRevision: number;
   environment: PhysicalEnvironmentRuntime | null;
   /** Persistent VSM owner; null is valid for the explicit shadow-disabled profile. */
   vsm: VsmResources | null;

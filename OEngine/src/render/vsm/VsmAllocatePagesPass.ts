@@ -9,6 +9,7 @@ export interface VsmAllocatePagesInputs {
   readonly demand: ResourceId;
   readonly resources: VsmResources;
   readonly generation: number;
+  readonly contentVersion: ResourceId;
 }
 
 const CONSTANT_BYTES = 256;
@@ -49,7 +50,8 @@ export class VsmAllocatePagesPass {
       { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
       { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
+      { binding: 7, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
+      { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }
     ] });
     this.pipeline = device.createComputePipeline({
       label: "VSM/allocate pages",
@@ -113,7 +115,8 @@ export class VsmAllocatePagesPass {
           { binding: 4, resource: { buffer: allocationBuffer } },
           { binding: 5, resource: { buffer: pageLocksBuffer } },
           { binding: 6, resource: { buffer: slotLocksBuffer } },
-          { binding: 7, resource: { buffer: telemetryBuffer } }
+          { binding: 7, resource: { buffer: telemetryBuffer } },
+          { binding: 8, resource: { buffer: resolved.get(input.contentVersion) as GPUBuffer } }
         ] });
       const pass = command.beginComputePass({ label: "VSM/allocate pages" });
       pass.setPipeline(this.pipeline);
@@ -123,19 +126,21 @@ export class VsmAllocatePagesPass {
     });
     produce.read(currentConstants);
     produce.read(demand);
-    produce.write(pageTable);
-    produce.write(metaTable);
-    produce.write(allocation);
-    produce.write(pageLocks);
+    const publishedPageTable=produce.write(pageTable);
+    const publishedMetaTable=produce.write(metaTable);
+    const publishedAllocation=produce.write(allocation);
+    const publishedPageLocks=produce.write(pageLocks);
+    const publishedContent=produce.write(input.contentVersion);
     produce.write(slotLocks);
     produce.write(telemetry);
     produce.make_side_effect();
     return {
-      allocation,
+      allocation:publishedAllocation,
       demand,
-      pageTable,
-      metaTable,
-      pageLocks,
+      pageTable:publishedPageTable,
+      metaTable:publishedMetaTable,
+      pageLocks:publishedPageLocks,
+      contentVersion:publishedContent,
       generation: input.generation,
       capacity: input.resources.capabilities.residentSlots
     };

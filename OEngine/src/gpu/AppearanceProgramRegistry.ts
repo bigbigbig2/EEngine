@@ -42,6 +42,9 @@ export class AppearanceProgramRegistry {
   private readonly entries = new Map<string, Entry>();
   private readonly queue: Entry[] = [];
   private readonly stopListeners = new Set<(reason: Error) => void>();
+  private readonly fieldPublications = new Map<string, number>();
+  private readonly publicationObjects = new WeakMap<object, number>();
+  private nextPublicationObject = 1;
   private compiling = 0;
   private age = 0;
   private failure: Error | null = null;
@@ -59,6 +62,31 @@ export class AppearanceProgramRegistry {
     this.budget = Object.freeze({ ...budget });
     void device.lost.then(info => this.stop(new Error(`Appearance GPUDevice lost: ${info.reason}: ${info.message}`)),
       cause => this.stop(new Error("Appearance GPUDevice loss promise failed", { cause })));
+  }
+
+  /** Publication-time exact interning, not a hash. IDs retain a complete
+   * immutable field DAG/data witness across unrelated publication replacement.
+   * Mutable values keep their GPU field version and material scope separately. */
+  internFieldPublication(witness: string): number {
+    const existing = this.fieldPublications.get(witness);
+    if (existing !== undefined) { return existing; }
+    if (this.fieldPublications.size >= 262144) {
+      throw new RangeError("Appearance field publication identity budget exhausted");
+    }
+    const identity = this.fieldPublications.size + 1;
+    this.fieldPublications.set(witness, identity);
+    return identity;
+  }
+
+  publicationObjectIdentity(value: object): number {
+    const existing = this.publicationObjects.get(value);
+    if (existing !== undefined) { return existing; }
+    if (this.nextPublicationObject >= 0xfffffffe) {
+      throw new RangeError("Appearance source identity exhausted");
+    }
+    const identity = this.nextPublicationObject++;
+    this.publicationObjects.set(value, identity);
+    return identity;
   }
 
   acquire(descriptor: AppearanceProgramDescriptor): AppearanceProgramLease {

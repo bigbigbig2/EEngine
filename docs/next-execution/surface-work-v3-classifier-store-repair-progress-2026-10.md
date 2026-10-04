@@ -25,3 +25,19 @@ FieldStore/SignalStore 独立 state CAS 选唯一 slot writer，payload/key 写�
 初版geometry/field certificate shader冷编译分别约85/91秒；属性槽表重写后普通geometry约2.5秒、field约24秒，ORM field约64秒。这是冷pipeline编译诊断，不是每帧GPU耗时或性能通过。最终步骤仍须量完整Surface总成本。原容量fixture的固定8batch/412MiB断言已改为新profile的独立容量/完整覆盖约束；测试导入新鲜.test-dist，未恢复旧layout。
 
 未运行：独立native地址/appearance全矩阵oracle（当前入口需外部webgpu runtime），完整Lighting生产小链、1080p采样、连续画质；生产小链和实测归属步骤4/5。持久certificate/value hit前置旁路与选择性失效归属步骤3，实际unique miss/dirty producer和scratch最终清理归属步骤4。
+
+## 步骤 3：前置字段/信号查询、有效域和实际依赖版本
+
+实现：便宜地址由 Geometry 的既有 primitive setup/Winner 数学生成，按实际输入闭包发布 UV/有限差分、颜色、world 原始输入与 normal flip stencil，不生成第二份 GeometryRecord。FieldRef/SignalRef 为独立三 word 引用；字段请求用 `(leaf,field)`，完整 20-word identity + 68-word 精确点见证在 getter 中生成，不在生产流为每请求复制宽 key。字段 producer 使用完整不可变 DAG/data 见证的精确 interning；逐字段纹理 revision snapshot 通过 lookup/reserve/publish/resolve 发布不可复用 version ID，hash 仅选集合。无关 publication/camera 不进入 UV-local 字段身份。
+
+ValueHit 与 CertificateHit 独立。已发布且支持域覆盖的证书先填入 leaf bounds；真实 field certificate producer 只求 unresolved 闭包。新增 UV 参数矩形与梯度包络的独立 canonical certificate；边界、未知、多个 chart/world/view 闭包不借用该证书。参数域和屏幕域是不同编译入口，三个有限 family 保留 ORM 同上下文 RGBA 查询复用。grid anchor 在发布处写入 packed map，热读取用公式与有界 loads。
+
+Signal key 按 kind 选择实际 FieldRef 的不可变 producer/version 证明；Store slot/generation 是精确不可变 payload 证明，publication 使用 producer ID/实际字段 numeric version，未使用旧 19-word record digest。72-word key 逐 word 相等；Denv 不绑定颜色/E/AO/direct provider/view epoch，spec/coat/direct 保留真实闭包。太阳读取实际参数与 provider generation。VSM 增加 GPU content version/owner namespace，allocation/dirty atlas 写后由单独 dispatch 发布，未改变时保留版本，耗尽不 wrap。VSM 生产资源版本实际传给 Surface；未用生命周期 generation 代替内容更新。
+
+已运行：切断旧 consumer 前 build:test；18 项字段身份、完整 key、容量与原 field identity oracle 通过。Chrome 154 实际 GPU field lookup 八组、纹理依赖 snapshot 与 RESERVED 拒绝通过；signal lookup 十一组（冷/热、重复 epoch、env/light/实际 GPU shadow/sun/view、compose 变化、所选 roughness Store generation）通过。VSM allocation pipeline 与实际 content-version shader 的初始化、未变、变更、generation、耗尽检查通过，无 GPU validation/page error。报告分别在 `.local/validation/surface-repair-step-three-field-lookup-03/` 与 `surface-repair-step-three-signal-lookup-final/`。
+
+实际 ORM production publication/setup→address→lookup→两种 certificate→classifier 用例通过（`surface-repair-step-three-production-cold-04`）：32 geometry、64 screen field family context、64 parameter family context，共 160 context；128 query/192 reuse；fields/Senv 4×4，Denv 8×8。参数域 family 0/1 冷编译约 56/68 秒，屏幕域约 25/29 秒；这是编译耗时，不是 GPU 帧耗时。早先未拆开的入口及组合 family 达到宿主 300 秒预算，分别记录 cold-02/cold-03 未完成；不写通过。宿主已关闭 HMR 并支持显式有限冷编译等待预算。
+
+最后切断旧 `SurfaceMaterialCachePass`、`SurfaceCacheIdentityPass` 及 Lighting 的 record planner、全容量 pack、旧 pass bindings，保留原完整 BRDF/IBL 数学。切断后的 build:test 如预期报告三处跨步骤缺口：Runtime 尚引用删除的 Material/Identity owner 与已删除 Lighting class。依据计划 §1/§8，这些 consumer/queue 接线由紧接的步骤 4 实现；未恢复旧链或建立适配桥。当前不具备生产出图条件，不以组件结果宣称整链通过。
+
+未运行：1080p Showcase、完整 appearance/lighting/reconstruct 小链、实际 full-key producer dedup、最终计量与生命周期小集；归属步骤 4/5。第三步提交不等于 Phase 7、来源采用或性能验收完成。

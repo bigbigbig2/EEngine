@@ -59,6 +59,36 @@ fn cell_rect_from_mask(mask:vec2u,origin:vec2u)->vec4f {
  }
  return vec4f(vec2f(origin+low)+vec2f(0.5),vec2f(origin+high)+vec2f(0.5));
 }
+fn cell_parameter_scalar_footprint(coeff:WinnerCoefficients,values:vec3f,domain:vec4f,
+  gradient_low:vec4f,gradient_high:vec4f)->CellScalarFootprint {
+  if coeff.row0.w==0.0 || any(domain.xy>domain.zw) { return cell_address_unknown(); }
+  let numerator=coeff.row0.xyz*values.x+coeff.row1.xyz*values.y+coeff.row2.xyz*values.z;
+  let denominator=coeff.row0.xyz+coeff.row1.xyz+coeff.row2.xyz;
+  let absolute_rows=abs(coeff.row0.xyz)+abs(coeff.row1.xyz)+abs(coeff.row2.xyz);
+  let magnitude=vec3f(max(abs(domain.xy),abs(domain.zw)),1.0);
+  let d_error=dot(absolute_rows,magnitude)*0.0000019073486328125+1e-30;
+  let n_error=dot(abs(coeff.row0.xyz)*abs(values.x)+abs(coeff.row1.xyz)*abs(values.y)+abs(coeff.row2.xyz)*abs(values.z),magnitude)*0.0000019073486328125+1e-30;
+  var d=cell_affine_range(denominator,domain.xy,domain.zw);
+  d.low-=d_error;d.high+=d_error;
+  if !ab_valid(d) || (d.low<=0.0 && d.high>=0.0) { return cell_address_unknown(); }
+  // UV clip W is exactly one. Small computed XY denominator residuals are
+  // enclosed rather than assumed zero; ill-conditioned UV triangles go unknown.
+  let n=cell_affine_range(numerator,domain.xy,domain.zw);
+  var expanded=n;expanded.low-=n_error;expanded.high+=n_error;
+  let value=ab_divide(expanded,d);
+  let du=ab_divide(ab_subtract(ab_multiply(ab_exact(numerator.x),d),
+    ab_multiply(expanded,ab_exact(denominator.x))),ab_square(d));
+  let dv=ab_divide(ab_subtract(ab_multiply(ab_exact(numerator.y),d),
+    ab_multiply(expanded,ab_exact(denominator.y))),ab_square(d));
+  var dx=ab_add(ab_multiply(du,AppearanceBound(gradient_low.x,gradient_high.x,1u)),
+    ab_multiply(dv,AppearanceBound(gradient_low.y,gradient_high.y,1u)));
+  var dy=ab_add(ab_multiply(du,AppearanceBound(gradient_low.z,gradient_high.z,1u)),
+    ab_multiply(dv,AppearanceBound(gradient_low.w,gradient_high.w,1u)));
+  let rounding=(max(abs(value.low),abs(value.high))+1.0)*0.00000762939453125;
+  var result=value;result.low-=rounding;result.high+=rounding;
+  dx.low-=rounding;dx.high+=rounding;dy.low-=rounding;dy.high+=rounding;
+  return CellScalarFootprint(result,dx,dy);
+}
 fn cell_normal_box_cone(low:vec3f,high:vec3f)->vec4f {
  // A box enclosing zero cannot certify a shading direction.
  let nearest=select(min(abs(low),abs(high)),vec3f(0.0),(low<=vec3f(0.0))&(high>=vec3f(0.0)));

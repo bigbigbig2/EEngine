@@ -14,11 +14,12 @@ import {ShadeImage} from '../../../OEngine/.test-dist/texture/ShadeImage.js';
 import {Sampler2D} from '../../../OEngine/.test-dist/texture/Sampler2D.js';
 import {encodeGpuTextureRef} from '../../../OEngine/.test-dist/gpu/GpuTextureRefAbi.js';
 import {TextureVariationResidency} from '../../../OEngine/.test-dist/gpu/TextureVariationResidency.js';
-import {surfaceCellWorkspaceLayout,SURFACE_CELL_TILE_PLAN_BYTES,SURFACE_CELL_PLANE_BYTES} from '../../../OEngine/.test-dist/gpu/GpuSurfaceCellPlanAbi.js';
+import {surfaceCellWorkspaceLayout,surfaceCellWorkspaceWgsl,SURFACE_CELL_TILE_PLAN_BYTES,SURFACE_CELL_PLANE_BYTES} from '../../../OEngine/.test-dist/gpu/GpuSurfaceCellPlanAbi.js';
+import {SURFACE_FIELD_LOOKUP_WGSL} from '../../../OEngine/.test-dist/shaders/surface_field_lookup.js';
 import {surfaceCellClassifyStageWgsl} from '../../../OEngine/.test-dist/shaders/surface_cell_classify.js';
 import {surfaceCellProductionFactsWgsl} from '../../../OEngine/.test-dist/shaders/surface_cell_production_facts.js';
 import {createSurfaceCellPipelineLayout} from '../../../OEngine/.test-dist/render/surface/SurfaceCellPipelineLayout.js';
-import {SURFACE_CELL_CLASSIFY_STAGES} from '../../../OEngine/.test-dist/shaders/surface_cell_group_validation.js';
+import {SURFACE_CELL_CLASSIFY_STAGES,SURFACE_CELL_CERTIFICATE_FAMILIES} from '../../../OEngine/.test-dist/shaders/surface_cell_group_validation.js';
 
 
 export async function runProductionCellOracle(gpu,assert,onStage=()=>{},onSource=()=>{},withOrm=false) {
@@ -82,26 +83,45 @@ try{
  const cellSettings=buffer(new Uint32Array([8,8,1,0,1,64,11,1]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
  const o=publication.surfaceMetadataOffsets;
  const factSettings=buffer(new Uint32Array([0,GPU_GEOMETRY_RECORD_SCHEMA.stride/4,0,4,0,0,0,0,o.constants,o.routes,o.bounds,o.directory,o.materialLookup,o.materialLookupCount,o.directoryCount,publication.surfaceCacheGeneration,
-  geometry.dictionaryCapacity,geometry.setupCapacity,11,1,o.constantFields,2,0,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+  geometry.dictionaryCapacity,geometry.setupCapacity,11,1,o.constantFields,2,o.fieldIdentities,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
  const lightRecords=buffer(new Uint32Array(32768).fill(0xffffffff));
  const clusterLookup=buffer(new Uint32Array(24*4)),clusterData=buffer(new Uint32Array([0,0,32,0,0,0,0,0,...Array(32).fill(0)])),clusterParameters=buffer(new Float32Array([0,1,1,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
- const fullFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity);
+ const fullFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set(),true);
  const fullModule=device.createShaderModule({code:surfaceCellClassifyStageWgsl(fullFacts,1,0,0,3,'classify_cells_base',false)});
  const ranges=SURFACE_CELL_CLASSIFY_STAGES.map(({first,count})=>[first,count]);
- const fieldFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,null,false);
- const fieldModule=device.createShaderModule({code:surfaceCellClassifyStageWgsl(fieldFacts,1,0,0,0,'unused_field_classifier',false)});
+ const fieldModules=SURFACE_CELL_CERTIFICATE_FAMILIES.flatMap(fields=>[true,false].map(parameterBounds=>{
+  const fieldFacts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set(fields),false,parameterBounds);
+  return {entryPoint:parameterBounds?'publish_cell_parameter_certificates':'publish_cell_field_certificates',
+   module:device.createShaderModule({code:surfaceCellClassifyStageWgsl(fieldFacts,1,0,0,0,'unused_field_classifier',false)})};
+ }));
  const modules=ranges.map(([start,count],index)=>{const facts=surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set(),false);return device.createShaderModule({code:surfaceCellClassifyStageWgsl(facts,1,index,start,count,`classify_cells_stage_${index}`,start>=15?'full':'field-geometry')});});
- const moduleInfo=await Promise.all([fullModule,fieldModule,...modules].map(module=>module.getCompilationInfo()));
+ const moduleInfo=await Promise.all([fullModule,...fieldModules.map(({module})=>module),...modules].map(module=>module.getCompilationInfo()));
  report.compilation=moduleInfo.flatMap(info=>info.messages.filter(m=>m.type==='error').map(m=>({message:m.message,line:m.lineNum})));
  await onSource(surfaceCellClassifyStageWgsl(surfaceCellProductionFactsWgsl(publication.surfaceBoundPrograms,false,SURFACE_CELL_LIGHTING_RISK_WGSL,null,geometry.dictionaryCapacity,new Set([0]),false),1,0,0,1,'classify_cells_stage_0','field-geometry')); assert.deepEqual(report.compilation,[]);
  const pipelines={};
  const productionLayout=createSurfaceCellPipelineLayout(device,false);
- for(const entryPoint of ['publish_cell_material_constants','publish_cell_facts','publish_cell_geometry_certificates','publish_cell_field_certificates']){
+ for(const entryPoint of ['publish_cell_material_constants','publish_cell_facts','publish_cell_addresses','publish_cell_geometry_certificates']){
   onStage(`Compiling ${entryPoint}`);const start=performance.now();
-  pipelines[entryPoint]=await device.createComputePipelineAsync({layout:entryPoint==='publish_cell_material_constants'?'auto':productionLayout,compute:{module:entryPoint==='publish_cell_field_certificates'?fieldModule:fullModule,entryPoint}});
+  pipelines[entryPoint]=await device.createComputePipelineAsync({layout:entryPoint==='publish_cell_material_constants'?'auto':productionLayout,compute:{module:fullModule,entryPoint}});
   onStage(`Compiled ${entryPoint} in ${Math.round(performance.now()-start)} ms`);
  }
+ pipelines.fieldCertificates=[];
+ for(const [index,{module,entryPoint}] of fieldModules.entries()){
+   const family=Math.floor(index/2);
+   onStage(`Compiling ${entryPoint} family ${family}`);const start=performance.now();
+   pipelines.fieldCertificates.push(await device.createComputePipelineAsync({layout:productionLayout,compute:{module,entryPoint}}));
+   onStage(`Compiled ${entryPoint} family ${family} in ${Math.round(performance.now()-start)} ms`);
+ }
  pipelines.classify=[];
+ const lookupModule=device.createShaderModule({code:`${surfaceCellWorkspaceWgsl(1)}\n${SURFACE_FIELD_LOOKUP_WGSL}`});
+ assert.deepEqual((await lookupModule.getCompilationInfo()).messages.filter(message=>message.type==='error'),[]);
+ pipelines.lookup=await device.createComputePipelineAsync({layout:'auto',compute:{module:lookupModule,entryPoint:'lookup_surface_fields'}});
+ const lookupSettings=buffer(new Uint32Array([o.fieldIdentities,o.constantFields,64,4,1,1,0,1]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+ const lookupVersions=buffer(new Uint32Array(256)),disabledStore=buffer(new Uint32Array(16));
+ const lookupGroup=device.createBindGroup({layout:pipelines.lookup.getBindGroupLayout(0),entries:[
+  {binding:0,resource:{buffer:lookupSettings}},{binding:1,resource:{buffer:workspace}},
+  {binding:2,resource:{buffer:publication.surfaceMetadata}},{binding:3,resource:{buffer:lookupVersions}},{binding:4,resource:{buffer:disabledStore}}
+ ]});
  for(let index=0;index<modules.length;index++){
   const entryPoint=`classify_cells_stage_${index}`;onStage(`Compiling ${entryPoint}`);const start=performance.now();
   pipelines.classify[index]=await device.createComputePipelineAsync({layout:productionLayout,compute:{module:modules[index],entryPoint}});
@@ -114,12 +134,17 @@ try{
   [{binding:0,resource:{buffer:lightRecords}},{binding:1,resource:{buffer:clusterLookup}},{binding:2,resource:{buffer:clusterData}},{binding:3,resource:{buffer:clusterParameters}}]
  ];
  // Each auto layout exposes only the bindings actually consumed by that stage.
- const stages=[['publish_cell_material_constants',pipelines.publish_cell_material_constants,[],[0,7],[]],['publish_cell_facts',pipelines.publish_cell_facts,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],['publish_cell_geometry_certificates',pipelines.publish_cell_geometry_certificates,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],['publish_cell_field_certificates',pipelines.publish_cell_field_certificates,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],...pipelines.classify.map((pipeline,index)=>[`classify_cells_stage_${index}`,pipeline,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]])];
+ const stages=[['publish_cell_material_constants',pipelines.publish_cell_material_constants,[],[0,7],[]],['publish_cell_facts',pipelines.publish_cell_facts,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],
+  ['publish_cell_addresses',pipelines.publish_cell_addresses,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],['lookup_surface_fields',pipelines.lookup,[],[],[]],
+  ['publish_cell_geometry_certificates',pipelines.publish_cell_geometry_certificates,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]],
+  ...pipelines.fieldCertificates.map((pipeline,index)=>[`publish_cell_field_certificates_${index}`,pipeline,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]]),
+  ...pipelines.classify.map((pipeline,index)=>[`classify_cells_stage_${index}`,pipeline,[0,1,2],[0,1,3,4,5,6,7,8,14],[0,1,2,3]])];
  let previous=null;
  for(const [name,pipeline,b0,b1,b2] of stages){
   const pass=graph.add(name,{},(_data,resources)=>{
    all[1].find(v=>v.binding===1).resource={buffer:resources.get(geometry.arena)};
    const compute=encoder.beginComputePass({label:name});compute.setPipeline(pipeline);
+   if(name==='lookup_surface_fields'){compute.setBindGroup(0,lookupGroup);}
    for(const [group,bindings] of [b0,b1,b2].entries()){
     const entries=all[group].filter(v=>bindings.includes(v.binding));
    if(entries.length)compute.setBindGroup(group,device.createBindGroup({layout:pipeline.getBindGroupLayout(group),entries}));
@@ -140,8 +165,8 @@ try{
  report.base=plane(0);report.roughness=plane(3);report.diffuseEnvironment=plane(16);report.specularEnvironment=plane(18);report.coat=plane(20);
  assert.equal(words[104],0);assert.equal(words[105],0);assert.ok(words[106]>0);
  report.certificates={geometry:words[108],fields:words[109],contexts:words[110],textureNodes:words[106],textureQueries:words[111],textureReuses:words[112]};
- if(withOrm){assert.equal(words[111],64);assert.ok(words[112]>=64);report.ormShared=true;}else{assert.equal(words[111],32);}
- assert.equal(words[108],32);assert.equal(words[109],32);assert.equal(words[110],64);
+ if(withOrm){assert.equal(words[111],128);assert.ok(words[112]>=128);report.ormShared=true;}else{assert.equal(words[111],64);}
+ assert.equal(words[108],32);assert.equal(words[109],withOrm?64:32);assert.equal(words[110],withOrm?160:96);
  assert.equal(report.base.mode,3);assert.equal(report.base.slots,4);assert.equal(report.roughness.mode,withOrm?3:1);assert.equal(report.roughness.slots,withOrm?4:0);
  assert.equal(report.diffuseEnvironment.slots,1);assert.ok(report.specularEnvironment.slots<=16);assert.equal(report.coat.mode,0);assert.equal(report.coat.slots,0);
  assert.ok(words[0*4+2]>0);assert.ok(words[16*4+2]>0);assert.deepEqual(errors,[]);assert.equal(loss,null);report.passed=true;

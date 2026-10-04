@@ -10,6 +10,7 @@ import { GPU_MATERIAL_VISIBILITY_SAMPLER as S } from "../gpu/GpuMaterialVisibili
 import { APPEARANCE_MATERIAL_CONSTANT_WGSL } from "./appearance_material_constants.js";
 import { SURFACE_APPEARANCE_BOUND_PROGRAM_WORDS } from "../gpu/GpuSurfaceAppearanceBoundsAbi.js";
 import { SURFACE_CELL_CERTIFICATE_WGSL } from "./surface_cell_certificates.js";
+import { SURFACE_CELL_ADDRESSES_WGSL } from "./surface_cell_addresses.js";
 import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceCacheAbi.js";
 
 /** Complete Geometry/Appearance predicates for the partition producer. The
@@ -18,7 +19,7 @@ import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceCacheAbi.js";
  * always-false/unknown implementation in this production library. */
 export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFieldBoundProgram[],
   product: boolean, directRiskLibrary: string, productBoundLibrary: string | null, dictionaryCapacity=65536,
-  fieldMask: ReadonlySet<number> | null = null, signalBounds = true): string {
+  fieldMask: ReadonlySet<number> | null = null, signalBounds = true, parameterBounds = false): string {
   const selected = programs.map(program => {
     // The generated switch uses program-local output ordinals, not Surface ABI
     // field indices. A sparse/reordered graph must select by output name.
@@ -125,6 +126,11 @@ var<private> cell_direct_setup:CellGeometrySetup;
 var<private> cell_bound_slot:u32;
 var<private> cell_bound_key:u32;
 var<private> cell_current_rect:vec4f;
+var<private> cell_parameter_enabled:bool;
+var<private> cell_parameter_coefficients:WinnerCoefficients;
+var<private> cell_parameter_domain:vec4f;
+var<private> cell_parameter_gradient_low:vec4f;
+var<private> cell_parameter_gradient_high:vec4f;
 // Each candidate invocation owns its bounds. Parallel candidates must never
 // share writable scratch; only immutable lane facts are workgroup-wide.
 const CELL_ATTRIBUTE_SLOTS:array<u32,24>=array<u32,24>(${attributeSlots.join(",")});
@@ -190,8 +196,10 @@ fn cell_scalar_attribute(field:u32,channel:u32)->CellScalarFootprint {
  if slot==0xffffffffu { return cell_address_unknown(); }
  if (cell_bound_attribute_valid&(1u<<component))==0u {
   let values=vec3f(cell_bound_setup.corners[field][channel],cell_bound_setup.corners[field+6u][channel],cell_bound_setup.corners[field+12u][channel]);
-  cell_bound_attributes[slot]=cell_scalar_footprint(cell_bound_setup.coefficients,values,cell_current_rect.xy,cell_current_rect.zw,
-    vec2f(f32(cell_settings.width),f32(cell_settings.height)));
+  ${parameterBounds ? `cell_bound_attributes[slot]=cell_parameter_scalar_footprint(cell_parameter_coefficients,values,cell_parameter_domain,
+    cell_parameter_gradient_low,cell_parameter_gradient_high);` :
+    `cell_bound_attributes[slot]=cell_scalar_footprint(cell_bound_setup.coefficients,values,cell_current_rect.xy,cell_current_rect.zw,
+    vec2f(f32(cell_settings.width),f32(cell_settings.height)));`}
   cell_bound_attribute_valid|=1u<<component;
  }
  return cell_bound_attributes[slot];
@@ -350,6 +358,7 @@ fn cell_evaluate_bound(field:u32,context:vec4u)->AppearanceBound4 {
  }
 }
 fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
+ cell_parameter_enabled=false;
   for(var sample=0u;sample<${textureBoundSlots}u;sample++) { cell_texture_bound_valid[sample]=0u; }
  let slot=cell_lane_geometry[fact.source].slot;
  cell_bound_slot=slot;cell_bound_key=fact.winner;cell_current_rect=rect;
@@ -443,9 +452,11 @@ fn cell_field_budget(field:u32,value:AppearanceBound4)->bool {
  for(var c=0u;c<width;c++){if value.high[c]-value.low[c]>tolerance{return false;}}return true;
 }
 ${directRiskLibrary}
+${SURFACE_CELL_ADDRESSES_WGSL}
 ${SURFACE_CELL_CERTIFICATE_WGSL}
 `.replaceAll("cell_dictionary[","geometry_arena.dictionary[").replaceAll("geometry_setups[","geometry_arena.setups[");
-  return source;
+  const activeFields=fieldMask===null ? 0x7fff : [...fieldMask].reduce((mask,field) => mask | (1<<field),0);
+  return source.replace("const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=32767u;",`const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=${activeFields}u;`);
 }
 
 /** Keep the complete generated function envelope while removing unreachable

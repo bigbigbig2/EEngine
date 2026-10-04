@@ -25,9 +25,12 @@ export interface SurfaceOptimizationProfile {
   readonly resolveMapBytesPerTarget: number;
 }
 export const SURFACE_OPTIMIZATION_DEFAULT_PROFILE: SurfaceOptimizationProfile = Object.freeze({
-  addressBytesPerTarget: 128, geometryHotBytesPerTarget: 192,
-  geometryColdBytesPerTarget: 128, fieldBytesPerTarget: 304,
-  queueBytesPerTarget: 64, signalBytesPerTarget: 676, resolveMapBytesPerTarget: 52
+  // Address witness plus existing primitive dictionary/setup allocation.
+  addressBytesPerTarget: 704, geometryHotBytesPerTarget: 320,
+  // Two independent bound products (screen leaf / canonical persistent domain)
+  // and 15 f32 field values. Ref/demand and work queue storage is separate.
+  geometryColdBytesPerTarget: 128, fieldBytesPerTarget: 656,
+  queueBytesPerTarget: 384, signalBytesPerTarget: 676, resolveMapBytesPerTarget: 52
 });
 export interface SurfaceOptimizationLimits {
   readonly maxBufferSize: number;

@@ -1,37 +1,51 @@
-/** Stable Surface V3 FieldStore ABI. A key is a complete identity witness;
- * its hash only selects a bounded set. Values are field-specific and never
- * interpreted as a complete material closure. */
-export const SURFACE_FIELD_STORE_ABI_VERSION = 1;
-export const SURFACE_FIELD_STORE_KEY_WORDS = 12;
+/** Independent field identity/value/certificate ABI. The complete identity
+ * prefix contains publication-version proofs, canonical domain and footprint
+ * class. The point suffix is an exact input witness. Certified entries may cover
+ * another point only after the value AND certificate support tests succeed. */
+export const SURFACE_FIELD_STORE_ABI_VERSION = 2;
+export const SURFACE_FIELD_STORE_IDENTITY_WORDS = 20;
+export const SURFACE_FIELD_STORE_KEY_WORDS = 88;
 export const SURFACE_FIELD_STORE_VALUE_WORDS = 4;
-export const SURFACE_FIELD_STORE_ENTRY_WORDS = 24;
+export const SURFACE_FIELD_STORE_ENTRY_WORDS = 120;
+export const SURFACE_FIELD_STORE_REQUEST_WORDS = SURFACE_FIELD_STORE_ENTRY_WORDS;
 export const SURFACE_FIELD_STORE_ENTRY_BYTES = SURFACE_FIELD_STORE_ENTRY_WORDS * 4;
 export const SURFACE_FIELD_STORE_WAYS = 4;
 export const SURFACE_FIELD_STORE_EMPTY = 0xffffffff;
 export const SURFACE_FIELD_STORE_BUDGET_BYTES = 128 * 1024 * 1024;
-export const SURFACE_FIELD_STORE_MAX_PROBE = 4;
-export const SURFACE_FIELD_STORE_STATE_WORD = 14;
-export const SURFACE_FIELD_STORE_GENERATION_WORD = 15;
-export const SURFACE_FIELD_STORE_VALUE_WORD = 16;
-export const SURFACE_FIELD_STORE_STATE = Object.freeze({ empty: 0, reserved: 2, published: 1 });
-
-export const SURFACE_FIELD_STORE_FLAGS = Object.freeze({
-  valid: 1, owner: 2, exact: 4, bounded: 8, spilled: 16, pinned: 32
-});
+export const SURFACE_FIELD_STORE_MAX_PROBE = SURFACE_FIELD_STORE_WAYS;
+export const SURFACE_FIELD_STORE_VALUE_WORD = 88;
+export const SURFACE_FIELD_STORE_BOUNDS_WORD = 92;
+export const SURFACE_FIELD_STORE_DOMAIN_WORD = 100;
+export const SURFACE_FIELD_STORE_GRADIENT_WORD = 104;
+export const SURFACE_FIELD_STORE_FLAGS_WORD = 112;
+export const SURFACE_FIELD_STORE_GENERATION_WORD = 113;
+export const SURFACE_FIELD_STORE_STATE_WORD = 114;
+export const SURFACE_FIELD_STORE_TOUCHED_WORD = 115;
+export const SURFACE_FIELD_STORE_STATE = Object.freeze({ empty: 0, reserved: 1, published: 2 });
+export const SURFACE_FIELD_STORE_FLAGS = Object.freeze({ value: 1, certificate: 2, certifiedValue: 4, negativeCertificate: 8 });
 
 export interface SurfaceFieldStoreKey {
-  readonly programGeneration: number;
-  readonly fieldVersion: number;
-  readonly chartDomain: number;
-  readonly cellLevel: number;
+  readonly producer: number;
+  readonly version: number;
+  readonly dependencyEpoch: number;
+  readonly material: number;
+  readonly instance: number;
+  readonly instanceGeneration: number;
+  readonly geometry: number;
+  readonly geometryGeneration: number;
+  readonly sourceMeshlet: number;
+  readonly sourcePrimitive: number;
+  readonly lod: number;
+  readonly chart: number;
+  readonly side: number;
+  readonly scope: number;
   readonly cellX: number;
   readonly cellY: number;
-  readonly samplerClass: number;
-  readonly textureGeneration: number;
-  readonly geometryDomain: number;
-  readonly side: number;
-  readonly footprintId: number;
-  readonly reserved: number;
+  readonly gradientX: number;
+  readonly gradientY: number;
+  readonly geometryRevision: number;
+  readonly viewRevision: number;
+  readonly pointWitness: readonly number[];
 }
 export interface SurfaceFieldStoreCapacity {
   readonly bytes: number;
@@ -39,87 +53,188 @@ export interface SurfaceFieldStoreCapacity {
   readonly sets: number;
   readonly segmentBytes: readonly number[];
 }
-const u32=(value:number,name:string):number=>{if(!Number.isSafeInteger(value)||value<0||value>0xffffffff)throw new RangeError(`${name} must be u32`);return value>>>0;};
-export function encodeSurfaceFieldStoreKey(key:SurfaceFieldStoreKey):Uint32Array<ArrayBuffer>{
- return Uint32Array.from([u32(key.programGeneration,"programGeneration"),u32(key.fieldVersion,"fieldVersion"),u32(key.chartDomain,"chartDomain"),u32(key.cellLevel,"cellLevel"),u32(key.cellX,"cellX"),u32(key.cellY,"cellY"),u32(key.samplerClass,"samplerClass"),u32(key.textureGeneration,"textureGeneration"),u32(key.geometryDomain,"geometryDomain"),u32(key.side,"side"),u32(key.footprintId,"footprintId"),u32(key.reserved,"reserved")]);
+function uint(value: number): number {
+  if (!Number.isSafeInteger(value) || value < 0 || value > 0xffffffff) { throw new RangeError("Field identity must be uint32"); }
+  return value >>> 0;
 }
-export function planSurfaceFieldStoreCapacity(limits:Pick<GPUSupportedLimits,"maxBufferSize"|"maxStorageBufferBindingSize">,budgetBytes=SURFACE_FIELD_STORE_BUDGET_BYTES):SurfaceFieldStoreCapacity{
- const binding=Math.floor(Math.min(Number(limits.maxBufferSize),Number(limits.maxStorageBufferBindingSize))/256)*256;
- if(!Number.isSafeInteger(budgetBytes)||budgetBytes<SURFACE_FIELD_STORE_ENTRY_BYTES*SURFACE_FIELD_STORE_WAYS)throw new RangeError("Invalid FieldStore budget");
- const bytes=Math.floor(budgetBytes/(SURFACE_FIELD_STORE_ENTRY_BYTES*SURFACE_FIELD_STORE_WAYS))*SURFACE_FIELD_STORE_ENTRY_BYTES*SURFACE_FIELD_STORE_WAYS;
- const entries=Math.floor(bytes/SURFACE_FIELD_STORE_ENTRY_BYTES);const sets=Math.floor(entries/SURFACE_FIELD_STORE_WAYS);
- if(sets<1)throw new RangeError("FieldStore cannot fit one bounded set");
- const segmentBytes:number[]=[];let remaining=bytes;const segmentLimit=Math.floor(binding/SURFACE_FIELD_STORE_ENTRY_BYTES)*SURFACE_FIELD_STORE_ENTRY_BYTES;if(segmentLimit<SURFACE_FIELD_STORE_ENTRY_BYTES)throw new RangeError("FieldStore binding cannot fit one entry");while(remaining){const part=Math.min(remaining,segmentLimit);segmentBytes.push(part);remaining-=part;}
- return Object.freeze({bytes,entries:sets*SURFACE_FIELD_STORE_WAYS,sets,segmentBytes:Object.freeze(segmentBytes)});
+export function encodeSurfaceFieldStoreKey(key: SurfaceFieldStoreKey): Uint32Array<ArrayBuffer> {
+  if (key.pointWitness.length > SURFACE_FIELD_STORE_KEY_WORDS-SURFACE_FIELD_STORE_IDENTITY_WORDS) {
+    throw new RangeError("Field point witness exceeds the negotiated key");
+  }
+  const words=new Uint32Array(SURFACE_FIELD_STORE_KEY_WORDS);
+  words.set([key.producer,key.version,key.dependencyEpoch,key.material,key.instance,key.instanceGeneration,key.geometry,
+    key.geometryGeneration,key.sourceMeshlet,key.sourcePrimitive,key.lod,key.chart,key.side,key.scope,key.cellX,key.cellY,
+    key.gradientX,key.gradientY,key.geometryRevision,key.viewRevision].map(uint));
+  words.set(key.pointWitness.map(uint),SURFACE_FIELD_STORE_IDENTITY_WORDS);
+  return words;
+}
+export function planSurfaceFieldStoreCapacity(limits: Pick<GPUSupportedLimits,"maxBufferSize"|"maxStorageBufferBindingSize">,
+  budgetBytes=SURFACE_FIELD_STORE_BUDGET_BYTES): SurfaceFieldStoreCapacity {
+  const setBytes=SURFACE_FIELD_STORE_ENTRY_BYTES*SURFACE_FIELD_STORE_WAYS;
+  const binding=Math.floor(Math.min(Number(limits.maxBufferSize),Number(limits.maxStorageBufferBindingSize))/setBytes)*setBytes;
+  if (!Number.isSafeInteger(budgetBytes) || budgetBytes<setBytes || binding<setBytes) {
+    throw new RangeError("FieldStore cannot fit one complete four-way set");
+  }
+  const bytes=Math.floor(budgetBytes/setBytes)*setBytes;
+  const segments: number[]=[];
+  for(let remaining=bytes;remaining>0;) { const part=Math.min(remaining,binding);segments.push(part);remaining-=part; }
+  return Object.freeze({bytes,entries:bytes/SURFACE_FIELD_STORE_ENTRY_BYTES,sets:bytes/setBytes,segmentBytes:Object.freeze(segments)});
 }
 
-export const SURFACE_FIELD_STORE_WGSL=/* wgsl */ `
-const SURFACE_FIELD_STORE_EMPTY:u32=${SURFACE_FIELD_STORE_EMPTY}u;
+export const SURFACE_FIELD_STORE_WGSL = /* wgsl */ `
+const SURFACE_FIELD_STORE_EMPTY:u32=0xffffffffu;
+const SURFACE_FIELD_STORE_IDENTITY_WORDS:u32=${SURFACE_FIELD_STORE_IDENTITY_WORDS}u;
 const SURFACE_FIELD_STORE_KEY_WORDS:u32=${SURFACE_FIELD_STORE_KEY_WORDS}u;
 const SURFACE_FIELD_STORE_ENTRY_WORDS:u32=${SURFACE_FIELD_STORE_ENTRY_WORDS}u;
 const SURFACE_FIELD_STORE_WAYS:u32=${SURFACE_FIELD_STORE_WAYS}u;
-fn surface_field_store_hash(key:ptr<storage,array<u32>,read>,at:u32)->u32{var h=2166136261u;for(var i=0u;i<SURFACE_FIELD_STORE_KEY_WORDS;i++){h=(h^(*key)[at+i])*16777619u;}return h;}
-fn surface_field_store_equal(store:ptr<storage,array<u32>,read>,entry:u32,key:ptr<storage,array<u32>,read>,keyAt:u32)->bool{let at=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;for(var i=0u;i<SURFACE_FIELD_STORE_KEY_WORDS;i++){if (*store)[at+i]!=(*key)[keyAt+i]{return false;}}return true;}
-fn surface_field_store_equal_atomic(store:ptr<storage,array<atomic<u32>>,read_write>,entry:u32,key:ptr<storage,array<u32>,read>,keyAt:u32)->bool{let at=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;for(var i=0u;i<SURFACE_FIELD_STORE_KEY_WORDS;i++){if atomicLoad(&(*store)[at+i])!=(*key)[keyAt+i]{return false;}}return true;}
-fn surface_field_store_entry(setIndex:u32,way:u32)->u32{return (setIndex*SURFACE_FIELD_STORE_WAYS+way);}
+const SURFACE_FIELD_STORE_VALUE_WORD:u32=${SURFACE_FIELD_STORE_VALUE_WORD}u;
+const SURFACE_FIELD_STORE_BOUNDS_WORD:u32=${SURFACE_FIELD_STORE_BOUNDS_WORD}u;
+const SURFACE_FIELD_STORE_DOMAIN_WORD:u32=${SURFACE_FIELD_STORE_DOMAIN_WORD}u;
+const SURFACE_FIELD_STORE_GRADIENT_WORD:u32=${SURFACE_FIELD_STORE_GRADIENT_WORD}u;
+const SURFACE_FIELD_STORE_FLAGS_WORD:u32=${SURFACE_FIELD_STORE_FLAGS_WORD}u;
+const SURFACE_FIELD_STORE_GENERATION_WORD:u32=${SURFACE_FIELD_STORE_GENERATION_WORD}u;
+const SURFACE_FIELD_STORE_STATE_WORD:u32=${SURFACE_FIELD_STORE_STATE_WORD}u;
+const SURFACE_FIELD_STORE_TOUCHED_WORD:u32=${SURFACE_FIELD_STORE_TOUCHED_WORD}u;
+const SURFACE_FIELD_STORE_PUBLISHED:u32=2u;
+const SURFACE_FIELD_VALUE_VALID:u32=${SURFACE_FIELD_STORE_FLAGS.value}u;
+const SURFACE_FIELD_CERTIFICATE_VALID:u32=${SURFACE_FIELD_STORE_FLAGS.certificate}u;
+const SURFACE_FIELD_CERTIFIED_VALUE:u32=${SURFACE_FIELD_STORE_FLAGS.certifiedValue}u;
+const SURFACE_FIELD_NEGATIVE_CERTIFICATE:u32=${SURFACE_FIELD_STORE_FLAGS.negativeCertificate}u;
+fn surface_field_store_hash(key:ptr<storage,array<u32>,read>,at:u32)->u32 {
+  var hash=2166136261u;
+  for(var word=0u;word<SURFACE_FIELD_STORE_IDENTITY_WORDS;word++) { hash=(hash^(*key)[at+word])*16777619u; }
+  return hash;
+}
+fn surface_field_store_equal(store:ptr<storage,array<u32>,read>,entry:u32,key:ptr<storage,array<u32>,read>,at:u32)->bool {
+  let base=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
+  for(var word=0u;word<SURFACE_FIELD_STORE_KEY_WORDS;word++) { if (*store)[base+word]!=(*key)[at+word] { return false; } }
+  return true;
+}
+fn surface_field_store_equal_atomic(store:ptr<storage,array<atomic<u32>>,read_write>,entry:u32,key:ptr<storage,array<u32>,read>,at:u32)->bool {
+  let base=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
+  for(var word=0u;word<SURFACE_FIELD_STORE_KEY_WORDS;word++) { if atomicLoad(&(*store)[base+word])!=(*key)[at+word] { return false; } }
+  return true;
+}
+fn surface_field_store_entry(cache_set:u32,way:u32)->u32 { return cache_set*SURFACE_FIELD_STORE_WAYS+way; }
 `;
-export const SURFACE_FIELD_STORE_COMPUTE_WGSL=/* wgsl */ `
+
+export const SURFACE_FIELD_STORE_COMPUTE_WGSL = /* wgsl */ `
 ${SURFACE_FIELD_STORE_WGSL}
-struct SurfaceFieldStoreSettings {request_count:u32,entry_count:u32,generation:u32,segment_base:u32,}
+struct SurfaceFieldStoreSettings { request_count:u32, entry_count:u32, generation:u32, epoch:u32, }
 @group(0) @binding(0) var<uniform> surface_field_store_settings:SurfaceFieldStoreSettings;
 @group(0) @binding(1) var<storage,read> surface_field_store_requests:array<u32>;
 @group(0) @binding(2) var<storage,read_write> surface_field_store_entries:array<atomic<u32>>;
 @group(0) @binding(3) var<storage,read_write> surface_field_store_results:array<u32>;
 @group(0) @binding(4) var<storage,read_write> surface_field_store_counters:array<atomic<u32>>;
-@compute @workgroup_size(64) fn surface_field_store_reset(@builtin(global_invocation_id) id:vec3u){
- let entry=id.x;if(entry>=surface_field_store_settings.entry_count){return;}
- let at=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
- for(var word=0u;word<SURFACE_FIELD_STORE_ENTRY_WORDS;word++){atomicStore(&surface_field_store_entries[at+word],select(0u,SURFACE_FIELD_STORE_EMPTY,word==0u));}
-}
-fn surface_field_store_probe(request:u32)->u32 {
- let hash=surface_field_store_hash(&surface_field_store_requests,request*16u);
- let setIndex=hash%(surface_field_store_settings.entry_count/SURFACE_FIELD_STORE_WAYS);
-  for(var way=0u;way<SURFACE_FIELD_STORE_WAYS;way++){let entry=surface_field_store_entry(setIndex,way);let at=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
-   let state=atomicLoad(&surface_field_store_entries[at+14u]);
-   if (state&1u)!=0u && surface_field_store_equal_atomic(&surface_field_store_entries,entry,&surface_field_store_requests,request*16u){return entry;}
-  if atomicLoad(&surface_field_store_entries[at])==SURFACE_FIELD_STORE_EMPTY{return 0xffffffffu;}
- }
- return 0xffffffffu;
-}
-@compute @workgroup_size(64) fn surface_field_store_lookup(@builtin(global_invocation_id) id:vec3u){
- let request=id.x;if request>=surface_field_store_settings.request_count{return;}
- atomicAdd(&surface_field_store_counters[0],1u);let hit=surface_field_store_probe(request);
- if hit==0xffffffffu{surface_field_store_results[request*2u]=0xffffffffu;atomicAdd(&surface_field_store_counters[2],1u);}else{surface_field_store_results[request*2u]=hit;surface_field_store_results[request*2u+1u]=1u;atomicAdd(&surface_field_store_counters[1],1u);}
-}
-@compute @workgroup_size(64) fn surface_field_store_publish(@builtin(global_invocation_id) id:vec3u){
- let request=id.x;if request>=surface_field_store_settings.request_count{return;}
- surface_field_store_results[request]=SURFACE_FIELD_STORE_EMPTY;
- let hash=surface_field_store_hash(&surface_field_store_requests,request*16u);let setIndex=hash%(surface_field_store_settings.entry_count/SURFACE_FIELD_STORE_WAYS);
- for(var way=0u;way<SURFACE_FIELD_STORE_WAYS;way++){let entry=surface_field_store_entry(setIndex,way);let at=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
-   // Immutable full-key entries. The state word, not the first key word,
-   // elects the sole writer. Readers consume publication in a later pass.
-   let state=atomicLoad(&surface_field_store_entries[at+14u]);
-   if (state&1u)!=0u {
-     if surface_field_store_equal_atomic(&surface_field_store_entries,entry,&surface_field_store_requests,request*16u) { return; }
-     continue;
-   }
-   if state!=0u { continue; }
-   let owner=atomicCompareExchangeWeak(&surface_field_store_entries[at+14u],0u,2u);
-   if owner.exchanged {
-    for(var word=0u;word<SURFACE_FIELD_STORE_KEY_WORDS;word++){atomicStore(&surface_field_store_entries[at+word],surface_field_store_requests[request*16u+word]);}
-   for(var value=0u;value<4u;value++){atomicStore(&surface_field_store_entries[at+16u+value],surface_field_store_requests[request*16u+12u+value]);}
-    atomicStore(&surface_field_store_entries[at+15u],surface_field_store_settings.generation);
-    surface_field_store_results[request]=entry;
-    atomicAdd(&surface_field_store_counters[3],1u);return;
+fn field_store_support(base:u32,request:u32)->bool {
+  let at=request*SURFACE_FIELD_STORE_ENTRY_WORDS;
+  for(var axis=0u;axis<2u;axis++) {
+    let low=bitcast<f32>(atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_DOMAIN_WORD+axis]));
+    let high=bitcast<f32>(atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_DOMAIN_WORD+2u+axis]));
+    let requested_low=bitcast<f32>(surface_field_store_requests[at+SURFACE_FIELD_STORE_DOMAIN_WORD+axis]);
+    let requested_high=bitcast<f32>(surface_field_store_requests[at+SURFACE_FIELD_STORE_DOMAIN_WORD+2u+axis]);
+    if !(requested_low>=low && requested_high<=high) { return false; }
   }
- }
- atomicAdd(&surface_field_store_counters[4],1u);
+  for(var component=0u;component<4u;component++) {
+    let low=bitcast<f32>(atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_GRADIENT_WORD+component]));
+    let high=bitcast<f32>(atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_GRADIENT_WORD+4u+component]));
+    let requested_low=bitcast<f32>(surface_field_store_requests[at+SURFACE_FIELD_STORE_GRADIENT_WORD+component]);
+    let requested_high=bitcast<f32>(surface_field_store_requests[at+SURFACE_FIELD_STORE_GRADIENT_WORD+4u+component]);
+    if !(requested_low>=low && requested_high<=high) { return false; }
+  }
+  return true;
+}
+fn field_store_probe(request:u32)->u32 {
+  let request_at=request*SURFACE_FIELD_STORE_ENTRY_WORDS;
+  let hash=surface_field_store_hash(&surface_field_store_requests,request_at);
+  let cache_set=hash%(surface_field_store_settings.entry_count/SURFACE_FIELD_STORE_WAYS);
+  for(var way=0u;way<SURFACE_FIELD_STORE_WAYS;way++) {
+    let entry=surface_field_store_entry(cache_set,way);
+    let base=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
+    if atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_STATE_WORD])!=SURFACE_FIELD_STORE_PUBLISHED { continue; }
+    var identity=true;
+    for(var word=0u;word<SURFACE_FIELD_STORE_IDENTITY_WORDS;word++) {
+      if atomicLoad(&surface_field_store_entries[base+word])!=surface_field_store_requests[request_at+word] { identity=false; break; }
+    }
+    if !identity { continue; }
+    let flags=atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_FLAGS_WORD]);
+    let exact=surface_field_store_equal_atomic(&surface_field_store_entries,entry,&surface_field_store_requests,request_at);
+    if (flags&SURFACE_FIELD_VALUE_VALID)!=0u && (exact || ((flags&SURFACE_FIELD_CERTIFIED_VALUE)!=0u && field_store_support(base,request))) {
+      return entry;
+    }
+  }
+  return SURFACE_FIELD_STORE_EMPTY;
+}
+@compute @workgroup_size(64)
+fn surface_field_store_lookup(@builtin(global_invocation_id) id:vec3u) {
+  let request=id.x;
+  if request>=surface_field_store_settings.request_count { return; }
+  let result=request*4u;
+  surface_field_store_results[result]=SURFACE_FIELD_STORE_EMPTY;
+  surface_field_store_results[result+1u]=0u;
+  surface_field_store_results[result+2u]=0u;
+  surface_field_store_results[result+3u]=0u;
+  atomicAdd(&surface_field_store_counters[0u],1u);
+  let hit=field_store_probe(request);
+  if hit==SURFACE_FIELD_STORE_EMPTY { atomicAdd(&surface_field_store_counters[2u],1u);return; }
+  let base=hit*SURFACE_FIELD_STORE_ENTRY_WORDS;
+  atomicMax(&surface_field_store_entries[base+SURFACE_FIELD_STORE_TOUCHED_WORD],surface_field_store_settings.epoch);
+  let flags=atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_FLAGS_WORD]);
+  surface_field_store_results[result]=hit;
+  surface_field_store_results[result+1u]=atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_GENERATION_WORD]);
+  surface_field_store_results[result+2u]=flags;
+  surface_field_store_results[result+3u]=select(0u,flags&(SURFACE_FIELD_CERTIFICATE_VALID|SURFACE_FIELD_NEGATIVE_CERTIFICATE),field_store_support(base,request));
+  atomicAdd(&surface_field_store_counters[1u],1u);
+}
+@compute @workgroup_size(64)
+fn surface_field_store_reset(@builtin(global_invocation_id) id:vec3u) {
+  if id.x>=surface_field_store_settings.entry_count { return; }
+  let base=id.x*SURFACE_FIELD_STORE_ENTRY_WORDS;
+  for(var word=0u;word<SURFACE_FIELD_STORE_ENTRY_WORDS;word++) { atomicStore(&surface_field_store_entries[base+word],0u); }
+}
+@compute @workgroup_size(64)
+fn surface_field_store_publish(@builtin(global_invocation_id) id:vec3u) {
+  let request=id.x;
+  if request>=surface_field_store_settings.request_count { return; }
+  let at=request*SURFACE_FIELD_STORE_ENTRY_WORDS;
+  surface_field_store_results[request*4u]=SURFACE_FIELD_STORE_EMPTY;
+  let valid=surface_field_store_requests[at]!=0u && surface_field_store_requests[at]!=SURFACE_FIELD_STORE_EMPTY &&
+    surface_field_store_requests[at+2u]!=SURFACE_FIELD_STORE_EMPTY && (surface_field_store_requests[at+SURFACE_FIELD_STORE_FLAGS_WORD]&SURFACE_FIELD_VALUE_VALID)!=0u;
+  if !valid { return; }
+  for(var component=0u;component<4u;component++) {
+    let value=bitcast<f32>(surface_field_store_requests[at+SURFACE_FIELD_STORE_VALUE_WORD+component]);
+    if value!=value || abs(value)>3.402823466e38 { atomicAdd(&surface_field_store_counters[5u],1u);return; }
+  }
+  let hash=surface_field_store_hash(&surface_field_store_requests,at);
+  let cache_set=hash%(surface_field_store_settings.entry_count/SURFACE_FIELD_STORE_WAYS);
+  for(var way=0u;way<SURFACE_FIELD_STORE_WAYS;way++) {
+    let entry=surface_field_store_entry(cache_set,way);
+    let base=entry*SURFACE_FIELD_STORE_ENTRY_WORDS;
+    let state=atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_STATE_WORD]);
+    if state==1u || (state==2u && atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_TOUCHED_WORD])>=surface_field_store_settings.epoch) { continue; }
+    let generation=atomicLoad(&surface_field_store_entries[base+SURFACE_FIELD_STORE_GENERATION_WORD]);
+    if generation>=0xfffffffeu { continue; }
+    var owns=false;
+    for(var attempt=0u;attempt<4u;attempt++) {
+      let claim=atomicCompareExchangeWeak(&surface_field_store_entries[base+SURFACE_FIELD_STORE_STATE_WORD],state,1u);
+      if claim.exchanged { owns=true;break; }
+      if claim.old_value!=state { break; }
+    }
+    if !owns { continue; }
+    for(var word=0u;word<SURFACE_FIELD_STORE_GENERATION_WORD;word++) { atomicStore(&surface_field_store_entries[base+word],surface_field_store_requests[at+word]); }
+    atomicStore(&surface_field_store_entries[base+SURFACE_FIELD_STORE_GENERATION_WORD],generation+1u);
+    atomicStore(&surface_field_store_entries[base+SURFACE_FIELD_STORE_TOUCHED_WORD],surface_field_store_settings.epoch);
+    surface_field_store_results[request*4u]=entry;
+    atomicAdd(&surface_field_store_counters[3u],1u);
+    return;
+  }
+  atomicAdd(&surface_field_store_counters[4u],1u);
 }
 @compute @workgroup_size(64)
 fn surface_field_store_commit(@builtin(global_invocation_id) id:vec3u) {
- if id.x>=surface_field_store_settings.request_count { return; }
- let entry=surface_field_store_results[id.x];
- if entry==SURFACE_FIELD_STORE_EMPTY { return; }
- atomicStore(&surface_field_store_entries[entry*SURFACE_FIELD_STORE_ENTRY_WORDS+14u],1u);
+  if id.x>=surface_field_store_settings.request_count { return; }
+  let entry=surface_field_store_results[id.x*4u];
+  if entry==SURFACE_FIELD_STORE_EMPTY { return; }
+  atomicStore(&surface_field_store_entries[entry*SURFACE_FIELD_STORE_ENTRY_WORDS+SURFACE_FIELD_STORE_STATE_WORD],SURFACE_FIELD_STORE_PUBLISHED);
 }
 `;

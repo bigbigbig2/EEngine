@@ -5,6 +5,14 @@ export const SURFACE_CELL_CLASSIFY_STAGES = Object.freeze([
   { first: 0, count: 15 },
   { first: 15, count: 6 }
 ] as const);
+/** Finite compile families. Shared texture closures (in particular ORM) stay in
+ * one family; fields are evaluated once and all hierarchy planes consume the
+ * same published leaf products. This is not a per-field dispatch scheme. */
+export const SURFACE_CELL_CERTIFICATE_FAMILIES = Object.freeze([
+  Object.freeze([0, 1, 5]),
+  Object.freeze([2, 3, 4, 7, 8, 9]),
+  Object.freeze([6, 10, 11, 12, 13, 14])
+]);
 
 export function surfaceCellGroupValidationWgsl(planeStart: number, planeCount: number): string {
   const signals=planeStart+planeCount>15;

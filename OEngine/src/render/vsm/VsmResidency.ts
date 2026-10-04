@@ -9,6 +9,7 @@ export interface VsmAllocationFrame {
   readonly pageTable: ResourceId;
   readonly metaTable: ResourceId;
   readonly pageLocks: ResourceId;
+  readonly contentVersion: ResourceId;
   readonly generation: number;
   readonly capacity: number;
 }

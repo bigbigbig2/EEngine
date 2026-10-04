@@ -2,6 +2,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { VsmGenerationState } from "./VsmGeneration.js";
 import type { VsmResources } from "./VsmResources.js";
+import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 
 /**
  * Publishes VSM lifecycle facts inside the current command context.  The pass
@@ -11,12 +12,13 @@ export class VsmInvalidationPass {
   addToGraph(graph: FrameGraph, input: {
     readonly resources: VsmResources;
     readonly state: VsmGenerationState;
-  }): void {
-    if (input.resources.profile === "shadow-disabled") return;
+  }): ResourceId | null {
+    if (input.resources.profile === "shadow-disabled") return null;
     const generation = input.resources.generation;
     const dirtyMask = input.resources.dirtyMask;
     const overflowCounters = input.resources.overflowCounters;
-    if (!generation || !dirtyMask || !overflowCounters) {
+    const contentVersion = input.resources.contentVersion;
+    if (!generation || !dirtyMask || !overflowCounters || !contentVersion) {
       throw new Error("VSM invalidation resources are unavailable");
     }
     const generationResource = graph.import_resource(
@@ -25,6 +27,7 @@ export class VsmInvalidationPass {
       "VSM/invalidation dirty mask", { kind: "imported", label: "VSM dirty mask" }, dirtyMask);
     const overflowResource = graph.import_resource(
       "VSM/invalidation telemetry", { kind: "imported", label: "VSM overflow telemetry" }, overflowCounters);
+    const contentResource = graph.import_resource("VSM/content publication", { kind: "imported", label: "VSM content version" }, contentVersion);
     const node = graph.add("VSM/publish invalidation facts", input.state,
       (state, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
@@ -53,10 +56,12 @@ export class VsmInvalidationPass {
         // Keep diagnostics frame-local while preserving the GPU-only control
         // path. Allocation and caster passes overwrite their own ranges.
         command.clearBuffer(overflowBuffer);
+        command.clearBuffer(resources.get(contentResource) as GPUBuffer, 4, 4);
       });
     node.write(generationResource);
     node.write(dirtyResource);
     node.write(overflowResource);
     node.make_side_effect();
+    return node.write(contentResource);
   }
 }

@@ -12,7 +12,9 @@ export type VsmBufferKey =
   | "rasterIndirect"
   | "pageConstants"
   | "pageLocks"
-  | "slotLocks";
+  | "slotLocks"
+  | "contentVersion";
+let nextContentNamespace = 1;
 
 /** GPU-resident diagnostic locations. Consumers must not map them to steer work. */
 export interface VsmDiagnostics {
@@ -44,6 +46,8 @@ export class VsmResources {
       this.atlasDepthView = null;
       return;
     }
+    if (nextContentNamespace >= 0xfffffffe) { throw new RangeError("VSM content namespace exhausted"); }
+    const contentNamespace=nextContentNamespace++;
     this.atlasDepth = device.createTexture({
       label: `VSM/${capabilities.profile}/depth-atlas`,
       size: { width: capabilities.atlasDimension, height: capabilities.atlasDimension, depthOrArrayLayers: 1 },
@@ -65,6 +69,7 @@ export class VsmResources {
     this.createBuffer("pageConstants", 256, GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
     this.createBuffer("pageLocks", Math.max(256, capabilities.virtualEntryCount * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
     this.createBuffer("slotLocks", Math.max(256, capabilities.residentSlots * 4), GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST);
+    this.createBuffer("contentVersion", 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST, [0,0,0,contentNamespace]);
   }
 
   static create(device: GPUDevice, capabilities: VsmCapabilities): VsmResources {
@@ -83,6 +88,8 @@ export class VsmResources {
   get pageConstants(): GPUBuffer | null { return this.getBuffer("pageConstants"); }
   get pageLocks(): GPUBuffer | null { return this.getBuffer("pageLocks"); }
   get slotLocks(): GPUBuffer | null { return this.getBuffer("slotLocks"); }
+  /** version, frame dirty marker, last generation, immutable owner namespace. */
+  get contentVersion(): GPUBuffer | null { return this.getBuffer("contentVersion"); }
 
   diagnostics(): VsmDiagnostics | null {
     if (this.profile === "shadow-disabled") return null;
@@ -114,7 +121,7 @@ export class VsmResources {
     return this.buffers.get(key) ?? null;
   }
 
-  private createBuffer(key: VsmBufferKey, requestedSize: number, usage: GPUBufferUsageFlags): void {
+  private createBuffer(key: VsmBufferKey, requestedSize: number, usage: GPUBufferUsageFlags, initial?:readonly number[]): void {
     const size = Math.max(4, Math.ceil(requestedSize / 4) * 4);
     if (!Number.isSafeInteger(size) || size > this.capabilities.limits.maxStorageBufferBindingSize ||
         size > this.capabilities.limits.maxBufferSize) {
@@ -128,6 +135,7 @@ export class VsmResources {
     }));
     const buffer = this.buffers.get(key)!;
     new Uint8Array(buffer.getMappedRange()).fill(0);
+    if(initial!==undefined) { new Uint32Array(buffer.getMappedRange()).set(initial); }
     buffer.unmap();
   }
 

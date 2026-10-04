@@ -24,6 +24,7 @@ import { ShadeTransparencyMode } from "../material/enums.js";
 import { lowerAppearanceFieldBounds, type AppearanceFieldBoundProgram } from "../shaders/appearance_field_bounds.js";
 import { packSurfaceAppearanceBounds } from "./GpuSurfaceAppearanceBoundsAbi.js";
 import { SURFACE_INPUT_WITNESS_WORDS } from "./GpuSurfaceWorkAbi.js";
+import { publishSurfaceFieldIdentities, SURFACE_FIELD_IDENTITY_WORDS } from "./GpuSurfaceFieldIdentityAbi.js";
 
 const APPEARANCE_FRAME_MAX_TASKS = 262144;
 const APPEARANCE_FRAME_MAX_PIXELS = 4194304;
@@ -392,6 +393,8 @@ export class GpuAppearancePublication {
     readonly constants: number;
     readonly routes: number;
     readonly constantFields: number;
+    readonly fieldIdentities: number;
+    readonly fieldTextureDependencies: number;
     readonly materialLookupCount: number;
     readonly directoryCount: number;
   }>;
@@ -632,6 +635,23 @@ export class GpuAppearancePublication {
         APPEARANCE_FIELD_NAMES.forEach((name,field)=>{const ordinal=names.indexOf(name);identityData[at+4+field]=ordinal<0?0xffffffff:ordinal;});
       });
       const boundData = packSurfaceAppearanceBounds(boundGraphs);
+      const fieldIdentityData = new Uint32Array(Math.max(1,sources.length)*15*SURFACE_FIELD_IDENTITY_WORDS);
+      const fieldTextureDependencies: number[] = [];
+      sources.forEach((source,index) => {
+        const entry=entries[index]!;
+        const publication=publishSurfaceFieldIdentities(registry,source.program,entry.fieldBase,binding => {
+          const texture=texturePublications.get(binding.texture);
+          const samplerSnapshot={wrapS:binding.sampler[4],wrapT:binding.sampler[5],minFilter:binding.sampler[1],magFilter:binding.sampler[2],
+            runtime_asset_package_v2:binding.texture.runtime_asset_package_v2} as ShadeTexture;
+          return [source.textureRefs.get(binding.texture)??GPU_TEXTURE_REF_INVALID,texture?.slot??0,texture?.generation??0,
+            encodeSamplerClass(samplerSnapshot,mipRanges.get(binding.texture)).value];
+        },name => source.material.appearance_inputs.get(name));
+        const identities=publication.identities;
+        for(let field=0;field<15;field++) { identities[field*SURFACE_FIELD_IDENTITY_WORDS+4]!+=fieldTextureDependencies.length; }
+        fieldIdentityData.set(identities,index*15*SURFACE_FIELD_IDENTITY_WORDS);
+        fieldTextureDependencies.push(...publication.textureSlots);
+      });
+      const fieldTextureData=Uint32Array.from(fieldTextureDependencies);
       const surfaceMetadataOffsets = {
         materialLookup: 0,
         identity: materialLookupData.length,
@@ -641,12 +661,14 @@ export class GpuAppearancePublication {
         constants: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length,
         routes: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length + constantData.length,
         constantFields: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length + constantData.length + routeData.byteLength/4,
+        fieldIdentities: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length + constantData.length + routeData.byteLength/4 + Math.max(1,sources.length)*64,
+        fieldTextureDependencies: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length + constantData.length + routeData.byteLength/4 + Math.max(1,sources.length)*64 + fieldIdentityData.length,
         materialLookupCount: materialLookupData.length,
         directoryCount: directoryData.length / directoryWords
       } as const;
       // GPU publication substage fills one submitted-epoch constant palette per
       // material. The immutable descriptor/input ranges precede this write domain.
-      const surfaceMetadataData = new Uint32Array(surfaceMetadataOffsets.constantFields + Math.max(1,sources.length)*64);
+      const surfaceMetadataData = new Uint32Array(surfaceMetadataOffsets.fieldTextureDependencies+fieldTextureData.length);
       surfaceMetadataData.set(materialLookupData, surfaceMetadataOffsets.materialLookup);
       surfaceMetadataData.set(identityData, surfaceMetadataOffsets.identity);
       surfaceMetadataData.set(directoryData, surfaceMetadataOffsets.directory);
@@ -654,6 +676,8 @@ export class GpuAppearancePublication {
       surfaceMetadataData.set(boundData, surfaceMetadataOffsets.bounds);
       surfaceMetadataData.set(new Uint32Array(constantData.buffer),surfaceMetadataOffsets.constants);
       surfaceMetadataData.set(new Uint32Array(routeData.buffer),surfaceMetadataOffsets.routes);
+      surfaceMetadataData.set(fieldIdentityData,surfaceMetadataOffsets.fieldIdentities);
+      surfaceMetadataData.set(fieldTextureData,surfaceMetadataOffsets.fieldTextureDependencies);
       const maximum = Math.min(Number(device.limits.maxBufferSize), Number(device.limits.maxStorageBufferBindingSize));
       for (const data of [constantData, routeData, directoryData, fieldData, inputData, materialLookupData, identityData, surfaceMetadataData]) if (data.byteLength > maximum) {
         throw new RangeError(`Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`);

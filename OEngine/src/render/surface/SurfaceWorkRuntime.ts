@@ -32,6 +32,7 @@ export interface SurfaceSignalRevisions {
   readonly environment: number;
   readonly light: number;
   readonly shadow: number;
+  readonly sun: number;
   readonly ao?: number;
 }
 
@@ -104,9 +105,9 @@ export class SurfaceWorkRuntime {
     this.fieldStore = fieldStore;
     this.signalStore = signalStore;
     this.scratch = new SurfaceFrameResources(device, accounting);
-    this.cellClassifier = new SurfaceCellClassifierPass(device, this.scratch);
+    this.cellClassifier = new SurfaceCellClassifierPass(device, this.scratch, fieldStore, signalStore);
     this.cacheIdentity = new SurfaceCacheIdentityPass(device,this.scratch);
-    this.dependencyEpoch = new SurfaceDependencyEpochPass(device,this.scratch);
+    this.dependencyEpoch = new SurfaceDependencyEpochPass(device,fieldStore);
     this.geometry = new SurfaceGeometryPass(device, this.scratch);
     this.material = new SurfaceMaterialCachePass(device, this.scratch, fieldStore);
     this.lighting = new SurfaceLightingWorkPass(device, this.scratch, signalStore);
@@ -193,7 +194,9 @@ export class SurfaceWorkRuntime {
       return binding as T;
     };
     input = { ...input, historyBinding };
-    const dependencyEpoch = this.dependencyEpoch.addToGraph(graph,input.residencyVersions,input.historyBinding);
+    const dependencyEpoch = this.dependencyEpoch.addToGraph(graph,{metadata:input.appearanceMetadata,versions:input.residencyVersions,
+      publication:input.publication,bind:input.historyBinding});
+    input={...input,appearanceMetadata:dependencyEpoch};
     let result!: SurfaceWorkProducts;
     let previousReconstruction: SurfaceReconstructionProducts | undefined;
     const consumeBatch = (cells: SurfaceCellClassifierProducts, firstTile: number, tileCount: number, batchTiles: number): readonly ResourceId[] => {
@@ -203,7 +206,10 @@ export class SurfaceWorkRuntime {
     const classify = (): void => { this.cellClassifier.addToGraph(graph, { resourceBinding: input.historyBinding, geometryPass: this.geometry,
       visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload,
       frameInstances: input.frameInstances, camera: input.camera, textureVariation: input.textureVariation,
-      appearanceMetadata: input.appearanceMetadata, width: input.width, height: input.height,
+      appearanceMetadata: input.appearanceMetadata, fieldVersions: input.fieldVersions, viewRevision: input.viewRevision,
+      signalRevisions: input.revisions, sun: input.physicalSun?.parameters ?? null,
+      shadowVersion: input.shadow?.contentVersion ?? null,
+      width: input.width, height: input.height,
       generation: input.frame.generation, frameAt: input.frame.arenaHeaderOffset / 4, directoryAt: input.frame.directoryOffset / 4,
       sourceGeometry: input.frame.sourceGeometry, sourceMeshlet: input.frame.sourceMeshlet, sourceMeshletVertices: input.frame.sourceMeshletVertices,
       sourceMeshletTriangles: input.frame.sourceMeshletTriangles, sourceVertexData: input.frame.sourceVertexData,
@@ -293,5 +299,5 @@ export class SurfaceWorkRuntime {
   }
   abort(): void { this.reconstruction.abort(); this.prepared = false; }
   invalidate(): void { this.reconstruction.invalidate(); }
-  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.scratch.destroy(); this.cellClassifier.destroy(); this.cacheIdentity.destroy(); this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.reconstruction.destroy(); this.diagnostics.destroy(); this.finalizeSettings.destroy(); }
+  destroy(): void { if (this.destroyed) return; this.destroyed = true; this.scratch.destroy(); this.cellClassifier.destroy(); this.cacheIdentity.destroy(); this.dependencyEpoch.destroy(); this.geometry.destroy(); this.material.destroy(); this.lighting.destroy(); this.reconstruction.destroy(); this.diagnostics.destroy(); this.finalizeSettings.destroy(); }
 }

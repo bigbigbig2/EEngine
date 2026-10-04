@@ -188,6 +188,20 @@ ${factLibrary.replaceAll("cell_counts[", "cell_workspace.counters[").replaceAll(
      for (var index = 0u; index < slots; index++) {
        cell_map_write_base(map + 12u,index,cell_representatives[index]);
      }
+   } else if mode == 3u {
+     // One published anchor per grid group. Hot consumers use formula + two
+     // packed loads, including partial coverage, instead of scanning support.
+     let map=cell_map_at(tile,plane);
+     for(var word=12u;word<24u;word++) { cell_workspace.maps[map+word]=0u; }
+     let width=1u<<(rate&3u);
+     let height=1u<<((rate>>2u)&3u);
+     let columns=8u/width;
+     for(var index=0u;index<slots;index++) {
+       let first=(index/columns)*height*8u+(index%columns)*width;
+       let covered=cell_region(first,width,height)&coverage;
+       let anchor=cell_first(covered);
+       if anchor!=0xffffffffu { cell_map_write_base(map+12u,index,anchor); }
+     }
    }
    if cell_settings.reserved!=0u {
      if irregular|| (mode==3u&&valid>slots){atomicAdd(&cell_workspace.counters[plane*4u+2u],1u);}
