@@ -943,3 +943,15 @@ VSM content version/namespace 是原 owner 的发布胶水：实际 allocation/t
 | WebGPU usage scopes / WGSL atomics / 现有资源owner | reserve/produce/commit、独立indirect、兼容pass编码、pin/retire | 无全局自旋、无当前帧CPUwork回读、无私有submit；state原子不替代多word payload发布 |
 
 缓存近似误差与空间误差合成、固定树证明、成本准入为具名本地复杂方案，仍须在实际实现前对修改部分核读完整依赖；各实施阶段完成相关数值/覆盖/真实GPU消费检查，通过后推进；完整新链再作生命周期/质量/同条件性能正式验收。仅记录设计来源，不登记为完整 CPS/OSS/Forge/Microsoft 迁移完成。
+
+### 2026-10-04 Phase 0：静态核读完成，未实施
+
+完整清单：[Phase 0身份/消费者/容量审计](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10.md)。固定production代码14c17078，Phase0开始HEAD bc274708；没有生产改动、项目build/tests或新GPU采样。
+
+再次读完整固定Forge/CPS/OSS源码并在线核对本机副本逐字符一致（9406/13298/3453字符）；本机SHA256分别9b567bf3dc106398b6462418c6457a953d2f5dc4fd797d388c50d4aec4af1d1c、bf8d9ff071965457779184bca8dc1d67c0381d0183e2f97283ea0a2142c6d2c9、523ab05a538f6366d88e83e94fd022ea70c206751f2470a00a93549f54d6cdab。Forge/CPS许可头、OSS固定根License重新核对；Microsoft固定完整shader、GPUSort阶段和MIT根许可按前文pin复核，未运行donor。
+
+本次补明确：OSS AllocateTask本身没有本地完整capacity/overflow检查，不能把有界reservation说成已忠实移植；CPS前置GBuffer不是免费输入；Forge直接reciprocal W不覆盖本地现有齐次零/负W扩展。排序只作64-key局部分组参考，完整比对/交换/同步保留。
+
+本地数学复用核对Winner value/DX/DY独立有效性、interval Unknown/除零/pow/坐标导数分支、texture wrap/mip/filter/halo与sample CSE、完整DAG身份、原lighting有限性/颜色合同。当前texture query尚无最终operation/visit总预算；普通UV2无独立chart、Product无authored UV2格式、deformation revision不证明当前/previous属性producer已完成。IOR、coatValidity、packet semantic消费缺口在Phase0清单登记，不通过删除材质功能掩盖。
+
+论文资料沿用账本既有DAIS/OSS/CPS详细资料核读，本次未重新读PDF全文。复杂实现前继续核读实际修改的完整依赖，相应阶段GPU/数值检查与最终正式性能分别记录；本条仅标静态调查完成，不提高任何port/adoption/claims。

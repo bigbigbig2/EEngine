@@ -4,12 +4,12 @@
 
 ## 当前状态
 
-**准备完成；新重构生产代码未开始。** 不把前一轮五步修复或本次文档切换算成新Phase完成。
+**Phase 0已完成并通过对应静态检查；Phase 1–7未开始。** 不把前一轮五步修复或本次文档切换算成新Phase完成。
 
 | 阶段 | 状态 |
 |---|---|
 | 准备：保存当前代码与文档入口 | 已完成 |
-| Phase 0：新协议消费矩阵/物理清单 | 身份已固定；完整矩阵和物理清单待实施时补齐 |
+| Phase 0：新协议消费矩阵/物理清单 | 已完成；静态检查通过，见独立Phase 0清单 |
 | Phase 1：publication/工作表示 | 未开始 |
 | Phase 2：geometry/setup/容量 | 未开始 |
 | Phase 3：Field候选/验证/proof | 未开始 |
@@ -51,10 +51,30 @@
 
 ## 下一步与保留风险
 
-开始实际重构时补齐并核对Phase0消费矩阵/真实buffer账，再按计划Phase1–6逐阶段实施、检查并通过后推进。不得跳过source/support/overflow/写域合同。
+Phase0消费矩阵/真实buffer账已补齐并核对，下一步按计划Phase1–6逐阶段实施、检查并通过后推进。不得跳过source/support/overflow/写域合同。
 
 现有约800ms问题尚未修复；setup实际fallback量、probe流量、proof成本等仍缺完整counter。目标profile和32-batch示例不是实测性能保证。高program数B×P开销、近似误差累积、memo/cold gather收益及retired overlap在最终验收前保持待证状态。
 
 ## 2026-10-04 执行节奏修订
 
 用户明确要求收紧阶段检查，避免整链结束后集中暴露大量问题。已统一更新设计、执行计划、AGENTS、文档入口和workstream：阶段内部可临时断链，阶段结束须编译与必要语义/GPU接线检查通过；跨阶段依赖前移真实consumer，不用旧链/占位实现。执行计划§1列出每阶段检查范围及失败处理。该文档修改未开始重构，也未把未运行检查记为通过。
+
+## Phase 0：静态消费与容量核对完成
+
+日期：2026-10-04。开始HEAD=bc2747084f04f758ede7f3240ffff70e52ae21ae，工作树clean，生产基线14c17078。
+
+交付：[Phase 0清单](surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10.md)。记录GPU产品producer/consumer/stride/capacity/initialization/usage/overflow/retire；完整14kind Geometry、15field、6signal矩阵；真实旧layout、最终预算可行例、绑定/共享内存限制、连续域/LOD/Product/形变缺口、源码切换单元及来源。
+
+静态计算本次直接调用现有纯planner，内存加载TS，不写项目build产物：Workspace33741856B、两program Demand22692608B、R23296/90batch；clear范围4.730282GiB。最终512MiB分类合计正确；R65536的ref/map/demand例25.96875MiB，address/proof例28MiB，mandatory结果池可装完整fine。此为容量示例，不是新ABI或GPU性能已验证。
+
+新发现/明确的后继要求：IOR与coat validity当前消费缺口、packet semantic未真实写入；N材质directory不等于P程序数；旧reservedBytes未计retirement重叠；UV2/形变版本非完整能力证据；96B hot不能原样装全部Lighting输入。详见清单，责任阶段已标，不在Phase0改生产算法。
+
+本机冻结：.local/surface-phase0/baseline-identity.json（640份tracked源码/lab指纹与报告字节hash），static-capacity.json、audit-capacity.cjs。run06原613份指纹全部一致，报告/资产身份保留；不改原diagnostic。
+
+来源：在线固定Forge/CPS/OSS与本机源逐字符一致；完整阶段与许可核读，Microsoft固定排序/host/MIT来源复核。论文沿用既有核读，不冒称本次重新读全文；未运行donor/adoption升级。
+
+本阶段检查：纯planner/预算上限静态检查通过；源码身份、consumer/reset/overflow审查完成；文档链接/YAML/diff与vibe导航核对后标Phase0通过。未运行typecheck/build/tests/GPU/browser/benchmark，按执行计划Phase0仅静态范围；Phase1–6所需检查没有预先标通过。
+
+实际命令/结果：node .local/surface-phase0/audit-capacity.cjs（exit0，加载9个纯ABI/planner源码模块，容量断言通过）；Node静态链接/YAML/640文件指纹检查（exit0，missingLinks=[]、yamlErrors=[]、sourceDrift=[]）；31份归档WGSL校验（无hash mismatch）；node tools/vibe.mjs context OEngine/src/render/surface（exit0，当前Phase0完成/待Phase1）；git diff --check（exit0）。原报告613文件与资产/报告字节hash均重新核对。本机详细输出见static-checks.json，不把此静态检查称作typecheck或GPU验证。
+
+下一步：Phase1真实publication/profile/工作表示及直接consumer切换。本轮按用户范围止于Phase0。

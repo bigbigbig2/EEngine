@@ -1,6 +1,6 @@
 # Surface V3 有界前端最终重构执行计划
 
-日期：2026-10-04（Asia/Hong_Kong）。状态：准备工作已完成，目标生产代码尚未开始实施。
+日期：2026-10-04（Asia/Hong_Kong）。状态：Phase 0静态清单与检查已完成，Phase 1生产重构尚未开始。
 
 目标：[最终性能重构设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。总架构/画质边界仍以[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)为准。当前切片：[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)；状态与基线：[执行记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
 
@@ -78,7 +78,7 @@
 
 ## 3. Phase 0：冻结身份，完成静态消费与容量清单
 
-**已做准备**：代码基线提交、已有采样摘要/指纹复核、设计与执行入口。**未做**：下列面向新ABI的全部消费矩阵和物理布局，不能直接跳过。
+**Phase 0已完成**：身份、GPU产品/消费者、14类Geometry输入、15field/6signal依赖、reset/overflow/lifetime、实际容量公式与最终预算可行例、固定来源及文档静态检查。详见[Phase 0清单](surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10.md)。它不是稳定ABI或新代码性能通过；具体新layout与协议仍在Phase 1/2实现。
 
 任务：
 
@@ -240,4 +240,4 @@
 
 ## 12. 当前下一步
 
-准备文档与基线已就位。下一轮从 **Phase 0 的实际消费/物理清单及核对** 开始，通过后进入Phase1；随后每阶段完成实现与对应检查再推进。正式同条件benchmark在Phase7，阶段短诊断尽早发现数量级错误，不以旧链/占位实现维持检查通过。
+准备文档与基线已就位。Phase 0清单及核对已完成，下一步进入 **Phase 1的publication/工作表示与真实consumer切换**；随后每阶段完成实现与对应检查再推进。正式同条件benchmark在Phase7，阶段短诊断尽早发现数量级错误，不以旧链/占位实现维持检查通过。

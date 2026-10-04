@@ -20,6 +20,7 @@ currentDocs:
   - docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md
   - docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md
   - docs/next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md
+  - docs/next-execution/surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10.md
 contracts:
   - surface-work-v1
   - render-product-work-history-v2
