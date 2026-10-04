@@ -1,5 +1,7 @@
 # EEngine 第三版：极致 GPU 性能与 AAA 画质最终重构设计
 
+> 2026-10-04 当前性能实施入口：[有界前端最终设计](surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)、[执行计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)、[状态与基线](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。本文保留总架构与质量边界；下文旧实现核对为日期化历史，不等于当前源码或新重构完成。
+
 > 2026-10-03 后续设计：用户要求默认跨 VisibilityKey 共享并激进优化 V3，具体物理策略见[第一版优化设计](surface-work-v3-optimization-v1-design-2026-10.md)和[执行文档](../next-execution/surface-work-v3-optimization-v1-execution-2026-10.md)。它们保留本文总架构边界，替换初版 classifier、缓存地址及 dense record/packet/history 方案；已进入分 Phase 执行，完成度以阶段证据为准，不把下文历史事实提升为新方案已完成。
 
 日期：2026-10-01  

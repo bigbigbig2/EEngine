@@ -1,5 +1,7 @@
 # Surface V3 五步修复执行记录
 
+> 2026-10-04 后续状态：run06已完成同场景诊断，约801.7ms、accepted=false；本页历史“尚未运行步骤5”描述的是各提交当时状态。当前代码已保存14c17078；新重构见[执行计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)和[当前记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
+
 目标：[五步计划](surface-work-v3-classifier-store-repair-plan-2026-10.md)。起点为 `0bc4e68752ab187a1b508f7a1952e6ebe18bec02` 加计划已核对的 dirty 修改；起点 diff 保存在本机 `.local/surface-repair/start-dirty.patch`。不将 dirty 起点宣称为 clean HEAD。
 
 ## 步骤 1：独立引用、物理合同和发布边界

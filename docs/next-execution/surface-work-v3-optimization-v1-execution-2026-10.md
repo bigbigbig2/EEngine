@@ -1,5 +1,7 @@
 # Surface V3 第一版优化执行文档
 
+> 2026-10-04 状态：历史优化执行记录，非当前实施入口。当前顺序见[有界前端计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)，状态见[进度记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。旧用例/提交节奏属于当时任务；当前按新计划每阶段检查，通过后推进。
+
 当前推进：Phase 4 代码收口已提交（`b882cc5a`），Phase 5 代码收口已完成，Phase 6 资源、真实 provider 与生命周期接线已完成；Phase 6.5 production cutover 已完成，正式浏览器、GPU、画质与性能验收进入 Phase 7。
 
 日期：2026-10-03。基线：`0676cf28`。状态：**执行中；Phase 0–1 完成，Phase 2–6 已完成代码切换但正式验收延期；Phase 7 已执行首轮验证，mixed cell GPU 正确性失败且生产浏览器编译阻塞，未通过**。详细结果见[Phase 7 验证记录](surface-work-v3-optimization-v1-phase7-validation-2026-10.md)、[进度记录](surface-work-v3-optimization-v1-progress-2026-10.md)、[Phase 0 清单](surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)、[Phase 1 发布记录](surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。

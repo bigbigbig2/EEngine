@@ -6,30 +6,22 @@ state: active
 owner: frame-runtime
 decision: ADR-0021
 goal: >-
-  Follow the user-selected V3 SurfaceWork Runtime design: implicit/uniform/mixed work,
-  one SurfaceGeometryRecord producer, early Appearance cache lookup and miss-only
-  evaluation, independent lighting signal packets, authoritative TemporalFacts and
-  cheap reconstruction on one production FrameGraph and frame submit.
+  Preserve the user-selected V3 architecture while implementing the cost-bounded Surface frontend:
+  independent candidate/value/certificate contracts, fixed spatial hierarchy, profitable cache/proof
+  admission, one hot/cold GeometryRecord producer, actual missing closures and independent signals,
+  bounded memory and complete coverage on one production FrameGraph and frame submit.
 
 currentSlice:
-  id: surface-work-v3-classifier-store-repair
-  title: Surface V3 五步修复：独立引用、共享证书与实际 unique producer
+  id: surface-work-v3-cost-bounded-final-refactor
+  title: Surface V3 有界前端最终重构：准备完成，待 Phase 0 消费与容量清单
   status: active
   goal: >-
-    严格按 surface-work-v3-classifier-store-repair-plan-2026-10.md 五步实现，每步一次中文提交。
-    步骤 1–4 已完成生产切换与必要检查；步骤 5 固定 Dungeon/1080p/AO+FSR3+Bloom、VSM/jitter-off、
-    exposure 4，采默认/overview/运动返回截图、8 帧预热后 30 个实际完成 GPU timing 样本和独立 detailed。
-    不恢复旧 renderer、union sample/map、Material/Geometry cache owner 或兼容链，不简化 compiler/BRDF/IBL。
-  progress: >-
-    前三步提交 da613350、1fecb4aa、27e59b9d。第四步 actual narrow request/full-key dedup、唯一
-    GeometryRecord、actual missing Appearance closure、独立 Field/Signal Store publish/commit/ref 与
-    dirty Lighting、cheap reconstruct 已接通；移除退休资源/接口，GPU indirect 独立参数 buffer。
-    typecheck/build/build:test、25 项定向测试和 4 项 BenchmarkMetrics 通过。
-    Chrome 154 真实 GPU cold/warm/provider 小链、zero/hit/miss/dedup、满表/70000 f32、六组 compose 通过。
-    production-01..06 的真实失败及修复保留在执行记录；未提升 claims/adoption。
-  remaining: >-
-    步骤 5 的实际 Showcase 截图与整帧性能尚未运行。完整 Phase 7 多浏览器/材质/Product/形变/四版本
-    质量与严格同条件性能比较仍延期，不将本次五步复测等同于完整验收。
+    按 docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md
+    与 docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md
+    每阶段实现并检查，通过后进入下一阶段。当前仅完成设计、执行准备和代码提交 14c17078；
+    Phase 0 身份已固定，真实消费矩阵和物理清单尚待补齐，Phase 1–7 未开始。
+    run06 的约 801.7ms 为历史诊断，accepted=false，不宣称性能完成。
+    详细状态维护于对应 progress 文档。
 
 nextModules:
   - id: sssr
@@ -42,46 +34,48 @@ nextModules:
     title: Transparency, local media and presentation integration
 
 architectureRules:
-  - The user-selected V3 design is the sole Surface target; keep one production Renderer path and one frame submit owner.
-  - Keep GPU Scene, Visibility, resource owners and correct math; do not restore retired Surface or effect owners.
-  - Use implicit, uniform and mixed tile work; do not generate a pixel task for every full-rate pixel.
-  - SurfaceGeometryRecord has one producer; Appearance and Lighting do not reconstruct geometry independently.
-  - Cache lookup precedes material miss compaction; hits bypass geometry and material heavy workers.
-  - Keep constant/static, stable-local cache and dynamic/view/nonlocal signal work distinct; compare complete cache identities.
-  - Diffuse, specular, coat and IBL have independent work and local full-rate exceptions.
-  - TemporalFacts is the sole motion, identity, validity and reactive base producer.
-  - Reconstruction selects packet/history results and composes them; it does not execute full geometry, material or PBR again.
-  - Expose actual work, geometry, cache, packet, history and HDR dependencies in FrameGraph.
-  - Negotiate WebGPU limits before resource creation; every queue declares capacity, overflow, coverage and retirement.
-  - Delete replaced execution models without compatibility bridges or placeholder effects; incomplete intermediate code is allowed.
-  - Do not introduce current-frame GPU-to-CPU-to-GPU visible/work control, private submits or one universal physical queue.
-  - Cache pipelines, bind groups and samplers by publication/profile; do not create a PSO for each material instance or texture combination.
-  - Follow the latest user instruction: finish and check each full optimization Phase, make one Chinese commit, then proceed; frame-wide browser/quality/performance acceptance remains in Phase 7.
-  - Pinned complex algorithms preserve source stages, branches and invariants; documentation alignment does not promote adoption or claims.
-  - Phase 4 code is closed and committed; Phase 7 remains the formal GPU/browser/quality acceptance gate.
-  - Phase 5 code is closed: Surface reconstruction consumes packet/TemporalFacts only and uses extent/profile bounded batches with GPU indirect counts; Phase 6 providers/lifecycle is closed in code and deferred to Phase 7 for formal acceptance.
-  - Phase 6 code is closed: capacity preflight and the Surface 512 MiB ledger run before extent scratch creation; FieldStore/SignalStore publish generations and submitted epochs retire from gpuDone; VSM initialization and real page/content dependencies use the single FrameGraph submit. Phase 7 remains the formal GPU/browser/quality acceptance gate.
+  - Preserve V3 architecture and the final cost-bounded design; use the current execution plan, not historical per-step plans.
+  - Keep one production renderer, one FrameGraph submit owner and original complete material/BRDF/IBL/provider semantics.
+  - Keep Winner, Sharing and Cache identities separate; hashes select candidates and never prove identity.
+  - Separate CandidateKey, ValueWitness and SharingCertificate; value hits do not authorize spatial sharing.
+  - Bind Field sources before constructing Signal identities; transient indices are not stable cache keys.
+  - Use publication dependency/cost profiles and fixed 2x2, 4x4 and 8x8 merges; delete arbitrary member and pair searches.
+  - Bound proof operations, queries and admission; Unknown only refines related work without truncating proofs or output.
+  - Use implicit/uniform/mixed work and guaranteed local setup with optional bounded memo; do not materialize every fine pixel task.
+  - SurfaceGeometryPass is the sole hot/cold GeometryRecord producer; Appearance and Lighting do not decode triangles.
+  - Field hits skip their own heavy closure; other dirty consumers may still request the unique GeometryRecord.
+  - Do not impose universal full-key request dedup; admission failure uses correct transient work without global scans or spin.
+  - Preserve independent signal packets, direct-diffuse semantics, TemporalFacts ownership and cheap reconstruction.
+  - Reserve complete implicit-fine coverage before mixed publication; no partial coarse/fine overlapping writes.
+  - Account for real layouts, mandatory worst-case capacity, reset masks, GPU limits and in-flight retirement before allocation.
+  - Keep copy/clear outside compute passes and valid indirect usage scopes; cache compatible layouts and stable bindings.
+  - No current-frame GPU-to-CPU-to-GPU work control, private submits, retired owners or compatibility bridges.
+  - Validate each phase before advancing; Phase 1-6 require typecheck/build, targeted semantics and relevant real GPU producer-consumer checks, with short whole-chain smoke when available.
+  - Read pinned complete source before complex implementation; design, implementation and validated adoption remain distinct.
+  - Temporary compile failures or missing consumers are allowed only inside a phase; pull required wiring forward and never use adapters or placeholders to pass checks.
+  - Preparation and historical repair results do not mark new reconstruction phases or performance claims complete.
 
 deferredValidation:
   policy: >-
-    Follow the user-selected optimization-v1 design and execution plan.
-    Phase 0 freezes identities, capacity and deletion inventory; each subsequent Phase is fully implemented,
-    checked and committed once before the next Phase. Stage checks do not prove frame-wide completion.
-    Phase 7 performs unified quality, lifecycle, GPU acceptance and fixed-condition comparison in independent checkouts.
+    Follow the user-requested per-phase validation policy. Phase 0 checks frozen identity, consumer/capacity
+    inventories and documentation; each Phase 1-6 completes typecheck/build, relevant semantic tests and
+    real WGSL/GPU component wiring checks before advancing. Fix failures within the phase and pull required
+    consumers forward; no placeholder or retired path. Phase 7 repeats integration and completes full
+    quality/lifecycle/browser matrices and fixed-condition performance acceptance.
   finalAcceptance:
     - typecheck and build after the complete target and production wiring
     - shader compilation, CPU/WGSL numerical oracles, complete coverage and write ownership
     - browser and resize, camera cut, abort, device recovery and resource retirement
     - far/near, static/moving, high-frequency normal/ORM, multi-material and strong IBL quality
     - direct plus VSM, AO on/off, Product LOD/page miss, empty and single Product cases
-    - same-condition comparison of 89f0a94, 15f12f7b, e7296be9 and the pinned final revision
+    - same-condition independent-checkout comparison of 89f0a94, 15f12f7b, e7296be9, pre-refactor 14c17078 and the pinned final revision
     - GTX 1650 Ti 1080p complex scenes with fixed camera, features, browser, warm-up and thermal state
     - all-cost Surface and GPU frame P50/P95 with hit/miss, geometry, signal, exception, IBL, overflow and memory counters
-    - V3 section 8.3 success criteria and all 16 section 11 completion items; no promised FPS or fixed percentage
+    - V3 section 8-11 goals plus final cost-bounded design section 22; no promised FPS or fixed percentage
     - formal evidence and claim promotion only for actually validated scope
 
 links:
   design: docs/next-design/eengine-next-overall-architecture-final-2026.md
   execution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
-  currentDesign: docs/next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md
-  currentExecution: docs/next-execution/surface-work-runtime-v3-rebuild-2026.md
+  currentDesign: docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md
+  currentExecution: docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md

@@ -1,17 +1,17 @@
 # EEngine Next 架构层执行计划
 
-更新：2026-10-02。当前 Surface 方向已统一为用户指定的 [第三版最终设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，实施细节见 [SurfaceWork Runtime V3 计划](surface-work-runtime-v3-rebuild-2026.md)。本页说明整体依赖和交接，不再维护 Surface v2、Signal-Rate 或旧缓存计划的并行路线。
+更新：2026-10-04。Surface总目标保留[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，当前实施见[有界前端最终设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)和[执行计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。准备/基线已完成，新重构未开始；本页保留整体依赖，原Surface阶段表是架构概览，不作为另一实施顺序。
 
 ## 1. 权威入口与状态
 
 - 目标：第三版原文；保留系统边界见 [整体架构](../next-design/eengine-next-overall-architecture-final-2026.md)。
 - 决策：[ADR-0021](../adr/0021-surface-work-runtime-v3.md) 补充 [ADR-0020](../adr/0020-clean-cut-renderer.md)，替代其旧 Surface 阶段约束。
-- 当前切片：[eengine-next-clean-rebuild](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 的 `surface-work-runtime-v3-refactor`。
+- 当前切片：[eengine-next-clean-rebuild](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 的 surface-work-v3-cost-bounded-final-refactor。
 - 当前事实：[Shading](../domains/shading.md)、[Frame Runtime](../domains/frame-runtime.md)、[Visibility](../domains/visibility.md) 与源码。
 - 来源：[Next porting ledger](../porting/next-renderer.md)；旧条目和组件验证不等于新链实现或 adoption。
 - 验收：[VALIDATION](../VALIDATION.md) 与原文 §8–§11。
 
-源码基线已删除旧 SurfaceMaterialPass/Probe/sample worker 主链。当前生产代码已经接通 `SurfaceWorkRuntime` 的 classify、publication cache lookup、GPU-only geometry miss queue/indirect resolve、publication miss evaluation、cluster/VSM/AO/IBL provider、signal-mask/full-rate exception、运行时 environment 全局和 light/shadow 按 signal revision mask、四路 signal history 和 reconstruct；完整 sampler/UV/filtered footprint、材质 view/nonlocal identity、Product/形变与正式验收仍未完成。这里描述的是当前结构接线，不把它提升为最终算法或性能完成。
+重构前代码14c17078保留唯一SurfaceWorkRuntime，已有独立FieldStore/SignalStore、前置value/certificate查询、唯一720B GeometryRecord、实际missing closure/dirty signal与cheap reconstruct。dense前端、90batch等成本仍在，run06约801.7ms，不是性能完成。当前事实以[Shading](../domains/shading.md)和[执行记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)为准，不再将旧material/geometry cache和四路dense history当现行方案。
 
 ## 2. 保留底座和当前范围
 
@@ -32,7 +32,7 @@
 | 6 | 接通 Environment/VSM/AO/Temporal/FSR3 和资源生命周期 | 真实消费、局部失效、commit/abort/resize/cut/device recovery |
 | 7 | 一次集中验证、返工、删除无消费者残留 | 四版本同条件比较、数值/覆盖/连续画质/性能/生命周期结果 |
 
-Phase 1–6 允许中间未编译/缺图，不执行编译、targeted tests、GPU oracle、browser、benchmark 或 verify，不按组件收口设门槛。Phase 0 先记录身份和配置，正式采样在 Phase 7 进行。算法实施前核读完整固定来源。用户后续明确要求的诊断按该次指令执行。
+当前按用户2026-10-04要求逐阶段实现并检查：Phase0静态核对，Phase1–6每阶段typecheck/build、必要targeted与WGSL/真实GPU组件接线检查，通过后进入下一阶段。临时断链仅限阶段内部，必要消费者前移；Phase7做完整集成、连续画质和同条件性能验收。详细范围见当前执行计划§1，不沿用本页历史阶段的延期检查假设。
 
 ## 4. 接线和所有权
 

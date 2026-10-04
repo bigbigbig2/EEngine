@@ -914,3 +914,32 @@ VSM content version/namespace 是原 owner 的发布胶水：实际 allocation/t
 唯一 GeometryRecord 使用既有 Geometry 地址/setup/Winner 数学；Appearance 继续实际 compiler/resident sampler/Product 闭包，不保留另一 decode/cache owner。Filament/Forge 映射中的 re_direct_physical 原公式、每灯分支和 attenuation 保留；只将原先计算出的 coat_radiance 分别累计到 coat signal，base specular/diffuse 不再重复 attenuation 或按总 specular 人工分配 coat。环境 Denv 保持 irradiance，compose 的 reflectance/occlusion/AO/1pi 各一次，specular 与 coat IBL 仍使用原算法。
 
 实际 Chrome GPU 独立新链 cold/warm/provider-update、full-key dedup、Store满表/70000精度、六组 compose已通过，报告在 .local/validation/surface-repair-step-four-*。该小链不证明完整材质/Product/形变矩阵、1080p性能或完整来源采用；采用等级未提升。
+
+## 2026-10-04：有界 Surface 前端最终性能重构设计（未实施）
+
+设计入口：[Surface V3 最终性能重构设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。基于 daaed9c7303a90e1658265e77e5cda02d63921b4 加已有 dirty 工作树及 Showcase run06；本次仅写文档，没有修改生产代码、运行新测试/benchmark 或提升 claims/adoption。前述五步记录中的完整 key 全请求去重、满表全流扫描和 dense leaf certificates 是历史实现事实，不是新方案保留要求。
+
+本地方案为 **Bounded Surface Frontend（有界 Surface 前端）**，修订 Continuity-Domain Signal Sampling 的工作生成与成本约束。没有一个完整 donor 同时覆盖本地前置 field/value/certificate 协议、21-plane 分解、WebGPU 容量/生命周期及 Product/LOD。
+
+### 核读范围与固定来源
+
+- 重新访问固定 [Intel CPS ComputeShaderTile.hlsl](https://github.com/GameTechDev/DeferredCoarsePixelShading/blob/63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ComputeShaderTile.hlsl)，核对 Apache-2.0 文件头及 RequiresPerPixelShading、完整 coarse/full、零灯写回、DEFER_PER_PIXEL 阶段；README 沿用本机固定副本。
+- 核读既有固定 Forge cd5046893faba2dc7869243873bf01f02a6f0df9 的 VisibilityBufferShadingUtilities.h.fsl 中 CalcFullBary/有限差分阶段，和 OSS 473a59bbcdd30e3366cc567d66a5a97353620d48 的 RenderTaskProcessing.compute 完整 task/indirect 文件及 README；原路径、Apache-2.0 与 source mapping 见本账本前文。不声称重新审完上游全仓。
+- 新增排序参考：[Microsoft ComputeShaderSort11.hlsl](https://github.com/walbourn/directx-sdk-samples/blob/1ad8f0f6a3e4d9be7e54ca52640ac12b6565ab0c/ComputeShaderSort11/ComputeShaderSort11.hlsl)，固定 revision **1ad8f0f6a3e4d9be7e54ca52640ac12b6565ab0c**；已读完整 shader、[host GPUSort](https://github.com/walbourn/directx-sdk-samples/blob/1ad8f0f6a3e4d9be7e54ca52640ac12b6565ab0c/ComputeShaderSort11/ComputeShaderSort11.cpp) 的 level/transpose 调度和[根 MIT 许可](https://github.com/walbourn/directx-sdk-samples/blob/1ad8f0f6a3e4d9be7e54ca52640ac12b6565ab0c/LICENSE)。未构建或运行 donor。
+- 另检索既有 Wicked pin 的排序相关文件；bitonicSortHF.hlsli 只有资源声明，不将它冒充完整排序实现。
+- 论文/技术资料沿用本账本已读 DAIS §3–4、§6、Appendix A、OSS preprint 及 CPS GPU Pro 7 README。此次未重新提取 PDF 全文，不新增论文实验结论。
+- 重新核对 [WebGPU Resource Usages](https://gpuweb.github.io/gpuweb/#resource-usages) 与 compute timestamp 描述：compute 每个 dispatch 是 usage scope；copy/clear 在 pass 外。规范为读取时 living spec，不是 GTX1650Ti 浏览器能力证明。WGSL relaxed atomics/组同步边界沿用前文规范记录。
+
+### 源阶段到拟实施阶段
+
+| 源入口/依据 | 本地产物与消费者 | 保留条件与本地差异 |
+|---|---|---|
+| Forge CalcFullBary/Interpolate2DWithDeriv，原本地 Winner 数学 | Geometry owner 的 setup、lazy witness、hot/cold record → Appearance/Lighting | 保留透视、近裁剪、退化、finite-difference；只改变物化/复用，不新增独立 decoder |
+| Microsoft BitonicSort + host level=2..block 循环 | 64-key tile primitive runs → guaranteed local setup requests | 保留完整比较/交换/组同步；64元素全部在一个workgroup，将host level循环移入shader；key/lane成对移动、相等按lane定序、valid独立；不移植全帧transpose及CPU回读 |
+| CPS RequiresPerPixelShading/ComputeShaderTileCS | 固定空间层级与局部fine模板 → 独立signal work | 保留coverage、边界拒绝、零灯完整输出；其GBuffer事实不能当本地免费；DomainKey/有界proof是本地扩展 |
+| OSS RenderTaskPrepare/RenderTaskIndirectDispatch | active/proof/admitted request counts → GPU indirect | occupancy/count/payload后消费的组织参考；不移植Unity/RT/Htex/GI，不以稀疏任务名义隐藏全容量工作 |
+| 实际 Appearance DAG / field identity / interval / TextureVariation | publication profiles、候选/数值/共享三合同 → FieldStore/固定树 | 完整版本、seam/filter/support/anchor；Unknown局部fine，operation budget不截断后accept；无完整单一donor |
+| 现有 lighting_direct::re_direct_physical / SurfaceLightingWorkPass | Ddirect transport及异常ColoredResidual → packet/reconstruct | 正常Lambert因子分离，保留coat/view/shadow/π及finite guard语义；specular/coat/IBL不简化，不提升Filament采用等级 |
+| WebGPU usage scopes / WGSL atomics / 现有资源owner | reserve/produce/commit、独立indirect、兼容pass编码、pin/retire | 无全局自旋、无当前帧CPUwork回读、无私有submit；state原子不替代多word payload发布 |
+
+缓存近似误差与空间误差合成、固定树证明、成本准入为具名本地复杂方案，仍须在实际实现前对修改部分核读完整依赖；各实施阶段完成相关数值/覆盖/真实GPU消费检查，通过后推进；完整新链再作生命周期/质量/同条件性能正式验收。仅记录设计来源，不登记为完整 CPS/OSS/Forge/Microsoft 迁移完成。
