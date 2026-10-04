@@ -12,45 +12,24 @@ goal: >-
   cheap reconstruction on one production FrameGraph and frame submit.
 
 currentSlice:
-  id: surface-work-v3-optimization-v1
-  title: Surface V3 第一版优化：连续域跨 primitive 共享与有界缓存和信号
+  id: surface-work-v3-classifier-store-repair
+  title: Surface V3 五步修复：独立引用、共享证书与实际 unique producer
   status: active
-  phase7Status: >-
-    用户 2026-10-03 明确启动 Phase 7，首轮验收未通过。OEngine typecheck/build、50 项定向测试、
-    Showcase 独立 typecheck 与 4 项 benchmark metrics 测试通过，checked-in WASM artifact 6 项通过；
-    mixed cell GPU oracle 复现非紧凑 map 索引与误差边界绕过。Chrome 154 / GTX 1650 Ti / 1080p
-    Showcase 的 VSM-off/on 均在 90 秒后停在 frameCount 2，独立 production fixture 停在 stage 0 编译。
-    尚无有效渲染质量截图、连续画质序列、生产生命周期矩阵或四版本 P50/P95；Native 构建工具链失败。
-    详见 docs/next-execution/surface-work-v3-optimization-v1-phase7-validation-2026-10.md，未提升 claims/adoption。
-  phase6Status: >-
-    代码收口完成，正式整链验收延期至 Phase 7。容量预检、512 MiB Surface ledger、
-    FieldStore/SignalStore publication generation 与 submitted epoch、VSM 初始化顺序和真实
-    FrameGraph provider 依赖已接通；未运行 typecheck/build/GPU/browser/benchmark。
-  phaseStatus: >-
-    第一版优化按用户最新指令逐 Phase 完整实现、检查、每阶段一次中文提交后继续。
-    Phase 0 已固定 0676cf28478bc2f4b96af7138f45ef33f1216a3f 与 Dungeon SHA256，建立生产删除/依赖清单、
-    capacity policy 和 412 MiB / 512 MiB 预算；5 项定向 capacity tests 通过。
-    Phase 1 已完成六域 continuity-v2、源/LOD逐字段lineage、普通Geometry真实metadata upload、Native与两种WASM v6发布，
-    offline RGBA8摘要和实际GPU decoded mip/footprint摘要；所有表/节点在32 MiB pool中，接现有TextureResidency encoder。
-    typecheck/build、Native/core ABI oracle、两个WASM编译、33项定向checks和5个生产纹理摘要GPU cases通过；
-    组件结果不证明整帧画质性能。Phase 2 已完成代码切换：runtime 旧 classifier 源码已删除，多字段 WGSL 生成错误已修复；真实 Chromium producer/consumer fixture 在 pipeline compile 阶段仍未完成，因此不提升为正式整链验收。Phase 3 已接通 compact record 字段 buffer、FieldStore 初始化与 lookup gate、评估后 publish/admit、bounded GeometryRecord arena；旧六层全屏 fields 与 pixel-capacity 分配已删除，仍保留 19-word compact identity 元数据和 4-word admission 摘要。Phase 4 已完成六类独立 lighting signal、按 record 紧凑 packet、lighting 前 SignalStore probe 与 lighting 后 miss-only pack/publish；四路全屏 packet plane 和 dense signal witness 已删除，20-word entry 已包含 HDR precision spill 与 age/confidence。Phase 4 正式整链验收延期到 Phase 7。Phase 5 代码收口已完成：Surface reconstruct 删除四路 history、dense identity/age，改为 packet/TemporalFacts 合成与 extent/profile bounded batch、GPU indirect count。Phase 6 代码收口已完成：容量预检、512 MiB Surface ledger、FieldStore/SignalStore publication generation 与 submitted epoch、VSM 初始化顺序和真实 FrameGraph provider 依赖已接通；Phase 7 统一验收。
-    以下为 0676cf28 历史基线能力和诊断记录，不是本轮新算法完成证据。
-    用户 2026-10-03 明确请求的 Showcase 修复已接入：diffuse irradiance 消费补 1/pi、示例曝光 8→4；
-    Surface 队列有序单份 extent 资源、精确 pixel/input witness、逐字段版本 lookup、masked miss evaluation、
-    独立 GeometryRecord 命中与 classify/miss 编译期分离、dirty lighting GPU compact/indirect、持久 signal packets。
-    静止复用包含精确 GPU camera 输入；Dynamic/Nonlocal 和 VSM direct 保守重算，相机变化使相关字段失效。
-    本次已运行 typecheck/build、25 项 targeted tests、30 项 GPU 判定 oracle 和包含移动/resize 返回/太阳编辑的截图；
-    测量与限制集中记录于 .local/validation/surface-p0p5-report.md。完整跨视角 footprint cache、Product/形变、
-    连续画质误差界与 V3 四版本正式验收仍未完成，不提升来源采用或 claims。
   goal: >-
-    按 docs/next-design/surface-work-v3-optimization-v1-design-2026-10.md 与对应执行计划完成连续域、
-    字段/信号多率、canonical FieldStore、demand hot/cold GeometryRecord、稀疏 SignalStore 与固定预算 batches。
-    每 Phase 完整完成实际 producer/consumer 和必要定向检查后提交一次，失败返工；整帧验收在 Phase 7。
-    保留以下原 V3 目标与历史阶段记录，旧物理布局按新计划删除，不建立运行时新旧桥。
-    Phase 0 已冻结 GTX 1650 Ti/1080p、Dungeon fingerprint、功能集、覆盖率和 P50/P95 口径，配置见
-    validation/profiles/surface-work-v3-phase0-baseline.yaml。Phase 2–6 的最终生产链尚未完成；当前源码已切换为 compact record 字段与 FieldStore gate，Phase 4 的 20-word SignalStore 与 Phase 5 的 packet/TemporalFacts batch reconstruct 正在收口，
-    FieldStore/SignalStore owner 尚未完成全部跨帧 value 与 signal 替换。始终保持唯一 Renderer、唯一 FrameGraph/submit，
-    不恢复旧链、适配桥或中间 A/B 路径。
+    严格按 surface-work-v3-classifier-store-repair-plan-2026-10.md 五步实现，每步一次中文提交。
+    步骤 1–4 已完成生产切换与必要检查；步骤 5 固定 Dungeon/1080p/AO+FSR3+Bloom、VSM/jitter-off、
+    exposure 4，采默认/overview/运动返回截图、8 帧预热后 30 个实际完成 GPU timing 样本和独立 detailed。
+    不恢复旧 renderer、union sample/map、Material/Geometry cache owner 或兼容链，不简化 compiler/BRDF/IBL。
+  progress: >-
+    前三步提交 da613350、1fecb4aa、27e59b9d。第四步 actual narrow request/full-key dedup、唯一
+    GeometryRecord、actual missing Appearance closure、独立 Field/Signal Store publish/commit/ref 与
+    dirty Lighting、cheap reconstruct 已接通；移除退休资源/接口，GPU indirect 独立参数 buffer。
+    typecheck/build/build:test、25 项定向测试和 4 项 BenchmarkMetrics 通过。
+    Chrome 154 真实 GPU cold/warm/provider 小链、zero/hit/miss/dedup、满表/70000 f32、六组 compose 通过。
+    production-01..06 的真实失败及修复保留在执行记录；未提升 claims/adoption。
+  remaining: >-
+    步骤 5 的实际 Showcase 截图与整帧性能尚未运行。完整 Phase 7 多浏览器/材质/Product/形变/四版本
+    质量与严格同条件性能比较仍延期，不将本次五步复测等同于完整验收。
 
 nextModules:
   - id: sssr

@@ -54,7 +54,9 @@ fn cell_build_geometry_setup(key:u32)->CellGeometrySetup {
  let ha=vec3f(clip_a.xy,clip_a.w);let hb=vec3f(clip_b.xy,clip_b.w);let hc=vec3f(clip_c.xy,clip_c.w);
  result.identity.w=select(0u,1u,dot(ha,cross(hb,hc))*sign(instance.normal_x.w)<0.0);
  result.variation=bitcast<vec4f>(result.continuity[2u]);
- if dot(raw,raw)<=1e-20||abs(instance.normal_x.w)<1e-8{result.coefficients=winner_empty_coefficients();}
+ // Winner coefficients alone decide raster interpolation validity. A singular
+ // normal transform uses the geometric fallback at the sole value producer;
+ // it must not erase a visible triangle's position/UV/color coverage.
  return result;
 }
 `;

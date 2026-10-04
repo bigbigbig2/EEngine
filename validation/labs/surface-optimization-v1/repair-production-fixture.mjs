@@ -1,3 +1,11 @@
+import {SurfaceDemandPass} from '../../../OEngine/.test-dist/render/surface/SurfaceDemandPass.js';
+import {SurfaceGeometryPass} from '../../../OEngine/.test-dist/render/surface/SurfaceGeometryPass.js';
+import {SurfaceLightingPass} from '../../../OEngine/.test-dist/render/surface/SurfaceLightingPass.js';
+import {SurfaceStorePublishPass} from '../../../OEngine/.test-dist/render/surface/SurfaceStorePublishPass.js';
+import {SurfaceReconstructionPass} from '../../../OEngine/.test-dist/render/surface/SurfaceReconstructionPass.js';
+import {SurfaceFrameResources} from '../../../OEngine/.test-dist/render/surface/SurfaceFrameResources.js';
+import {GPUTextureAllocator} from '../../../OEngine/.test-dist/gpu/GPUTextureAllocator.js';
+import {SurfaceSignalLookupPass} from '../../../OEngine/.test-dist/render/surface/SurfaceSignalLookupPass.js';
 import {FrameGraph,FrameGraphContext,FrameGraphResourceManager} from '../../../OEngine/.test-dist/framegraph/FrameGraph.js';
 import {GPUBufferAllocator} from '../../../OEngine/.test-dist/gpu/GPUBufferAllocator.js';
 import {SurfaceCellGeometrySetup} from '../../../OEngine/.test-dist/render/surface/SurfaceCellGeometrySetup.js';
@@ -21,7 +29,7 @@ import {createSurfaceCellPipelineLayout} from '../../../OEngine/.test-dist/rende
 import {SURFACE_CELL_CLASSIFY_STAGES,SURFACE_CELL_CERTIFICATE_FAMILIES} from '../../../OEngine/.test-dist/shaders/surface_cell_group_validation.js';
 
 
-export async function runProductionCellOracle(gpu,assert,onStage=()=>{},onSource=()=>{},withOrm=false) {
+export async function runProductionRepairOracle(gpu,assert,onStage=()=>{},onSource=()=>{},withOrm=false) {
 const {SURFACE_CELL_LIGHTING_RISK_WGSL}=await import('../../../OEngine/.test-dist/shaders/surface_cell_lighting_risk.js');
 const adapter=await gpu.requestAdapter({powerPreference:'high-performance'});assert.ok(adapter&&!adapter.info.isFallbackAdapter);
 const device=await adapter.requestDevice({requiredLimits:{maxStorageBuffersPerShaderStage:16}});
@@ -31,7 +39,7 @@ const report={evidenceRole:'diagnostic',passed:false,apiErrors:errors},retained=
 let owner,registry,cache,publication,variation,allocator,context;
 try{
  const buffer=(data,usage=GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST)=>{const b=device.createBuffer({size:data.byteLength,usage});device.queue.writeBuffer(b,0,data);retained.push(b);return b;};
- const encoder=device.createCommandEncoder(),transient=[],before=[],finished=[],aborted=[];
+ let encoder=device.createCommandEncoder();const transient=[],before=[],finished=[],aborted=[];
  let complete;const gpuDone=new Promise(resolve=>{complete=resolve;});
  const command={device,closed:false,gpu_encoder:encoder,gpuDone,
   onBeforeFinish:{addOne(f){before.push(f);}},onFinished:{addOne(f){finished.push(f);}},onAborted:{addOne(f){aborted.push(f);}},
@@ -115,11 +123,13 @@ try{
  const lookupModule=device.createShaderModule({code:`${surfaceCellWorkspaceWgsl(1)}\n${SURFACE_FIELD_LOOKUP_WGSL}`});
  assert.deepEqual((await lookupModule.getCompilationInfo()).messages.filter(message=>message.type==='error'),[]);
  pipelines.lookup=await device.createComputePipelineAsync({layout:'auto',compute:{module:lookupModule,entryPoint:'lookup_surface_fields'}});
- const lookupSettings=buffer(new Uint32Array([o.fieldIdentities,o.constantFields,64,4,1,1,0,1]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
- const lookupVersions=buffer(new Uint32Array(256)),disabledStore=buffer(new Uint32Array(16));
+ const fieldStore=buffer(new Uint32Array(16*120)),signalStore=buffer(new Uint32Array(16*88));
+ const submitted={value:0};
+ const lookupSettings=buffer(new Uint32Array([o.fieldIdentities,o.constantFields,64,16,1,1,1,1]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+ const lookupVersions=publication.fields;
  const lookupGroup=device.createBindGroup({layout:pipelines.lookup.getBindGroupLayout(0),entries:[
   {binding:0,resource:{buffer:lookupSettings}},{binding:1,resource:{buffer:workspace}},
-  {binding:2,resource:{buffer:publication.surfaceMetadata}},{binding:3,resource:{buffer:lookupVersions}},{binding:4,resource:{buffer:disabledStore}}
+  {binding:2,resource:{buffer:publication.surfaceMetadata}},{binding:3,resource:{buffer:lookupVersions}},{binding:4,resource:{buffer:fieldStore}}
  ]});
  for(let index=0;index<modules.length;index++){
   const entryPoint=`classify_cells_stage_${index}`;onStage(`Compiling ${entryPoint}`);const start=performance.now();
@@ -151,14 +161,63 @@ try{
    compute.dispatchWorkgroups(1);compute.end();
    });pass.read(geometry.arena);if(previous)pass.dependsOn(previous);previous=pass;pass.make_side_effect();
  }
+ const scratch=new SurfaceFrameResources(device);scratch.prepare(8,8);
+ const demandOwner=new SurfaceDemandPass(device,scratch),geometryOwner=new SurfaceGeometryPass(device,scratch),lightingOwner=new SurfaceLightingPass(device,scratch),publishOwner=new SurfaceStorePublishPass(device),reconstructOwner=new SurfaceReconstructionPass(device);
+ retained.push({destroy(){demandOwner.destroy();geometryOwner.destroy();lightingOwner.destroy();publishOwner.destroy();reconstructOwner.destroy();scratch.destroy();}});
+ const request={workspace:imported('production final workspace',workspace),fieldStore:imported('FieldStore',fieldStore),signalStore:imported('SignalStore',signalStore),
+   metadata:imported('Appearance metadata',publication.surfaceMetadata),versions:imported('Field versions',publication.fields),publication,targets:64,leaves:64,
+   epoch:{value:1},viewRevision:{value:1},revisions:{environment:1,light:1,shadow:0,sun:0},sun:null,shadow:null,firstTile:0,width:8,height:8,diagnostics:true,bind:(_name,resolve)=>resolve()};
+ const classifierPublication=graph.add('Classifier independent plans published',{},()=>{});
+ classifierPublication.dependsOn(previous);classifierPublication.write(request.workspace);
+ const signalLookup=new SurfaceSignalLookupPass(device,{buffers:[signalStore],capacity:{entries:16},stats:()=>({submittedEpoch:submitted.value})});retained.push(signalLookup);
+ const earlySignals=signalLookup.addToGraph(graph,{workspace:request.workspace,metadata:request.metadata,versions:request.versions,
+   publication,batchTiles:1,tileCount:1,viewRevision:request.viewRevision,revisions:request.revisions,sun:null,shadowVersion:null,shadowEnabled:false,diagnostics:true,bind:request.bind});
+ request.workspace=earlySignals.workspace;request.signalStore=earlySignals.store;
+ let demand=demandOwner.addToGraph(graph,request);
+ const geometryValues=geometryOwner.addToGraph(graph,{demand,camera:imported('Value camera',camera),bind:request.bind});
+ let fieldValues=buffer(new Float32Array(64*15*4));
+ const fieldValuesId=imported('unique field values',fieldValues);
+ const materialDemand=demand;
+ const materialNode=graph.add('Actual compiled Appearance',{geometry:geometryValues.records,arena:demand.arena},(data,resources)=>publication.encodeSurfaceFields(command,{
+   geometry:resources.get(data.geometry),demand:resources.get(data.arena),values:fieldValues,layout:materialDemand.layout,
+   indirect:resources.get(materialDemand.indirect),
+   textureBanks:[[texture.createView({dimension:'2d-array'})]]}));
+ materialNode.read(geometryValues.records);materialNode.read(demand.arena);materialNode.read(demand.indirect);materialNode.dependsOn(previous);materialNode.write(fieldValuesId);
+ demand=publishOwner.addToGraph(graph,{...request,demand,values:fieldValuesId,signal:false,entries:16,enabled:true});
+ const env=device.createTexture({size:[2,2],format:'rgba16float',usage:GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST});retained.push(env);
+ const envPixels=new Uint16Array(16);for(let i=0;i<4;i++)envPixels.set([0x3800,0x3800,0x3800,0x3c00],i*4);
+ device.queue.writeTexture({texture:env},envPixels,{bytesPerRow:16},{width:2,height:2});
+ const envId=imported('Environment',env);
+ const lighting=lightingOwner.addToGraph(graph,{resourceBinding:request.bind,demand,geometry:geometryValues.records,fields:fieldValuesId,
+   appearanceMetadata:request.metadata,constantFieldsOffset:o.constantFields,width:8,height:8,frame:1,camera:imported('Lighting camera',camera),physicalSun:null,
+   lightRecords:imported('lights',buffer(new Uint32Array(32768))),clusters:{parameters:imported('cluster settings',clusterParameters),lookup:imported('cluster lookup',clusterLookup),data:imported('cluster data',clusterData),activeLightList:imported('active lights',buffer(new Uint32Array(256)))},
+   shadow:null,scalarAo:null,environment:{diffuse:envId,specular:envId,dfg:envId},diagnosticsEnabled:true});
+ demand=publishOwner.addToGraph(graph,{...request,demand:lighting.demand,values:lighting.values,signal:true,entries:16,enabled:true});
+ const facts=device.createTexture({size:[8,8],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING});retained.push(facts);
+ reconstructOwner.prepareFrame(8,8,1);
+ const final=reconstructOwner.addToGraph(graph,{signalValues:lighting.values,signalStore:demand.signalStore,fieldStore:demand.fieldStore,
+   fields:fieldValuesId,reactive:imported('TemporalFacts mask',facts),preExposure:imported('preExposure',buffer(new Float32Array([1]))),cellWorkspace:demand.workspace,cellBatchTiles:1,firstTile:0,
+   appearanceMetadata:request.metadata,constantFieldsOffset:o.constantFields,scalarAo:null,width:8,height:8,recordCount:64,diagnosticsEnabled:true,batch:{index:0,batchTiles:1}});
+ const hdrStaging=device.createBuffer({size:8*256,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});retained.push(hdrStaging);
+ const demandStaging=device.createBuffer({size:demand.layout.bytes,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});retained.push(demandStaging);
+ const finalCapture=graph.add('Final production HDR and actual demand',{radiance:final.radiance,arena:demand.arena},(data,resources)=>{
+   encoder.copyTextureToBuffer({texture:resources.get(data.radiance).gpu_texture},{buffer:hdrStaging,bytesPerRow:256},{width:8,height:8});
+   encoder.copyBufferToBuffer(resources.get(data.arena),0,demandStaging,0,demand.layout.bytes);
+ });finalCapture.read(final.radiance);finalCapture.read(demand.arena);finalCapture.make_side_effect();
  const staging=device.createBuffer({size:workspace.size,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});retained.push(staging);
  const palette=device.createBuffer({size:256,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});retained.push(palette);
  const capture=graph.add('capture',{},()=>{encoder.copyBufferToBuffer(workspace,0,staging,0,workspace.size);encoder.copyBufferToBuffer(publication.surfaceMetadata,o.constantFields*4,palette,0,256);});capture.dependsOn(previous);capture.make_side_effect();
- allocator=new GPUBufferAllocator(device);context=new FrameGraphContext({device,encoder:command,graphics:{device,buffer_allocator_main:allocator,allocator_textures:{}},resource_manager:new FrameGraphResourceManager(device,gpuDone)});
- const compiled=graph.compile();compiled.execute(context);for(const f of before)f();command.closed=true;device.queue.submit([encoder.finish()]);for(const f of finished)f();
- await Promise.all([staging,palette].map(b=>b.mapAsync(GPUMapMode.READ)));complete();
- const words=new Uint32Array(staging.getMappedRange()).slice(),constantWords=new Uint32Array(palette.getMappedRange()).slice();staging.unmap();palette.unmap();
- const validation=await device.popErrorScope();report.validationError=validation?.message??null;assert.equal(validation,null,validation?.message);
+ allocator=new GPUBufferAllocator(device);const textures=new GPUTextureAllocator(device);retained.push(textures);context=new FrameGraphContext({device,encoder:command,graphics:{device,buffer_allocator_main:allocator,allocator_textures:textures},resource_manager:new FrameGraphResourceManager(device,gpuDone)});
+ const compiled=graph.compile();const dump=compiled.dump();report.order=dump.executablePassOrder.map(id=>dump.passes[id].name);compiled.execute(context);for(const f of before)f();command.closed=true;device.queue.submit([encoder.finish()]);for(const f of finished)f();
+ await Promise.all([staging,palette,hdrStaging,demandStaging].map(b=>b.mapAsync(GPUMapMode.READ)));complete();
+ const hdr=new Uint16Array(hdrStaging.getMappedRange()).slice(),actual=new Uint32Array(demandStaging.getMappedRange()).slice();hdrStaging.unmap();demandStaging.unmap();
+ report.actualDemand=[...actual.slice(0,8)];
+ const earlyValidation=await device.popErrorScope();report.validationError=earlyValidation?.message??null;assert.equal(earlyValidation,null,earlyValidation?.message);
+ const preview=new Uint32Array(staging.getMappedRange()).slice();report.workspacePreview={counts:[...preview.slice(0,128)],facts:[...preview.slice(workspaceLayout.facts/4,workspaceLayout.facts/4+16)],plans:[...preview.slice(workspaceLayout.plans/4,workspaceLayout.plans/4+34)]};
+ for(let y=0;y<8;y++)for(let x=0;x<8;x++) {const at=y*128+x*4;assert.equal(hdr[at+3],0x3c00,'Valid complete HDR coverage');assert.ok(hdr[at]>0&&hdr[at]<0x7c00,'Finite nonzero final HDR');}
+ assert.ok(actual[0]>0&&actual[3]>0&&actual[4]>0,'Actual unique producers executed');report.finalHdr=true;
+
+ const words=preview,constantWords=new Uint32Array(palette.getMappedRange()).slice();staging.unmap();palette.unmap();
  report.counts=[...words.subarray(0,128)];report.constantMask=constantWords[0];report.exactMask=constantWords[1];
  const plane=field=>{const at=workspaceLayout.plans/4+16+field*SURFACE_CELL_PLANE_BYTES/4;return {mode:words[at]&255,rate:words[at]>>>8,slots:words[at+3]};};
  report.base=plane(0);report.roughness=plane(3);report.diffuseEnvironment=plane(16);report.specularEnvironment=plane(18);report.coat=plane(20);
@@ -168,7 +227,26 @@ try{
  assert.equal(words[108],32);assert.equal(words[109],withOrm?64:32);assert.equal(words[110],withOrm?160:96);
  assert.equal(report.base.mode,3);assert.equal(report.base.slots,4);assert.equal(report.roughness.mode,withOrm?3:1);assert.equal(report.roughness.slots,withOrm?4:0);
  assert.equal(report.diffuseEnvironment.slots,1);assert.ok(report.specularEnvironment.slots<=16);assert.equal(report.coat.mode,0);assert.equal(report.coat.slots,0);
- assert.ok(words[0*4+2]>0);assert.ok(words[16*4+2]>0);assert.deepEqual(errors,[]);assert.equal(loss,null);report.passed=true;
+ assert.ok(words[0*4+2]>0);assert.ok(words[16*4+2]>0);assert.deepEqual(errors,[]);assert.equal(loss,null);
+ // Reuse the same compiled graph and physical Store products across submitted
+ // frames. Mutation is provider-only; numeric/material features remain intact.
+ report.frames=[];
+ for(let frame=2;frame<=3;frame++) {
+  submitted.value=frame-1;request.epoch.value=frame;
+  if(frame===3)request.revisions.environment++;
+  encoder=device.createCommandEncoder();command.gpu_encoder=encoder;command.closed=false;
+  command.writeBuffer(lookupSettings,0,new Uint32Array([o.fieldIdentities,o.constantFields,64,16,frame,1,1,1]).buffer,0,32);
+  device.pushErrorScope('validation');compiled.execute(context);device.queue.submit([encoder.finish()]);
+  await Promise.all([hdrStaging,demandStaging].map(b=>b.mapAsync(GPUMapMode.READ)));
+  const counts=new Uint32Array(demandStaging.getMappedRange()).slice();demandStaging.unmap();
+  const image=new Uint16Array(hdrStaging.getMappedRange()).slice();hdrStaging.unmap();
+  const error=await device.popErrorScope();assert.equal(error,null,error?.message);
+  for(let y=0;y<8;y++)for(let x=0;x<8;x++) {const at=y*128+x*4;assert.equal(image[at+3],0x3c00);assert.equal(image[at],hdr[at]);}
+  report.frames.push({frame,actualDemand:[...counts.slice(0,8)],sameHdr:true});
+  if(frame===2)assert.ok(counts[3]<actual[3],'Published field hits bypass actual Appearance');
+  if(frame===3)assert.ok(counts[4]>report.frames[0].actualDemand[4],'Changed environment makes actual signals dirty');
+ }
+ report.passed=true;
  for(const b of transient)b.destroy();compiled.destroy();
 }catch(error){report.failure=error?.stack??String(error);}finally{
 

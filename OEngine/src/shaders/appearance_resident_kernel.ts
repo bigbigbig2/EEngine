@@ -189,7 +189,7 @@ ${sampling}
 ${productDeclarations.join("\n")}
 ${productFunctions.join("\n")}
 ${lowered.source}
-${appearanceCoordinatePreparation(program, lowered)}
+${appearanceCoordinatePreparation(program, lowered, integration?.outputBits)}
 ${integration?.coordinateEntry === false ? "" : coordinateEntry}
 ${integration?.entrySource ?? regularEntry}
 `;

@@ -1,4 +1,4 @@
-import { APPEARANCE_SURFACE_READ_WGSL, APPEARANCE_FIELD_WIDTHS } from "./GpuAppearanceCacheAbi.js";
+import { APPEARANCE_FIELD_WIDTHS } from "./GpuAppearanceFieldAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS, SURFACE_CELL_DEMAND_WORDS, SURFACE_REFERENCE_WORDS } from "./GpuSurfaceReferenceAbi.js";
 
 /** Optimization-v1 work plans. A plan describes a span/grid/masked partition;
@@ -130,46 +130,6 @@ fn surface_cell_representative(plan:SurfaceCellPlanePlan,words:ptr<storage,array
 }
 `;
 
-/** Shared read-only consumer. Plans/maps remain batch-local until lighting and
- * reconstruction finish. sample_map maps representative pixels to union records. */
-export function surfaceCellReadWgsl(batchTiles: string): string {
-  return /* wgsl */ `
-fn surface_plan_word(tile:u32,plane:u32,word:u32)->u32 {
-  return cell_plan_words[${SURFACE_CELL_CONTROL_HEADER_WORDS}u + tile * ${SURFACE_CELL_TILE_PLAN_BYTES / 4}u + 16u + plane * 6u + word];
-}
-fn surface_plan_map(offset:u32,lane:u32)->u32 {
-  let base=${SURFACE_CELL_CONTROL_HEADER_WORDS}u + ${batchTiles} * ${SURFACE_CELL_TILE_PLAN_BYTES / 4}u;
-  let bit=lane*6u;
-  let at=base+offset+(bit>>5u);
-  let shift=bit&31u;
-  var value=cell_plan_words[at]>>shift;
-  if shift>26u { value |= cell_plan_words[at+1u]<<(32u-shift); }
-  return value&63u;
-}
-fn surface_plan_record(pixel:vec2u,plane:u32,tiles_x:u32,first_tile:u32)->u32 {
-  let tile=(pixel.y/8u)*tiles_x+pixel.x/8u-first_tile;
-  let lane=(pixel.y%8u)*8u+pixel.x%8u;
-  let mode_rate=surface_plan_word(tile,plane,0u);
-  let mode=mode_rate&255u;
-  let coverage=surface_plan_word(tile,plane,4u+lane/32u);
-  if (coverage&(1u<<(lane&31u)))==0u || mode==0u || mode==1u { return 0xffffffffu; }
-  var representative=lane;
-  if mode==4u {
-    let offset=surface_plan_word(tile,plane,2u);
-    representative=surface_plan_map(offset+12u,surface_plan_map(offset,lane));
-  } else if mode==3u {
-    let rate=(mode_rate>>8u)&15u;
-    let group=((lane/8u)>>((rate>>2u)&3u))*(8u>>(rate&3u))+((lane%8u)>>(rate&3u));
-    representative=surface_plan_map(surface_plan_word(tile,plane,2u)+12u,group);
-  }
-  let coordinate=(pixel/8u)*8u+vec2u(representative%8u,representative/8u);
-  return textureLoad(sample_map,vec2i(coordinate),0).x;
-}
-`;
-}
-
-/** Selection over the batch workspace. Every grid anchor is published once by
- * the classifier; masked remaps use the same bounded packed representation. */
 export function surfaceCellSelectionWgsl(workspace: string): string {
   return /* wgsl */ `
 fn reference_plan_word(leaf:u32,plane:u32,word:u32)->u32 {
@@ -210,45 +170,3 @@ fn reference_field(leaf:u32,field:u32)->SurfaceReference {
 
 /** Independent Constant/Default/Zero/Transient references. Publication entry
  * identity is a cheap fact, so all-constant and E-only surfaces need no record. */
-export function surfaceCellFieldReadWgsl(batchTiles: string, firstTile: string,
-  tilesX: string, paletteOffset: string, fieldBuffer = "fields"): string {
-  const unpack = APPEARANCE_SURFACE_READ_WGSL
-    .replace("@group(0) @binding(2) var<storage, read> fields: array<vec2u>;", "")
-    .replace("fn surface_field(", "fn surface_transient_field(")
-    .replaceAll("fields[", `${fieldBuffer}[`);
-  return /* wgsl */ `
-${unpack}
-struct SurfaceFieldRef { kind:u32, index:u32, }
-fn surface_plan_fact(pixel:vec2u)->vec4u {
-  let tile=(pixel.y/8u)*${tilesX}+pixel.x/8u-${firstTile};
-  let lane=(pixel.y%8u)*8u+pixel.x%8u;
-  let base=(${SURFACE_CELL_CONTROL_HEADER_WORDS}u+${batchTiles}*${(SURFACE_CELL_TILE_PLAN_BYTES + SURFACE_CELL_TILE_MAP_BYTES) / 4 + 64 * SURFACE_CELL_CERTIFICATE_BYTES_PER_TARGET / 4}u+3u)&~3u;
-  let at=base+(tile*64u+lane)*4u;
-  return vec4u(cell_plan_words[at],cell_plan_words[at+1u],cell_plan_words[at+2u],cell_plan_words[at+3u]);
-}
-fn surface_default_field(field:u32)->vec4f {
-  if field==6u || field==12u { return vec4f(0.0,0.0,1.0,0.0); }
-  if field==1u || field==3u || field==4u || field==8u || field==9u || field==11u || field>=13u { return vec4f(1.0); }
-  if field==7u { return vec4f(1.5,0.0,0.0,0.0); }
-  return vec4f(0.0);
-}
-fn surface_field_ref(pixel:vec2u,field:u32)->SurfaceFieldRef {
-  let fact=surface_plan_fact(pixel);
-  if fact.x==0xffffffffu || fact.z==0xffffffffu { return SurfaceFieldRef(3u,0u); }
-  let palette=${paletteOffset}+fact.z*64u;
-  if (appearance_metadata[palette]&(1u<<field))!=0u { return SurfaceFieldRef(1u,palette+4u+field*4u); }
-  let record=surface_plan_record(pixel,field,${tilesX},${firstTile});
-  if record!=0xffffffffu { return SurfaceFieldRef(4u,record); }
-  return SurfaceFieldRef(select(2u,3u,field==0u || field==2u || field==5u || field==10u),0u);
-}
-fn surface_field_at(pixel:vec2u,field:u32)->vec4f {
-  let reference=surface_field_ref(pixel,field);
-  if reference.kind==1u {
-    return bitcast<vec4f>(vec4u(appearance_metadata[reference.index],appearance_metadata[reference.index+1u],appearance_metadata[reference.index+2u],appearance_metadata[reference.index+3u]));
-  }
-  if reference.kind==2u { return surface_default_field(field); }
-  if reference.kind==3u { return vec4f(0.0); }
-  return surface_transient_field(reference.index,field);
-}
-`;
-}

@@ -1,4 +1,4 @@
-import { APPEARANCE_FIELD_NAMES } from "./GpuAppearanceCacheAbi.js";
+import { APPEARANCE_FIELD_NAMES } from "./GpuAppearanceFieldAbi.js";
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
 import { selectAppearanceProductProgram } from "../material/AppearanceGraphCompiler.js";
 import { lowerAppearanceWgsl } from "../shaders/appearance_program.js";

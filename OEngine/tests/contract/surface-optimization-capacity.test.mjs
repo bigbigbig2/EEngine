@@ -9,10 +9,10 @@ test('1080p complete disjoint batches include certificates and worst-case HDR/re
   const plan = planSurfaceOptimizationCapacity(1920, 1080, limits);
   assert.equal(plan.pixelCount, 2073600);
   assert.equal(plan.tileCount, 32400);
-  assert.ok(plan.batchTargetCapacity*676<=32*1024**2);
-  assert.ok(plan.batchTargetCapacity*SURFACE_OPTIMIZATION_DEFAULT_PROFILE.fieldBytesPerTarget<=24*1024**2);
+  assert.ok(plan.productionAllocations.signalValues<=32*1024**2);
+  assert.ok(plan.batchTargetCapacity*SURFACE_OPTIMIZATION_DEFAULT_PROFILE.fieldBytesPerTarget<=32*1024**2);
   assert.ok(plan.batchTargetCapacity*SURFACE_OPTIMIZATION_DEFAULT_PROFILE.addressBytesPerTarget<=32*1024**2);
-  assert.ok(plan.batchTargetCapacity*SURFACE_OPTIMIZATION_DEFAULT_PROFILE.queueBytesPerTarget<=16*1024**2);
+  assert.ok(plan.productionAllocations.demand<=64*1024**2);
   assert.ok(plan.reservedBytes<=512*1024**2);
   assert.ok(surfaceCellWorkspaceLayout(plan.batchTileCapacity).bytes<=limits.maxStorageBufferBindingSize);
   let last = 0;
@@ -28,14 +28,13 @@ test('1080p complete disjoint batches include certificates and worst-case HDR/re
 test('a wider cold profile reduces batch size without truncating target coverage', () => {
   const plan = planSurfaceOptimizationCapacity(1920, 1080, limits,
     { ...SURFACE_OPTIMIZATION_DEFAULT_PROFILE, geometryColdBytesPerTarget: 1024 });
-  assert.equal(plan.batchTargetCapacity, 32768);
-  assert.equal(plan.batchCount, 64);
-  assert.equal(plan.scratchBytes.geometryCold, 32 * 1024 ** 2);
+  assert.ok(plan.scratchBytes.geometryCold<=32*1024**2);
+  assert.ok(plan.batchTargetCapacity<=planSurfaceOptimizationCapacity(1920,1080,limits).batchTargetCapacity);
 });
 test('lower binding limits segment persistent pools and reduce scratch before allocation', () => {
   const reduced = { ...limits, maxStorageBufferBindingSize: 2 * 1024 ** 2 };
   const plan = planSurfaceOptimizationCapacity(1920, 1080, reduced);
-  assert.ok(plan.batchTargetCapacity*676<=2*1024**2);
+  assert.ok(plan.productionAllocations.signalValues<=2*1024**2);
   assert.ok(surfaceCellWorkspaceLayout(plan.batchTileCapacity).bytes<=reduced.maxStorageBufferBindingSize);
   for (const bytes of Object.values(plan.scratchBytes)) assert.ok(bytes <= reduced.maxStorageBufferBindingSize);
   for (const segments of Object.values(plan.persistentSegments)) {

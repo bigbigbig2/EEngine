@@ -20,13 +20,13 @@ fn signal_request_uniform_value(leaf:u32,field:u32)->vec4f {
     signal_request_metadata[at+2u],signal_request_metadata[at+3u]));
 }
 fn signal_request_fields(leaf:u32,kind:u32)->u32 {
-  if kind==0u { return (1u<<0u)|(1u<<2u)|(1u<<6u)|(1u<<10u)|(1u<<13u); }
+  if kind==0u { return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<8u)|(1u<<9u)|(1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<13u)|(1u<<14u); }
   if kind==1u { return (1u<<6u)|(1u<<13u); }
   if kind==5u { return (1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<14u); }
   var mask=(1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<7u)|(1u<<8u)|(1u<<9u)|(1u<<13u);
   if kind==2u || kind==4u { mask|=(1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<14u); }
   let metallic=reference_field(leaf,2u);
-  if (metallic.kind==SURFACE_REFERENCE_PUBLICATION || metallic.kind==SURFACE_REFERENCE_DEFAULT) && signal_request_uniform_value(leaf,2u).x==0.0 {
+  if (kind==2u || kind==3u) && (metallic.kind==SURFACE_REFERENCE_PUBLICATION || metallic.kind==SURFACE_REFERENCE_DEFAULT) && signal_request_uniform_value(leaf,2u).x==0.0 {
     mask&=~1u;
   }
   return mask;
@@ -57,6 +57,9 @@ fn signal_request_field_word(leaf:u32,field:u32,word:u32)->u32 {
   // namespace and combine with their actual per-field numeric version.
   if reference.kind==SURFACE_REFERENCE_STORE {
     return select(0x80000000u|reference.index,reference.generation,word==1u);
+  }
+  if reference.kind==SURFACE_REFERENCE_TRANSIENT {
+    return select(0x40000000u|reference.index,reference.generation,word==1u);
   }
   let descriptor=signal_request_field_descriptor(selected,field);
   switch word {

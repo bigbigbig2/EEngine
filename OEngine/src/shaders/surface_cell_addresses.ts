@@ -48,6 +48,7 @@ fn publish_cell_addresses(@builtin(workgroup_id) group:vec3u,@builtin(local_invo
   cell_workspace.addresses[at+14u]=published.y;
   cell_workspace.addresses[at+93u]=interpolation.flags;
   cell_workspace.addresses[at+130u]=setup.source_address.w;
+  cell_address_write4(at+132u,setup.world_plane);
   var flips=0u;
   if (setup.source_address.w&16u)!=0u {
     for(var point=0u;point<3u;point++) {

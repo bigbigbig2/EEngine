@@ -5,7 +5,7 @@ import { SURFACE_FIELD_STORE_ENTRY_WORDS, SURFACE_FIELD_STORE_IDENTITY_WORDS, SU
   SURFACE_FIELD_STORE_FLAGS_WORD, SURFACE_FIELD_STORE_GENERATION_WORD, SURFACE_FIELD_STORE_STATE_WORD,
   SURFACE_FIELD_STORE_TOUCHED_WORD } from "../gpu/GpuSurfaceFieldStoreAbi.js";
 import { SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS, SURFACE_CELL_FIELD_CERTIFICATE_WORDS } from "../gpu/GpuSurfaceCellPlanAbi.js";
-import { APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceCacheAbi.js";
+import { APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
 
 /** Published value and certificate are independent results. A certificate hit
  * fills leaf bounds before the hierarchy; a value hit publishes a FieldRef.

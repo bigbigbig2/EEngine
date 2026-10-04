@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const {chromium}=createRequire(resolve('validation/package.json'))('playwright-core');
 const {createServer}=await import('../../../OEngine/node_modules/vite/dist/node/index.js');
 const fixture=process.argv[2]??'production-cell';
-if(!['production-cell','production-orm','repair-step-one','repair-certificate','repair-field-lookup','repair-signal-lookup'].includes(fixture))throw new RangeError('Unknown GPU fixture');
+if(!['production-cell','production-orm','repair-step-one','repair-certificate','repair-field-lookup','repair-signal-lookup','repair-demand','repair-production'].includes(fixture))throw new RangeError('Unknown GPU fixture');
 const outputDirectory=process.argv[3]??'.local/validation/surface-optimization-v1';
 const pollBudget=Number(process.argv[4]??30);
 if(!Number.isSafeInteger(pollBudget)||pollBudget<1||pollBudget>90)throw new RangeError('GPU fixture host wait budget must be 1..90 ten-second polls');

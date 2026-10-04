@@ -906,3 +906,11 @@ Directional VSM 的真实 PCF 接收点比较没有删除或换成 page-version 
 `publishSurfaceFieldIdentities` 是 compiler/ABI 本地集成：完整 per-output immutable witness 精确 intern；`surface_field_dependency_epoch` 的 lookup→reserve→publish→resolve 比较实际 texture revision 列表，ID 不 wrap/reuse。`surface_field_request/lookup` 比较完整 identity/point/domain/gradient，分别发布 ValueHit/CertificateHit。`surface_signal_request/lookup` 根据实际被 plan 选择的 FieldRef 构造每 kind 的精确 key，Store slot/generation 是不可变 payload 的发布证明，不是 dependency hash；AO/E 在 compose 的 kind 不绑定它们。未准入/未知为 transient，不等待另一个 workgroup。
 
 VSM content version/namespace 是原 owner 的发布胶水：实际 allocation/table/depth mutation 标记 dirty；后续 dispatch 发布单调版本，Surface 读取真实 FrameGraph product；无变化不推进，耗尽返回 unknown，namespace 不复用。未将此集成宣称为新的 VSM 算法移植。实际组件检查和消费者断点见执行记录；完整新链消费证据与同场景计量仍归步骤 4/5，不提升 adoption/claims。
+
+### 2026-10-04 五步修复第四步生产接线
+
+延续上述 CPS/OSS/DAIS 固定来源核读和本地 Continuity-Domain Signal Sampling 方案，不新增完整 donor adoption。GpuSurfaceDemandAbi/surface_demand 是本地 full-key request interning 和 GPU 队列胶水；输入共享地址/独立 refs，输出唯一 producer/mask/实际 indirect。nomination 的弱 CAS 空位不跨位置继续，后续 dispatch 精确恢复 owner，hash 用尽精确检查实际请求流，保持完整覆盖/唯一写入。Store glue 不将 distinct producer 合并为同 immutable slot；generation 与 publication version 分域。独立 indirect buffer 的 GPU copy 是 WebGPU usage-scope 适配，不改变调度数学。
+
+唯一 GeometryRecord 使用既有 Geometry 地址/setup/Winner 数学；Appearance 继续实际 compiler/resident sampler/Product 闭包，不保留另一 decode/cache owner。Filament/Forge 映射中的 re_direct_physical 原公式、每灯分支和 attenuation 保留；只将原先计算出的 coat_radiance 分别累计到 coat signal，base specular/diffuse 不再重复 attenuation 或按总 specular 人工分配 coat。环境 Denv 保持 irradiance，compose 的 reflectance/occlusion/AO/1pi 各一次，specular 与 coat IBL 仍使用原算法。
+
+实际 Chrome GPU 独立新链 cold/warm/provider-update、full-key dedup、Store满表/70000精度、六组 compose已通过，报告在 .local/validation/surface-repair-step-four-*。该小链不证明完整材质/Product/形变矩阵、1080p性能或完整来源采用；采用等级未提升。

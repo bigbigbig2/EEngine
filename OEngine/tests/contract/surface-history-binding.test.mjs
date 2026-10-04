@@ -14,7 +14,7 @@ test("Surface reconstruct plans bounded tile batches", () => {
   assert.throws(() => planSurfaceReconstructionBatches(17, 9, 0), /batchTiles is invalid/);
 });
 
-test("Surface reconstruct consumes packet and TemporalFacts resources", () => {
+test("Surface reconstruct consumes independent FieldRef/SignalRef and TemporalFacts resources", () => {
   const device = {
     createBuffer: descriptor => ({ ...descriptor, destroy() {} }),
     createBindGroupLayout: () => ({}), createPipelineLayout: () => ({}),
@@ -27,15 +27,14 @@ test("Surface reconstruct consumes packet and TemporalFacts resources", () => {
       dispatchWorkgroupsIndirect() {}, end() {} }) };
   const owner = new SurfaceReconstructionPass(device);
   owner.prepareFrame(4, 2, 1);
-  const graph = new FrameGraph("Surface packet reconstruct");
+  const graph = new FrameGraph("Surface independent reconstruct");
   const texture = { createView: () => ({}) };
   const resource = graph.import_resource("fixture", { kind: "imported" }, texture);
-  const packets = graph.import_resource("packets", { kind: "imported" }, {});
-  const fullPackets = graph.import_resource("full packets", { kind: "imported" }, {});
-  const packetFlags = graph.import_resource("packet flags", { kind: "imported" }, {});
+  const packets = graph.import_resource("signal values", { kind: "imported" }, {});
+  const fullPackets = graph.import_resource("SignalStore", { kind: "imported" }, {});
+  const packetFlags = graph.import_resource("FieldStore", { kind: "imported" }, {});
   const preExposure = graph.import_resource("pre exposure", { kind: "imported" }, {});
-  const sampleMap = graph.import_resource("sample map", { kind: "imported" }, texture);
-  const products = owner.addToGraph(graph, { packets, fullPackets, packetFlags, reactive: resource, preExposure, sampleMap, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
+  const products = owner.addToGraph(graph, { signalValues:packets, signalStore:fullPackets, fieldStore:packetFlags, reactive: resource, preExposure, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
     width: 4, height: 2, recordCount: 8, diagnosticsEnabled: true });
   assert.ok(products.radiance);
   assert.ok(products.reactiveMask);
@@ -46,15 +45,15 @@ test("Surface reconstruct consumes packet and TemporalFacts resources", () => {
   const compiled = graph.compile();
   const dump = compiled.dump();
   assert.ok(dump.executablePassOrder.some(id => dump.passes[id].name === "Surface/cheap batched reconstruct"));
-  assert.ok(dump.resources.some(entry => entry.name === "packets"));
-  assert.ok(dump.resources.some(entry => entry.name === "full packets"));
-  assert.ok(dump.resources.some(entry => entry.name === "sample map"));
+  assert.ok(dump.resources.some(entry => entry.name === "signal values"));
+  assert.ok(dump.resources.some(entry => entry.name === "SignalStore"));
+  assert.ok(dump.resources.some(entry => entry.name === "FieldStore"));
   owner.commit();
   assert.throws(() => owner.commit(), /without prepare/);
   owner.prepareFrame(4, 2, 1);
   owner.abort();
   assert.throws(() => owner.addToGraph(new FrameGraph("aborted"), {
-    packets, fullPackets, packetFlags, reactive: resource, preExposure, sampleMap, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
+    signalValues:packets, signalStore:fullPackets, fieldStore:packetFlags, reactive: resource, preExposure, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
     width: 4, height: 2, recordCount: 8, diagnosticsEnabled: false
   }), /not prepared/);
   owner.destroy();

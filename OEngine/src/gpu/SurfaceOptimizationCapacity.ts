@@ -1,4 +1,7 @@
 import { surfaceCellWorkspaceLayout } from "./GpuSurfaceCellPlanAbi.js";
+import { surfaceDemandLayout } from "./GpuSurfaceDemandAbi.js";
+import { SURFACE_GEOMETRY_RECORD_BYTES } from "./GpuSurfaceGeometryRecordAbi.js";
+import { planSurfaceCellGeometryCapacity } from "./GpuSurfaceCellGeometryAbi.js";
 
 /** Surface V3 optimization-v1 capacity policy and production allocation contract.
  * Counts are bounded tile/target slots; GPU counters select actual work inside
@@ -9,7 +12,7 @@ export const SURFACE_OPTIMIZATION_DEFAULT_BATCH_PIXELS = 262144;
 export const SURFACE_OPTIMIZATION_ENVELOPE_BYTES = 512 * SURFACE_OPTIMIZATION_MIB;
 export const SURFACE_OPTIMIZATION_BUDGET_MIB = Object.freeze({
   plans: 4, addresses: 32, geometryHot: 16, geometryCold: 32,
-  fields: 24, queues: 16, signals: 32, resolveMaps: 8,
+  fields: 32, queues: 64, signals: 32, resolveMaps: 8,
   fieldStore: 128, signalStore: 64, variation: 32, outputs: 24
 });
 
@@ -26,11 +29,11 @@ export interface SurfaceOptimizationProfile {
 }
 export const SURFACE_OPTIMIZATION_DEFAULT_PROFILE: SurfaceOptimizationProfile = Object.freeze({
   // Address witness plus existing primitive dictionary/setup allocation.
-  addressBytesPerTarget: 704, geometryHotBytesPerTarget: 320,
+  addressBytesPerTarget: 704, geometryHotBytesPerTarget: SURFACE_GEOMETRY_RECORD_BYTES,
   // Two independent bound products (screen leaf / canonical persistent domain)
   // and 15 f32 field values. Ref/demand and work queue storage is separate.
   geometryColdBytesPerTarget: 128, fieldBytesPerTarget: 656,
-  queueBytesPerTarget: 384, signalBytesPerTarget: 676, resolveMapBytesPerTarget: 52
+  queueBytesPerTarget: 1280, signalBytesPerTarget: 96, resolveMapBytesPerTarget: 252
 });
 export interface SurfaceOptimizationLimits {
   readonly maxBufferSize: number;
@@ -54,6 +57,7 @@ export interface SurfaceOptimizationCapacity {
   readonly envelopeHeadroomBytes: number;
   readonly queueLimits: Readonly<SurfaceOptimizationQueueLimits>;
   readonly ledger: Readonly<SurfaceOptimizationBudgetLedger>;
+  readonly productionAllocations: Readonly<Record<string, number>>;
 }
 export interface SurfaceOptimizationQueueLimits {
   readonly targetPixels: number;
@@ -118,8 +122,28 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
     const poolLimit = Math.min(bindingLimit, SURFACE_OPTIMIZATION_BUDGET_MIB[pool] * SURFACE_OPTIMIZATION_MIB);
     batchTiles = Math.min(batchTiles, Math.floor(poolLimit / (stride * 64)));
   }
+  // Physical arenas are checked as well as category ceilings. The request
+  // dictionary rounds to powers of two and therefore cannot be budgeted by an
+  // invented fixed stride. Reserve 256 PSO counters before publication is known.
+  while(batchTiles>0 && surfaceDemandLayout(batchTiles*64,256).bytes>
+    Math.min(bindingLimit,SURFACE_OPTIMIZATION_BUDGET_MIB.queues*SURFACE_OPTIMIZATION_MIB)) {
+    batchTiles--;
+  }
   if (batchTiles < 1) throw new RangeError("Surface profile cannot fit one complete tile in negotiated limits");
   const batchTargetCapacity = batchTiles * 64;
+  const setup=planSurfaceCellGeometryCapacity(batchTargetCapacity,batchTargetCapacity*128,limits);
+  const productionAllocations=Object.freeze({
+    workspace:surfaceCellWorkspaceLayout(batchTiles).bytes,
+    geometrySetup:setup.setupBytes+setup.dictionaryBytes+512,
+    geometryRecords:batchTargetCapacity*SURFACE_GEOMETRY_RECORD_BYTES,
+    fieldValues:batchTargetCapacity*15*16,
+    signalValues:batchTargetCapacity*6*16,
+    demand:surfaceDemandLayout(batchTargetCapacity,256).bytes,
+    demandIndirect:512+256*32,
+    controlAndSettings:64*1024,
+    reconstructionIndirect:Math.ceil(tileCount/batchTiles)*16,
+    dependencyOwners:256*15*4
+  });
   const scratchBytes = { plans: align(controlBytes + batchTiles * bytesPerTile), addresses: 0,
     geometryHot: 0, geometryCold: 0, fields: 0, queues: 0, signals: 0, resolveMaps: 0 };
   for (const [pool, field] of scratchProfile) scratchBytes[pool] = align(batchTargetCapacity * profile[field]);
@@ -140,14 +164,13 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
   }
   const rawScratchBytes = batchTargetCapacity * scratchProfile.reduce((sum, [, field]) => sum + profile[field], 0)
     + controlBytes;
-  const scratchTotalBytes = Object.values(scratchBytes).reduce((sum, bytes) => sum + bytes, 0);
+  const scratchTotalBytes = Object.values(productionAllocations).reduce((sum, bytes) => sum + bytes, 0);
   const persistentBytes = [...persistentSegments.fieldStore, ...persistentSegments.signalStore,
     ...persistentSegments.variation].reduce((sum, bytes) => sum + bytes, 0);
   const alignmentBytes = Math.max(0, scratchTotalBytes - rawScratchBytes);
-  const payloadBytes = scratchBytes.addresses + scratchBytes.geometryCold + scratchBytes.fields +
-    scratchBytes.signals + scratchBytes.resolveMaps;
-  const metadataBytes = scratchBytes.plans + scratchBytes.geometryHot;
-  const queueBytes = scratchBytes.queues;
+  const payloadBytes = productionAllocations.geometryRecords+productionAllocations.fieldValues+productionAllocations.signalValues;
+  const metadataBytes = productionAllocations.workspace+productionAllocations.geometrySetup+productionAllocations.dependencyOwners;
+  const queueBytes = productionAllocations.demand+productionAllocations.demandIndirect+productionAllocations.reconstructionIndirect+productionAllocations.controlAndSettings;
   const historyBytes = 0;
   const retiredOverlapBytes = scratchTotalBytes;
   const outputBytes = SURFACE_OPTIMIZATION_BUDGET_MIB.outputs * SURFACE_OPTIMIZATION_MIB;
@@ -158,14 +181,14 @@ export function planSurfaceOptimizationCapacity(width: number, height: number,
     sharedBytes: 0, surfaceEnvelopeBytes: SURFACE_OPTIMIZATION_ENVELOPE_BYTES });
   const queueLimits = Object.freeze({ targetPixels: batchTargetCapacity,
     uniqueAddresses: Math.floor(scratchBytes.addresses / profile.addressBytesPerTarget),
-    fieldCount: Math.floor(scratchBytes.fields / profile.fieldBytesPerTarget),
-    signalCount: Math.floor(scratchBytes.signals / profile.signalBytesPerTarget),
-    programPartitions: Math.floor(scratchBytes.plans / 256),
-    precisionSpill: Math.floor(scratchBytes.signals / 16) });
+    fieldCount: batchTargetCapacity*15,
+    signalCount: batchTargetCapacity*6,
+    programPartitions: 256,
+    precisionSpill: batchTargetCapacity*6 });
   return Object.freeze({ width, height, pixelCount, tilesX, tilesY, tileCount,
     batchTileCapacity: batchTiles, batchTargetCapacity, batchCount: Math.ceil(tileCount / batchTiles),
     scratchBytes: Object.freeze(scratchBytes), persistentSegments, reservedBytes,
-    envelopeHeadroomBytes: SURFACE_OPTIMIZATION_ENVELOPE_BYTES - reservedBytes, queueLimits, ledger });
+    envelopeHeadroomBytes: SURFACE_OPTIMIZATION_ENVELOPE_BYTES - reservedBytes, queueLimits, ledger,productionAllocations });
 }
 
 /** CPU encodes all fixed ranges; GPU coverage/counts select work inside each range. */

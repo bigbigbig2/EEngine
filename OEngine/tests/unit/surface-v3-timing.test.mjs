@@ -52,3 +52,20 @@ test("optimization timing includes cell setup, cache maintenance and signal publ
   assert.equal(totals.get("materialLookup"), 1);
   assert.equal(totals.get("reconstruct"), 2);
 });
+
+test("independent request chain aggregates every batch before percentiles",()=>{
+ const labels=["Surface/canonical field addresses","Surface/shared field certificates family 0",
+  "Surface/field value and certificate lookup","Surface/kind-specific signal value lookup",
+  "Surface/emit_surface_requests","Surface/nominate_field_producers","Surface/resolve_field_producers",
+  "Surface/nominate_signal_producers","Surface/resolve_signal_producers","Surface/compact_surface_groups",
+  "Surface/finalize_surface_groups","Surface/order_material_groups","Surface/unique GeometryRecord",
+  "Surface/material publication kernel 0","Surface/field Store 0","Surface/field Store 1","Surface/field Store 2",
+  "Surface/unique dirty Lighting","Surface/signal Store 0","Surface/signal Store 1","Surface/signal Store 2",
+  "Surface/reconstruct batch counts","Surface/reconstruct batch 0"];
+ const segments=[...labels,...labels].map(label=>({label,durationMs:1}));
+ segments.push({label:"Surface/actual batch diagnostic snapshot",durationMs:1000});
+ const totals=surfaceTimingTotalsForFrame(segments);
+ assert.equal([...totals.values()].reduce((a,b)=>a+b,0),labels.length*2);
+ assert.equal(totals.get("lighting"),2);
+ assert.equal(totals.get("cacheMaintenance"),12);
+});

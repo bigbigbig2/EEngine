@@ -1,4 +1,4 @@
-import { APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceCacheAbi.js";
+import { APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
 import { SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS, SURFACE_CELL_FIELD_CERTIFICATE_WORDS,
   SURFACE_CELL_GEOMETRY_CERTIFICATE_WORDS } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";

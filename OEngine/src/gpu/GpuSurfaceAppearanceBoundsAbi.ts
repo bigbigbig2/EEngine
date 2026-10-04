@@ -1,5 +1,5 @@
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
-import { APPEARANCE_FIELD_NAMES } from "./GpuAppearanceCacheAbi.js";
+import { APPEARANCE_FIELD_NAMES } from "./GpuAppearanceFieldAbi.js";
 import { appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
 
 /** Local publication directory, consumed by Surface field-specific compatibility

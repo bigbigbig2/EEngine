@@ -5,7 +5,7 @@
  * counters are mutable indirect arguments, while these fields are immutable
  * evidence for one sampled frame.
  */
-export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 2;
+export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 3;
 export const SURFACE_DIAGNOSTICS_MAGIC = 0x53564433; // "SVD3"
 export const SURFACE_DIAGNOSTICS_HEADER_WORDS = 16;
 export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 96;
@@ -226,7 +226,7 @@ export function evaluateSurfaceCoverage(values: SurfaceDiagnosticsValues): Surfa
   if (values.geometryProducerBaseWords !== values.geometryConsumerBaseWords) {
     violations.push("geometry producer/consumer base mismatch");
   }
-  if (values.geometryRecordStrideWords !== 12 && values.geometryRecordStrideWords !== 0) {
+  if (values.geometryRecordStrideWords !== 45 && values.geometryRecordStrideWords !== 0) {
     violations.push("geometry record stride mismatch");
   }
   const status = violations.length !== 0 ? "fail" : incomplete ? "unknown" : "pass";

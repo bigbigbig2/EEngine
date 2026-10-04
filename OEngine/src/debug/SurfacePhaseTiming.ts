@@ -6,6 +6,10 @@ export const SURFACE_TIMING_PHASES = [
   "cacheMaintenance",
   "workFinalize",
   "materialLookup",
+  "signalLookup",
+  "address",
+  "certificate",
+  "demand",
   "geometryLookup",
   "geometryFinalize",
   "geometryResolve",
@@ -32,6 +36,16 @@ export function classifySurfaceTimingPhase(
 ): SurfaceTimingPhase | null {
   const label = segment.label.trim().toLocaleLowerCase("en-US");
   if (label.length === 0) return null;
+  if(/surface\/.*diagnostic/.test(label)) { return null; }
+  if(/surface\/canonical field addresses/.test(label)) { return "address"; }
+  if(/surface\/shared .*certificates|surface\/publish_cell_.*certificates/.test(label)) { return "certificate"; }
+  if(/surface\/field value and certificate lookup/.test(label)) { return "materialLookup"; }
+  if(/surface\/kind-specific signal value lookup/.test(label)) { return "signalLookup"; }
+  if(/surface\/field dependency |surface\/(?:lookup|reserve|commit|resolve)_field_dependency_versions|surface\/(?:field|signal) store/.test(label)) { return "cacheMaintenance"; }
+  if(/surface\/(?:emit_surface_requests|finalize_surface_requests|nominate_.*producers|resolve_.*producers|compact_surface_groups|finalize_surface_groups|order_material_groups|actual demand|publish actual indirect)/.test(label)) { return "demand"; }
+  if(/surface\/unique geometryrecord/.test(label)) { return "geometryResolve"; }
+  if(/surface\/unique dirty lighting/.test(label)) { return "lighting"; }
+  if(/surface\/cheap .*reconstruct/.test(label)) { return "reconstruct"; }
 
   if (label.includes("surface/cell ")) {
     return "classify";

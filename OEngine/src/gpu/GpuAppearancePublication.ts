@@ -13,314 +13,15 @@ import { AppearanceStaticResidency, appearanceStaticTextureKey, type AppearanceS
 import type { AppearanceAssetPackage } from "../assets/AppearanceAssetPackage.js";
 import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js";
 import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
-import { appearanceCachePlan, appearanceCacheIntegration, type AppearanceCachePlan } from "../shaders/appearance_cache.js";
-import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS, APPEARANCE_SURFACE_CACHE_KEY_WORDS, APPEARANCE_SURFACE_CHANNELS, APPEARANCE_SURFACE_LAYER_COUNT, APPEARANCE_PACKED_SLOT_RECORD_COUNT } from "./GpuAppearanceCacheAbi.js";
-import type { GpuAppearanceCache, PreparedAppearanceCache } from "./GpuAppearanceCache.js";
-import { GPU_VISIBILITY_KEY_WGSL, GPU_VISIBILITY_KEY_EMPTY, GPU_VISIBILITY_KEY_INVALID } from "./GpuVisibilityKeyAbi.js";
-import { GPU_MESHLET_RASTER_WORK_WGSL } from "./GpuMeshletRasterWorkAbi.js";
+import { appearanceSurfaceDemandIntegration } from "../shaders/appearance_surface_demand.js";
+import type { SurfaceDemandLayout } from "./GpuSurfaceDemandAbi.js";
+import { APPEARANCE_FIELD_NAMES } from "./GpuAppearanceFieldAbi.js";
 import { appearanceInputLayout, appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
 import { appearanceCoverageKernel, COVERAGE_DIRECTORY_STRIDE } from "../shaders/appearance_coverage.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
 import { lowerAppearanceFieldBounds, type AppearanceFieldBoundProgram } from "../shaders/appearance_field_bounds.js";
 import { packSurfaceAppearanceBounds } from "./GpuSurfaceAppearanceBoundsAbi.js";
-import { SURFACE_INPUT_WITNESS_WORDS } from "./GpuSurfaceWorkAbi.js";
 import { publishSurfaceFieldIdentities, SURFACE_FIELD_IDENTITY_WORDS } from "./GpuSurfaceFieldIdentityAbi.js";
-
-const APPEARANCE_FRAME_MAX_TASKS = 262144;
-const APPEARANCE_FRAME_MAX_PIXELS = 4194304;
-const APPEARANCE_FRAME_MAX_INPUT_VECTORS = 96;
-const APPEARANCE_FRAME_MAX_OUTPUTS = 64;
-const APPEARANCE_CACHE_STAGES = ["cache_reset", "cache_request", "cache_nominate", "cache_publish", "cache_consume"] as const;
-// The legacy dependency-field cache kernel binds eleven storage buffers. GTX
-// 1650-class WebGPU profiles commonly expose fewer; Surface V3's publication
-// cache remains the authoritative cache on those devices.
-const APPEARANCE_CACHE_STORAGE_BUFFER_COUNT = 11;
-
-const SURFACE_SETTINGS_WGSL = `
-struct SurfaceSettings {
-  width: u32, height: u32, record_count: u32, entry_index: u32,
-  cache_capacity: u32, material_lookup_offset: u32, identity_offset: u32, sample_offset: u32,
-  geometry_offset: u32, diagnostics_enabled: u32, view_revision: u32, nonlocal_revision: u32,
-  directory_offset: u32, runtime_input_offset: u32, material_lookup_count: u32, directory_count: u32
-};
-`;
-
-function surfaceFieldExpr(slots: readonly number[] | undefined): string {
-  return `vec4f(${Array.from({ length: 4 }, (_, channel) =>
-    slots?.[channel] === undefined ? "0.0" : `value[${slots[channel]}u]`).join(",")})`;
-}
-
-/**
- * Integrates the already compiled resident program with SurfaceWork.  Each
- * invocation consumes one compact miss, fills private geometry inputs, runs
- * the exact compiled graph and publishes the same six physical surface
- * layers.  No fallback material math is introduced here.
- */
-function surfaceKernelIntegration(program: CompiledAppearanceGraph,
-  lowered: AppearanceResidentKernel["lowered"]): AppearanceKernelIntegration {
-  const inputLayout = appearanceInputLayout(program);
-  const outputBits=Object.fromEntries(APPEARANCE_FIELD_NAMES.map((name,index)=>[name,1<<index]));
-  const inputDeclarations = program.inputs.map((input, index) => {
-    const kind = appearanceGeometryInputKind(input, program);
-    const value = kind === 0 ? `surface_runtime_input(surface_metadata[surface_settings.directory_offset+directory_base+7u]+${index}u)` : kind === 1 ? "vec4f(surface_geometry[base + 3u].xy,0.0,0.0)" :
-      kind === 2 ? "vec4f(surface_geometry[base + 3u].zw,0.0,0.0)" :
-      kind === 3 ? "vec4f(surface_geometry[base + 4u].xy,0.0,0.0)" :
-      kind === 4 ? "surface_geometry[base + 11u]" :
-      kind === 5 ? "surface_geometry[base + 2u]" :
-      kind === 6 ? "surface_geometry[base + 5u]" :
-      kind === 7 ? "surface_geometry[base + 0u]" :
-      kind === 8 ? "surface_geometry[base + 6u]" :
-      kind === 9 ? "surface_geometry[base + 0u]" :
-      kind === 10 ? "surface_geometry[base + 0u]" :
-      kind === 11 ? "surface_geometry[base + 2u]" :
-      kind === 12 ? "surface_geometry[base + 5u]" :
-      kind === 13 ? "surface_geometry[base + 0u]" :
-      kind === 14 ? "surface_geometry[base + 2u]" : "vec4f(0.0)";
-    const center = `appearance_inputs[${index}u]=${value};`;
-    const dx = kind === 1 ? "surface_geometry[base + 7u].xy" : "vec2f(0.0)";
-    const dy = kind === 1 ? "surface_geometry[base + 7u].zw" : "vec2f(0.0)";
-    return `${center} appearance_inputs[${inputLayout.neighborBase + index * 2}u]=${value} + vec4f(${dx},0.0,0.0); appearance_inputs[${inputLayout.neighborBase + index * 2 + 1}u]=${value} + vec4f(${dy},0.0,0.0);`;
-  }).join("\n  ");
-const layers = `${Array.from({ length: APPEARANCE_SURFACE_LAYER_COUNT }, (_, layer) => `var layer${layer}=surface_cached_layer(record,${layer}u);`).join("\n  ")}\n  var validityBits=u32(layer5.w);`;
-  const writes = APPEARANCE_FIELD_NAMES.map((name, field) => {
-    const expression = surfaceFieldExpr(lowered.outputSlots[name]);
-    const [layer, channel] = APPEARANCE_SURFACE_CHANNELS[field]!;
-    if (field >= 13) return `if (appearance_missing & ${1<<field}u)!=0u { validityBits = (validityBits & ~${1<<(field-13)}u) | (u32(clamp(${expression}.x,0.0,1.0)) << ${field - 13}u); }`;
-    if (APPEARANCE_FIELD_WIDTHS[field] === 3) return `if (appearance_missing & ${1<<field}u)!=0u { layer${layer}.xyz=${expression}.xyz; }`;
-    return `if (appearance_missing & ${1<<field}u)!=0u { layer${layer}[${channel}]=${expression}.x; }`;
-  }).join("\n  ");
-  const declarations = `
-${SURFACE_SETTINGS_WGSL}
-struct AppearanceRoute { identity: vec4u, uv: vec4f, rotation: vec4f, fallback: vec4f }
-@group(0) @binding(0) var<storage, read> appearance_constants: array<f32>;
-@group(0) @binding(1) var<storage, read> appearance_routes: array<AppearanceRoute>;
-@group(0) @binding(5) var<uniform> appearance_dispatch: vec4u;
-@group(0) @binding(13) var<storage, read> surface_geometry: array<vec4f>;
-@group(0) @binding(14) var<storage, read> surface_misses: array<vec2u>;
-@group(0) @binding(15) var<storage, read> surface_hit_mask: array<u32>;
-@group(0) @binding(16) var<storage, read> surface_metadata: array<u32>;
-@group(0) @binding(19) var<uniform> surface_settings: SurfaceSettings;
-@group(0) @binding(20) var<storage, read_write> surface_cache: array<u32>;
-@group(0) @binding(21) var<storage, read_write> surface_cache_values: array<vec2u>;
-@group(0) @binding(23) var<storage, read> surface_counters: array<u32>;
-@group(0) @binding(24) var<storage, read> surface_field_versions: array<u32>;
-@group(0) @binding(25) var<storage, read> surface_residency_epoch: array<u32>;
-@group(0) @binding(29) var<storage, read> surface_geometry_keys: array<u32>;
-@group(0) @binding(27) var<storage, read> surface_work: array<u32>;
-// detailed-only audit: entered, completed, fields published, skipped/rejected
-@group(0) @binding(28) var<storage, read_write> surface_audit: array<atomic<u32>>;
-var<private> appearance_task: vec4u;
-var<private> appearance_missing:u32;
-fn surface_cached_layer(record:u32,layer:u32)->vec4f {
- let packed=surface_cache_values[record*6u+layer];return vec4f(unpack2x16float(packed.x),unpack2x16float(packed.y));
-}
-fn surface_store_layer(record:u32,layer:u32,value:vec4f){surface_cache_values[record*6u+layer]=vec2u(pack2x16float(value.xy),pack2x16float(value.zw));}
-var<private> appearance_inputs: array<vec4f, ${Math.max(1, inputLayout.vectors)}>;
-fn appearance_constant(index:u32)->f32 { return appearance_constants[appearance_task.x+index]; }
-fn appearance_input(index:u32,channel:u32)->f32 { return appearance_inputs[index][channel]; }
-fn surface_audit_add(index:u32) { if surface_settings.diagnostics_enabled != 0u { atomicAdd(&surface_audit[index], 1u); } }
-fn surface_runtime_input(index:u32)->vec4f { let at=surface_settings.runtime_input_offset+index*4u; return vec4f(bitcast<f32>(surface_metadata[at]),bitcast<f32>(surface_metadata[at+1u]),bitcast<f32>(surface_metadata[at+2u]),bitcast<f32>(surface_metadata[at+3u])); }
-`;
-  const entrySource = `
-@compute @workgroup_size(${APPEARANCE_WORKGROUP_SIZE})
-fn surface_main(@builtin(global_invocation_id) id: vec3u) {
-  let miss=id.x;
-  if (miss>=surface_settings.record_count || miss>=surface_counters[4u+surface_settings.entry_index*8u+4u]) { return; }
-  surface_audit_add(0u);
-  let queue_base=surface_counters[4u+surface_settings.entry_index*8u+5u];
-  let record=surface_misses[queue_base+miss].x;
-  if (surface_hit_mask[record]!=0u) { surface_audit_add(3u); return; }
-  let sample_at=surface_settings.sample_offset/4u+record*8u;
-  let pixel_word=surface_work[sample_at];
-  let base=surface_settings.geometry_offset+surface_work[sample_at+6u]*12u;
-  if surface_geometry[base+1u].w<0.5 { surface_audit_add(3u);return; }
-  appearance_missing=surface_work[sample_at+4u];
-  let material=bitcast<u32>(surface_geometry[base+10u].y);
-  if (material>=surface_settings.material_lookup_count) { surface_audit_add(3u); return; }
-  let entry=surface_metadata[surface_settings.material_lookup_offset+material];
-  if (entry==0xffffffffu || entry>=surface_settings.directory_count || surface_metadata[surface_settings.directory_offset+entry*8u+1u]!=surface_settings.entry_index) { surface_audit_add(3u); return; }
-  let directory_base=entry*8u;
-  appearance_task=vec4u(surface_metadata[surface_settings.directory_offset+directory_base+2u],surface_metadata[surface_settings.directory_offset+directory_base+3u],0u,0u);
-  ${inputDeclarations}
-  appearance_prepare_coordinates();
-  let value=appearance_evaluate();
-  ${layers}
-  ${writes}
-  layer5.w=f32(validityBits);
-  let pixel=vec2i(i32(pixel_word%surface_settings.width),i32(pixel_word/surface_settings.width));
-  surface_audit_add(2u);
-  surface_audit_add(1u);
-  // One representative owns this pixel cell; all fields publish after evaluation.
-  // Epoch is an exact witness, never a hash used as proof of equality.
-  let publication=surface_settings.identity_offset+entry*20u;
-  let cacheAt=record*19u;
-  surface_cache[cacheAt]=surface_metadata[publication+3u];
-  surface_cache[cacheAt+1u]=material;
-  surface_cache[cacheAt+2u]=surface_geometry_keys[record*${SURFACE_INPUT_WITNESS_WORDS}u+12u];
-  surface_cache[cacheAt+3u]=surface_residency_epoch[0];
-  for(var field=0u;field<15u;field++){
-    let fieldIndex=surface_metadata[publication+4u+field];
-    surface_cache[cacheAt+4u+field]=0u;
-    if fieldIndex!=0xffffffffu && (surface_work[sample_at+7u]&(1u<<(field+8u)))!=0u {
-      surface_cache[cacheAt+4u+field]=surface_field_versions[(surface_metadata[publication+1u]+fieldIndex)*4u];
-    }
-  }
-  surface_store_layer(record,0u,layer0);surface_store_layer(record,1u,layer1);
-  surface_store_layer(record,2u,layer2);surface_store_layer(record,3u,layer3);
-  surface_store_layer(record,4u,layer4);surface_store_layer(record,5u,layer5);
-}
-`;
-  const fixed: GPUBindGroupLayoutEntry[] = [
-    { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
-    { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: APPEARANCE_ROUTE_STRIDE } },
-    { binding: 13, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } },
-    { binding: 14, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 8 } },
-    { binding: 15, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
-    { binding: 16, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
-    { binding: 19, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 64 } },
-    { binding: 20, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: APPEARANCE_SURFACE_CACHE_KEY_WORDS * 4 } },
-    { binding: 21, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
-    { binding: 23, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 16 } },
-    { binding: 24, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
-    { binding: 25, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
-    { binding: 27, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage", minBindingSize: 4 } },
-    { binding: 28, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage", minBindingSize: 16 } },
-    { binding: 29, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } }
-  ];
-  return { entryPoint: "surface_main", coordinateEntry: false, outputBits, groups: [fixed], declarations, entrySource };
-}
-const APPEARANCE_DEMAND_WGSL = /* wgsl */ `
-${GPU_VISIBILITY_KEY_WGSL}
-${GPU_MESHLET_RASTER_WORK_WGSL}
-struct Settings { width: u32, height: u32, task_capacity: u32, max_inputs: u32, max_outputs: u32, frame: u32, row_start: u32, row_count: u32,
-  frame_header: u32, frame_directory: u32, program_count: u32, reserved: u32 }
-@group(0) @binding(0) var visibility: texture_2d<u32>;
-@group(0) @binding(1) var<storage, read> meshlet_work: OEngineMeshletWorkQueueRead;
-@group(0) @binding(2) var<storage, read> material_lookup: array<u32>;
-@group(0) @binding(3) var<storage, read> directory: array<u32>;
-@group(0) @binding(4) var<storage, read> runtime_inputs: array<vec4f>;
-@group(0) @binding(5) var<storage, read_write> tasks: array<vec4u>;
-@group(0) @binding(6) var<storage, read_write> task_inputs: array<vec4f>;
-@group(0) @binding(7) var<storage, read_write> task_program: array<u32>;
-@group(0) @binding(8) var<storage, read_write> pixel_tasks: array<u32>;
-@group(0) @binding(9) var<storage, read_write> control: array<atomic<u32>>;
-@group(0) @binding(10) var<storage, read_write> indirect: array<atomic<u32>>;
-@group(0) @binding(11) var<storage, read_write> metadata: array<vec4u>;
-@group(0) @binding(13) var<uniform> settings: Settings;
-@compute @workgroup_size(8, 8)
-fn demand(@builtin(global_invocation_id) id: vec3u) {
-  if id.x >= settings.width || id.y >= settings.row_count { return; }
-  let position = vec2u(id.x, id.y + settings.row_start);
-  let pixel = position.y * settings.width + position.x;
-  if pixel >= arrayLength(&pixel_tasks) { return; }
-  let key = textureLoad(visibility, vec2i(position), 0).x;
-  if key == ${GPU_VISIBILITY_KEY_EMPTY}u || key == ${GPU_VISIBILITY_KEY_INVALID}u { pixel_tasks[pixel] = 0xffffffffu; return; }
-  let decoded = oengine_visibility_key_decode(key);
-  if decoded.valid == 0u { pixel_tasks[pixel] = 0xffffffffu; return; }
-  if decoded.meshlet_work_slot >= meshlet_work.header.written_count { pixel_tasks[pixel] = 0xffffffffu; return; }
-  let work = meshlet_work.elements[decoded.meshlet_work_slot];
-  if work.material_slot_or_range >= arrayLength(&material_lookup) { pixel_tasks[pixel] = 0xffffffffu; return; }
-  let entry = material_lookup[work.material_slot_or_range];
-  if entry == 0xffffffffu { pixel_tasks[pixel] = 0xffffffffu; return; }
-  let program = directory[entry * 8u + 1u];
-  let slot = atomicAdd(&control[0], 1u);
-  if slot >= settings.task_capacity { atomicAdd(&control[1], 1u); pixel_tasks[pixel] = 0xffffffffu; return; }
-  let source = entry * 8u;
-  let input_base = directory[source + 7u];
-  let input_shape = metadata[program];
-  let input_count = input_shape.x;
-  let task_input_base = slot * settings.max_inputs;
-  for (var i = 0u; i < input_count; i++) {
-    task_inputs[task_input_base + i] = runtime_inputs[input_base + i];
-  }
-  tasks[slot] = vec4u(directory[source + 2u], directory[source + 3u], task_input_base, slot * settings.max_outputs);
-  task_program[slot] = program;
-  metadata[settings.program_count + slot] = vec4u(work.material_slot_or_range, directory[source + 5u], pixel, program);
-  atomicAdd(&indirect[4u + program * 8u + 4u], 1u);
-  pixel_tasks[pixel] = slot;
-}
-@compute @workgroup_size(1)
-fn finalize() {
-  let count = min(atomicLoad(&control[0]), settings.task_capacity);
-  atomicAdd(&control[2], count);
-  atomicAdd(&control[3], atomicLoad(&control[0]));
-  atomicStore(&indirect[0], (count + 63u) / 64u); atomicStore(&indirect[1], 1u); atomicStore(&indirect[2], 1u);
-  atomicStore(&indirect[3], count);
-  var prefix = 0u;
-  for (var program = 0u; program < settings.program_count; program++) {
-    let at = 4u + program * 8u;
-    let tasks = atomicLoad(&indirect[at + 4u]);
-    let x = (tasks + 63u) / 64u;
-    atomicStore(&indirect[at], x); atomicStore(&indirect[at + 1u], 1u); atomicStore(&indirect[at + 2u], 1u); atomicStore(&indirect[at + 3u], tasks);
-    atomicStore(&indirect[at + 5u], prefix); atomicStore(&indirect[at + 7u], x);
-    prefix += tasks;
-  }
-}
-`;
-const APPEARANCE_SCATTER_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> source_tasks: array<vec4u>;
-@group(0) @binding(1) var<storage, read> source_metadata: array<vec4u>;
-@group(0) @binding(2) var<storage, read> buckets: array<vec4u>;
-@group(0) @binding(3) var<storage, read_write> cursors: array<atomic<u32>>;
-@group(0) @binding(4) var<storage, read_write> ordered_tasks: array<vec4u>;
-@group(0) @binding(5) var<storage, read_write> ordered_programs: array<u32>;
-@group(0) @binding(6) var<storage, read_write> ordered_metadata: array<vec4u>;
-@group(0) @binding(7) var<storage, read_write> pixels: array<u32>;
-@group(0) @binding(8) var<uniform> program_count: vec4u;
-@compute @workgroup_size(64)
-fn scatter(@builtin(global_invocation_id) id: vec3u) {
-  if id.x >= buckets[0].w { return; }
-  let meta = source_metadata[program_count.x + id.x];
-  let bucket = buckets[2u + meta.w * 2u];
-  let target = bucket.y + atomicAdd(&cursors[4u + meta.w], 1u);
-  ordered_tasks[target] = source_tasks[id.x];
-  ordered_programs[target] = meta.w;
-  ordered_metadata[target] = meta;
-  pixels[meta.z] = target;
-}
-`;
-const APPEARANCE_RESOLVE_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> resolve_tasks: array<vec4u>;
-@group(0) @binding(1) var<storage, read> resolve_program: array<u32>;
-@group(0) @binding(2) var<storage, read> resolve_pixels: array<u32>;
-@group(0) @binding(3) var<storage, read> resolve_outputs: array<f32>;
-@group(0) @binding(4) var resolve_settings: texture_storage_2d_array<rgba16float, write>;
-struct ResolveSettings { extent: vec4u, stripe: vec4u }
-@group(0) @binding(5) var<uniform> resolve_settings_data: ResolveSettings;
-@group(0) @binding(6) var<storage, read> resolve_field_slots: array<vec4u>;
-@compute @workgroup_size(8, 8)
-fn resolve(@builtin(global_invocation_id) id: vec3u) {
-  let resolve_size = resolve_settings_data.extent;
-  if id.x >= resolve_size.x || id.y >= resolve_settings_data.stripe.y { return; }
-  let position = vec2u(id.x, id.y + resolve_settings_data.stripe.x);
-  let pixel = position.y * resolve_size.x + position.x;
-  let task = resolve_pixels[pixel];
-  if task == 0xffffffffu {
-    for (var field = 0u; field < resolve_size.z; field++) {
-      textureStore(resolve_settings, vec2i(position), i32(field), vec4f(0.0));
-    }
-    return;
-  }
-  let base = resolve_tasks[task].w;
-  let program = resolve_program[task];
-  for (var field = 0u; field < resolve_size.z; field++) {
-    let slots = resolve_field_slots[program * ${APPEARANCE_PACKED_SLOT_RECORD_COUNT}u + field];
-    var value = vec4f(0.0);
-    for (var channel = 0u; channel < 4u; channel++) {
-      if slots[channel] != 0xffffffffu { value[channel] = resolve_outputs[base + slots[channel]]; }
-    }
-    if field==5u {
-      let flags=resolve_field_slots[program*${APPEARANCE_PACKED_SLOT_RECORD_COUNT}u+${APPEARANCE_SURFACE_LAYER_COUNT}u];
-      var valid=vec2u(1u);
-      for(var lobe=0u;lobe<2u;lobe++) {
-        if flags[lobe]!=0xffffffffu { valid[lobe]=select(0u,1u,resolve_outputs[base+flags[lobe]]>0.5); }
-      }
-      value.w=f32(valid.x|(valid.y<<1u));
-    }
-    textureStore(resolve_settings, vec2i(position), i32(field), value);
-  }
-}
-`;
 
 export const APPEARANCE_DIRECTORY_STRIDE = 32;
 /** u32 version, scalar output base, width, dependency mask. */
@@ -349,7 +50,6 @@ export interface AppearancePublishedEntry {
   readonly program: CompiledAppearanceGraph;
   readonly productTextures: readonly GPUTexture[];
   readonly fieldBase: number;
-  readonly cachePlan: AppearanceCachePlan;
   readonly coverage: AppearancePublishedCoverage;
 }
 
@@ -405,26 +105,23 @@ export class GpuAppearancePublication {
   readonly surfaceBoundPrograms: readonly AppearanceFieldBoundProgram[];
   readonly surfaceMaxInputVectors: number;
   readonly surfaceMaxOutputs: number;
-  readonly cache!: PreparedAppearanceCache;
   /** Eight u32s: material, PSO, constants, routes, resources, field base, field count, reserved. */
   readonly directory: GPUBuffer;
   /** Material-slot indexed fragment constants/routes/input directory. */
   readonly coverageDirectory: GPUBuffer;
   readonly allocatedBytes: number;
   readonly ready: Promise<void>;
-  private readonly leases: readonly AppearanceProgramLease[];
-  private readonly cacheStageLeases: AppearanceProgramLease[][] = [];
-  private readonly coordinateLeases: AppearanceProgramLease[] = [];
   private readonly staticLeases: AppearanceStaticLease[] = [];
   private readonly buffers: GPUBuffer[] = [];
   private readonly surfaceLeases: AppearanceProgramLease[] = [];
+  private readonly samplers: readonly GPUSampler[];
+  private readonly productSampler: GPUSampler;
   private surfacePipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] | null = null;
   private constantValues!: Float32Array<ArrayBuffer>;
   private inputValues!: Float32Array<ArrayBuffer>;
   private fieldWords!: Uint32Array<ArrayBuffer>;
   private fieldDependencies: readonly (readonly number[])[] = [];
   private readonly accountingHandles: ResourceHandle[] = [];
-  private pipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] | null = null;
   private readonly cancelReadiness: (reason: Error) => void;
   private unwatchRegistry: (() => void) | null = null;
   private readonly destroyedListeners = new Set<() => void>();
@@ -435,11 +132,15 @@ export class GpuAppearancePublication {
     sources: readonly AppearancePublicationSource[], command: ShadeGPUCommandContext,
     mipRanges: ReadonlyMap<ShadeTexture, readonly [number, number]>,
     texturePublications: ReadonlyMap<ShadeTexture, TextureSurfacePublication>,
-    private readonly accounting?: ResourceAccounting, staticResidency?: AppearanceStaticResidency,
-    private readonly cacheOwner?: GpuAppearanceCache) {
+    private readonly accounting?: ResourceAccounting, staticResidency?: AppearanceStaticResidency) {
     if (command.device !== device || command.closed) throw new Error("Appearance requires an open command on its GPUDevice");
+    this.samplers=Object.freeze(Array.from({length:6},(_unused,index)=>device.createSampler({
+      minFilter:index<3?"linear":"nearest",magFilter:index<3?"linear":"nearest",mipmapFilter:index<3?"linear":"nearest",
+      addressModeU:(["clamp-to-edge","mirror-repeat","repeat"] as const)[index%3]!,
+      addressModeV:(["clamp-to-edge","mirror-repeat","repeat"] as const)[index%3]!
+    })));
+    this.productSampler=device.createSampler({minFilter:"linear",magFilter:"linear",addressModeU:"clamp-to-edge",addressModeV:"clamp-to-edge"});
     const entries: AppearancePublishedEntry[] = [];
-    const leaseList: AppearanceProgramLease[] = [];
     const descriptors: AppearanceProgramDescriptor[] = [];
     const surfaceDescriptors: AppearanceProgramDescriptor[] = [];
     const surfaceKernels: AppearanceResidentKernel[] = [];
@@ -495,12 +196,7 @@ export class GpuAppearancePublication {
           assets.set(read.asset.runtime.manifest.assetId, read.asset);
           return binding;
         });
-        const compiledCachePlan = appearanceCachePlan(source.program, appearanceInputLayout(source.program).vectors, 64);
-        const cachePlan = Number(device.limits.maxStorageBuffersPerShaderStage) >= APPEARANCE_CACHE_STORAGE_BUFFER_COUNT
-          ? compiledCachePlan : disableAppearanceCachePlan(compiledCachePlan);
-        const hasCachedFields = cachePlan.fields.some(field => field.cells > 0);
-        const candidate = appearanceResidentKernel(source.program, resources, productResources,
-          hasCachedFields ? appearanceCacheIntegration(cachePlan) : undefined);
+        const candidate = appearanceResidentKernel(source.program, resources, productResources);
         const kernelKey = candidate.descriptor.source + ":resident-linear:" + JSON.stringify([
           resources, productResources, source.textureBindingSetId, [...productBindings.keys()], candidate.lowered.outputSlots,
           source.program.inputs.map(input => [input.name, input.domain]),
@@ -517,7 +213,7 @@ export class GpuAppearancePublication {
           programIndex = descriptors.length;
           descriptors.push(kernel.descriptor);
           const surfaceKernel = appearanceResidentKernel(source.program, resources, productResources,
-            surfaceKernelIntegration(source.program, kernel.lowered));
+            appearanceSurfaceDemandIntegration(source.program, kernel.lowered));
           surfaceKernels.push(surfaceKernel);
           boundPrograms.push(Object.freeze({
             ...lowerAppearanceFieldBounds(source.program, kernel.lowered, `ab_field_${programIndex}`),
@@ -613,7 +309,7 @@ export class GpuAppearancePublication {
           inputBase: coverageInputBase, program: coverageProgram, kernel: coverageKernel, productTextures: coverageProductTextures, productViews: [], rasterProgram,
           cutoffSlot, viewDependent: coverageProgram.inputs.some(input => [8,9,13,14].includes(appearanceGeometryInputKind(input,coverageProgram))) });
         entries.push(Object.freeze({ material: source.material, inputBase, materialSlot: source.materialSlot, textureBindingSetId: source.textureBindingSetId,
-          constantBase, routeBase, programIndex, resourceSetIndex, kernel, program: source.program, productTextures, fieldBase, cachePlan, coverage }));
+          constantBase, routeBase, programIndex, resourceSetIndex, kernel, program: source.program, productTextures, fieldBase, coverage }));
         directory.set([source.materialSlot, programIndex, constantBase, routeBase, resourceSetIndex, fieldBase,
           Object.keys(kernel.lowered.outputSlots).length, inputBase], index * directoryWords);
       }
@@ -683,23 +379,8 @@ export class GpuAppearancePublication {
         throw new RangeError(`Appearance publication ${data.byteLength} bytes exceed negotiated storage limit ${maximum}`);
       }
       // Publication byte admission precedes every shader/layout/pipeline/buffer creation.
-      for (const descriptor of descriptors) registry.preflight(descriptor);
       for (const descriptor of surfaceDescriptors) registry.preflight(descriptor);
-      for (const descriptor of descriptors) registry.preflight({ ...descriptor, entryPoint: "prepare_coordinates" });
-      for (let index = 0; index < descriptors.length; index++) {
-        const plan = entries.find(entry => entry.programIndex === index)!.cachePlan;
-        if (plan.fields.some(field => field.cells > 0)) {
-          for (const entryPoint of APPEARANCE_CACHE_STAGES) registry.preflight({ ...descriptors[index]!, entryPoint });
-        }
-      }
-      for (const descriptor of descriptors) leaseList.push(registry.acquire(descriptor));
       for (const descriptor of surfaceDescriptors) this.surfaceLeases.push(registry.acquire(descriptor));
-      for (const descriptor of descriptors) this.coordinateLeases.push(registry.acquire({ ...descriptor, entryPoint: "prepare_coordinates" }));
-      for (let index = 0; index < descriptors.length; index++) {
-        const plan = entries.find(entry => entry.programIndex === index)!.cachePlan;
-        this.cacheStageLeases.push(plan.fields.some(field => field.cells > 0)
-          ? APPEARANCE_CACHE_STAGES.map(entryPoint => registry.acquire({ ...descriptors[index]!, entryPoint })) : []);
-      }
       const assetLeases = new Map<string, AppearanceStaticLease>();
       for (const [id, asset] of assets) {
         const lease = staticResidency!.acquire(asset, command);
@@ -730,12 +411,9 @@ export class GpuAppearancePublication {
       if (coverageDirectoryData.byteLength > maximum) throw new RangeError("Coverage directory exceeds negotiated storage limit");
       entries.forEach(entry => coverageDirectoryData.set([entry.coverage.constantBase, entry.coverage.routeBase, entry.coverage.inputBase, entry.coverage.rasterProgram], entry.materialSlot * 4));
       this.coverageDirectory = this.upload(device, command, "coverage-directory", coverageDirectoryData);
-      if (!cacheOwner) throw new Error("Appearance publication requires the shared cache owner");
-      this.cache = cacheOwner.prepare(descriptors.map((_descriptor, index) => entries.find(entry => entry.programIndex === index)!.cachePlan));
       this.constantValues = constantData; this.inputValues = inputData; this.fieldWords = fieldData;
       this.fieldDependencies = fieldDependencies;
        this.entries = Object.freeze(entries);
-       this.leases = Object.freeze(leaseList);
        this.surfaceProgramCount = surfaceDescriptors.length;
        this.surfaceBoundPrograms = Object.freeze(boundPrograms);
        this.surfaceMaxInputVectors = Math.max(1, ...surfaceKernels.map(kernel => kernel.inputVectorCount));
@@ -745,13 +423,9 @@ export class GpuAppearancePublication {
       const cancellation = new Promise<never>((_resolve, reject) => { cancel = reject; });
       this.cancelReadiness = cancel;
        this.ready = Promise.race([cancellation, Promise.all([
-         Promise.all(leaseList.map(lease => lease.ready)),
-         Promise.all(this.surfaceLeases.map(lease => lease.ready)),
-         Promise.all(this.cacheStageLeases.map(leases => Promise.all(leases.map(lease => lease.ready)))),
-         Promise.all(this.coordinateLeases.map(lease => lease.ready))
-       ]).then(([pipelines, surfacePipelines]) => {
+         Promise.all(this.surfaceLeases.map(lease => lease.ready))
+       ]).then(([surfacePipelines]) => {
          if (this.state !== "staging") throw new Error("Appearance publication cancelled before program readiness");
-         this.pipelines = Object.freeze(pipelines);
          this.surfacePipelines = Object.freeze(surfacePipelines);
          this.state = "ready";
       })]);
@@ -763,23 +437,12 @@ export class GpuAppearancePublication {
       command.onAborted.addOne(() => this.destroy());
       this.unwatchRegistry = registry.onStopped(() => this.destroy());
     } catch (error) {
-      for (const lease of leaseList) lease.release();
       for (const lease of this.surfaceLeases) lease.release();
-      for (const lease of this.coordinateLeases) lease.release();
-      for (const leases of this.cacheStageLeases) for (const lease of leases) lease.release();
       for (const lease of this.staticLeases) lease.release();
       for (const buffer of this.buffers) buffer.destroy();
-      if (this.cache) this.cacheOwner?.release(this.cache);
       for (const handle of this.accountingHandles) accounting?.destroyed(handle);
       throw error;
     }
-  }
-
-  program(index: number): Awaited<AppearanceProgramLease["ready"]> {
-    if (this.state !== "ready" && this.state !== "resident") throw new Error("Appearance publication is not consumable");
-    const value = this.pipelines?.[index];
-    if (value === undefined) throw new RangeError("Appearance program index is outside this publication");
-    return value;
   }
 
   /** Encode edits into the main frame transaction. Only affected field versions
@@ -841,60 +504,39 @@ export class GpuAppearancePublication {
     return this.entries.some(entry => entry.coverage.viewDependent && entry.material.transparency_mode === ShadeTransparencyMode.AlphaTested);
   }
 
-  /** Encode the exact compiled publication kernels for compact Surface misses. */
-  encodeSurfaceMissEvaluation(command: ShadeGPUCommandContext, input: {
-    readonly geometryKeys: GPUBuffer;
+  /** Actual unique missing fields, grouped by the compiler's PSO/resources. */
+  encodeSurfaceFields(command: ShadeGPUCommandContext, input: {
     readonly geometry: GPUBuffer;
-    readonly work: GPUBuffer;
-    readonly misses: GPUBuffer;
-    readonly hitMask: GPUBuffer;
-    readonly counters: GPUBuffer;
-    readonly fieldVersions: GPUBuffer;
-    readonly residencyVersions: GPUBuffer;
-    readonly cache: GPUBuffer;
-    readonly cacheValues: GPUBuffer;
-    readonly audit: GPUBuffer;
-    readonly diagnosticsEnabled: boolean;
-    readonly viewRevision: number;
-    readonly nonlocalRevision: number;
+    readonly demand: GPUBuffer;
     readonly indirect: GPUBuffer;
-    readonly width: number;
-    readonly height: number;
-    readonly recordCount: number;
-    readonly geometryOffset: number;
-    readonly cacheCapacity: number;
-    readonly sampleOffset: number;
+    readonly values: GPUBuffer;
+    readonly layout: SurfaceDemandLayout;
     readonly textureBanks: readonly (readonly GPUTextureView[])[];
   }): void {
     if (command.device !== this.device || command.closed || (this.state !== "ready" && this.state !== "resident")) {
-      throw new Error("Surface appearance evaluation requires an open resident frame");
+      throw new Error("Surface Appearance requires an open resident frame");
     }
     const pipelines = this.surfacePipelines;
-    if (!pipelines || pipelines.length !== this.surfaceProgramCount) throw new Error("Surface publication kernels are not ready");
-    const settings = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 64);
-    for (let programIndex = 0; programIndex < pipelines.length; programIndex++) {
-      const entry = this.entries.find(candidate => candidate.programIndex === programIndex);
+    if (!pipelines) throw new Error("Surface field kernels are not ready");
+    const offsets=input.layout.offsets;
+    for (let programIndex=0;programIndex<pipelines.length;programIndex++) {
+      const entry=this.entries.find(candidate=>candidate.programIndex===programIndex);
       if (!entry) continue;
-      command.writeBuffer(settings, 0, new Uint32Array([
-        input.width, input.height, input.recordCount, programIndex,
-        input.cacheCapacity, this.surfaceMetadataOffsets.materialLookup, this.surfaceMetadataOffsets.identity, input.sampleOffset, input.geometryOffset,
-        input.diagnosticsEnabled ? 1 : 0, input.viewRevision >>> 0, input.nonlocalRevision >>> 0,
-        this.surfaceMetadataOffsets.directory, this.surfaceMetadataOffsets.runtimeInputs,
-        this.surfaceMetadataOffsets.materialLookupCount, this.surfaceMetadataOffsets.directoryCount
-      ]).buffer, 0, 64);
-      const ready = pipelines[programIndex]!;
-      const group0 = this.device.createBindGroup({ layout: ready.layouts[0]!, entries: [
-        { binding: 0, resource: { buffer: this.constants } }, { binding: 1, resource: { buffer: this.routes } },
-        { binding: 13, resource: { buffer: input.geometry } }, { binding: 14, resource: { buffer: input.misses } },
-        { binding: 15, resource: { buffer: input.hitMask } }, { binding: 16, resource: { buffer: this.surfaceMetadata } },
-        { binding: 19, resource: { buffer: settings } }, { binding: 20, resource: { buffer: input.cache } },
-        { binding: 21, resource: { buffer: input.cacheValues } },
-        { binding: 23, resource: { buffer: input.counters } },
-        { binding: 24, resource: { buffer: input.fieldVersions } },
-        { binding: 25, resource: { buffer: input.residencyVersions } },
-        { binding: 27, resource: { buffer: input.work } }
-        ,{ binding: 28, resource: { buffer: input.audit } },{ binding: 29, resource: { buffer: input.geometryKeys } }
-      ] });
+      const settings=command.allocateTransientBuffer(GPUBufferUsage.UNIFORM,32);
+      command.writeBuffer(settings,0,new Uint32Array([
+        programIndex,offsets.programs!/4,offsets.ordered_material_queue!/4,offsets.material_masks!/4,
+        offsets.field_destinations!/4,this.surfaceMetadataOffsets.directory,this.surfaceMetadataOffsets.runtimeInputs,offsets.material_entries!/4
+      ]).buffer,0,32);
+      const ready=pipelines[programIndex]!;
+      const group0=this.device.createBindGroup({layout:ready.layouts[0]!,entries:[
+        {binding:0,resource:{buffer:this.constants}},
+        {binding:1,resource:{buffer:this.routes}},
+        {binding:2,resource:{buffer:input.geometry}},
+        {binding:3,resource:{buffer:input.demand}},
+        {binding:4,resource:{buffer:this.surfaceMetadata}},
+        {binding:5,resource:{buffer:input.values}},
+        {binding:6,resource:{buffer:settings}}
+      ]});
       const groups: GPUBindGroup[] = [group0];
       const textureLayout = ready.layouts[1];
       const textureDescriptors = entry.kernel.descriptor.groups[1] ?? [];
@@ -908,12 +550,7 @@ export class GpuAppearancePublication {
             textureEntries.push({ binding: descriptor.binding, resource: view });
           } else if (descriptor.sampler) {
             const samplerIndex = descriptor.binding - 9;
-            const addressMode = (["clamp-to-edge", "mirror-repeat", "repeat"] as const)[samplerIndex % 3]!;
-            const filter = samplerIndex < 3 ? "linear" : "nearest";
-            textureEntries.push({ binding: descriptor.binding, resource: this.device.createSampler({
-              minFilter: filter, magFilter: filter, mipmapFilter: filter,
-              addressModeU: addressMode, addressModeV: addressMode
-            }) });
+            textureEntries.push({ binding: descriptor.binding, resource: this.samplers[samplerIndex]! });
           }
         }
         groups.push(this.device.createBindGroup({ layout: textureLayout, entries: textureEntries }));
@@ -924,176 +561,15 @@ export class GpuAppearancePublication {
           binding, resource: texture.createView({ dimension: "2d-array" })
         }));
         if (entry.productTextures.length > 0) productEntries.push({ binding: entry.productTextures.length,
-          resource: this.device.createSampler({ minFilter: "linear", magFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" }) });
+          resource: this.productSampler });
         groups.push(this.device.createBindGroup({ layout: productLayout, entries: productEntries }));
       }
       const pass = command.beginComputePass({ label: `Surface/material publication kernel ${programIndex}` });
       pass.setPipeline(ready.pipeline); groups.forEach((group, index) => pass.setBindGroup(index, group));
-      pass.dispatchWorkgroupsIndirect(input.indirect, 16 + programIndex * 32);
+      pass.dispatchWorkgroupsIndirect(input.indirect, offsets.programs! + programIndex * 32);
       pass.end();
     }
   }
-
-  /*
-  encodeDemand(command: ShadeGPUCommandContext, input: {
-    readonly visibility: GPUTextureView;
-    readonly meshletWork: GPUBuffer;
-    readonly geometry: GPUBuffer;
-    readonly attributes: GPUBuffer;
-    readonly frameInstances: GPUBuffer;
-    readonly camera: GPUBuffer;
-    readonly vertexPayload: GPUBuffer;
-    readonly source: GpuSparseShadingAssetHeapBindings;
-    readonly productMetadata?: GPUBuffer;
-    readonly productBanks?: readonly GPUBuffer[];
-    readonly frameHeaderWord: number;
-    readonly frameDirectoryWord: number;
-    readonly textureBanks: readonly (readonly GPUTextureView[])[];
-    readonly width: number;
-    readonly height: number;
-    readonly fields: GPUTextureView;
-    readonly frame: number;
-  }): void {
-    if (command.device !== this.device || command.closed || (this.state !== "ready" && this.state !== "resident")) {
-      throw new Error("Appearance demand requires an open resident frame");
-    }
-    if (input.width < 1 || input.height < 1 || input.width * input.height > this.maxFramePixels) {
-      throw new RangeError("Appearance demand extent exceeds the negotiated frame pixel budget");
-    }
-    // Extent-derived stripes guarantee enough space even when every pixel is
-    // visible. They use the same compiled programs and publication protocol;
-    // no GPU count is read by the CPU and all stripes remain in this encoder.
-    const rowsPerStripe = Math.floor(this.maxFrameTasks / input.width);
-    if (rowsPerStripe < 1) throw new RangeError("Appearance task capacity cannot cover one render row");
-    command.gpu_encoder.clearBuffer(this.frameControl);
-    for (let row = 0; row < input.height; row += rowsPerStripe) {
-      const rowCount = Math.min(rowsPerStripe, input.height - row);
-      const demand = this.demandPipeline;
-      const finalize = this.demandFinalizePipeline;
-      const resolve = this.resolvePipeline;
-      const makeUniform = (data: Uint32Array): GPUBuffer => command.allocateTransientBufferAndLoad(data.buffer as ArrayBuffer, GPUBufferUsage.UNIFORM);
-      command.gpu_encoder.clearBuffer(this.frameControl, 0, 4);
-      if (this.leases.length) command.gpu_encoder.clearBuffer(this.frameControl, 16);
-      command.gpu_encoder.clearBuffer(this.frameIndirect);
-      const settings = new Uint32Array([input.width, input.height, this.maxFrameTasks, this.maxFrameInputs, this.maxFrameOutputs, input.frame, row, rowCount,
-        input.frameHeaderWord, input.frameDirectoryWord, this.leases.length, 0]);
-      command.writeBuffer(this.frameSettings, 0, settings.buffer as ArrayBuffer, 0, settings.byteLength);
-      const demandGroup = this.device.createBindGroup({ layout: this.demandLayout, entries: [
-        { binding: 0, resource: input.visibility }, { binding: 1, resource: { buffer: input.meshletWork } },
-        { binding: 2, resource: { buffer: this.materialLookup } }, { binding: 3, resource: { buffer: this.directory } },
-        { binding: 4, resource: { buffer: this.runtimeInputs } }, { binding: 5, resource: { buffer: this.frameTasks } },
-        { binding: 6, resource: { buffer: this.frameInputs } }, { binding: 7, resource: { buffer: this.framePrograms } },
-        { binding: 8, resource: { buffer: this.framePixels } }, { binding: 9, resource: { buffer: this.frameControl } },
-        { binding: 10, resource: { buffer: this.frameIndirect } }, { binding: 11, resource: { buffer: this.frameMetadata } },
-        { binding: 13, resource: { buffer: this.frameSettings } }
-      ] });
-      const pass = command.gpu_encoder.beginComputePass({ label: "Appearance GPU demand" });
-      pass.setPipeline(demand); pass.setBindGroup(0, demandGroup);
-      pass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(rowCount / 8));
-      pass.setPipeline(finalize); pass.dispatchWorkgroups(1); pass.end();
-      const programCount = makeUniform(new Uint32Array([this.leases.length, 0, 0, 0]));
-      const scatterPass = command.gpu_encoder.beginComputePass({ label: "Appearance task scatter" });
-      scatterPass.setPipeline(this.scatterPipeline);
-      scatterPass.setBindGroup(0, this.device.createBindGroup({ layout: this.scatterLayout, entries: [
-        ...[this.frameTasks, this.frameMetadata, this.frameIndirect, this.frameControl, this.frameOrderedTasks,
-          this.framePrograms, this.frameTaskMetadata, this.framePixels].map((buffer, binding) => ({ binding, resource: { buffer } })),
-        { binding: 8, resource: { buffer: programCount } }
-      ] }));
-      scatterPass.dispatchWorkgroupsIndirect(this.frameIndirect, 0); scatterPass.end();
-
-      const product = input.productMetadata !== undefined;
-      if (product && input.productBanks?.length !== 4) throw new Error("Surface Product source requires four actual resident banks");
-      const source = input.source;
-      const geometrySettings = makeUniform(new Uint32Array([
-        input.width, input.height, input.frame, 0, input.frameHeaderWord, input.frameDirectoryWord, 0, 0,
-        source.geometryWordBase, source.meshletWordBase, source.meshletVertexWordBase, source.meshletTriangleWordBase,
-        source.vertexDataWordBase, 0, 0, 0
-      ]));
-      const geometryBuffers = [this.frameOrderedTasks, this.frameTaskMetadata, this.frameInputs, this.constants,
-        this.frameIndirect, input.meshletWork, input.geometry, input.attributes, input.frameInstances, input.vertexPayload,
-        ...(product ? [input.productMetadata!, ...input.productBanks!] : [])];
-      const geometryPass = command.gpu_encoder.beginComputePass({ label: "Appearance real geometry inputs" });
-      geometryPass.setPipeline(this.geometryPipelines[Number(product)]!);
-      geometryPass.setBindGroup(0, this.device.createBindGroup({ layout: this.geometryLayouts[Number(product)]!, entries: [
-        { binding: 0, resource: { buffer: geometrySettings } }, { binding: 1, resource: input.visibility },
-        ...geometryBuffers.map((buffer, index) => ({ binding: index + 2, resource: { buffer } })),
-        { binding: 18, resource: { buffer: input.camera } }
-      ] }));
-      geometryPass.dispatchWorkgroupsIndirect(this.frameIndirect, 0); geometryPass.end();
-      for (let programIndex = 0; programIndex < this.leases.length; programIndex++) {
-        const lease = this.program(programIndex), entry = this.entries.find(candidate => candidate.programIndex === programIndex);
-        if (!entry) continue;
-        const layout = lease.layouts[0]!;
-        const cacheCells = this.cache.programs[programIndex];
-        const dispatch = makeUniform(cacheCells
-          ? new Uint32Array([this.maxFrameTasks, programIndex, input.frame, this.cache.maxAge])
-          : new Uint32Array([this.maxFrameTasks, programIndex, programIndex, input.frame]));
-        const common: GPUBindGroupEntry[] = [
-          { binding: 0, resource: { buffer: this.constants } }, { binding: 1, resource: { buffer: this.routes } },
-          { binding: 2, resource: { buffer: this.frameOrderedTasks } }, { binding: 3, resource: { buffer: this.frameInputs } },
-          { binding: 4, resource: { buffer: this.frameOutputs } }, { binding: 5, resource: { buffer: dispatch } },
-          { binding: 11, resource: { buffer: this.framePrograms } },
-          ...(cacheCells ? [
-            { binding: 6, resource: { buffer: cacheCells } }, { binding: 7, resource: { buffer: this.frameCacheRequests } },
-            { binding: 8, resource: { buffer: this.fields } }, { binding: 9, resource: { buffer: this.frameIndirect } },
-            { binding: 10, resource: { buffer: this.frameTaskMetadata } }
-          ] : [{ binding: 12, resource: { buffer: this.frameIndirect } }])
-        ];
-        const programGroup = this.device.createBindGroup({ layout, entries: common });
-        const textures = entry.kernel.descriptor.groups[1];
-        const textureEntries: GPUBindGroupEntry[] = [];
-        for (const descriptor of textures ?? []) {
-          if (descriptor.texture) textureEntries.push({ binding: descriptor.binding, resource: input.textureBanks[entry.textureBindingSetId]![descriptor.binding]! });
-          else if (descriptor.sampler) {
-            const samplerIndex = descriptor.binding - 9;
-            const addressMode = (["clamp-to-edge", "mirror-repeat", "repeat"] as const)[samplerIndex % 3]!;
-            const filter = samplerIndex < 3 ? "linear" : "nearest";
-            textureEntries.push({ binding: descriptor.binding, resource: this.device.createSampler({
-              minFilter: filter, magFilter: filter, mipmapFilter: filter, addressModeU: addressMode, addressModeV: addressMode
-            }) });
-          }
-        }
-        const groups: GPUBindGroup[] = [programGroup];
-        if (lease.layouts[1]) groups.push(this.device.createBindGroup({ layout: lease.layouts[1], entries: textureEntries }));
-        if (lease.layouts[2]) {
-          const productEntries: GPUBindGroupEntry[] = entry.productTextures.map((texture, binding) => ({ binding, resource: texture.createView({ dimension: "2d-array" }) }));
-          productEntries.push({ binding: entry.productTextures.length, resource: this.device.createSampler({ minFilter: "linear", magFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" }) });
-          groups.push(this.device.createBindGroup({ layout: lease.layouts[2], entries: productEntries }));
-        }
-        const encodeProgram = (pipeline: GPUComputePipeline, label: string, cells = false) => {
-          const programPass = command.gpu_encoder.beginComputePass({ label: `Appearance/${label} program ${programIndex}` });
-          programPass.setPipeline(pipeline); groups.forEach((group, index) => programPass.setBindGroup(index, group));
-          if (cells) programPass.dispatchWorkgroups(Math.ceil(Math.max(...entry.cachePlan.fields.map(field => field.cells)) / 64));
-          else programPass.dispatchWorkgroupsIndirect(this.frameIndirect, 16 + programIndex * 32);
-          programPass.end();
-        };
-        if (cacheCells) {
-          if (entry.program.samples.length || entry.kernel.productTextureCount) encodeProgram(this.coordinatePipelines[programIndex]!.pipeline, "coordinate footprints");
-          const stages = this.cacheStagePipelines[programIndex]!;
-          encodeProgram(stages[0]!.pipeline, "cache reset", true);
-          encodeProgram(stages[1]!.pipeline, "cache request");
-          encodeProgram(stages[2]!.pipeline, "cache nominate");
-          encodeProgram(stages[3]!.pipeline, "cache publish", true);
-          encodeProgram(lease.pipeline, "cache evaluate");
-          encodeProgram(stages[4]!.pipeline, "cache consume");
-        } else {
-          if (entry.program.samples.length || entry.kernel.productTextureCount) encodeProgram(this.coordinatePipelines[programIndex]!.pipeline, "coordinate footprints");
-          encodeProgram(lease.pipeline, "evaluate");
-        }
-      }
-      const resolveSize = makeUniform(new Uint32Array([input.width, input.height, APPEARANCE_SURFACE_LAYER_COUNT, this.maxFrameOutputs, row, rowCount, 0, 0]));
-      const resolveGroup = this.device.createBindGroup({ layout: this.resolveLayout, entries: [
-        { binding: 0, resource: { buffer: this.frameOrderedTasks } }, { binding: 1, resource: { buffer: this.framePrograms } },
-        { binding: 2, resource: { buffer: this.framePixels } }, { binding: 3, resource: { buffer: this.frameOutputs } },
-        { binding: 4, resource: input.fields }, { binding: 5, resource: { buffer: resolveSize } },
-        { binding: 6, resource: { buffer: this.frameFieldSlots } }
-      ] });
-      const resolvePass = command.gpu_encoder.beginComputePass({ label: "Appearance field publication" });
-      resolvePass.setPipeline(resolve); resolvePass.setBindGroup(0, resolveGroup);
-      resolvePass.dispatchWorkgroups(Math.ceil(input.width / 8), Math.ceil(rowCount / 8)); resolvePass.end();
-      }
-  }
-  */
 
   evidence(): Readonly<{ allocatedBytes: number; residentBytes: number; retiringBytes: number; stagingBytes: number }> {
     const bytes = this.state === "destroyed" ? 0 : this.allocatedBytes;
@@ -1126,15 +602,10 @@ export class GpuAppearancePublication {
     this.unwatchRegistry?.();
     this.unwatchRegistry = null;
     this.cancelReadiness(new Error("Appearance publication cancelled or destroyed"));
-    this.pipelines = null;
     this.surfacePipelines = null;
     for (const buffer of this.buffers) buffer.destroy();
-    if (this.cache) this.cacheOwner?.release(this.cache);
     for (const handle of this.accountingHandles) this.accounting?.destroyed(handle);
-    for (const lease of this.leases) lease.release();
     for (const lease of this.surfaceLeases) lease.release();
-    for (const lease of this.coordinateLeases) lease.release();
-    for (const leases of this.cacheStageLeases) for (const lease of leases) lease.release();
     for (const lease of this.staticLeases) lease.release();
     for (const callback of this.destroyedListeners) callback();
     this.destroyedListeners.clear();
@@ -1150,14 +621,6 @@ export class GpuAppearancePublication {
     command.writeBuffer(buffer, 0, data.buffer as ArrayBuffer, data.byteOffset, data.byteLength);
     return buffer;
   }
-}
-
-function disableAppearanceCachePlan(plan: AppearanceCachePlan): AppearanceCachePlan {
-  return Object.freeze({
-    ...plan,
-    fields: Object.freeze(plan.fields.map(field => Object.freeze({ ...field, base: 0, cells: 0 }))),
-    words: 4
-  });
 }
 
 function packProductRoute(asset: AppearanceAssetPackage, layer: number): ArrayBuffer {

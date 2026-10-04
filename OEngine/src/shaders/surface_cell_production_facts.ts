@@ -11,7 +11,7 @@ import { APPEARANCE_MATERIAL_CONSTANT_WGSL } from "./appearance_material_constan
 import { SURFACE_APPEARANCE_BOUND_PROGRAM_WORDS } from "../gpu/GpuSurfaceAppearanceBoundsAbi.js";
 import { SURFACE_CELL_CERTIFICATE_WGSL } from "./surface_cell_certificates.js";
 import { SURFACE_CELL_ADDRESSES_WGSL } from "./surface_cell_addresses.js";
-import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceCacheAbi.js";
+import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceFieldAbi.js";
 
 /** Complete Geometry/Appearance predicates for the partition producer. The
  * Lighting owner supplies the direct-light set/shadow/spatial predicate; the
@@ -216,13 +216,37 @@ fn cell_normalize_box(v:AppearanceBound4)->AppearanceBound4 {
  for(var c=0u;c<3u;c++){let normalized=ab_divide(ab_channel(v,c),length);result.low[c]=normalized.low;result.high[c]=normalized.high;result.known[c]=normalized.known;}
  return result;
 }
-fn cell_world_normal_box()->AppearanceBound4 {return cell_normalize_box(cell_attribute_box(0u));}
+fn cell_facing_interval(normal:AppearanceBound4)->AppearanceBound {
+ let position=cell_attribute_box(5u);
+ var facing=ab_exact(0.0);
+ for(var c=0u;c<3u;c++) {
+  let view=ab_subtract(ab_exact(cell_camera.transform[3u][c]),ab_channel(position,c));
+  facing=ab_add(facing,ab_multiply(ab_channel(normal,c),view));
+ }
+ return facing;
+}
+fn cell_facing_box(value:AppearanceBound4,normal:AppearanceBound4)->AppearanceBound4 {
+ if (cell_bound_setup.source_address.w&16u)==0u { return value; }
+ let facing=cell_facing_interval(normal);
+ if !ab_valid(facing) { return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u)); }
+ if facing.low>=0.0 { return value; }
+ var result=value;
+ for(var c=0u;c<3u;c++) {
+  if facing.high<0.0 { result.low[c]=-value.high[c];result.high[c]=-value.low[c]; }
+  else { result.low[c]=min(value.low[c],-value.high[c]);result.high[c]=max(value.high[c],-value.low[c]); }
+ }
+ return result;
+}
+fn cell_world_normal_box()->AppearanceBound4 {
+ let normal=cell_normalize_box(cell_attribute_box(0u));
+ return cell_facing_box(normal,normal);
+}
 fn cell_world_tangent_box()->AppearanceBound4 {
- let normal=cell_world_normal_box();let tangent=cell_attribute_box(1u);var product=ab_exact(0.0);
+ let normal=cell_normalize_box(cell_attribute_box(0u));let tangent=cell_attribute_box(1u);var product=ab_exact(0.0);
  for(var c=0u;c<3u;c++){product=ab_add(product,ab_multiply(ab_channel(normal,c),ab_channel(tangent,c)));}
  var result=tangent;
  for(var c=0u;c<3u;c++){let projected=ab_subtract(ab_channel(tangent,c),ab_multiply(ab_channel(normal,c),product));result.low[c]=projected.low;result.high[c]=projected.high;result.known[c]=projected.known;}
- return cell_normalize_box(result);
+ return cell_facing_box(cell_normalize_box(result),normal);
 }
 fn cell_matrix_box(matrix:mat4x4f,v:AppearanceBound4,point:bool)->AppearanceBound4 {
  var result:AppearanceBound4;
@@ -377,7 +401,7 @@ fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
 fn cell_signal_dependencies(plane:u32)->u32 {
  // Ddirect is the complete colored production BRDF residual; Denv is
  // irradiance. Its high-frequency compose factors are independent FieldRefs.
- if plane==15u{return (1u<<0u)|(1u<<2u)|(1u<<6u)|(1u<<10u)|(1u<<13u);}
+ if plane==15u{return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<8u)|(1u<<9u)|(1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<13u)|(1u<<14u);}
  if plane==16u{return (1u<<6u)|(1u<<13u);}
  if plane==20u{return (1u<<10u)|(1u<<11u)|(1u<<12u)|(1u<<14u);}
  if plane==18u{return (1u<<0u)|(1u<<2u)|(1u<<3u)|(1u<<6u)|(1u<<7u)|(1u<<8u)|(1u<<9u)|(1u<<13u);}

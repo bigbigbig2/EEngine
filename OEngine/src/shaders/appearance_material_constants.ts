@@ -1,7 +1,7 @@
 import type { CompiledAppearanceGraph } from "../material/AppearanceGraphCompiler.js";
 import type { AppearanceWgslProgram } from "./appearance_program.js";
 import { operationWgsl } from "./appearance_program.js";
-import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceCacheAbi.js";
+import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
 import { APPEARANCE_NORMAL_FILTER_WGSL } from "./appearance_normal_filter.js";
 
 /** Publication-time numeric facts, not material sampling or CPU visible work

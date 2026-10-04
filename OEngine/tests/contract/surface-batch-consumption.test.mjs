@@ -6,7 +6,6 @@ import { SurfaceFrameResources } from '../../.test-dist/render/surface/SurfaceFr
 import { SurfaceCellClassifierPass } from '../../.test-dist/render/surface/SurfaceCellClassifierPass.js';
 import { SurfaceCellGeometrySetup } from '../../.test-dist/render/surface/SurfaceCellGeometrySetup.js';
 import { SurfaceReconstructionPass } from '../../.test-dist/render/surface/SurfaceReconstructionPass.js';
-import { surfaceWorkLayout } from '../../.test-dist/gpu/GpuSurfaceWorkAbi.js';
 import { SurfaceWorkRuntime } from '../../.test-dist/render/surface/SurfaceWorkRuntime.js';
 
 globalThis.GPUBufferUsage ??= { UNIFORM: 1, STORAGE: 2, COPY_SRC: 4, COPY_DST: 8, INDIRECT: 16 };
@@ -19,7 +18,7 @@ function fixture() {
   };
   const graph=new FrameGraph('bounded Surface batch consumption');
   const imported=name=>graph.import_resource(name,{kind:'imported'},{});
-  const names=['visibility','meshletWork','sourceHeap','vertexPayload','frameInstances','camera','textureVariation','appearanceMetadata','lightRecords'];
+  const names=['visibility','meshletWork','sourceHeap','vertexPayload','frameInstances','camera','textureVariation','appearanceMetadata','fieldVersions','lightRecords'];
   const ids=Object.fromEntries(names.map(name=>[name,imported(name)]));
   const scratch=new SurfaceFrameResources(device);
   const classifier=new SurfaceCellClassifierPass(device,scratch);
@@ -39,10 +38,9 @@ test('production allocation obeys batch capacity even with a full-screen caller 
   });
   owner.prepareFrame(1920,1080,1);
   assert.ok(owner.capacity.batchCount>1);
-  assert.ok(owner.layout.sampleCapacity<=owner.capacity.batchTargetCapacity);
-  assert.ok(owner.layout.geometryCapacity<=owner.capacity.batchTargetCapacity);
-  assert.equal(preparedTiles*64,owner.layout.sampleCapacity);
-  assert.ok(owner.layout.sampleCapacity<1920*1080);
+  assert.equal(preparedTiles*64,owner.capacity.batchTargetCapacity);
+  assert.ok(owner.capacity.batchTargetCapacity<1920*1080);
+  assert.ok(Object.values(owner.capacity.productionAllocations).reduce((a,b)=>a+b,0)===owner.capacity.ledger.scratchBytes);
 });
 test('all producers of the next batch follow prior reconstruction and cache publication',()=>{
   const f=fixture(),{graph,imported}=f;
@@ -55,26 +53,27 @@ test('all producers of the next batch follow prior reconstruction and cache publ
     sourceGeometry:0,sourceMeshlet:0,sourceMeshletVertices:0,sourceMeshletTriangles:0,sourceVertexData:0,
     product:null,clusters:{parameters:imported('cluster parameters'),lookup:imported('cluster lookup'),data:imported('cluster data')},
     shadowEnabled:false,physicalSunEnabled:false,diagnosticsEnabled:false,
+    viewRevision:{value:1},signalRevisions:{environment:1,light:1,shadow:0,sun:0},sun:null,shadowVersion:null,
     publication:{surfaceBoundPrograms:[],surfaceProgramCount:0,surfaceCacheGeneration:1,surfaceMetadataOffsets:{}},
-    workLayout:surfaceWorkLayout(17,9,{maxTiles:16,maxSamples:128,maxExceptions:16,maxGeometryRecords:128,maxBytes:1<<24},f.device.limits),
+    targetCapacity:128,
     consumeBatch:(cells,first,count,batchTiles)=>{
       ranges.push([first,count,batchTiles]);
       const produce=graph.add(`test lighting ${first}`,{},()=>{});
-      produce.read(cells.work);produce.read(cells.counts);
+      produce.read(cells.workspace);produce.read(cells.fieldStore);produce.read(cells.signalStore);
       const packets=produce.create(`packets ${first}`,{kind:'transient_buffer',size:64,usage:GPUBufferUsage.STORAGE});
       const publish=graph.add(`test cache publication ${first}`,{},()=>{});
       publish.read(packets);
       const published=publish.create(`published ${first}`,{kind:'transient_buffer',size:4,usage:GPUBufferUsage.STORAGE});
       previous=f.reconstruction.addToGraph(graph,{
-        packets,fullPackets:packets,packetFlags:packets,reactive:imported(`facts ${first}`),preExposure:imported(`exposure ${first}`),
-        sampleMap:cells.sampleMap,cellWorkspace:cells.workspace,cellBatchTiles:batchTiles,firstTile:first,fields:packets,appearanceMetadata:f.ids.appearanceMetadata,constantFieldsOffset:0,scalarAo:null,width:17,height:9,recordCount:128,diagnosticsEnabled:true,
+        signalValues:packets,signalStore:cells.signalStore,fieldStore:cells.fieldStore,reactive:imported(`facts ${first}`),preExposure:imported(`exposure ${first}`),
+        cellWorkspace:cells.workspace,cellBatchTiles:batchTiles,firstTile:first,fields:packets,appearanceMetadata:f.ids.appearanceMetadata,constantFieldsOffset:0,scalarAo:null,width:17,height:9,recordCount:128,diagnosticsEnabled:true,
         batch:{index:first/batchTiles,batchTiles},previous,after:[published]
       });
       return [previous.radiance,previous.reactiveMask];
     }
   });
   const present=graph.add('present',{},()=>{});
-  present.read(previous.radiance);present.read(products.sampleMap);present.make_side_effect();
+  present.read(previous.radiance);present.make_side_effect();
   const dump=graph.compile().dump();
   const order=dump.executablePassOrder.map(id=>dump.passes[id].name);
   assert.deepEqual(ranges,[[0,2,2],[2,2,2],[4,2,2]]);

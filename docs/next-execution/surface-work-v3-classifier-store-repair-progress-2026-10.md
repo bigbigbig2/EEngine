@@ -41,3 +41,17 @@ Signal key 按 kind 选择实际 FieldRef 的不可变 producer/version 证明�
 最后切断旧 `SurfaceMaterialCachePass`、`SurfaceCacheIdentityPass` 及 Lighting 的 record planner、全容量 pack、旧 pass bindings，保留原完整 BRDF/IBL 数学。切断后的 build:test 如预期报告三处跨步骤缺口：Runtime 尚引用删除的 Material/Identity owner 与已删除 Lighting class。依据计划 §1/§8，这些 consumer/queue 接线由紧接的步骤 4 实现；未恢复旧链或建立适配桥。当前不具备生产出图条件，不以组件结果宣称整链通过。
 
 未运行：1080p Showcase、完整 appearance/lighting/reconstruct 小链、实际 full-key producer dedup、最终计量与生命周期小集；归属步骤 4/5。第三步提交不等于 Phase 7、来源采用或性能验收完成。
+
+## 步骤 4：实际需求、唯一值 producer 与完整消费链
+
+实现：删除 union sample coordinator、sample_map、旧 Geometry hit/replay/source decode、独立 Appearance cache owner/PSO/resource 与六层半精度字段链。请求是共享地址上的 narrow handle；完整字段/信号 key 去重后，只 compact 实际 Geometry、material closure 和 signal dirty groups。hash 弱 CAS 空位失败立即结束 nomination；后续 dispatch 精确恢复 owner，有限表用尽仍保持覆盖和唯一 producer。材质按真实 program/resource set 分组，重叠缺失闭包一次求值，坐标 ancestors 和输入受实际 missing mask 约束，独立 f32 值目的地不按 union record 改源。
+
+GeometryRecord 唯一 producer 只消费 Geometry 地址产品；14 种语义各保留 center/X/Y、完整 RGBA、三套 UV 梯度、world/view 和 handedness。double-sided interval 包含实际朝向翻转；奇异 normal transform 不清除合法 winner 的位置/UV/颜色。Lighting 重接完整 clustered BRDF、VSM、太阳与 IBL；从原 BRDF 中分别发布已计算的 base specular 和 coat，原 attenuation 使用一次，删除旧结果上的重复 coat 分配。Reconstruct 直接解析独立 Publication/Default/Zero/Transient/Store 引用、compose factors 和 TemporalFacts，保留色域/pre-exposure，不执行 PBR 或材质采样。
+
+Field/Signal Store 从 narrow unique request 生成完整 key、f32 payload 和可用 canonical certificate；RESERVED 与 epoch-pinned slot 不复用，不将其他 producer 折叠为同 slot。admit→commit→publish refs 为独立 dispatch，满表维持正确 transient。WebGPU 检查发现 writable storage 与 indirect 不能同 buffer；已独立 GPU-copy 发布 512-byte control + program args，全部 count 来自 GPU，无 CPU work 回读。submitted epoch 使用每次编码的 late binding，避免 cached FrameGraph 固定旧 epoch。batch 消费结束再复用 scratch，诊断最后一 batch 合并实际计数并 readback；timing 不运行详细诊断。容量 ledger 逐项列真实 workspace/setup/720-byte record/field values/signal values/demand/indirect/settings/dependency owners，默认 1080p scratch 82,624,960 bytes，总预留 342,671,808 bytes，单份退休 overlap 单列；不以旧名义 stride 冒充占用。
+
+已运行：OEngine typecheck/build/build:test；25 项字段/信号/plan、capacity、batch、scratch resize/retirement、abort/reconstruct 与 timing 定向测试通过；Showcase BenchmarkMetrics 四项通过。真实 Chrome 154 GPU surface-repair-step-four-demand-03 覆盖六模块编译、实际重复完整 key 唯一 producer、empty/all-hit/one field miss/one signal dirty、满表 pinned transient、70000 的 f32 精度和独立 commit。surface-repair-step-four-compose 的六组 E-only、细率棋盘颜色/AO×irradiance、direct residual+E、部分/空/unlit 数值用例通过。surface-repair-step-four-production-07 真实 publication/setup/address/lookup/certificates/classifier→demand→geometry→compiled Appearance→Stores→Lighting→HDR 通过：冷帧 geometry=4、fields=8、signals=10；热帧全部 heavy work=0；只改 environment 后 geometry=4、fields=0、signals=5；三帧完整且相同 HDR，无 GPU validation/page error。
+
+失败与修复记录保留：production-01 宿主缺少真实 texture allocator；02–04 未及时读取 error scope，覆盖失败；05 定位 storage/indirect 同 buffer 的真实同步域错误；06 修复后 HDR 已正确，诊断宿主重复 getMappedRange 失败；07 修正宿主并覆盖冷/热/provider 更新通过。这些失败不写成通过；冷 certificate family 编译约 62/27 秒属于编译诊断，不是 GPU 帧时间。删除依赖退休 ABI 的旧 demand fixtures，重接独立数字合成用例，没有为旧测试恢复接口。
+
+未运行：本轮 1080p Showcase 截图、30 帧固定 timing、运动/显露/返回；紧接步骤 5。完整 Phase 7 多浏览器、所有材质/Product/形变矩阵和四版本严格性能比较仍未完成，不提升 claims 或来源采用等级。

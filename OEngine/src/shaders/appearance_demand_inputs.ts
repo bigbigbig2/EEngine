@@ -29,31 +29,64 @@ export function appearanceInputLayout(program: CompiledAppearanceGraph): { neigh
 
 /** Compile exact coordinate ancestors at center/X/Y. Texture-driven UVs
  * recursively sample their already-produced coordinate footprint. */
-export function appearanceCoordinatePreparation(program: CompiledAppearanceGraph, lowered: AppearanceWgslProgram): string {
+export function appearanceCoordinatePreparation(program: CompiledAppearanceGraph, lowered: AppearanceWgslProgram,
+  outputBits?: Readonly<Record<string,number>>): string {
   const { neighborBase } = appearanceInputLayout(program), reads = program.productReads ?? [];
   const coordinates = [...program.samples.map(sample => sample.uv), ...reads.filter(read => read.field.constant === undefined).map(read => read.uv!)];
-  const live = new Set<number>();
-  const visit = (ref: number): void => {
-    if (live.has(ref)) return;
-    live.add(ref); const node = program.instructions[ref]!;
-    node.args.forEach(visit);
-    if (node.sample !== undefined) program.samples[node.sample]!.uv.forEach(visit);
-    if (node.product !== undefined) reads[node.product]!.uv?.forEach(visit);
+  const instructionMasks = new Uint32Array(program.instructions.length);
+  const markOutput = (ref:number,bit:number):void => {
+    if ((instructionMasks[ref]!&bit)!==0) return;
+    instructionMasks[ref]!|=bit;
+    const node=program.instructions[ref]!;
+    node.args.forEach(arg=>markOutput(arg,bit));
+    if(node.sample!==undefined)program.samples[node.sample]!.uv.forEach(arg=>markOutput(arg,bit));
+    if(node.product!==undefined)reads[node.product]!.uv?.forEach(arg=>markOutput(arg,bit));
   };
-  coordinates.forEach(uv => uv.forEach(visit));
+  for(const [name,roots] of Object.entries(program.outputs)) {
+    const bit=outputBits===undefined?1:(outputBits[name]??0);
+    roots.forEach(ref=>markOutput(ref,bit));
+  }
+  const sampleMasks=new Uint32Array(program.samples.length),productMasks=new Uint32Array(reads.length);
+  program.instructions.forEach((node,ref)=>{
+    if(node.sample!==undefined)sampleMasks[node.sample]!|=instructionMasks[ref]!;
+    if(node.product!==undefined)productMasks[node.product]!|=instructionMasks[ref]!;
+  });
+  const live = new Set<number>(),coordinateMasks=new Uint32Array(program.instructions.length);
+  const visit = (ref: number,mask:number): void => {
+    if ((coordinateMasks[ref]!&mask)===mask) return;
+    coordinateMasks[ref]!|=mask;
+    live.add(ref); const node = program.instructions[ref]!;
+    node.args.forEach(arg=>visit(arg,mask));
+    if (node.sample !== undefined) program.samples[node.sample]!.uv.forEach(arg=>visit(arg,mask));
+    if (node.product !== undefined) reads[node.product]!.uv?.forEach(arg=>visit(arg,mask));
+  };
+  program.samples.forEach((sample,index)=>sample.uv.forEach(ref=>visit(ref,sampleMasks[index]!)));
+  reads.forEach((read,index)=>read.uv?.forEach(ref=>visit(ref,productMasks[index]!)));
+  const coordinateSampleMasks=new Uint32Array(program.samples.length),coordinateProductMasks=new Uint32Array(reads.length);
+  for(const ref of live) {
+    const node=program.instructions[ref]!;
+    if(node.sample!==undefined)coordinateSampleMasks[node.sample]!|=coordinateMasks[ref]!;
+    if(node.product!==undefined)coordinateProductMasks[node.product]!|=coordinateMasks[ref]!;
+  }
   const lines: string[] = [], sampled = new Set<string>();
   const emitSample = (kind: "texture" | "product", index: number, uv: readonly number[], sample: number): string => {
     const name = `${kind}_coordinate_${index}`;
     if (sampled.has(name)) return name;
     sampled.add(name);
     const x = `coordinate_${uv[0]}`, y = `coordinate_${uv[1]}`;
+    const mask=kind==="texture"?coordinateSampleMasks[index]!:coordinateProductMasks[index]!;
+    if(outputBits) {
+      lines.push(`  var ${name}:array<vec4f,3>;`);
+      lines.push(`  if (appearance_missing & ${mask}u)!=0u {`);
+    }
     lines.push(`  let ${name}_dx = vec2f(${x}.y-${x}.x,${y}.y-${y}.x);`);
     lines.push(`  let ${name}_dy = vec2f(${x}.z-${x}.x,${y}.z-${y}.x);`);
     const call = kind === "texture" ? `appearance_sample_${index}_footprint` : `appearance_product_sample_${index}_footprint`;
-    lines.push(`  let ${name} = array<vec4f,3>(${["x","y","z"].map(axis=>`${call}(vec2f(${x}.${axis},${y}.${axis}),${name}_dx,${name}_dy)`).join(",")});`);
+    lines.push(`  ${outputBits?"":"let "}${name} = array<vec4f,3>(${["x","y","z"].map(axis=>`${call}(vec2f(${x}.${axis},${y}.${axis}),${name}_dx,${name}_dy)`).join(",")});`);
     const base=program.inputs.length+sample*2;
     lines.push(`  appearance_inputs[appearance_task.z+${base}u]=vec4f(${name}_dx,0.0,0.0);`);
     lines.push(`  appearance_inputs[appearance_task.z+${base+1}u]=vec4f(${name}_dy,0.0,0.0);`);
+    if(outputBits)lines.push("  }");
     return name;
   };
   for (let ref=0;ref<program.instructions.length;ref++) {
@@ -83,12 +116,17 @@ export function appearanceCoordinatePreparation(program: CompiledAppearanceGraph
           normalComponent(`appearance_decode_normal_moment(${name}[${axis}].xyz)`,node.channel!):`${name}[${axis}][${node.channel}]`).join(",")})`;
       }
     } else expression=operationWgsl(node.op!,node.args.map(arg=>`coordinate_${arg}`)).replaceAll("1.0","vec3f(1.0)");
-    lines.push(`  let coordinate_${ref}=${expression};`);
+    lines.push(outputBits ? `  var coordinate_${ref}:vec3f;\n  if (appearance_missing & ${coordinateMasks[ref]}u)!=0u { coordinate_${ref}=${expression}; }` : `  let coordinate_${ref}=${expression};`);
   }
   coordinates.forEach((uv,index)=>{
     const x=`coordinate_${uv[0]}`, y=`coordinate_${uv[1]}`, base=program.inputs.length+index*2;
+    const readIndex=index-program.samples.length;
+    const productIndex=reads.map((read,i)=>read.field.constant===undefined?i:-1).filter(i=>i>=0)[readIndex];
+    const mask=index<program.samples.length?sampleMasks[index]!:productMasks[productIndex!]!;
+    if(outputBits)lines.push(`  if (appearance_missing & ${mask}u)!=0u {`);
     lines.push(`  appearance_inputs[appearance_task.z+${base}u]=vec4f(${x}.y-${x}.x,${y}.y-${y}.x,0.0,0.0);`);
     lines.push(`  appearance_inputs[appearance_task.z+${base+1}u]=vec4f(${x}.z-${x}.x,${y}.z-${y}.x,0.0,0.0);`);
+    if(outputBits)lines.push("  }");
   });
   return `fn appearance_prepare_coordinates() {\n${lines.join("\n")}\n}\n`;
 }
