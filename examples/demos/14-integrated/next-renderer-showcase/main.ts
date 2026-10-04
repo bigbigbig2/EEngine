@@ -74,6 +74,8 @@ let captureTimer: number | null = null;
 let closed = false;
 let failed = false;
 let refinementComplete = false;
+let firstFrameComplete = false;
+let firstFrameCompletion: Promise<void> | null = null;
 let fps = 0;
 let previousTime = 0;
 let previousRenderedTime = 0;
@@ -85,7 +87,17 @@ let captureTarget: { end: number; resolve(): void; reject(error: unknown): void;
 let savedCamera: { matrix: number[]; target: number[] } | null = null;
 let hudUpdatedAt = 0;
 let captureConditions: Record<string, unknown> = {};
-const diagnosticVsm=(globalThis as typeof globalThis & {__surfaceDiagnostic?:{vsm?:boolean}}).__surfaceDiagnostic?.vsm ?? false;
+interface ShowcaseDiagnosticHost {
+  vsm?: boolean;
+  mode?: string;
+  pipelineInitialization?: string;
+  prepare?: (renderer: Renderer) => Promise<void>;
+  onTrajectoryFrame?: (snapshot: ReturnType<typeof frameSnapshot>) => Promise<void>;
+}
+const diagnosticHost = (globalThis as typeof globalThis & {
+  __surfaceDiagnostic?: ShowcaseDiagnosticHost;
+}).__surfaceDiagnostic;
+const diagnosticVsm = diagnosticHost?.vsm ?? false;
 let capturePath: { begin:number; frames:number; position:readonly number[]; target:readonly number[] } | null = null;
 
 const capture = new BenchmarkCapture({
@@ -136,12 +148,18 @@ const capture = new BenchmarkCapture({
       busy: Boolean(state && state.scheduler.inFlightBytes > 0),
       failed: Boolean(state && (state.scheduler.failed || state.residency.failedPages || state.scheduler.malformedReadbacks)) };
   },
-  renderFrames: count => {
-    if (!count) return Promise.resolve();
-    return new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(() => { capturePaused = true; captureTarget = null; reject(new Error("Frame batch timeout")); }, 120000);
-      captureTarget = { end: renderer!.frame_count + count, resolve, reject, timer }; capturePaused = false;
-    });
+  renderFrames: async count => {
+    if (capturePath && diagnosticHost?.onTrajectoryFrame) {
+      // Diagnostic screenshots happen between completed frame submissions.
+      // Static timing keeps the normal uninterrupted batch path.
+      for (let index = 0; index < count; index++) {
+        await renderFrameBatch(1);
+        await renderer!.device.queue.onSubmittedWorkDone();
+        await diagnosticHost.onTrajectoryFrame(frameSnapshot());
+      }
+      return;
+    }
+    await renderFrameBatch(count);
   },
   restore: (retainView = false) => {
     if (captureTarget) { clearTimeout(captureTarget.timer); captureTarget.reject(new Error("Capture stopped")); captureTarget = null; }
@@ -167,12 +185,52 @@ const capture = new BenchmarkCapture({
   }
 });
 
+function renderFrameBatch(count: number): Promise<void> {
+  if (!count) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(() => {
+      capturePaused = true;
+      captureTarget = null;
+      reject(new Error("Frame batch timeout"));
+    }, 120000);
+    captureTarget = { end: renderer!.frame_count + count, resolve, reject, timer };
+    capturePaused = false;
+  });
+}
+
+function frameSnapshot() {
+  return {
+    submittedFrame: renderer!.frame_count - 1,
+    output: [canvas.width, canvas.height],
+    camera: {
+      transform: Array.from(camera!.transform.matrix),
+      viewProjection: Array.from(camera!.view_projection_matrix)
+    },
+    trajectoryFrame: capturePath ? renderer!.frame_count - 1 - capturePath.begin : null,
+    benchmark: element<HTMLElement>("benchmark-state").textContent
+  };
+}
+
 /** Explicit diagnostic seam for local automation; no private Renderer mutation. */
 export const showcaseDiagnostics = {
   start: () => starting ??= start(),
-  get ready() { return refinementComplete && !failed; },
+  get ready() { return refinementComplete && firstFrameComplete && !failed; },
   get failed() { return failed; },
   get busy() { return capture.busy; },
+  get snapshot() { return renderer && camera ? frameSnapshot() : null; },
+  pause: async () => {
+    if (capture.busy) throw new Error("Cannot pause an active capture");
+    capturePaused = true;
+    await renderer!.device.queue.onSubmittedWorkDone();
+    return frameSnapshot();
+  },
+  stepFrames: async (count = 1) => {
+    if (capture.busy) throw new Error("Cannot step an active capture");
+    if (!Number.isSafeInteger(count) || count < 1 || count > 16) throw new Error("Invalid diagnostic frame count");
+    await renderFrameBatch(count);
+    await renderer!.device.queue.onSubmittedWorkDone();
+    return frameSnapshot();
+  },
   get lastCapture() { return capture.last; },
   // Completed snapshots are needed by diagnostics: latest is normally still pending.
   get profiles() { return renderer?.profiler.history ?? []; },
@@ -396,13 +454,11 @@ async function start(): Promise<void> {
   resize();
   applySettings();
   await handles.settled();
-  const diagnosticHost = globalThis as typeof globalThis & { __surfaceDiagnostic?: { prepare?: (renderer: Renderer) => Promise<void> } };
-  await diagnosticHost.__surfaceDiagnostic?.prepare?.(renderer);
+  await diagnosticHost?.prepare?.(renderer);
   if (closed) return;
   refinementComplete = true;
-  setState(`场景已就绪 · ${Math.round(performance.now() - loadStart)} ms`, "ready");
-  setLoading("场景已就绪", "WebCook、产品发布和 GPU 资源均已稳定", 1);
-  loadingOverlay.dataset.visible = "false";
+  setState("场景已加载 · 等待首帧 GPU 完成", "loading");
+  setLoading("准备首帧", "场景已加载，正在等待 GPU 管线编译与首帧渲染完成", 0.95);
   frameId = requestAnimationFrame(draw);
   void renderer.graphics.device.lost.then(info => {
     if (!closed) fail(new Error(`GPU 设备丢失：${info.reason} ${info.message}`));
@@ -454,8 +510,17 @@ function draw(now: number): void {
     const previousFrame = renderer.frame_count;
     const encodeStart = Date.now();
     if (!renderer.render(camera, scene, capture.busy ? 1 / 60 : delta)) throw new Error("WebGPU 设备已失效，渲染已停止");
-    if (renderer.frame_count !== previousFrame) {
-      capture.encoded(previousFrame, encodeStart, Date.now());
+      if (renderer.frame_count !== previousFrame) {
+        if (firstFrameCompletion === null) {
+          firstFrameCompletion = renderer.device.queue.onSubmittedWorkDone().then(() => {
+            if (closed || failed) return;
+            firstFrameComplete = true;
+            setState(`场景已就绪 · ${Math.round(performance.now() - loadStart)} ms`, "ready");
+            setLoading("场景已就绪", "首帧 GPU 渲染已完成", 1);
+            loadingOverlay.dataset.visible = "false";
+          }).catch(fail);
+        }
+        capture.encoded(previousFrame, encodeStart, Date.now());
       if (captureTarget && renderer.frame_count >= captureTarget.end) {
         capturePaused = true; clearTimeout(captureTarget.timer); captureTarget.resolve(); captureTarget = null;
       }

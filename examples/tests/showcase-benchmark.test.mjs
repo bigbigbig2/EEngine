@@ -36,3 +36,18 @@ test("condition drift and incomplete GPU measurements forbid comparison", () => 
   assert.throws(() => compareCaptures(a, { ...a, frames: [frame(2, [])] }), /Incomplete/);
   assert.equal(compareCaptures(a, { ...a, frames: [frame(2, [5])] }).p50Ratio, 0.5);
 });
+
+test("full-frame and Surface spans retain encoder gaps and subtract bigint clocks exactly",()=>{
+ const first=frame(1,[1,1]);
+ const base=1000000000000000000n;
+ first.gpu.segments=[
+  {label:"Surface/canonical field addresses",durationMs:1,startTick:String(base),endTick:String(base+1000000n)},
+  {label:"Surface/reconstruct batch 0",durationMs:1,startTick:String(base+11000000n),endTick:String(base+12000000n)},
+  {label:"Present",durationMs:1,startTick:String(base+13000000n),endTick:String(base+14000000n)}
+ ];
+ const summary=summarizeCapture([first]);
+ assert.equal(summary.surfacePassSumMs.p50,2);
+ assert.equal(summary.surfaceSpanMs.p50,12);
+ assert.equal(summary.gpuFrameSpanMs.p50,14);
+ assert.equal(summary.surfacePhases.lighting.p50,0);
+});

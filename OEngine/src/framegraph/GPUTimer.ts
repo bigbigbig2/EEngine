@@ -23,32 +23,54 @@ type GPUTimerEntry = {
   type: GPUTimerPassType;
 };
 
+type GPUTimerPage = {
+  querySet: GPUQuerySet;
+  resolveBuffer: GPUBuffer;
+  readbackBuffer: GPUBuffer;
+  values: BigUint64Array;
+  entryCount: number;
+};
+
 export class GPUTimer {
-  readonly capacity: number;
-  private readonly querySet: GPUQuerySet;
-  private readonly resolveBuffer: GPUBuffer;
-  private readonly readbackBuffer: GPUBuffer;
-  private readonly values: BigInt64Array;
+  private readonly pages: GPUTimerPage[] = [];
   private readonly entries: GPUTimerEntry[] = [];
   private entryCount = 0;
 
-  constructor(private readonly device: GPUDevice, capacity = 1024) {
-    this.capacity = capacity;
-    this.querySet = device.createQuerySet({
+  constructor(private readonly device: GPUDevice, private readonly pageCapacity = 1024) {
+    // WebGPU limits each query set to 4096 queries, not each frame. A bounded
+    // Surface batch graph can contain more passes; allocate another page rather
+    // than aborting rendering or silently dropping the remaining intervals.
+    if (!Number.isSafeInteger(pageCapacity) || pageCapacity < 1 || pageCapacity > 2048) {
+      throw new RangeError("GPUTimer page capacity must be 1..2048 passes");
+    }
+    this.pages.push(this.createPage());
+  }
+
+  get capacity(): number {
+    return this.pages.length * this.pageCapacity;
+  }
+
+  private createPage(): GPUTimerPage {
+    const index = this.pages.length;
+    const queryCount = 2 * this.pageCapacity;
+    const byteLength = queryCount * BigUint64Array.BYTES_PER_ELEMENT;
+    const querySet = this.device.createQuerySet({
+      label: `GPUTimer/page ${index}`,
       type: "timestamp",
-      count: 2 * capacity
+      count: queryCount
     });
-    this.resolveBuffer = device.createBuffer({
-      label: "",
-      size: 2 * capacity * BigInt64Array.BYTES_PER_ELEMENT,
+    const resolveBuffer = this.device.createBuffer({
+      label: `GPUTimer/resolve ${index}`,
+      size: byteLength,
       usage: GPUBufferUsage.QUERY_RESOLVE | GPUBufferUsage.COPY_SRC
     });
-    this.readbackBuffer = device.createBuffer({
-      label: "",
-      size: 2 * capacity * BigInt64Array.BYTES_PER_ELEMENT,
+    const readbackBuffer = this.device.createBuffer({
+      label: `GPUTimer/readback ${index}`,
+      size: byteLength,
       usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
     });
-    this.values = new BigInt64Array(2 * capacity);
+    return { querySet, resolveBuffer, readbackBuffer,
+      values: new BigUint64Array(queryCount), entryCount: 0 };
   }
 
   getComputeWrites(label?: string): GPUTimerTimestampWrites {
@@ -60,44 +82,52 @@ export class GPUTimer {
   }
 
   get readbackByteLength(): number {
-    return 2 * this.entryCount * BigInt64Array.BYTES_PER_ELEMENT;
+    return 2 * this.entryCount * BigUint64Array.BYTES_PER_ELEMENT;
   }
 
   resolve(encoder: GPUCommandEncoder): void {
-    const queryCount = 2 * this.entryCount;
-    if (queryCount === 0) return;
-    const byteLength = queryCount * BigInt64Array.BYTES_PER_ELEMENT;
-    encoder.resolveQuerySet(
-      this.querySet,
-      0,
-      queryCount,
-      this.resolveBuffer,
-      0
-    );
-    encoder.copyBufferToBuffer(
-      this.resolveBuffer,
-      0,
-      this.readbackBuffer,
-      0,
-      byteLength
-    );
+    for (const page of this.pages) {
+      const queryCount = 2 * page.entryCount;
+      if (queryCount === 0) continue;
+      const byteLength = queryCount * BigUint64Array.BYTES_PER_ELEMENT;
+      encoder.resolveQuerySet(
+        page.querySet,
+        0,
+        queryCount,
+        page.resolveBuffer,
+        0
+      );
+      encoder.copyBufferToBuffer(
+        page.resolveBuffer,
+        0,
+        page.readbackBuffer,
+        0,
+        byteLength
+      );
+    }
   }
 
   async download_results(): Promise<void> {
-    const byteLength = this.readbackByteLength;
-    if (byteLength === 0) return;
-    await this.readbackBuffer.mapAsync(GPUMapMode.READ, 0, byteLength);
-    const mapped = this.readbackBuffer.getMappedRange(0, byteLength);
-    this.values.set(new BigInt64Array(mapped));
-    this.readbackBuffer.unmap();
+    await Promise.all(this.pages.map(async page => {
+      const byteLength = 2 * page.entryCount * BigUint64Array.BYTES_PER_ELEMENT;
+      if (byteLength === 0) return;
+      await page.readbackBuffer.mapAsync(GPUMapMode.READ, 0, byteLength);
+      try {
+        page.values.set(new BigUint64Array(page.readbackBuffer.getMappedRange(0, byteLength)));
+      } finally {
+        page.readbackBuffer.unmap();
+      }
+    }));
   }
 
   results_to_console_table(): GPUTimerResult[] {
     const results: GPUTimerResult[] = [];
     for (let index = 0; index < this.entryCount; index++) {
       const entry = this.entries[index]!;
-      const start = this.values[index * 2]!;
-      const end = this.values[index * 2 + 1]!;
+      const page = this.pages[Math.floor(index / this.pageCapacity)]!;
+      const queryIndex = 2 * (index % this.pageCapacity);
+      const start = page.values[queryIndex]!;
+      const end = page.values[queryIndex + 1]!;
       results.push({
         label: entry.label,
         type: entry.type,
@@ -110,23 +140,27 @@ export class GPUTimer {
   }
 
   destroy(): void {
-    this.querySet.destroy();
-    this.resolveBuffer.destroy();
-    this.readbackBuffer.destroy();
+    for (const page of this.pages) {
+      page.querySet.destroy();
+      page.resolveBuffer.destroy();
+      page.readbackBuffer.destroy();
+    }
   }
 
   private allocateWrites(
     label: string | undefined,
     type: GPUTimerPassType
   ): GPUTimerTimestampWrites {
-    if (this.entryCount >= this.capacity) {
-      throw new RangeError(`GPUTimer capacity ${this.capacity} exceeded`);
+    const pageIndex = Math.floor(this.entryCount / this.pageCapacity);
+    if (pageIndex === this.pages.length) {
+      this.pages.push(this.createPage());
     }
+    const page = this.pages[pageIndex]!;
     const index = this.entryCount++;
     this.entries[index] = { label, type };
-    const queryIndex = 2 * index;
+    const queryIndex = 2 * page.entryCount++;
     return {
-      querySet: this.querySet,
+      querySet: page.querySet,
       beginningOfPassWriteIndex: queryIndex,
       endOfPassWriteIndex: queryIndex + 1
     };

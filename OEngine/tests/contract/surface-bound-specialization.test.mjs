@@ -4,7 +4,7 @@ import { surfaceCellProductionFactsWgsl } from '../../.test-dist/shaders/surface
 
 function program(fields) {
   return {
-    fields, materialSource: '', inputKinds: {}, supported: {}, inputSemantics: [1, 4],
+    fields, materialSource: 'fn ab_field_0_material(context:vec4u)->MaterialConstantResult {var result:MaterialConstantResult;result.values[0]=vec4f(f32(context.z));return result;}', inputKinds: {}, supported: {}, inputSemantics: [1, 4],
     dependencyProfiles:Object.fromEntries(fields.map((field,index)=>[field,{inputs:[{index,channel:0,domain:'geometry'}],samples:[],products:[],dependencyMask:1,supported:true}])),
     source: `fn ab_field_0(field:u32,context:vec4u)->AppearanceBound4 { switch field {
       case 0u:{let ordinal_zero=ab_input(context,0u,0u);return AppearanceBound4(vec4f(ordinal_zero.low),vec4f(ordinal_zero.high),vec4u(ordinal_zero.known));}
@@ -37,9 +37,13 @@ test('field stage selection is independent of graph output order', () => {
 });
 test('equal bound code shares a function while each call retains its material context',()=>{
   const first=program(['roughness','baseColor']);
-  const second={...first,source:first.source.replace('fn ab_field_0(','fn ab_field_1(')};
+  const second={...first,source:first.source.replace('fn ab_field_0(','fn ab_field_1('),
+    materialSource:first.materialSource.replace('fn ab_field_0_material(','fn ab_field_1_material(')};
   const source=surfaceCellProductionFactsWgsl([first,second],false,'fn cell_direct_group_safe() {}',null,16,new Set([0]),false);
   assert.ok(source.includes('fn ab_field_0('));
   assert.ok(!source.includes('fn ab_field_1('));
-  assert.ok(source.includes('case 1u:{return ab_field_0(descriptor.x,context);}'));
+  assert.ok(source.includes('case 0u, 1u:{return ab_field_0(descriptor.x,context);}'));
+  assert.ok(source.includes('case 0u, 1u:{result=ab_field_0_material(context);}'));
+  assert.ok(!source.includes('fn ab_field_1_material('));
+  assert.ok(source.includes('result.values[0]=vec4f(f32(context.z))'));
 });

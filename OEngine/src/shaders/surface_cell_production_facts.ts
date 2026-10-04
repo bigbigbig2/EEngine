@@ -79,6 +79,9 @@ export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFiel
   const boundSources: string[] = [];
   const boundFunctions: string[] = [];
   const canonicalBounds = new Map<string, string>();
+  const materialSources: string[] = [];
+  const materialFunctions: string[] = [];
+  const canonicalMaterials = new Map<string, string>();
   for (const program of selected) {
     const declaration = /fn\s+(\w+)\s*\(/.exec(program.source);
     if (declaration === null) { throw new Error("Missing generated Appearance bound function"); }
@@ -91,6 +94,45 @@ export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFiel
       boundSources.push(program.source);
     }
     boundFunctions.push(canonical);
+    const materialDeclaration = /fn\s+(\w+)\s*\(/.exec(program.materialSource);
+    if (materialDeclaration === null) {
+      throw new Error("Missing generated Appearance constant function");
+    }
+    const materialName = materialDeclaration[1]!;
+    const materialKey = program.materialSource.replace(`fn ${materialName}(`, "fn canonical_material(");
+    let materialCanonical = canonicalMaterials.get(materialKey);
+    if (materialCanonical === undefined) {
+      materialCanonical = materialName;
+      canonicalMaterials.set(materialKey, materialName);
+      materialSources.push(program.materialSource);
+    }
+    materialFunctions.push(materialCanonical);
+  }
+  // A shared function must have one dispatch arm. Repeating the same call in
+  // different arms can make D3D inline its complete interval/texture query again
+  // for every material topology alias, even though the WGSL function is shared.
+  // context.z still selects each entry's constants and texture routes.
+  const boundSelectors = new Map<string, number[]>();
+  const materialSelectors = new Map<string, number[]>();
+  for (let index = 0; index < selected.length; index++) {
+    const boundName = boundFunctions[index]!;
+    const materialName = materialFunctions[index]!;
+    if (!boundSelectors.has(boundName)) {
+      boundSelectors.set(boundName, []);
+    }
+    if (!materialSelectors.has(materialName)) {
+      materialSelectors.set(materialName, []);
+    }
+    boundSelectors.get(boundName)!.push(index);
+    materialSelectors.get(materialName)!.push(index);
+  }
+  const boundDispatch: string[] = [];
+  const materialDispatch: string[] = [];
+  for (const [name, selectors] of boundSelectors) {
+    boundDispatch.push(`case ${selectors.map(index => `${index}u`).join(", ")}:{return ${name}(descriptor.x,context);}`);
+  }
+  for (const [name, selectors] of materialSelectors) {
+    materialDispatch.push(`case ${selectors.map(index => `${index}u`).join(", ")}:{result=${name}(context);}`);
   }
   if (!directRiskLibrary.includes("fn cell_direct_group_safe(") || (hasProductSamples&&!productBoundLibrary?.includes("fn ab_product("))) {
     throw new Error("Surface cell facts require real Lighting and static-product bound providers");
@@ -348,13 +390,13 @@ fn cell_texture_bound(context:vec4u,sample:u32,u:AppearanceBound,v:AppearanceBou
 }
 ${productBoundLibrary??""}
 ${boundSources.join("\n")}
-${selected.map(program=>program.materialSource).join("\n")}
+${materialSources.join("\n")}
 fn cell_constant_palette(entry:u32)->u32 {return settings.appearance2.x+entry*64u;}
 @compute @workgroup_size(64) fn publish_cell_material_constants(@builtin(global_invocation_id) id:vec3u){
  let entry=id.x;if entry>=settings.appearance1.z{return;}
  let program=cell_directory(entry).x;let context=vec4u(0u,program,entry,0u);var result:MaterialConstantResult;
  switch program {
- ${programs.map((_p,i)=>`case ${i}u:{result=ab_field_${i}_material(context);}`).join("\n")}
+ ${materialDispatch.join("\n")}
  default:{}
  }
  let at=cell_constant_palette(entry);
@@ -377,7 +419,7 @@ fn cell_evaluate_bound(field:u32,context:vec4u)->AppearanceBound4 {
   return AppearanceBound4(fallback,fallback,vec4u(1u));
  }
  switch context.y {
- ${boundFunctions.map((name,i)=>`case ${i}u:{return ${name}(descriptor.x,context);}`).join("\n")}
+ ${boundDispatch.join("\n")}
  default:{return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u));}
  }
 }

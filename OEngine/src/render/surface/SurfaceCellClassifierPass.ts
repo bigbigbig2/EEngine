@@ -109,9 +109,11 @@ export class SurfaceCellClassifierPass {
     const product = input.product !== null;
     const factLibrary = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
       SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, dictionaryCapacity, new Set(), true);
+    // Extent and first/tile count are uniforms. Only the bounded workspace and
+    // publication shape change generated code; resize must not recompile the
+    // same heavy certificate shaders just because the total tile count changed.
     const profile = `${product}:${dictionaryCapacity}:${input.publication.surfaceProgramCount}:` +
-      `${input.publication.surfaceCacheGeneration}:${input.targetCapacity}:` +
-      `${tiles}`;
+      `${input.publication.surfaceCacheGeneration}:${input.targetCapacity}`;
     let pipelines = this.pipelines.get(profile);
     if (!pipelines) {
       const productionLayout = createSurfaceCellPipelineLayout(this.device, product);

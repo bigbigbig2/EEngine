@@ -130,7 +130,9 @@ export class BenchmarkCapture {
       }
       const conditions = this.host.conditions();
       const workloadStart = this.host.stability();
-      renderer.profiler.configure({ gpuCounterSampleInterval: 8 });
+      // A short independent detailed run must sample every measured frame;
+      // an eight-frame cadence can miss the entire three-frame window.
+      renderer.profiler.configure({ gpuCounterSampleInterval: request.counters ? 1 : 8 });
       renderer.perf_gpu_counters_enabled = request.counters;
       begin = renderer.frame_count; end = begin + request.frames;
       this.host.beginMeasurement?.(begin, request);
