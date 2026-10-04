@@ -42,7 +42,7 @@ export function appearanceSurfaceDemandIntegration(program: CompiledAppearanceGr
         }
         const expression = Array.from({ length: 4 }, (_, channel) => channel < APPEARANCE_FIELD_WIDTHS[field]! && slots[channel] !== undefined ? `value[${slots[channel]}u]` : "0.0").join(", ");
         return `if (appearance_missing & ${1 << field}u)!=0u {
-    let destination=surface_demand[surface_settings.destinations+leaf*15u+${field}u]-1u;
+    let destination = leaf * 15u + ${field}u;
     surface_values[destination]=vec4f(${expression});
   }`;
     }).join("\n  ");
@@ -51,7 +51,7 @@ ${SURFACE_GEOMETRY_RECORD_WGSL}
 struct AppearanceRoute { identity:vec4u, uv:vec4f, rotation:vec4f, fallback:vec4f }
 struct SurfaceAppearanceSettings {
   program:u32, programs:u32, ordered:u32, masks:u32,
-  destinations:u32, directory:u32, runtime_inputs:u32, lookup:u32,
+  reserved:u32, directory:u32, runtime_inputs:u32, lookup:u32,
 }
 @group(0) @binding(0) var<storage,read> appearance_constants:array<f32>;
 @group(0) @binding(1) var<storage,read> appearance_routes:array<AppearanceRoute>;

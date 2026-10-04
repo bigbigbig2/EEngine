@@ -3,6 +3,7 @@ import { SURFACE_CELL_ADDRESS_WORDS, SURFACE_REFERENCE_WGSL } from "../gpu/GpuSu
 import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_SIGNAL_STORE_KEY_WORDS } from "../gpu/GpuSurfaceSignalStoreAbi.js";
 import { SURFACE_FIELD_EXECUTION_WORDS, SURFACE_SIGNAL_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
+import { SURFACE_DIRECT_RESIDUAL_FIELDS } from "../material/AppearanceExecutionProfile.js";
 
 /** Exact selected-source witness. Each field contributes its immutable producer
  * and numeric version, or the immutable Store slot/generation chosen by its plan.
@@ -25,6 +26,15 @@ fn signal_request_fields(leaf:u32,kind:u32)->u32 {
   let field_profile=signal_request_metadata[signal_request_field_descriptor(leaf,0u)+${SURFACE_FIELD_EXECUTION_PROFILE_WORD}u];
   let signal_profile=field_profile+15u*${SURFACE_FIELD_EXECUTION_WORDS}u+kind*${SURFACE_SIGNAL_EXECUTION_WORDS}u;
   var mask=signal_request_metadata[signal_profile+1u];
+  if kind == 0u {
+    if signal_request_workspace.addresses[leaf * ${SURFACE_CELL_ADDRESS_WORDS}u + 136u] != 3u {
+      mask = ${SURFACE_DIRECT_RESIDUAL_FIELDS}u;
+    } else {
+      let coat = reference_field(leaf, 10u);
+      if (coat.kind == SURFACE_REFERENCE_PUBLICATION || coat.kind == SURFACE_REFERENCE_DEFAULT) &&
+        signal_request_uniform_value(leaf, 10u).x <= 0.0 { mask &= ~((1u << 12u) | (1u << 14u)); }
+    }
+  }
   let metallic=reference_field(leaf,2u);
   if (kind==2u || kind==3u) && (metallic.kind==SURFACE_REFERENCE_PUBLICATION || metallic.kind==SURFACE_REFERENCE_DEFAULT) && signal_request_uniform_value(leaf,2u).x==0.0 {
     mask&=~1u;
@@ -106,6 +116,8 @@ fn signal_request_word(leaf:u32,kind:u32,word:u32,fields:u32)->u32 {
     case 29u:{return select(0u,signal_request_workspace.addresses[address+13u],direct);}
     case 38u:{return select(0u,signal_request_shadow[2u],direct && signal_request_settings.shadow_enabled!=0u);}
     case 39u:{return select(0u,signal_request_shadow[3u],direct && signal_request_settings.shadow_enabled!=0u);}
+    case 70u:{return select(0u, signal_request_workspace.addresses[address + 136u], kind == 0u);}
+    case 71u:{return fields;}
     default:{return 0u;}
   }
 }

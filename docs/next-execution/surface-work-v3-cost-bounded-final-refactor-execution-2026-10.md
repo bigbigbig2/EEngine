@@ -1,6 +1,6 @@
 # Surface V3 有界前端最终重构执行计划
 
-日期：2026-10-04（Asia/Hong_Kong）。状态：Phase 0静态清单、Phase 1 publication/工作表示与 Phase 2 Geometry owner/bounded setup 及阶段检查已补齐；Phase 3 Field 候选/验证/proof 与 Phase 4 固定树/source/provider 已完成，当前待 Phase 5。
+日期：2026-10-05（Asia/Hong_Kong）。状态：Phase 0–4 已有实现与历史阶段检查保留，但前置物理表示未全部落实；Phase 5 工作树实施中、未收口。按本次复审先修 Phase 5 正确性/诊断缺陷并完成需求合同，再执行必需的 Phase 5.5，之后进入 Phase 6/7。具体事实、缺口和开工清单见[阶段复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。
 
 目标：[最终性能重构设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。总架构/画质边界仍以[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)为准。当前切片：[workstream](../../project/workstreams/active/eengine-next-clean-rebuild.yaml)；状态与基线：[执行记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
 
@@ -16,8 +16,8 @@
 
 规则：
 
-1. 按Phase 0–6顺序实施，**每阶段完成相应检查并通过后才进入下一阶段**。阶段内部可以短暂编译失败、无图或消费者未接通；阶段结束时必须修复真实编译错误，完成本阶段真实producer→consumer验证，不把可发现的问题留到Phase7。
-2. Phase0核对基线、消费/容量清单和文档；Phase1–6每阶段集中运行typecheck、build、必要targeted tests，以及涉及WGSL/GPU产物时的编译与真实GPU组件/接线检查。可按调试需要运行检查，不要求每个patch重跑全部测试。
+1. 按Phase 0→1→2→3→4→5→5.5→6→7顺序实施，**每阶段完成相应检查并通过后才进入下一阶段**。Phase 5.5 补齐复审发现的前置要求，不是可选优化。阶段内部可以短暂编译失败、无图或消费者未接通；阶段结束时必须修复真实编译错误，完成本阶段真实producer→consumer验证，不把可发现的问题留到Phase7。
+2. Phase0核对基线、消费/容量清单和文档；Phase1–6（含5.5）每阶段集中运行typecheck、build、必要targeted tests，以及涉及WGSL/GPU产物时的编译与真实GPU组件/接线检查。可按调试需要运行检查，不要求每个patch重跑全部测试。
 3. 阶段“完成”同时要求代码完成和对应检查通过。单步不设固定性能提升百分比，但意外数量级变慢、容量失控、错误结果必须定位处理；不能以最终才验收为由带过。Phase7保留整链回归、跨浏览器/场景、连续画质和同条件性能正式验收。
 4. 不恢复旧 Surface owner、adapter、旧全率链、占位效果或第二 submit。
 5. 只保留仍被最终架构消费的数学、资源 owner 和产品；删除无消费者依赖，旧 ABI 测试按新语义更新。
@@ -33,13 +33,14 @@
 | Phase2 | typecheck/build；排序/run/prefix/容量测试；CPU/WGSL插值/差分对照；真实setup→record→consumer，覆盖memo满、不同primitive、UV/side/退化及hot/cold |
 | Phase3 | typecheck/build；完整key/support/误差预算/版本测试；production FieldStore查询/证明/发布消费，覆盖point≠domain、hit/miss、满表、Unknown/预算耗尽 |
 | Phase4 | typecheck/build；固定树独立参考/coverage/source映射；真实Field source→Signal identity/plan；parent误差、seam/mixed/provider拒绝和局部fine |
-| Phase5 | typecheck/build；missing closure/packet/compose数值；实际Geometry→Appearance→Lighting→Store→reconstruct小场景出图，包含常量、全hit/miss、满表、Ddirect/coat/AO/π和HDR |
+| Phase5 | typecheck/build/fresh build:test；missing closure/packet/compose数值；实际Geometry→Appearance→Lighting→Store→reconstruct，包含常量、全hit/miss、Ddirect/coat/AO/π和HDR；hash冲突/同key/probe耗尽仍单Store writer；真实pass计时映射；未完成smoke定位并重跑通过 |
+| Phase5.5 | typecheck/build/fresh build:test；lazy witness、typed proof结果、公式ref及真实planner的GPU producer→consumer；constant/hit/miss/稀疏dirty/proof满/cache满结构与工作量断言；同R布局账和新planner账分列；短整链smoke/成本诊断，承诺减少的工作必须实际减少 |
 | Phase6 | typecheck/build及受影响回归；真实WebGPU usage/binding/indirect；poison payload/zero-work/reset/retire；Showcase短整链smoke、resize/cut/资源变更及短timing/detailed成本诊断 |
 | Phase7 | 在阶段检查基础上重跑整合回归、完整质量/生命周期/跨浏览器矩阵与同条件历史版本性能比较 |
 
 从已有test/fixture选择真实语义用例；缺少覆盖时补独立参考和production消费者检查，不用源码正则、mock输出或过期.test-dist证明GPU正确。编译产物测试先生成本阶段新鲜build:test。
 
-阶段1–5如已具备完整可运行Showcase链，增加受影响场景短smoke与粗粒度耗时检查；尚未具备最终画面时，必须有本阶段真实生产shader/资源小链证据，不能以“还不能出图”免除GPU检查。短诊断不是正式收益或完整质量证明。
+阶段1–5及5.5如已具备完整可运行Showcase链，增加受影响场景短smoke与粗粒度耗时检查；尚未具备最终画面时，必须有本阶段真实生产shader/资源小链证据，不能以“还不能出图”免除GPU检查。短诊断不是正式收益或完整质量证明。GPU作业串行；未完成报告、不可用timestamp和初始passed=false不得冒充完成后的通过/失败结论。
 
 ### 1.2 跨阶段依赖与失败处理
 
@@ -56,6 +57,67 @@
 也可使用 node tools/vibe.mjs verify --module --test 后接实际targeted test路径。浏览器/GPU小链沿用validation宿主；根据本阶段生产入口补充或改写fixture，不为检查保留旧ABI，也不把读取归档WGSL的repair-compile当作新生产链验证。
 
 每次阶段检查记录实际命令、exit status、源码revision/dirty身份、GPU/browser/fixture及结果范围。只写“通过测试”而无范围不足以标记阶段完成。已有历史通过记录不转授新ABI；失败后重跑受影响检查，涉及跨owner合同变化时补关联回归。
+
+### 1.4 测试可信度、失败修复与阶段完成规则（2026-10-05 补齐）
+
+本节适用于后续全部Surface阶段（含5.5），补齐“运行测试”之外的检查责任。日常调试可按需，不要求每patch完整检查；但阶段结束必须同时满足**设计实现闭合、测试覆盖有效、结构/成本合同成立**，不能以绿色测试数量代替其中任意一项。正式历史版本收益仍由Phase7验收。
+
+#### 1.4.1 先列需求，再检查实现和测试
+
+在阶段实施前整理本阶段设计任务、复审F项和变更涉及的不变量；检查收口前逐项回到真实代码核对。矩阵放在该阶段实施记录，不新增逐patch许可系统：
+
+| 需求/不变量 | producer→产品→全部直接consumer | 正常/边界/拒绝与失败用例 | 独立预期与实际检查入口 | 结构/成本检查 | 本次源码身份/结果/未覆盖 |
+|---|---|---|---|---|---|
+| 每个本阶段必需项各一行 | 实际源码入口、容量、发布/读取边界和删除旧产品的位置 | 列具体分支，不仅列测试文件 | 说明预期来自设计、固定源或独立参考；记录命令/fixture | 无成本变更时说明；否则列真实allocation/writes/组织工作 | 通过、失败、未运行或未覆盖分别记录 |
+
+本阶段必需项缺consumer、缺用例、未运行或只有推测，均不能标阶段完成。明确属于未来阶段的工作可以列交接，但不能通过修改阶段名称将原必需项悄悄后移；调整范围须说明原因并取得用户认可。本次用户已认可的5.5是显式补齐，不是原阶段当时已完成的证明。
+
+#### 1.4.2 测试必须检查真实合同，不能形成自证闭环
+
+1. 测试调用当前生产export、当前生成WGSL及真实GPU producer→consumer；不手抄一份简化生产算法代替被测入口，不用归档shader或旧ABI证明新链。ABI/常量可共享，独立数值/身份/覆盖预期不能直接用同一被测函数的输出计算。
+2. mock适合host API、资源创建和生命周期的局部检查，不证明GPU数学、同步、写域或真实生产接线。GPU fixture可构造输入资源，但关键结果由生产producer写出并由实际consumer读取；不能预填正确输出或跳过前置producer来宣称整链通过。
+3. 用例须有非空、非零的有效工作；Lighting不能仅用零灯/零radiance通过，cache/coarse不能仅靠永久miss/fine通过。先断言受测分支确实执行，再断言结果；空帧另作独立用例。至少有普通合法profile成功hit/准入/共享的已知用例，也有相关拒绝后完整fine结果。
+4. 覆盖变更涉及的正常、阈值两侧、满额/overflow、Unknown、冲突、pin/generation、发布前后和跨batch分支；不涉及的范围标注，不把有限小fixture推广为全部材质/provider能力。数值容差来自既定误差预算/独立推导，不能从当前输出反推容差。
+5. 针对发现的bug，保留最小复现和回归。可运行旧缺陷版本时确认该断言会失败；否则用独立参考或仅fixture中的受控故障证明检查敏感性，并记录不能旧版复现的原因。不能为此在production加入测试专用fallback、第二路径或故障开关。无法稳定强制的GPU调度/弱CAS情形用协议参考补充，仍须运行实际GPU失败覆盖；一次偶然通过不证明无竞态。
+6. 源码正则/存在性检查可以辅助确认旧入口删除，不能单独证明算法、shader数据流或同步正确。build:test必须新鲜；真实pipeline/binding/consumer发生变化时检查对应链，不沿用未受测产物。
+
+#### 1.4.3 正确性与成本分开断言，两者都不能省略
+
+按本阶段改变的合同列可判定检查，不只断言“不报错、不超预算、可以出图”：
+
+| 合同 | 必须能区分的情况 |
+|---|---|
+| 身份与独立性 | 必需依赖/semantic/version变化确实失效；无关依赖变化不使已证明独立的项重跑；hash相同但完整身份不同不能命中 |
+| 发布与失败 | Reserved/Produced不可消费；Published generation/pin正确；同key Store writers≤1；hash/proof/cache满只拒绝可选优化，mandatory结果不丢 |
+| 完整写域 | 每个应写像素/值完整且只写一次，coarse/fine互斥；空/尾batch和局部Unknown不读旧payload |
+| witness/证书/ref | 真实输入需求、typed受理数与actual writes对应；已声明消除的dense产品在allocation和生产consumer链上都删除，不能只改counter |
+| Geometry/worker | hit closure不重跑；每个实际位置只生产唯一record；cold按实际mask写；只缺少一个相关field/kind时不无条件求全部closure/signal；为保留完整finite guard所需共同计算单列，不篡改算法来满足低计数 |
+| planner与组织成本 | 真实stride/对齐/hash rounding/绑定/retirement/输出完整计账；报告全部限制项，区分预留、实际写入、clear范围、CPU编码和GPU时间 |
+| 计时与计数 | 从当前生产pass/实际运行标签逐项核对分类；必须计入的项不可漏，故意排除项具名；不可仅手写旧标签测试。timestamp drop/不可用不能当0ms |
+
+以上检查按受影响范围实施；已有5.5详细场景矩阵继续适用。阶段声明按需/compact/删除重复工作，就必须有相应结构与实际工作量证据；不允许全拒绝cache/coarse降低计数来过关。容量降低不冒充带宽或帧时收益，GPU pass sum、span和Surface subtotal不混用。代表性短整链诊断需确认预定有效workload确实就绪且执行；性能收益小于噪声记为未证明，不写固定改善。
+
+#### 1.4.4 测试失败先定位，再按责任修复
+
+固定处理顺序：**保留原始失败和源码身份→最小复现/核对预期→分类并定位首个违反合同的边界→局部修复→原用例和关联回归→更新覆盖矩阵。** 调试中的假设可以实验，但必须有证据确认；撤掉未解释的试验补丁，不能把多处猜测修改堆成“绿了就算修好”。
+
+| 失败类别 | 修复责任与限制 |
+|---|---|
+| 生产算法/身份/同步/覆盖错误 | 修权威producer、发布边界或实际有错consumer；保留原数值/身份合同，补直接回归。没有证据不得在多个consumer随意加clamp、重复校验或重算 |
+| fixture/mock/harness输入不符合现行合同 | 修测试宿主的资源/布局/生命周期，并检查相应生产真实用例；不能为mock缺API给production加资源fallback或虚假consumer |
+| 新ABI使旧测试入口失效 | 按设计重写测试到新生产入口，逐项映射并保留仍有效的语义断言；只有合同明确退休才删除对应断言并说明，不恢复旧链 |
+| 测试预期/独立参考错误 | 给出设计/固定源/独立数学依据后改预期；明确记录原检查错误，补区分正确/错误分支的用例，不能直接接受当前输出 |
+| build产物/资产/浏览器/设备或runner问题 | 核对产物指纹、配置和实际退出/进度，修宿主或环境后重跑；错误归类需日志证据，不因测试难过就归咎环境 |
+| 超时/报告未完成/未收到结果 | 记未完成，保留进度、结束状态、errors、源码漂移和退出原因；定位启动/编译/submit/完成哪个边界停住。只延长超时、忽略error或缩到零工作不能算修复 |
+| 原因未明或外部确实阻塞 | 明确阶段未通过，继续可开展的本阶段工作；不豁免必需检查、不推进下一阶段、不谎报死锁或通过 |
+
+禁止为过关删除必需测试/断言、用skip或.only隐去必需失败、吞异常、放宽阈值/容差、减小场景或关掉失败feature、把普通profile强制fine/residual、覆盖历史报告，或以只查“GPU无API错误”替代结果断言。开发调试可以选择targeted子集，但收口不能漏掉必需项。缩小场景/关feature只可用于定位，最终须回到原必需条件；确需改变功能、质量、误差预算或阶段范围，先说明取舍并取得用户认可。能前移必要真实接线，但不能无关重构、乱接新owner、增加隐藏decode、私有submit或GPU→CPU工作控制。
+
+#### 1.4.5 收口时重审范围，不能把绿灯当总判定
+
+结束前对照设计任务、上述矩阵和当前diff再读真实生产入口：确认所有必需product有consumer、旧入口删除、fallback仍完整，且没有测试为了通过反向改变架构。实际命令、exit、当前源码/dirty/生成shader身份、设备/浏览器、fixture有效workload和每项结果可追溯；skip/未运行/不可用单列。先前通过后若又改生产代码，重新构建并重跑受影响验证，跨owner合同变化扩大回归；不能把不同快照拼成最终全部通过。纯文档变化不要求重跑GPU。
+
+阶段完成需同时给出实现核对、正确性/接线检查、结构/成本检查结论；未达到任何必需项就保持实施中。只报告本阶段已验证能力，不承诺不存在全部遗漏或全系统已验收。已完成阶段后来发现必需遗漏，应撤回相应总括结论并显式补齐，不能把遗留换名成可选优化。此规则不是clean revision/evidence/claim/每patch检查门禁，也不把Phase7正式全矩阵提前到每个阶段。
 
 ## 2. 不可改变的实施决策
 
@@ -177,7 +239,30 @@
 
 完成条件：从Visibility到HDR/reactive为唯一完整新链，全部合法失败分支有真实消费者；既有旧链/旧ABI不在生产import graph。
 
+### 8.1 2026-10-05 复审后的优先修复与退出门槛
+
+先完成[复审清单](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)F08/F09：bounded hash未建立唯一owner时仅保留transient，不能将每个未解析请求升级为Store writer；计时分类必须覆盖真实Field lookup/support四个pass，测试不能继续用手写旧标签代替生产入口。加入同key碰撞/probe耗尽/满表与真实计时名称检查。
+
+保留并定位上次Showcase初始化中断报告，完成短smoke；不把零API错误或延长超时当作通过。同步修正容量归因：当前399 tiles由656B完整record套入16MiB geometryHot配额限制，不是setup 32MiB。
+
+完成数值与需求合同后，按真实源码身份集中收口检查。Ddirect异常guard必须在lookup/rate前决定合法semantic；普通材质不得永久residual。全局provider envelope、动态seam和full BRDF+transport重复工作记录为5.5成本审查项，不能先宣称收益。Phase5退出时，正确性/诊断缺陷必须闭合；仅允许明确交接的前端物理布局欠账进入5.5。
+
+### 8.2 Phase 5.5：前端物理表示与成本约束补齐（必需）
+
+入口：SurfaceGeometryPass/address、Field lookup/support、certificate/tree/source、GpuSurfaceCellPlanAbi/ref accessor、SurfaceFrameResources/SurfaceOptimizationCapacity。合同见设计§17.4，逐项producer/consumer与场景门槛见[准备清单§5](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md#5-phase-55-切换单元与检查)。
+
+1. 从Phase5实际consumer矩阵分离cheap candidate、necessary point witness、admitted spatial proof与worker输入。详细witness按实际需要生产；不能仅把144-word大包改名，也不能把必要footprint全部延到miss后。
+2. proof请求与结果一起按typed slots/实际受理组织，全部family共享C≤R/2。删除三份逐target dense certificate；常量bounds引用publication，Unknown仍局部fine。
+3. 公式化Publication/Default/Zero和implicit transient ref；mixed/store保留必需完整身份与generation。完整fine value/geometry容量仍可预留，不能靠删输出省空间。
+4. producer与全部直接consumer同次切换，移除旧ABI；随布局前移必要reset/binding/validity接线。没有adapter、隐藏重算或阶段末断链。
+5. 按真实hot/cold/setup/witness/proof/ref allocation重算planner，报告每项限制及retirement/双输出；不强求R=65536、不只扩大batch掩盖单target成本。
+6. 核对Ddirect普通/异常准入比例、provider拒绝、seam合并及重复计算，移出可publication预合并的热决策，保留完整算法和guard。
+
+集中检查既验证正确性，也验证结构与成本：同R比较实际witness/证书/ref写入及容量，再列新planner的R/batch账；constant、full hit/miss、稀疏dirty、proof满、hash/cache满均有真实GPU产量断言。设计声称消除的dense输出必须实际删除，声称按需的工作必须随真实需求增长；单纯“出图/不超512MiB”不足以通过。短smoke明显回退或数量不符须本阶段解释修复，不能交给Phase6/7。完成后交付最终产品/绑定/validity/reset/lifetime清单，才进入Phase6。
+
 ## 9. Phase 6：reset、编码与生命周期收口
+
+前置：Phase5与Phase5.5均完成并通过集中检查。此阶段针对最终布局优化调度，不再承接未完成的lazy witness、dense certificate或ref表示重构。
 
 主要入口：SurfaceFrameResources、SurfaceOptimizationCapacity、SurfaceCellPipelineLayout、ShadeGPUCommandContext、GPUTimer及对应owner。
 
@@ -240,4 +325,4 @@
 
 ## 12. 当前下一步
 
-准备文档与基线已就位。Phase 0清单及核对已完成，Phase 1–4 的真实切换与阶段检查已完成，Phase 2 原判定不足已更正并补齐；下一阶段为 **Phase 5 实际 worker/发布/重建**，完成实现与对应检查后再推进。正式同条件benchmark在Phase7，阶段短诊断尽早发现数量级错误，不以旧链/占位实现维持检查通过。
+本次文档准备已将复审缺口纳入必需范围，未修生产代码。下一步为 **Phase5优先修复→Phase5合同与检查收口→Phase5.5物理布局/成本补齐→Phase6→Phase7**。Phase1–4既有接线与历史检查保留，但不再称前置要求全部补齐。当前Phase5未提交工作不等于阶段通过；按§8.1和准备清单开始，不跳过未完成smoke或单Store writer缺陷。正式同条件benchmark在Phase7，阶段成本检查不能省略，也不承诺固定收益。

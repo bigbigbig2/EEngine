@@ -1,6 +1,6 @@
-/** One bounded batch arena. Active, request, unique and producer counts have
- * distinct slots; indirect arguments are derived only from those GPU counts.
- * Requests are narrow handles into shared addresses, never copied wide keys. */
+/** Mask-first batch arena. Mandatory output uses formula slots; only optional
+ * StableCache admission gets a narrow request and bounded dictionary entry.
+ * Cache queue exhaustion leaves every mandatory fine value covered. */
 export const SURFACE_DEMAND_CONTROL_WORDS = 128;
 export const SURFACE_DEMAND_RECORD_WORDS = 4;
 export const SURFACE_DEMAND_PROGRAM_WORDS = 8;
@@ -12,13 +12,18 @@ export const SURFACE_DEMAND_COUNT = Object.freeze({
     fieldRequestIndirect: 20, signalRequestIndirect: 24,
     materialGroupIndirect: 28, lightingGroupIndirect: 32,
     uniqueFieldIndirect: 36, uniqueSignalIndirect: 40,
-    fieldFallbacks: 44, signalFallbacks: 45
+    fieldFallbacks: 44, signalFallbacks: 45,
+    fieldAdmissionRejected: 47, signalAdmissionRejected: 48,
+    fieldValues: 49, signalValues: 50, fieldCommitted: 51, signalCommitted: 52,
+    fieldProbes: 53, signalProbes: 54
 });
 export interface SurfaceDemandLayout {
     readonly targets: number;
     readonly programs: number;
     readonly fieldCapacity: number;
     readonly signalCapacity: number;
+    readonly fieldAdmissionCapacity: number;
+    readonly signalAdmissionCapacity: number;
     readonly fieldHashCapacity: number;
     readonly signalHashCapacity: number;
     readonly offsets: Readonly<Record<string, number>>;
@@ -41,20 +46,23 @@ export function surfaceDemandLayout(targets: number, programs: number): SurfaceD
     }
     const fieldCapacity = targets * 15;
     const signalCapacity = targets * 6;
-    const fieldHashCapacity = powerOfTwo(fieldCapacity * 2);
-    const signalHashCapacity = powerOfTwo(signalCapacity * 2);
+    // Optional cache admission is independent of mandatory fine output capacity.
+    // A saturated queue leaves the formula-addressed transient value intact.
+    const fieldAdmissionCapacity = targets * 2;
+    const signalAdmissionCapacity = targets;
+    const fieldHashCapacity = powerOfTwo(fieldAdmissionCapacity * 2);
+    const signalHashCapacity = powerOfTwo(signalAdmissionCapacity * 2);
     const sections = [
         ["control", SURFACE_DEMAND_CONTROL_WORDS],
         ["programs", programs * SURFACE_DEMAND_PROGRAM_WORDS],
         ["field_hash", fieldHashCapacity], ["signal_hash", signalHashCapacity],
-        ["field_requests", fieldCapacity * SURFACE_DEMAND_RECORD_WORDS],
-        ["signal_requests", signalCapacity * SURFACE_DEMAND_RECORD_WORDS],
-        ["field_aliases", fieldCapacity], ["signal_aliases", signalCapacity],
-        ["field_results", fieldCapacity], ["signal_results", signalCapacity],
-        ["unique_fields", fieldCapacity], ["unique_signals", signalCapacity],
+        ["field_requests", fieldAdmissionCapacity * SURFACE_DEMAND_RECORD_WORDS],
+        ["signal_requests", signalAdmissionCapacity * SURFACE_DEMAND_RECORD_WORDS],
+        ["field_aliases", fieldAdmissionCapacity], ["signal_aliases", signalAdmissionCapacity],
+        ["field_results", fieldAdmissionCapacity], ["signal_results", signalAdmissionCapacity],
+        ["unique_fields", fieldAdmissionCapacity], ["unique_signals", signalAdmissionCapacity],
         ["geometry_masks", targets], ["material_masks", targets], ["lighting_masks", targets],
         ["material_entries", targets],
-        ["field_destinations", fieldCapacity], ["signal_destinations", signalCapacity],
         ["geometry_queue", targets], ["material_queue", targets], ["lighting_queue", targets],
         ["ordered_material_queue", targets]
     ] as const;
@@ -65,7 +73,8 @@ export function surfaceDemandLayout(targets: number, programs: number): SurfaceD
         words += count;
     }
     const bytes = Math.ceil(words * 4 / 256) * 256;
-    return Object.freeze({ targets, programs, fieldCapacity, signalCapacity, fieldHashCapacity,
+    return Object.freeze({ targets, programs, fieldCapacity, signalCapacity, fieldAdmissionCapacity,
+        signalAdmissionCapacity, fieldHashCapacity,
         signalHashCapacity, offsets: Object.freeze(offsets), bytes });
 }
 export function surfaceDemandArenaWgsl(targets: number, programs: number): string {
@@ -76,20 +85,18 @@ struct SurfaceDemandArena {
   programs: array<atomic<u32>, ${programs * SURFACE_DEMAND_PROGRAM_WORDS}>,
   field_hash: array<atomic<u32>, ${layout.fieldHashCapacity}>,
   signal_hash: array<atomic<u32>, ${layout.signalHashCapacity}>,
-  field_requests: array<vec4u, ${layout.fieldCapacity}>,
-  signal_requests: array<vec4u, ${layout.signalCapacity}>,
-  field_aliases: array<u32, ${layout.fieldCapacity}>,
-  signal_aliases: array<u32, ${layout.signalCapacity}>,
-  field_results: array<u32, ${layout.fieldCapacity}>,
-  signal_results: array<u32, ${layout.signalCapacity}>,
-  unique_fields: array<u32, ${layout.fieldCapacity}>,
-  unique_signals: array<u32, ${layout.signalCapacity}>,
+  field_requests: array<vec4u, ${layout.fieldAdmissionCapacity}>,
+  signal_requests: array<vec4u, ${layout.signalAdmissionCapacity}>,
+  field_aliases: array<u32, ${layout.fieldAdmissionCapacity}>,
+  signal_aliases: array<u32, ${layout.signalAdmissionCapacity}>,
+  field_results: array<u32, ${layout.fieldAdmissionCapacity}>,
+  signal_results: array<u32, ${layout.signalAdmissionCapacity}>,
+  unique_fields: array<u32, ${layout.fieldAdmissionCapacity}>,
+  unique_signals: array<u32, ${layout.signalAdmissionCapacity}>,
   geometry_masks: array<atomic<u32>, ${targets}>,
   material_masks: array<atomic<u32>, ${targets}>,
   lighting_masks: array<atomic<u32>, ${targets}>,
   material_entries: array<u32, ${targets}>,
-  field_destinations: array<atomic<u32>, ${layout.fieldCapacity}>,
-  signal_destinations: array<atomic<u32>, ${layout.signalCapacity}>,
   geometry_queue: array<u32, ${targets}>,
   material_queue: array<u32, ${targets}>,
   lighting_queue: array<u32, ${targets}>,

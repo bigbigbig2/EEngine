@@ -34,7 +34,9 @@ test("Surface reconstruct consumes independent FieldRef/SignalRef and TemporalFa
   const fullPackets = graph.import_resource("SignalStore", { kind: "imported" }, {});
   const packetFlags = graph.import_resource("FieldStore", { kind: "imported" }, {});
   const preExposure = graph.import_resource("pre exposure", { kind: "imported" }, {});
-  const products = owner.addToGraph(graph, { signalValues:packets, signalStore:fullPackets, fieldStore:packetFlags, reactive: resource, preExposure, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
+  const coverage = graph.import_resource("coverage", { kind: "imported" }, {});
+  const activeIndirect = graph.import_resource("active indirect", { kind: "imported" }, {});
+  const products = owner.addToGraph(graph, { signalValues:packets, signalStore:fullPackets, fieldStore:packetFlags, reactive: resource, preExposure, coverage, activeIndirect, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
     width: 4, height: 2, recordCount: 8, diagnosticsEnabled: true });
   assert.ok(products.radiance);
   assert.ok(products.reactiveMask);
@@ -53,7 +55,7 @@ test("Surface reconstruct consumes independent FieldRef/SignalRef and TemporalFa
   owner.prepareFrame(4, 2, 1);
   owner.abort();
   assert.throws(() => owner.addToGraph(new FrameGraph("aborted"), {
-    signalValues:packets, signalStore:fullPackets, fieldStore:packetFlags, reactive: resource, preExposure, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
+    signalValues:packets, signalStore:fullPackets, fieldStore:packetFlags, reactive: resource, preExposure, coverage, activeIndirect, cellWorkspace:packets,cellBatchTiles:1,firstTile:0,fields:packets,appearanceMetadata:packets,constantFieldsOffset:0,scalarAo:null,
     width: 4, height: 2, recordCount: 8, diagnosticsEnabled: false
   }), /not prepared/);
   owner.destroy();

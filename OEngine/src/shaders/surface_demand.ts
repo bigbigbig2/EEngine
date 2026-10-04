@@ -2,12 +2,14 @@ import { surfaceCellWorkspaceWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { surfaceDemandArenaWgsl, surfaceDemandLayout, SURFACE_DEMAND_PROBE_LIMIT } from "../gpu/GpuSurfaceDemandAbi.js";
 import { SURFACE_FIELD_REQUEST_WGSL } from "./surface_field_request.js";
 import { SURFACE_SIGNAL_REQUEST_WGSL } from "./surface_signal_request.js";
+import { SURFACE_GEOMETRY_HOT_DEMAND_BIT } from "../gpu/GpuSurfaceGeometryRecordAbi.js";
 
 /** Local task/indirect integration of the pinned OSS occupancy/task boundary.
  * Tables hold request IDs only. Request inputs are immutable during nomination;
  * aliases are published separately, so no workgroup reads a partial reservation.
  * Hash exhaustion retains an independent transient destination. Persistent
- * identity never uses a transient field slot, and no full request scan exists. */
+ * identity never uses a transient field slot, and no full request scan exists.
+ * Dedup selects Store writers, never removes a mandatory transient closure. */
 export function surfaceDemandWgsl(targets: number, programs: number): string {
   const layout = surfaceDemandLayout(targets, programs);
   const fieldGetter = SURFACE_FIELD_REQUEST_WGSL.replaceAll("field_request_settings", "demand_settings")
@@ -44,8 +46,21 @@ const DEMAND_PROBES: u32 = ${SURFACE_DEMAND_PROBE_LIMIT}u;
 const DEMAND_FIELD_HASH_MASK: u32 = ${layout.fieldHashCapacity - 1}u;
 const DEMAND_SIGNAL_HASH_MASK: u32 = ${layout.signalHashCapacity - 1}u;
 var<workgroup> demand_counts: array<vec2u, 64>;
-var<workgroup> demand_offsets: array<vec2u, 64>;
 var<workgroup> demand_base: vec2u;
+
+// Cooperative inclusive scan. Every lane reaches both barriers per step.
+fn demand_scan(lane: u32, value: vec2u) -> vec2u {
+  demand_counts[lane] = value;
+  workgroupBarrier();
+  for (var stride = 1u; stride < 64u; stride *= 2u) {
+    var previous = vec2u(0u);
+    if lane >= stride { previous = demand_counts[lane - stride]; }
+    workgroupBarrier();
+    demand_counts[lane] += previous;
+    workgroupBarrier();
+  }
+  return demand_counts[lane] - value;
+}
 
 @compute @workgroup_size(64)
 fn emit_surface_requests(@builtin(global_invocation_id) id: vec3u,
@@ -53,52 +68,99 @@ fn emit_surface_requests(@builtin(global_invocation_id) id: vec3u,
   let leaf = id.x;
   var fields = 0u;
   var signals = 0u;
+  var admission_fields = 0u;
+  var inputs = 0u;
   if leaf < demand_settings.leaves && demand_workspace.facts[leaf].x != 0xffffffffu &&
     demand_workspace.facts[leaf].z != 0xffffffffu {
-    let publication_mask=demand_metadata[demand_settings.constants+demand_workspace.facts[leaf].z*64u];
+    let publication = demand_metadata[demand_settings.constants + demand_workspace.facts[leaf].z * 64u];
     for (var field = 0u; field < 15u; field++) {
-      if (publication_mask&(1u<<field))!=0u { continue; }
+      if (publication & (1u << field)) != 0u { continue; }
       let reference = (leaf * 15u + field) * 3u;
-      if reference_plan_leaf(leaf, field) == leaf &&
-        demand_workspace.field_references[reference] == SURFACE_REFERENCE_INVALID {
-        fields |= 1u << field;
-      }
+      if reference_plan_leaf(leaf, field) != leaf ||
+        demand_workspace.field_references[reference] != SURFACE_REFERENCE_INVALID { continue; }
+      fields |= 1u << field;
+      // Mandatory work has no queue reservation and no dictionary identity.
+      demand_workspace.field_references[reference] = SURFACE_REFERENCE_TRANSIENT;
+      demand_workspace.field_references[reference + 1u] = leaf * 15u + field;
+      demand_workspace.field_references[reference + 2u] = demand_settings.epoch;
+      inputs |= demand_metadata[field_request_descriptor(leaf, field) + 3u] >> 8u;
+      if field_request_cacheable(leaf, field) { admission_fields |= 1u << field; }
     }
     for (var kind = 0u; kind < 6u; kind++) {
       let reference = (leaf * 6u + kind) * 3u;
-      if reference_plan_leaf(leaf, 15u + kind) == leaf &&
-        demand_workspace.signal_references[reference] == SURFACE_REFERENCE_INVALID {
-        signals |= 1u << kind;
-      }
+      if reference_plan_leaf(leaf, 15u + kind) != leaf ||
+        demand_workspace.signal_references[reference] != SURFACE_REFERENCE_INVALID { continue; }
+      signals |= 1u << kind;
+      demand_workspace.signal_references[reference] = SURFACE_REFERENCE_TRANSIENT;
+      demand_workspace.signal_references[reference + 1u] = leaf * 6u + kind;
+      demand_workspace.signal_references[reference + 2u] = demand_settings.epoch;
+      inputs |= ${SURFACE_GEOMETRY_HOT_DEMAND_BIT}u;
     }
+    atomicStore(&demand_arena.material_masks[leaf], fields);
+    atomicStore(&demand_arena.lighting_masks[leaf], signals);
+    if (inputs & ~1u) != 0u { atomicStore(&demand_arena.geometry_masks[leaf], inputs); }
   }
-  demand_counts[lane] = vec2u(countOneBits(fields), countOneBits(signals));
-  workgroupBarrier();
+  if demand_settings.diagnostics != 0u {
+    demand_scan(lane, vec2u(countOneBits(fields), countOneBits(signals)));
+    if lane == 0u {
+      atomicAdd(&demand_arena.control[49u], demand_counts[63u].x);
+      atomicAdd(&demand_arena.control[50u], demand_counts[63u].y);
+    }
+    workgroupBarrier();
+  }
+  let counts = vec2u(countOneBits(admission_fields), 0u);
+  let offset = demand_scan(lane, counts);
   if lane == 0u {
-    var count = vec2u(0u);
-    for (var member = 0u; member < 64u; member++) {
-      demand_offsets[member] = count;
-      count += demand_counts[member];
-    }
-    demand_base = vec2u(0u);
-    if count.x != 0u { demand_base.x = atomicAdd(&demand_arena.control[1u], count.x); }
-    if count.y != 0u { demand_base.y = atomicAdd(&demand_arena.control[2u], count.y); }
+    demand_base = vec2u(atomicAdd(&demand_arena.control[1u], demand_counts[63u].x),
+      atomicAdd(&demand_arena.control[2u], demand_counts[63u].y));
   }
   workgroupBarrier();
-  var field_cursor = demand_base.x + demand_offsets[lane].x;
+  var cursor = demand_base + offset;
   for (var field = 0u; field < 15u; field++) {
-    if (fields & (1u << field)) == 0u { continue; }
-    let request = field_cursor;
-    field_cursor++;
+    if (admission_fields & (1u << field)) == 0u { continue; }
+    let request = cursor.x;
+    cursor.x++;
+    if request >= demand_settings.field_capacity {
+      atomicAdd(&demand_arena.control[47u], 1u);
+      continue;
+    }
     demand_arena.field_requests[request] = vec4u(leaf, field, 0u, 0u);
     demand_arena.field_aliases[request] = 0xffffffffu;
     demand_arena.field_results[request] = 0xffffffffu;
   }
-  var signal_cursor = demand_base.y + demand_offsets[lane].y;
+}
+
+// Field refs must be complete before selected-source Signal witnesses are
+// read. A separate dispatch provides global visibility without cross-group
+// synchronization or reading refs concurrently with their transient publisher.
+@compute @workgroup_size(64)
+fn emit_signal_cache_requests(@builtin(global_invocation_id) id: vec3u,
+  @builtin(local_invocation_index) lane: u32) {
+  let leaf = id.x;
+  var eligible = 0u;
+  if leaf < demand_settings.leaves {
+    let dirty = atomicLoad(&demand_arena.lighting_masks[leaf]);
+    for (var kind = 0u; kind < 6u; kind++) {
+      if (dirty & (1u << kind)) != 0u &&
+        signal_request_cacheable(leaf, signal_request_fields(leaf, kind), kind) {
+        eligible |= 1u << kind;
+      }
+    }
+  }
+  let offset = demand_scan(lane, vec2u(0u, countOneBits(eligible)));
+  if lane == 0u {
+    demand_base.y = atomicAdd(&demand_arena.control[2u], demand_counts[63u].y);
+  }
+  workgroupBarrier();
+  var cursor = demand_base.y + offset.y;
   for (var kind = 0u; kind < 6u; kind++) {
-    if (signals & (1u << kind)) == 0u { continue; }
-    let request = signal_cursor;
-    signal_cursor++;
+    if (eligible & (1u << kind)) == 0u { continue; }
+    let request = cursor;
+    cursor++;
+    if request >= demand_settings.signal_capacity {
+      atomicAdd(&demand_arena.control[48u], 1u);
+      continue;
+    }
     demand_arena.signal_requests[request] = vec4u(leaf, kind, 0u, 0u);
     demand_arena.signal_aliases[request] = 0xffffffffu;
     demand_arena.signal_results[request] = 0xffffffffu;
@@ -128,11 +190,11 @@ fn nominate_field_producers(@builtin(global_invocation_id) id: vec3u) {
   if request >= atomicLoad(&demand_arena.control[1u]) { return; }
   let item = demand_arena.field_requests[request];
   if !field_request_cacheable(item.x, item.y) {
-    demand_arena.field_aliases[request] = request;
     return;
   }
   let hash = demand_field_hash(request);
   for (var probe = 0u; probe < DEMAND_PROBES; probe++) {
+    if demand_settings.diagnostics != 0u { atomicAdd(&demand_arena.control[53u], 1u); }
     let slot = (hash + probe) & DEMAND_FIELD_HASH_MASK;
     for (var attempt = 0u; attempt < 4u; attempt++) {
       let claim = atomicCompareExchangeWeak(&demand_arena.field_hash[slot], 0u, request + 1u);
@@ -157,27 +219,21 @@ fn resolve_field_producers(@builtin(global_invocation_id) id: vec3u) {
   if owner == 0xffffffffu {
     let hash = demand_field_hash(request);
     for (var probe = 0u; probe < DEMAND_PROBES; probe++) {
+      if demand_settings.diagnostics != 0u { atomicAdd(&demand_arena.control[53u], 1u); }
       let occupied = atomicLoad(&demand_arena.field_hash[(hash + probe) & DEMAND_FIELD_HASH_MASK]);
       if occupied != 0u && demand_field_equal(request, occupied - 1u) { owner = occupied - 1u;break; }
     }
     if owner == 0xffffffffu {
-      owner = request;
+      // Failed optional admission cannot authorize an independent Store writer.
       atomicAdd(&demand_arena.control[44u], 1u);
+      return;
     }
     demand_arena.field_aliases[request] = owner;
   }
-  let item = demand_arena.field_requests[request];
-  let reference = (item.x * 15u + item.y) * 3u;
-  demand_workspace.field_references[reference] = SURFACE_REFERENCE_TRANSIENT;
-  demand_workspace.field_references[reference + 1u] = owner;
-  demand_workspace.field_references[reference + 2u] = demand_settings.epoch;
+  // Dedup controls only Store writers. All mandatory values remain independent.
   if owner != request { return; }
   let unique = atomicAdd(&demand_arena.control[3u], 1u);
   demand_arena.unique_fields[unique] = request;
-  atomicOr(&demand_arena.material_masks[item.x], 1u << item.y);
-  atomicStore(&demand_arena.field_destinations[item.x * 15u + item.y], request + 1u);
-  let inputs = demand_metadata[field_request_descriptor(item.x, item.y) + 3u] >> 8u;
-  if (inputs & ~1u) != 0u { atomicOr(&demand_arena.geometry_masks[item.x], inputs); }
 }
 fn demand_signal_equal(a: u32, b: u32) -> bool {
   let x = demand_arena.signal_requests[a];
@@ -202,11 +258,11 @@ fn nominate_signal_producers(@builtin(global_invocation_id) id: vec3u) {
   if request >= atomicLoad(&demand_arena.control[2u]) { return; }
   let item = demand_arena.signal_requests[request];
   if !signal_request_cacheable(item.x, signal_request_fields(item.x, item.y), item.y) {
-    demand_arena.signal_aliases[request] = request;
     return;
   }
   let hash = demand_signal_hash(request);
   for (var probe = 0u; probe < DEMAND_PROBES; probe++) {
+    if demand_settings.diagnostics != 0u { atomicAdd(&demand_arena.control[54u], 1u); }
     let slot = (hash + probe) & DEMAND_SIGNAL_HASH_MASK;
     for (var attempt = 0u; attempt < 4u; attempt++) {
       let claim = atomicCompareExchangeWeak(&demand_arena.signal_hash[slot], 0u, request + 1u);
@@ -231,26 +287,21 @@ fn resolve_signal_producers(@builtin(global_invocation_id) id: vec3u) {
   if owner == 0xffffffffu {
     let hash = demand_signal_hash(request);
     for (var probe = 0u; probe < DEMAND_PROBES; probe++) {
+      if demand_settings.diagnostics != 0u { atomicAdd(&demand_arena.control[54u], 1u); }
       let occupied = atomicLoad(&demand_arena.signal_hash[(hash + probe) & DEMAND_SIGNAL_HASH_MASK]);
       if occupied != 0u && demand_signal_equal(request, occupied - 1u) { owner = occupied - 1u; break; }
     }
     if owner == 0xffffffffu {
-      owner = request;
+      // Failed optional admission cannot authorize an independent Store writer.
       atomicAdd(&demand_arena.control[45u], 1u);
+      return;
     }
     demand_arena.signal_aliases[request] = owner;
   }
-  let item = demand_arena.signal_requests[request];
-  let reference = (item.x * 6u + item.y) * 3u;
-  demand_workspace.signal_references[reference] = SURFACE_REFERENCE_TRANSIENT;
-  demand_workspace.signal_references[reference + 1u] = owner;
-  demand_workspace.signal_references[reference + 2u] = demand_settings.epoch;
+  // Dedup controls only Store writers. All mandatory values remain independent.
   if owner != request { return; }
   let unique = atomicAdd(&demand_arena.control[4u], 1u);
   demand_arena.unique_signals[unique] = request;
-  atomicOr(&demand_arena.lighting_masks[item.x], 1u << item.y);
-  atomicStore(&demand_arena.signal_destinations[item.x * 6u + item.y], request + 1u);
-  atomicOr(&demand_arena.geometry_masks[item.x], (1u << 5u) | (1u << 6u) | (1u << 7u) | (1u << 8u));
 }
 @compute @workgroup_size(64)
 fn compact_surface_groups(@builtin(global_invocation_id) id: vec3u,
@@ -264,40 +315,24 @@ fn compact_surface_groups(@builtin(global_invocation_id) id: vec3u,
     material = select(0u, 1u, atomicLoad(&demand_arena.material_masks[leaf]) != 0u);
     lighting = select(0u, 1u, atomicLoad(&demand_arena.lighting_masks[leaf]) != 0u);
   }
-  demand_counts[lane] = vec2u(geometry, material);
-  workgroupBarrier();
+  let offset = demand_scan(lane, vec2u(geometry, material));
   if lane == 0u {
-    var count = vec2u(0u);
-    for (var member = 0u; member < 64u; member++) {
-      demand_offsets[member] = count;
-      count += demand_counts[member];
-    }
-    demand_base = vec2u(0u);
-    if count.x != 0u { demand_base.x = atomicAdd(&demand_arena.control[0u], count.x); }
-    if count.y != 0u { demand_base.y = atomicAdd(&demand_arena.control[5u], count.y); }
+    demand_base = vec2u(atomicAdd(&demand_arena.control[0u], demand_counts[63u].x),
+      atomicAdd(&demand_arena.control[5u], demand_counts[63u].y));
   }
   workgroupBarrier();
-  if geometry != 0u { demand_arena.geometry_queue[demand_base.x + demand_offsets[lane].x] = leaf; }
+  if geometry != 0u { demand_arena.geometry_queue[demand_base.x + offset.x] = leaf; }
   if material != 0u {
-    demand_arena.material_queue[demand_base.y + demand_offsets[lane].y] = leaf;
+    demand_arena.material_queue[demand_base.y + offset.y] = leaf;
     let entry = demand_workspace.facts[leaf].z;
     let program = demand_metadata[demand_settings.directory + entry * 8u + 1u];
     atomicAdd(&demand_arena.programs[program * 8u + 4u], 1u);
   }
   workgroupBarrier();
-  demand_counts[lane] = vec2u(lighting, 0u);
+  let lighting_offset = demand_scan(lane, vec2u(lighting, 0u));
+  if lane == 0u { demand_base.x = atomicAdd(&demand_arena.control[6u], demand_counts[63u].x); }
   workgroupBarrier();
-  if lane == 0u {
-    var count = 0u;
-    for (var member = 0u; member < 64u; member++) {
-      demand_offsets[member].x = count;
-      count += demand_counts[member].x;
-    }
-    demand_base.x = 0u;
-    if count != 0u { demand_base.x = atomicAdd(&demand_arena.control[6u], count); }
-  }
-  workgroupBarrier();
-  if lighting != 0u { demand_arena.lighting_queue[demand_base.x + demand_offsets[lane].x] = leaf; }
+  if lighting != 0u { demand_arena.lighting_queue[demand_base.x + lighting_offset.x] = leaf; }
 }
 fn demand_dispatch(at: u32, count: u32) {
   atomicStore(&demand_arena.control[at], (count + 63u) / 64u);
@@ -307,6 +342,8 @@ fn demand_dispatch(at: u32, count: u32) {
 }
 @compute @workgroup_size(1)
 fn finalize_surface_requests() {
+  atomicMin(&demand_arena.control[1u], demand_settings.field_capacity);
+  atomicMin(&demand_arena.control[2u], demand_settings.signal_capacity);
   demand_dispatch(20u, atomicLoad(&demand_arena.control[1u]));
   demand_dispatch(24u, atomicLoad(&demand_arena.control[2u]));
 }

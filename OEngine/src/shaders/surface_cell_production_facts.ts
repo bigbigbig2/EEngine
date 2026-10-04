@@ -14,6 +14,7 @@ import { SURFACE_CELL_CERTIFICATE_WGSL } from "./surface_cell_certificates.js";
 import { SURFACE_CELL_ADDRESSES_WGSL } from "./surface_cell_addresses.js";
 import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceFieldAbi.js";
 import { SURFACE_EXECUTION_WORDS, SURFACE_FIELD_EXECUTION_WORDS, SURFACE_SIGNAL_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
+import { SURFACE_DIRECT_RESIDUAL_FIELDS, SURFACE_DIRECT_TRANSPORT_FIELDS } from "../material/AppearanceExecutionProfile.js";
 
 /** Complete Geometry/Appearance predicates for the partition producer. The
  * Lighting owner supplies the direct-light set/shadow/spatial predicate; the
@@ -147,7 +148,8 @@ struct CellFactSettings {
  appearance0:vec4u, // constants, routes, bounds, directory word offsets
  appearance1:vec4u, // material lookup, lookup count, entry count, publication generation
  geometry:vec4u, // dictionary capacity, setup capacity, source generation, submitted epoch
- appearance2:vec4u, // constant palette offset, provider flags, reserved, reserved
+ appearance2:vec4u, // constant palette offset, provider flags, field identities, execution profiles
+ appearance3:vec4u, // radiometry metadata offset, reserved
 }
 @group(1) @binding(0) var<uniform> settings:CellFactSettings;
 @group(1) @binding(1) var<storage,read> geometry_arena:CellGeometryArenaRead;
@@ -309,6 +311,13 @@ fn cell_input_kind(context:vec4u,index:u32)->u32 {
 fn ab_constant(context:vec4u,slot:u32)->f32 {
  return bitcast<f32>(appearance_metadata[settings.appearance0.x+cell_directory(context.z).y+slot]);
 }
+fn material_guard_texture(context: vec4u, sample: u32, channel: u32) -> AppearanceBound {
+  let route = settings.appearance0.y + (cell_directory(context.z).z + sample) * 16u;
+  let fallback = bitcast<f32>(appearance_metadata[route + 12u + channel]);
+  if appearance_metadata[route] == 0xffffffffu { return ab_exact(fallback); }
+  if appearance_metadata[route + 11u] == 0u { return ab_unknown(); }
+  return ab_expand(min(0.0, fallback), max(1.0, fallback));
+}
 fn ab_input(context:vec4u,index:u32,channel:u32)->AppearanceBound {
  return cell_input_value_kind(cell_input_kind(context,index),channel);
 }
@@ -393,6 +402,11 @@ ${productBoundLibrary??""}
 ${boundSources.join("\n")}
 ${materialSources.join("\n")}
 fn cell_constant_palette(entry:u32)->u32 {return settings.appearance2.x+entry*64u;}
+fn cell_solar_direction() -> vec3f {
+ let at = settings.appearance3.x;
+ return normalize(bitcast<vec3f>(vec3u(appearance_metadata[at + 1u],
+   appearance_metadata[at + 2u], appearance_metadata[at + 3u])));
+}
 @compute @workgroup_size(64) fn publish_cell_material_constants(@builtin(global_invocation_id) id:vec3u){
  let entry=id.x;if entry>=settings.appearance1.z{return;}
  let program=cell_directory(entry).x;let context=vec4u(0u,program,entry,0u);var result:MaterialConstantResult;
@@ -406,6 +420,9 @@ fn cell_constant_palette(entry:u32)->u32 {return settings.appearance2.x+entry*64
  appearance_metadata[at+3u]=appearance_metadata[settings.appearance2.w+entry*${SURFACE_EXECUTION_WORDS}u+1u]&32767u;
  for(var field=0u;field<15u;field++){let value=bitcast<vec4u>(result.values[field]);
   for(var c=0u;c<4u;c++){appearance_metadata[at+4u+field*4u+c]=value[c];}}
+ let profile = settings.appearance2.w + entry * ${SURFACE_EXECUTION_WORDS}u;
+ let radiometry = settings.appearance3.x;
+ appearance_metadata[profile + 5u] = select(0u, 3u, result.guard_safe != 0u && appearance_metadata[radiometry] != 0u);
 }
 fn cell_evaluate_bound(field:u32,context:vec4u)->AppearanceBound4 {
  let palette=cell_constant_palette(context.z);
@@ -438,9 +455,16 @@ fn cell_bound_context(fact:SurfaceCellLane,rect:vec4f)->vec4u {
  cell_context_count++;
  let entry=cell_material_entry(setup.source.y);return vec4u(slot,cell_directory(entry).x,entry,fact.winner);
 }
-fn cell_material_signal_dependencies(plane:u32,entry:u32)->u32 {
+fn cell_material_signal_dependencies(plane:u32,entry:u32,leaf:u32)->u32 {
  let profile=settings.appearance2.w+entry*${SURFACE_EXECUTION_WORDS}u+8u+15u*${SURFACE_FIELD_EXECUTION_WORDS}u+(plane-15u)*${SURFACE_SIGNAL_EXECUTION_WORDS}u;
  var mask=appearance_metadata[profile+1u];
+ if plane == 15u {
+  mask = select(${SURFACE_DIRECT_RESIDUAL_FIELDS}u, ${SURFACE_DIRECT_TRANSPORT_FIELDS}u,
+    cell_workspace.addresses[leaf * 144u + 136u] == 3u);
+  let palette = cell_constant_palette(entry);
+  if cell_workspace.addresses[leaf * 144u + 136u] == 3u && (appearance_metadata[palette] & (1u << 10u)) != 0u &&
+    bitcast<f32>(appearance_metadata[palette + 44u]) <= 0.0 { mask &= ~((1u << 12u) | (1u << 14u)); }
+ }
  if plane==17u||plane==18u{
   let palette=cell_constant_palette(entry);
   if (appearance_metadata[palette]&(1u<<2u))!=0u&&bitcast<f32>(appearance_metadata[palette+4u+2u*4u])==0.0{mask&=~1u;}

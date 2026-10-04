@@ -98,6 +98,7 @@ export class GpuAppearancePublication {
     readonly fieldIdentities: number;
     readonly fieldTextureDependencies: number;
     readonly executionProfiles: number;
+    readonly radiometry: number;
     readonly materialLookupCount: number;
     readonly directoryCount: number;
   }>;
@@ -376,11 +377,12 @@ export class GpuAppearancePublication {
         fieldTextureDependencies: materialLookupData.length + identityData.length + directoryData.length + inputData.length + boundData.length + constantData.length + routeData.byteLength/4 + Math.max(1,sources.length)*64 + fieldIdentityData.length,
         materialLookupCount: materialLookupData.length,
         directoryCount: directoryData.length / directoryWords,
-        executionProfiles: executionOffset
+        executionProfiles: executionOffset,
+        radiometry: executionOffset + executionData.length
       } as const;
       // GPU publication substage fills one submitted-epoch constant palette per
       // material. The immutable descriptor/input ranges precede this write domain.
-      const surfaceMetadataData = new Uint32Array(executionOffset + executionData.length);
+      const surfaceMetadataData = new Uint32Array(executionOffset + executionData.length + 4);
       surfaceMetadataData.set(materialLookupData, surfaceMetadataOffsets.materialLookup);
       surfaceMetadataData.set(identityData, surfaceMetadataOffsets.identity);
       surfaceMetadataData.set(directoryData, surfaceMetadataOffsets.directory);
@@ -542,7 +544,7 @@ export class GpuAppearancePublication {
       const settings=command.allocateTransientBuffer(GPUBufferUsage.UNIFORM,32);
       command.writeBuffer(settings,0,new Uint32Array([
         programIndex,offsets.programs!/4,offsets.ordered_material_queue!/4,offsets.material_masks!/4,
-        offsets.field_destinations!/4,this.surfaceMetadataOffsets.directory,this.surfaceMetadataOffsets.runtimeInputs,offsets.material_entries!/4
+        0,this.surfaceMetadataOffsets.directory,this.surfaceMetadataOffsets.runtimeInputs,offsets.material_entries!/4
       ]).buffer,0,32);
       const ready=pipelines[programIndex]!;
       const group0=this.device.createBindGroup({layout:ready.layouts[0]!,entries:[
@@ -666,5 +668,11 @@ function packRoute(binding: CompiledAppearanceGraph["samples"][number]["binding"
   values.forEach((value, index) => view.setFloat32(16 + index * 4, value, true));
   // Rotation's unused lanes carry exact local-summary identity, not f32 values.
   view.setUint32(40, publication?.generation ?? 0, true);
+  // All selectable package formats must provide this numeric bound. Float/HDR
+  // packages remain unproved; author-declared ranges are not a certificate.
+  const asset = binding.texture.runtime_asset_package_v2;
+  const normalized = asset === undefined || asset.variants.every(variant =>
+    variant.format.endsWith("unorm") || variant.format.endsWith("unorm-srgb"));
+  view.setUint32(44, normalized ? 1 : 0, true);
   return data;
 }

@@ -167,13 +167,26 @@ export class SurfaceWorkRuntime {
             return binding as T;
         };
         input = { ...input, historyBinding };
-        const dependencies = this.dependencyEpoch.addToGraph(graph, { metadata: input.appearanceMetadata, versions: input.residencyVersions, publication: input.publication, bind: input.historyBinding });
+        const dependencies = this.dependencyEpoch.addToGraph(graph, { metadata: input.appearanceMetadata, versions: input.residencyVersions, publication: input.publication, bind: input.historyBinding,
+            beforeLookup: (command, fields) => {
+                if (this.fieldStore?.needsNamespaceRestart(fields) || this.signalStore?.needsNamespaceRestart()) {
+                    this.fieldStore?.requestNamespaceRestart();
+                    this.signalStore?.requestNamespaceRestart();
+                    this.fieldStore?.encodeNamespaceRestart(command);
+                    this.signalStore?.encodeNamespaceRestart(command);
+                }
+                this.fieldStore?.reserveDependencyNamespace(command, fields);
+            }
+        });
         input = { ...input, appearanceMetadata: dependencies };
         let result: SurfaceWorkProducts | undefined;
         let previous: SurfaceReconstructionProducts | undefined;
         let previousDiagnostics: ResourceId | undefined;
         const consume = (cells: SurfaceCellClassifierProducts, firstTile: number, tileCount: number, batchTiles: number): readonly ResourceId[] => {
-            const epoch = input.historyBinding("surface-submitted-epoch", () => ({ value: (this.fieldStore?.stats().submittedEpoch ?? this.signalStore?.stats().submittedEpoch ?? 0) + 1 }));
+            const runtime = this;
+            const epoch = input.historyBinding("surface-submitted-epoch", () => ({
+                get value() { return runtime.fieldStore?.nextSubmissionEpoch ?? runtime.signalStore?.nextSubmissionEpoch ?? 1; }
+            }));
             const request: SurfaceDemandInput = { workspace: cells.workspace, activeIndirect: cells.activeIndirect, fieldStore: cells.fieldStore, signalStore: cells.signalStore,
                 metadata: input.appearanceMetadata, versions: input.fieldVersions, publication: input.publication, targets: batchTiles * 64,
                 leaves: tileCount * 64, epoch, viewRevision: input.viewRevision, revisions: input.revisions,
@@ -225,7 +238,7 @@ export class SurfaceWorkRuntime {
                 ...(diagnostics === null ? {} : { diagnostics: diagnostics.snapshot }) };
             return [reconstructed.radiance, reconstructed.reactiveMask, demand.fieldStore, demand.signalStore, ...(diagnostics === null ? [] : [diagnostics.snapshot])];
         };
-        this.classifier.addToGraph(graph, { resourceBinding: input.historyBinding, geometryPass: this.geometry, visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload, frameInstances: input.frameInstances, camera: input.camera, textureVariation: input.textureVariation, appearanceMetadata: input.appearanceMetadata, fieldVersions: input.fieldVersions, viewRevision: input.viewRevision, signalRevisions: input.revisions, sun: input.physicalSun?.parameters ?? null, shadowVersion: input.shadow?.contentVersion ?? null, width: input.width, height: input.height, generation: input.frame.generation, frameAt: input.frame.arenaHeaderOffset / 4, directoryAt: input.frame.directoryOffset / 4, sourceGeometry: input.frame.sourceGeometry, sourceMeshlet: input.frame.sourceMeshlet, sourceMeshletVertices: input.frame.sourceMeshletVertices, sourceMeshletTriangles: input.frame.sourceMeshletTriangles, sourceVertexData: input.frame.sourceVertexData, publication: input.publication, product: input.product, lightRecords: input.lightRecords, clusters: input.clusters, shadowEnabled: input.shadow !== null, physicalSunEnabled: input.physicalSun !== null, targetCapacity: this.capacity.batchTargetCapacity, diagnosticsEnabled: this.mode === "detailed", consumeBatch: consume });
+        this.classifier.addToGraph(graph, { resourceBinding: input.historyBinding, geometryPass: this.geometry, visibility: input.visibility, meshletWork: input.meshletWork, sourceHeap: input.sourceHeap, vertexPayload: input.vertexPayload, frameInstances: input.frameInstances, camera: input.camera, textureVariation: input.textureVariation, appearanceMetadata: input.appearanceMetadata, fieldVersions: input.fieldVersions, viewRevision: input.viewRevision, signalRevisions: input.revisions, sun: input.physicalSun?.parameters ?? null, solarTransmittance: input.physicalSun?.transmittance ?? null, shadowVersion: input.shadow?.contentVersion ?? null, width: input.width, height: input.height, generation: input.frame.generation, frameAt: input.frame.arenaHeaderOffset / 4, directoryAt: input.frame.directoryOffset / 4, sourceGeometry: input.frame.sourceGeometry, sourceMeshlet: input.frame.sourceMeshlet, sourceMeshletVertices: input.frame.sourceMeshletVertices, sourceMeshletTriangles: input.frame.sourceMeshletTriangles, sourceVertexData: input.frame.sourceVertexData, publication: input.publication, product: input.product, lightRecords: input.lightRecords, clusters: input.clusters, shadowEnabled: input.shadow !== null, physicalSunEnabled: input.physicalSun !== null, targetCapacity: this.capacity.batchTargetCapacity, diagnosticsEnabled: this.mode === "detailed", consumeBatch: consume });
         if (!result) {
             throw new Error("Surface classifier did not produce a batch");
         }

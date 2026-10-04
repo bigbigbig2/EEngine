@@ -35,7 +35,8 @@ export const SURFACE_OPTIMIZATION_DEFAULT_PROFILE: SurfaceOptimizationProfile = 
   // Two independent bound products (screen leaf / canonical persistent domain)
   // and 15 f32 field values. Ref/demand and work queue storage is separate.
   geometryColdBytesPerTarget: 128, fieldBytesPerTarget: 656,
-  queueBytesPerTarget: 1280, signalBytesPerTarget: 96, resolveMapBytesPerTarget: 252
+  // 2R/R cache requests, bounded pow2 dictionaries and actual target masks/queues.
+  queueBytesPerTarget: 192, signalBytesPerTarget: 96, resolveMapBytesPerTarget: 252
 });
 export interface SurfaceOptimizationLimits {
   readonly maxBufferSize: number;

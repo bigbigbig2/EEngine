@@ -3,6 +3,7 @@ import type { AppearanceWgslProgram } from "./appearance_program.js";
 import { operationWgsl } from "./appearance_program.js";
 import { APPEARANCE_FIELD_NAMES, APPEARANCE_FIELD_WIDTHS } from "../gpu/GpuAppearanceFieldAbi.js";
 import { APPEARANCE_NORMAL_FILTER_WGSL } from "./appearance_normal_filter.js";
+import { appearanceGeometryInputKind } from "./appearance_demand_inputs.js";
 
 /** Publication-time numeric facts, not material sampling or CPU visible work
  * selection. Spatial inputs remain unknown. Finite zero products can prove a
@@ -12,7 +13,7 @@ import { APPEARANCE_NORMAL_FILTER_WGSL } from "./appearance_normal_filter.js";
 export const APPEARANCE_MATERIAL_CONSTANT_WGSL = /* wgsl */ `
 ${APPEARANCE_NORMAL_FILTER_WGSL}
 struct MaterialConstantValue {value:f32,flags:u32,} // known=1, finite=2, zero-sign-unknown=4
-struct MaterialConstantResult {mask:u32,exact_mask:u32,values:array<vec4f,15>,}
+struct MaterialConstantResult {mask:u32,exact_mask:u32,guard_safe:u32,values:array<vec4f,15>,}
 fn material_constant_value(value:f32)->MaterialConstantValue {
  if value!=value||abs(value)>3.402823466e38{return MaterialConstantValue(0.0,0u);}
  return MaterialConstantValue(value,3u);
@@ -23,6 +24,17 @@ export function lowerAppearanceMaterialConstants(program: CompiledAppearanceGrap
   name: string): string {
   if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) throw new RangeError("Invalid material constant function name");
   const lines: string[] = [];
+  const guardFields = [0, 2, 3, 6, 7, 8, 9, 10, 11, 12];
+  const guardLive = new Set<number>();
+  const pending = guardFields.flatMap(field => program.outputs[APPEARANCE_FIELD_NAMES[field]!] ?? []);
+  while (pending.length !== 0) {
+    const id = pending.pop()!;
+    if (guardLive.has(id)) { continue; }
+    guardLive.add(id);
+    // A normalized sample's value bound is independent of its coordinate DAG.
+    const node = program.instructions[id]!;
+    if (node.kind === "operation") { pending.push(...node.args); }
+  }
   const productNames = new Map<number, string>();
   const ref = (id: number): string => `m${id}`;
   program.instructions.forEach((node, id) => {
@@ -65,7 +77,46 @@ export function lowerAppearanceMaterialConstants(program: CompiledAppearanceGrap
         ((${b}.flags&1u)!=0u&&${b}.value==0.0&&(${a}.flags&2u)!=0u) {${variable}=MaterialConstantValue(0.0,7u);}`);
     }
   });
+  // Numeric safety is recomputed from current GPU parameter values, never from
+  // stale CPU snapshots or author-declared ranges. Unproved leaves stay unknown.
+  for (let id = 0; id < program.instructions.length; id++) {
+    if (!guardLive.has(id)) { continue; }
+    const node = program.instructions[id]!;
+    let expression = "ab_unknown()";
+    if (node.kind === "constant" || node.kind === "parameter") {
+      expression = `ab_exact(ab_constant(context, ${lowered.instructionConstantSlots[id]}u))`;
+    } else if (node.kind === "input") {
+      const input = program.inputs.find(input => input.name === node.input)!;
+      if (appearanceGeometryInputKind(input, program) === 4) {
+        // The address publisher validates the actual center color against this
+        // envelope before lookup/rate planning. Raw float colors are not assumed UNORM.
+        expression = "AppearanceBound(-2.0, 2.0, 1u)";
+      }
+    } else if (node.kind === "texture") {
+      expression = `material_guard_texture(context, ${node.sample}u, ${node.channel}u)`;
+    } else if ((node.kind === "product" || node.kind === "normal-product") &&
+      program.productReads![node.product!]!.field.constant !== undefined) {
+      expression = `ab_checked(ab_exact(m${id}.value), (m${id}.flags & 1u) != 0u)`;
+    } else if (node.kind === "normal-product") {
+      // The asset reader validates every half texel finite. Moment dot products
+      // stay below 3 * 65504^2; decode publishes a unit normal or its finite
+      // default, roughness in [0,1], and an integer validity value.
+      expression = node.channel! < 3 ? "AppearanceBound(-1.0, 1.0, 1u)" : "AppearanceBound(0.0, 1.0, 1u)";
+    } else if (node.kind === "product") {
+      expression = "AppearanceBound(-65504.0, 65504.0, 1u)";
+    } else if (node.kind === "operation") {
+      const operands = node.args.map(ref => `q${ref}`);
+      const valid = operands.map(operand => `ab_valid(${operand})`).join(" && ");
+      // Unlike spatial bounds, zero * Unknown cannot prove a finite guard.
+      expression = `ab_checked(ab_${node.op}(${operands.join(", ")}), ${valid})`;
+    }
+    lines.push(`let q${id} = ${expression};`);
+  }
   lines.push("var result:MaterialConstantResult;");
+  const checks = [...guardLive].filter(id => guardFields.some(field =>
+    (program.outputs[APPEARANCE_FIELD_NAMES[field]!] ?? []).includes(id))).map(id =>
+    `(ab_valid(q${id}) && max(abs(q${id}.low), abs(q${id}.high)) <= 131072.0)`);
+  lines.push(`result.guard_safe = u32(${checks.length === 0 ? "true" : checks.join(" && ")});`);
   APPEARANCE_FIELD_NAMES.forEach((field, ordinal) => {
     const roots = program.outputs[field];
     if (!roots) {

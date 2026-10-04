@@ -995,3 +995,21 @@ WGSL workgroupUniformLoad 按 [WGSL规范](https://www.w3.org/TR/WGSL/#workgroup
 | 本地有界reservation/prefix协议 | provider typed kind4并入原R/2总账，workgroup一次预留，root/parent优先 | 八次有限CAS；满额/竞争Unknown，不自旋、不部分接受proof；修复实测有空位却只接纳8/21的问题 |
 
 实际验证：52 targeted tests；17 tree/domain/provider、8 parent、10 Field与12 selected Field→Signal GPU用例；26 module两个Store生产链完整HDR；Showcase短smoke可用。累计generic counter drop=1，采样帧计数/Surface coverage完整，未用短采样作性能或完整质量判定。详细命令/身份/边界见[Phase 4实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md)。未运行donor工程，未提升正式claims或完整来源采用。
+
+### 2026-10-05 Phase 5：mask demand / factorized direct diffuse
+
+2026-10-05继续实施核对：再次完整读取固定Filament `41f996de8fcc2d6b60b73159aa1bc44a05a40700` 的 `surface_brdf.fs`、`surface_shading_model_standard.fs`，并在线核读完整 [surface_material.fs](https://github.com/google/filament/blob/41f996de8fcc2d6b60b73159aa1bc44a05a40700/shaders/src/surface_material.fs)。该revision的`common_material.fs`路径不存在（404），没有以不存在文件作为来源。`surface_material::iorToF0(transmittedIor,incidentIor)` 的完整公式 `((etaT-etaI)/(etaT+etaI))^2`、`computeF0` 的dielectric/metal混合映射到Surface唯一worker的field7→dielectric F0→原GGX/IBL；coat仍固定IOR1.5，未扩展到Filament更多模型。field14方向validity为本地normal-product消费协议，与field13相同：无有效mapped方向使用当前Geometry的合法默认方向。NumericGuardTransport加入实际IOR DAG envelope；正常transport仍不绑定IOR，但完整guard不能漏掉它。来源核读和新增数值/真实GPU消费检查分别记录，不提升完整adoption。
+
+实施前完整复读既有 Apache-2.0 固定 Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ComputeShaderTile.hlsl`、README及 OSS `473a59bbcdd30e3366cc567d66a5a97353620d48/RenderTaskProcessing.compute`、README、根`License`。重新下载并核读 Filament `41f996de8fcc2d6b60b73159aa1bc44a05a40700` 的完整 `shaders/src/surface_brdf.fs`、`surface_shading_model_standard.fs`、`surface_light_directional.fs`、`surface_light_punctual.fs` 和 Apache-2.0 `LICENSE`；URL沿用R03 pin，本机副本在`.local/surface-repair/sources/Filament-*`。复读OSS preprint的occupancy/task pipeline，DAIS既有详细插值资料作为几何依据，不引用上游实验收益。
+
+| 源函数/阶段 | 本地生产阶段/产物 | 保留条件与本地扩展 |
+|---|---|---|
+| CPS coarse/full独立写域与完整零灯覆盖；OSS occupancy→actual task/indirect | mask→formula transient value；仅StableCache narrow admission；unique target queues→indirect | mandatory容量独立于cache队列；满额仍完整求值；无全请求恢复或CPU控制 |
+| Filament `Fd_Lambert/isotropicLobe/clearCoatLobe/surfaceShading`；原本地 `re_direct_physical` | current numeric proof→Ddirect transport/ColoredResidual→packet→Store→cheap compose | 原GGX/Schlick/Kelemen/coat attenuation、provider/visibility/π完整保留；异常combined finite guard仍原计算；不把Filament的更多模型/效果宣称已port |
+| Filament directional/punctual incident与完整灯循环 | dirty Lighting actual field reads；原sun/cluster/fallback/VSM→独立signal | 不缩减真实光源列表；transport-only跳过不影响其值的BRDF；其他dirty lobe保留完整原算法 |
+| 本地 publication/asset格式与WGSL dispatch边界 | 当前GPU参数DAG envelope、实际provider/LUT envelope、address semantic、complete key/proof/source合同 | 本地 NumericGuardTransport；不依赖过期CPU值/author range；unsafe保留显式residual；先发布后lookup，无额外submit/readback |
+| 本地Store状态与queue/fence生命周期 | reserve→Produced→后续commit→ref；完整namespace协同重建 | 弱CAS有界、pin、generation/version分域、abort不推进有效身份，普通帧不清persistent池 |
+
+未找到覆盖本地pre-material三合同、cost admission、完整guard证明与WebGPU Store消费的单一donor。组合方案明确为本地实现，来源核读、实现、GPU诊断与正式采用分别记录；不提升R01–R24、adoption或claims。实际检查与剩余边界见[Phase 5记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase5-implementation-2026-10.md)。
+
+2026-10-05 canonical→screen 包含性修复仍属上述本地数学集成：`cell_scalar_footprint`的既有透视/一像素差分区间→`cell_parameter_support_covers`的完整quad value/DX/DY包含判断→证书producer按UV family复用→screen tree/Store消费。不另移植新interval算法；保留既有向外舍入、分母穿零Unknown及局部screen proof/fine路线。原address46/48没有producer，不能作为证明；本次删除该读取。10个真实GPU数学用例包含正常成功、三个UV越域、负cell、梯度越包络/W穿零/Unknown，隔离原函数确实错误接受三个越域和梯度用例；27-module六帧与1080p smoke完成，不提升正式adoption/画质/性能状态。

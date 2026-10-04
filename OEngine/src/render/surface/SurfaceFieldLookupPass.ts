@@ -84,7 +84,7 @@ export class SurfaceFieldLookupPass {
             data.publication.surfaceMetadataOffsets.fieldIdentities,
             data.publication.surfaceMetadataOffsets.constantFields,
             data.tileCount * 64, this.store?.capacity.entries ?? 4,
-            (this.store?.stats().submittedEpoch ?? 0) + 1, data.viewRevision.value,
+            this.store?.nextSubmissionEpoch ?? 1, data.viewRevision.value,
             this.store === null ? 0 : 1, data.diagnostics ? 1 : 0, data.width, data.height, 0, 0
           ]).buffer, 0, 48);
         }

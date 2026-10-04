@@ -7,6 +7,24 @@
 export const SURFACE_CELL_ADDRESS_MATH_WGSL = /* wgsl */ `
 struct CellScalarFootprint {value:AppearanceBound,dx:AppearanceBound,dy:AppearanceBound,}
 fn cell_address_unknown()->CellScalarFootprint{return CellScalarFootprint(ab_unknown(),ab_unknown(),ab_unknown());}
+fn cell_parameter_gradient_envelope(gradient: vec2f) -> AppearanceBound {
+  if any(gradient != gradient) { return ab_unknown(); }
+  let maximum = max(abs(gradient.x), abs(gradient.y));
+  let exponent = (bitcast<u32>(maximum) >> 23u) & 255u;
+  if exponent >= 254u { return ab_unknown(); }
+  let envelope = select(0.0, exp2(f32(i32(exponent) - 126)), maximum > 0.0);
+  return AppearanceBound(-envelope, envelope, 1u);
+}
+fn cell_parameter_support_covers(support: CellScalarFootprint, center: f32, gradient: vec2f) -> bool {
+  if center != center || abs(center) > 16777216.0 ||
+    !ab_valid(support.value) || !ab_valid(support.dx) || !ab_valid(support.dy) { return false; }
+  let envelope = cell_parameter_gradient_envelope(gradient);
+  if !ab_valid(envelope) { return false; }
+  let low = floor(center * 32.0) / 32.0;
+  return support.value.low >= low && support.value.high <= low + 1.0 / 32.0 &&
+    support.dx.low >= envelope.low && support.dx.high <= envelope.high &&
+    support.dy.low >= envelope.low && support.dy.high <= envelope.high;
+}
 fn cell_affine_range(row:vec3f,ndc_low:vec2f,ndc_high:vec2f)->AppearanceBound {
  let a=dot(row,vec3f(ndc_low,1.0));let b=dot(row,vec3f(ndc_high.x,ndc_low.y,1.0));
  let c=dot(row,vec3f(ndc_low.x,ndc_high.y,1.0));let d=dot(row,vec3f(ndc_high,1.0));

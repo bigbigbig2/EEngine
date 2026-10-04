@@ -1,5 +1,10 @@
 # Surface V3 Phase 1：Publication 与工作产品实施记录
 
+**2026-10-05 复审补注**
+
+本页保留Phase1当时实现与检查记录，不证明全部前置物理要求已落实。当前Phase5实施未收口；lazy witness、dense certificate/ref及预算映射须在必需Phase5.5补齐，之后才进入Phase6。具体发现、阶段责任和继续实施门槛见[阶段复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)；以下历史结果不转授当前dirty代码。
+
+
 日期：2026-10-04。入口：[执行计划 §4](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)、[设计 §5–6](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。起点 a491767b，生产基线 14c17078。本阶段没有进入 Phase 2，也没有登记正式性能验收或上游完整采用。
 
 ## 实际切换

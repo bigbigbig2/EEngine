@@ -1,5 +1,10 @@
 # Surface V3 Phase 4：固定 Field/Signal 树与实际来源绑定
 
+**2026-10-05 复审补注**
+
+本页保留Phase4提交0c8caf30的接线与检查范围；Ddirect factorization本属后继Phase5，不能将此项当成Phase4漏接。当前dirty Phase5已实施部分合同但未收口，前端物理缺口仍须在必需Phase5.5补齐；见[阶段复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。历史检查不转授dirty代码，历史Surface subtotal也不代表当前计时分类覆盖完整。
+
+
 日期：2026-10-05（Asia/Hong_Kong）。起点 `a4770f00ef869ec7b0fd6cfa895f05751bf365b2` 加本轮工作树；实现对应本轮中文提交。范围：[执行计划 §7](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)、[设计 §9–12](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。Phase 4 实现及集中检查通过；Phase 5–7 未开始。阶段完成不代表最终性能或完整画质验收。
 
 ## 实际切换与删除

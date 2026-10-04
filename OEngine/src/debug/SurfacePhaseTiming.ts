@@ -39,12 +39,14 @@ export function classifySurfaceTimingPhase(
   if(/surface\/.*diagnostic/.test(label)) { return null; }
   if(/surface\/canonical field addresses/.test(label)) { return "address"; }
   if(/surface\/shared .*certificates|surface\/publish_cell_.*certificates/.test(label)) { return "certificate"; }
-  if(/surface\/field value and certificate lookup/.test(label)) { return "materialLookup"; }
+  if(/surface\/(?:field value and certificate lookup|lookup_surface_fields|finalize_field_support|validate_field_support|commit_field_support)/.test(label)) { return "materialLookup"; }
   if(/surface\/kind-specific signal value lookup/.test(label)) { return "signalLookup"; }
   if(/surface\/field dependency |surface\/(?:lookup|reserve|commit|resolve)_field_dependency_versions|surface\/(?:field|signal) store/.test(label)) { return "cacheMaintenance"; }
-  if(/surface\/(?:emit_surface_requests|finalize_surface_requests|nominate_.*producers|resolve_.*producers|compact_surface_groups|finalize_surface_groups|order_material_groups|actual demand|publish actual indirect)/.test(label)) { return "demand"; }
+  if(/surface\/(?:emit_surface_requests|emit_signal_cache_requests|finalize_surface_requests|nominate_.*producers|resolve_.*producers|compact_surface_groups|finalize_surface_groups|order_material_groups|actual demand|publish actual indirect)/.test(label)) { return "demand"; }
+  if(/surface\/(?:single coverage scan|publish actual active range)/.test(label)) { return "classify"; }
   if(/surface\/unique geometryrecord/.test(label)) { return "geometryResolve"; }
   if(/surface\/unique dirty lighting/.test(label)) { return "lighting"; }
+  if (/surface\/current radiometry envelope/.test(label)) { return "classify"; }
   if(/surface\/cheap .*reconstruct/.test(label)) { return "reconstruct"; }
 
   if (label.includes("surface/cell ")) {
@@ -53,6 +55,7 @@ export function classifySurfaceTimingPhase(
   if (/surfacegeometry\/(?:reset|request|finalize|build)_cell_geometry/.test(label)) {
     return "geometrySetup";
   }
+  if (/surfacegeometry\/(?:publish|commit)_cell_geometry_memo/.test(label)) { return "cacheMaintenance"; }
   if (label.includes("surface/fieldstore lookup")) {
     return "materialLookup";
   }
@@ -87,7 +90,7 @@ export function classifySurfaceTimingPhase(
   if (/surface\/lighting packets|surface\/lighting classify|surface\/lighting finalize/.test(label)) {
     return "lighting";
   }
-  if (/surface\/reconstruct/.test(label)) {
+  if (/surface\/(?:reconstruct|background write domain|present radiance)/.test(label)) {
     return "reconstruct";
   }
 

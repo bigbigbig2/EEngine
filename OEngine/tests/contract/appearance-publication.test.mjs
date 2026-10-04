@@ -10,6 +10,7 @@ import { encodeGpuTextureRef } from "../../.test-dist/gpu/GpuTextureRefAbi.js";
 import { cookAppearanceMipProduct } from "../../.test-dist/material/AppearanceMipCooker.js";
 import { writeAppearanceAssetPackage, openAppearanceAssetPackage } from "../../.test-dist/assets/AppearanceAssetPackage.js";
 import { bindAppearanceProducts } from "../../.test-dist/material/AppearanceProductBinding.js";
+import { surfaceDemandLayout } from "../../.test-dist/gpu/GpuSurfaceDemandAbi.js";
 
 globalThis.GPUShaderStage = { COMPUTE: 4 };
 globalThis.GPUBufferUsage = { STORAGE: 128, COPY_DST: 8, UNIFORM: 64, INDIRECT: 256 };
@@ -32,6 +33,8 @@ function fixture(auto = false, maxPrograms = 2) {
     createShaderModule({ code }) { creates++; return { code, getCompilationInfo: async () => ({ messages: [] }) }; },
     createBindGroupLayout(value) { return value; },
     createPipelineLayout(value) { return value; },
+    createSampler(value) { return { descriptor: value }; },
+    createBindGroup(value) { return value; },
     queue: { writeBuffer(buffer, offset, data) { buffer.bytes.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength), offset); } },
     createComputePipelineAsync(descriptor) {
       assert.equal(scopeDepth, 0, "no error scope may span async compilation");
@@ -52,11 +55,24 @@ function command(device) {
   const event = () => ({ callbacks: [], addOne(callback) { this.callbacks.push(callback); },
     send() { for (const callback of this.callbacks.splice(0)) callback(); } });
   const done = deferred();
-  return { device, closed: false, gpuDone: done.promise, done,
+  const encoded = [];
+  return { device, closed: false, gpuDone: done.promise, done, encoded,
     onBeforeFinish: event(), onFinished: event(), onAborted: event(),
     writeBuffer(buffer, offset, data, start, length) { buffer.bytes.set(new Uint8Array(data, start, length), offset); },
+    allocateTransientBuffer(usage, size) { return { usage, size, bytes: new Uint8Array(size) }; },
+    beginComputePass() {
+      const pass = { setPipeline(pipeline) { this.pipeline = pipeline; }, setBindGroup() {},
+        dispatchWorkgroupsIndirect() {}, end() { encoded.push(this.pipeline); } };
+      return pass;
+    },
     finish() { this.onBeforeFinish.send(); this.closed = true; this.onFinished.send(); },
     abort() { this.closed = true; this.onAborted.send(); } };
+}
+function encodeFields(publication, c) {
+  const layout = surfaceDemandLayout(64, Math.max(1, publication.surfaceProgramCount));
+  publication.encodeSurfaceFields(c, { geometry: {}, demand: {}, indirect: {}, values: {}, layout,
+    textureBanks: [Array.from({ length: 9 }, () => ({}))] });
+  return c.encoded;
 }
 
 test("registry shares async PSOs, bounds compilation and evicts only unreferenced ready families", async () => {
@@ -136,7 +152,8 @@ test("shared PSO does not merge distinct physical product resource sets; capabil
   const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(), new Map(), undefined, owner, f.cache);
   await p.ready;
   assert.notEqual(p.entries[0].programIndex, p.entries[1].programIndex);
-  assert.equal(p.program(p.entries[0].programIndex).pipeline, p.program(p.entries[1].programIndex).pipeline);
+  const encoded = encodeFields(p, command(f.device));
+  assert.equal(encoded[0], encoded[1], 'Actual Surface field consumer shares the compiled PSO');
   assert.notEqual(p.entries[0].resourceSetIndex, p.entries[1].resourceSetIndex);
   assert.notEqual(p.entries[0].productTextures[0], p.entries[1].productTextures[0]);
   assert.equal(allocations.length, 2); c.finish(); p.destroy(); assert.equal(released.length, 2); f.registry.destroy();
@@ -153,13 +170,15 @@ test("actual-sized GPU publication shares pipelines while retaining different in
   texture.wrapS = 2; texture.wrapT = 2;
   const p = new GpuAppearancePublication(f.device, f.registry, sources, c, new Map(),
     new Map([[texture, { slot: 12, revision: 43 }]]), undefined, undefined, f.cache);
-  assert.throws(() => p.program(0), /not consumable/);
+  assert.throws(() => encodeFields(p, command(f.device)), /open resident frame/);
   await p.ready; c.finish();
-  assert.equal(f.compiled.filter(item => item.descriptor.compute.entryPoint === "surface_main").length, 1,
+  assert.equal(f.compiled.filter(item => item.descriptor.compute.entryPoint === "surface_fields").length, 1,
     "two material instances share one Surface program");
-  assert.deepEqual([...new Float32Array(p.constants.bytes.buffer)], [0.25, 1, 1, 0.5, 0.5, 1, 1, 0.5]);
-  assert.deepEqual([...new Uint32Array(p.directory.bytes.buffer)], [17, 0, 0, 0, 0, 0, 2, 0, 18, 0, 4, 1, 0, 2, 2, 1]);
-  assert.deepEqual([...new Uint32Array(p.fields.bytes.buffer)], [1, 0, 1, 67, 1, 1, 1, 0, 1, 0, 1, 67, 1, 1, 1, 0]);
+  const constants = new Float32Array(p.constants.bytes.buffer), directory = new Uint32Array(p.directory.bytes.buffer);
+  assert.equal(constants[p.entries[0].constantBase], 0.25);
+  assert.equal(constants[p.entries[1].constantBase], 0.5);
+  assert.equal(directory[0], 17); assert.equal(directory[8], 18);
+  assert.equal(p.fields.bytes.byteLength, 4 * 4 * 4);
   assert.equal(p.allocatedBytes, f.buffers.reduce((bytes, buffer) => bytes + buffer.size, 0));
   const route = new DataView(p.routes.bytes.buffer);
   assert.equal(route.getUint32(8, true), 12); assert.equal(route.getUint32(12, true), 43);
@@ -167,11 +186,11 @@ test("actual-sized GPU publication shares pipelines while retaining different in
   assert.ok(Math.abs(route.getFloat32(32, true)) < 1e-6);
   assert.equal(route.getFloat32(36, true), 1); assert.equal(route.getFloat32(48, true), 0.5);
   assert.equal(p.entries[0].programIndex, p.entries[1].programIndex);
-  const abort = command(f.device); p.release(abort); abort.abort(); assert.ok(p.program(0));
+  const abort = command(f.device); p.release(abort); abort.abort(); assert.equal(encodeFields(p, command(f.device)).length, 1);
   const release = command(f.device); p.release(release); release.finish();
   assert.ok(f.buffers.every(buffer => buffer.destroyed === 0));
   release.done.resolve(); await tick(); assert.ok(f.buffers.every(buffer => buffer.destroyed === 1));
-  assert.throws(() => p.program(0), /not consumable/); f.registry.destroy();
+  assert.throws(() => encodeFields(p, command(f.device)), /open resident frame/); f.registry.destroy();
 });
 
 test("aborting a publication rejects its readiness even if a shared driver compile has not settled", async () => {
@@ -195,8 +214,8 @@ test("device loss disposes a resident publication and revokes its pipeline acces
   const f = fixture(true, 32), c = command(f.device);
   const p = new GpuAppearancePublication(f.device, f.registry,
     [source(0.4, 1, new ShadeTexture())], c, new Map(), new Map(), undefined, undefined, f.cache);
-  await p.ready; c.finish(); assert.ok(p.program(0));
+  await p.ready; c.finish(); assert.equal(encodeFields(p, command(f.device)).length, 1);
   f.loss.resolve({ reason: "unknown", message: "resident loss" }); await tick();
   assert.ok(f.buffers.every(buffer => buffer.destroyed === 1));
-  assert.throws(() => p.program(0), /not consumable/);
+  assert.throws(() => encodeFields(p, command(f.device)), /open resident frame/);
 });

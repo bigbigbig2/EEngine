@@ -52,6 +52,7 @@ struct CellLaneGeometry {
 var<workgroup> cell_lane_geometry: array<CellLaneGeometry,64>;
 fn cell_material_entry(material:u32)->u32 { return material; }
 fn cell_directory(entry:u32)->vec4u { return vec4u(0u); }
+fn cell_solar_direction()->vec3f { return vec3f(0.0,0.0,1.0); }
 fn surface_cell_load(pixel:vec2u,winner:u32)->SurfaceCellLane {
   let lane=pixel.y*8u+pixel.x;
   let at=lane*${SURFACE_CELL_ADDRESS_WORDS}u;
@@ -72,7 +73,7 @@ fn cell_field_budget(field:u32,value:AppearanceBound4)->bool {
   for(var channel=0u;channel<width;channel++) { if value.high[channel]-value.low[channel]>0.02 { return false; } }
   return true;
 }
-fn cell_material_signal_dependencies(plane:u32,entry:u32)->u32 {
+fn cell_material_signal_dependencies(plane:u32,entry:u32,leaf:u32)->u32 {
   return appearance_metadata[8u+15u*${FW}u+(plane-15u)*${SW}u+1u];
 }
 ${SURFACE_CELL_CERTIFICATE_READ_WGSL}
@@ -116,13 +117,15 @@ fn consume_sources(@builtin(global_invocation_id) id:vec3u) {
     device.queue.writeBuffer(metadata,0,metadataWords);
     const cases=[
       {name:'continuous full tree',field:4,environment:1,direct:1,provider:21},
-      {name:'UV0 checkerboard never recovers nonadjacent subsets',seam:true,field:64,environment:1,direct:64},
+      {name:'albedo UV0 checkerboard is compose-only for transport',seam:true,field:64,environment:1,direct:1},
+      {name:'normal UV0 seam still rejects transport sharing',seam:true,normalSeam:true,field:64,environment:64,direct:64},
+      {name:'half-vector singular support retains fine direct',halfSingular:true,lightCount:1,field:4,environment:1,direct:64,provider:21},
       {name:'UV2 primitive-local namespace',uv2:true,field:4,alpha:64,environment:1},
       {name:'different cluster rejects direct despite equal lists',clusters:true,field:4,environment:1,direct:64,provider:0},
       {name:'side rejects the complete DomainKey',side:true,field:64,environment:64},
       {name:'published meshlet continuity permits UV0 but preserves local UV2',meshlets:true,field:4,alpha:64,environment:1},
       {name:'unknown representation continuity cannot synthesize domain',representation:true,field:64,environment:64},
-      {name:'point hits need no domain certificate to retain fine references',hits:true,field:64,environment:64,direct:64},
+      {name:'point hits retain fine refs while transport omits albedo proof',hits:true,field:64,environment:64,direct:1},
       {name:'publication excludes its field from classification',publication:true,field:0,environment:1},
       {name:'local Unknown preserves unrelated field',unknown:true,field:4,environment:10},
       {name:'partial mixed coverage maps real anchors',partial:true,fieldMode:4},
@@ -135,6 +138,10 @@ fn consume_sources(@builtin(global_invocation_id) id:vec3u) {
     ];
     for(const scenario of cases) {
       onStage(scenario.name);
+      const currentMetadata=metadataWords.slice();
+      currentMetadata[8+6*FW+2]=scenario.normalSeam?1:0;
+      for (const kind of [1, 3, 5]) currentMetadata[8+15*FW+kind*SW+3]=scenario.normalSeam?1:12;
+      device.queue.writeBuffer(metadata,0,currentMetadata);
       const words=new Uint32Array(layout.bytes/4),floats=new Float32Array(words.buffer),winners=new Uint32Array(64);
       if(scenario.full)words[120]=32;
       if(scenario.remaining)words[120]=30;
@@ -146,6 +153,7 @@ fn consume_sources(@builtin(global_invocation_id) id:vec3u) {
         words.set([1,7,3,11,0,scenario.meshlets?x%2:0,scenario.uv2?x%2:0,scenario.representation&&x%2?0:19,scenario.side?x%2:1,
           scenario.seam?x%2:scenario.partial&&x>=3?23:17,29,0,31],at);
         words[at+15]=scenario.publication?1:0;words[at+130]=37;words[at+131]=41;words[at+132]=43;
+        words[at+136]=3; // Explicit finite transport profile in this isolated tree oracle.
         words.set([lane+1,lane,0,scenario.clusters?x%2:0],layout.facts/4+lane*4);
         words[layout.primitives/4+lane]=lane;
         const geometry=layout.geometryCertificates/4+lane*32;
@@ -172,7 +180,7 @@ fn consume_sources(@builtin(global_invocation_id) id:vec3u) {
       lightWords[POINT.page_lookup_address]=page;lightWords[page]=0;lightWords[page+1]=(1<<(scenario.lightCount??0))-1;
       for(let light=0;light<(scenario.lightCount??0);light++) {
         const start=page+POINT.page_header_words+light*POINT.packed_element_size_bytes/4;
-        const values={position:[0,0,100],color:[1,1,1],distance:[1000],radius:[1],flags:[0],near_clip_distance:[.01],shadow_id:[0]};
+        const values={position:[0,0,scenario.halfSingular?-100:100],color:[1,1,1],distance:[1000],radius:[1],flags:[0],near_clip_distance:[.01],shadow_id:[0]};
         for(const field of POINT_TYPE.fields) {
           const target=field.name==='flags'||field.name==='shadow_id'?lightWords:lightFloats;
           target.set(values[field.name],start+field.offset/4);

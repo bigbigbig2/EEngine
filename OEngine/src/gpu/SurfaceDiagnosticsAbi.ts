@@ -7,7 +7,7 @@
  */
 import { SURFACE_GEOMETRY_RECORD_VECTORS } from "./GpuSurfaceGeometryRecordAbi.js";
 
-export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 4;
+export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 5;
 export const SURFACE_DIAGNOSTICS_MAGIC = 0x53564433; // "SVD3"
 export const SURFACE_DIAGNOSTICS_HEADER_WORDS = 16;
 export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 96;
@@ -102,7 +102,12 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   reconstructHistoryLoads: 74,
   reconstructMappedPixels: 75,
   reconstructReadBytes: 76,
-  reconstructWriteBytes: 77
+  reconstructWriteBytes: 77,
+  fieldCacheRequests: 78, fieldCacheProbes: 79, fieldCacheUnique: 80,
+  fieldCacheAdmissions: 81, fieldCacheQueueRejected: 82,
+  signalCacheRequests: 83, signalCacheProbes: 84, signalCacheUnique: 85,
+  signalCacheAdmissions: 86, signalCacheQueueRejected: 87,
+  fieldValuesProduced: 88, signalValuesProduced: 89
 } as const);
 
 export const SURFACE_DIAGNOSTICS_COUNTERS = SURFACE_DIAGNOSTIC_COUNTERS;

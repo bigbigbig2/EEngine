@@ -111,14 +111,14 @@ fn admit_surface_values(@builtin(global_invocation_id) id:vec3u) {
   let item=publish_arena.${prefix}_requests[request];
   ${signal ? "let fields=signal_request_fields(item.x,item.y);" : ""}
   if publish_settings.store_enabled==0u || !(${cacheable}) { return; }
-  let payload=publish_values[request];
-  if any(payload!=payload) || any(abs(payload)>vec4f(3.402823466e38)) { return; }
+  let payload = publish_values[item.x * ${signal ? 6 : 15}u + item.y];
+  if any(payload.xyz != payload.xyz) || any(abs(payload.xyz) > vec3f(3.402823466e38)) { return; }
   let cache_set=${hash}%(publish_settings.store_entries/4u);
   for(var way=0u;way<4u;way++) {
     let entry=cache_set*4u+way;
     let base=entry*${stride}u;
     let old=atomicLoad(&publish_store[base+${state}u]);
-    if old==1u || (old==2u && atomicLoad(&publish_store[base+${touched}u])>=publish_settings.epoch) { continue; }
+    if old==1u || old==3u || old==4u || (old==2u && atomicLoad(&publish_store[base+${touched}u])>=publish_settings.epoch) { continue; }
     let generation=atomicLoad(&publish_store[base+${generation}u]);
     if generation>=0xfffffffeu { continue; }
     var owns=false;
@@ -135,6 +135,7 @@ fn admit_surface_values(@builtin(global_invocation_id) id:vec3u) {
     atomicStore(&publish_store[base+${flags}u],published_flags);
     atomicStore(&publish_store[base+${generation}u],generation+1u);
     atomicStore(&publish_store[base+${touched}u],publish_settings.epoch);
+    atomicStore(&publish_store[base+${state}u],3u);
     publish_arena.${prefix}_results[request]=entry;
     return;
   }
@@ -144,15 +145,19 @@ fn commit_surface_values(@builtin(global_invocation_id) id:vec3u) {
   if id.x>=atomicLoad(&publish_arena.control[${count}u]) { return; }
   let request=publish_arena.unique_${prefix}s[id.x];
   let entry=publish_arena.${prefix}_results[request];
-  if entry!=0xffffffffu { atomicStore(&publish_store[entry*${stride}u+${state}u],2u); }
+  if entry!=0xffffffffu && atomicLoad(&publish_store[entry*${stride}u+${state}u])==3u {
+    atomicStore(&publish_store[entry*${stride}u+${state}u],2u);
+    if publish_settings.diagnostics != 0u { atomicAdd(&publish_arena.control[${signal ? 52 : 51}u], 1u); }
+  }
 }
 @compute @workgroup_size(64)
 fn publish_surface_references(@builtin(global_invocation_id) id:vec3u) {
   if id.x>=atomicLoad(&publish_arena.control[${requestCount}u]) { return; }
   let item=publish_arena.${prefix}_requests[id.x];
   let producer=publish_arena.${prefix}_aliases[id.x];
+  if producer==0xffffffffu { return; }
   let entry=publish_arena.${prefix}_results[producer];
-  if entry==0xffffffffu { return; }
+  if entry==0xffffffffu || atomicLoad(&publish_store[entry*${stride}u+${state}u])!=2u { return; }
   let reference=(item.x*${signal ? 6 : 15}u+item.y)*3u;
   publish_workspace.${prefix}_references[reference]=SURFACE_REFERENCE_STORE;
   publish_workspace.${prefix}_references[reference+1u]=entry;

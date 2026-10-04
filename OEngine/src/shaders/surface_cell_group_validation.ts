@@ -175,7 +175,7 @@ fn cell_tree_validate_plane(plane: u32, lane: u32) {
       dependencies = 1u << plane;
       ${signals ? `if plane >= 15u {
         let entry = cell_material_entry(cell_lane_geometry[metadata.source].source.y);
-        dependencies = cell_material_signal_dependencies(plane, entry);
+        dependencies = cell_material_signal_dependencies(plane, entry, cell_local_tile * 64u + metadata.source);
       }` : ""}
     }
     cell_tree[lane].dependencies = dependencies;
@@ -227,7 +227,8 @@ fn cell_tree_validate_plane(plane: u32, lane: u32) {
       let cluster = cell_workspace.facts[cell_local_tile * 64u + metadata.source].w;
       ${admitProvider ? `let proof = reservation.x + rank;
       cell_workspace.proof_requests[proof] = array<u32,8>(cell_local_tile * 64u + metadata.source, 4u, plane - 15u, cluster, 5u, 0u, 0u, 0u);` : ""}
-      safe = cell_direct_node_safe(cluster, geometry.world_low, geometry.world_high);
+      safe = (geometry.flags & 8u) != 0u && cell_direct_node_safe(cluster, geometry.world_low,
+        geometry.world_high, geometry.view_low, geometry.view_high);
       ${admitProvider ? "cell_workspace.proof_requests[proof][4u] = select(0u, 4u, safe);" : ""}
     }
     cell_provider_cache[lane] = vec4u(metadata.coverage, 1u, select(0u, 1u, safe));

@@ -8,6 +8,9 @@ export const SURFACE_GEOMETRY_RECORD_VECTORS = 8;
 export const SURFACE_GEOMETRY_RECORD_HOT_BYTES = 128;
 export const SURFACE_GEOMETRY_RECORD_COLD_MAX_BYTES = 11 * 3 * 16;
 export const SURFACE_GEOMETRY_RECORD_BYTES = SURFACE_GEOMETRY_RECORD_HOT_BYTES + SURFACE_GEOMETRY_RECORD_COLD_MAX_BYTES;
+/** Lighting consumes only the hot record. Cold bits 1..14 are exclusively the
+ * actual missing Appearance closures, with no duplicated neighbor payload. */
+export const SURFACE_GEOMETRY_HOT_DEMAND_BIT = 1 << 15;
 export const SURFACE_GEOMETRY_RECORD_WGSL = /* wgsl */ `
 struct SurfaceGeometryRecord {
   position: vec4f,

@@ -41,7 +41,7 @@ const DIRECT_MATH=createProductionSparseDirectLightingWgsl(true,"vsm")
   .replace(/\bview\.frame_index\b/g,"shading_view.frame_index")
   .replace(/\bview\.width\b/g,"shading_view.width")
   .replace(/\bview\.height\b/g,"shading_view.height")
-  .replace("struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n}","struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n  coat: vec3f,\n}")
+  .replace("struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n}","struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n  coat: vec3f,\n  transport: vec3f,\n}")
   .replace("(*reflected).specular += radiance * specular * base_attenuation + coat_radiance;",
     "(*reflected).specular += radiance * specular * base_attenuation;\n  (*reflected).coat += coat_radiance;");
 
@@ -80,8 +80,8 @@ fn diagnostic_add(index:u32,value:u32) {
  if settings.diagnostics_enabled!=0u { atomicAdd(&lighting_demand.control[64u+index],value); }
 }
 fn packet_store(record:u32,kind:u32,value:vec4f,semantic:u32) {
- let request=atomicLoad(&lighting_demand.signal_destinations[record*6u+kind])-1u;
- signal_values[request]=value;
+ let destination = record * 6u + kind;
+ signal_values[destination] = vec4f(value.xyz, bitcast<f32>(SURFACE_PACKET_VALID | semantic));
 }
 @group(1) @binding(0) var<storage,read> node:array<u32>;
 @group(1) @binding(2) var<uniform> cluster_parameters:vec3f;
@@ -99,26 +99,74 @@ fn setting(index:u32)->u32 {
   case 7u:{return settings.shadow_enabled;} default:{return 0u;}
  }
 }
-fn surface_material(record: u32) -> StandardMaterial {
-  let albedo = max(surface_field(record, 0u).xyz, vec3f(0.0));
-  let metallic = saturate(surface_field(record, 2u).x);
-  let roughness = clamp(surface_field(record, 3u).x, 0.04, 1.0);
-  let occlusion = saturate(surface_field(record, 4u).x);
-  let emissive = max(surface_field(record, 5u).xyz, vec3f(0.0));
-  let specular_weight = saturate(surface_field(record, 8u).x);
-  let specular_color = max(surface_field(record, 9u).xyz, vec3f(0.0));
-  let coat_factor = saturate(surface_field(record, 10u).x);
-  let coat_roughness = clamp(surface_field(record, 11u).x, 0.04, 1.0);
-  let coat_raw = surface_field(record, 12u).xyz;
-  let coat_normal = select(vec3f(0.0, 0.0, 1.0), normalize(coat_raw), dot(coat_raw, coat_raw) > 1e-8);
-  let f0 = mix(vec3f(0.04), albedo, metallic) * specular_weight * specular_color;
-  return StandardMaterial(albedo * (1.0 - metallic), roughness, occlusion, f0, 1.0,
-    vec3f(1.0), emissive, 1.0, coat_factor, coat_roughness, coat_normal);
+var<private> direct_transport: bool;
+var<private> direct_full: bool;
+
+fn surface_material(record: u32, signal_mask: u32, transport: bool) -> StandardMaterial {
+  var material: StandardMaterial;
+  material.roughness = 1.0;
+  material.specularF90 = 1.0;
+  material.energyCompensation = vec3f(1.0);
+  material.coatRoughness = 1.0;
+  material.coatNormal = vec3f(0.0, 0.0, 1.0);
+  let full_direct = (signal_mask & 20u) != 0u || ((signal_mask & 1u) != 0u && !transport);
+  let specular = full_direct || (signal_mask & 8u) != 0u;
+  if specular {
+    let albedo = max(surface_field(record, 0u).xyz, vec3f(0.0));
+    let metallic = saturate(surface_field(record, 2u).x);
+    let specular_weight = saturate(surface_field(record, 8u).x);
+    let specular_color = max(surface_field(record, 9u).xyz, vec3f(0.0));
+    material.diffuse = albedo * (1.0 - metallic);
+    material.roughness = clamp(surface_field(record, 3u).x, 0.04, 1.0);
+    let ior = max(surface_field(record, 7u).x, 1.0);
+    let interface_reflectance = (ior - 1.0) / (ior + 1.0);
+    let dielectric_f0 = interface_reflectance * interface_reflectance;
+    material.specularF0 = mix(vec3f(dielectric_f0), albedo, metallic) * specular_weight * specular_color;
+  }
+  if full_direct || (signal_mask & 33u) != 0u {
+    material.coatFactor = saturate(surface_field(record, 10u).x);
+    if full_direct || (signal_mask & 32u) != 0u {
+      material.coatRoughness = clamp(surface_field(record, 11u).x, 0.04, 1.0);
+    }
+    if material.coatFactor > 0.0 || (signal_mask & 32u) != 0u {
+      if surface_field(record, 14u).x > 0.5 {
+        let raw = surface_field(record, 12u).xyz;
+        material.coatNormal = select(vec3f(0.0, 0.0, 1.0), normalize(raw), dot(raw, raw) > 1e-8);
+      }
+    }
+  }
+  return material;
+}
+
+// The admitted numeric envelope bounds GGX D/V/F and incident radiance far
+// below f32 overflow. Keep the original half-vector/normal degeneracy guard;
+// no roughness/specular evaluation is needed for transport-only work.
+fn re_surface_direct(incident: GpuPrimitiveTypeTable, geometry_in: SurfaceGeometry,
+  material: StandardMaterial, reflected: ptr<function, ReflectedLight>) {
+  if direct_full { re_direct_physical(incident, geometry_in, material, reflected); }
+  if !direct_transport { return; }
+  let h = normalize(incident.direction + geometry_in.view_direction);
+  let no_l = saturate(dot(geometry_in.shading_normal, incident.direction));
+  let no_v = saturate(dot(geometry_in.shading_normal, geometry_in.view_direction));
+  let vo_h = saturate(dot(geometry_in.view_direction, h));
+  let no_h = saturate(dot(geometry_in.shading_normal, h));
+  let radiance = no_l * incident.color;
+  if !finite_f32(no_v) || !finite_f32(vo_h) || !finite_f32(no_h) ||
+    !all(vec3<bool>(finite_f32(radiance.x), finite_f32(radiance.y), finite_f32(radiance.z))) { return; }
+  var attenuation = 1.0;
+  if material.coatFactor > 0.0 {
+    let coat_no_h = saturate(dot(material.coatNormal, h));
+    let coat_no_l = saturate(dot(material.coatNormal, incident.direction));
+    if !finite_f32(coat_no_h) || !finite_f32(coat_no_l) { return; }
+    let fresnel = (0.04 + 0.96 * pow(1.0 - vo_h, 5.0)) * material.coatFactor;
+    attenuation = 1.0 - fresnel;
+  }
+  (*reflected).transport += radiance * RECIPROCAL_PI * attenuation;
 }
 
 fn direct_surface(material: StandardMaterial, geometry_in: SurfaceGeometry,
   pixel: vec2f, view_depth: f32) -> ReflectedLight {
-  var reflected = ReflectedLight(vec3f(0.0), vec3f(0.0), vec3f(0.0));
+  var reflected = ReflectedLight(vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
   if settings._reserved0 != 0u {
     var solar: GpuPrimitiveTypeTable;
     solar.direction=normalize(physical_sun.sun_direction_world);
@@ -126,7 +174,7 @@ fn direct_surface(material: StandardMaterial, geometry_in: SurfaceGeometry,
     if settings.shadow_enabled != 0u {
       solar.color*=vsm_sample_directional(geometry_in.position,geometry_in.shading_normal,solar);
     }
-    re_direct_physical(solar,geometry_in,material,&reflected);
+    re_surface_direct(solar,geometry_in,material,&reflected);
   }
   var directional_mask = directional_lights_iteration_mask(&node);
   while (directional_mask != 0u) {
@@ -135,7 +183,7 @@ fn direct_surface(material: StandardMaterial, geometry_in: SurfaceGeometry,
     var incident = get_directional_light_info_by_index(&node, index);
     incident.color *= shadowmap_get_directional_light_visibility(&node, index,
       geometry_in.position, geometry_in.view_direction, geometry_in.shading_normal);
-    re_direct_physical(incident, geometry_in, material, &reflected);
+    re_surface_direct(incident, geometry_in, material, &reflected);
   }
   let metadata = light_cluster_metadata_by_position(pixel, view_depth,
     vec2u(shading_view.width, shading_view.height));
@@ -148,12 +196,12 @@ fn direct_surface(material: StandardMaterial, geometry_in: SurfaceGeometry,
         var incident = get_point_light_info_by_index(&node, index, geometry_in.position);
         incident.color *= shadowmap_get_point_light_visibility(&node, index,
           geometry_in.position, geometry_in.shading_normal);
-        re_direct_physical(incident, geometry_in, material, &reflected);
+        re_surface_direct(incident, geometry_in, material, &reflected);
       } else if (light_type == CLUSTER_LIGHT_TYPE_SPOT) {
         var incident = get_spot_light_info_by_index(&node, index, geometry_in.position);
         incident.color *= shadowmap_get_spot_light_visibility(&node, index,
           geometry_in.position, geometry_in.shading_normal);
-        re_direct_physical(incident, geometry_in, material, &reflected);
+        re_surface_direct(incident, geometry_in, material, &reflected);
       }
     }
     return reflected;
@@ -163,14 +211,14 @@ fn direct_surface(material: StandardMaterial, geometry_in: SurfaceGeometry,
     var incident = get_point_light_info_by_index(&node, index, geometry_in.position);
     incident.color *= shadowmap_get_point_light_visibility(&node, index,
       geometry_in.position, geometry_in.shading_normal);
-    re_direct_physical(incident, geometry_in, material, &reflected);
+    re_surface_direct(incident, geometry_in, material, &reflected);
   }
   for (var i = 0u; i < metadata.spot_count; i++) {
     let index = cluster_data.data[metadata.offset + metadata.point_count + i];
     var incident = get_spot_light_info_by_index(&node, index, geometry_in.position);
     incident.color *= shadowmap_get_spot_light_visibility(&node, index,
       geometry_in.position, geometry_in.shading_normal);
-    re_direct_physical(incident, geometry_in, material, &reflected);
+    re_surface_direct(incident, geometry_in, material, &reflected);
   }
   return reflected;
 }
@@ -211,8 +259,13 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   let shading_normal=geometry_in.normal.xyz;
   let tangent=geometry_in.tangent.xyz;
   let view_dir=geometry_in.view.xyz;
-  var material = surface_material(record);
-  let normal_valid = surface_field(record, 13u).x > 0.5;
+  let transport = surface_workspace.addresses[record * 144u + 136u] == 3u;
+  var material = surface_material(record, signal_mask, transport);
+  direct_transport = transport && (signal_mask & 1u) != 0u;
+  direct_full = (signal_mask & 20u) != 0u || ((signal_mask & 1u) != 0u && !transport);
+  let needs_base_normal = (signal_mask & 31u) != 0u;
+  var normal_valid = false;
+  if needs_base_normal { normal_valid = surface_field(record, 13u).x > 0.5; }
   var normal = shading_normal;
   if normal_valid {
     // Appearance graph publishes signed tangent-space values already.
@@ -220,9 +273,11 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
     let bitangent = normalize(cross(shading_normal, tangent) * geometry_in.metrics.y);
     normal = normalize(tangent * normal_ts.x + bitangent * normal_ts.y + shading_normal * normal_ts.z);
   }
-  let coat_ts=material.coatNormal;
-  let coat_bitangent=normalize(cross(shading_normal,tangent)*geometry_in.metrics.y);
-  material.coatNormal=normalize(tangent*coat_ts.x+coat_bitangent*coat_ts.y+shading_normal*coat_ts.z);
+  if material.coatFactor > 0.0 || (signal_mask & 32u) != 0u {
+    let coat_ts = material.coatNormal;
+    let coat_bitangent = normalize(cross(shading_normal, tangent) * geometry_in.metrics.y);
+    material.coatNormal = normalize(tangent * coat_ts.x + coat_bitangent * coat_ts.y + shading_normal * coat_ts.z);
+  }
   let surface_geometry = SurfaceGeometry(normal, geometric_normal, position, view_dir);
   if setting(10u) == 0u { diagnostic_add(7u, 1u); }
   let has_diffuse = (signal_mask & 1u) != 0u;
@@ -232,7 +287,7 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   let has_coat = (signal_mask & 16u) != 0u;
   let has_coat_env = (signal_mask & 32u) != 0u;
   let has_direct = has_diffuse || has_specular || has_coat;
-  var direct = ReflectedLight(vec3f(0.0), vec3f(0.0), vec3f(0.0));
+  var direct = ReflectedLight(vec3f(0.0), vec3f(0.0), vec3f(0.0), vec3f(0.0));
   if has_direct {
     direct = direct_surface(material, surface_geometry, vec2f(pixel) + vec2f(0.5),
       abs(geometry_in.metrics.x));
@@ -244,7 +299,7 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   var direct_specular = vec3f(0.0);
   var coat_direct = vec3f(0.0);
   if has_diffuse {
-    direct_diffuse = direct.diffuse;
+    direct_diffuse = select(direct.diffuse, direct.transport, transport);
     diagnostic_add(0u, 1u);
   } else { diagnostic_add(14u, 1u); }
   if has_specular {
@@ -261,7 +316,8 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   if has_diffuse_env {environment_diffuse = environment_diffuse_irradiance(normal);diagnostic_add(3u, 1u);}
   if has_specular_env {environment_specular = environment_specular_surface(material, normal, view_dir);diagnostic_add(6u, 1u);}
   if has_coat_env {coat_ibl = coat_environment(material, material.coatNormal, view_dir);}
-  if has_diffuse {packet_store(record,0u,vec4f(direct_diffuse, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_DIFFUSE);diagnostic_add(20u,1u);}
+  if has_diffuse {packet_store(record,0u,vec4f(direct_diffuse, 1.0),SURFACE_PACKET_DIFFUSE | select(SURFACE_PACKET_RADIANCE | SURFACE_PACKET_COLORED_RESIDUAL,
+    SURFACE_PACKET_DIFFUSE_TRANSPORT, transport));diagnostic_add(20u,1u);}
   if has_diffuse_env {packet_store(record,1u,vec4f(environment_diffuse, 1.0),SURFACE_PACKET_IRRADIANCE|SURFACE_PACKET_DIFFUSE|SURFACE_PACKET_ENVIRONMENT);diagnostic_add(21u,1u);}
   if has_specular {packet_store(record,2u,vec4f(direct_specular, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_SPECULAR);diagnostic_add(22u,1u);}
   if has_specular_env {packet_store(record,3u,vec4f(environment_specular, 1.0),SURFACE_PACKET_RADIANCE|SURFACE_PACKET_SPECULAR|SURFACE_PACKET_ENVIRONMENT);diagnostic_add(23u,1u);}

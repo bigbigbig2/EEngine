@@ -32,6 +32,13 @@ fn surface_cell_compatible(plane: u32, a: SurfaceCellLane, b: SurfaceCellLane) -
     if left_cluster == 0xffffffffu || left_cluster != right_cluster { return false; }
   }
   let entry = cell_material_entry(left.source.y);
+  if plane == 15u {
+    let left_leaf = cell_local_tile * 64u + a.source;
+    let right_leaf = cell_local_tile * 64u + b.source;
+    // An exceptional combined finite guard has no proven spatial envelope.
+    if cell_workspace.addresses[left_leaf * 144u + 136u] != 3u ||
+      cell_workspace.addresses[right_leaf * 144u + 136u] != 3u { return false; }
+  }
   let base = settings.appearance2.w + entry * ${SURFACE_EXECUTION_WORDS}u + 8u;
   var seam = 0u;
   if plane < 15u {
@@ -39,6 +46,15 @@ fn surface_cell_compatible(plane: u32, a: SurfaceCellLane, b: SurfaceCellLane) -
   } else {
     seam = appearance_metadata[base + 15u * ${SURFACE_FIELD_EXECUTION_WORDS}u +
       (plane - 15u) * ${SURFACE_SIGNAL_EXECUTION_WORDS}u + 3u];
+    if plane == 15u {
+      let dependencies = cell_material_signal_dependencies(plane, entry, cell_local_tile * 64u + a.source);
+      seam = 12u;
+      for (var field = 0u; field < 15u; field++) {
+        if (dependencies & (1u << field)) != 0u {
+          seam |= appearance_metadata[base + field * ${SURFACE_FIELD_EXECUTION_WORDS}u + 2u];
+        }
+      }
+    }
   }
   return cell_seam_compatible(seam, a, b);
 }

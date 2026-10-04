@@ -21,7 +21,7 @@ export const SURFACE_FIELD_STORE_FLAGS_WORD = 56;
 export const SURFACE_FIELD_STORE_GENERATION_WORD = 57;
 export const SURFACE_FIELD_STORE_STATE_WORD = 58;
 export const SURFACE_FIELD_STORE_TOUCHED_WORD = 59;
-export const SURFACE_FIELD_STORE_STATE = Object.freeze({ empty: 0, reserved: 1, published: 2 });
+export const SURFACE_FIELD_STORE_STATE = Object.freeze({ empty: 0, reserved: 1, published: 2, produced: 3, retiring: 4 });
 export const SURFACE_FIELD_STORE_FLAGS = Object.freeze({ value: 1, certificate: 2, certifiedValue: 4, negativeCertificate: 8, boundedValue: 16 });
 
 export interface SurfaceFieldStoreKey {

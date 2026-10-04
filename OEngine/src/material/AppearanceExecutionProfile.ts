@@ -64,7 +64,8 @@ export interface SignalExecutionProfile {
   readonly providers: number;
   readonly seamMask: number;
   readonly inputMask: number;
-  readonly semantic: "coloredResidual" | "irradiance" | "radiance";
+  readonly semantic: "coloredResidual" | "irradiance" | "radiance" | "diffuseTransport";
+  readonly residualToken: number;
   readonly maxRate: number;
   readonly proofClass: number;
   readonly domainToken: number;
@@ -79,10 +80,12 @@ export interface AppearanceExecutionProfiles {
 }
 
 const fieldMask = (...fields: number[]): number => fields.reduce((mask, field) => mask | (1 << field), 0);
-// This is the CURRENT production packet contract. Ddirect factorization changes
-// this table and its formula together in Phase 5, never just its cache identity.
+export const SURFACE_DIRECT_RESIDUAL_FIELDS = fieldMask(0, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14);
+export const SURFACE_DIRECT_TRANSPORT_FIELDS = fieldMask(6, 10, 12, 13, 14);
+// Runtime publication chooses transport only after the current numeric envelope
+// is proved. Unsafe profiles retain the original combined BRDF finite guard.
 export const SURFACE_SIGNAL_FIELD_MASKS = Object.freeze([
-  fieldMask(0, 2, 3, 6, 8, 9, 10, 11, 12, 13, 14), fieldMask(6, 13),
+  SURFACE_DIRECT_TRANSPORT_FIELDS, fieldMask(6, 13),
   fieldMask(0, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14),
   fieldMask(0, 2, 3, 6, 7, 8, 9, 13),
   fieldMask(0, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14), fieldMask(10, 11, 12, 14)
@@ -217,13 +220,15 @@ export function appearanceExecutionProfiles(program: CompiledAppearanceGraph,
       if ((mask & (1 << field)) !== 0) { seamMask |= fields[field]!.domain.seamMask; inputMask |= fields[field]!.inputMask; }
     }
     const providers = (kind & 1) === 0 ? 1 | 2 | 4 | 16 : 8 | (kind === 1 ? 0 : 16);
-    const semantic = kind === 0 ? "coloredResidual" : kind === 1 ? "irradiance" : "radiance";
+    const semantic = kind === 0 ? "diffuseTransport" : kind === 1 ? "irradiance" : "radiance";
     const maxRate = kind <= 1 ? 8 : 4;
     const proofClass = (kind & 1) === 0 ? 2 : 1;
     const domainToken = intern(JSON.stringify(["signal-domain-v1", seamMask, inputMask, true, true, true]));
     const token = intern(JSON.stringify(["signal-execution-v1", mask, providers, semantic, maxRate, proofClass,
       domainToken, fields.filter((_profile, field) => (mask & (1 << field)) !== 0).map(profile => profile.token)]));
-    return Object.freeze({ token, fields: mask, providers, seamMask, inputMask, semantic, maxRate, proofClass, domainToken });
+    const residualToken = kind === 0 ? intern(JSON.stringify(["direct-colored-residual-v2",
+      SURFACE_DIRECT_RESIDUAL_FIELDS, providers, fields.map(profile => profile.token)])) : token;
+    return Object.freeze({ token, residualToken, fields: mask, providers, seamMask, inputMask, semantic, maxRate, proofClass, domainToken });
   });
   let enabledMask = 0;
   let inputMask = 0;

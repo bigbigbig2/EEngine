@@ -31,8 +31,8 @@ fn cell_merge_bound(a:AppearanceBound4,b:AppearanceBound4)->AppearanceBound4 { r
 fn cell_field_budget(field:u32,value:AppearanceBound4)->bool {
   return all(value.known.xyz!=vec3u(0u)) && all(value.high.xyz-value.low.xyz<=vec3f(0.02));
 }
-fn cell_material_signal_dependencies(plane:u32,entry:u32)->u32 { return (1u<<6u)|(1u<<13u)|select(0u,1u<<3u,plane>=17u); }
-fn cell_direct_node_safe(cluster:u32,low:vec3f,high:vec3f)->bool { return true; }
+fn cell_material_signal_dependencies(plane:u32,entry:u32,leaf:u32)->u32 { return (1u<<6u)|(1u<<13u)|select(0u,1u<<3u,plane>=17u); }
+fn cell_direct_node_safe(cluster:u32,low:vec3f,high:vec3f,view_low:vec3f,view_high:vec3f)->bool { return true; }
 ${SURFACE_CELL_CERTIFICATE_READ_WGSL}`;
     const module=device.createShaderModule({code:surfaceCellClassifyStageWgsl(factLibrary,1,0,0,1,'classify_parent','field-geometry')});
     const info=await module.getCompilationInfo();assert.deepEqual(info.messages.filter(m=>m.type==='error').map(m=>m.message),[]);

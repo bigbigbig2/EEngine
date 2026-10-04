@@ -5,7 +5,7 @@
 ## 从这里开始
 
 1. [第三版最终重构设计](next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)：用户指定原文，后续 Surface/Appearance/Lighting 的唯一目标依据。
-2. [最终性能重构设计](next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)、[当前执行计划](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)：有界前端、Phase 0–7、源码切换与最终验收。重构前代码为14c17078，Phase 0–4当前实现与阶段检查已完成（Phase 2前置已更正），当前待Phase 5。
+2. [最终性能重构设计](next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)、[当前执行计划](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)：有界前端、源码切换与最终验收。重构前代码14c17078，Phase4 HEAD 0c8caf30；Phase5工作树实施中、未收口。[阶段复审与准备](next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)明确先修Phase5并完成合同→必需Phase5.5→Phase6→Phase7；历史检查不代表前置物理要求全部落实。
 3. [整体架构](next-design/eengine-next-overall-architecture-final-2026.md)与[架构层计划](next-execution/eengine-next-architecture-layer-plan-2026.md)：保留系统边界与后续 SSSR/GI/VT/Transparency 方向；Surface 部分服从第三版原文。
 4. [当前 workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml)：当前切片和待完成目标。
 5. [方向一致性核对](reviews/surface-work-runtime-v3-direction-alignment-2026-10-02.md)：原文条目到活动入口的映射及本次检查范围。
@@ -28,6 +28,8 @@
 
 ## 开发与验收
 
-当前Surface按每阶段实现、集中检查、通过后推进：Phase0静态基线/消费/容量核对；Phase1–6的typecheck/build、必要语义测试、WGSL及真实GPU组件/接线检查在各阶段完成。只允许阶段内部短暂断链，跨阶段必要consumer前移，不用旧链/占位效果通过检查。已有可运行整链时补短smoke/成本诊断；Phase7负责完整跨场景/浏览器、连续画质和同条件性能正式验收，不再首次发现基础编译/覆盖问题。
+当前Surface按每阶段实现、集中检查、通过后推进：Phase0静态基线/消费/容量核对；Phase1–6（含必需5.5）的typecheck/build、必要语义测试、WGSL及真实GPU组件/接线检查在各阶段完成。5.5另须验证实际witness/证书/ref产量与物理账，不能只用出图/预算未超限通过。只允许阶段内部短暂断链，跨阶段必要consumer前移，不用旧链/占位效果通过检查。已有可运行整链时补短smoke/成本诊断；Phase7负责完整跨场景/浏览器、连续画质和同条件性能正式验收，不再首次发现基础编译/覆盖问题。
+
+测试可信度和失败修复统一遵守[执行计划§1.4](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)与[VALIDATION](VALIDATION.md)：逐项设计覆盖、真实入口与独立预期、正确性/成本分别验证；失败先定位分类再修，不能为过关删断言、放宽容差或乱接生产fallback。旧“开发不测、最后才检查”规则已失效。
 
 本次准备只作源码差异/采样身份、链接、YAML和导航静态核对，并保存代码基线，不运行renderer验证。run06的约801.7ms是已有diagnostic、accepted=false，不是性能通过。其他模块按[VALIDATION](VALIDATION.md)通用节奏；正式evidence/claims留最终验收。

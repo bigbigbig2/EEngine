@@ -60,12 +60,13 @@ fn publish_snapshot() {
  }
  ${add(C.totalTiles, "atomicLoad(&workspace.counters[127u])")}
  ${add(C.emptyTiles, "empty")}${add(C.uniformTiles, "uniform")}${add(C.mixedTiles, "mixed")}${add(C.visiblePixels, "visible")}
- let fields=atomicLoad(&demand.control[1u]);let unique_fields=atomicLoad(&demand.control[3u]);
+ let fields=atomicLoad(&demand.control[49u]);
+ let misses=atomicLoad(&workspace.counters[115u]);
  let geometry=atomicLoad(&demand.control[0u]);let materials=atomicLoad(&demand.control[5u]);let lighting=atomicLoad(&demand.control[6u]);
  ${add(C.sampleRequested, "geometry")}${add(C.sampleAccepted, "geometry")}
- ${add(C.materialLookup, "fields+atomicLoad(&workspace.counters[113u])")}
- ${add(C.materialHit, "atomicLoad(&workspace.counters[113u])")}${add(C.materialMissRequested, "fields")}${add(C.materialMissQueued, "unique_fields")}
- ${add(C.materialEvaluatorEntered, "materials")}${add(C.materialEvaluatorCompleted, "materials")}${add(C.materialFieldsPublished, "unique_fields")}
+ ${add(C.materialLookup, "misses+atomicLoad(&workspace.counters[113u])")}
+ ${add(C.materialHit, "atomicLoad(&workspace.counters[113u])")}${add(C.materialMissRequested, "misses")}${add(C.materialMissQueued, "materials")}
+ ${add(C.materialEvaluatorEntered, "materials")}${add(C.materialEvaluatorCompleted, "materials")}${add(C.materialFieldsPublished, "fields")}
  ${add(C.geometryRecordsRequested, "geometry")}${add(C.geometryMissQueued, "geometry")}${add(C.geometryMissCompleted, "geometry")}${add(C.geometryRecordsValid, "geometry")}
  ${add(C.geometryRecordWriteBytes, `geometry*128u+atomicLoad(&demand.control[46u])*4u`)}
  ${add(C.lightingRecordsProcessed, "lighting")}
@@ -75,7 +76,18 @@ fn publish_snapshot() {
  ${add(C.specularPacketWrites, "atomicLoad(&demand.control[86u])+atomicLoad(&demand.control[87u])")}
  ${add(C.coatPacketWrites, "atomicLoad(&demand.control[88u])+atomicLoad(&demand.control[89u])")}
  ${add(C.iblPacketWrites, "atomicLoad(&demand.control[85u])+atomicLoad(&demand.control[87u])+atomicLoad(&demand.control[89u])")}
- ${add(C.packetWriteBytes, "atomicLoad(&demand.control[4u])*16u")}
+ ${add(C.packetWriteBytes, "atomicLoad(&demand.control[50u])*16u")}
+ ${add(C.fieldCacheRequests, "atomicLoad(&demand.control[1u])")}
+ ${add(C.fieldCacheProbes, "atomicLoad(&demand.control[53u])")}
+ ${add(C.fieldCacheUnique, "atomicLoad(&demand.control[3u])")}
+ ${add(C.fieldCacheAdmissions, "atomicLoad(&demand.control[51u])")}
+ ${add(C.fieldCacheQueueRejected, "atomicLoad(&demand.control[47u])")}
+ ${add(C.signalCacheRequests, "atomicLoad(&demand.control[2u])")}
+ ${add(C.signalCacheProbes, "atomicLoad(&demand.control[54u])")}
+ ${add(C.signalCacheUnique, "atomicLoad(&demand.control[4u])")}
+ ${add(C.signalCacheAdmissions, "atomicLoad(&demand.control[52u])")}
+ ${add(C.signalCacheQueueRejected, "atomicLoad(&demand.control[48u])")}
+ ${add(C.fieldValuesProduced, "fields")}${add(C.signalValuesProduced, "atomicLoad(&demand.control[50u])")}
  if settings.last!=0u {
   let all_tiles=((settings.width+7u)/8u)*((settings.height+7u)/8u);
   let active_tiles=atomicLoad(&workspace.counters[125u]);

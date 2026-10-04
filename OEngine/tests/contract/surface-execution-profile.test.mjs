@@ -86,13 +86,17 @@ test('profile identity and numeric versions survive unrelated output edits, but 
   assert.equal(next.get('roughness').changed,false);assert.equal(next.get('baseColor').changed,true);
 });
 
-test('all 15 fields and 6 signals pack actual masks, exact tokens and the current colored Ddirect contract',()=>{
+test('all 15 fields and 6 signals pack transport identity and a distinct exceptional residual profile',()=>{
   const g=new AppearanceGraphBuilder();
   for(const name of APPEARANCE_FIELD_NAMES)g.output(name,g.constant([1]));
   const p=profile(compile(g)),words=packSurfaceExecutionProfiles([p,p]);
   assert.equal(words.length,2*SURFACE_EXECUTION_WORDS);assert.equal(p.enabledMask,(1<<21)-1);
   assert.deepEqual(p.signals.map(signal=>signal.fields),SURFACE_SIGNAL_FIELD_MASKS);
-  assert.ok(p.signals[0].fields&1);assert.equal(p.signals[0].semantic,'coloredResidual');
+  assert.equal(p.signals[0].fields & ((1 << 0) | (1 << 2) | (1 << 3) | (1 << 8) | (1 << 9) | (1 << 11)), 0);
+  assert.equal(p.signals[0].semantic, 'diffuseTransport');
+  assert.notEqual(p.signals[0].token, p.signals[0].residualToken);
+  assert.equal(words[6], p.signals[0].residualToken);
+  assert.equal(words[7], p.signals[0].token);
   assert.equal(p.signals[1].fields,(1<<6)|(1<<13));assert.equal(p.signals[1].semantic,'irradiance');
   assert.notEqual(p.fields[0].token,p.fields[5].token,'Output role and quality remain part of complete profile equality');
   assert.notEqual(p.fields[0].proof.token,p.fields[5].proof.token);

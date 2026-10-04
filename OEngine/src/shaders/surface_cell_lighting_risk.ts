@@ -46,7 +46,26 @@ fn cell_punctual_safe(position:vec3f,radius:f32,cutoff:f32,flags:u32,spot:bool,d
  }
  return true;
 }
-fn cell_direct_node_safe(cluster_fact:u32,world_low:vec3f,world_high:vec3f)->bool {
+fn cell_half_vector_safe(light_low: vec3f, light_high: vec3f, view_low: vec3f, view_high: vec3f) -> bool {
+ let low = light_low + view_low;
+ let high = light_high + view_high;
+ let crosses = vec3<bool>(low.x <= 0.0 && high.x >= 0.0,
+   low.y <= 0.0 && high.y >= 0.0, low.z <= 0.0 && high.z >= 0.0);
+ let minimum = select(min(abs(low), abs(high)), vec3f(0.0), crosses);
+ return all(low == low) && all(high == high) && dot(minimum, minimum) > 1e-10;
+}
+fn cell_punctual_half_safe(position: vec3f, world_low: vec3f, world_high: vec3f,
+ view_low: vec3f, view_high: vec3f) -> bool {
+ let center = (world_low + world_high) * 0.5;
+ let radius = length((world_high - world_low) * 0.5);
+ let vector = position - center;
+ let distance = length(vector);
+ if distance <= radius || distance <= 1e-6 { return false; }
+ let direction = vector / distance;
+ let margin = 2.0 * radius / (distance - radius) + 1e-5;
+ return cell_half_vector_safe(direction - vec3f(margin), direction + vec3f(margin), view_low, view_high);
+}
+fn cell_direct_node_safe(cluster_fact:u32,world_low:vec3f,world_high:vec3f,view_low:vec3f,view_high:vec3f)->bool {
  if cluster_fact==0xffffffffu { return false; }
  let cluster=cluster_fact&0x7fffffffu;
  if cluster>=arrayLength(&cell_cluster_lookup){return false;}
@@ -60,19 +79,26 @@ fn cell_direct_node_safe(cluster_fact:u32,world_low:vec3f,world_high:vec3f)->boo
   if i<metadata.point_count {
    let light=${POINT_LIGHT_DESCRIPTOR.marshalling_method_read}(&cell_light_records,light_index);
    if !cell_punctual_safe(light.position,light.radius,light.distance,light.flags,false,vec3f(0.0),0.0,0.0,world_low,world_high){return false;}
+   if !cell_punctual_half_safe(light.position,world_low,world_high,view_low,view_high){return false;}
   }else{
    let light=${SPOT_LIGHT_DESCRIPTOR.marshalling_method_read}(&cell_light_records,light_index);
    if !cell_punctual_safe(light.position,light.radius,light.distance,light.flags,true,light.direction,light.coneCos,light.penumbraCos,world_low,world_high){return false;}
+   if !cell_punctual_half_safe(light.position,world_low,world_high,view_low,view_high){return false;}
   }
  }
  var directional=directional_lights_iteration_mask(&cell_light_records);
  for(var i=0u;i<32u;i++){
   if (directional&(1u<<i))==0u{continue;}
   let light=${DIRECTIONAL_LIGHT_DESCRIPTOR.marshalling_method_read}(&cell_light_records,i);
+  if !cell_half_vector_safe(-light.direction,-light.direction,view_low,view_high){return false;}
   if (light.flags&${LIGHT_FLAG_CASTS_SHADOW}u)!=0u && (settings.appearance2.y&1u)!=0u{return false;}
  }
  // Physical solar shadow follows the same actual VSM-enabled provider fact.
  if (settings.appearance2.y&3u)==3u{return false;}
+ if (settings.appearance2.y&2u)!=0u {
+  let solar = cell_solar_direction();
+  if !cell_half_vector_safe(solar,solar,view_low,view_high){return false;}
+ }
  return true;
 }
 fn cell_publish_lane_fact(pixel:vec2u)->vec4u {

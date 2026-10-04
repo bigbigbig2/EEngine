@@ -48,6 +48,7 @@ export interface SurfaceDemandInput {
 const STAGES = [
     ["emit_surface_requests", null], ["finalize_surface_requests", null],
     ["nominate_field_producers", 20], ["resolve_field_producers", 20],
+    ["emit_signal_cache_requests", null], ["finalize_surface_requests", null],
     ["nominate_signal_producers", 24], ["resolve_signal_producers", 24],
     ["compact_surface_groups", null], ["finalize_surface_groups", null],
     ["order_material_groups", 28]
@@ -108,7 +109,7 @@ export class SurfaceDemandPass {
                 data.input.epoch.value, data.input.viewRevision.value, data.input.revisions.environment, data.input.revisions.light,
                 data.input.revisions.shadow, data.input.revisions.sun, data.input.shadow === null ? 0 : 1, data.input.sun === null ? 0 : 1,
                 0, data.input.diagnostics ? 1 : 0, 0, 0,
-                offsets.directory, programs, layout.fieldCapacity, layout.signalCapacity,
+                offsets.directory, programs, layout.fieldAdmissionCapacity, layout.signalAdmissionCapacity,
                 data.input.firstTile, Math.ceil(data.input.width / 8), data.input.width, data.input.height
             ]).buffer, 0, 96);
         });

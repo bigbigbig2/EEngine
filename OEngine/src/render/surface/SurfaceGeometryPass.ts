@@ -48,6 +48,7 @@ fn produce_geometry(@builtin(global_invocation_id) id: vec3u) {
   record.geometric = vec4f(geometric, 1.0);
   record.identity = vec4u(workspace.addresses[at+13u], workspace.addresses[at+4u], workspace.facts[leaf].z, workspace.addresses[at+130u]);
   for (var point = 0u; point < 3u; point++) {
+    if point != 0u && physical_mask == 0u { continue; }
     let position = geometry_address(at+94u+point*4u);
     let raw_normal = geometry_address(at+106u+point*4u);
     let raw_tangent = geometry_address(at+118u+point*4u);

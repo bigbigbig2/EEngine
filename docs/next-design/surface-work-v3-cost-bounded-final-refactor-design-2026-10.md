@@ -1,10 +1,10 @@
 # Surface V3 最终性能重构设计：有界前端、真实复用与单一生产链
 
-> 执行入口：[独立执行计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)；状态与冻结基线：[执行记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。2026-10-04 Phase 0静态清单、Phase 1 publication/工作表示与 Phase 2 Geometry owner/bounded setup 实现及阶段检查已补齐；Phase 3 Field 候选/验证/proof 与 Phase 4 固定树/source/provider 已完成，当前待 Phase 5；重构前代码14c17078。实际消费/容量及缺口见[Phase 0清单](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10.md)、[Phase 1实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase1-implementation-2026-10.md)、[Phase 2实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md)、[Phase 3实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md)与[Phase 4实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md)。
+> 执行入口：[独立执行计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)；状态与冻结基线：[执行记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。2026-10-05复审：Phase 0–4已有实现/历史检查保留，前端物理表示仍有缺口；Phase 5工作树实施中、未收口。固定顺序为Phase5优先修复并完成合同→必需Phase5.5→Phase6→Phase7。审查依据和逐项责任见[复审与准备](../next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。重构前基线14c17078、Phase4 HEAD 0c8caf30与dirty Phase5不能混作同一验证身份。
 
-日期：2026-10-04
+日期：2026-10-05（本次增补阶段复审、§17.4和Phase5.5；历史诊断身份不变）
 
-状态：实施设计；尚未实施、尚未验收，不构成性能或来源采用声明。
+状态：部分实施，最终合同与性能尚未验收；文档采纳不构成实现、性能或来源采用声明。
 
 依据：当前实际源码、Showcase run06 采样及本轮代码审计。333.md 仅作补充，不覆盖源码事实、正确性条件和实测。
 
@@ -543,6 +543,29 @@ planner 计算真实 alignment、hash pow2 rounding、绑定切片、program cou
 
 64MiB headroom 不足以同时保留整套旧/新 scratch。resize/profile 重建优先复用预留尺寸；确需替换且超预算时，异步等旧 submitted epoch 完成后分配，合并 resize 请求/暂缓新帧。不能在 steady-state 每帧 await GPU，也不能超预算后宣称512MiB。
 
+### 17.4 Phase 5.5 的物理表示与成本合同
+
+2026-10-05复审确认：ActiveTile、hot/cold实际写入、8-word candidate和bounded proof已经部分实现，但144-word地址提前物化、三份dense certificate、dense refs与旧预算映射仍在。proof请求受理不等于结果池compact；全hit跳过Appearance不等于前置witness免费。Phase5.5必须补齐以下合同，不能只删clear或扩batch交差。
+
+| 产品 | 最终生产/消费约束 | 容量与失败 |
+|---|---|---|
+| cheap candidate | 只携带该identity类别的必要索引/版本；完整相等仍独立验证 | 不截短完整身份；复杂profile可显式DirectTransient |
+| detailed witness | 按candidate验证、实际空间proof或worker的真实需求生产；Geometry owner统一计算，等价需求可共享 | 必要point/footprint验证可能在hit接受前，不一律miss-only；可选proof拒绝仍fine，mandatory输入不能漏 |
+| certificate result | typed proof slot携带结果，消费者经显式映射读取；publication常量bounds直接引用 | 所有family共享C≤R/2及操作上限；结果池按typed slot容量计账，不再叠三份逐target大证书；Unknown不读无效payload |
+| refs | Publication/Default/Zero、implicit transient由template/leaf公式推导；mixed/store保留完整source/identity/generation | mandatory value slots可以dense预留；引用公式化不删除cache有效性与coarse/fine互斥 |
+| GeometryRecord | 唯一实际missing/dirty target union，hot与实际cold mask匹配 | 最坏cold可预留；禁止无条件写满或把完整656B误称hot物理stride |
+| planner | 基于真实buffer/segment/stride/hash对齐/retirement/输出核算，报告所有限制项 | 取真实最紧约束，不为R=65536删能力、不通过未计旁路移账 |
+
+数据流为：coverage/template→必要cheap candidate→必要point witness/受理support→typed certificate/tree/source→实际missing/dirty union→唯一record/worker→Store commit/ref→compose。此为当前单链的物理替换，不增加第二renderer、私有submit或GPU→CPU→GPU工作控制。完整输入/输出矩阵先于新stride冻结，所有直接consumer随producer迁移。
+
+以N active leaves、K实际candidate项、W详细witness、C受理proof、G实际Geometry union建立分别可测的工作账。轻量mask检查可随N增长，昂贵witness/证书/worker必须随相应实际需求增长；常量不逐leaf复制bounds。allocation、logical writes、reset范围、probe、evaluated closure、Store writer和CPU编码分别计量。保留GPU生成工作量和完整fine容量，不依赖CPU读取本帧N缩容。
+
+成本通过条件：先同R/相同输入核对消除的生产与存储，再核对新planner的R/batch和总预算。必须覆盖空/常量、精确hit、少量dirty、全miss、高频mixed、proof满及hash/cache满；数值、完整写域、writers/key≤1与成本关系同时通过。仅小链出图、未越512MiB或计数下降而实际隐藏写入仍在，都不算实现完成。短诊断明显回退须定位，不要求固定FPS或百分比；正式历史性能仍由Phase7判断。
+
+Ddirect的全局numeric envelope、动态seam合并及full BRDF/transport重复计算属于需量化的成本风险；不能把有限值guard删掉换取低计数。能在publication证明并预合并的依赖退出热比较，不能局部证明时保留完整算法并报告拒绝原因/比例。来源核读、实施和收益声明分别记录。
+
+Phase6只在上述表示稳定后收口广泛reset/BG/PSO/pass/lifetime；5.5切换所需的validity/reset/binding修复必须前移。详细切换单元与场景检查见[复审与准备](../next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。
+
 ## 18. Overflow 的完整覆盖与写域
 
 “overflow→fine”必须有可执行位置：
@@ -613,7 +636,7 @@ GPU 零 count 省 shader 工作，不省 CPU 编码。很多 programs 仍有 B×
 
 ## 21. 连续实施顺序
 
-本次只形成文档。实施遵循用户2026-10-04最新要求：每阶段实现、每阶段集中检查、通过后再进入下一阶段。Phase0静态核对；Phase1–6各自完成typecheck/build、必要targeted tests及WGSL/真实GPU组件接线检查，失败在本阶段修复；不要求每patch重跑全部测试。临时编译失败/无图仅限阶段内部，必须前移必要consumer使本阶段真实闭合，不通过旧链/adapter/占位值消除错误。Phase7保留整链回归、跨场景/浏览器、连续质量与同条件性能正式验收。每阶段检查清单见当前执行计划§1。
+本次只形成文档。实施遵循用户2026-10-04最新要求：每阶段实现、每阶段集中检查、通过后再进入下一阶段。Phase0静态核对；Phase1–6（含5.5）各自完成typecheck/build、必要targeted tests及WGSL/真实GPU组件接线检查，失败在本阶段修复；不要求每patch重跑全部测试。临时编译失败/无图仅限阶段内部，必须前移必要consumer使本阶段真实闭合，不通过旧链/adapter/占位值消除错误。Phase7保留整链回归、跨场景/浏览器、连续质量与同条件性能正式验收。每阶段检查清单见当前执行计划§1。
 
 ### Phase 0：固定事实与静态账
 
@@ -641,9 +664,15 @@ GPU 零 count 省 shader 工作，不省 CPU 编码。很多 programs 仍有 B×
 
 接Geometry union、missing Appearance、dirty Lighting、Ddirect分离、完整Store reserve/commit与cheap reconstruct。fine容量保障和互斥写域真实接线，不使用占位输出。
 
+2026-10-05复审要求：先修同key admission失败后多Store writer路径和真实pass计时漏项；定位未完成Showcase并完成短smoke。正确性、诊断和实际需求合同闭合后才退出Phase5。历史测试通过不转授dirty代码。
+
+### Phase 5.5：前端物理表示与成本约束补齐
+
+落实§8、§10、§13与§17.4尚未完成的物理要求：lazy detailed witness、typed compact certificate结果、公式ref和真实budget mapping，producer与全部consumer同次切换。移除三份dense certificate和不必要全publication输入物化；完整fine容量、必要lookup/support witness和全部数值语义保留。阶段必须同时通过正确性/接线和结构/工作量检查；声称省掉的工作没有减少则未完成。逐项场景、计数、切换单元和交接见[复审与准备](../next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。这是必需补齐，不是Phase6之后的可选优化。
+
 ### Phase 6：调度、reset、生命周期收口
 
-删除payload clear，落实reset表；稳定BG/PSO cache、合法pass合并、uniform ring/indirect；retired memory、resize/camera cut/device loss、publication失效。全链不再引用旧执行模型；本阶段typecheck/build、GPU/lifecycle与短整链smoke检查通过后再进入Phase7。
+以Phase5.5通过后的最终物理布局为前置，删除payload clear，落实reset表；稳定BG/PSO cache、合法pass合并、uniform ring/indirect；retired memory、resize/camera cut/device loss、publication失效。布局切换必须的接线在5.5前移，本阶段不承接未完成的witness/证书重构。全链不再引用旧执行模型；本阶段typecheck/build、GPU/lifecycle与短整链smoke检查通过后再进入Phase7。
 
 ### Phase 7：集中验证、校准与返工
 
@@ -652,6 +681,8 @@ GPU 零 count 省 shader 工作，不省 CPU 编码。很多 programs 仍有 B×
 ## 22. 最终验证与失败判据
 
 ### 22.1 结构与正确性
+
+阶段实现核对、测试独立预期、正常/失败覆盖、成本断言、失败修复与源码身份规则统一见[执行计划§1.4](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)。本节清单不能只靠存在性/源码正则或小链出图声明完成；没有真实producer→consumer、仍有必需未测项或结构/成本合同不成立，阶段仍未完成。修测试不能反向放松此处架构/数值合同。
 
 - empty/partial/last batch、all fine/hit/miss、overflow、多program、微三角形完整且唯一写回。
 - Constant/Default/Zero无probe；ValueHit不重跑其closure；CertificateHit不冒充值命中。

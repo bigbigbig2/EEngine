@@ -1,5 +1,10 @@
 # Surface V3 Phase 3：Field 候选、验证与有界证明实施记录
 
+**2026-10-05 复审补注**
+
+本页是Phase3当时实现/检查记录；bounded proof受理已实现，但三份dense证书结果与eager地址仍在，不能把前者当成后者已compact。前端物理要求由必需Phase5.5补齐，Phase6不再代为承接。具体责任和成本门槛见[阶段复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。历史Surface subtotal保留当时计时分类口径，不覆盖此次发现的pass漏项。
+
+
 日期：2026-10-04（Asia/Hong_Kong）。基于 2ae78f33；实现对应本轮中文提交。入口：[执行计划 §6](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)、[最终设计 §7–10](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。本轮完成 Phase 3，并补齐实查发现的 Phase 2 前置缺口；Phase 4–7 未实施。
 
 ## 更正此前的阶段判定

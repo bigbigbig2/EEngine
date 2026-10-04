@@ -4,19 +4,44 @@
 
 ## 当前状态
 
-**Phase 0–4 的当前生产切换和阶段检查已完成；Phase 2 的原收口不足已在 Phase 3 补齐并更正。当前停止于 Phase 4，Phase 5–7 未实施。** 不把短诊断当作正式性能验收。
+**2026-10-05复审更正：Phase 0–4的实际接线和历史检查保留，但不能概括为全部前置要求完成。当前HEAD为0c8caf30，另有未提交Phase5实现；Phase5未收口。顺序固定为Phase5优先修复并完成合同→必需Phase5.5→Phase6→Phase7。** 逐项缺口、责任和门槛见[复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。不把短诊断当作正式性能验收。
 
 | 阶段 | 状态 |
 |---|---|
 | 准备：保存当前代码与文档入口 | 已完成 |
 | Phase 0：新协议消费矩阵/物理清单 | 已完成；静态检查通过，见独立Phase 0清单 |
-| Phase 1：publication/工作表示 | 已完成；代码、语义测试、WGSL/GPU 小链与 Showcase 短 smoke 通过；实现记录见 [Phase 1记录](surface-work-v3-cost-bounded-final-refactor-phase1-implementation-2026-10.md) |
-| Phase 2：geometry/setup/容量 | 已完成；固定 64-key setup、local/memo 分离、唯一 GeometryRecord 接线、语义测试与真实 GPU 小链通过；实现记录见 [Phase 2记录](surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md) |
-| Phase 3：Field候选/验证/proof | 已完成；前置更正、45 targeted checks、真实 GPU 组件/生产链与 Showcase 短 smoke 通过；见 [Phase 3记录](surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md) |
+| Phase 1：publication/工作表示 | 既有接线与历史检查保留；dense Workspace/ref迁移尚欠，交5.5补齐。原语义/WGSL/GPU小链和短smoke范围见 [Phase 1记录](surface-work-v3-cost-bounded-final-refactor-phase1-implementation-2026-10.md) |
+| Phase 2：geometry/setup/容量 | setup/local/memo与hot/cold真实接线已有检查；lazy witness/预算映射尚欠，交5.5补齐。见 [Phase 2记录](surface-work-v3-cost-bounded-final-refactor-phase2-implementation-2026-10.md) |
+| Phase 3：Field候选/验证/proof | candidate/支持域/受理已有检查；dense证书结果尚欠，交5.5补齐。历史45 targeted checks/GPU/smoke范围见 [Phase 3记录](surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md) |
 | Phase 4：固定Field/Signal层级 | 已完成；52 targeted tests、固定树/parent/provider/source真实GPU组件、两个Store生产链与Showcase短smoke通过；见 [Phase 4记录](surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md) |
-| Phase 5：worker/发布/重建 | 未开始 |
+| Phase 5：worker/发布/重建 | 本次实现/集中检查通过；F08/F09、IOR/coat validity和canonical包含性修复；73 targeted、37 demand/Store/support GPU、20 Lighting+4 provider、27-module六帧与1080p smoke通过；身份/限制见Phase5记录 |
+| Phase 5.5：前端物理表示/成本补齐 | 必需、尚未实施；承接lazy witness、三组dense certificate、可公式化refs与真实预算映射；不是可选优化 |
 | Phase 6：reset/调度/lifetime | 未开始 |
 | Phase 7：集中验证/性能比较 | 未开始 |
+
+表内历史实现/检查范围不代表此次复审发现的物理表示要求已经实现；这些要求由5.5明确补齐，旧阶段报告不会被回写成当时已经验证。Phase4 Ddirect未factorize原属Phase5，Geometry cold实际append已接通，不能误报为两者都漏接。
+
+2026-10-05本次代码续作覆盖上方复审起点状态：Phase5已按矩阵核对当前producer/consumer并通过集中检查；详细结果与源码SHA256见[Phase5记录](surface-work-v3-cost-bounded-final-refactor-phase5-implementation-2026-10.md)。最终短smoke CPU/GPU pass sum/span/Surface P50=102.39/441.548288/488.644384/430.462976ms；通用counter drop=1单列、独立detailed完整、errors/timestamp失败0、sourceDrift=false。不是Phase7收益或画质验收。后续固定为必需5.5→6→7，当前仍未实现typed compact proof/lazy witness/公式refs/真实预算。
+
+## 2026-10-05：复审决定与开工准备
+
+- 保留HEAD/dirty Phase5与各次报告的独立身份。撤回“前置缺口已全部补齐”的笼统状态；历史通过项不转授新工作树。
+- Phase5先修hash未建立owner却进入unique writer的路径，并检查重复key/碰撞/probe耗尽下writers/key≤1；补真实Field lookup/support四pass计时分类与生产名称覆盖，不能只测旧标签。
+- 当前Showcase报告停在初始化frameCount=2、ready=false，无finishedAt或timing/detailed结果；不认定死锁，也不认定smoke通过。定位后完成受影响检查。
+- 当前R25536/399tiles/82batches的直接约束为完整656B record套入16MiB geometryHot配额；更正“setup 32MiB限制”的错误归因。当前Demand约3.76MB、planner reserve467,616,704B仅是dirty实现静态账，不是帧时收益。
+- Phase5.5集中迁移witness/typed proof结果/ref/预算，验证实际工作量与物理布局；Phase6不承接这些未完成结构改造。完整fine容量、必要hit前witness和原BRDF/guard不得删减。
+- 本次只落实文档、导航与检查门槛，未修生产代码，未运行typecheck/build/tests/GPU/browser/benchmark。静态文档检查与源码未变核对单独记录，不称阶段完成。
+- 本次准备静态检查通过：13份修改/新增Markdown的本地文件链接无缺失；workstream YAML解析无错误；vibe context已返回Phase5→5.5顺序；git diff --check通过。OEngine/validation共991份版本控制可见文件的组合SHA256保持8721e41a8be7f07e3f12c5f5fc704d8a0ced4dbd4c2ba9699eac0bab7f9e680a，确认未修改已有代码/测试/fixture。
+
+以下Phase0–4段落是日期化历史记录；其中“下一步/未开始”和当时Surface subtotal仅描述当时记录，当前状态以上表为准。此次发现真实pass分类漏项，历史subtotal不作完整Surface成本的重新背书，原报告保持不变。
+
+### 测试与失败修复规则补齐
+
+2026-10-05按用户追加要求，将覆盖矩阵、真实生产入口/独立预期、有效非零workload、正确性与成本分开断言、失败分类/局部修复、禁止弱化断言/测试专用production fallback、最终源码身份复核写入[执行计划§1.4](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)，同步AGENTS、VALIDATION、workstream、设计和准备清单。VALIDATION中残留的2026-10-02“开发中不测试”规则已删除并注明失效。
+
+此前这些限制分散或缺失，不能声称上次已完整纠正。规则现已落到文档，但当前测试缺口、F08/F09和smoke尚未修复/重跑；阶段状态仍为Phase5实施中。本轮只改文档，不标生产/测试通过，不靠测试规则更新抹除历史不足。
+
+本轮静态检查：14份当前修改/新增Markdown（不含既有porting改动）的本地链接和标题锚点均无缺失；workstream YAML解析通过；六个测试规则入口存在；VALIDATION旧禁测段落已移除；git diff --check通过。OEngine/validation的991份文件组合SHA256与本轮开始相同（8721e41a8be7f07e3f12c5f5fc704d8a0ced4dbd4c2ba9699eac0bab7f9e680a）。未运行代码/GPU检查，因为本轮没有修改生产代码、测试或fixture。
 
 ## Phase 1：Publication 与 Surface 工作产品完成
 
@@ -81,7 +106,7 @@
 
 ## 下一步与保留风险
 
-Phase 0–4 已按当前源码补齐实现与阶段检查，后继是 Phase 5 实际 worker/发布/重建；仍须每阶段检查通过后推进。不得跳过source/support/overflow/写域合同。
+下一步按执行计划§8.1先完成Phase5缺陷修复、需求合同与集中检查，再执行必需Phase5.5，之后Phase6/7。不能以已有小链出图、proof受理有界或预算未超限代替物理布局/成本合同检查。不得跳过source/support/overflow/写域合同。
 
 历史约800ms属于重构前诊断；Phase3末短诊断 Surface 约435ms、整帧 pass sum 约569ms；这不是当前Phase4或最终性能验收结论。目标profile和32-batch示例不是实测性能保证。高program数B×P开销、近似误差累积、memo/cold gather收益及retired overlap在最终验收前保持待证状态。
 

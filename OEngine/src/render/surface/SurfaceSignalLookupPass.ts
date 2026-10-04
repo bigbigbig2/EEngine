@@ -66,7 +66,7 @@ export class SurfaceSignalLookupPass {
       command.writeBuffer(this.settings, 0, new Uint32Array([
         data.publication.surfaceMetadataOffsets.fieldIdentities, data.publication.surfaceMetadataOffsets.constantFields,
         data.tileCount * 64, this.store?.capacity.entries ?? 4,
-        (this.store?.stats().submittedEpoch ?? 0) + 1, data.viewRevision.value,
+        this.store?.nextSubmissionEpoch ?? 1, data.viewRevision.value,
         data.revisions.environment, data.revisions.light,
         data.revisions.shadow, data.revisions.sun, data.shadowEnabled ? 1 : 0, data.sunEnabled ? 1 : 0,
         this.store === null ? 0 : 1, data.diagnostics ? 1 : 0, 0, 0

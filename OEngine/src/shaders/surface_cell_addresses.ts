@@ -64,6 +64,10 @@ fn publish_cell_addresses(@builtin(workgroup_id) group:vec3u,@builtin(local_invo
   }
   cell_workspace.addresses[at+131u]=flips;
   let input_mask=appearance_metadata[settings.appearance2.w+published.z*${SURFACE_EXECUTION_WORDS}u+2u];
+  let color_guard = cell_address_attribute(setup, 3u, interpolation.weights).xyz;
+  let guard_safe = all(color_guard == color_guard) && all(abs(color_guard) <= vec3f(2.0));
+  cell_workspace.addresses[at + 136u] = select(0u,
+    appearance_metadata[settings.appearance2.w + published.z * ${SURFACE_EXECUTION_WORDS}u + 5u], guard_safe);
   let rect=cell_rect_from_mask(cell_region(lane,2u,2u),origin);
   var valid_uv=0u;
   for(var uv=0u;uv<3u;uv++) {

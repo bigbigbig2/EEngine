@@ -13,6 +13,7 @@ function fixture() {
   const device={
     limits:{ maxBufferSize:1<<28, maxStorageBufferBindingSize:1<<27, maxStorageBuffersPerShaderStage:16, maxTextureDimension2D:8192 },
     createBuffer:d=>({...d,destroy(){}}), createShaderModule:d=>d,
+    createTexture:d=>({...d,createView:()=>({}),destroy(){}}),
     createBindGroupLayout:d=>d, createPipelineLayout:d=>d,
     createComputePipeline:d=>({...d,getBindGroupLayout:()=>({})})
   };

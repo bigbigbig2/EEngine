@@ -21,6 +21,7 @@ import { SurfaceFieldLookupPass } from "./SurfaceFieldLookupPass.js";
 import type { GpuSurfaceSignalStore } from "../../gpu/GpuSurfaceSignalStore.js";
 import { SurfaceSignalLookupPass, type SurfaceSignalLookupInput } from "./SurfaceSignalLookupPass.js";
 import { SurfaceCoveragePass } from "./SurfaceCoveragePass.js";
+import { SurfaceRadiometryPass } from "./SurfaceRadiometryPass.js";
 
 /**
  * The production cell classifier owns the complete coverage -> cell plan
@@ -44,6 +45,7 @@ export interface SurfaceCellClassifierInput {
   readonly viewRevision: Readonly<{ value: number }>;
   readonly signalRevisions: SurfaceSignalLookupInput["revisions"];
   readonly sun: ResourceId | null;
+  readonly solarTransmittance?: ResourceId | null;
   readonly shadowVersion: ResourceId | null;
   readonly width: number;
   readonly height: number;
@@ -83,6 +85,7 @@ export class SurfaceCellClassifierPass {
   private readonly factSettings: GPUBuffer;
   private readonly scratch: SurfaceFrameResources;
   private readonly coveragePass: SurfaceCoveragePass;
+  private readonly radiometry: SurfaceRadiometryPass;
   private readonly pipelines = new Map<string, Readonly<{ constants: GPUComputePipeline; facts: GPUComputePipeline;
     addresses: GPUComputePipeline; geometryCertificates: GPUComputePipeline; fieldCertificates: readonly GPUComputePipeline[];
     classify: readonly GPUComputePipeline[] }>>();
@@ -91,10 +94,11 @@ export class SurfaceCellClassifierPass {
     fieldStore: GpuSurfaceFieldStore | null = null, signalStore: GpuSurfaceSignalStore | null = null) {
     this.scratch = scratch;
     this.coveragePass = new SurfaceCoveragePass(device, scratch);
+    this.radiometry = new SurfaceRadiometryPass(device);
     this.fieldLookup = new SurfaceFieldLookupPass(device, fieldStore);
     this.signalLookup = new SurfaceSignalLookupPass(device, signalStore);
     this.cellSettings = device.createBuffer({ label: "Surface/cell settings", size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-    this.factSettings = device.createBuffer({ label: "Surface/cell fact settings", size: 96, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.factSettings = device.createBuffer({ label: "Surface/cell fact settings", size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   }
 
   addToGraph(graph: FrameGraph, input: SurfaceCellClassifierInput): SurfaceCellClassifierProducts {
@@ -166,6 +170,14 @@ export class SurfaceCellClassifierPass {
     let fieldStore!:ResourceId,signalStore!:ResourceId;
     const makeGroup = (pipeline: GPUComputePipeline, entries: readonly GPUBindGroupEntry[]): GPUBindGroup =>
       this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries });
+    this.radiometry.addToGraph(graph, {
+      metadata: input.appearanceMetadata,
+      offset: input.publication.surfaceMetadataOffsets.radiometry,
+      lightRecords: input.lightRecords,
+      clusters: input.clusters.data,
+      sun: input.sun,
+      transmittance: input.solarTransmittance ?? null
+    });
     const constants = graph.add("Surface/cell publish material constants", { input, workspace }, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
       const metadata = input.publication.surfaceMetadataOffsets;
@@ -176,7 +188,8 @@ export class SurfaceCellClassifierPass {
         metadata.constants, metadata.routes, metadata.bounds, metadata.directory,
         metadata.materialLookup, metadata.materialLookupCount, metadata.directoryCount, input.publication.surfaceCacheGeneration,
         referenceCapacity, setupCapacity, input.generation, 1,
-        metadata.constantFields, (input.shadowEnabled ? 1 : 0) | (input.physicalSunEnabled ? 2 : 0), metadata.fieldIdentities, metadata.executionProfiles
+        metadata.constantFields, (input.shadowEnabled ? 1 : 0) | (input.physicalSunEnabled ? 2 : 0), metadata.fieldIdentities, metadata.executionProfiles,
+        metadata.radiometry, 0, 0, 0
       ]);
       command.writeBuffer(this.factSettings, 0, settings.buffer, 0, settings.byteLength);
       const pass = command.beginComputePass({ label: "Surface/cell publish material constants" }); pass.setPipeline(pipelines!.constants);
@@ -316,5 +329,5 @@ export class SurfaceCellClassifierPass {
     return { workspace, fieldStore, signalStore, batchTileCapacity, coverage, activeIndirect };
   }
 
-  destroy(): void { this.fieldLookup.destroy(); this.signalLookup.destroy(); this.cellSettings.destroy(); this.factSettings.destroy();  this.pipelines.clear(); }
+  destroy(): void { this.radiometry.destroy(); this.fieldLookup.destroy(); this.signalLookup.destroy(); this.cellSettings.destroy(); this.factSettings.destroy();  this.pipelines.clear(); }
 }

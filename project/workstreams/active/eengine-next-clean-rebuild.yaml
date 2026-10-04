@@ -13,13 +13,17 @@ goal: >-
 
 currentSlice:
   id: surface-work-v3-cost-bounded-final-refactor
-  title: Surface V3 有界前端最终重构：Phase 4 已完成，待 Phase 5 实施
+  title: Surface V3：Phase 5 检查通过，实施必需 Phase 5.5 物理表示和成本补齐
   status: active
   goal: >-
     按 docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md
     与 docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md
-    每阶段实现并检查，通过后进入下一阶段。当前完成设计、基线提交 14c17078 与 Phase 0 静态消费/容量清单；
-    Phase 0 身份、消费者矩阵、字段/信号依赖、物理账、来源与静态检查已完成；Phase 1 publication/工作表示与 Phase 2 Geometry owner/bounded setup 的代码、阶段检查与真实 GPU 小链已完成；Phase 3 Field 候选/验证/proof 与实查的 Phase 2 前置修正已完成；Phase 4 固定 Field/Signal 树、实际 source/provider 接线和阶段检查已完成；Phase 5–7 未开始。
+    每阶段实现并检查，通过后进入下一阶段。重构前基线 14c17078，Phase 4 HEAD 0c8caf30；
+    Phase 0–4 的接线与历史检查保留，但前置物理表示未全部落实。本次 Phase 5 实现与集中检查通过，
+    同 key writer、真实计时、IOR/coat validity、canonical包含性已修复，六帧GPU链与原1080p短smoke完成。
+    当前必需 Phase 5.5 补齐 lazy witness、typed compact certificate、公式 ref 与真实预算映射，
+    同时通过数值/覆盖和结构/工作量检查；之后 Phase 6 调度/reset/lifetime、Phase 7 正式验收。
+    开工清单见 docs/next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md。
     run06 的约 801.7ms 为历史诊断，accepted=false，不宣称性能完成。
     详细状态维护于对应 progress 文档。
 
@@ -50,7 +54,13 @@ architectureRules:
   - Account for real layouts, mandatory worst-case capacity, reset masks, GPU limits and in-flight retirement before allocation.
   - Keep copy/clear outside compute passes and valid indirect usage scopes; cache compatible layouts and stable bindings.
   - No current-frame GPU-to-CPU-to-GPU work control, private submits, retired owners or compatibility bridges.
-  - Validate each phase before advancing; Phase 1-6 require typecheck/build, targeted semantics and relevant real GPU producer-consumer checks, with short whole-chain smoke when available.
+  - Validate each phase before advancing; Phase 1-6 including Phase 5.5 require typecheck/build, targeted semantics and relevant real GPU producer-consumer checks, with short whole-chain smoke when available.
+  - Phase 5.5 is mandatory before Phase 6; migrate eager witnesses, dense certificate results, formula references and physical budget mapping with every direct consumer.
+  - Phase completion needs actual cost-contract evidence as well as correctness; small-fixture output, bounded proof counts and allocation ceilings do not prove compact physical products.
+  - Unresolved cache admission retains transient output and must not create multiple Store writers for one key; diagnostic timing must cover actual production pass names.
+  - Maintain phase requirement coverage across real producers, all consumers, independent expectations, normal and failure cases, structural costs and actual source-identified results; green test counts do not prove completion.
+  - Preserve failures, reproduce and classify the root cause before scoped repair; migrate stale fixtures without weakening semantic assertions or adding test-only production fallbacks, owners or submits.
+  - Do not pass by skipping required assertions, loosening tolerances, disabling required features or forcing ordinary work to fine or residual; scope and quality changes require explicit user approval.
   - Read pinned complete source before complex implementation; design, implementation and validated adoption remain distinct.
   - Temporary compile failures or missing consumers are allowed only inside a phase; pull required wiring forward and never use adapters or placeholders to pass checks.
   - Preparation and historical repair results do not mark new reconstruction phases or performance claims complete.
@@ -58,9 +68,14 @@ architectureRules:
 deferredValidation:
   policy: >-
     Follow the user-requested per-phase validation policy. Phase 0 checks frozen identity, consumer/capacity
-    inventories and documentation; each Phase 1-6 completes typecheck/build, relevant semantic tests and
+    inventories and documentation; each Phase 1-6 including mandatory Phase 5.5 completes typecheck/build, relevant semantic tests and
     real WGSL/GPU component wiring checks before advancing. Fix failures within the phase and pull required
-    consumers forward; no placeholder or retired path. Phase 7 repeats integration and completes full
+    consumers forward; no placeholder or retired path. Phase 5.5 also verifies actual witness/proof/ref production,
+    physical layouts and binding constraints; its unfinished structural work cannot be deferred to Phase 6.
+    Follow current execution section 1.4 for coverage, independent oracles and failure repair; unresolved required
+    checks, incomplete reports and stale artifacts cannot count as phase completion. Revalidate affected work
+    after final production changes rather than combining passes from different snapshots.
+    Phase 7 repeats integration and completes full
     quality/lifecycle/browser matrices and fixed-condition performance acceptance.
   finalAcceptance:
     - typecheck and build after the complete target and production wiring

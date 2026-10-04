@@ -17,7 +17,7 @@ export class GpuSurfaceFieldStore {
  private generation=1;
  private publicationGeneration=0;
  private submittedEpoch=0;
- private readonly inFlight=new Set<number>();
+ private readonly inFlight=new Set<string>();
  private counters={lookupRequests:0,hits:0,misses:0,admissions:0,overflows:0};
  constructor(private readonly device:GPUDevice,budgetBytes=128*1024*1024,private readonly accounting?:ResourceAccounting){
   const dependencyBytes=SURFACE_FIELD_DEPENDENCY_BUDGET_BYTES;
@@ -33,7 +33,60 @@ export class GpuSurfaceFieldStore {
   this.dependencyBuffer=device.createBuffer({label:"Surface/field dependency witnesses",size:dependencyBytes,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST|GPUBufferUsage.COPY_SRC});
   this.handle=accounting?.created({kind:"buffer",category:"resident",owner:"Surface/FieldStore",bytes:this.capacity.bytes+dependencyBytes,label:"Surface/FieldStore and dependency witnesses"});
  }
- nextGeneration():number{if(this.generation>=0xffffffff)throw new RangeError("FieldStore generation exhausted");return ++this.generation;}
+ private namespace = 1;
+ private namespaceRestartPending = false;
+ private dependencyReservations = 0;
+
+ get nextSubmissionEpoch(): number {
+  return this.namespaceRestartPending || this.submittedEpoch >= 0xfffffffe ? 1 : this.submittedEpoch + 1;
+ }
+
+ needsNamespaceRestart(dependencies = 0): boolean {
+  return this.namespaceRestartPending || this.submittedEpoch >= 0xfffffffe ||
+    this.dependencyReservations + dependencies >= 0xfffffff0;
+ }
+
+ requestNamespaceRestart(): void {
+  if (this.namespace >= Number.MAX_SAFE_INTEGER) {
+   throw new RangeError("Surface cache namespace exhausted; recreate the GPU owner");
+  }
+  this.namespaceRestartPending = true;
+ }
+
+ /** Queue order places this rare clear after every older frame consumer and
+  * before the new namespace's first lookup. Runtime restarts Field and Signal
+  * together. Abort retains the request and advances no CPU identity. */
+ encodeNamespaceRestart(command: ShadeGPUCommandContext): void {
+  if (!this.namespaceRestartPending) { return; }
+  if (this.destroyed || command.device !== this.device || command.closed) {
+   throw new Error("Surface namespace restart requires an open same-device command");
+  }
+  for (const buffer of this.buffers) { command.gpu_encoder.clearBuffer(buffer); }
+  command.gpu_encoder.clearBuffer(this.dependencyBuffer);
+  const namespace = this.namespace;
+  command.onFinished.addOne(() => {
+   if (this.namespace !== namespace) { return; }
+   this.namespace++;
+   this.submittedEpoch = 0;
+   this.generation = 1;
+   this.dependencyReservations = 0;
+   this.namespaceRestartPending = false;
+  });
+ }
+
+ reserveDependencyNamespace(command: ShadeGPUCommandContext, fields: number): void {
+  // At most one dependency version is allocated per submitted descriptor.
+  // This CPU upper bound avoids reading the current GPU allocator counter.
+  command.onFinished.addOne(() => { this.dependencyReservations += fields; });
+ }
+
+ nextGeneration(): number {
+  if (this.generation >= 0xfffffffe) {
+   this.requestNamespaceRestart();
+   return this.generation;
+  }
+  return ++this.generation;
+ }
  /** Advances the GPU cache generation at a publication boundary. A scene
   * revision is a witness, never a CPU frame number. */
  preparePublication(publicationGeneration:number):void{
@@ -48,9 +101,13 @@ export class GpuSurfaceFieldStore {
  trackSubmission(gpuDone:Promise<void>,publicationGeneration:number):number{
   if (this.destroyed) throw new Error("FieldStore submission after destroy");
   this.preparePublication(publicationGeneration);
+  if (this.needsNamespaceRestart()) {
+   throw new Error("Surface cache namespace restart was not committed before submission tracking");
+  }
   const epoch = ++this.submittedEpoch;
-  this.inFlight.add(epoch);
-  const retire = (): void => { this.inFlight.delete(epoch); };
+  const submission = `${this.namespace}:${epoch}`;
+  this.inFlight.add(submission);
+  const retire = (): void => { this.inFlight.delete(submission); };
   void gpuDone.then(retire, retire);
   return epoch;
  }
@@ -61,7 +118,7 @@ export class GpuSurfaceFieldStore {
   let offset=0;for(const buffer of this.buffers){const size=buffer.size;command.writeBuffer(buffer,0,new Uint32Array(size/4).buffer,0,size);offset+=size;}
  }
  recordLookup(requests:number,hits:number,misses:number,admissions=0,overflows=0):void{this.counters.lookupRequests+=requests;this.counters.hits+=hits;this.counters.misses+=misses;this.counters.admissions+=admissions;this.counters.overflows+=overflows;}
- stats():SurfaceFieldStoreStats & { readonly generation:number; readonly publicationGeneration:number; readonly submittedEpoch:number; readonly inFlightSubmissions:number } {return Object.freeze({capacity:this.capacity,allocatedBytes:this.capacity.bytes+this.dependencyBuffer.size,generation:this.generation,publicationGeneration:this.publicationGeneration,submittedEpoch:this.submittedEpoch,inFlightSubmissions:this.inFlight.size,...this.counters});}
+ stats():SurfaceFieldStoreStats & { readonly generation:number; readonly publicationGeneration:number; readonly submittedEpoch:number; readonly inFlightSubmissions:number } {return Object.freeze({capacity:this.capacity,allocatedBytes:this.capacity.bytes+this.dependencyBuffer.size,generation:this.generation,publicationGeneration:this.publicationGeneration,submittedEpoch:this.submittedEpoch,namespace:this.namespace,dependencyReservations:this.dependencyReservations,inFlightSubmissions:this.inFlight.size,...this.counters});}
  destroy():void{if(this.destroyed)return;this.destroyed=true;for(const buffer of this.buffers)buffer.destroy();this.dependencyBuffer.destroy();if(this.handle)this.accounting!.destroyed(this.handle);}
 }
 

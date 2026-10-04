@@ -1,5 +1,10 @@
 # Surface V3 Phase 2：Geometry 前置实施与收口更正
 
+**2026-10-05 复审补注**
+
+本页保留Phase2及此前更正记录；本次复审发现lazy witness等前置要求仍未完整落实，不能再概括为全部补齐。Geometry cold已按mask append，但地址/证书/ref与预算映射由必需Phase5.5继续迁移。具体范围与门槛见[阶段复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)，不把后续检查回写为旧提交已经通过。
+
+
 日期：2026-10-04。入口：[执行计划 §5](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)、[设计 §7、§13](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。
 
 ## 原判定的不足与当前事实

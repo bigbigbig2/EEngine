@@ -1,6 +1,7 @@
 /** Exposure-independent linear Rec.709. Denv is diffuse irradiance (no
- * reflectance, occlusion, scalar AO, 1/pi or E). Ddirect is the production
- * BRDF's already-colored residual. Specular/coat packets are radiance.
+ * reflectance, occlusion, scalar AO, 1/pi or E). Ddirect is factor-free transport
+ * including 1/pi, or an explicit exceptional colored residual preserving the
+ * complete BRDF finite guard. Specular/coat packets are radiance.
  * Reconstruction applies the independent diffuse factors and E, then converts
  * the sum to working Rec.2020 and applies pre-exposure exactly once. Ownership
  * and generation belong to Store metadata, never these semantic flags. */
@@ -13,6 +14,8 @@ export const SURFACE_PACKET_FLAG_SPECULAR = 16;
 export const SURFACE_PACKET_FLAG_COAT = 32;
 export const SURFACE_PACKET_FLAG_ENVIRONMENT = 64;
 export const SURFACE_PACKET_FLAG_IRRADIANCE = 128;
+export const SURFACE_PACKET_FLAG_DIFFUSE_TRANSPORT = 256;
+export const SURFACE_PACKET_FLAG_COLORED_RESIDUAL = 512;
 
 export const SURFACE_PACKET_CONTRACT_WGSL = /* wgsl */ `
 const SURFACE_PACKET_VALID:u32=${SURFACE_PACKET_FLAG_VALID}u;
@@ -23,4 +26,6 @@ const SURFACE_PACKET_SPECULAR:u32=${SURFACE_PACKET_FLAG_SPECULAR}u;
 const SURFACE_PACKET_COAT:u32=${SURFACE_PACKET_FLAG_COAT}u;
 const SURFACE_PACKET_ENVIRONMENT:u32=${SURFACE_PACKET_FLAG_ENVIRONMENT}u;
 const SURFACE_PACKET_IRRADIANCE:u32=${SURFACE_PACKET_FLAG_IRRADIANCE}u;
+const SURFACE_PACKET_DIFFUSE_TRANSPORT:u32=${SURFACE_PACKET_FLAG_DIFFUSE_TRANSPORT}u;
+const SURFACE_PACKET_COLORED_RESIDUAL:u32=${SURFACE_PACKET_FLAG_COLORED_RESIDUAL}u;
 `;

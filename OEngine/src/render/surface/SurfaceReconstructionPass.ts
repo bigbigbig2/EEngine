@@ -59,6 +59,7 @@ fn write_surface_background(@builtin(global_invocation_id) id:vec3u) {
 export function surfaceReconstructWgsl(batchTiles:number):string {
  return /* wgsl */ `
 ${LINEAR_REC709_TO_REC2020_WGSL}
+${SURFACE_PACKET_CONTRACT_WGSL}
 ${surfaceCellWorkspaceWgsl(batchTiles)}
 struct Settings {
  width:u32,height:u32,record_count:u32,batch_index:u32,
@@ -128,9 +129,12 @@ fn reconstruct(@builtin(workgroup_id) group:vec3u,@builtin(local_invocation_id) 
  if valid {
   value=max(surface_field(leaf,5u).xyz,vec3f(0.0))+compose_unlit(leaf,pixel);
   for(var kind=0u;kind<6u;kind++) {
-   let signal=surface_signal(leaf,kind).xyz;
-   if kind==1u { value+=compose_irradiance(leaf,pixel,signal); }
-   else { value+=signal; }
+   let packet = surface_signal(leaf, kind);
+   if kind == 0u && (bitcast<u32>(packet.w) & SURFACE_PACKET_DIFFUSE_TRANSPORT) != 0u {
+     let factor = max(surface_field(leaf, 0u).xyz, vec3f(0.0)) * (1.0 - clamp(surface_field(leaf, 2u).x, 0.0, 1.0));
+     value += factor * packet.xyz;
+   } else if kind == 1u { value += compose_irradiance(leaf, pixel, packet.xyz); }
+   else { value += packet.xyz; }
   }
   diagnostic_add(0u,1u);diagnostic_add(7u,1u);
  } else { diagnostic_add(1u,1u); }

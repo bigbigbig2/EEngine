@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 const {chromium}=createRequire(resolve('validation/package.json'))('playwright-core');
 const {createServer}=await import('../../../OEngine/node_modules/vite/dist/node/index.js');
 const fixture=process.argv[2]??'production-cell';
-if(!['phase4-production','phase4-tree','phase3-record','phase3-proof','phase3-geometry','phase3-production','phase1-production','phase2-geometry','production-cell','production-orm','repair-step-one','repair-certificate','repair-field-lookup','repair-signal-lookup','repair-demand','repair-production','repair-timing','repair-compile'].includes(fixture))throw new RangeError('Unknown GPU fixture');
+if(!['phase5-production','phase5-demand','phase5-lighting','phase4-production','phase4-tree','phase3-record','phase3-proof','phase3-geometry','phase3-production','phase1-production','phase2-geometry','production-cell','production-orm','repair-step-one','repair-certificate','repair-field-lookup','repair-signal-lookup','repair-demand','repair-production','repair-timing','repair-compile'].includes(fixture))throw new RangeError('Unknown GPU fixture');
 const outputDirectory=process.argv[3]??'.local/validation/surface-optimization-v1';
 const pollBudget=Number(process.argv[4]??30);
 if(!Number.isSafeInteger(pollBudget)||pollBudget<1||pollBudget>90)throw new RangeError('GPU fixture host wait budget must be 1..90 ten-second polls');
@@ -28,5 +28,5 @@ try {
  await mkdir(outputDirectory,{recursive:true});
  await writeFile(resolve(outputDirectory,`${fixture}-browser.json`),JSON.stringify(report,null,2));
  const code=await page.evaluate(()=>window.cellOracleSource);if(code)await writeFile(resolve(outputDirectory,`${fixture}-browser.wgsl`),code);
- console.log(JSON.stringify({...report,logs:undefined}));assert.equal(report.passed,true,report.failure);assert.deepEqual(errors,[]);
+ console.log(JSON.stringify({...report,logs:undefined,order:undefined}));assert.equal(report.passed,true,report.failure);assert.deepEqual(errors,[]);
 }finally{await context?.close();await browser?.close();await server.close();}

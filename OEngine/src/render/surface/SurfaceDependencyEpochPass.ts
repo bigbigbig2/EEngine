@@ -29,6 +29,7 @@ export class SurfaceDependencyEpochPass {
     versions: ResourceId;
     publication: GpuAppearancePublication;
     bind: SurfaceResourceBinding;
+    beforeLookup?: (command: ShadeGPUCommandContext, fields: number) => void;
   }): ResourceId {
     const fields=input.publication.surfaceMetadataOffsets.directoryCount*15;
     const physical=this.store?.dependencyBuffer??this.disabled;
@@ -42,8 +43,9 @@ export class SurfaceDependencyEpochPass {
     for (const [index,pipeline] of this.pipelines.entries()) {
       const node=graph.add(`Surface/field dependency ${["lookup","reserve","publish","resolve"][index]}`,{},(_data,resources,context) => {
         const command=context.encoder as ShadeGPUCommandContext;
+        if (index === 0) { input.beforeLookup?.(command, fields); }
         command.writeBuffer(this.settings,0,new Uint32Array([fields,input.publication.surfaceMetadataOffsets.fieldIdentities,
-          input.publication.surfaceMetadataOffsets.fieldTextureDependencies,(this.store?.stats().submittedEpoch??0)+1,
+          input.publication.surfaceMetadataOffsets.fieldTextureDependencies,this.store?.nextSubmissionEpoch ?? 1,
           sets,this.store===null?0:1,0,0]).buffer,0,32);
         const entries: GPUBindGroupEntry[]=[{binding:0,resource:{buffer:this.settings}}];
         if(index!==2) {

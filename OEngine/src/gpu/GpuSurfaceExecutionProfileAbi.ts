@@ -13,7 +13,9 @@ export function packSurfaceExecutionProfiles(profiles: readonly AppearanceExecut
   for (let entry = 0; entry < profiles.length; entry++) {
     const profile = profiles[entry]!;
     const base = entry * SURFACE_EXECUTION_WORDS;
-    words.set([profile.token, profile.enabledMask, profile.inputMask, profile.groups.length, 1, 0, 0, 0], base);
+    // 5: submitted numeric semantic; 6/7: immutable residual/transport tokens.
+    words.set([profile.token, profile.enabledMask, profile.inputMask, profile.groups.length, 1, 0,
+      profile.signals[0]!.residualToken, profile.signals[0]!.token], base);
     profile.fields.forEach((field, index) => {
       const group = profile.groups[field.group]!;
       words.set([field.token, field.inputMask, field.domain.seamMask, field.cacheClass,
@@ -29,7 +31,7 @@ export function packSurfaceExecutionProfiles(profiles: readonly AppearanceExecut
     profile.signals.forEach((signal, index) => {
       words.set([signal.token, signal.fields, signal.providers, signal.seamMask, signal.inputMask,
         signal.maxRate, signal.proofClass, signal.domainToken,
-        signal.semantic === "coloredResidual" ? 0 : signal.semantic === "irradiance" ? 1 : 2,
+        signal.semantic === "coloredResidual" ? 0 : signal.semantic === "irradiance" ? 1 : signal.semantic === "diffuseTransport" ? 3 : 2,
         f32Bits(0.9986295348), 0, 0], base + SURFACE_EXECUTION_HEADER_WORDS + 15 * SURFACE_FIELD_EXECUTION_WORDS + index * SURFACE_SIGNAL_EXECUTION_WORDS);
     });
   }

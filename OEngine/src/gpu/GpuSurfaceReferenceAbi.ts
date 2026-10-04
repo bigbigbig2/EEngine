@@ -15,7 +15,7 @@ export const SURFACE_CELL_ADDRESS = Object.freeze({
   parameterSpace: 92, valid: 93,
   // Raw world position, transformed normal and tangent: center/X/Y neighbor vec4.
   // These are address witnesses, not a second GeometryRecord product.
-  worldInputs: 94, instanceFlags: 130, normalFlip: 131
+  worldInputs: 94, instanceFlags: 130, normalFlip: 131, directSemantic: 136
 });
 export const SURFACE_REFERENCE_WGSL = /* wgsl */ `
 const SURFACE_REFERENCE_INVALID:u32=0u;
