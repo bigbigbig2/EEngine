@@ -10,6 +10,8 @@
 
 范围：SurfaceWork 前端、Geometry setup/record、FieldStore/SignalStore、Appearance/Lighting 调度、重建与资源生命周期。本文包含实施顺序。
 
+2026-10-05用户明确范围：本次不要求skin/morph支持，也不新增previous deformation属性producer。现行静态Geometry/Product、current/previous刚性变换、身份失效和motion-invalid合同仍须完整验收；下文及总设计中涉及skin/morph的未来representation能力不作为本目标完成门槛。
+
 阅读顺序：§2–3 核对问题和成本；§4–16 为最终生产合同；§17–19 为容量与 WebGPU；§20–21 可直接用于重构拆解；§22 判断是否真正完成。补充材料原路径为 G:/我的云端硬盘/web3d/webgpu/temp/333.md；其中实施建议经过本文重新取舍，不作为独立执行指令，也不是重构必须依赖的外部文件。
 
 ## 1. 文档关系与本轮决策

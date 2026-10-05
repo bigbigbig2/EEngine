@@ -10,13 +10,16 @@ function fixture(filtered = true) {
   const accounting=new ResourceAccounting(),buffers=[],commands=[];let loss;
   const limits={maxStorageBuffersPerShaderStage:16,maxBindingsPerBindGroup:1000,maxBindGroups:4,maxComputeInvocationsPerWorkgroup:256,
     maxComputeWorkgroupSizeX:256,maxComputeWorkgroupsPerDimension:2,minStorageBufferOffsetAlignment:256,maxStorageBufferBindingSize:1<<24,maxBufferSize:1<<24};
-  const device={limits,lost:new Promise(resolve=>{loss=resolve;}),queue:{writeBuffer(){}},createShaderModule:d=>d,createBindGroupLayout:d=>d,
+  const device={limits,lost:new Promise(resolve=>{loss=resolve;}),queue:{writeBuffer(){}},
+    createShaderModule:d=>({...d,getCompilationInfo:async()=>({messages:[]})}),createBindGroupLayout:d=>d,
     createPipelineLayout:d=>d,createComputePipelineAsync:async d=>d,createBindGroup:d=>d,
     createBuffer(d){const data=new ArrayBuffer(d.size),b={...d,destroyed:0,getMappedRange:()=>data,unmap(){},destroy(){this.destroyed++;}};buffers.push(b);return b;}};
   const arenaOwner=new FrameGeometryArena(device,accounting),metadata={size:256,usage:GPUBufferUsage.COPY_SRC};
   const budget={workCapacity:4,filteredWorkCapacity:filtered?4:0,vertexCapacity:9,triangleCapacity:3,dictionaryCapacity:16,coefficientCapacity:8,probeLimit:8,maxBytes:16384};
   const arena=arenaOwner.prepare(metadata,256,budget),source={size:1024,usage:GPUBufferUsage.STORAGE};
-  const input={arena,instances:{records:source},work:source,assets:{geometryRecords:source,meshletRecords:source,meshletVertexIndices:source,meshletTriangleIndices:source,vertexStreamData:source}};
+  const input={arena,instances:{records:source},work:source,assets:{sparseShading:{
+    assetMetadataHeap:source,vertexPayloadHeap:source,geometryWordBase:0,meshletWordBase:0,
+    meshletVertexWordBase:0,meshletTriangleWordBase:0,vertexDataWordBase:0}}};
   const encoder={beginComputePass(){return {setPipeline(p){commands.push(['pipeline',p.compute.entryPoint]);},setBindGroup(i,g){commands.push(['group',i,g]);},
     dispatchWorkgroups(...args){commands.push(['dispatch',...args]);},dispatchWorkgroupsIndirect(...args){commands.push(['indirect',...args]);},end(){}};}};
   const lateInput={sourceGeometry:arena.sourceDirectory,filteredGeometry:arena.filteredDirectory,sourceQueue:source,capacity:4,
@@ -26,7 +29,8 @@ function fixture(filtered = true) {
 test('selected vertices borrow the sole arena, await async preparation and reuse allocations without arena double accounting',async()=>{
   const f=fixture(),owner=new FrameGeometryVertices(f.device,f.accounting),arenaBytes=f.arenaOwner.allocatedBytes;
   assert.throws(()=>owner.prepare(f.input),/completed scene preparation/);await owner.ready;const p=owner.prepare(f.input);
-  assert.equal(p.byteLength,112+9*96);assert.equal(f.accounting.snapshot().totalBytes,arenaBytes+112+9*96);const count=f.buffers.length;
+  // Settings 64B, control 32B, indirect 16B and two raster addresses 16B each.
+  assert.equal(p.byteLength,144+9*96);assert.equal(f.accounting.snapshot().totalBytes,arenaBytes+144+9*96);const count=f.buffers.length;
   for(let i=0;i<3;i++)owner.encode(f.encoder,p);assert.equal(f.buffers.length,count);assert.equal(f.commands.filter(c=>c[0]==='indirect').length,3);
   assert.equal(f.commands.filter(c=>c[0]==='group'&&c[1]===1).length,3);
   owner.release(p);assert.equal(f.accounting.snapshot().totalBytes,arenaBytes);assert.equal(f.input.arena.buffer.destroyed,0);
@@ -39,9 +43,9 @@ test('vertex byte/dispatch/capability failure and binding exceptions never leak 
   f.device.createBindGroup=()=>{throw new Error('binding failed');};assert.throws(()=>other.prepare(f.input),/binding failed/);
   assert.equal(other.allocatedBytes,0);assert.equal(f.accounting.snapshot().totalBytes,f.arenaOwner.allocatedBytes);
   assert.ok(f.buffers.slice(1).every(b=>b.destroyed===1));f.device.createBindGroup=make;
-  const p=other.prepare(f.input);assert.equal(p.rasterSettings,p.filteredRasterSettings);assert.equal(p.byteLength,96+9*96);
+  const p=other.prepare(f.input);assert.equal(p.rasterSettings,p.filteredRasterSettings);assert.equal(p.byteLength,128+9*96);
   f.loss({});await new Promise(resolve=>setImmediate(resolve));other.release(p);assert.equal(f.accounting.snapshot().totalBytes,0);
-  f.device.limits.maxBindingsPerBindGroup=16;assert.throws(()=>new FrameGeometryVertices(f.device),/eleven storage/);owner.destroy();other.destroy();
+  f.device.limits.maxBindingsPerBindGroup=16;assert.throws(()=>new FrameGeometryVertices(f.device),/fifteen storage/);owner.destroy();other.destroy();
 });
 test('HZB owner uses separate indirect write/read scopes and GPU completion retirement, with no arena ownership',async()=>{
   const f=fixture(),owner=new CurrentHzbLateRecheckGpu(f.device,f.accounting);assert.throws(()=>owner.prepare(f.lateInput),/completed scene preparation/);

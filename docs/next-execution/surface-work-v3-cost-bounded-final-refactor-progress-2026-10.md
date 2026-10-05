@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**2026-10-05当前状态：Phase5提交d5783b95、Phase5.5提交7d267d37；Phase6实现与集中检查完成，待中文提交，Phase7正式验收未开始。** 原复审0c8caf30+dirty身份属于历史起点，不是当前HEAD。逐项缺口、责任和门槛见[复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。不把短诊断当作正式性能验收。
+**2026-10-05当前状态：Phase5提交d5783b95、Phase5.5提交7d267d37、Phase6提交a7e415d2；Phase7整合与验收中，未完成。** 用户最新范围：只用Playwright调用本地Chrome；本次不支持skin/morph。原复审0c8caf30+dirty身份属于历史起点，不是当前HEAD。逐项缺口、责任和门槛见[复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)；本阶段结果见[Phase7矩阵](surface-work-v3-cost-bounded-final-refactor-phase7-acceptance-2026-10.md)。不把短诊断当作正式性能验收。
 
 | 阶段 | 状态 |
 |---|---|
@@ -16,8 +16,8 @@
 | Phase 4：固定Field/Signal层级 | 已完成；52 targeted tests、固定树/parent/provider/source真实GPU组件、两个Store生产链与Showcase短smoke通过；见 [Phase 4记录](surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md) |
 | Phase 5：worker/发布/重建 | 本次实现/集中检查通过；F08/F09、IOR/coat validity和canonical包含性修复；73 targeted、37 demand/Store/support GPU、20 Lighting+4 provider、27-module六帧与1080p smoke通过；身份/限制见Phase5记录 |
 | Phase 5.5：前端物理表示/成本补齐 | 已提交7d267d37；lazy witness、typed结果、formula ref、真实planner、proof/cache满、毒值、parent/tree、reconstruct和1080p timing/detailed已通过；正式性能/质量仍未验收 |
-| Phase 6：reset/调度/lifetime | 实现与集中检查完成，待中文提交；87 targeted/build、8帧32poison GPU、10项真实Renderer生命周期及最终无drift/无drop 1080p smoke通过；详见Phase6矩阵 |
-| Phase 7：集中验证/性能比较 | 未开始 |
+| Phase 6：reset/调度/lifetime | 实现与集中检查通过，提交a7e415d2；87 targeted/build、8帧32poison GPU、10项真实Renderer生命周期及最终无drift/无drop 1080p smoke通过；详见Phase6矩阵 |
+| Phase 7：集中验证/性能比较 | 实施/验收中；186相关targeted、当前Geometry/tree/Demand/Lighting与八帧链通过；unlit生产缺陷修复、lit/unlit生命周期通过。完整质量/1080p固定采样/历史比较尚未完成，headed Chrome首帧Instance dropped仍未定位；详见Phase7矩阵 |
 
 表内历史实现/检查范围不代表此次复审发现的物理表示要求已经实现；这些要求由5.5明确补齐，旧阶段报告不会被回写成当时已经验证。Phase4 Ddirect未factorize原属Phase5，Geometry cold实际append已接通，不能误报为两者都漏接。
 

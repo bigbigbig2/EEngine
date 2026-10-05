@@ -119,6 +119,11 @@ try {
         await page.goto(`${base}__surface-performance/index.html?mode=${mode}`, { waitUntil: "domcontentloaded" });
         await page.waitForFunction(() => Boolean(globalThis.__eengineShowcase), undefined, { timeout: 30000 });
         await bounded(page.evaluate(() => globalThis.__eengineShowcase.start()), asyncPrewarm ? 600000 : 180000, "Scene preparation");
+        await page.waitForFunction(() => globalThis.__eengineShowcase.ready || globalThis.__eengineShowcase.failed,
+          undefined, { timeout: 900000 });
+        if (await page.evaluate(() => globalThis.__eengineShowcase.failed)) {
+          throw new Error("Production showcase failed before its first GPU completion");
+        }
         const distanceScale = cameraDistances.get(coverage);
         const capture = await bounded(page.evaluate(request => globalThis.__eengineShowcase.capture(request), { width, height, frames, warmup,
           coverage, surfaceMode: mode, ...(distanceScale === undefined ? {} : { distanceScale, lockCamera: true }),

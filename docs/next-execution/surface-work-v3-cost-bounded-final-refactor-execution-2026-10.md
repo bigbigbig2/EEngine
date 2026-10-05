@@ -6,6 +6,8 @@
 
 本文替代优化 V1 和五步修复计划的当前执行入口。按用户2026-10-04最新要求，采用**每阶段实现、每阶段集中检查、通过后再进入下一阶段**；不要求每个patch或每阶段一次提交。历史结果保留，但不能代替新阶段检查。本文不另选算法，不承诺固定FPS。
 
+2026-10-05用户范围澄清：本次不要求skin/morph及previous deformation属性生产。静态Geometry/Product、current/previous刚性变换和已有失效/无效motion合同继续验收；本页旧形变清单不授权扩大到动画backend。浏览器仅通过Playwright调用本地Chrome，其它浏览器不执行、不计通过。
+
 ## 1. 已固定起点与检查边界
 
 重构前代码提交：**14c170785505b316c273a8aed0257fe22056b0d3**。
@@ -285,7 +287,7 @@
 
 1. 重跑typecheck/build/必要targeted整合回归；阶段检查发现的问题应已修复，新增集成错误在新链处理。
 2. CPU/WGSL数值、coverage/互斥写域、full-hit/full-miss、queue/store/memo/proof满、poison payload、namespace/retire。
-3. 真实production GPU producer→consumer；普通材质/Product/形变和实际provider。
+3. 真实production GPU producer→consumer；普通材质/静态Product/current与previous刚性变换和实际provider。
 4. 多浏览器能力、resize/cut/abort/device loss；完整连续画质矩阵。
 5. timing/detailed/quality分开采；相同GPU/资产/相机/效果/输出/热状态/预热/样本，报告P50/P95。
 6. 独立checkout比较89f0a94、15f12f7b、e7296be9、重构前14c17078及最终revision；历史版本只在共同能力子集严格比较，最终完整功能另列。

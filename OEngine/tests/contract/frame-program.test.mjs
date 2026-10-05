@@ -114,7 +114,9 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   const resource = {};
   let surfaceInstances, temporalInstances, producedFrameInstances;
   const runtime = { virtualGeometry: null, activeShadingSummary: { binRefCounts: Array(64).fill(0) },
+    appearancePublication: { materialLookup: resource, surfaceIdentity: resource, surfaceMetadata: resource, fields: resource },
     materialResources: { materialRecords: resource, textureRouteRecords: resource, surfaceResidencyVersions: resource,
+      localVariation: resource,
       bindingSets: [{ id: 0,
         textureBankMask: 0x1ff,
         textureBanks: Array(9).fill(resource),
@@ -123,7 +125,9 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   runtime.activeShadingSummary.binRefCounts[0] = 1;
   const job = { runtime, width: 640, height: 360, assets: { sparseShading: {
     assetMetadataHeap: resource, vertexPayloadHeap: resource } }, scene: { instances: resource },
-    prepared: { workSet: { meshletWorkCandidate: { queue: resource }, frameInstances: { records: resource }, frameGeometry: { buffer: resource } }, currentHzbLateRecheck: null } };
+    prepared: { workSet: { meshletWorkCandidate: { queue: resource }, frameInstances: { records: resource },
+      frameVertices: { attributes: resource }, frameGeometry: { buffer: resource,
+        layout: { header: { offset: 0 }, sourceDirectory: { offset: 256 }, filteredDirectory: { offset: 512 } } } }, currentHzbLateRecheck: null } };
   const hzb = { getCurrentTexture() { throw new Error("feature-off HZB was accessed"); } };
   const fsr3 = {
     assertPreparedFrame() {},
@@ -175,7 +179,8 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       const frameGeometry = pass.write(input.frameGeometry);
       const visibilityKey = pass.create("test/VisibilityKey", { kind: "transient_texture",
         width: 640, height: 360, format: "r32uint", domain: "internal-full", usage: 7 });
-      return { counters: pass.write(input.counters), frame: { visibilityKey, depth, frameInstances: producedFrameInstances, frameGeometry, meshletWork: { records: meshletWork },
+      return { counters: pass.write(input.counters), frame: { visibilityKey, depth, frameInstances: producedFrameInstances, frameGeometry,
+        frameAttributes: pass.write(input.frameAttributes), meshletWork: { records: meshletWork },
         domain: { width: 640, height: 360 } } };
     }, addCurrentHzbLateRecheckToGraph(graph, _job, input) {
       const pass = graph.add("test/Late HZB recheck", {}, () => {});
@@ -187,15 +192,23 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
       return { counters: input.counters, frame: { ...input.sourceFrame, visibilityKey, depth,
         meshletWork: { records }, domain: input.sourceFrame.domain } };
     } },
-    surface: { addToGraph(graph, input) {
-      surfaceInstances = input.instances;
+    visibilityCounters: { addToGraph() {} },
+    surfaceWork: { importUnlitProviders(graph, bind) {
+      const imported = name => graph.import_resource(`test/unlit ${name}`, { kind: "imported" }, bind(`test/unlit/${name}`, () => resource));
+      const empty = imported("unused environment");
+      return { lightRecords: imported("light database"), clusters: { parameters: imported("parameters"),
+        lookup: imported("lookup"), data: imported("data"), activeLightList: imported("list") },
+        environment: { diffuse: empty, specular: empty, dfg: empty } };
+    }, addToGraph(graph, input) {
+      surfaceInstances = input.frameInstances;
       const pass = graph.add("test/Surface", {}, () => {});
-      pass.read(input.instances);
-      pass.read(input.visibilityKey); pass.read(input.meshletWork); pass.read(input.depth);
+      for (const value of [input.frameInstances, input.frameAttributes, input.arena, input.visibility,
+        input.meshletWork, input.factsMask, input.appearanceMetadata, input.materialLookup, input.fieldVersions]) pass.read(value);
+      assert.equal(input.publication, runtime.appearancePublication);
       const create = (name, format) => pass.create(name, { kind: "transient_texture",
         width: 640, height: 360, format, domain: "internal-full", usage: 7 });
       return { radiance: create("test/radiance", "rgba16float"),
-        motion: create("test/motion", "rg16float") };
+        reactiveMask: create("test/reactive", "r8unorm") };
     } },
     radiometry: { importPreviousExposure(_graph, bind) {
       return bind("previous-exposure", runtime => runtime.readBuffer());
@@ -257,20 +270,21 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   assert.notEqual(surfaceInstances, temporalInstances);
   const dump = compiled.dump();
   assert.deepEqual(dump.executablePassOrder.map(id => dump.passes[id].name),
-    ["test/Visibility", "test/Surface", "test/Temporal Facts", "test/FSR3",
+    ["test/Visibility", "test/Temporal Facts", "test/Surface", "test/FSR3",
       "test/Radiometry", "test/Bloom", "test/Present"]);
   const pass = name => dump.passes.find(entry => entry.name === name);
   for (const [producer, consumer] of [["test/Visibility", "test/Surface"],
+    ["test/Temporal Facts", "test/Surface"],
     ["test/Temporal Facts", "test/FSR3"],
     ["test/FSR3", "test/Radiometry"],
     ["test/Bloom", "test/Present"]]) {
     assert.ok(pass(consumer).dependencies.includes(pass(producer).id), `${producer} -> ${consumer}`);
   }
-  assert.ok(!dump.resources.some(entry => entry.name.includes("HZB") || entry.name.includes("environment")));
+  assert.ok(!dump.resources.some(entry => entry.name.includes("HZB") || entry.name.startsWith("physical-environment") || entry.name.startsWith("Lighting/")));
   assert.equal(dump.resources.find(entry => entry.name === "test/FSR3 history").binding, "fsr3/history");
   const lut = { transmittance: {}, scattering: {}, higherOrderScattering: {}, irradiance: {} };
   const environment = { parameters: { size: 64 }, luts: { views: lut },
-    ibl: { views: { specular: {}, dfg: {} } } };
+    ibl: { views: { diffuse: {}, specular: {}, dfg: {} } } };
   const environmentPlan = buildFrameProgram({ ...request, physicalEnvironment: true });
   const environmentOwners = { ...owners,
     sky: { addToGraph(graph, input) {
@@ -291,8 +305,8 @@ test("Frame Program lowering wires owner resource contracts through Present", ()
   assertFrameProgramBindings(environmentPlan, environmentBindings);
   const withEnvironment = lowerFrameProgram(environmentPlan, environmentBindings, environmentOwners).dump();
   assert.deepEqual(withEnvironment.executablePassOrder.map(id => withEnvironment.passes[id].name),
-    ["test/Visibility", "test/Surface", "test/Sky", "test/Aerial",
-      "test/Temporal Facts", "test/FSR3", "test/Radiometry", "test/Bloom", "test/Present"]);
+    ["test/Visibility", "test/Temporal Facts", "test/Surface", "test/Sky", "test/Aerial",
+      "test/FSR3", "test/Radiometry", "test/Bloom", "test/Present"]);
   assert.equal(withEnvironment.resources.find(entry =>
     entry.name === "physical-environment-transmittance").binding,
   "physical-environment-transmittance");

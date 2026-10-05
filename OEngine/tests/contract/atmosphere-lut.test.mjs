@@ -29,12 +29,19 @@ function harness() {
   const dispatches = [];
   let destroyed = 0;
   let destroyedTextures = 0;
+  const textures = [];
   const device = {
     queue: { onSubmittedWorkDone: () => Promise.resolve() },
     limits: { maxTextureDimension2D: 8192, maxTextureDimension3D: 2048,
       maxStorageTexturesPerShaderStage: 4, maxComputeInvocationsPerWorkgroup: 256,
       maxComputeWorkgroupSizeZ: 64, maxComputeWorkgroupStorageSize: 16384 },
-    createTexture: () => ({ createView: () => ({}), destroy: () => { destroyed++; destroyedTextures++; } }),
+    createTexture: descriptor => {
+      const texture = { ...descriptor, destroyed: false, createView: () => ({}), destroy: () => {
+        assert.equal(texture.destroyed, false, `Texture destroyed twice: ${descriptor.label}`);
+        texture.destroyed = true; destroyed++; destroyedTextures++;
+      } };
+      textures.push(texture); return texture;
+    },
     createSampler: () => ({}),
     createBuffer: () => ({ getMappedRange: () => new ArrayBuffer(96), unmap() {}, destroy: () => destroyed++ }),
     createShaderModule: () => ({}),
@@ -44,7 +51,7 @@ function harness() {
   const encoder = { beginComputePass: ({ label }) => ({
     setPipeline() {}, setBindGroup() {}, dispatchWorkgroups: (...size) => dispatches.push([label, size]), end() {}
   }) };
-  return { device, encoder, dispatches, destroyed: () => destroyed,
+  return { device, encoder, dispatches, textures, destroyed: () => destroyed,
     destroyedTextures: () => destroyedTextures };
 }
 
@@ -108,11 +115,23 @@ test("replaced LUT generation retires only after the submitted frame completes",
   const snapshot = { lutGeneration: 1, worldToUnit: 0.001,
     sunDirectionWorld: [0, 1, 0], sunIrradiance: [1, 1, 1],
     skyLuminanceScale: 1, shadowLength: [0, 0] };
-  environment.commit(environment.record(h.encoder, snapshot, [0, 0, 0]), Promise.resolve());
-  environment.commit(environment.record(h.encoder, { ...snapshot, lutGeneration: 2 }, [0, 0, 0]), Promise.resolve());
-  assert.equal(h.destroyed(), 0);
-  complete();
+  let submittedComplete;
+  const submitted = new Promise(resolve => { submittedComplete = resolve; });
+  environment.commit(environment.record(h.encoder, snapshot, [0, 0, 0]), submitted);
+  const firstTextures = h.textures.slice();
+  environment.commit(environment.record(h.encoder, { ...snapshot, lutGeneration: 2 }, [0, 0, 0]), submitted);
   await Promise.resolve();
-  assert.equal(h.destroyedTextures(), 7); // Five Earth LUTs and two retired sky IBL textures.
+  assert.equal(h.destroyed(), 0);
+  complete(); submittedComplete();
+  await Promise.resolve();
+  // Five Earth LUTs plus source, filtered specular and diffuse irradiance retire.
+  // DFG is shared across generations and must remain alive.
+  const retiredLabels = ["Atmosphere/transmittance", "Atmosphere/multipleScattering", "Atmosphere/scattering",
+    "Atmosphere/higherOrderScattering", "Atmosphere/irradiance", "PhysicalSkyIBL/source radiance",
+    "PhysicalSkyIBL/prefiltered specular", "PhysicalSkyIBL/diffuse irradiance"];
+  assert.deepEqual(firstTextures.filter(texture => texture.destroyed).map(texture => texture.label).sort(), retiredLabels.sort());
+  assert.equal(h.destroyedTextures(), 8);
+  assert.equal(firstTextures.find(texture => texture.label === "PhysicalSkyIBL/DFG").destroyed, false);
+  assert.ok(h.textures.slice(firstTextures.length).every(texture => !texture.destroyed));
   environment.destroy();
 });

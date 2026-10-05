@@ -384,9 +384,12 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     dfg: graph.import_resource("Lighting/DFG", { kind: "imported" },
       bind("lighting-dfg", bindings => bindings.environment!.ibl.views.dfg))
   };
-  if (lightRecords === undefined || clusters === undefined || surfaceEnvironment === undefined) {
+  if (plan.request.hasLit && (lightRecords === undefined || clusters === undefined || surfaceEnvironment === undefined)) {
     throw new Error("SurfaceWork requires direct-light cluster and IBL providers");
   }
+  // An unlit publication has no signal demand. Its unused bindings still need
+  // legal empty ABI resources, without creating a clustered-light or IBL pass.
+  const unlit = plan.request.hasLit ? null : owners.surfaceWork.importUnlitProviders(graph, (name, resolve) => bind(name, resolve));
   const surfaceWork = owners.surfaceWork.addToGraph(graph, {
     visibility: result.frame.visibilityKey,
     arena: result.frame.frameGeometry,
@@ -398,8 +401,8 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
     camera: cameraBuffer,
     textureVariation,
     appearanceMetadata: surfaceMetadata,
-    lightRecords,
-    clusters,
+    lightRecords: lightRecords ?? unlit!.lightRecords,
+    clusters: clusters ?? unlit!.clusters,
     shadow: shadowContract === null || shadowContract.virtualPageTable === null ||
       shadowContract.physicalAtlasDepth === null || shadowContract.lightProjection === null ? null : {
       virtualPageTable: shadowContract.virtualPageTable,
@@ -408,7 +411,7 @@ function compileSceneGraph(plan: FrameProgram, initial: SceneFrameBindings, owne
       contentVersion: vsmContentVersion!
     },
     scalarAo: scalarAo ?? null,
-    environment: surfaceEnvironment,
+    environment: surfaceEnvironment ?? unlit!.environment,
     physicalSun: physicalEnvironmentSun === undefined || atmosphereEnvironment === undefined ? null : {
       parameters: physicalEnvironmentSun, transmittance: atmosphereEnvironment
     },

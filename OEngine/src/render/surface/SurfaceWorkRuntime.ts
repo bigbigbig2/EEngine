@@ -64,7 +64,7 @@ export class SurfaceWorkRuntime {
         this.demand = new SurfaceDemandPass(device, this.scratch);
         this.geometry = new SurfaceGeometryPass(device, this.scratch);
         this.reconstruction = new SurfaceReconstructionPass(device, this.scratch);
-        this.lighting = new SurfaceLightingPass(device, this.scratch);
+        this.lighting = new SurfaceLightingPass(device, this.scratch, accounting);
         this.publisher = new SurfaceStorePublishPass(device, this.scratch);
         this.dependencyEpoch = new SurfaceDependencyEpochPass(device, fieldStore, this.scratch);
         this.diagnostics = new SurfaceDiagnosticsPass(device, (command, source, frameId) => {
@@ -97,6 +97,9 @@ export class SurfaceWorkRuntime {
         this.prepared=true;
     }
     capacityEvidence(): SurfaceOptimizationCapacity | null { return this.capacity; }
+    importUnlitProviders(graph: FrameGraph, bind: SurfaceResourceBinding): Pick<SurfaceLightingInput, "lightRecords" | "clusters" | "environment"> {
+        return this.lighting.importUnlitProviders(graph, bind);
+    }
     canPrepareFrame(width: number, height: number): boolean {
         const capacity = this.capacity?.width === width && this.capacity.height === height ? this.capacity :
             planSurfaceOptimizationCapacity(width, height, this.device.limits);

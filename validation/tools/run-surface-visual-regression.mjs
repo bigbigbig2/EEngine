@@ -8,22 +8,42 @@ const root = process.cwd();
 const out = resolve(root, process.argv[2] ?? ".local/validation/surface-v3-visual-fix");
 await mkdir(out, { recursive: true });
 const server = await createServer({ configFile: resolve(root, "examples/vite.config.ts"),
-  clearScreen: false, server: { host: "127.0.0.1", port: 4182, strictPort: true } });
-const report = { evidenceRole: "diagnostic", accepted: false, errors: [], shots: [] };
+  clearScreen: false, server: { host: "127.0.0.1", port: 4182, strictPort: true,
+    hmr: false, watch: { ignored: ["**"] } } });
+const report = { evidenceRole: "diagnostic", accepted: false, passed: false,
+  headless: process.argv.includes("--headless"), browser: null, progress: [], errors: [], shots: [] };
 let browser;
 try {
   await server.listen();
   browser = await chromium.launch({ executablePath: "C:/Program Files/Google/Chrome/Application/chrome.exe",
-    headless: false,
-    args: ["--enable-unsafe-webgpu", "--disable-gpu-sandbox", "--ignore-gpu-blocklist"],
-    ignoreDefaultArgs: ["--enable-unsafe-swiftshader", "--no-sandbox", "--unsafely-disable-devtools-self-xss-warnings"] });
+    headless: report.headless,
+    args: ["--enable-unsafe-webgpu"] });
+  report.browser = browser.version();
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
   const page = await context.newPage();
   page.on("pageerror", error => report.errors.push(String(error)));
   page.on("console", message => { if (message.type() === "error") report.errors.push(message.text()); });
   await page.goto("http://127.0.0.1:4182/demos/14-integrated/next-renderer-showcase/");
   await page.waitForFunction(() => !!globalThis.__eengineShowcase);
-  await page.evaluate(() => globalThis.__eengineShowcase.start());
+  await page.locator("#start-scene").click();
+  for (let poll = 0; poll < 90; poll++) {
+    const progress = await page.evaluate(() => ({ ready: globalThis.__eengineShowcase.ready,
+      failed: globalThis.__eengineShowcase.failed, runtime: globalThis.__eengineShowcase.runtime }));
+    report.progress.push(progress);
+    await writeFile(resolve(out, "report.json"), JSON.stringify(report, null, 2));
+    if (progress.ready || progress.failed) break;
+    console.log(`Initializing Chrome: frame ${progress.runtime.frameCount}`);
+    try {
+      await page.waitForFunction(() => globalThis.__eengineShowcase.ready || globalThis.__eengineShowcase.failed,
+        undefined, { timeout: 10000 });
+    } catch (error) { if (error.name !== "TimeoutError") throw error; }
+  }
+  if (await page.evaluate(() => globalThis.__eengineShowcase.failed)) {
+    throw new Error("Production showcase failed before its first GPU completion");
+  }
+  if (!await page.evaluate(() => globalThis.__eengineShowcase.ready)) {
+    throw new Error("Production showcase did not finish its first GPU frame within the host wait budget");
+  }
   const advance = async count => {
     const start = await page.evaluate(() => globalThis.__eengineShowcase.runtime.frameCount);
     await page.waitForFunction(end => globalThis.__eengineShowcase.runtime.frameCount >= end, start + count, { timeout: 120000 });
@@ -79,6 +99,7 @@ try {
   await advance(15); await shot("09-sun-restored");
   await page.evaluate(() => globalThis.__eengineShowcase.dispose());
   await context.close();
+  report.passed = report.shots.length === 9 && report.errors.length === 0;
 } catch (error) { report.errors.push(String(error)); }
 finally {
   await browser?.close(); await server.close();

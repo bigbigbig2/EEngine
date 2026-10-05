@@ -2,6 +2,8 @@ import {
   BoxGeometry, Mesh, PerspectiveCamera, PointLight, Renderer, Scene,
   StandardShadeMaterial, cookSceneGeometryProductV1, createDefaultWebGeometryCookerModule
 } from "../../../OEngine/src/index.ts";
+import { SurfaceDiagnosticsCapture } from "../../../OEngine/src/debug/SurfaceDiagnosticsCapture.ts";
+import type { SurfaceDiagnosticsSnapshot } from "../../../OEngine/src/gpu/SurfaceDiagnosticsAbi.ts";
 
 const host = globalThis as typeof globalThis & {
   cellOracleStage?: string; cellOracleResult?: unknown;
@@ -17,7 +19,11 @@ let readback: { buffer: GPUBuffer; width: number; height: number; pitch: number 
 let intentionalLoss = false;
 const allocations: { label: string; bytes: number; destroyed: boolean }[] = [];
 let scratchPeakBytes = 0;
+let capture: SurfaceDiagnosticsCapture | undefined;
+const snapshots: SurfaceDiagnosticsSnapshot[] = [];
+const passLabels: string[] = [];
 const canvas = document.querySelector<HTMLCanvasElement>("#output")!;
+const unlit = document.body.dataset.unlit === "true";
 const context = canvas.getContext("webgpu")!;
 const configure = context.configure.bind(context);
 context.configure = config => configure({ ...config,
@@ -48,6 +54,11 @@ function trace(device: GPUDevice): void {
   const createEncoder = device.createCommandEncoder.bind(device);
   device.createCommandEncoder = descriptor => {
     const encoder = createEncoder(descriptor), finish = encoder.finish.bind(encoder);
+    const compute = encoder.beginComputePass.bind(encoder);
+    encoder.beginComputePass = passDescriptor => {
+      passLabels.push(passDescriptor?.label ?? "");
+      return compute(passDescriptor);
+    };
     encoder.finish = finishDescriptor => {
       if (descriptor?.label === "Renderer/visibility-frame" && swapchain !== undefined) {
         readback?.buffer.destroy();
@@ -83,18 +94,27 @@ async function pixels(): Promise<Uint8Array> {
 async function run(): Promise<void> {
   try {
     host.cellOracleStage = "Initializing actual Renderer and cooked Product";
-    renderer = new Renderer({ enableVsm: false, enablePhysicalEnvironment: true,
+    renderer = new Renderer({ enableVsm: false, enablePhysicalEnvironment: !unlit,
       autoExposure: false, fixedExposure: 1,
       requiredLimits: { maxStorageBuffersPerShaderStage: 16 } });
     await renderer.initialize({ context }); trace(renderer.device);
     renderer.shadowVisibilityEnabled = false;
     renderer.temporal_jitter_enabled = false;
     renderer.xe_gtao_enabled = false; renderer.fsr3_enabled = false; renderer.bloom_enabled = false;
+    const enableCapture = () => {
+      if (!unlit) { return; }
+      capture = new SurfaceDiagnosticsCapture(renderer!.device, { mode: "detailed",
+        onSnapshot: snapshot => snapshots.push(snapshot) });
+      renderer!.configureSurfaceDiagnostics("detailed", capture, "phase7-unlit");
+    };
+    enableCapture();
     const scene = new Scene(), material = new StandardShadeMaterial();
+    material.is_unlit = unlit;
     material.diffuse_color.set(0.8, 0.15, 0.07, 1);
     scene.add(Mesh.from(new BoxGeometry(1.5, 1.5, 1.5), material));
     const light = new PointLight(); light.position.set(2, 3, 4); light.distance = 20;
-    light.intensity = 200; light.casts_shadow = false; scene.add(light);
+    light.intensity = 200; light.casts_shadow = false;
+    if (!unlit) { scene.add(light); }
     const module = await createDefaultWebGeometryCookerModule();
     const product = await cookSceneGeometryProductV1(scene, { module,
       producerId: "surface-phase6-lifecycle", producerVersion: "1", maxDecodedProductBytes: 64 * 1024 ** 2 });
@@ -112,6 +132,24 @@ async function run(): Promise<void> {
       return pixels();
     };
     const base = await frame(320, 240);
+    if (unlit) {
+      for (let wait = 0; capture!.stats.pending > 0 && wait < 100; wait++) {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      check(snapshots.length > 0, "Unlit detailed producer returned no snapshot");
+      const snapshot = snapshots[snapshots.length - 1]!;
+      check(snapshot.availability === "available" && snapshot.coverage.status === "pass", "Unlit coverage is incomplete");
+      check(snapshot.values.visiblePixels! > 32, "Unlit zero-work assertion has no visible geometry");
+      for (const name of ["lightingRecordsProcessed", "signalValuesProduced", "signalCacheRequests",
+        "diffuseEvaluations", "specularEvaluations", "coatEvaluations", "iblEvaluations"]) {
+        check(snapshot.values[name as keyof typeof snapshot.values] === 0, `Unlit executed ${name}`);
+      }
+      check(!passLabels.some(label => /cluster|atmosphere|environment\/|ibl\//i.test(label)),
+        "Unlit executed a clustered-light or environment producer");
+      const owner = renderer.graphics.resource_accounting.snapshot().owners["Surface/unlit bindings"];
+      check(owner?.buffer! > 0 && owner?.texture === 8, "Unlit resources are missing from actual memory accounting");
+      report.cases.push({ name: "visible unlit with zero Lighting demand and no provider producer", snapshot, owner, passed: true });
+    }
     const scratch = () => allocations.filter(a => a.label === "Surface/cell plan workspace");
     const first = scratch().length;
     await frame(320, 240);
@@ -171,11 +209,13 @@ async function run(): Promise<void> {
     const beforeRecovery = await frame(320, 240), old = renderer;
     swapchain = undefined;
     intentionalLoss = true; old.device.destroy(); await old.device.lost;
+    capture?.destroy();
     renderer = await old.recoverAfterDeviceLoss(); trace(renderer.device);
     check(renderer.device !== old.device, "Recovery reused dead device");
     renderer.shadowVisibilityEnabled = false;
     renderer.temporal_jitter_enabled = false;
     renderer.xe_gtao_enabled = false; renderer.fsr3_enabled = false; renderer.bloom_enabled = false;
+    enableCapture();
     const afterRecovery = await frame(320, 240);
     check(afterRecovery.length === beforeRecovery.length, "Recovery changed output shape");
     let maxDifference = 0;
@@ -188,9 +228,13 @@ async function run(): Promise<void> {
   } catch (error) { report.failure = error instanceof Error ? error.stack ?? error.message : String(error); }
   finally {
     intentionalLoss = true; renderer?.destroy();
+    capture?.destroy();
     readback?.buffer.destroy();
     await Promise.resolve();
-    host.cellOracleResult = { ...report, allocations, scratchPeakBytes };
+    if (unlit && renderer?.graphics.resource_accounting.snapshot().owners["Surface/unlit bindings"] !== undefined) {
+      report.passed = false; report.failure += "Unlit owner retained resources after destroy";
+    }
+    host.cellOracleResult = { ...report, allocations, scratchPeakBytes, snapshots, passLabels };
   }
 }
 void run();
