@@ -88,6 +88,25 @@ fn publish_snapshot() {
  ${add(C.signalCacheAdmissions, "atomicLoad(&demand.control[52u])")}
  ${add(C.signalCacheQueueRejected, "atomicLoad(&demand.control[48u])")}
  ${add(C.fieldValuesProduced, "fields")}${add(C.signalValuesProduced, "atomicLoad(&demand.control[50u])")}
+ ${add(C.candidateLeaves,"atomicLoad(&workspace.counters[84u])")}
+ ${add(C.uvWitnessGroups,"atomicLoad(&workspace.counters[85u])")}
+ ${add(C.uvWitnessWriteBytes,"atomicLoad(&workspace.counters[86u])")}
+ ${add(C.signalWitnessLeaves,"atomicLoad(&workspace.counters[87u])")}
+ ${add(C.signalWitnessWriteBytes,"atomicLoad(&workspace.counters[88u])")}
+ ${add(C.proofResultWriteBytes,"atomicLoad(&workspace.counters[89u])")}
+ ${add(C.proofAdmitted,"atomicLoad(&workspace.counters[120u])")}
+ ${add(C.proofRejected,"atomicLoad(&workspace.counters[122u])")}
+ ${add(C.geometryHotWriteBytes,"geometry*128u")}
+ ${add(C.geometryColdWriteBytes,"atomicLoad(&demand.control[46u])*4u")}
+ ${add(C.explicitStoreRefWriteBytes,"atomicLoad(&workspace.counters[90u])")}
+ ${add(C.fullDirectLightEvaluations,"atomicLoad(&demand.control[96u])")}
+ ${add(C.sharedDirectTransportEvaluations,"atomicLoad(&demand.control[97u])")}
+ ${add(C.transportOnlyLightEvaluations,"atomicLoad(&demand.control[98u])")}
+ ${add(C.fieldLookupCandidates,"atomicLoad(&workspace.counters[91u])")}
+ ${add(C.nonPublicationFields,"atomicLoad(&workspace.counters[92u])")}
+ ${add(C.fieldLookupProbes,"atomicLoad(&workspace.counters[93u])")}
+ ${add(C.transportEligibleLeaves,"atomicLoad(&workspace.counters[94u])")}
+ ${add(C.residualLeaves,"atomicLoad(&workspace.counters[95u])")}
  if settings.last!=0u {
   let all_tiles=((settings.width+7u)/8u)*((settings.height+7u)/8u);
   let active_tiles=atomicLoad(&workspace.counters[125u]);

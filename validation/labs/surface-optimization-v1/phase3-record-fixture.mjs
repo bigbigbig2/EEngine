@@ -2,6 +2,8 @@ import {surfaceGeometryRecordWgsl} from '../../../OEngine/.test-dist/render/surf
 import {surfaceCellWorkspaceLayout} from '../../../OEngine/.test-dist/gpu/GpuSurfaceCellPlanAbi.js';
 import {surfaceDemandLayout} from '../../../OEngine/.test-dist/gpu/GpuSurfaceDemandAbi.js';
 import {SURFACE_GEOMETRY_RECORD_BYTES,SURFACE_GEOMETRY_RECORD_WGSL,surfaceGeometryReadWgsl} from '../../../OEngine/.test-dist/gpu/GpuSurfaceGeometryRecordAbi.js';
+import {SURFACE_CELL_GEOMETRY_SETUP_BYTES} from '../../../OEngine/.test-dist/gpu/GpuSurfaceCellGeometryAbi.js';
+import {SURFACE_CELL_ADDRESS_WORDS} from '../../../OEngine/.test-dist/gpu/GpuSurfaceReferenceAbi.js';
 export async function runRecordOracle(gpu,assert,onStage=()=>{}) {
  const adapter=await gpu.requestAdapter({powerPreference:'high-performance'}),device=await adapter.requestDevice();
  const kept=[],errors=[],report={passed:false,evidenceRole:'diagnostic',apiErrors:errors};device.addEventListener('uncapturederror',e=>errors.push(e.error.message));
@@ -12,23 +14,36 @@ export async function runRecordOracle(gpu,assert,onStage=()=>{}) {
  device.pushErrorScope('validation');
  const layout=surfaceCellWorkspaceLayout(1),demandLayout=surfaceDemandLayout(64,1);
  const workspace=new Uint32Array(layout.bytes/4),demands=new Uint32Array(demandLayout.bytes/4),leaves=[0,17,63],allMask=32766;
+ const setupWords=new Uint32Array(64*2+leaves.length*SURFACE_CELL_GEOMETRY_SETUP_BYTES/4),setupFloats=new Float32Array(setupWords.buffer);
  const expected=[];
  demands[0]=leaves.length;
  for(const [index,leaf] of leaves.entries()) {
-  const at=layout.addresses/4+leaf*144;
+  const at=layout.addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS;
   workspace.set([leaf+101,7,0,3,2,0,0,9,1,4,5,6,11,leaf,0,7],at);
-  workspace[at+130]=16;workspace[at+131]=2;
-  workspace.set(floats([0,0,1,-.5]),at+132);
+  workspace[at+17]=16;workspace[at+20]=2;
   const positions=[],normals=[],tangents=[];
   for(let point=0;point<3;point++){
-    const position=[.3+index*.2+point*.1,-.2+point*.05,.5+point*.02,1];
+    const position=[.3+index*.2+point*.1,-.2+point*.05,point===1?5.5:.5+point*.02,1];
     const n=[.2+point*.3,.4,.9,.73],t=[1,.1+point*.2,.3,-.8];
     positions.push(position);normals.push(n);tangents.push(t);
-    workspace.set(floats(position),at+94+point*4);workspace.set(floats(n),at+106+point*4);workspace.set(floats(t),at+118+point*4);
   }
-  for(let uv=0;uv<3;uv++)workspace.set(floats([.1+uv*.2,.2+uv*.1,.03,-.02,-.01,.04]),at+16+uv*6);
-  const color=[.2,.3,.4,.8],colorX=[.01,-.02,.03,0],colorY=[-.02,.01,0,.02];workspace.set(floats([...color,...colorX,...colorY]),at+34);
-  workspace.set([1,0,2,0],layout.facts/4+leaf*4);
+  const color=[.2,.3,.4,.8],colorX=[.01,-.02,.03,0],colorY=[-.02,.01,0,.02];
+  workspace.set([1,index,2,0],layout.facts/4+leaf*4);
+  const setup=64*2+index*SURFACE_CELL_GEOMETRY_SETUP_BYTES/4;
+  setupFloats.set([-.5,-.5,0,1,.5,0,.5,0,0,.5,.5,0],setup+24);
+  setupWords[setup+116+3]=16;
+  setupFloats.set([0,0,1,-.5],setup+108);
+  const pixel=[leaf%8+.5,Math.floor(leaf/8)+.5];
+  const attributes=[normals,tangents,
+    Array.from({length:3},(_,point)=>[.1+(point===1?.03:point===2?-.01:0),.2+(point===1?-.02:point===2?.04:0),
+      .3+(point===1?.03:point===2?-.01:0),.3+(point===1?-.02:point===2?.04:0)]),
+    Array.from({length:3},(_,point)=>color.map((value,channel)=>value+(point===1?colorX[channel]:point===2?colorY[channel]:0))),
+    Array.from({length:3},(_,point)=>[.5+(point===1?.03:point===2?-.01:0),.4+(point===1?-.02:point===2?.04:0),0,0]),positions];
+  for(let attribute=0;attribute<6;attribute++)for(let channel=0;channel<4;channel++) {
+    const center=attributes[attribute][0][channel],dx=attributes[attribute][1][channel]-center,dy=attributes[attribute][2][channel]-center;
+    const base=center-dx*pixel[0]+dy*(8-pixel[1]);
+    for(let corner=0;corner<3;corner++)setupFloats[setup+36+(corner*6+attribute)*4+channel]=base+(corner===1?dx*8:corner===2?-dy*8:0);
+  }
   demands[demandLayout.offsets.geometry_queue/4+index]=leaf;
   demands[demandLayout.offsets.geometry_masks/4+leaf]=allMask;
   const row=[];
@@ -49,6 +64,7 @@ export async function runRecordOracle(gpu,assert,onStage=()=>{}) {
  }
  const camera=new Float32Array(164),identity=[1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1];for(let i=0;i<8;i++)camera.set(identity,i*16);camera.set([1,2,3],12);
  const w=make(workspace),d=make(demands),c=make(camera,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST),records=make(new Uint32Array(64*SURFACE_GEOMETRY_RECORD_BYTES/4),GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST);
+ const setups=make(setupWords),viewport=make(new Uint32Array([8,8,0,0]),GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
  const result=make(new Uint32Array(leaves.length*14*3*4),GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST);
  const module=device.createShaderModule({code:surfaceGeometryRecordWgsl(64,1)});
  const reader=device.createShaderModule({code:`${SURFACE_GEOMETRY_RECORD_WGSL}
@@ -59,7 +75,7 @@ ${surfaceGeometryReadWgsl('g')}
  for(const m of [module,reader])assert.deepEqual((await m.getCompilationInfo()).messages.filter(m=>m.type==='error').map(m=>m.message),[]);
  onStage('Geometry hot/cold producer -> actual C/X/Y reader');
  const producer=await device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint:'produce_geometry'}}),consumer=await device.createComputePipelineAsync({layout:'auto',compute:{module:reader,entryPoint:'main'}});
- const producerGroup=device.createBindGroup({layout:producer.getBindGroupLayout(0),entries:[w,d,c,records].map((buffer,binding)=>({binding,resource:{buffer}}))});
+ const producerGroup=device.createBindGroup({layout:producer.getBindGroupLayout(0),entries:[w,d,c,records,setups,viewport].map((buffer,binding)=>({binding,resource:{buffer}}))});
  const consumerGroup=device.createBindGroup({layout:consumer.getBindGroupLayout(0),entries:[records,result].map((buffer,binding)=>({binding,resource:{buffer}}))});
  const staging=device.createBuffer({size:result.size,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});kept.push(staging);
  const encoder=device.createCommandEncoder();for(const [pipeline,group] of [[producer,producerGroup],[consumer,consumerGroup]]){const pass=encoder.beginComputePass();pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(2);pass.end();}encoder.copyBufferToBuffer(result,0,staging,0,result.size);device.queue.submit([encoder.finish()]);

@@ -26,7 +26,7 @@ export async function runPhaseFourTree(gpu,assert,onStage=()=>{}) {
   };
   try {
     device.pushErrorScope('validation');
-    const layout=surfaceCellWorkspaceLayout(1);
+    const layout=surfaceCellWorkspaceLayout(4);
     const workspace=buffer(layout.bytes);
     const cells=buffer(32,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
     const settings=buffer(16,GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
@@ -51,15 +51,16 @@ struct CellLaneGeometry {
 }
 var<workgroup> cell_lane_geometry: array<CellLaneGeometry,64>;
 fn cell_material_entry(material:u32)->u32 { return material; }
+fn cell_certificate_publication(leaf:u32,field:u32)->AppearanceBound4 { return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u)); }
 fn cell_directory(entry:u32)->vec4u { return vec4u(0u); }
 fn cell_solar_direction()->vec3f { return vec3f(0.0,0.0,1.0); }
 fn surface_cell_load(pixel:vec2u,winner:u32)->SurfaceCellLane {
   let lane=pixel.y*8u+pixel.x;
   let at=lane*${SURFACE_CELL_ADDRESS_WORDS}u;
   let identity=vec4u(cell_workspace.addresses[at],cell_workspace.addresses[at+1u],cell_workspace.addresses[at+2u],cell_workspace.addresses[at+8u]);
-  let continuity=vec4u(cell_workspace.addresses[at+7u],cell_workspace.addresses[at+9u],cell_workspace.addresses[at+10u],cell_workspace.addresses[at+130u]);
+  let continuity=vec4u(cell_workspace.addresses[at+7u],cell_workspace.addresses[at+9u],cell_workspace.addresses[at+10u],cell_workspace.addresses[at+17u]);
   cell_lane_geometry[lane]=CellLaneGeometry(identity,vec4u(winner,cell_workspace.addresses[at+4u],cell_workspace.addresses[at+3u],cell_workspace.addresses[at+12u]),
-    continuity,vec4u(cell_workspace.addresses[at+131u],cell_workspace.addresses[at+132u],0u,0u),vec4u(0u,cell_workspace.addresses[at+6u],cell_workspace.addresses[at+5u],0u),vec4f(0.0,0.0,1.0,0.0),lane);
+    continuity,vec4u(cell_workspace.addresses[at+20u],cell_workspace.addresses[at+21u],0u,0u),vec4u(0u,cell_workspace.addresses[at+6u],cell_workspace.addresses[at+5u],0u),vec4f(0.0,0.0,1.0,0.0),lane);
   return SurfaceCellLane(vec4u(identity.xyz,continuity.x),winner,lane,2097151u,cell_workspace.addresses[at+15u]);
 }
 ${SURFACE_CELL_DOMAIN_WGSL}
@@ -85,7 +86,7 @@ ${surfaceCellSelectionWgsl('cell_workspace','appearance_metadata','0u')}
 fn consume_sources(@builtin(global_invocation_id) id:vec3u) {
   if id.x<64u*21u { selected_sources[id.x]=reference_plan_leaf(id.x%64u,id.x/64u); }
 }`;
-    const source=surfaceCellClassifyStageWgsl(library,1,0,0,21,'classify_tree','full');
+    const source=surfaceCellClassifyStageWgsl(library,4,0,0,21,'classify_tree','full');
     const module=device.createShaderModule({code:source});
     assert.deepEqual((await module.getCompilationInfo()).messages.filter(message=>message.type==='error').map(message=>message.message),[]);
     onStage('Compiling production fixed tree and provider budget');
@@ -113,6 +114,9 @@ fn consume_sources(@builtin(global_invocation_id) id:vec3u) {
       metadataWords[at]=200+kind;metadataWords[at+1]=fields;
       metadataWords[at+3]=12;
       for(let field=0;field<15;field++) if(fields&(1<<field))metadataWords[at+3]|=seams[field];
+      // Current publication ABI stores the premerged Ddirect seam in word 10;
+      // retain word 3 as the signal's immutable source seam for other consumers.
+      metadataWords[at+10]=metadataWords[at+3];
     });
     device.queue.writeBuffer(metadata,0,metadataWords);
     const cases=[
@@ -140,39 +144,54 @@ fn consume_sources(@builtin(global_invocation_id) id:vec3u) {
       onStage(scenario.name);
       const currentMetadata=metadataWords.slice();
       currentMetadata[8+6*FW+2]=scenario.normalSeam?1:0;
-      for (const kind of [1, 3, 5]) currentMetadata[8+15*FW+kind*SW+3]=scenario.normalSeam?1:12;
+      let transportSeam=12;
+      for(let field=0;field<15;field++)if(SURFACE_SIGNAL_FIELD_MASKS[0]&(1<<field)) {
+        transportSeam|=currentMetadata[8+field*FW+2];
+      }
+      currentMetadata[8+15*FW+10]=transportSeam;
+      for (const kind of [1, 3, 5]) {
+        currentMetadata[8+15*FW+kind*SW+3]=scenario.normalSeam?1:12;
+        currentMetadata[8+15*FW+kind*SW+10]=scenario.normalSeam?1:12;
+      }
       device.queue.writeBuffer(metadata,0,currentMetadata);
       const words=new Uint32Array(layout.bytes/4),floats=new Float32Array(words.buffer),winners=new Uint32Array(64);
-      if(scenario.full)words[120]=32;
-      if(scenario.remaining)words[120]=30;
-      if(scenario.mapsFull)words[126]=21*24;
+      words[120]=scenario.full?128:scenario.remaining?126:32;
+      if(scenario.mapsFull)words[126]=4*21*24;
       for(let lane=0;lane<64;lane++) {
         const x=lane%8,y=Math.floor(lane/8),at=layout.addresses/4+lane*SURFACE_CELL_ADDRESS_WORDS;
         const covered=!(scenario.partial&&(lane===0||lane===17||x===7));
         winners[lane]=covered?lane+1:0xffffffff;
         words.set([1,7,3,11,0,scenario.meshlets?x%2:0,scenario.uv2?x%2:0,scenario.representation&&x%2?0:19,scenario.side?x%2:1,
           scenario.seam?x%2:scenario.partial&&x>=3?23:17,29,0,31],at);
-        words[at+15]=scenario.publication?1:0;words[at+130]=37;words[at+131]=41;words[at+132]=43;
-        words[at+136]=3; // Explicit finite transport profile in this isolated tree oracle.
+        words[at+15]=scenario.publication?1:0;words[at+17]=37;words[at+20]=41;words[at+21]=43;
+        words[at+18]=3; // Explicit finite transport profile in this isolated tree oracle.
         words.set([lane+1,lane,0,scenario.clusters?x%2:0],layout.facts/4+lane*4);
-        words[layout.primitives/4+lane]=lane;
-        const geometry=layout.geometryCertificates/4+lane*32;
+        const quad=Math.floor(y/2)*4+Math.floor(x/2);
+        words[layout.primitives/4+lane]=quad;
+        words[layout.geometryProofs/4+lane]=quad+1;
+        words.set([quad,1,0xffffffff,0xffffffff,4,0,0,0],layout.proofs/4+quad*8);
+        words.set([quad,3,32767,0xffffffff,4,32767,0,0],layout.proofs/4+(16+quad)*8);
+        const geometry=layout.proofResults/4+quad*52;
         floats.set([x*.0001,y*.0001,0,x*.0001,y*.0001,0],geometry);
         floats.set([0,0,1,0,0,1],geometry+6);
         floats.set([1,0,0,1,0,0],geometry+12);
         floats.set([0,0,1,0,0,1],geometry+18);
         floats.set([0,0,0,0,1,0,1],geometry+24);words[geometry+31]=31;
-        const certificate=layout.fieldCertificates/4+lane*52;
+        const certificate=layout.proofResults/4+(16+quad)*52;
+        for(let field=0;field<15;field++)words[layout.screenFieldProofs/4+lane*15+field]=17+quad;
         for(let field=0;field<15;field++) {
           const vector=field===6||field===12?[0,0,1]:field===0||field===5||field===9?[.25,.25,.25]:field===3||field===11?[.8]:field===10?[1]:[.25];
           floats.set([...vector,...vector],certificate+OFFSETS[field]);
         }
-        words[certificate+50]=(1<<25)-1;
-        if(scenario.unknown&&lane===0)words[certificate+50]&=~(7<<(OFFSETS[6]/2));
+        const known=layout.fieldKnownMasks/4+lane;
+        words[known]=(1<<25)-1;
+        if(scenario.unknown&&quad===0)words[known]&=~(7<<(OFFSETS[6]/2));
         if(scenario.hits) {
-          words[certificate+50]&=~7;
-          words.set([5,lane,1],layout.fieldReferences/4+lane*15*3);
-          words.set([5,lane,1],layout.signalReferences/4+(lane*6+1)*3);
+          words[known]&=~7;
+          words[layout.fieldStoreMasks/4+lane]=1;
+          words[layout.signalStoreMasks/4+lane]=2;
+          words.set([lane,1],layout.fieldReferences/4+lane*15*2);
+          words.set([lane,1],layout.signalReferences/4+(lane*6+1)*2);
         }
       }
       const lightWords=new Uint32Array(16384).fill(0xffffffff),lightFloats=new Float32Array(lightWords.buffer);
@@ -205,7 +224,7 @@ fn consume_sources(@builtin(global_invocation_id) id:vec3u) {
       await capture.mapAsync(GPUMapMode.READ);const observed=new Uint32Array(capture.getMappedRange()).slice();capture.unmap();
       const plan=plane=>{const at=layout.plans/4+16+plane*6;return {mode:observed[at]&255,slots:observed[at+3]};};
       report.current={name:scenario.name,field:plan(0),environment:plan(16),direct:plan(15),proofCount:observed[120],rejected:observed[122],
-        providerStates:Array.from({length:Math.min(32,observed[120])},(_,i)=>observed[layout.proofs/4+i*8+4])};
+        providerStates:Array.from({length:Math.min(128,observed[120])},(_,i)=>observed[layout.proofs/4+i*8+4])};
       for(const [property,plane] of [['field',0],['alpha',1],['environment',16],['direct',15]]) {
         if(scenario[property]!==undefined)assert.equal(plan(plane).slots,scenario[property],scenario.name+' '+property+': '+plan(plane).slots+' != '+scenario[property]);
       }
@@ -215,7 +234,7 @@ fn consume_sources(@builtin(global_invocation_id) id:vec3u) {
         if(winners[lane]===0xffffffff)assert.equal(selected,0xffffffff,'Background has no selected source');
         else {assert.ok(selected<64);assert.ok(winners[selected]!==0xffffffff,'Source must be a covered winner');}
       }
-      assert.ok(observed[120]<=32);
+      assert.ok(observed[120]<=128);
       const provider=Array.from({length:observed[120]},(_,i)=>observed[layout.proofs/4+i*8+1]).filter(kind=>kind===4).length;
       if(scenario.provider!==undefined)assert.equal(provider,scenario.provider,'One provider admission per exact node/coverage across direct lobes');
       report.cases.push({name:scenario.name,field:plan(0),environment:plan(16),direct:plan(15),proofSlots:observed[120],providerProofs:provider});

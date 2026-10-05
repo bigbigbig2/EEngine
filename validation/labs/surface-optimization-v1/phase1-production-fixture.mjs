@@ -7,6 +7,7 @@ import {SurfaceLightingPass} from '../../../OEngine/.test-dist/render/surface/Su
 import {SurfaceStorePublishPass} from '../../../OEngine/.test-dist/render/surface/SurfaceStorePublishPass.js';
 import {SurfaceReconstructionPass} from '../../../OEngine/.test-dist/render/surface/SurfaceReconstructionPass.js';
 import {SurfaceFrameResources} from '../../../OEngine/.test-dist/render/surface/SurfaceFrameResources.js';
+import {SURFACE_CELL_ADDRESS_WORDS} from '../../../OEngine/.test-dist/gpu/GpuSurfaceReferenceAbi.js';
 import {GPUTextureAllocator} from '../../../OEngine/.test-dist/gpu/GPUTextureAllocator.js';
 import {SurfaceSignalLookupPass} from '../../../OEngine/.test-dist/render/surface/SurfaceSignalLookupPass.js';
 import {FrameGraph,FrameGraphContext,FrameGraphResourceManager} from '../../../OEngine/.test-dist/framegraph/FrameGraph.js';
@@ -43,6 +44,13 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  const adapter=await gpu.requestAdapter({powerPreference:'high-performance'});assert.ok(adapter&&!adapter.info.isFallbackAdapter);
  const device=await adapter.requestDevice({requiredLimits:{maxStorageBuffersPerShaderStage:16}});
  const errors=[],retained=[],modules=[],phase5Captures=[];device.addEventListener('uncapturederror',event=>errors.push(event.error.message));
+ const actualAllocations=[];
+ const nativeBuffer=device.createBuffer.bind(device);
+ device.createBuffer=descriptor=>{
+   const created=nativeBuffer(descriptor);
+   actualAllocations.push({label:descriptor.label??'',bytes:created.size,usage:created.usage});
+   return created;
+ };
  const nativeModule=device.createShaderModule.bind(device);device.createShaderModule=descriptor=>{const module=nativeModule(descriptor);modules.push([descriptor.label,module]);return module;};
  if(options.phase5) {
    const nativePipeline=device.createComputePipeline.bind(device);
@@ -59,7 +67,27 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  try {
  device.pushErrorScope('validation');
  const buffer=(data,usage=GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST)=>{const b=device.createBuffer({size:data.byteLength,usage});device.queue.writeBuffer(b,0,data);retained.push(b);return b;};
- let encoder=device.createCommandEncoder();const transient=[],before=[],finished=[],aborted=[];
+ const poisonWord=0x7fc00000,poisonLayout=surfaceCellWorkspaceLayout(2);
+ const poison=buffer(new Uint32Array(poisonLayout.bytes/4).fill(poisonWord),GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST);
+ let poisonResets=0;
+ const createEncoder=()=>{
+   const encoder=device.createCommandEncoder(),clear=encoder.clearBuffer.bind(encoder);
+   if(options.phase5)encoder.clearBuffer=(target,offset=0,size)=>{
+     clear(target,offset,size);
+     if(target.label!=='Surface/cell plan workspace')return;
+     poisonResets++;
+     // Poison only cold payload. Authoritative maps, masks and counters retain
+     // their production reset. A consumer that bypasses validity cannot obtain
+     // a coincidentally correct zero from unused witness/proof/reference storage.
+     for(const [first,last] of [[poisonLayout.proofResults,poisonLayout.geometryProofs],
+       [poisonLayout.uvWitnesses,poisonLayout.fieldReferences],
+       [poisonLayout.fieldReferences,poisonLayout.fieldStoreMasks]]) {
+       encoder.copyBufferToBuffer(poison,first,target,first,last-first);
+     }
+   };
+   return encoder;
+ };
+ let encoder=createEncoder();const transient=[],before=[],finished=[],aborted=[];
  let complete;const gpuDone=new Promise(resolve=>{complete=resolve;});
  const command={device,closed:false,gpu_encoder:encoder,gpuDone,
   onBeforeFinish:{addOne(f){before.push(f);}},onFinished:{addOne(f){finished.push(f);}},onAborted:{addOne(f){aborted.push(f);}},
@@ -167,18 +195,20 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  const envId=imported('environment',env);
  const facts=device.createTexture({size:[width,height],format:'rgba8unorm',usage:GPUTextureUsage.TEXTURE_BINDING});retained.push(facts);
  const factsId=imported('TemporalFacts',facts),exposureId=imported('exposure',buffer(new Float32Array([1]))),bankId=imported('texture bank',texture),ormBankId=imported('ORM bank',ormGpu);
+ const signalRevisions={environment:1,light:1,shadow:0,sun:0};
+ let previousHdr;
  let final;const captures=[];
  onStage('Building real classifier → demand → geometry → appearance → lighting → reconstruct');
  const cells=classifier.addToGraph(graph,{resourceBinding:bind,geometryPass:geometryOwner,visibility:visibilityId,...ids,camera:cameraId,
-   textureVariation:imported('texture variation',variation.buffer),appearanceMetadata:metadataId,fieldVersions:versionsId,viewRevision:{value:1},signalRevisions:{environment:1,light:1,shadow:0,sun:0},
+   textureVariation:imported('texture variation',variation.buffer),appearanceMetadata:metadataId,fieldVersions:versionsId,viewRevision:{value:1},signalRevisions,
    sun:null,shadowVersion:null,width,height,generation:11,frameAt:0,directoryAt:0,sourceGeometry:0,sourceMeshlet:GPU_GEOMETRY_RECORD_SCHEMA.stride/4,
    sourceMeshletVertices:0,sourceMeshletTriangles:4,sourceVertexData:0,publication,product:null,lightRecords:lightId,clusters,shadowEnabled:false,physicalSunEnabled:false,targetCapacity:128,diagnosticsEnabled:true,
    consumeBatch(cells,firstTile,tileCount,batchTiles){
     const request={workspace:cells.workspace,activeIndirect:cells.activeIndirect,fieldStore:cells.fieldStore,signalStore:cells.signalStore,
-      metadata:metadataId,versions:versionsId,publication,targets:128,leaves:tileCount*64,epoch:{value:1},viewRevision:{value:1},revisions:{environment:1,light:1,shadow:0,sun:0},
+      metadata:metadataId,versions:versionsId,publication,targets:128,leaves:tileCount*64,epoch:{value:1},viewRevision:{value:1},revisions:signalRevisions,
       sun:null,shadow:null,firstTile,width,height,diagnostics:true,bind};
     let demand=demandOwner.addToGraph(graph,request);
-    const geometry=geometryOwner.addToGraph(graph,{demand,camera:cameraId,bind});
+    const geometry=geometryOwner.addToGraph(graph,{demand,camera:cameraId,bind,setup:cells.setup,width,height});
     const values=buffer(new Float32Array(demand.layout.fieldCapacity*4),GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST|GPUBufferUsage.COPY_SRC);const valuesId=imported(`field values ${firstTile}`,values);
     fieldValueBuffers.push(values);
     const materialNode=graph.add('Real Appearance closures',{demand,geometry},(data,resources)=>publication.encodeSurfaceFields(command,{
@@ -240,7 +270,7 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  assert.deepEqual(report.compilation,[]);
  report.modules=modules.length;report.order=compiled.dump().executablePassOrder.map(id=>compiled.dump().passes[id].name);
  report.frames=[];
- for(let frame=0;frame<(options.phase5?6:options.fieldStore?4:3);frame++){
+ for(let frame=0;frame<(options.phase5?8:options.fieldStore?4:3);frame++){
    const numericFinished=[];
    onStage(`Executing production frame ${frame}: sparse / empty / moved`);
    if(frame>0){
@@ -248,8 +278,13 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
      if(frame===2)for(let y=0;y<height;y++)for(let x=8;x<16;x++)visibilityPixels[y*width+x]=1;
      device.queue.writeTexture({texture:visibility},visibilityPixels,{bytesPerRow:width*4},{width,height});
      if(frame>=3)for(let y=0;y<height;y++)for(let x=0;x<width;x++){const tile=(y>>3)*4+(x>>3);if([0,2,5,7].includes(tile))visibilityPixels[y*width+x]=((x&1)<<24)|(tile===0?1:tile===2?(x&1):tile===5?2:1);}
+     if(options.phase5&&frame===7)for(let y=0;y<height;y++)for(let x=0;x<width;x++) {
+       const tile=(y>>3)*4+(x>>3);
+       if([0,2,5,7].includes(tile))visibilityPixels[y*width+x]=((x&1)<<24)|2;
+     }
      if(frame>=3)device.queue.writeTexture({texture:visibility},visibilityPixels,{bytesPerRow:width*4},{width,height});
-     encoder=device.createCommandEncoder();command.gpu_encoder=encoder;command.closed=false;
+     if(options.phase5&&frame===6)signalRevisions.environment++;
+     encoder=createEncoder();command.gpu_encoder=encoder;command.closed=false;
      if(options.phase5&&frame>=4) {
        for(const entry of publication.entries)entry.material.specular_color_factor.r=frame===4?140000:1;
        publication.syncRuntime({...command,onFinished:{addOne(callback){numericFinished.push(callback);}}});
@@ -262,11 +297,21 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
    complete();
    const coverage=new Uint32Array(coverageReadback.getMappedRange()).slice();coverageReadback.unmap();
    const hdr=new Uint16Array(hdrReadback.getMappedRange()).slice();hdrReadback.unmap();
+   if(options.phase5&&frame===6)assert.deepEqual([...hdr],[...previousHdr],
+     'Provider identity-only update reevaluates current signals without changing unchanged radiance');
+   previousHdr=hdr;
    const counters=new Uint32Array(counterReadback.getMappedRange()).slice();counterReadback.unmap();
    const metadata=new Uint32Array(metadataReadback.getMappedRange()).slice();metadataReadback.unmap();
    for(let entry=0;entry<publication.surfaceExecutionProfiles.length;entry++){
      const profile=publication.surfaceExecutionProfiles[entry],base=o.executionProfiles+entry*SURFACE_EXECUTION_WORDS;
-     assert.equal(metadata[base],profile.token);assert.equal(metadata[base+1],profile.enabledMask);assert.equal(metadata[base+2],profile.inputMask);
+       assert.equal(metadata[base],profile.token);assert.equal(metadata[base+1],profile.enabledMask);assert.equal(metadata[base+2],profile.inputMask);
+       let transportMask=profile.signals[0].fields;
+       if((metadata[o.constantFields+entry*64]&(1<<10))!==0&&
+         new Float32Array(metadata.buffer)[o.constantFields+entry*64+44]<=0)transportMask&=~((1<<12)|(1<<14));
+       let expectedSeam=12;
+       for(let field=0;field<15;field++)if(transportMask&(1<<field))expectedSeam|=profile.fields[field].domain.seamMask;
+       assert.equal(metadata[base+8+15*SURFACE_FIELD_EXECUTION_WORDS+10],expectedSeam,
+         'Publication premerges the complete current transport sharing seam');
      for(let field=0;field<15;field++){
        const at=base+8+field*SURFACE_FIELD_EXECUTION_WORDS;
        assert.equal(metadata[at],profile.fields[field].token);assert.equal(metadata[at+7],profile.fields[field].proof.token);
@@ -324,7 +369,7 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
        const coverageAt=128+Math.floor(leaf/64)*(SURFACE_CELL_TILE_PLAN_BYTES/4)+2+Math.floor((leaf%64)/32);
        if((batches[batch][coverageAt]&(1<<(leaf%32)))!==0) {
          const material=batches[batch][surfaceCellWorkspaceLayout(2).facts/4+leaf*4+2];
-         assert.equal(batches[batch][surfaceCellWorkspaceLayout(2).addresses/4+leaf*144+136],frame===4&&material!==1?0:3,'Semantic is chosen before lookup and rate');
+         assert.equal(batches[batch][surfaceCellWorkspaceLayout(2).addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS+18],frame===4&&material!==1?0:3,'Semantic is chosen before lookup and rate');
        }
      }
      assert.ok(words[1]<=layout.fieldAdmissionCapacity&&words[2]<=layout.signalAdmissionCapacity);
@@ -341,12 +386,107 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
    const fieldHits=batches.reduce((sum,words)=>sum+words[113],0);
    const signalHits=batches.reduce((sum,words)=>sum+words[117],0);
    for(const words of batches)assert.ok(words[120]<=64,'All proof families share R/2');
+   for(const words of batches) {
+     const layout=surfaceCellWorkspaceLayout(2);
+     assert.equal(layout.geometryCertificates,undefined,'Dense geometry certificates are retired');
+     assert.equal(layout.fieldCertificates,undefined,'Dense field certificates are retired');
+     assert.equal(layout.persistentCertificates,undefined,'Dense canonical certificates are retired');
+     assert.equal(words[86],words[85]*24,'Actual UV witness writes follow produced groups');
+     assert.equal(words[88],words[87]*48,'Actual Signal witness writes follow eligible leaves');
+     assert.ok(words[85]<=words[84]*3&&words[87]<=words[84]);
+     assert.equal(words[93],words[91]*4,'Each eligible candidate uses exactly one four-way lookup set');
+     assert.equal(words[94]+words[95],words[84],'Every candidate leaf chooses ordinary or exceptional semantic');
+     if(frame===1||frame===2) {
+       assert.equal(words[91],0,'Empty/publication-only leaves do not build field candidates');
+       assert.equal(words[92],0,'Publication-only fields do not enter the nonconstant lookup path');
+       assert.equal(words[93],0,'Publication-only fields issue no cache probes');
+     }
+     assert.ok(words[89]<=words[120]*52*8,'Actual result writes stay within admitted typed result work');
+     for(let family=0;family<7;family++) {
+       const count=words[layout.proofTileCounts/4+family];
+       const dispatch=layout.proofDispatch/4+family*4;
+       assert.ok(count<=words[127],'Each proof family dispatches only actual active tiles');
+       assert.deepEqual([...words.slice(dispatch,dispatch+4)],[count,1,1,count],
+         'Every indirect argument, including an empty family, is published');
+       const queue=[...words.slice(layout.proofTiles/4+family*2,layout.proofTiles/4+family*2+count)];
+       assert.equal(new Set(queue).size,count,'No duplicate family tile');
+       for(const tile of queue)assert.ok(tile<words[127],'No stale or capacity tile in a family queue');
+       if(frame===1||frame===2)assert.equal(count,0,'Empty and publication-only inputs dispatch no proofs');
+     }
+     for(let leaf=0;leaf<128;leaf++) {
+       const fact=layout.facts/4+leaf*4;
+       if(words[fact]===0xffffffff)continue;
+       const entry=words[fact+2],palette=o.constantFields+entry*64;
+       if(metadata[palette]===0x7fff)assert.equal(words[layout.addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS+15],0,
+         'Constant fields have no UV witness');
+       for(const offset of [layout.geometryProofs,layout.screenProofSlots,layout.persistentFieldProofs]) {
+         const tag=words[offset/4+leaf];assert.ok(tag===0||tag<=words[120],'Typed result map only names an admitted slot');
+       }
+       for(let field=0;field<15;field++) {
+         const tag=words[layout.screenFieldProofs/4+leaf*15+field];
+         assert.ok(tag===0||tag<=words[120],'Field result map only names an admitted slot');
+       }
+       if(options.phase5) {
+         const uvMask=words[layout.addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS+15];
+         for(let uv=0;uv<3;uv++)if((uvMask&(1<<uv))===0) {
+           assert.ok([...words.slice(layout.uvWitnesses/4+leaf*18+uv*6,
+             layout.uvWitnesses/4+leaf*18+uv*6+6)].every(word=>word===poisonWord),
+             'Unused UV witness was neither materialized nor consumed');
+         }
+         if(words[layout.addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS+19]===0) {
+           assert.ok([...words.slice(layout.signalWitnesses/4+leaf*12,
+             layout.signalWitnesses/4+leaf*12+12)].every(word=>word===poisonWord),
+             'Ineligible signal leaf has no detailed witness writes');
+         }
+         for(const [offset,maskOffset,count] of [[layout.fieldReferences,layout.fieldStoreMasks,15],
+           [layout.signalReferences,layout.signalStoreMasks,6]])for(let kind=0;kind<count;kind++) {
+           if((words[maskOffset/4+leaf]&(1<<kind))!==0)continue;
+           const at=offset/4+(leaf*count+kind)*2;
+           assert.deepEqual([...words.slice(at,at+2)],[poisonWord,poisonWord],
+             'Formula references do not initialize explicit Store payload');
+         }
+       }
+     }
+     if(options.phase5) {
+       const unused=words.slice(layout.proofResults/4+words[120]*52,layout.geometryProofs/4);
+       assert.ok([...unused].every(word=>word===poisonWord),'Unadmitted typed results have no payload writes');
+     }
+   }
    if(frame===3)assert.ok(fieldHits>0,'Repeated real production Appearance values are read from the FieldStore');
    if(frame===3&&options.signalStore)assert.ok(signalHits>0,'Actual selected Field sources produce reusable SignalStore identity and HDR');
-   report.frames.push({frame,demands,fieldHits,signalHits,proofSlots:batches.map(words=>words[120]),active,batches:batches.map(words=>words[127]),visible,completeHdr:true});
+   if(options.phase5&&frame===6) {
+     assert.ok(demands.some(value=>value.signals>0),'Environment update enters real dirty Lighting');
+   }
+   if(options.phase5&&frame===7) {
+     assert.ok(batches.some(words=>words[120]===64&&words[122]>0),
+       'Real support/geometry/field/provider producers exhaust the shared proof pool');
+     assert.ok(demands.some(value=>value.fields>0&&value.signals>0),
+       'Proof rejection retains nonzero mandatory closure and Lighting work');
+   }
+   report.frames.push({frame,demands,fieldHits,signalHits,proofSlots:batches.map(words=>words[120]),
+     proofFamilyTiles:batches.map(words=>[...words.slice(surfaceCellWorkspaceLayout(2).proofTileCounts/4,
+       surfaceCellWorkspaceLayout(2).proofTileCounts/4+7)]),
+     physical:batches.map(words=>({candidateLeaves:words[84],uvWitnessGroups:words[85],uvWitnessBytes:words[86],
+       signalWitnessLeaves:words[87],signalWitnessBytes:words[88],proofResultBytes:words[89],explicitStoreRefBytes:words[90],
+       fieldCandidates:words[91],nonPublicationFields:words[92],fieldLookupProbes:words[93],
+       transportLeaves:words[94],residualLeaves:words[95]})),
+     active,batches:batches.map(words=>words[127]),visible,completeHdr:true});
  }
  const error=await device.popErrorScope();assert.equal(error,null,error?.message);assert.deepEqual(errors,[]);
  report.maskProfiles=publication.surfaceExecutionProfiles.map(profile=>({enabled:profile.enabledMask,input:profile.inputMask,fields:profile.fields.length,signals:profile.signals.length}));
+ const owned=actualAllocations.filter(item=>['Surface/cell plan workspace','Surface/proof family indirect',
+   'Surface/actual demand arena','Surface/actual demand indirect','Surface/unique GeometryRecord',
+   'Surface/unique field values','Surface/unique signal values'].includes(item.label));
+ const allocated=(name)=>owned.filter(item=>item.label===name);
+ assert.equal(allocated('Surface/cell plan workspace').length,1,'Batch workspace is one physical allocation');
+ assert.equal(allocated('Surface/cell plan workspace')[0].bytes,surfaceCellWorkspaceLayout(2).bytes);
+ assert.equal(allocated('Surface/proof family indirect').length,1,'All batch proof dispatches reuse one buffer');
+ assert.equal(allocated('Surface/proof family indirect')[0].bytes,112);
+ assert.equal(allocated('Surface/unique GeometryRecord').length,1,'All batches consume one complete physical record pool');
+ assert.equal(allocated('Surface/unique GeometryRecord')[0].bytes,128*656);
+ report.allocations={scratch:scratch.physicalBytes(),surface:owned,allocator:allocator.evidence(),
+   all:actualAllocations};
+ if(options.phase5){assert.equal(poisonResets,32,'Every actual production batch payload was poisoned');report.poisonedBatchResets=poisonResets;}
  assert.equal(report.maskProfiles[1].enabled,35);assert.equal(report.maskProfiles[2].enabled&32767,32767);
  report.passed=true;
  for(const buffer of transient)buffer.destroy();

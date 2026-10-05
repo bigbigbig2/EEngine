@@ -38,8 +38,10 @@ export function surfaceStorePublishWgsl(targets: number, programs: number, signa
   let offset=PUBLISH_CERTIFICATE_OFFSETS[item.y];
   let width=PUBLISH_FIELD_WIDTHS[item.y];
   let mask=(1u<<width)-1u;
-  let certificate=leaf*52u;
-  let known=(publish_workspace.persistent_certificates[certificate+50u]>>(offset/2u))&mask;
+  let certificate_tag=publish_workspace.persistent_field_proofs[leaf];
+  let certificate=select(0u,certificate_tag-1u,certificate_tag!=0u)*52u;
+  var known=0u;
+  if certificate_tag!=0u { known=(publish_workspace.proof_results[certificate+50u]>>(offset/2u))&mask; }
   let descriptor=field_request_descriptor(item.x,item.y);
   let supported=(publish_metadata[descriptor+3u]&1u)!=0u && countOneBits(publish_metadata[descriptor+6u])<=1u;
   var constant=true;
@@ -53,9 +55,9 @@ export function surfaceStorePublishWgsl(targets: number, programs: number, signa
   var high_vector=vec3f(0.0);
   for(var channel=0u;channel<4u;channel++) {
     var low=0u;var high=0u;
-    if channel<width {
-      low=publish_workspace.persistent_certificates[certificate+offset+channel];
-      high=publish_workspace.persistent_certificates[certificate+offset+width+channel];
+    if channel<width && (known&(1u<<channel))!=0u {
+      low=publish_workspace.proof_results[certificate+offset+channel];
+      high=publish_workspace.proof_results[certificate+offset+width+channel];
       constant=constant && low==high && low==bitcast<u32>(payload[channel]);
       let minimum=bitcast<f32>(low);
       let maximum=bitcast<f32>(high);
@@ -158,10 +160,11 @@ fn publish_surface_references(@builtin(global_invocation_id) id:vec3u) {
   if producer==0xffffffffu { return; }
   let entry=publish_arena.${prefix}_results[producer];
   if entry==0xffffffffu || atomicLoad(&publish_store[entry*${stride}u+${state}u])!=2u { return; }
-  let reference=(item.x*${signal ? 6 : 15}u+item.y)*3u;
-  publish_workspace.${prefix}_references[reference]=SURFACE_REFERENCE_STORE;
-  publish_workspace.${prefix}_references[reference+1u]=entry;
-  publish_workspace.${prefix}_references[reference+2u]=atomicLoad(&publish_store[entry*${stride}u+${generation}u]);
+  let reference=(item.x*${signal ? 6 : 15}u+item.y)*2u;
+  publish_workspace.${prefix}_references[reference]=entry;
+  publish_workspace.${prefix}_references[reference+1u]=atomicLoad(&publish_store[entry*${stride}u+${generation}u]);
+  atomicOr(&publish_workspace.${prefix}_store_masks[item.x],1u<<item.y);
+  if publish_settings.diagnostics!=0u { atomicAdd(&publish_workspace.counters[90u],8u); }
 }
 `;
 }

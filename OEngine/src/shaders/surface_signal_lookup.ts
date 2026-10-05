@@ -45,10 +45,10 @@ fn lookup_surface_signals(@builtin(global_invocation_id) id:vec3u) {
   let enabled=signal_request_enabled(leaf);
   var dirty=0u;
   var hits=0u;
+  var store_signals=0u;
   for(var kind=0u;kind<6u;kind++) {
-    let reference=(leaf*6u+kind)*3u;
+    let reference=(leaf*6u+kind)*2u;
     if (enabled&(1u<<kind))==0u { continue; }
-    signal_request_workspace.signal_references[reference]=SURFACE_REFERENCE_INVALID;
     dirty|=1u<<kind;
     let fields=signal_request_fields(leaf,kind);
     if signal_request_settings.store_enabled==0u || !signal_request_cacheable(leaf,fields,kind) { continue; }
@@ -59,15 +59,17 @@ fn lookup_surface_signals(@builtin(global_invocation_id) id:vec3u) {
       if atomicLoad(&signal_lookup_store[base+${SURFACE_SIGNAL_STORE_STATE_WORD}u])!=2u { continue; }
       if !signal_lookup_equal(base,leaf,kind,fields) { continue; }
       signal_lookup_touch(base);
-      signal_request_workspace.signal_references[reference]=SURFACE_REFERENCE_STORE;
-      signal_request_workspace.signal_references[reference+1u]=entry;
-      signal_request_workspace.signal_references[reference+2u]=atomicLoad(&signal_lookup_store[base+${SURFACE_SIGNAL_STORE_GENERATION_WORD}u]);
+      signal_request_workspace.signal_references[reference]=entry;
+      signal_request_workspace.signal_references[reference+1u]=atomicLoad(&signal_lookup_store[base+${SURFACE_SIGNAL_STORE_GENERATION_WORD}u]);
+      store_signals|=1u<<kind;
+      if signal_request_settings.diagnostics!=0u { atomicAdd(&signal_request_workspace.counters[90u],8u); }
       dirty&=~(1u<<kind);
       hits++;
       break;
     }
   }
   signal_request_workspace.demands[leaf*4u+2u]=dirty;
+  atomicStore(&signal_request_workspace.signal_store_masks[leaf],store_signals);
   if signal_request_settings.diagnostics!=0u {
     atomicAdd(&signal_request_workspace.counters[117u],hits);
     atomicAdd(&signal_request_workspace.counters[118u],countOneBits(dirty));

@@ -13,6 +13,7 @@ import { SURFACE_GEOMETRY_RECORD_WGSL, surfaceGeometryReadWgsl } from "../../gpu
 import { SURFACE_FIELD_REFERENCE_VALUES_WGSL } from "../../shaders/surface_reference_values.js";
 import { SURFACE_PACKET_CONTRACT_WGSL } from "../../gpu/GpuSurfaceSignalPacketAbi.js";
 import type { SurfaceDemandProducts } from "./SurfaceDemandPass.js";
+import { SURFACE_CELL_ADDRESS_WORDS } from "../../gpu/GpuSurfaceReferenceAbi.js";
 
 export interface SurfaceLightingInput {
   readonly resourceBinding:SurfaceResourceBinding;
@@ -43,7 +44,10 @@ const DIRECT_MATH=createProductionSparseDirectLightingWgsl(true,"vsm")
   .replace(/\bview\.height\b/g,"shading_view.height")
   .replace("struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n}","struct ReflectedLight {\n  diffuse: vec3f,\n  specular: vec3f,\n  coat: vec3f,\n  transport: vec3f,\n}")
   .replace("(*reflected).specular += radiance * specular * base_attenuation + coat_radiance;",
-    "(*reflected).specular += radiance * specular * base_attenuation;\n  (*reflected).coat += coat_radiance;");
+    "(*reflected).specular += radiance * specular * base_attenuation;\n  (*reflected).coat += coat_radiance;")
+  .replace("(*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI * base_attenuation;",
+    "(*reflected).diffuse += radiance * diffuse * RECIPROCAL_PI * base_attenuation;\n" +
+    "  if direct_transport { (*reflected).transport += radiance * RECIPROCAL_PI * base_attenuation; }");
 
 export function surfaceLightingWgsl(targets:number,programs:number):string {
  return /* wgsl */ `
@@ -143,8 +147,14 @@ fn surface_material(record: u32, signal_mask: u32, transport: bool) -> StandardM
 // no roughness/specular evaluation is needed for transport-only work.
 fn re_surface_direct(incident: GpuPrimitiveTypeTable, geometry_in: SurfaceGeometry,
   material: StandardMaterial, reflected: ptr<function, ReflectedLight>) {
-  if direct_full { re_direct_physical(incident, geometry_in, material, reflected); }
+  if direct_full {
+    diagnostic_add(32u,1u);
+    if direct_transport { diagnostic_add(33u,1u); }
+    re_direct_physical(incident, geometry_in, material, reflected);
+    return;
+  }
   if !direct_transport { return; }
+  diagnostic_add(34u,1u);
   let h = normalize(incident.direction + geometry_in.view_direction);
   let no_l = saturate(dot(geometry_in.shading_normal, incident.direction));
   let no_v = saturate(dot(geometry_in.shading_normal, geometry_in.view_direction));
@@ -259,7 +269,7 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   let shading_normal=geometry_in.normal.xyz;
   let tangent=geometry_in.tangent.xyz;
   let view_dir=geometry_in.view.xyz;
-  let transport = surface_workspace.addresses[record * 144u + 136u] == 3u;
+  let transport = surface_workspace.addresses[record * ${SURFACE_CELL_ADDRESS_WORDS}u + 18u] == 3u;
   var material = surface_material(record, signal_mask, transport);
   direct_transport = transport && (signal_mask & 1u) != 0u;
   direct_full = (signal_mask & 20u) != 0u || ((signal_mask & 1u) != 0u && !transport);

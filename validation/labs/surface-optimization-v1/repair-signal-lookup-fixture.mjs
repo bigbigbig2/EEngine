@@ -28,15 +28,16 @@ export async function runSignalLookupRepair(gpu, assert, onStage=()=>{}) {
     const layout=surfaceCellWorkspaceLayout(1),workspaceWords=new Uint32Array(layout.bytes/4);
     const address=layout.addresses/4;
     workspaceWords.set([3,7,11,13,17,19,23,29,1,31,37,41,43,5,0,1],address);
-    workspaceWords[address+93]=7;
-    workspaceWords.set(bits([1,2,3,1]),address+94);
-    workspaceWords.set(bits([0,0,1,1]),address+106);
-    workspaceWords.set(bits([1,0,0,1]),address+118);
+    workspaceWords[address+16]=7;
+    workspaceWords[address+19]=63;
+    workspaceWords.set(bits([1,2,3,1]),layout.signalWitnesses/4);
+    workspaceWords.set(bits([0,0,1,1]),layout.signalWitnesses/4+4);
+    workspaceWords.set(bits([1,0,0,1]),layout.signalWitnesses/4+8);
     for(let leaf=0;leaf<3;leaf++)workspaceWords.set([1,0,0,1],layout.facts/4+leaf*4);
     for(let field=0;field<15;field++) {
       const at=layout.plans/4+16+field*6;
       workspaceWords.set([1,0,field*24,0,7,0],at);
-      for(let leaf=0;leaf<3;leaf++)workspaceWords.set([1,0,1],layout.fieldReferences/4+(leaf*15+field)*3);
+      for(let leaf=0;leaf<3;leaf++)workspaceWords[layout.addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS+19]=63;
     }
     // Different fields select different covered physical sources; the union
     // leaf's own roughness/normal references are intentionally invalid.
@@ -44,8 +45,8 @@ export async function runSignalLookupRepair(gpu, assert, onStage=()=>{}) {
       const plan=layout.plans/4+16+field*6;
       workspaceWords[plan]=4;workspaceWords[plan+3]=1;
       workspaceWords[layout.maps/4+field*24+12]=leaf;
-      workspaceWords.set([0,0,0],layout.fieldReferences/4+field*3);
-      workspaceWords.set([5,slot,generation],layout.fieldReferences/4+(leaf*15+field)*3);
+      workspaceWords.set([slot,generation],layout.fieldReferences/4+(leaf*15+field)*2);
+      workspaceWords[layout.fieldStoreMasks/4+leaf]|=1<<field;
     }
     const workspace=buffer(workspaceWords);
     const constants=15*I,execution=constants+64,metadataWords=new Uint32Array(execution+SURFACE_EXECUTION_WORDS);
@@ -129,11 +130,12 @@ export async function runSignalLookupRepair(gpu, assert, onStage=()=>{}) {
     device.queue.writeBuffer(versions,4*4*4,new Uint32Array([2]));
     device.queue.writeBuffer(versions,5*4*4,new Uint32Array([2]));
     await sample('compose AO occlusion and E do not invalidate lighting',0);
-    device.queue.writeBuffer(workspace,(layout.fieldReferences/4+(1*15+3)*3+2)*4,new Uint32Array([24]));
+    device.queue.writeBuffer(workspace,(layout.fieldReferences/4+(1*15+3)*2+1)*4,new Uint32Array([24]));
     await sample('selected roughness producer generation only',29);
-    device.queue.writeBuffer(workspace,(layout.fieldReferences/4+(1*15+3)*3)*4,new Uint32Array([4,17,24]));
+    device.queue.writeBuffer(workspace,layout.fieldStoreMasks+4,new Uint32Array([0]));
     await sample('transient selected Field keeps dependent signals dirty',29);
-    device.queue.writeBuffer(workspace,(layout.fieldReferences/4+(1*15+3)*3)*4,new Uint32Array([5,17,23]));
+    device.queue.writeBuffer(workspace,(layout.fieldReferences/4+(1*15+3)*2)*4,new Uint32Array([17,23]));
+    device.queue.writeBuffer(workspace,layout.fieldStoreMasks+4,new Uint32Array([1<<3]));
     onStage('Actual VSM content publication and allocation API');
     const contentModule=device.createShaderModule({code:VSM_CONTENT_VERSION_WGSL});
     const allocationModule=device.createShaderModule({code:VSM_ALLOCATE_PAGES_WGSL});

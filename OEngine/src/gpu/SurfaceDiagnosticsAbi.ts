@@ -7,10 +7,10 @@
  */
 import { SURFACE_GEOMETRY_RECORD_VECTORS } from "./GpuSurfaceGeometryRecordAbi.js";
 
-export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 5;
+export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 6;
 export const SURFACE_DIAGNOSTICS_MAGIC = 0x53564433; // "SVD3"
 export const SURFACE_DIAGNOSTICS_HEADER_WORDS = 16;
-export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 96;
+export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 112;
 export const SURFACE_DIAGNOSTICS_WORDS =
   SURFACE_DIAGNOSTICS_HEADER_WORDS + SURFACE_DIAGNOSTICS_COUNTER_WORDS;
 export const SURFACE_DIAGNOSTICS_BYTE_SIZE = SURFACE_DIAGNOSTICS_WORDS * 4;
@@ -107,7 +107,15 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   fieldCacheAdmissions: 81, fieldCacheQueueRejected: 82,
   signalCacheRequests: 83, signalCacheProbes: 84, signalCacheUnique: 85,
   signalCacheAdmissions: 86, signalCacheQueueRejected: 87,
-  fieldValuesProduced: 88, signalValuesProduced: 89
+  fieldValuesProduced: 88, signalValuesProduced: 89,
+  candidateLeaves: 90, uvWitnessGroups: 91, uvWitnessWriteBytes: 92,
+  signalWitnessLeaves: 93, signalWitnessWriteBytes: 94, proofResultWriteBytes: 95,
+  proofAdmitted: 96, proofRejected: 97, geometryHotWriteBytes: 98, geometryColdWriteBytes: 99,
+  explicitStoreRefWriteBytes: 100,
+  fullDirectLightEvaluations: 101, sharedDirectTransportEvaluations: 102,
+  transportOnlyLightEvaluations: 103,
+  fieldLookupCandidates: 104, nonPublicationFields: 105, fieldLookupProbes: 106,
+  transportEligibleLeaves: 107, residualLeaves: 108
 } as const);
 
 export const SURFACE_DIAGNOSTICS_COUNTERS = SURFACE_DIAGNOSTIC_COUNTERS;

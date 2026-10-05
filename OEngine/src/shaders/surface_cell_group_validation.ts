@@ -70,15 +70,18 @@ fn cell_tree_prepare_geometry(node: u32) {
     var view: AppearanceBound4;` : ""}
     if node < 16u {
       let certificate = cell_leaf_certificate(cell_local_tile, child);
-      let at = (cell_local_tile * 64u + certificate) * CELL_CERTIFICATE_GEOMETRY_WORDS;
       let world = cell_certificate_box(cell_local_tile, certificate, 0u);
       low = world.low.xyz;
       high = world.high.xyz;
-      flags = cell_workspace.geometry_certificates[at + 31u];
-      residual = bitcast<vec2f>(vec2u(cell_workspace.geometry_certificates[at + 24u], cell_workspace.geometry_certificates[at + 25u]));
-      scale = bitcast<f32>(cell_workspace.geometry_certificates[at + 30u]);
-      child_plane = bitcast<vec4f>(vec4u(cell_workspace.geometry_certificates[at + 26u], cell_workspace.geometry_certificates[at + 27u],
-        cell_workspace.geometry_certificates[at + 28u], cell_workspace.geometry_certificates[at + 29u]));
+      let tag=cell_workspace.geometry_proofs[cell_local_tile*64u+certificate];
+      if tag!=0u {
+        let at=(tag-1u)*CELL_CERTIFICATE_RESULT_WORDS;
+        flags = cell_workspace.proof_results[at + 31u];
+        residual = bitcast<vec2f>(vec2u(cell_workspace.proof_results[at + 24u], cell_workspace.proof_results[at + 25u]));
+        scale = bitcast<f32>(cell_workspace.proof_results[at + 30u]);
+        child_plane = bitcast<vec4f>(vec4u(cell_workspace.proof_results[at + 26u], cell_workspace.proof_results[at + 27u],
+          cell_workspace.proof_results[at + 28u], cell_workspace.proof_results[at + 29u]));
+      }
       ${signals ? `normal = cell_certificate_box(cell_local_tile, certificate, 1u);
       tangent = cell_certificate_box(cell_local_tile, certificate, 2u);
       view = cell_certificate_box(cell_local_tile, certificate, 3u);` : ""}

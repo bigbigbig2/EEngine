@@ -33,6 +33,7 @@ export async function checkCanonicalSupport(device,assert) {
   };
   try {
     const layout=surfaceCellWorkspaceLayout(1),words=new Uint32Array(layout.bytes/4),floats=new Float32Array(words.buffer);
+    const originalWords=new Uint32Array(cases.length*144),originalFloats=new Float32Array(originalWords.buffer);
     const setupWords=new Uint32Array(64*2+cases.length*SURFACE_CELL_GEOMETRY_SETUP_BYTES/4),setupFloats=new Float32Array(setupWords.buffer);
     for(let leaf=0;leaf<cases.length;leaf++) {
       const scenario=cases[leaf],setup=64*2+leaf*SURFACE_CELL_GEOMETRY_SETUP_BYTES/4;
@@ -43,18 +44,20 @@ export async function checkCanonicalSupport(device,assert) {
         setupFloats.set([scenario.u[corner],scenario.v[corner]],setup+36+(corner*6+attributeIndex)*4+channel);
       }
       const at=layout.addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS;
-      words[at+15]=1<<scenario.uv;words[at+93]=scenario.flags??7;
+      words[at+15]=1<<scenario.uv;words[at+16]=scenario.flags??7;
+      const witness=layout.uvWitnesses/4+leaf*18;
       for(let axis=0;axis<2;axis++) {
         const values=axis?scenario.v:scenario.u;
         const center=recover(scenario.coefficients,values,.5,.5);
-        floats[at+16+scenario.uv*6+axis]=center;
-        floats[at+18+scenario.uv*6+axis]=recover(scenario.coefficients,values,1.5,.5)-center;
-        floats[at+20+scenario.uv*6+axis]=recover(scenario.coefficients,values,.5,1.5)-center;
+        floats[witness+scenario.uv*6+axis]=center;
+        floats[witness+2+scenario.uv*6+axis]=recover(scenario.coefficients,values,1.5,.5)-center;
+        floats[witness+4+scenario.uv*6+axis]=recover(scenario.coefficients,values,.5,1.5)-center;
+        originalFloats[leaf*144+16+scenario.uv*6+axis]=center;
       }
       // The old reader sees zero-filled, unproduced bounds in cell zero and
       // accepts both domain and gradient failures. These cases detect that bug.
       if(scenario.name.includes('crosses cell')||scenario.name.includes('gradient escapes')) {
-        const center=floats[at+16+scenario.uv*6];assert.ok(center>0&&center<1/32);
+        const center=floats[witness+scenario.uv*6];assert.ok(center>0&&center<1/32);
       }
       if(scenario.name.includes('gradient escapes')) {
         const center=recover(scenario.coefficients,scenario.u,.5,.5);
@@ -65,6 +68,7 @@ export async function checkCanonicalSupport(device,assert) {
       }
     }
     const workspace=buffer(words.byteLength),geometry=buffer(setupWords.byteLength),output=buffer(cases.length*8);
+    const originalAddresses=buffer(originalWords.byteLength);device.queue.writeBuffer(originalAddresses,0,originalWords);
     device.queue.writeBuffer(workspace,0,words);device.queue.writeBuffer(geometry,0,setupWords);
     const code=`${WINNER_INTERPOLATION_WGSL}\n${APPEARANCE_FIELD_BOUND_WGSL}\n${SURFACE_CELL_ADDRESS_MATH_WGSL}
 ${SURFACE_CELL_GEOMETRY_WGSL}\n${surfaceCellGeometryArenaWgsl(64,false)}\n${surfaceCellWorkspaceWgsl(1)}
@@ -73,15 +77,16 @@ const cell_settings=CanonicalSettings(64u,64u);
 @group(0) @binding(0) var<storage,read_write> cell_workspace:SurfaceCellWorkspace;
 @group(0) @binding(1) var<storage,read> geometry_arena:CellGeometryArenaRead;
 @group(0) @binding(2) var<storage,read_write> output:array<u32>;
+@group(0) @binding(3) var<storage,read> original_addresses:array<u32>;
 ${SURFACE_CELL_CANONICAL_SUPPORT_WGSL}
 // Isolated pre-repair reader, used only to check regression sensitivity.
 fn original_zero_bound_reader(leaf:u32,uv:u32)->bool {
-  let address=leaf*${SURFACE_CELL_ADDRESS_WORDS}u;
+  let address=leaf*144u;
   for(var axis=0u;axis<2u;axis++) {
-    let center=bitcast<f32>(cell_workspace.addresses[address+16u+uv*6u+axis]);
+    let center=bitcast<f32>(original_addresses[address+16u+uv*6u+axis]);
     let domain_low=floor(center*32.0)/32.0;
-    let low=bitcast<f32>(cell_workspace.addresses[address+46u+uv*4u+axis]);
-    let high=bitcast<f32>(cell_workspace.addresses[address+48u+uv*4u+axis]);
+    let low=bitcast<f32>(original_addresses[address+46u+uv*4u+axis]);
+    let high=bitcast<f32>(original_addresses[address+48u+uv*4u+axis]);
     if !(low>=domain_low && high<=domain_low+1.0/32.0) { return false; }
   }
   return true;
@@ -95,7 +100,7 @@ fn original_zero_bound_reader(leaf:u32,uv:u32)->bool {
     const module=device.createShaderModule({code});
     assert.deepEqual((await module.getCompilationInfo()).messages.filter(message=>message.type==='error').map(message=>message.message),[]);
     const pipeline=await device.createComputePipelineAsync({layout:'auto',compute:{module,entryPoint:'check_support'}});
-    const group=device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:[workspace,geometry,output].map((value,binding)=>({binding,resource:{buffer:value}}))});
+    const group=device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:[workspace,geometry,output,originalAddresses].map((value,binding)=>({binding,resource:{buffer:value}}))});
     const staging=device.createBuffer({size:output.size,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});resources.push(staging);
     const encoder=device.createCommandEncoder(),pass=encoder.beginComputePass();
     pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(1);pass.end();

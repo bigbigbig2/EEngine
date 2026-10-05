@@ -1,6 +1,7 @@
 import { SURFACE_CELL_TILE_PLAN_BYTES } from "../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
 import { SURFACE_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
+import { SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "../gpu/GpuSurfaceFieldIdentityAbi.js";
 
 /** Geometry owner address stage. It uses the admitted primitive setup and the
  * same winner interpolation as the sole GeometryRecord producer. Only the
@@ -8,7 +9,7 @@ import { SURFACE_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js
 export const SURFACE_CELL_ADDRESSES_WGSL = /* wgsl */ `
 fn cell_address_write4(at:u32,value:vec4f) {
   let words=bitcast<vec4u>(value);
-  for(var channel=0u;channel<4u;channel++) { cell_workspace.addresses[at+channel]=words[channel]; }
+  for(var channel=0u;channel<4u;channel++) { cell_workspace.signal_witnesses[at+channel]=words[channel]; }
 }
 fn cell_address_attribute(setup:CellGeometrySetup,attribute_index:u32,weights:vec3f)->vec4f {
   return setup.corners[attribute_index]*weights.x+setup.corners[attribute_index+6u]*weights.y+setup.corners[attribute_index+12u]*weights.z;
@@ -47,31 +48,33 @@ fn publish_cell_addresses(@builtin(workgroup_id) group:vec3u,@builtin(local_invo
   cell_workspace.addresses[at+12u]=setup.source.w;
   cell_workspace.addresses[at+13u]=pixel.y*cell_settings.width+pixel.x;
   cell_workspace.addresses[at+14u]=published.y;
-  cell_workspace.addresses[at+93u]=interpolation.flags;
-  cell_workspace.addresses[at+130u]=setup.source_address.w;
-  cell_address_write4(at+132u,setup.world_plane);
-  var flips=0u;
-  if (setup.source_address.w&16u)!=0u {
-    for(var point=0u;point<3u;point++) {
-      var weights=interpolation.weights;
-      if point==1u { weights+=interpolation.dx; }
-      if point==2u { weights+=interpolation.dy; }
-      let world=cell_address_attribute(setup,5u,weights).xyz;
-      var normal=cell_address_attribute(setup,0u,weights).xyz;
-      if dot(normal,normal)<=1e-20 { normal=setup.world_plane.xyz; }
-      flips|=select(0u,1u<<point,dot(normal,cell_camera.transform[3u].xyz-world)<0.0);
+  cell_workspace.addresses[at+16u]=interpolation.flags;
+  cell_workspace.addresses[at+17u]=setup.source_address.w;
+  var input_mask=0u;
+  let palette=cell_constant_palette(published.z);
+  let constant_mask=appearance_metadata[palette];
+  for(var field=0u;field<15u;field++) {
+    if (constant_mask&(1u<<field))!=0u { continue; }
+    let descriptor=settings.appearance2.z+(published.z*15u+field)*${SURFACE_FIELD_IDENTITY_WORDS}u;
+    let profile=appearance_metadata[descriptor+${SURFACE_FIELD_EXECUTION_PROFILE_WORD}u];
+    let uv_mask=appearance_metadata[descriptor+6u];
+    let canonical=(appearance_metadata[descriptor+3u]&1u)!=0u && countOneBits(uv_mask)==1u;
+    let proof_supported=(appearance_metadata[profile+15u]&4u)!=0u &&
+      appearance_metadata[profile+8u]<=64u && appearance_metadata[profile+10u]<=4u;
+    if appearance_metadata[profile+3u]==1u || (canonical && proof_supported) {
+      input_mask|=appearance_metadata[descriptor+6u];
     }
   }
-  cell_workspace.addresses[at+131u]=flips;
-  let input_mask=appearance_metadata[settings.appearance2.w+published.z*${SURFACE_EXECUTION_WORDS}u+2u];
-  let color_guard = cell_address_attribute(setup, 3u, interpolation.weights).xyz;
-  let guard_safe = all(color_guard == color_guard) && all(abs(color_guard) <= vec3f(2.0));
-  cell_workspace.addresses[at + 136u] = select(0u,
-    appearance_metadata[settings.appearance2.w + published.z * ${SURFACE_EXECUTION_WORDS}u + 5u], guard_safe);
-  let rect=cell_rect_from_mask(cell_region(lane,2u,2u),origin);
+  var semantic=appearance_metadata[settings.appearance2.w + published.z * ${SURFACE_EXECUTION_WORDS}u + 5u];
+  if semantic==3u {
+    let color_guard=cell_address_attribute(setup,3u,interpolation.weights).xyz;
+    let guard_safe=all(color_guard==color_guard) && all(abs(color_guard)<=vec3f(2.0));
+    semantic=select(0u,3u,guard_safe);
+  }
+  cell_workspace.addresses[at+18u]=semantic;
   var valid_uv=0u;
   for(var uv=0u;uv<3u;uv++) {
-    if (input_mask&(1u<<(uv+1u)))==0u { continue; }
+    if (input_mask&(1u<<uv))==0u { continue; }
     let attribute_index=select(2u,4u,uv==2u);
     let component=select(0u,2u,uv==1u);
     let center=cell_address_attribute(setup,attribute_index,interpolation.weights);
@@ -80,33 +83,65 @@ fn publish_cell_addresses(@builtin(workgroup_id) group:vec3u,@builtin(local_invo
     var known=true;
     for(var channel=0u;channel<2u;channel++) {
       let c=component+channel;
-      cell_workspace.addresses[at+16u+uv*6u+channel]=bitcast<u32>(center[c]);
-      cell_workspace.addresses[at+18u+uv*6u+channel]=bitcast<u32>(dx[c]);
-      cell_workspace.addresses[at+20u+uv*6u+channel]=bitcast<u32>(dy[c]);
+      cell_workspace.uv_witnesses[leaf*18u+uv*6u+channel]=bitcast<u32>(center[c]);
+      cell_workspace.uv_witnesses[leaf*18u+2u+uv*6u+channel]=bitcast<u32>(dx[c]);
+      cell_workspace.uv_witnesses[leaf*18u+4u+uv*6u+channel]=bitcast<u32>(dy[c]);
       known=known && center[c]==center[c] && dx[c]==dx[c] && dy[c]==dy[c] &&
         max(abs(center[c]),max(abs(dx[c]),abs(dy[c])))<=3.402823466e38;
     }
     valid_uv|=select(0u,1u<<uv,known);
   }
   cell_workspace.addresses[at+15u]=valid_uv;
-  if (input_mask&(1u<<4u))!=0u {
-    let color=cell_address_attribute(setup,3u,interpolation.weights);
-    cell_address_write4(at+34u,color);
-    cell_address_write4(at+38u,cell_address_attribute(setup,3u,interpolation.weights+interpolation.dx)-color);
-    cell_address_write4(at+42u,cell_address_attribute(setup,3u,interpolation.weights+interpolation.dy)-color);
+  if cell_settings.reserved!=0u {
+    atomicAdd(&cell_workspace.counters[84u],1u);
+    atomicAdd(&cell_workspace.counters[85u],countOneBits(input_mask));
+    atomicAdd(&cell_workspace.counters[86u],countOneBits(input_mask)*24u);
+    atomicAdd(&cell_workspace.counters[94u],select(0u,1u,semantic==3u));
+    atomicAdd(&cell_workspace.counters[95u],select(0u,1u,semantic!=3u));
   }
-  // Exact raw inputs determine normalized/derived inputs in Appearance. View
-  // dependent inputs additionally carry the authoritative camera revision.
-  for(var attribute_index=0u;attribute_index<3u;attribute_index++) {
-    var needed=(input_mask&((1u<<7u)|(1u<<8u)|(1u<<10u)|(1u<<13u)))!=0u;
-    var source=5u;
-    if attribute_index==1u { source=0u;needed=(input_mask&((1u<<5u)|(1u<<6u)|(1u<<11u)|(1u<<12u)|(1u<<14u)))!=0u; }
-    if attribute_index==2u { source=1u;needed=(input_mask&((1u<<6u)|(1u<<12u)))!=0u; }
-    if !needed { continue; }
-    let base=at+94u+attribute_index*12u;
-    cell_address_write4(base,cell_address_attribute(setup,source,interpolation.weights));
-    cell_address_write4(base+4u,cell_address_attribute(setup,source,interpolation.weights+interpolation.dx));
-    cell_address_write4(base+8u,cell_address_attribute(setup,source,interpolation.weights+interpolation.dy));
+}
+@compute @workgroup_size(64)
+fn publish_cell_signal_witnesses(@builtin(global_invocation_id) id:vec3u) {
+  let leaf=id.x;
+  if leaf>=cell_settings.tile_count*64u { return; }
+  cell_local_tile=leaf/64u;
+  let published=cell_workspace.facts[leaf];
+  if published.x==0xffffffffu || published.y>=settings.geometry.y || published.z>=settings.appearance1.z { return; }
+  let at=leaf*${SURFACE_CELL_ADDRESS_WORDS}u;
+  let fact=surface_cell_load(vec2u(cell_workspace.addresses[at+13u]%cell_settings.width,
+    cell_workspace.addresses[at+13u]/cell_settings.width),published.x);
+  var eligible=0u;
+  for(var kind=0u;kind<6u;kind++) {
+    if (fact.enabled&(1u<<(15u+kind)))==0u { continue; }
+    let fields=cell_material_signal_dependencies(15u+kind,published.z,leaf);
+    var cacheable=true;
+    for(var field=0u;field<15u;field++) {
+      if (fields&(1u<<field))==0u { continue; }
+      let reference=reference_field(leaf,field);
+      cacheable=cacheable && reference.kind!=SURFACE_REFERENCE_TRANSIENT && reference.kind!=SURFACE_REFERENCE_INVALID;
+    }
+    if cacheable { eligible|=1u<<kind; }
+  }
+  cell_workspace.addresses[at+19u]=eligible;
+  if eligible==0u { return; }
+  let setup=geometry_arena.setups[published.y];
+  let pixel=cell_workspace.addresses[at+13u];
+  let interpolation=winner_interpolate(setup.coefficients,
+    vec2f(f32(pixel%cell_settings.width),f32(pixel/cell_settings.width))+vec2f(0.5),
+    vec2f(f32(cell_settings.width),f32(cell_settings.height)));
+  let position=cell_address_attribute(setup,5u,interpolation.weights);
+  let normal=cell_address_attribute(setup,0u,interpolation.weights);
+  let tangent=cell_address_attribute(setup,1u,interpolation.weights);
+  cell_address_write4(leaf*12u,position);
+  cell_address_write4(leaf*12u+4u,normal);
+  cell_address_write4(leaf*12u+8u,tangent);
+  var facing_normal=normal.xyz;
+  if dot(facing_normal,facing_normal)<=1e-20 { facing_normal=setup.world_plane.xyz; }
+  cell_workspace.addresses[at+20u]=select(0u,1u,(setup.source_address.w&16u)!=0u &&
+    dot(facing_normal,cell_camera.transform[3u].xyz-position.xyz)<0.0);
+  if cell_settings.reserved!=0u {
+    atomicAdd(&cell_workspace.counters[87u],1u);
+    atomicAdd(&cell_workspace.counters[88u],48u);
   }
 }
 `;

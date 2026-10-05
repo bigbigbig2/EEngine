@@ -19,11 +19,13 @@ ${SURFACE_CELL_ADDRESS_MATH_WGSL}
 struct AnalyticLaneGeometry { plane:vec4f, source:vec4u, }
 var<workgroup> cell_lane_geometry:array<AnalyticLaneGeometry,64>;
 fn cell_material_entry(material:u32)->u32 { return 0u; }
+fn cell_certificate_publication(leaf:u32,field:u32)->AppearanceBound4 { return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u)); }
 fn surface_cell_load(pixel:vec2u,winner:u32)->SurfaceCellLane {
   let lane=(pixel.y%8u)*8u+pixel.x%8u;
-  let at=lane*32u;
-  cell_lane_geometry[lane]=AnalyticLaneGeometry(bitcast<vec4f>(vec4u(cell_workspace.geometry_certificates[at+26u],
-    cell_workspace.geometry_certificates[at+27u],cell_workspace.geometry_certificates[at+28u],cell_workspace.geometry_certificates[at+29u])),vec4u(0u));
+  let tag=cell_workspace.geometry_proofs[lane];
+  let at=(tag-1u)*52u;
+  cell_lane_geometry[lane]=AnalyticLaneGeometry(bitcast<vec4f>(vec4u(cell_workspace.proof_results[at+26u],
+    cell_workspace.proof_results[at+27u],cell_workspace.proof_results[at+28u],cell_workspace.proof_results[at+29u])),vec4u(0u));
   return SurfaceCellLane(vec4u(1u),winner,lane,1u|(1u<<16u)|(1u<<18u),0u);
 }
 fn surface_cell_compatible(plane:u32,a:SurfaceCellLane,b:SurfaceCellLane)->bool { return all(a.identity==b.identity); }
@@ -61,22 +63,26 @@ ${SURFACE_CELL_CERTIFICATE_READ_WGSL}`;
         const x=lane%8,y=Math.floor(lane/8),height=scenario.planes&&x%4>=2?2:0;
         const color=scenario.colors ? 0.1+Math.floor(x/2)%2*0.04+Math.floor(y/2)%2*0.04 : 0.25;
         winners[lane]=scenario.partial&&x>=5?0xffffffff:lane+1;
-        words[layout.primitives/4+lane]=lane;
-        const geometry=layout.geometryCertificates/4+lane*32;
+        const quad=Math.floor(y/2)*4+Math.floor(x/2);
+        words[layout.primitives/4+lane]=quad;
+        words[layout.geometryProofs/4+lane]=quad+1;
+        const geometry=layout.proofResults/4+quad*52;
         floats.set([x&~1,y&~1,height,(x&~1)+1,(y&~1)+1,height],geometry);
         floats.set([0,0],geometry+24);floats.set([0,0,1,-height],geometry+26);floats[geometry+30]=1;words[geometry+31]=17;
         const tilted=scenario.direction&&Math.floor(x/2)%2;
         const normal=tilted?[Math.sin(Math.PI/18),0,Math.cos(Math.PI/18)]:[0,0,1];
         floats.set([...normal,...normal],geometry+6);floats.set([1,0,0,1,0,0],geometry+12);floats.set([0,0,1,0,0,1],geometry+18);words[geometry+31]=31;
-        const field=layout.fieldCertificates/4+lane*52;
+        const field=layout.proofResults/4+(16+quad)*52;
+        for(let plane=0;plane<15;plane++)words[layout.screenFieldProofs/4+lane*15+plane]=17+quad;
         floats.set([color,color,color,color,color,color],field);
-        words[field+50]=scenario.unknown&&lane===0?0:7;
+        const known=layout.fieldKnownMasks/4+lane;
+        words[known]=scenario.unknown&&quad===0?0:7;
         if(scenario.direction||scenario.glossy||scenario.unknownNormal){
           const offset=field+SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS[6];floats.set([0,0,1,0,0,1],offset);
           floats.set([1,1],field+SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS[13]);
           floats.set(scenario.glossy?[.05,.05]:[.8,.8],field+SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS[3]);
-          words[field+50]=(1<<25)-1;
-          if(scenario.unknownNormal&&lane===0)words[field+50]&=~(7<<(SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS[6]/2));
+          words[known]=(1<<25)-1;
+          if(scenario.unknownNormal&&quad===0)words[known]&=~(7<<(SURFACE_CELL_FIELD_CERTIFICATE_OFFSETS[6]/2));
         }
       }
       device.queue.writeBuffer(workspace,0,words);device.queue.writeTexture({texture:visibility},winners,{bytesPerRow:32},{width:8,height:8});

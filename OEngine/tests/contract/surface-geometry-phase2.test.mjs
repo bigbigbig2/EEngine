@@ -24,6 +24,8 @@ test('Geometry physically shares aliases while retaining independently requested
   assert.equal(map[4],map[10]);assert.equal(map[5],map[11]);assert.equal(map[6],map[9]);
   assert.equal(hot,128);assert.equal(cold,11*3*16);assert.equal(bytes,656);
   const plan=planSurfaceOptimizationCapacity(1920,1080,limits);
-  assert.equal(plan.productionAllocations.geometryRecords,plan.batchTargetCapacity*bytes);
+  assert.equal(plan.productionAllocations.geometryHot,plan.batchTargetCapacity*hot);
+  assert.equal(plan.productionAllocations.geometryCold,plan.batchTargetCapacity*cold);
+  assert.equal(plan.productionAllocations.geometryHot+plan.productionAllocations.geometryCold,plan.batchTargetCapacity*bytes);
   assert.ok(plan.reservedBytes>=plan.ledger.scratchBytes*2+plan.ledger.persistentBytes+plan.ledger.outputBytes*2);
 });

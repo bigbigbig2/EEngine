@@ -1,7 +1,0 @@
-<!doctype html><html><meta charset="utf-8"><title>Surface actual demand diagnostic</title><pre id="status">Starting</pre><script type="module">
-import {runDemandRepairOracle} from './repair-demand-fixture.mjs';
-try {
- window.cellOracleResult=await runDemandRepairOracle(navigator.gpu,message=>{window.cellOracleStage=message;console.log(message);});
-} catch(error) { window.cellOracleResult={passed:false,failure:error.stack}; }
-document.getElementById('status').textContent=JSON.stringify(window.cellOracleResult,null,2);
-</script></html>

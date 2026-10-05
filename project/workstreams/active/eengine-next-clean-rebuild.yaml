@@ -13,7 +13,7 @@ goal: >-
 
 currentSlice:
   id: surface-work-v3-cost-bounded-final-refactor
-  title: Surface V3：Phase 5 检查通过，实施必需 Phase 5.5 物理表示和成本补齐
+  title: Surface V3：Phase 5.5 集中检查通过，待提交后进入 Phase 6
   status: active
   goal: >-
     按 docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md
@@ -21,8 +21,9 @@ currentSlice:
     每阶段实现并检查，通过后进入下一阶段。重构前基线 14c17078，Phase 4 HEAD 0c8caf30；
     Phase 0–4 的接线与历史检查保留，但前置物理表示未全部落实。本次 Phase 5 实现与集中检查通过，
     同 key writer、真实计时、IOR/coat validity、canonical包含性已修复，六帧GPU链与原1080p短smoke完成。
-    当前必需 Phase 5.5 补齐 lazy witness、typed compact certificate、公式 ref 与真实预算映射，
-    同时通过数值/覆盖和结构/工作量检查；之后 Phase 6 调度/reset/lifetime、Phase 7 正式验收。
+    Phase 5.5 已补齐 lazy witness、typed compact certificate、公式 ref 与真实预算映射，
+    并通过同R/newR账、真实八帧producer→consumer、proof/cache满、NaN毒值、parent/tree、reset/compose、
+    1080p timing+detailed短smoke；待中文提交后进入 Phase 6 调度/reset/lifetime，最后 Phase 7 正式验收。
     开工清单见 docs/next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md。
     run06 的约 801.7ms 为历史诊断，accepted=false，不宣称性能完成。
     详细状态维护于对应 progress 文档。

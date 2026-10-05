@@ -38,6 +38,8 @@ export function classifySurfaceTimingPhase(
   if (label.length === 0) return null;
   if(/surface\/.*diagnostic/.test(label)) { return null; }
   if(/surface\/canonical field addresses/.test(label)) { return "address"; }
+  if(/surface\/admitted signal witnesses/.test(label)) { return "address"; }
+  if(/surface\/(?:actual|finalize) proof family tiles/.test(label)) { return "certificate"; }
   if(/surface\/shared .*certificates|surface\/publish_cell_.*certificates/.test(label)) { return "certificate"; }
   if(/surface\/(?:field value and certificate lookup|lookup_surface_fields|finalize_field_support|validate_field_support|commit_field_support)/.test(label)) { return "materialLookup"; }
   if(/surface\/kind-specific signal value lookup/.test(label)) { return "signalLookup"; }

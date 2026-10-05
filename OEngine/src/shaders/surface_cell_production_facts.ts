@@ -15,6 +15,8 @@ import { SURFACE_CELL_ADDRESSES_WGSL } from "./surface_cell_addresses.js";
 import { APPEARANCE_FIELD_NAMES } from "../gpu/GpuAppearanceFieldAbi.js";
 import { SURFACE_EXECUTION_WORDS, SURFACE_FIELD_EXECUTION_WORDS, SURFACE_SIGNAL_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
 import { SURFACE_DIRECT_RESIDUAL_FIELDS, SURFACE_DIRECT_TRANSPORT_FIELDS } from "../material/AppearanceExecutionProfile.js";
+import { SURFACE_REFERENCE_WGSL, SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
+import { surfaceCellSelectionWgsl } from "../gpu/GpuSurfaceCellPlanAbi.js";
 
 /** Complete Geometry/Appearance predicates for the partition producer. The
  * Lighting owner supplies the direct-light set/shadow/spatial predicate; the
@@ -22,7 +24,7 @@ import { SURFACE_DIRECT_RESIDUAL_FIELDS, SURFACE_DIRECT_TRANSPORT_FIELDS } from 
  * always-false/unknown implementation in this production library. */
 export function surfaceCellProductionFactsWgsl(programs: readonly AppearanceFieldBoundProgram[],
   product: boolean, directRiskLibrary: string, productBoundLibrary: string | null, referenceCapacity=65536,
-  fieldMask: ReadonlySet<number> | null = null, signalBounds = true, parameterBounds = false): string {
+  fieldMask: ReadonlySet<number> | null = null, signalBounds = true, parameterBounds = false, proofQueue=0): string {
   const selected = programs.map(program => {
     // The generated switch uses program-local output ordinals, not Surface ABI
     // field indices. A sparse/reordered graph must select by output name.
@@ -402,6 +404,20 @@ ${productBoundLibrary??""}
 ${boundSources.join("\n")}
 ${materialSources.join("\n")}
 fn cell_constant_palette(entry:u32)->u32 {return settings.appearance2.x+entry*64u;}
+fn cell_certificate_publication(leaf:u32,field:u32)->AppearanceBound4 {
+  let entry=cell_workspace.facts[leaf].z;
+  let palette=cell_constant_palette(entry);
+  if (appearance_metadata[palette]&(1u<<field))!=0u {
+    let at=palette+4u+field*4u;
+    let value=bitcast<vec4f>(vec4u(appearance_metadata[at],appearance_metadata[at+1u],
+      appearance_metadata[at+2u],appearance_metadata[at+3u]));
+    return AppearanceBound4(value,value,vec4u(1u));
+  }
+  if cell_field_descriptor(cell_directory(entry).x,field).x==0xffffffffu {
+    return cell_evaluate_bound(field,vec4u(0u,cell_directory(entry).x,entry,0u));
+  }
+  return AppearanceBound4(vec4f(0.0),vec4f(0.0),vec4u(0u));
+}
 fn cell_solar_direction() -> vec3f {
  let at = settings.appearance3.x;
  return normalize(bitcast<vec3f>(vec3u(appearance_metadata[at + 1u],
@@ -423,6 +439,20 @@ fn cell_solar_direction() -> vec3f {
  let profile = settings.appearance2.w + entry * ${SURFACE_EXECUTION_WORDS}u;
  let radiometry = settings.appearance3.x;
  appearance_metadata[profile + 5u] = select(0u, 3u, result.guard_safe != 0u && appearance_metadata[radiometry] != 0u);
+ // The ordinary transport dependency mask is material-publication state.
+ // Resolve its seam once here rather than traversing fields in every tree
+ // comparison. Exceptional residual leaves remain fine at the domain boundary.
+ var transport_fields = ${SURFACE_DIRECT_TRANSPORT_FIELDS}u;
+ if (result.mask & (1u << 10u)) != 0u && result.values[10u].x <= 0.0 {
+  transport_fields &= ~((1u << 12u) | (1u << 14u));
+ }
+ var transport_seam = 12u;
+ for(var field=0u;field<15u;field++) {
+  if (transport_fields & (1u << field)) != 0u {
+   transport_seam |= appearance_metadata[profile + 8u + field * ${SURFACE_FIELD_EXECUTION_WORDS}u + 2u];
+  }
+ }
+ appearance_metadata[profile + 8u + 15u * ${SURFACE_FIELD_EXECUTION_WORDS}u + 10u] = transport_seam;
 }
 fn cell_evaluate_bound(field:u32,context:vec4u)->AppearanceBound4 {
  let palette=cell_constant_palette(context.z);
@@ -460,9 +490,9 @@ fn cell_material_signal_dependencies(plane:u32,entry:u32,leaf:u32)->u32 {
  var mask=appearance_metadata[profile+1u];
  if plane == 15u {
   mask = select(${SURFACE_DIRECT_RESIDUAL_FIELDS}u, ${SURFACE_DIRECT_TRANSPORT_FIELDS}u,
-    cell_workspace.addresses[leaf * 144u + 136u] == 3u);
+    cell_workspace.addresses[leaf * ${SURFACE_CELL_ADDRESS_WORDS}u + 18u] == 3u);
   let palette = cell_constant_palette(entry);
-  if cell_workspace.addresses[leaf * 144u + 136u] == 3u && (appearance_metadata[palette] & (1u << 10u)) != 0u &&
+  if cell_workspace.addresses[leaf * ${SURFACE_CELL_ADDRESS_WORDS}u + 18u] == 3u && (appearance_metadata[palette] & (1u << 10u)) != 0u &&
     bitcast<f32>(appearance_metadata[palette + 44u]) <= 0.0 { mask &= ~((1u << 12u) | (1u << 14u)); }
  }
  if plane==17u||plane==18u{
@@ -507,11 +537,14 @@ fn cell_field_budget(field:u32,value:AppearanceBound4)->bool {
  for(var c=0u;c<width;c++){if value.high[c]-value.low[c]>tolerance{return false;}}return true;
 }
 ${directRiskLibrary}
+${SURFACE_REFERENCE_WGSL}
+${surfaceCellSelectionWgsl("cell_workspace","appearance_metadata","settings.appearance2.x")}
 ${SURFACE_CELL_ADDRESSES_WGSL}
 ${SURFACE_CELL_CERTIFICATE_WGSL}
 `.replaceAll("geometry_setups[","geometry_arena.setups[");
   const activeFields=fieldMask===null ? 0x7fff : [...fieldMask].reduce((mask,field) => mask | (1<<field),0);
-  return source.replace("const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=32767u;",`const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=${activeFields}u;`);
+  return source.replace("const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=32767u;",`const CELL_CERTIFICATE_ACTIVE_FIELDS:u32=${activeFields}u;`)
+    .replace("const CELL_CERTIFICATE_QUEUE:u32=0u;",`const CELL_CERTIFICATE_QUEUE:u32=${proofQueue}u;`);
 }
 
 /** Keep the complete generated function envelope while removing unreachable

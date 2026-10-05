@@ -75,25 +75,17 @@ fn emit_surface_requests(@builtin(global_invocation_id) id: vec3u,
     let publication = demand_metadata[demand_settings.constants + demand_workspace.facts[leaf].z * 64u];
     for (var field = 0u; field < 15u; field++) {
       if (publication & (1u << field)) != 0u { continue; }
-      let reference = (leaf * 15u + field) * 3u;
       if reference_plan_leaf(leaf, field) != leaf ||
-        demand_workspace.field_references[reference] != SURFACE_REFERENCE_INVALID { continue; }
+        (atomicLoad(&demand_workspace.field_store_masks[leaf])&(1u<<field))!=0u { continue; }
       fields |= 1u << field;
       // Mandatory work has no queue reservation and no dictionary identity.
-      demand_workspace.field_references[reference] = SURFACE_REFERENCE_TRANSIENT;
-      demand_workspace.field_references[reference + 1u] = leaf * 15u + field;
-      demand_workspace.field_references[reference + 2u] = demand_settings.epoch;
       inputs |= demand_metadata[field_request_descriptor(leaf, field) + 3u] >> 8u;
       if field_request_cacheable(leaf, field) { admission_fields |= 1u << field; }
     }
     for (var kind = 0u; kind < 6u; kind++) {
-      let reference = (leaf * 6u + kind) * 3u;
       if reference_plan_leaf(leaf, 15u + kind) != leaf ||
-        demand_workspace.signal_references[reference] != SURFACE_REFERENCE_INVALID { continue; }
+        (atomicLoad(&demand_workspace.signal_store_masks[leaf])&(1u<<kind))!=0u { continue; }
       signals |= 1u << kind;
-      demand_workspace.signal_references[reference] = SURFACE_REFERENCE_TRANSIENT;
-      demand_workspace.signal_references[reference + 1u] = leaf * 6u + kind;
-      demand_workspace.signal_references[reference + 2u] = demand_settings.epoch;
       inputs |= ${SURFACE_GEOMETRY_HOT_DEMAND_BIT}u;
     }
     atomicStore(&demand_arena.material_masks[leaf], fields);

@@ -93,7 +93,7 @@ export async function runPhaseFiveLighting(gpu,assert,stage) {
     const demandWords=new Uint32Array(layout.bytes/4),aoBytes=new Uint8Array(64).fill(255),signalTable=new Uint32Array(4*88);
     let targets=0;
     cases.forEach((input,leaf)=>{
-      words.set([1,0,leaf,0],wsLayout.facts/4+leaf*4);words[wsLayout.addresses/4+leaf*144+136]=input.semantic;
+      words.set([1,0,leaf,0],wsLayout.facts/4+leaf*4);words[wsLayout.addresses/4+leaf*24+18]=input.semantic;
       const at=leaf*32;
       geometryFloats.set([0,0,0,1,0,0,1,0,1,0,0,1,...(input.view??[0,0,1]),0,0,0,1,0],at);
       geometryWords.set([leaf,0,leaf,0],at+20);geometryFloats.set([1,1,0,0],at+24);
@@ -107,15 +107,19 @@ export async function runPhaseFiveLighting(gpu,assert,stage) {
         demandWords[layout.offsets.lighting_queue/4+targets++]=leaf;
         demandWords[layout.offsets.lighting_masks/4+leaf]=input.mask;
       }
-      for(let kind=0;kind<6;kind++)words.set([input.mask&(1<<kind)?4:3,leaf*6+kind,1],wsLayout.signalReferences/4+(leaf*6+kind)*3);
       if(input.hit) {
-        words.set([5,0,1],wsLayout.signalReferences/4+leaf*6*3);
+        words[wsLayout.signalStoreMasks/4+leaf]=1;
+        words.set([0,1],wsLayout.signalReferences/4+leaf*6*2);
         new Float32Array(signalTable.buffer).set(input.hit,72);signalTable[75]=1|4|8|512;
       }
     });
     const coverage=(1<<cases.length)-1;
     words[127]=1;words.set([0,0,coverage,0,0],128);
-    for(let plane=0;plane<21;plane++)words.set([2,0,0,64,coverage,0],128+16+plane*6);
+    for(let plane=0;plane<21;plane++) {
+      const planeCoverage=plane<15?coverage:cases.reduce((mask,input,leaf)=>
+        mask|(((input.mask&(1<<(plane-15)))!==0||(plane===15&&input.hit))?1<<leaf:0),0);
+      words.set([planeCoverage?2:0,0,0,64,planeCoverage,0],128+16+plane*6);
+    }
     demandWords[6]=targets;
     const indirectWords=new Uint32Array(512/4+32/4);indirectWords.set([1,1,1,targets],32); // lighting args byte 128
     const lightWords=new Uint32Array(32768).fill(0xffffffff),page=8000;
@@ -157,18 +161,29 @@ export async function runPhaseFiveLighting(gpu,assert,stage) {
       width,height,recordCount:64,diagnosticsEnabled:true});
     const packets=device.createBuffer({size:64*6*16,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(packets);
     const hdr=device.createBuffer({size:height*256,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(hdr);
+    const demandReadback=device.createBuffer({size:layout.bytes,usage:GPUBufferUsage.MAP_READ|GPUBufferUsage.COPY_DST});retained.push(demandReadback);
     const capture=graph.add('Read actual packets and HDR',{},(_data,resources)=>{
       encoder.copyBufferToBuffer(resources.get(output.values),0,packets,0,packets.size);
+      encoder.copyBufferToBuffer(arena,0,demandReadback,0,layout.bytes);
       encoder.copyTextureToBuffer({texture:resources.get(composed.radiance).gpu_texture},{buffer:hdr,bytesPerRow:256},[width,height]);
-    });capture.read(output.values);capture.read(composed.radiance);capture.make_side_effect();
+    });capture.read(output.values);capture.read(ids.arena);capture.read(composed.radiance);capture.make_side_effect();
     allocator=new GPUBufferAllocator(device);textureAllocator=new GPUTextureAllocator(device);
     context=new FrameGraphContext({device,encoder:command,graphics:{device,buffer_allocator_main:allocator,allocator_textures:textureAllocator},resource_manager:new FrameGraphResourceManager(device,done)});
     compiled=graph.compile();
     stage('Compile actual dirty Lighting and cheap reconstruction');
     assert.deepEqual((await Promise.all(modules.map(async m=>(await m.getCompilationInfo()).messages.filter(m=>m.type==='error').map(m=>m.message)))).flat(),[]);
     compiled.execute(context);device.queue.submit([encoder.finish()]);
-    await Promise.all([packets,hdr].map(b=>b.mapAsync(GPUMapMode.READ)));
+    await Promise.all([packets,hdr,demandReadback].map(b=>b.mapAsync(GPUMapMode.READ)));
     const values=new Float32Array(packets.getMappedRange()).slice(),packetBits=new Uint32Array(values.buffer),hdrValues=new Uint16Array(hdr.getMappedRange()).slice();packets.unmap();hdr.unmap();
+    const executed=new Uint32Array(demandReadback.getMappedRange()).slice();demandReadback.unmap();
+    const full=input=>(input.mask&20)!==0||((input.mask&1)!==0&&input.semantic!==3);
+    const expectedFull=cases.filter(full).length;
+    const expectedShared=cases.filter(input=>full(input)&&(input.mask&1)!==0&&input.semantic===3).length;
+    const expectedTransport=cases.filter(input=>!full(input)&&(input.mask&1)!==0&&input.semantic===3).length;
+    assert.deepEqual([...executed.slice(96,99)],[expectedFull,expectedShared,expectedTransport],
+      'One guarded per-light evaluation per dirty direct target; full work reuses its transport math');
+    assert.ok(expectedShared>0&&expectedTransport>0,'Both fused and transport-only branches executed');
+    report.directWork={full:executed[96],sharedTransport:executed[97],transportOnly:executed[98]};
     const executionError=await device.popErrorScope();
     assert.equal(executionError,null,executionError?.message);
     device.pushErrorScope('validation');

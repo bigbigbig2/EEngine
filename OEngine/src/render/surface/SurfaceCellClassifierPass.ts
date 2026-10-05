@@ -70,6 +70,7 @@ export interface SurfaceCellClassifierInput {
 }
 
 export interface SurfaceCellClassifierProducts {
+  readonly setup: SurfaceCellGeometrySetupProducts;
   readonly coverage: ResourceId;
   readonly activeIndirect: ResourceId;
   readonly workspace: ResourceId;
@@ -87,7 +88,8 @@ export class SurfaceCellClassifierPass {
   private readonly coveragePass: SurfaceCoveragePass;
   private readonly radiometry: SurfaceRadiometryPass;
   private readonly pipelines = new Map<string, Readonly<{ constants: GPUComputePipeline; facts: GPUComputePipeline;
-    addresses: GPUComputePipeline; geometryCertificates: GPUComputePipeline; fieldCertificates: readonly GPUComputePipeline[];
+    addresses: GPUComputePipeline; signalWitnesses: GPUComputePipeline; prepareProofs: GPUComputePipeline; finalizeProofs: GPUComputePipeline;
+    geometryCertificates: GPUComputePipeline; fieldCertificates: readonly GPUComputePipeline[];
     classify: readonly GPUComputePipeline[] }>>();
 
   constructor(private readonly device: GPUDevice, scratch: SurfaceFrameResources,
@@ -130,7 +132,8 @@ export class SurfaceCellClassifierPass {
         `${surfaceCellClassifyStageWgsl(factLibrary, batchTileCapacity, 0, 0, 3, "classify_cells_base", false)}` });
       const fieldModules = SURFACE_CELL_CERTIFICATE_FAMILIES.flatMap((fields, family) => [true, false].map(parameterBounds => {
         const fieldFacts = surfaceCellProductionFactsWgsl(input.publication.surfaceBoundPrograms, product,
-          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, referenceCapacity, new Set(fields), false, parameterBounds);
+          SURFACE_CELL_LIGHTING_RISK_WGSL, product ? SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL : null, referenceCapacity, new Set(fields), false, parameterBounds,
+          1+family*2+(parameterBounds?0:1));
         return {
           entryPoint: parameterBounds ? "publish_cell_parameter_certificates" : "publish_cell_field_certificates",
           module: this.device.createShaderModule({ label: `Surface/shared field certificates family ${family}`, code:
@@ -150,6 +153,9 @@ export class SurfaceCellClassifierPass {
         constants: this.device.createComputePipeline({ label: "Surface/cell material constants", layout: "auto", compute: { module, entryPoint: "publish_cell_material_constants" } }),
         facts: this.device.createComputePipeline({ label: "Surface/cell lighting facts", layout: productionLayout, compute: { module, entryPoint: "publish_cell_facts" } }),
         addresses: this.device.createComputePipeline({ label: "Surface/canonical field addresses", layout: productionLayout, compute: { module, entryPoint: "publish_cell_addresses" } }),
+        signalWitnesses: this.device.createComputePipeline({ label: "Surface/admitted signal witnesses", layout: productionLayout, compute: { module, entryPoint: "publish_cell_signal_witnesses" } }),
+        prepareProofs: this.device.createComputePipeline({ label: "Surface/actual proof family tiles", layout: productionLayout, compute: { module, entryPoint: "prepare_cell_proof_tiles" } }),
+        finalizeProofs: this.device.createComputePipeline({ label: "Surface/finalize proof family tiles", layout: productionLayout, compute: { module, entryPoint: "finalize_cell_proof_tiles" } }),
         geometryCertificates: this.device.createComputePipeline({ label: "Surface/shared geometry certificates", layout: productionLayout, compute: { module, entryPoint: "publish_cell_geometry_certificates" } }),
         fieldCertificates: Object.freeze(fieldModules.map(({ module, entryPoint }, index) => this.device.createComputePipeline({
           label: `Surface/${entryPoint} family ${Math.floor(index / 2)}`, layout: productionLayout, compute: { module, entryPoint }
@@ -222,6 +228,7 @@ export class SurfaceCellClassifierPass {
     };
     let previous = constants;
     let consumed: readonly ResourceId[] = [];
+    let lastSetup!: SurfaceCellGeometrySetupProducts;
     for (let batch = 0; batch < batchCount; batch++) {
       const firstTile = batch * batchTileCapacity;
       const tileCount = Math.min(batchTileCapacity, tiles - firstTile);
@@ -244,6 +251,7 @@ export class SurfaceCellClassifierPass {
         generation: input.generation, sourceGeometry: input.sourceGeometry, sourceMeshlet: input.sourceMeshlet,
         sourceMeshletVertices: input.sourceMeshletVertices, sourceMeshletTriangles: input.sourceMeshletTriangles, sourceVertexData: input.sourceVertexData
       });
+      lastSetup=setup;
       const facts = graph.add(`Surface/cell publish geometry and lighting facts batch ${batch}`, { setup, workspace }, (_data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
         const pass = command.beginComputePass({ label: "Surface/cell publish geometry and lighting facts" }); pass.setPipeline(pipelines!.facts);
@@ -276,21 +284,41 @@ export class SurfaceCellClassifierPass {
       });
       workspace = lookedUp.workspace;
       fieldStore = lookedUp.store;
+      let proofIndirect=this.scratch.importBuffer(graph,input.resourceBinding,"Surface/proof family indirect",7*16,
+        GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_DST);
+      const proofTiles=graph.add(`Surface/actual proof family tiles batch ${batch}`,{workspace},(_data,resources,context)=>{
+        const command=context.encoder as ShadeGPUCommandContext;
+        let pass=command.beginComputePass({label:"Surface/actual proof family tiles"});
+        pass.setPipeline(pipelines!.prepareProofs);
+        bindFactGroups(pipelines!.prepareProofs,resources,setup).forEach((group,index)=>pass.setBindGroup(index,group));
+        pass.dispatchWorkgroupsIndirect(resources.get(activeIndirect) as GPUBuffer,0);pass.end();
+        pass=command.beginComputePass({label:"Surface/finalize proof family tiles"});
+        pass.setPipeline(pipelines!.finalizeProofs);
+        bindFactGroups(pipelines!.finalizeProofs,resources,setup).forEach((group,index)=>pass.setBindGroup(index,group));
+        pass.dispatchWorkgroups(1);pass.end();
+        command.gpu_encoder.copyBufferToBuffer(resources.get(workspace) as GPUBuffer,batchWorkspaceLayout.proofDispatch,
+          resources.get(proofIndirect) as GPUBuffer,0,7*16);
+      });
+      for(const resource of [workspace,setup.arena,activeIndirect,input.visibility,input.camera,input.appearanceMetadata,
+        input.meshletWork,input.sourceHeap,input.vertexPayload,input.frameInstances,input.textureVariation,input.lightRecords,
+        input.clusters.lookup,input.clusters.data,input.clusters.parameters]) { proofTiles.read(resource); }
+      workspace=proofTiles.write(workspace); proofIndirect=proofTiles.write(proofIndirect);
       previous = addresses;
       const certificateStages = [["geometry", pipelines.geometryCertificates],
         ...pipelines.fieldCertificates.map((pipeline, family) => [`field and texture family ${family}`, pipeline] as const)] as const;
-      for (const [name,pipeline] of certificateStages) {
+      for (const [queue,[name,pipeline]] of certificateStages.entries()) {
         const certificate = graph.add(`Surface/shared ${name} certificates batch ${batch}`, { setup, workspace }, (_data,resources,context) => {
           const command=context.encoder as ShadeGPUCommandContext;
           const pass=command.beginComputePass({label:`Surface/shared ${name} certificates`});
           pass.setPipeline(pipeline);
           bindFactGroups(pipeline,resources,setup).forEach((group,index) => pass.setBindGroup(index,group));
-          pass.dispatchWorkgroupsIndirect(resources.get(activeIndirect) as GPUBuffer, 0);
+          pass.dispatchWorkgroupsIndirect(resources.get(proofIndirect) as GPUBuffer,queue*16);
           pass.end();
         });
         certificate.read(input.visibility); certificate.read(setup.arena); certificate.read(input.meshletWork);
         certificate.read(setup.memo);
         certificate.read(activeIndirect);
+        certificate.read(proofIndirect);
         certificate.read(input.sourceHeap); certificate.read(input.vertexPayload); certificate.read(input.frameInstances);
         certificate.read(input.appearanceMetadata); certificate.read(input.textureVariation); certificate.read(input.camera);
         certificate.read(input.lightRecords); certificate.read(input.clusters.lookup); certificate.read(input.clusters.data); certificate.read(input.clusters.parameters);
@@ -307,6 +335,21 @@ export class SurfaceCellClassifierPass {
         classify.read(setup.memo);
         classify.read(activeIndirect);
         if (stageIndex === 0) {
+          const witnesses=graph.add(`Surface/admitted signal witnesses batch ${batch}`,{workspace},(_data,resources,context)=>{
+            const command=context.encoder as ShadeGPUCommandContext;
+            const pass=command.beginComputePass({label:"Surface/admitted signal witnesses"});
+            pass.setPipeline(pipelines!.signalWitnesses);
+            bindFactGroups(pipelines!.signalWitnesses,resources,setup).forEach((group,index)=>pass.setBindGroup(index,group));
+            pass.dispatchWorkgroupsIndirect(resources.get(activeIndirect) as GPUBuffer,0);pass.end();
+          });
+          for(const resource of [setup.arena,input.camera,input.appearanceMetadata,input.visibility,input.meshletWork,
+            input.sourceHeap,input.vertexPayload,input.frameInstances,input.textureVariation,input.lightRecords,
+            input.clusters.lookup,input.clusters.data,input.clusters.parameters,activeIndirect,workspace]) {
+            witnesses.read(resource);
+          }
+          workspace=witnesses.write(workspace);
+          witnesses.dependsOn(previous);
+          previous=witnesses;
           const lookedUpSignals = this.signalLookup.addToGraph(graph, {
             workspace, activeIndirect, metadata: input.appearanceMetadata, versions: input.fieldVersions,
             publication: input.publication, batchTiles: batchTileCapacity, tileCount,
@@ -319,14 +362,14 @@ export class SurfaceCellClassifierPass {
         }
       }
       if (input.consumeBatch !== undefined) {
-        consumed = input.consumeBatch({ workspace, fieldStore, signalStore, batchTileCapacity, coverage, activeIndirect }, firstTile, tileCount, batchTileCapacity);
+        consumed = input.consumeBatch({ workspace, fieldStore, signalStore, batchTileCapacity, coverage, activeIndirect, setup }, firstTile, tileCount, batchTileCapacity);
         const complete = graph.add(`Surface/cell batch ${batch} consumed`, {}, () => {});
         for (const resource of consumed) { complete.read(resource); }
         complete.make_side_effect();
         previous = complete;
       }
     }
-    return { workspace, fieldStore, signalStore, batchTileCapacity, coverage, activeIndirect };
+    return { workspace, fieldStore, signalStore, batchTileCapacity, coverage, activeIndirect,setup:lastSetup };
   }
 
   destroy(): void { this.radiometry.destroy(); this.fieldLookup.destroy(); this.signalLookup.destroy(); this.cellSettings.destroy(); this.factSettings.destroy();  this.pipelines.clear(); }

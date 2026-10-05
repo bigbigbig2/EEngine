@@ -27,16 +27,14 @@ export const SURFACE_SIGNAL_REFERENCE_VALUES_WGSL = /* wgsl */ `
 fn surface_signal(leaf:u32,kind:u32)->vec4f {
   let source=reference_plan_leaf(leaf,15u+kind);
   if source==0xffffffffu { return vec4f(0.0); }
-  let at=(source*6u+kind)*3u;
-  let mode=surface_workspace.signal_references[at];
-  let index=surface_workspace.signal_references[at+1u];
-  if mode==SURFACE_REFERENCE_TRANSIENT { return signal_values[index]; }
-  if mode==SURFACE_REFERENCE_STORE {
-    let payload=index*88u+72u;
-    // Production stores retain f32; independent packet spill metadata is never
-    // interpreted as slot ownership or reference generation.
-    return bitcast<vec4f>(vec4u(signal_store[payload],signal_store[payload+1u],signal_store[payload+2u],signal_store[payload+3u]));
+  if (atomicLoad(&surface_workspace.signal_store_masks[source])&(1u<<kind))==0u {
+    return signal_values[source*6u+kind];
   }
-  return vec4f(0.0);
+  let at=(source*6u+kind)*2u;
+  let index=surface_workspace.signal_references[at];
+  let payload=index*88u+72u;
+  // Production stores retain f32; independent packet spill metadata is never
+  // interpreted as slot ownership or reference generation.
+  return bitcast<vec4f>(vec4u(signal_store[payload],signal_store[payload+1u],signal_store[payload+2u],signal_store[payload+3u]));
 }
 `;

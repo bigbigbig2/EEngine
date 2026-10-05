@@ -35,10 +35,8 @@ export async function runFieldLookupRepair(gpu, assert, onStage = () => {}) {
     const workspaceWords = new Uint32Array(layout.bytes / 4);
     const a = layout.addresses / 4;
     workspaceWords.set([3, 7, 11, 13, 17, 19, 23, 29, 1, 31, 37, 41, 43, 2, 0, 1], a);
-    workspaceWords.set(wordsOf([.2, .3, .001, .002, .003, .004]), a + 16);
-    workspaceWords.set(wordsOf([.19, .29, .21, .31]), a + 46);
-    workspaceWords.set(wordsOf([.001, .002, .003, .004, .001, .002, .003, .004]), a + 58);
-    workspaceWords[a + 93] = 7;
+    workspaceWords.set(wordsOf([.2, .3, .001, .002, .003, .004]), layout.uvWitnesses/4);
+    workspaceWords[a + 16] = 7;
     workspaceWords.set([1, 0, 0, 0], layout.facts / 4);
     const workspace = buffer(workspaceWords);
     const metadataWords = new Uint32Array(15 * I + 64 + 15 * 20);
@@ -115,7 +113,7 @@ export async function runFieldLookupRepair(gpu, assert, onStage = () => {}) {
     const requestWords = new Uint32Array(3 * SURFACE_FIELD_STORE_ENTRY_WORDS);
     for (const [request, field] of [0, 3, 4].entries()) {
       const point = new Uint32Array(SURFACE_FIELD_STORE_KEY_WORDS - 20);
-      point.set(workspaceWords.subarray(a + 16, a + 22));
+      point.set(workspaceWords.subarray(layout.uvWitnesses/4, layout.uvWitnesses/4 + 6));
       const exponent = maximum => ((wordsOf([maximum])[0] >>> 23) & 255) + 1;
       const key = encodeSurfaceFieldStoreKey({ producer: 101 + field, version: 53 + field, dependencyEpoch: 47,
         material: 17, instance: 3, instanceGeneration: 7, geometry: 11, geometryGeneration: 13,
@@ -164,7 +162,7 @@ export async function runFieldLookupRepair(gpu, assert, onStage = () => {}) {
     await replaceDomain(.199);
     await sample('exact point value hit with certificate outside domain', 0, 3, 4);
     await replaceDomain(.22);
-    device.queue.writeBuffer(workspace, (a + 16) * 4, wordsOf([.201]));
+    device.queue.writeBuffer(workspace, layout.uvWitnesses, wordsOf([.201]));
     await sample('certified value covers another point', 0, 0, 5);
     assert.deepEqual(report.cases.at(-1).states, [4, 4, 4], 'BoundedDomain is independent of ExactPoint');
     const constantStore = await read(store);

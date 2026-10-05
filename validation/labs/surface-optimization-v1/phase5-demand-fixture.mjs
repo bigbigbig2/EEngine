@@ -6,6 +6,7 @@ import {SURFACE_FIELD_IDENTITY_WORDS as IW} from '../../../OEngine/.test-dist/gp
 import {SURFACE_EXECUTION_WORDS as EW,SURFACE_FIELD_EXECUTION_WORDS as FW} from '../../../OEngine/.test-dist/gpu/GpuSurfaceExecutionProfileAbi.js';
 import {SURFACE_SIGNAL_FIELD_MASKS} from '../../../OEngine/.test-dist/material/AppearanceExecutionProfile.js';
 import {checkCanonicalSupport} from './phase5-canonical-support-fixture.mjs';
+import {SURFACE_CELL_ADDRESS_WORDS} from '../../../OEngine/.test-dist/gpu/GpuSurfaceReferenceAbi.js';
 
 export async function runPhaseFiveDemand(gpu, assert, stage) {
   const adapter=await gpu.requestAdapter({powerPreference:'high-performance'});
@@ -72,12 +73,14 @@ export async function runPhaseFiveDemand(gpu, assert, stage) {
       const words=new Uint32Array(workspaceLayout.bytes/4),floats=new Float32Array(words.buffer);
       for(let leaf=0;leaf<leaves;leaf++) {
         words.set([1,0,0,0],workspaceLayout.facts/4+leaf*4);
-        const at=workspaceLayout.addresses/4+leaf*144;
-        words.set([1,1,1,1,0,0,0,0,0,1,1,1,1,leaf,0,7],at);words[at+93]=7;words[at+136]=3;
-        floats.set([.2,.3,.01,0,0,.01],at+16);
-        floats.set([0,0,1,1],at+106);floats.set([1,0,0,1],at+118);
-        for(let field=0;field<15;field++)words.set([1,0,1],workspaceLayout.fieldReferences/4+(leaf*15+field)*3);
-        for(let kind=0;kind<6;kind++)words.set([3,0,1],workspaceLayout.signalReferences/4+(leaf*6+kind)*3);
+        const at=workspaceLayout.addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS;
+        words.set([1,1,1,1,0,0,0,0,0,1,1,1,1,leaf,0,7],at);words[at+16]=7;words[at+18]=3;words[at+19]=63;
+        floats.set([.2,.3,.01,0,0,.01],workspaceLayout.uvWitnesses/4+leaf*18);
+        floats.set([0,0,1,1],workspaceLayout.signalWitnesses/4+leaf*12+4);floats.set([1,0,0,1],workspaceLayout.signalWitnesses/4+leaf*12+8);
+        words[workspaceLayout.fieldStoreMasks/4+leaf]=0x7fff;
+        words[workspaceLayout.signalStoreMasks/4+leaf]=63;
+        for(let field=0;field<15;field++)words.set([0,1],workspaceLayout.fieldReferences/4+(leaf*15+field)*2);
+        for(let kind=0;kind<6;kind++)words.set([0,1],workspaceLayout.signalReferences/4+(leaf*6+kind)*2);
       }
       for(let tile=0;tile<targets/64;tile++)for(let plane=0;plane<21;plane++) {
         words.set([2,0,0,64,0xffffffff,0xffffffff],workspaceLayout.plans/4+tile*(SURFACE_CELL_TILE_PLAN_BYTES/4)+16+plane*6);
@@ -95,8 +98,8 @@ export async function runPhaseFiveDemand(gpu, assert, stage) {
     };
     const missing=(words,fieldMask,signalMask,leaves=64)=>{
       for(let leaf=0;leaf<leaves;leaf++) {
-        for(let field=0;field<15;field++)if(fieldMask&(1<<field))words[workspaceLayout.fieldReferences/4+(leaf*15+field)*3]=0;
-        for(let kind=0;kind<6;kind++)if(signalMask&(1<<kind))words[workspaceLayout.signalReferences/4+(leaf*6+kind)*3]=0;
+        words[workspaceLayout.fieldStoreMasks/4+leaf]&=~fieldMask;
+        words[workspaceLayout.signalStoreMasks/4+leaf]&=~signalMask;
       }
     };
     stage('Actual mask demand: empty, hit, transient, bounded admission and partial miss');
@@ -110,8 +113,9 @@ export async function runPhaseFiveDemand(gpu, assert, stage) {
       if(name==='fine-transient') {
         assert.equal(counts[1],0);assert.equal(counts[2],0,'Transient fields prevent persistent Signal identity');
         for(let leaf=0;leaf<64;leaf++)for(let field=0;field<15;field++) {
-          const at=workspaceLayout.fieldReferences/4+(leaf*15+field)*3;
-          assert.equal(result.workspace[at],4);assert.equal(result.workspace[at+1],leaf*15+field);
+          const at=workspaceLayout.fieldReferences/4+(leaf*15+field)*2;
+          assert.equal(result.workspace[workspaceLayout.fieldStoreMasks/4+leaf],0);
+          assert.equal(result.workspace[at],0);assert.equal(result.workspace[at+1],1,'Implicit transient writes no explicit ref payload');
         }
       }
       report.cases.push({name,counts:[...counts.slice(0,8)]});
@@ -141,7 +145,7 @@ export async function runPhaseFiveDemand(gpu, assert, stage) {
       const words=base(targets);
       missing(words,signal?0:1,signal?2:0,targets);
       for(let leaf=0;leaf<targets;leaf++) {
-        words[workspaceLayout.addresses/4+leaf*144+4]=(leaf%128)*layout.fieldHashCapacity;
+        words[workspaceLayout.addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS+4]=(leaf%128)*layout.fieldHashCapacity;
       }
       result=await execute(words,signal?metadataWords:stable);
       const countWord=signal?4:3,fallbackWord=signal?45:44;
@@ -158,9 +162,8 @@ export async function runPhaseFiveDemand(gpu, assert, stage) {
       }
       assert.ok(writerKeys.size>0&&writerKeys.size<=64,'Ordinary legal cache admission remains available');
       for(let leaf=0;leaf<targets;leaf++) {
-        const at=workspaceLayout[signal?'signalReferences':'fieldReferences']/4+(leaf*stride+plane)*3;
-        assert.equal(result.workspace[at],4);
-        assert.equal(result.workspace[at+1],leaf*stride+plane);
+        const mask=result.workspace[workspaceLayout[signal?'signalStoreMasks':'fieldStoreMasks']/4+leaf];
+        assert.equal(mask&(1<<plane),0,'Rejected requests remain formula-addressed transient');
         assert.equal(result.arena[layout.offsets[signal?'lighting_masks':'material_masks']/4+leaf],1<<plane);
       }
       report.cases.push({name:`${prefix}-bounded-collision-duplicates`,requests:targets,
@@ -168,8 +171,9 @@ export async function runPhaseFiveDemand(gpu, assert, stage) {
     }
     device.queue.writeBuffer(settings,8,new Uint32Array([64]));
     for(const semantic of [3,0]) {
-      const words=base();words[workspaceLayout.addresses/4+136]=semantic;device.queue.writeBuffer(workspace,0,words);
-      device.queue.writeBuffer(metadata,0,metadataWords);
+      const words=base();words[workspaceLayout.addresses/4+18]=semantic;device.queue.writeBuffer(workspace,0,words);
+      const inspectMetadata=metadataWords.slice();inspectMetadata[constants]=0x7fff;
+      device.queue.writeBuffer(metadata,0,inspectMetadata);
       const encoder=device.createCommandEncoder(),pass=encoder.beginComputePass();
       pass.setPipeline(pipelines.at(-1));pass.setBindGroup(0,group);pass.dispatchWorkgroups(1);pass.end();device.queue.submit([encoder.finish()]);
       const packed=await read(keys);
@@ -214,7 +218,7 @@ export async function runPhaseFiveDemand(gpu, assert, stage) {
     };
     const collision=base(targets);missing(collision,isSignal?0:1,isSignal?2:0,targets);
     for(let leaf=0;leaf<targets;leaf++) {
-      collision[workspaceLayout.addresses/4+leaf*144+4]=(leaf%128)*layout.fieldHashCapacity;
+      collision[workspaceLayout.addresses/4+leaf*SURFACE_CELL_ADDRESS_WORDS+4]=(leaf%128)*layout.fieldHashCapacity;
     }
     device.queue.writeBuffer(settings,8,new Uint32Array([targets]));
     const rejected=await execute(collision,isSignal?metadataWords:stable);
@@ -223,8 +227,8 @@ export async function runPhaseFiveDemand(gpu, assert, stage) {
     assert.ok(rejectedRequest>=0);
     const rejectedLeaf=rejected.arena[layout.offsets[`${prefix}_requests`]/4+rejectedRequest*4];
     await publish([2]);
-    const rejectedRef=refBase+(rejectedLeaf*valueStride+plane)*3;
-    assert.equal((await read(workspace))[rejectedRef],4,'Unresolved owner cannot publish a Store reference');
+    const masks=workspaceLayout[isSignal?'signalStoreMasks':'fieldStoreMasks']/4;
+    assert.equal((await read(workspace))[masks+rejectedLeaf]&(1<<plane),0,'Unresolved owner cannot publish a Store reference');
     report.cases.push({name:`${prefix}-unresolved-reference-publication`,rejectedRequest,rejectedLeaf,kind:4});
     device.queue.writeBuffer(settings,8,new Uint32Array([64]));
     for(const [name,state,generation,touched,admit] of [['available',0,41,0,true],['stale-published',2,41,2,true],
@@ -237,18 +241,18 @@ export async function runPhaseFiveDemand(gpu, assert, stage) {
       device.queue.writeBuffer(store,0,table);await publish([0]);
       const produced=await read(store),requests=await read(arena),owner=requests[layout.offsets[`unique_${prefix}s`]/4];
       const slot=requests[layout.offsets[`${prefix}_results`]/4+owner];
-      const ref=refBase+plane*3;
+      const ref=refBase+plane*2;
       if(admit) {
         assert.ok(slot!==0xffffffff);assert.equal(produced[slot*stride+stateAt],3);
         assert.equal(new Float32Array(produced.buffer)[slot*stride+(isSignal?72:32)],70000,'HDR f32 retained');
-        assert.equal((await read(workspace))[ref],4,'Uncommitted value is not published');
+        assert.equal((await read(workspace))[masks]&(1<<plane),0,'Uncommitted value is not published');
         await publish([2]);
-        assert.equal((await read(workspace))[ref],4,'Produced payload cannot publish a reference before commit');
+        assert.equal((await read(workspace))[masks]&(1<<plane),0,'Produced payload cannot publish a reference before commit');
         await publish([1,2]);const refs=await read(workspace),committed=await read(store);
-        assert.equal(committed[slot*stride+stateAt],2);assert.equal(refs[ref],5);
-        assert.equal(refs[ref+2],42);
+        assert.equal(committed[slot*stride+stateAt],2);assert.ok(refs[masks]&(1<<plane));
+        assert.equal(refs[ref+1],42);
       } else {
-        assert.equal(slot,0xffffffff);await publish([1,2]);assert.equal((await read(workspace))[ref],4);
+        assert.equal(slot,0xffffffff);await publish([1,2]);assert.equal((await read(workspace))[masks]&(1<<plane),0);
       }
       report.cases.push({name:`${prefix}-${name}`,admitted:admit});
     }

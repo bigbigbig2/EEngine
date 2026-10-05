@@ -15,13 +15,13 @@
 | Phase 3：Field候选/验证/proof | candidate/支持域/受理已有检查；dense证书结果尚欠，交5.5补齐。历史45 targeted checks/GPU/smoke范围见 [Phase 3记录](surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md) |
 | Phase 4：固定Field/Signal层级 | 已完成；52 targeted tests、固定树/parent/provider/source真实GPU组件、两个Store生产链与Showcase短smoke通过；见 [Phase 4记录](surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md) |
 | Phase 5：worker/发布/重建 | 本次实现/集中检查通过；F08/F09、IOR/coat validity和canonical包含性修复；73 targeted、37 demand/Store/support GPU、20 Lighting+4 provider、27-module六帧与1080p smoke通过；身份/限制见Phase5记录 |
-| Phase 5.5：前端物理表示/成本补齐 | 必需、尚未实施；承接lazy witness、三组dense certificate、可公式化refs与真实预算映射；不是可选优化 |
+| Phase 5.5：前端物理表示/成本补齐 | 实现与集中检查通过，待提交；lazy witness、typed结果、formula ref、真实planner、proof/cache满、毒值、parent/tree、reconstruct和1080p timing/detailed已通过；Phase6/7未开始，正式性能/质量/生命周期仍未验收 |
 | Phase 6：reset/调度/lifetime | 未开始 |
 | Phase 7：集中验证/性能比较 | 未开始 |
 
 表内历史实现/检查范围不代表此次复审发现的物理表示要求已经实现；这些要求由5.5明确补齐，旧阶段报告不会被回写成当时已经验证。Phase4 Ddirect未factorize原属Phase5，Geometry cold实际append已接通，不能误报为两者都漏接。
 
-2026-10-05本次代码续作覆盖上方复审起点状态：Phase5已按矩阵核对当前producer/consumer并通过集中检查；详细结果与源码SHA256见[Phase5记录](surface-work-v3-cost-bounded-final-refactor-phase5-implementation-2026-10.md)。最终短smoke CPU/GPU pass sum/span/Surface P50=102.39/441.548288/488.644384/430.462976ms；通用counter drop=1单列、独立detailed完整、errors/timestamp失败0、sourceDrift=false。不是Phase7收益或画质验收。后续固定为必需5.5→6→7，当前仍未实现typed compact proof/lazy witness/公式refs/真实预算。
+2026-10-05本次代码续作覆盖上方复审起点状态：Phase5已按矩阵核对当前producer/consumer并通过集中检查，提交`d5783b95`；Phase5.5实现与集中检查现在同一源码身份通过，待中文提交。详细物理账、GPU矩阵、毒值、proof/cache满、repair迁移和1080p报告见[Phase5.5记录](surface-work-v3-cost-bounded-final-refactor-phase55-implementation-2026-10.md)。短smoke timing GPU pass sum/span/Surface/CPU P50=280.374016/305.376832/269.948416/50.505ms，detailed Surface=275.41536ms；coverage=pass、errors/timestamp/sourceDrift/drop=0。不是Phase7收益或画质验收。固定剩余顺序5.5→6→7。
 
 ## 2026-10-05：复审决定与开工准备
 

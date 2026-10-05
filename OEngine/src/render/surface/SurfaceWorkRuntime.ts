@@ -193,7 +193,8 @@ export class SurfaceWorkRuntime {
                 sun: input.physicalSun?.parameters ?? null, shadow: input.shadow?.contentVersion ?? null, firstTile,
                 width: input.width, height: input.height, diagnostics: this.mode === "detailed", bind: input.historyBinding };
             let demand = this.demand.addToGraph(graph, request);
-            const geometry = this.geometry.addToGraph(graph, { demand, camera: input.camera, bind: input.historyBinding });
+            const geometry = this.geometry.addToGraph(graph, { demand, camera: input.camera, bind: input.historyBinding,
+                setup: cells.setup,width: input.width,height:input.height });
             let fields = this.scratch.importBuffer(graph, input.historyBinding, "Surface/unique field values", demand.layout.fieldCapacity * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
             const material = graph.add("Surface/unique missing Appearance fields", { geometry: geometry.records, demand, fields }, (data, resources, context) => {
                 const banks = input.textureBanks.map(set => set.map(id => resolveTextureView(resources.get(id))));

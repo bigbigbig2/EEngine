@@ -32,7 +32,9 @@ export function packSurfaceExecutionProfiles(profiles: readonly AppearanceExecut
       words.set([signal.token, signal.fields, signal.providers, signal.seamMask, signal.inputMask,
         signal.maxRate, signal.proofClass, signal.domainToken,
         signal.semantic === "coloredResidual" ? 0 : signal.semantic === "irradiance" ? 1 : signal.semantic === "diffuseTransport" ? 3 : 2,
-        f32Bits(0.9986295348), 0, 0], base + SURFACE_EXECUTION_HEADER_WORDS + 15 * SURFACE_FIELD_EXECUTION_WORDS + index * SURFACE_SIGNAL_EXECUTION_WORDS);
+        // Word 10 is the publication-resolved sharing seam. The GPU
+        // publisher narrows Ddirect when the current coat closure is zero.
+        f32Bits(0.9986295348), signal.seamMask, 0], base + SURFACE_EXECUTION_HEADER_WORDS + 15 * SURFACE_FIELD_EXECUTION_WORDS + index * SURFACE_SIGNAL_EXECUTION_WORDS);
     });
   }
   return words;

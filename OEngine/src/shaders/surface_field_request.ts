@@ -18,16 +18,6 @@ fn field_request_uv(leaf:u32,field:u32)->u32 {
   if (mask&4u)!=0u { return 2u; }
   return 0xffffffffu;
 }
-fn field_request_domain(leaf:u32,field:u32,word:u32)->u32 {
-  let uv=field_request_uv(leaf,field);
-  if uv==0xffffffffu { return 0u; }
-  return field_request_workspace.addresses[leaf*${SURFACE_CELL_ADDRESS_WORDS}u+46u+uv*4u+word];
-}
-fn field_request_gradient(leaf:u32,field:u32,word:u32)->u32 {
-  let uv=field_request_uv(leaf,field);
-  if uv==0xffffffffu { return 0u; }
-  return field_request_workspace.addresses[leaf*${SURFACE_CELL_ADDRESS_WORDS}u+58u+uv*8u+word];
-}
 fn field_request_canonical_domain(leaf: u32, field: u32, word: u32)->u32 {
   let cell = bitcast<i32>(field_request_cell(leaf,field,word%2u));
   return bitcast<u32>(f32(cell)/32.0 + select(0.0,1.0/32.0,word>=2u));
@@ -40,7 +30,7 @@ fn field_request_canonical_gradient(leaf: u32, field: u32, word: u32)->u32 {
 fn field_request_cell(leaf:u32,field:u32,axis:u32)->u32 {
   let uv=field_request_uv(leaf,field);
   if uv==0xffffffffu { return 0u; }
-  let value=bitcast<f32>(field_request_workspace.addresses[leaf*${SURFACE_CELL_ADDRESS_WORDS}u+16u+uv*6u+axis]);
+  let value=bitcast<f32>(field_request_workspace.uv_witnesses[leaf*18u+uv*6u+axis]);
   if value!=value || abs(value)>16777216.0 { return 0xffffffffu; }
   return bitcast<u32>(i32(floor(value*32.0)));
 }
@@ -50,7 +40,7 @@ fn field_request_gradient_class(leaf:u32,field:u32,axis:u32)->u32 {
   var maximum=0.0;
   for(var step=0u;step<2u;step++) {
     let component=step*2u+axis;
-    maximum=max(maximum,abs(bitcast<f32>(field_request_workspace.addresses[leaf*${SURFACE_CELL_ADDRESS_WORDS}u+18u+uv*6u+component])));
+    maximum=max(maximum,abs(bitcast<f32>(field_request_workspace.uv_witnesses[leaf*18u+2u+uv*6u+component])));
   }
   if maximum!=maximum || maximum>3.402823466e38 { return 0xffffffffu; }
   // IEEE exponent class, with a one-bit upward envelope for exact powers.
@@ -66,7 +56,7 @@ fn field_request_word(leaf:u32,field:u32,word:u32)->u32 {
     // Stable UV has exactly one complete coordinate family. Non-UV or
     // multi-chart closures use their own transient producer, never a partial key.
     if component < 6u && uv != 0xffffffffu {
-      return field_request_workspace.addresses[at + 16u + uv * 6u + component];
+      return field_request_workspace.uv_witnesses[leaf * 18u + uv * 6u + component];
     }
     return 0u;
   }
@@ -108,11 +98,11 @@ fn field_request_cacheable(leaf:u32,field:u32)->bool {
   let uv_mask=field_request_metadata[descriptor+6u];
   let at=leaf*${SURFACE_CELL_ADDRESS_WORDS}u;
   if (flags&8u)!=0u || field_request_word(leaf,field,2u)==0xffffffffu { return false; }
-  if (field_request_workspace.addresses[at+93u]&7u)!=7u { return false; }
+  if (field_request_workspace.addresses[at+16u]&7u)!=7u { return false; }
   if countOneBits(uv_mask) != 1u { return false; }
   let uv = firstTrailingBit(uv_mask);
   for (var word = 0u; word < 6u; word++) {
-    let value = bitcast<f32>(field_request_workspace.addresses[at + 16u + uv * 6u + word]);
+    let value = bitcast<f32>(field_request_workspace.uv_witnesses[leaf * 18u + uv * 6u + word]);
     if value != value || abs(value) > 3.402823466e38 { return false; }
   }
   return field_request_gradient_class(leaf,field,0u)!=0xffffffffu && field_request_gradient_class(leaf,field,1u)!=0xffffffffu;

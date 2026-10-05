@@ -84,14 +84,14 @@ fn field_lookup_support(base:u32,leaf:u32,field:u32)->bool {
 fn field_lookup_point_support(base:u32,leaf:u32,field:u32)->bool {
   let uv=field_request_uv(leaf,field);
   if uv==0xffffffffu { return false; }
-  let at=leaf*${SURFACE_CELL_ADDRESS_WORDS}u+16u+uv*6u;
+  let at=leaf*18u+uv*6u;
   for(var axis=0u;axis<2u;axis++) {
-    let center=bitcast<f32>(field_request_workspace.addresses[at+axis]);
+    let center=bitcast<f32>(field_request_workspace.uv_witnesses[at+axis]);
     let low=bitcast<f32>(atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_DOMAIN_WORD}u+axis]));
     let high=bitcast<f32>(atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_DOMAIN_WORD}u+2u+axis]));
     if !(center>=low && center<=high) { return false; }
     for(var step=0u;step<2u;step++) {
-      let gradient=bitcast<f32>(field_request_workspace.addresses[at+2u+step*2u+axis]);
+      let gradient=bitcast<f32>(field_request_workspace.uv_witnesses[at+2u+step*2u+axis]);
       let lower=bitcast<f32>(atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_GRADIENT_WORD}u+step*2u+axis]));
       let upper=bitcast<f32>(atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_GRADIENT_WORD}u+4u+step*2u+axis]));
       if !(gradient>=lower && gradient<=upper) { return false; }
@@ -99,13 +99,15 @@ fn field_lookup_point_support(base:u32,leaf:u32,field:u32)->bool {
   }
   return true;
 }
-fn field_lookup_write_bounds(leaf:u32,field:u32,low:vec4u,high:vec4u)->u32 {
-  let at=leaf*${SURFACE_CELL_FIELD_CERTIFICATE_WORDS}u+FIELD_LOOKUP_CERTIFICATE_OFFSETS[field];
+fn field_lookup_write_bounds(leaf:u32,field:u32,proof:u32,low:vec4u,high:vec4u)->u32 {
+  let at=proof*${SURFACE_CELL_FIELD_CERTIFICATE_WORDS}u+FIELD_LOOKUP_CERTIFICATE_OFFSETS[field];
   let width=FIELD_LOOKUP_WIDTHS[field];
   for(var channel=0u;channel<width;channel++) {
-    field_request_workspace.field_certificates[at+channel]=low[channel];
-    field_request_workspace.field_certificates[at+width+channel]=high[channel];
+    field_request_workspace.proof_results[at+channel]=low[channel];
+    field_request_workspace.proof_results[at+width+channel]=high[channel];
   }
+  field_request_workspace.screen_field_proofs[leaf*15u+field]=proof+1u;
+  if field_request_settings.diagnostics!=0u { atomicAdd(&field_request_workspace.counters[89u],width*8u); }
   return ((1u<<width)-1u)<<(FIELD_LOOKUP_CERTIFICATE_OFFSETS[field]/2u);
 }
 @compute @workgroup_size(64)
@@ -116,32 +118,29 @@ fn lookup_surface_fields(@builtin(global_invocation_id) id:vec3u) {
   if fact.x==0xffffffffu || fact.z==0xffffffffu { return; }
   let palette=field_request_settings.constants+fact.z*64u;
   let constants=field_request_metadata[palette];
+  var store_fields=0u;
   var unresolved_values=0u;
   var unresolved_certificates=0u;
   var known=0u;
   var hits=0u;
   var certificate_hits=0u;
   for(var field=0u;field<15u;field++) {
-    let reference=(leaf*15u+field)*3u;
+    let reference=(leaf*15u+field)*2u;
     field_request_workspace.pending_support[leaf*15u+field] = 0xffffffffu;
     let absent=field_request_metadata[field_request_descriptor(leaf,field)+1u]==0xffffffffu;
     if (constants&(1u<<field))!=0u || absent {
-      let at=palette+4u+field*4u;
-      let value=vec4u(field_request_metadata[at],field_request_metadata[at+1u],field_request_metadata[at+2u],field_request_metadata[at+3u]);
-      known|=field_lookup_write_bounds(leaf,field,value,value);
       continue;
     }
     unresolved_values|=1u<<field;
     unresolved_certificates|=1u<<field;
-    // A transient index is finalized after classification/dedup; invalid here
-    // prevents any consumer from accidentally reading a pre-evaluation record.
-    field_request_workspace.field_references[reference]=SURFACE_REFERENCE_INVALID;
-    field_request_workspace.field_references[reference+2u]=0xffffffffu;
+    if field_request_settings.diagnostics!=0u { atomicAdd(&field_request_workspace.counters[92u],1u); }
     if field_request_settings.store_enabled==0u || !field_request_cacheable(leaf,field) { continue; }
+    if field_request_settings.diagnostics!=0u { atomicAdd(&field_request_workspace.counters[91u],1u); }
     let cache_set=field_request_hash(leaf,field)%(field_request_settings.store_entries/4u);
     var value_entry=0xffffffffu;
     var support_entry=0xffffffffu;
     for(var way=0u;way<4u;way++) {
+      if field_request_settings.diagnostics!=0u { atomicAdd(&field_request_workspace.counters[93u],1u); }
       let entry=cache_set*4u+way;
       let base=entry*${SURFACE_FIELD_STORE_ENTRY_WORDS}u;
       if atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_STATE_WORD}u])!=2u { continue; }
@@ -166,14 +165,16 @@ fn lookup_surface_fields(@builtin(global_invocation_id) id:vec3u) {
     if value_entry!=0xffffffffu {
       let base=value_entry*${SURFACE_FIELD_STORE_ENTRY_WORDS}u;
       atomicMax(&field_lookup_store[base+${SURFACE_FIELD_STORE_TOUCHED_WORD}u],field_request_settings.epoch);
-      field_request_workspace.field_references[reference]=SURFACE_REFERENCE_STORE;
-      field_request_workspace.field_references[reference+1u]=value_entry;
-      field_request_workspace.field_references[reference+2u]=atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_GENERATION_WORD}u]);
+      field_request_workspace.field_references[reference]=value_entry;
+      field_request_workspace.field_references[reference+1u]=atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_GENERATION_WORD}u]);
+      store_fields|=1u<<field;
+      if field_request_settings.diagnostics!=0u { atomicAdd(&field_request_workspace.counters[90u],8u); }
       unresolved_values&=~(1u<<field);
       hits++;
     }
   }
-  field_request_workspace.field_certificates[leaf*${SURFACE_CELL_FIELD_CERTIFICATE_WORDS}u+50u]=known;
+  field_request_workspace.field_known_masks[leaf]=known;
+  atomicStore(&field_request_workspace.field_store_masks[leaf],store_fields);
   field_request_workspace.demands[leaf*4u]=unresolved_values;
   field_request_workspace.demands[leaf*4u+1u]=unresolved_certificates;
   if field_request_settings.diagnostics!=0u {
@@ -212,12 +213,12 @@ fn commit_field_support(@builtin(global_invocation_id) id: vec3u) {
   if leaf >= field_request_settings.leaves { return; }
   let fact = field_request_workspace.facts[leaf];
   if fact.x == 0xffffffffu || fact.z == 0xffffffffu { return; }
-  var known = field_request_workspace.field_certificates[leaf*${SURFACE_CELL_FIELD_CERTIFICATE_WORDS}u+50u];
+  var known = field_request_workspace.field_known_masks[leaf];
   var values = field_request_workspace.demands[leaf*4u];
   var certificates = field_request_workspace.demands[leaf*4u+1u];
   for (var field=0u;field<15u;field++) {
     if (certificates & (1u<<field)) == 0u { continue; }
-    let reference = (leaf*15u+field)*3u;
+    let reference = (leaf*15u+field)*2u;
     // Exact-point hit refs retain their generation. They may still have an
     // independently queued domain certificate; locate that fixed leaf/field
     // relation from the queue only via the saved pending slot below.
@@ -233,7 +234,7 @@ fn commit_field_support(@builtin(global_invocation_id) id: vec3u) {
       high[channel]=atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_BOUNDS_WORD}u+4u+channel]);
     }
     if (request[6u]&1u)!=0u {
-      known |= field_lookup_write_bounds(leaf,field,low,high);
+      known |= field_lookup_write_bounds(leaf,field,pending,low,high);
       certificates &= ~(1u<<field);
       if field_request_settings.diagnostics != 0u {
         atomicAdd(&field_request_workspace.counters[114u],1u);
@@ -241,9 +242,10 @@ fn commit_field_support(@builtin(global_invocation_id) id: vec3u) {
       }
     }
     if (request[6u]&2u)!=0u {
-      field_request_workspace.field_references[reference] = SURFACE_REFERENCE_STORE;
-      field_request_workspace.field_references[reference+1u] = request[3u];
-      field_request_workspace.field_references[reference+2u] = atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_GENERATION_WORD}u]);
+      field_request_workspace.field_references[reference] = request[3u];
+      field_request_workspace.field_references[reference+1u] = atomicLoad(&field_lookup_store[base+${SURFACE_FIELD_STORE_GENERATION_WORD}u]);
+      atomicOr(&field_request_workspace.field_store_masks[leaf],1u<<field);
+      if field_request_settings.diagnostics!=0u { atomicAdd(&field_request_workspace.counters[90u],8u); }
       if field_request_settings.diagnostics!=0u && (values&(1u<<field))!=0u {
         atomicAdd(&field_request_workspace.counters[113u],1u);
         atomicSub(&field_request_workspace.counters[115u],1u);
@@ -252,7 +254,7 @@ fn commit_field_support(@builtin(global_invocation_id) id: vec3u) {
       values &= ~(1u<<field);
     }
   }
-  field_request_workspace.field_certificates[leaf*${SURFACE_CELL_FIELD_CERTIFICATE_WORDS}u+50u] = known;
+  field_request_workspace.field_known_masks[leaf] = known;
   field_request_workspace.demands[leaf*4u] = values;
   field_request_workspace.demands[leaf*4u+1u] = certificates;
 }

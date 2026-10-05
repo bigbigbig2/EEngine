@@ -1,5 +1,5 @@
 import { SURFACE_EXECUTION_WORDS, SURFACE_FIELD_EXECUTION_WORDS, SURFACE_SIGNAL_EXECUTION_WORDS } from "../gpu/GpuSurfaceExecutionProfileAbi.js";
-import { SURFACE_REFERENCE_KIND } from "../gpu/GpuSurfaceReferenceAbi.js";
+import { SURFACE_CELL_ADDRESS_WORDS } from "../gpu/GpuSurfaceReferenceAbi.js";
 
 /** Complete dynamic DomainKey equality. Interned dependency tokens only allow
  * reuse of equality already established over the same immutable lane facts. */
@@ -36,8 +36,8 @@ fn surface_cell_compatible(plane: u32, a: SurfaceCellLane, b: SurfaceCellLane) -
     let left_leaf = cell_local_tile * 64u + a.source;
     let right_leaf = cell_local_tile * 64u + b.source;
     // An exceptional combined finite guard has no proven spatial envelope.
-    if cell_workspace.addresses[left_leaf * 144u + 136u] != 3u ||
-      cell_workspace.addresses[right_leaf * 144u + 136u] != 3u { return false; }
+    if cell_workspace.addresses[left_leaf * ${SURFACE_CELL_ADDRESS_WORDS}u + 18u] != 3u ||
+      cell_workspace.addresses[right_leaf * ${SURFACE_CELL_ADDRESS_WORDS}u + 18u] != 3u { return false; }
   }
   let base = settings.appearance2.w + entry * ${SURFACE_EXECUTION_WORDS}u + 8u;
   var seam = 0u;
@@ -47,13 +47,7 @@ fn surface_cell_compatible(plane: u32, a: SurfaceCellLane, b: SurfaceCellLane) -
     seam = appearance_metadata[base + 15u * ${SURFACE_FIELD_EXECUTION_WORDS}u +
       (plane - 15u) * ${SURFACE_SIGNAL_EXECUTION_WORDS}u + 3u];
     if plane == 15u {
-      let dependencies = cell_material_signal_dependencies(plane, entry, cell_local_tile * 64u + a.source);
-      seam = 12u;
-      for (var field = 0u; field < 15u; field++) {
-        if (dependencies & (1u << field)) != 0u {
-          seam |= appearance_metadata[base + field * ${SURFACE_FIELD_EXECUTION_WORDS}u + 2u];
-        }
-      }
+      seam = appearance_metadata[base + 15u * ${SURFACE_FIELD_EXECUTION_WORDS}u + 10u];
     }
   }
   return cell_seam_compatible(seam, a, b);
@@ -63,9 +57,9 @@ fn surface_cell_value_hit(plane: u32, lane: u32) -> bool {
   let leaf = cell_local_tile * 64u + lane;
   if (cell_facts[lane].publication & (1u << plane)) != 0u { return true; }
   if plane < 15u {
-    return cell_workspace.field_references[(leaf * 15u + plane) * 3u] == ${SURFACE_REFERENCE_KIND.store}u;
+    return (atomicLoad(&cell_workspace.field_store_masks[leaf])&(1u<<plane))!=0u;
   }
-  return cell_workspace.signal_references[(leaf * 6u + plane - 15u) * 3u] == ${SURFACE_REFERENCE_KIND.store}u;
+  return (atomicLoad(&cell_workspace.signal_store_masks[leaf])&(1u<<(plane-15u)))!=0u;
 }
 
 fn surface_cell_domain_token(plane: u32, lane: u32) -> u32 {

@@ -27,7 +27,7 @@ fn signal_request_fields(leaf:u32,kind:u32)->u32 {
   let signal_profile=field_profile+15u*${SURFACE_FIELD_EXECUTION_WORDS}u+kind*${SURFACE_SIGNAL_EXECUTION_WORDS}u;
   var mask=signal_request_metadata[signal_profile+1u];
   if kind == 0u {
-    if signal_request_workspace.addresses[leaf * ${SURFACE_CELL_ADDRESS_WORDS}u + 136u] != 3u {
+    if signal_request_workspace.addresses[leaf * ${SURFACE_CELL_ADDRESS_WORDS}u + 18u] != 3u {
       mask = ${SURFACE_DIRECT_RESIDUAL_FIELDS}u;
     } else {
       let coat = reference_field(leaf, 10u);
@@ -86,10 +86,10 @@ fn signal_request_word(leaf:u32,kind:u32,word:u32,fields:u32)->u32 {
     if (fields&(1u<<field))==0u { return 0u; }
     return signal_request_field_word(leaf,field,(word-40u)%2u);
   }
-  if word>=17u && word<21u { return signal_request_workspace.addresses[address+106u+word-17u]; }
-  if word>=21u && word<25u { return signal_request_workspace.addresses[address+118u+word-21u]; }
+  if word>=17u && word<21u { return signal_request_workspace.signal_witnesses[leaf*12u+4u+word-17u]; }
+  if word>=21u && word<25u { return signal_request_workspace.signal_witnesses[leaf*12u+8u+word-21u]; }
   if word>=25u && word<29u {
-    return select(0u,signal_request_workspace.addresses[address+94u+word-25u],kind!=1u);
+    return select(0u,signal_request_workspace.signal_witnesses[leaf*12u+word-25u],kind!=1u);
   }
   if word>=30u && word<38u {
     if !direct || signal_request_settings.sun_enabled==0u { return 0u; }
@@ -112,11 +112,11 @@ fn signal_request_word(leaf:u32,kind:u32,word:u32,fields:u32)->u32 {
     case 13u:{return signal_request_workspace.addresses[address+7u];}
     case 14u:{return signal_request_workspace.addresses[address+8u];}
     case 15u:{return signal_request_workspace.addresses[address+12u];}
-    case 16u:{return signal_request_workspace.addresses[address+131u]&1u;}
+    case 16u:{return signal_request_workspace.addresses[address+20u]&1u;}
     case 29u:{return select(0u,signal_request_workspace.addresses[address+13u],direct);}
     case 38u:{return select(0u,signal_request_shadow[2u],direct && signal_request_settings.shadow_enabled!=0u);}
     case 39u:{return select(0u,signal_request_shadow[3u],direct && signal_request_settings.shadow_enabled!=0u);}
-    case 70u:{return select(0u, signal_request_workspace.addresses[address + 136u], kind == 0u);}
+    case 70u:{return select(0u, signal_request_workspace.addresses[address + 18u], kind == 0u);}
     case 71u:{return fields;}
     default:{return 0u;}
   }
@@ -127,12 +127,13 @@ fn signal_request_hash(leaf:u32,kind:u32,fields:u32)->u32 {
   return hash;
 }
 fn signal_request_cacheable(leaf:u32,fields:u32,kind:u32)->bool {
+  if (signal_request_workspace.addresses[leaf*${SURFACE_CELL_ADDRESS_WORDS}u+19u]&(1u<<kind))==0u { return false; }
   if (kind&1u)==0u && signal_request_settings.shadow_enabled!=0u && signal_request_shadow[0u]==0xffffffffu { return false; }
   for(var field=0u;field<15u;field++) {
     if (fields&(1u<<field))==0u { continue; }
     let reference=reference_field(leaf,field);
     if reference.kind==SURFACE_REFERENCE_TRANSIENT || reference.kind==SURFACE_REFERENCE_INVALID { return false; }
   }
-  return (signal_request_workspace.addresses[leaf*${SURFACE_CELL_ADDRESS_WORDS}u+93u]&1u)!=0u;
+  return (signal_request_workspace.addresses[leaf*${SURFACE_CELL_ADDRESS_WORDS}u+16u]&1u)!=0u;
 }
 `;
