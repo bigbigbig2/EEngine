@@ -140,10 +140,18 @@ try {
   );
   const oracle = await fetchPath("/OEngine/tests/oracle/hzb-conservative-gpu.mjs");
   check(
-    "serves the real oracle module unmodified",
+    // The server rewrites module specifiers unconditionally, so this module is
+    // served with `node:assert/strict` already pointing at the shim. The earlier
+    // assertion here expected the byte-identical file and became false the
+    // moment the rewrite stopped being gated behind a query flag — which had to
+    // change, because a module reached through a relative import never receives
+    // that flag. What matters is that the module body and its relative imports
+    // are intact and only the shim specifier moved.
+    "serves the real oracle module with only its assert specifier rewritten",
     oracle.status === 200 &&
       oracle.body.includes("runConservativeHzbGpuOracle") &&
-      oracle.body.includes("import assert from 'node:assert/strict'"),
+      oracle.body.includes('from "/__gpu-oracle/page/assert-strict.mjs"') &&
+      oracle.body.includes('"../../.test-dist/shaders/hzb_reduce.js"'),
     JSON.stringify(oracle).slice(0, 200),
   );
   const compiled = await fetchPath("/OEngine/.test-dist/shaders/hzb_reduce.js");
@@ -190,21 +198,35 @@ try {
   );
   const missing = await fetchPath("/OEngine/tests/oracle/does-not-exist.mjs");
   check("404s unknown files inside the allowlist", missing.status === 404, String(missing.status));
-  // Fallback route: same path, `node:assert/strict` rewritten so relative
-  // imports keep resolving. Used only if the import-map route is unavailable.
+  // Rewriting is unconditional, not gated behind a query flag. A module reached
+  // through a relative import never carries that flag, which is what left the
+  // two virtual-geometry oracles unable to load `gl-matrix`. Both routes are
+  // therefore expected to rewrite the specifier and preserve relative imports.
   const rewritten = await fetchPath("/OEngine/tests/oracle/hzb-conservative-gpu.mjs?gpuOracleShim=1");
   check(
-    "rewrite fallback replaces the assert specifier and keeps relative imports",
+    "assert specifier is rewritten while relative imports are preserved",
     rewritten.status === 200 &&
-      rewritten.body.includes("import assert from '/__gpu-oracle/page/assert-strict.mjs'") &&
-      rewritten.body.includes("'../../.test-dist/shaders/hzb_reduce.js'"),
+      rewritten.body.includes('from "/__gpu-oracle/page/assert-strict.mjs"') &&
+      rewritten.body.includes('"../../.test-dist/shaders/hzb_reduce.js"'),
     JSON.stringify(rewritten).slice(0, 240),
   );
-  const untouched = await fetchPath("/OEngine/tests/oracle/hzb-conservative-gpu.mjs");
+  const defaultRoute = await fetchPath("/OEngine/tests/oracle/hzb-conservative-gpu.mjs");
   check(
-    "default route still serves the module byte-identical to disk",
-    untouched.body.includes("import assert from 'node:assert/strict'"),
-    JSON.stringify(untouched).slice(0, 200),
+    "default route applies the same rewrite (no query flag required)",
+    defaultRoute.status === 200 &&
+      defaultRoute.body.includes('from "/__gpu-oracle/page/assert-strict.mjs"') &&
+      !defaultRoute.body.includes('from "node:assert'),
+    JSON.stringify(defaultRoute).slice(0, 200),
+  );
+  // The rewrite must not touch specifier-looking text inside strings or regex
+  // literals. An earlier version replaced every occurrence of `node:assert`,
+  // which corrupted a regex in page/host.mjs into a syntax error and was only
+  // visible as a page timeout.
+  const hostPage = await fetchPath("/__gpu-oracle/page/host.mjs");
+  check(
+    "rewrite leaves regex and string contents alone",
+    hostPage.status === 200 && hostPage.body.includes("/Failed to resolve module specifier|node:assert"),
+    JSON.stringify(hostPage.body.slice(0, 200)),
   );
 } finally {
   await server.close();

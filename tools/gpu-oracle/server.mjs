@@ -52,6 +52,12 @@ export const VENDOR_PREFIX = "/__gpu-oracle/vendor/";
  *
  * `gl-matrix` ships `esm/index.js`, which is browser-loadable as-is. Packages
  * without an ESM build must not be added here; they need a transform instead.
+ *
+ * `entry` doubles as the base for the package's own relative imports. Serving
+ * `gl-matrix` from `esm/index.js` means the module's `./common.js` arrives as
+ * `<vendor prefix>gl-matrix/common.js`, which must resolve to `esm/common.js`.
+ * Dropping that segment made every internal import a 404 and the host page never
+ * finished loading — the failure surfaced only as a page timeout.
  */
 export const VENDOR_MODULES = Object.freeze({
   "gl-matrix": { package: "gl-matrix", entry: "esm/index.js" },
@@ -106,8 +112,27 @@ export async function startStaticServer({ root, harnessRoot, allowPrefixes, vend
         send(404, "unknown vendored specifier");
         return;
       }
-      const suffix = pathname.slice(VENDOR_PREFIX.length + specifier.length).replace(/^\//u, "");
-      const wanted = suffix === "" ? mapping.entry : suffix;
+
+      // A bare request for the package must become the entry *file* URL.
+      //
+      // Serving `index.js` content at `/vendor/gl-matrix` looks equivalent but is
+      // not: with no trailing slash, the URL's base directory is `/vendor/`, so
+      // the module's own `./common.js` resolves to `/vendor/common.js` and every
+      // internal import 404s. Redirecting makes the browser fetch
+      // `/vendor/gl-matrix/esm/index.js`, where `./common.js` correctly resolves
+      // to `/vendor/gl-matrix/esm/common.js`. This is HTTP URL semantics, not a
+      // harness preference — a static server cannot fix it by rewriting content.
+      const suffix = pathname.slice(VENDOR_PREFIX.length + specifier.length);
+      if (suffix === "" || suffix === "/") {
+        response.writeHead(302, {
+          location: `${VENDOR_PREFIX}${specifier}/${mapping.entry}`,
+          "cache-control": "no-store",
+        });
+        response.end();
+        return;
+      }
+
+      const wanted = suffix.replace(/^\//u, "");
       for (const vendorRoot of vendorRoots) {
         const absolute = resolve(vendorRoot, mapping.package, wanted);
         const relativePath = relative(vendorRoot, absolute);
@@ -174,32 +199,37 @@ export async function startStaticServer({ root, harnessRoot, allowPrefixes, vend
       CONTENT_TYPES.get(extname(resolved.absolute).toLowerCase()) ?? "application/octet-stream";
     // Specifier rewriting for JavaScript modules.
     //
-    // Two independent reasons to rewrite, so the rewrite is not gated on the
-    // `gpuOracleShim` query alone:
+    // The rewrite is restricted to module specifiers — the string after `from`
+    // or inside a bare `import "..."`. An earlier version replaced every
+    // occurrence of `node:assert` in the file, which also rewrote the text
+    // *inside a regular expression* in `page/host.mjs`:
     //
-    //   1. `node:assert/strict` — the oracles import it. `host.html` carries an
-    //      import map for it; the query flag is the fallback for a host that does
-    //      not honour a `node:`-scheme key.
-    //   2. Bare package specifiers such as `gl-matrix` — the engine compiles with
-    //      `moduleResolution: Bundler`, so the output keeps bare imports. A
-    //      browser cannot resolve those, and the failing module is reached
-    //      *through* a relative import, so its request never carries the flag.
-    //      Gating on the flag alone left the two virtual-geometry oracles
-    //      unrunnable even though the retry mechanism worked correctly.
+    //     if (!/Failed to resolve module specifier|node:assert|assert-strict/.test(message))
     //
-    // Rewriting is a no-op when the file contains neither, so applying it
-    // unconditionally costs one regex pass on served diagnostic modules only.
+    // became a regex containing a `/`, i.e. a syntax error. The page then died at
+    // parse time and the only symptom was a 60-second timeout with no useful
+    // message. A text substitution over source that does not understand strings
+    // and regex literals will always eventually rewrite data as if it were code.
+    //
+    // Rewriting is a no-op when no specifier matches, so it is applied
+    // unconditionally for served diagnostic modules.
     if (pathname !== "/" && /\.(mjs|js)$/u.test(pathname)) {
       const source = await readFile(resolved.absolute, "utf8");
-      const rewritten = source
-        // `String.replaceAll` rejects any flag other than `g`, so a `/u`
-        // expression throws "Invalid regular expression flags" at runtime. That
-        // failure was invisible in the report except as a page timeout.
-        .replace(/node:assert\/strict/gu, SHIM_URL)
-        .replace(/node:assert/gu, SHIM_URL)
-        .replace(/(\bfrom\s*")([^"./][^"]*)(")/gu, (whole, prefix, specifier, suffix) =>
-          VENDOR_MODULES[specifier] ? `${prefix}${VENDOR_PREFIX}${specifier}${suffix}` : whole,
-        );
+      const rewriteSpecifier = (specifier) => {
+        if (specifier === "node:assert/strict" || specifier === "node:assert") return SHIM_URL;
+        return VENDOR_MODULES[specifier] ? `${VENDOR_PREFIX}${specifier}` : null;
+      };
+      const rewritten = source.replace(
+        /(\bfrom\s*")([^"]+)(")|(\bimport\s*")([^"]+)(")/gu,
+        (whole, fromPrefix, fromSpecifier, fromSuffix, barePrefix, bareSpecifier, bareSuffix) => {
+          if (fromSpecifier !== undefined) {
+            const replacement = rewriteSpecifier(fromSpecifier);
+            return replacement === null ? whole : `${fromPrefix}${replacement}${fromSuffix}`;
+          }
+          const replacement = rewriteSpecifier(bareSpecifier);
+          return replacement === null ? whole : `${barePrefix}${replacement}${bareSuffix}`;
+        },
+      );
       if (rewritten !== source) {
         response.writeHead(200, {
           "content-type": contentType,

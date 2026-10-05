@@ -194,13 +194,41 @@ async function run() {
   }
   report.adapter = await readAdapterInfo(adapter);
   report.adapterKind = classifyAdapter(report.adapter);
-  const device = await adapter.requestDevice();
+
+  // Negotiate the device the way production does.
+  //
+  // WebGPU's default limits are the spec minimums, not the adapter's capability:
+  // `maxStorageBuffersPerShaderStage` defaults to 8 while this adapter reports
+  // 16. The engine's own initialize() passes the adapter's values as
+  // `requiredLimits` before creating the device (RendererCore), so a bare
+  // `requestDevice()` hands the oracles a device weaker than production and they
+  // fail on binding counts — a harness defect that looks exactly like an engine
+  // defect. Ask for the adapter's ceiling, and record what was actually granted
+  // so a genuine limit gap is still visible in the report.
+  const limits = {};
+  for (const [name, value] of Object.entries(adapter.limits ?? {})) {
+    if (typeof value === "number") limits[name] = value;
+  }
+  let device;
+  try {
+    device = await adapter.requestDevice({ requiredLimits: limits });
+  } catch (error) {
+    // Some limits are not requestable; fall back to defaults rather than failing
+    // the whole run, and keep the reason in the report.
+    report.environment.requestedLimitsRejected = String(error?.message ?? error);
+    device = await adapter.requestDevice();
+  }
   report.device = {
     features: [...device.features].map(String).sort(),
     limits: {
       maxComputeWorkgroupSizeX: device.limits.maxComputeWorkgroupSizeX,
       maxComputeInvocationsPerWorkgroup: device.limits.maxComputeInvocationsPerWorkgroup,
       maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize,
+      maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage,
+      maxBindingArrayElementsPerShaderStage: device.limits.maxBindingArrayElementsPerShaderStage,
+    },
+    adapterLimits: {
+      maxStorageBuffersPerShaderStage: adapter.limits?.maxStorageBuffersPerShaderStage ?? null,
     },
   };
   report.environment.wgslLanguageFeatures = [...navigator.gpu.wgslLanguageFeatures].map(String).sort();
