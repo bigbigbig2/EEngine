@@ -1,10 +1,13 @@
 ---
 id: next-execution/eengine-next-architecture-layer-plan-2026
-state: current
+state: history
+supersededBy: ./eengine-extreme-performance-rebuild-execution-2026-10.md
 verifies:
   - OEngine/src
 ---
 # EEngine Next 架构层执行计划
+
+历史计划，已由极致性能重建执行计划替代。以下阶段、状态和源码数字保留当时语境，不定义当前实施顺序；当前切片读取 workstream 的 currentSlice。
 
 更新：2026-10-04。Surface总目标保留[第三版原文](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，当前实施见[有界前端最终设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)和[执行计划](./eengine-extreme-performance-rebuild-execution-2026-10.md)。准备/基线已完成，新重构未开始；本页保留整体依赖，原Surface阶段表是架构概览，不作为另一实施顺序。
 

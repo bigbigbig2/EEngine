@@ -1,6 +1,6 @@
 ---
 id: next-design/surface-work-v3-optimization-v1-design-2026-10
-state: current
+state: history
 verifies:
   - OEngine/src
 ---

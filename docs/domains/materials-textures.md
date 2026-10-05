@@ -4,24 +4,19 @@ kind: domain
 owner: materials-textures
 state: current
 verifies:
-  - project/domains
+  - OEngine/src/gpu/TextureResidency.ts
+  - OEngine/src/assets/TextureAssetPackage.ts
 ---
 # Materials And Textures
 
-This domain owns authored PBR slots, sampler/UV metadata, texture residency, mip availability, and bounded material/texture identity. Image bytes stay outside the geometry Product ABI and enter the production `TextureResidency` path through an atomic mapper.
+## 当前 owner 与产品
 
-Mode A sampling clamps to the available mip and converges after promotion. A residency record is not evidence of physical memory release; that requires a separate allocation and budget measurement.
+本轮核对入口为 [TextureResidency](../../OEngine/src/gpu/TextureResidency.ts)、TextureAssetPackage 和材质/纹理 publication。TextureResidency 维护 bank、residentMipRange、material descriptors 及资源账；GPU 材质/纹理身份供唯一 Surface 链消费。Geometry Product 不拥有图像 bytes，Loader 不持有长期 GPU texture owner。
 
-Current claim and case relationships are generated from machine manifests by `node tools/vibe.mjs context OEngine/src/texture --claims --cases`.
+解码/发布、物理 residency 和 shader 采样是不同责任。一个 residentMipRange 或库存在不证明采样 clamp、完整格式/材质组合、正确退休或实际释放内存；它们需要调用生产 consumer 的独立验证。本次工具重构不将这些目标认证为完成。
 
-## Current Production Path
+## 目标与验证范围
 
-Authored image, sampler, UV, alpha-mode, and material-slot metadata enter the scene mapper, then publish through `TextureResidency` and the GPU material identity consumed by the single shading path. Sampling clamps to the highest available mip until promotion publishes a newer residency view.
+AAA 材质完整语义、有限 family 和缓存失效遵循[当前设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，逐单元接线遵循[执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。当前 TextureResidency 不等于未来完整 Virtual Texture 已实现。
 
-## Owner Boundaries And Failure
-
-This domain owns decoded texture packages, physical residency, mip availability, sampler identity, and material bindings. Geometry Product does not own image bytes, and loaders do not retain long-lived GPU textures. Decode, budget, cancellation, or replacement failure leaves the previous active mapping intact.
-
-## Main Entrypoints And Proof
-
-Primary entrypoints are `OEngine/src/material/`, `OEngine/src/assets/Texture*.ts`, and `OEngine/src/gpu/Texture*.ts`.
+owner 导航用 `vibe context OEngine/src/gpu/TextureResidency.ts`；检查范围见[VALIDATION](../VALIDATION.md)。已退休的 claims 与旧材质协调器不进入当前入口。

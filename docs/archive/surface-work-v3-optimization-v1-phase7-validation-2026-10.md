@@ -1,6 +1,6 @@
 ---
 id: next-execution/surface-work-v3-optimization-v1-phase7-validation-2026-10
-state: current
+state: history
 verifies:
   - OEngine/src
 ---

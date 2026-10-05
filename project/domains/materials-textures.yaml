@@ -25,7 +25,6 @@ sources:
 checks:
   - model
   - registry
-  - docs-frontmatter
 watch:
   - OEngine/src/gpu/Texture*.ts
   - validation/cases/texture-residency-component/**

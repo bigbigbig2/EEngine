@@ -43,13 +43,13 @@ function toJsonSafe(value, depth = 0, seen = new Set()) {
     if (ArrayBuffer.isView(value)) {
       const limit = Math.min(value.length ?? 0, 256);
       const head = Array.from(value.slice ? value.slice(0, limit) : value).map((entry) =>
-        toJsonSafe(entry, depth + 1, seen),
+        toJsonSafe(entry, depth + 1, seen)
       );
       return {
         typedArray: value.constructor.name,
         length: value.length ?? null,
         head,
-        truncated: (value.length ?? 0) > limit,
+        truncated: (value.length ?? 0) > limit
       };
     }
     if (Array.isArray(value)) {
@@ -60,7 +60,7 @@ function toJsonSafe(value, depth = 0, seen = new Set()) {
     }
     if (value instanceof Map)
       return Object.fromEntries(
-        [...value].map(([key, entry]) => [String(key), toJsonSafe(entry, depth + 1, seen)]),
+        [...value].map(([key, entry]) => [String(key), toJsonSafe(entry, depth + 1, seen)])
       );
     if (value instanceof Set) return [...value].map((entry) => toJsonSafe(entry, depth + 1, seen));
     if (value instanceof Date) return value.toISOString();
@@ -79,7 +79,7 @@ function describeError(error) {
       name: error.name,
       code: error.code ?? null,
       message: error.message,
-      stack: error.stack ?? null,
+      stack: error.stack ?? null
     };
   }
   return { kind: "throw-non-error", name: typeof error, message: String(error), stack: null };
@@ -138,7 +138,7 @@ async function readAdapterInfo(adapter) {
       description: adapter.info.description ?? "",
       isFallbackAdapter: adapter.info.isFallbackAdapter ?? null,
       subgroupMinSize: adapter.info.subgroupMinSize ?? null,
-      subgroupMaxSize: adapter.info.subgroupMaxSize ?? null,
+      subgroupMaxSize: adapter.info.subgroupMaxSize ?? null
     };
   }
   if (typeof adapter.requestAdapterInfo === "function") {
@@ -165,7 +165,7 @@ async function run() {
     scopedGpuErrors: [],
     environment: { userAgent: navigator.userAgent, webgpuExposed: Boolean(navigator.gpu) },
     assertShimMode: null,
-    timings: { oracleMs: null, runMs: null },
+    timings: { oracleMs: null, runMs: null }
   };
   if (!modulePath || !exportName)
     throw new Error("host page requires both `module` and `export` query parameters");
@@ -176,7 +176,7 @@ async function run() {
       name: "Error",
       code: null,
       message: "navigator.gpu is unavailable in this browser/profile",
-      stack: null,
+      stack: null
     };
     return report;
   }
@@ -188,36 +188,33 @@ async function run() {
       name: "Error",
       code: null,
       message: "navigator.gpu.requestAdapter() returned null",
-      stack: null,
+      stack: null
     };
     return report;
   }
   report.adapter = await readAdapterInfo(adapter);
   report.adapterKind = classifyAdapter(report.adapter);
 
-  // Negotiate the device the way production does.
-  //
-  // WebGPU's default limits are the spec minimums, not the adapter's capability:
-  // `maxStorageBuffersPerShaderStage` defaults to 8 while this adapter reports
-  // 16. The engine's own initialize() passes the adapter's values as
-  // `requiredLimits` before creating the device (RendererCore), so a bare
-  // `requestDevice()` hands the oracles a device weaker than production and they
-  // fail on binding counts — a harness defect that looks exactly like an engine
-  // defect. Ask for the adapter's ceiling, and record what was actually granted
-  // so a genuine limit gap is still visible in the report.
-  const limits = {};
-  for (const [name, value] of Object.entries(adapter.limits ?? {})) {
-    if (typeof value === "number") limits[name] = value;
+  // GPUSupportedLimits properties are WebIDL getters, not Object.entries().
+  // Negotiate the selected oracle's requirements before creating any resources;
+  // never silently retry a weaker device and misclassify API errors as numbers.
+  const query = new URLSearchParams(location.search);
+  const requiredFeatures = JSON.parse(query.get("features") ?? "[]");
+  const requiredLimits = JSON.parse(query.get("limits") ?? "{}");
+  const missing = requiredFeatures.filter((feature) => !adapter.features.has(feature));
+  const insufficient = Object.entries(requiredLimits).filter(
+    ([name, value]) => !(adapter.limits[name] >= value)
+  );
+  if (missing.length || insufficient.length) {
+    report.failureKind = "capability-unsupported";
+    report.error = {
+      kind: "environment",
+      name: "CapabilityError",
+      message: JSON.stringify({ missing, insufficient })
+    };
+    return report;
   }
-  let device;
-  try {
-    device = await adapter.requestDevice({ requiredLimits: limits });
-  } catch (error) {
-    // Some limits are not requestable; fall back to defaults rather than failing
-    // the whole run, and keep the reason in the report.
-    report.environment.requestedLimitsRejected = String(error?.message ?? error);
-    device = await adapter.requestDevice();
-  }
+  const device = await adapter.requestDevice({ requiredFeatures, requiredLimits });
   report.device = {
     features: [...device.features].map(String).sort(),
     limits: {
@@ -225,11 +222,11 @@ async function run() {
       maxComputeInvocationsPerWorkgroup: device.limits.maxComputeInvocationsPerWorkgroup,
       maxStorageBufferBindingSize: device.limits.maxStorageBufferBindingSize,
       maxStorageBuffersPerShaderStage: device.limits.maxStorageBuffersPerShaderStage,
-      maxBindingArrayElementsPerShaderStage: device.limits.maxBindingArrayElementsPerShaderStage,
+      maxBindingArrayElementsPerShaderStage: device.limits.maxBindingArrayElementsPerShaderStage
     },
     adapterLimits: {
-      maxStorageBuffersPerShaderStage: adapter.limits?.maxStorageBuffersPerShaderStage ?? null,
-    },
+      maxStorageBuffersPerShaderStage: adapter.limits?.maxStorageBuffersPerShaderStage ?? null
+    }
   };
   report.environment.wgslLanguageFeatures = [...navigator.gpu.wgslLanguageFeatures].map(String).sort();
 
@@ -255,7 +252,7 @@ async function run() {
     const entry = module[exportName];
     if (typeof entry !== "function") {
       throw new Error(
-        `module ${modulePath} does not export a function named ${exportName}; exports: ${Object.keys(module).join(", ")}`,
+        `module ${modulePath} does not export a function named ${exportName}; exports: ${Object.keys(module).join(", ")}`
       );
     }
     summary = await entry(device);
@@ -279,9 +276,7 @@ async function run() {
   if (deviceLost && deviceLost.reason !== "destroyed") report.deviceLost = deviceLost;
   report.summary = toJsonSafe(summary);
   report.error = failure;
-  if (failure) {
-    report.failureKind = failure.name === "AssertionError" ? "assertion" : "oracle-throw";
-  } else if (scoped.length > 0 || uncaptured.length > 0) {
+  if (scoped.length > 0 || uncaptured.length > 0) {
     report.failureKind = "gpu-error";
     report.error = {
       kind: "gpu",
@@ -289,10 +284,12 @@ async function run() {
       code: null,
       message: [
         ...scoped.map((entry) => `${entry.scope}: ${entry.message}`),
-        ...uncaptured.map((entry) => `uncaptured: ${entry.message}`),
+        ...uncaptured.map((entry) => `uncaptured: ${entry.message}`)
       ].join(" | "),
-      stack: null,
+      stack: null
     };
+  } else if (failure) {
+    report.failureKind = failure.name === "AssertionError" ? "assertion" : "oracle-throw";
   } else if (report.deviceLost) {
     report.failureKind = "device-lost";
     report.error = {
@@ -300,7 +297,7 @@ async function run() {
       name: "GPUDeviceLostInfo",
       code: null,
       message: `${report.deviceLost.reason}: ${report.deviceLost.message}`,
-      stack: null,
+      stack: null
     };
   }
   report.status = report.failureKind === null ? "passed" : "failed";
@@ -327,6 +324,6 @@ try {
     scopedGpuErrors: [],
     environment: { userAgent: navigator.userAgent, webgpuExposed: Boolean(navigator.gpu) },
     assertShimMode: null,
-    timings: { oracleMs: null, runMs: null },
+    timings: { oracleMs: null, runMs: null }
   });
 }

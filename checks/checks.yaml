@@ -1,5 +1,12 @@
 schemaVersion: 2
 checks:
+  - id: tooling-suites
+    kind: contract
+    level: L1
+    description: Exercise document, navigation, registry, build identity and machine reporting regressions through current tools.
+    domains: [platform]
+    runner: tooling-suites
+    automatic: true
   - id: model
     kind: contract
     level: L0
@@ -20,13 +27,6 @@ checks:
     description: Require existing changed files to match a declared primary or related domain route.
     domains: [platform]
     runner: changed-coverage
-    automatic: true
-  - id: docs-frontmatter
-    kind: guard
-    level: L0
-    description: Validate structured frontmatter and cross-links for authoritative domain and contract pages.
-    domains: [platform]
-    runner: project-model
     automatic: true
   - id: engine-suites
     kind: contract

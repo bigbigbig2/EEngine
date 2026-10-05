@@ -4,39 +4,31 @@ kind: contract
 status: frozen
 owners: 
   - platform
-version: 3
+version: 4
 consumers: 
   - validation/src/runner
   - validation/cases/*/case.yaml
   - validation/labs/*/case.yaml
 invariants: 
-  - case owns its evidence role and optional claim coverage
-  - artifacts and evidence are declared
+  - case owns its identity and scenario classification
+  - required artifacts are declared
 validation: 
   - registry validation
   - case protocol self-test
 state: current
 verifies:
-  - checks
-  - project/domains
+  - validation/src/shared/registry.mjs
+  - validation/src/runner/run-case.mjs
+  - validation/cases
 ---
 # Validation Case
 
-Each `validation/cases/<id>/case.yaml` owns the case identity, primary domain, decision, route, workload/profile, artifact kinds, changed paths, durable claim coverage, and classification. Claim manifests separately decide whether that reverse coverage is required, alternative, or diagnostic. Explicit observation labs use the same shape under `validation/labs/<id>/` and set `lab: true` with `automatic: false`:
+Each `validation/cases/<id>/case.yaml` owns its identity, primary domain, decision, route, workload/profile, artifact kinds, changed paths and classification. Observation labs use the same runtime shape under `validation/labs/<id>/` with lab=true and automatic=false.
 
-```yaml
-domain: virtual-assets
-evidenceRole: promotion | diagnostic
-caseKind: component | production | internal-candidate | orchestration
-kind: contract | oracle | guard | gpu | perf | unit
-level: L0 | L1 | L2 | L3 | L4
-decision: ADR-0016
-sourceCase: glb-web-product # optional parameterized case sharing one page entry
-covers:
-  - virtual-assets.product-consumer
-harness: protocol | gpu | production | observer
-```
+The current manifest includes caseKind, kind, level and harness. These are classifications, not proof that a particular algorithm or assurance scope ran. claim covers/evidenceRole and promotion policy are retired.
 
-The case manifest is the source. `validation/registry.generated.json` is a deterministic runner input and is never hand edited. Claims and checks are the proof routing source; the registry preserves the canonical case fields and adds only runner identity and generated metadata.
+Case YAML is the source. `validation/registry.generated.json` is a generated runner projection of cases/profiles/workloads; it must not be hand edited. The shared validator checks structure, unique identity, artifact declarations, timeout bounds and exact error allowlists.
 
-`promotion` cases must have non-empty `covers`, appear in at least one claim promotion policy when used for promotion, be automatic and non-lab, and meet that claim's assurance level. A promotion case may still be diagnostic for a different covered claim through that claim's policy. `diagnostic` cases may use an empty `covers` list and cannot appear in any promotion policy or publish accepted evidence. Labs are always diagnostic. L4 cases are formal performance cases only: `kind: perf` with profile `formal-1080p`. A diagnostic `case --run` does not execute repository preflight and records an empty receipt list. Explicit `--accept` execution performs or safely reuses a full verification preflight and publishes its passed check receipts in artifact schema v2.
+Run one selected case using `node validation/src/runner/run-case.mjs <case-id>`. It publishes diagnostic schema-v3 output with engine content identity and cannot promote claims; `--accept` is rejected. Required artifacts, page outcome, fresh identity, aggregated errors and disposal still apply. Raw v2 history is not revalidated or promoted under the current protocol.
+
+A case must state what current producer/consumer it exercises and why its expected output is independent. Neither kind/level nor fixture pass counts establish production correctness or performance.

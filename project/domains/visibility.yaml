@@ -27,8 +27,7 @@ paths:
   - docs/specs/**
 currentDocs:
   - docs/domains/visibility.md
-contracts:
-  - render-product-work-history-v2
+contracts: []
 decisions:
   - ADR-0020
 sources:
@@ -37,7 +36,6 @@ sources:
 checks:
   - model
   - registry
-  - docs-frontmatter
 watch:
   - OEngine/src/render/passes/**
   - OEngine/src/render/visibility/**

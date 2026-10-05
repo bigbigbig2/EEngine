@@ -12,7 +12,7 @@
   "scripts": {
     "build": "tsc --noEmit && vite build && tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit",
-    "build:test": "tsc -p tsconfig.test.json",
+    "build:test": "node ../tools/test-build.mjs",
     "build:native-cooker": "node tools/build-native-cooker.mjs",
     "test:web-geometry-cooker-core": "node tools/build-web-geometry-cooker-oracle.mjs",
     "test:oegpack-v3": "npm run build:native-cooker && npm run build:test && node --test tests/contract/oegpack-v3.test.mjs",

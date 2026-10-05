@@ -1,110 +1,260 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "oengine-validation-artifact-v2",
+  "$id": "oengine-validation-artifact-v3",
   "type": "object",
   "required": [
-    "schemaVersion", "runId", "nonce", "caseId", "workloadId",
-    "registrySha256", "workloadSha256", "status", "evidenceStatus",
-    "provenance", "checkReceipts", "page", "events", "artifactManifest", "gate"
+    "schemaVersion",
+    "runId",
+    "nonce",
+    "caseId",
+    "workloadId",
+    "registrySha256",
+    "workloadSha256",
+    "status",
+    "evidenceStatus",
+    "provenance",
+    "page",
+    "events",
+    "artifactManifest",
+    "gate",
+    "validationMode"
   ],
   "properties": {
-    "schemaVersion": { "const": 2 },
-    "runId": { "type": "string", "pattern": "^[0-9TZ-]+-[a-z0-9-]+-[0-9a-f-]{36}$" },
-    "nonce": { "type": "string", "pattern": "^[0-9a-f]{48}$" },
-    "caseId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-    "workloadId": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-v[0-9]+$" },
-    "registrySha256": { "$ref": "#/$defs/sha256" },
-    "workloadSha256": { "$ref": "#/$defs/sha256" },
-    "status": { "enum": ["passed", "failed", "unsupported"] },
-    "evidenceStatus": { "enum": ["accepted", "diagnostic-only"] },
-    "provenance": { "$ref": "#/$defs/provenance" },
-    "checkReceipts": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/checkReceipt" } },
-    "page": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/page" }] },
-    "events": { "type": "array", "items": { "$ref": "#/$defs/event" } },
-    "artifactManifest": { "type": "array", "items": { "$ref": "#/$defs/artifact" } },
+    "schemaVersion": {
+      "const": 3
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^[0-9TZ-]+-[a-z0-9-]+-[0-9a-f-]{36}$"
+    },
+    "nonce": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{48}$"
+    },
+    "caseId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "workloadId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*-v[0-9]+$"
+    },
+    "registrySha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "workloadSha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "status": {
+      "enum": ["passed", "failed", "unsupported"]
+    },
+    "evidenceStatus": {
+      "const": "diagnostic-only"
+    },
+    "provenance": {
+      "$ref": "#/$defs/provenance"
+    },
+    "page": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/page"
+        }
+      ]
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/event"
+      }
+    },
+    "artifactManifest": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact"
+      }
+    },
     "gate": {
       "type": "object",
       "required": ["freshness", "identity", "browserErrors", "pageOutcome", "disposed", "artifacts"],
       "properties": {
-        "freshness": { "type": "boolean" },
-        "identity": { "type": "boolean" },
-        "browserErrors": { "type": "boolean" },
-        "pageOutcome": { "type": "boolean" },
-        "disposed": { "type": "boolean" },
-        "artifacts": { "type": "boolean" }
-      },
-      "additionalProperties": false
-    }
-  },
-  "$defs": {
-    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-    "isoDate": { "type": "string", "format": "date-time" },
-    "provenance": {
-      "type": "object",
-      "required": [
-        "commit", "tree", "dirty", "hostBuildId", "browserExecutable",
-        "browserExecutableSha256", "browserVersion", "userAgent", "startedAt", "completedAt"
-      ],
-      "properties": {
-        "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "tree": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "dirty": { "type": "boolean" },
-        "hostBuildId": { "type": "string", "minLength": 8 },
-        "browserExecutable": { "type": "string", "minLength": 1 },
-        "browserExecutableSha256": { "$ref": "#/$defs/sha256" },
-        "browserVersion": { "type": "string", "minLength": 1 },
-        "userAgent": { "type": "string", "minLength": 1 },
-        "startedAt": { "$ref": "#/$defs/isoDate" },
-        "completedAt": { "$ref": "#/$defs/isoDate" }
+        "freshness": {
+          "type": "boolean"
+        },
+        "identity": {
+          "type": "boolean"
+        },
+        "browserErrors": {
+          "type": "boolean"
+        },
+        "pageOutcome": {
+          "type": "boolean"
+        },
+        "disposed": {
+          "type": "boolean"
+        },
+        "artifacts": {
+          "type": "boolean"
+        }
       },
       "additionalProperties": false
     },
-    "checkReceipt": {
+    "validationMode": {
+      "const": "diagnostic"
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "isoDate": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "provenance": {
       "type": "object",
-      "required": ["id", "runner", "level", "status", "revision", "tree", "dirty", "scope", "registrySha256", "detailsSha256", "completedAt"],
+      "required": [
+        "commit",
+        "tree",
+        "dirty",
+        "hostBuildId",
+        "browserExecutable",
+        "browserExecutableSha256",
+        "browserVersion",
+        "userAgent",
+        "startedAt",
+        "completedAt",
+        "engineSourceSha256"
+      ],
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-        "runner": { "type": "string", "minLength": 1 },
-        "level": { "enum": ["L0", "L1", "L2", "L3", "L4"] },
-        "status": { "const": "passed" },
-        "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "tree": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
-        "dirty": { "type": "boolean" },
-        "scope": { "enum": ["changed", "full"] },
-        "registrySha256": { "$ref": "#/$defs/sha256" },
-        "detailsSha256": { "$ref": "#/$defs/sha256" },
-        "completedAt": { "$ref": "#/$defs/isoDate" }
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "tree": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "hostBuildId": {
+          "type": "string",
+          "minLength": 8
+        },
+        "browserExecutable": {
+          "type": "string",
+          "minLength": 1
+        },
+        "browserExecutableSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "browserVersion": {
+          "type": "string",
+          "minLength": 1
+        },
+        "userAgent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "startedAt": {
+          "$ref": "#/$defs/isoDate"
+        },
+        "completedAt": {
+          "$ref": "#/$defs/isoDate"
+        },
+        "engineSourceSha256": {
+          "$ref": "#/$defs/sha256"
+        }
       },
       "additionalProperties": false
     },
     "page": {
       "type": "object",
       "required": [
-        "schemaVersion", "caseId", "workloadId", "runId", "nonce",
-        "registrySha256", "workloadSha256", "hostBuildId", "documentId",
-        "navigationCount", "state", "outcome", "startedAt", "completedAt",
-        "disposedAt", "phases", "evidence", "errors", "disposeEvidence"
+        "schemaVersion",
+        "caseId",
+        "workloadId",
+        "runId",
+        "nonce",
+        "registrySha256",
+        "workloadSha256",
+        "hostBuildId",
+        "documentId",
+        "navigationCount",
+        "state",
+        "outcome",
+        "startedAt",
+        "completedAt",
+        "disposedAt",
+        "phases",
+        "evidence",
+        "errors",
+        "disposeEvidence"
       ],
       "properties": {
-        "schemaVersion": { "const": 1 },
-        "caseId": { "type": "string" },
-        "workloadId": { "type": "string" },
-        "runId": { "type": "string" },
-        "nonce": { "type": "string" },
-        "registrySha256": { "$ref": "#/$defs/sha256" },
-        "workloadSha256": { "$ref": "#/$defs/sha256" },
-        "hostBuildId": { "type": "string" },
-        "documentId": { "type": "string", "pattern": "^[0-9a-f-]{36}$" },
-        "navigationCount": { "const": 1 },
-        "state": { "const": "disposed" },
-        "outcome": { "enum": ["passed", "failed", "unsupported"] },
-        "startedAt": { "$ref": "#/$defs/isoDate" },
-        "completedAt": { "$ref": "#/$defs/isoDate" },
-        "disposedAt": { "$ref": "#/$defs/isoDate" },
-        "phases": { "type": "array", "minItems": 3 },
-        "evidence": { "type": "object" },
-        "errors": { "type": "array" },
-        "disposeEvidence": { "type": "object" }
+        "schemaVersion": {
+          "const": 1
+        },
+        "caseId": {
+          "type": "string"
+        },
+        "workloadId": {
+          "type": "string"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "nonce": {
+          "type": "string"
+        },
+        "registrySha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "workloadSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "hostBuildId": {
+          "type": "string"
+        },
+        "documentId": {
+          "type": "string",
+          "pattern": "^[0-9a-f-]{36}$"
+        },
+        "navigationCount": {
+          "const": 1
+        },
+        "state": {
+          "const": "disposed"
+        },
+        "outcome": {
+          "enum": ["passed", "failed", "unsupported"]
+        },
+        "startedAt": {
+          "$ref": "#/$defs/isoDate"
+        },
+        "completedAt": {
+          "$ref": "#/$defs/isoDate"
+        },
+        "disposedAt": {
+          "$ref": "#/$defs/isoDate"
+        },
+        "phases": {
+          "type": "array",
+          "minItems": 3
+        },
+        "evidence": {
+          "type": "object"
+        },
+        "errors": {
+          "type": "array"
+        },
+        "disposeEvidence": {
+          "type": "object"
+        }
       },
       "additionalProperties": false
     },
@@ -112,8 +262,13 @@
       "type": "object",
       "required": ["at", "source", "detail"],
       "properties": {
-        "at": { "$ref": "#/$defs/isoDate" },
-        "source": { "type": "string", "minLength": 1 },
+        "at": {
+          "$ref": "#/$defs/isoDate"
+        },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
         "detail": {}
       },
       "additionalProperties": false
@@ -122,10 +277,20 @@
       "type": "object",
       "required": ["kind", "path", "bytes", "sha256"],
       "properties": {
-        "kind": { "enum": ["events", "result", "screenshot", "readback", "trace", "samples"] },
-        "path": { "type": "string", "pattern": "^[^\\\\/].*" },
-        "bytes": { "type": "integer", "minimum": 0 },
-        "sha256": { "$ref": "#/$defs/sha256" }
+        "kind": {
+          "enum": ["events", "result", "screenshot", "readback", "trace", "samples"]
+        },
+        "path": {
+          "type": "string",
+          "pattern": "^[^\\\\/].*"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
       },
       "additionalProperties": false
     }

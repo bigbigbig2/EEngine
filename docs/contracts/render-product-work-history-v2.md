@@ -16,7 +16,7 @@ invariants:
   - temporal histories reject incompatible identity, exposure, space, resolution, or representation before reuse
 validation:
   - node tools/vibe.mjs verify --module
-state: current
+state: history
 verifies:
   - checks
   - project/domains

@@ -5,10 +5,14 @@ import { HierarchicalWorkGenerator } from "../../.test-dist/render/HierarchicalW
 import {
   GPU_INSTANCE_ABI_VERSION,
   GPU_INSTANCE_FLAGS,
-  packGpuInstanceRecord,
+  packGpuInstanceRecord
 } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { GPU_GEOMETRY_ABI_VERSION } from "../../.test-dist/gpu/GpuGeometryAbi.js";
 import { GPU_COUNTER_BYTE_SIZE } from "../../.test-dist/debug/GpuFrameCounters.js";
+import {
+  GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1,
+  encodeGeometryProductGpuLocationV1
+} from "../../.test-dist/gpu/GeometryProductGpuAbiV1.js";
 
 /** Runs the production root + hierarchy kernels; no browser or render loop. */
 export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
@@ -16,7 +20,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
   const buffer = (data, usage = GPUBufferUsage.STORAGE) => {
     const value = device.createBuffer({
       size: typeof data === "number" ? data : data.byteLength,
-      usage: usage | GPUBufferUsage.COPY_DST,
+      usage: usage | GPUBufferUsage.COPY_DST
     });
     if (typeof data !== "number") device.queue.writeBuffer(value, 0, data);
     buffers.push(value);
@@ -25,7 +29,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
   // One resident terminal Group, addressed through the real Product heap ABI.
   const heap = new Uint32Array(96),
     f = new Float32Array(heap.buffer);
-  heap.set([1, 1, 1, 96, 16, 32, 36, 68, 72, 84, 88, 92]);
+  heap.set([GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1, 1, 1, 96, 16, 32, 36, 68, 72, 84, 88, 92]);
   heap.set([1, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1], 16);
   heap.set([0, 1, 0, 0], 32);
   heap.set([0, 1, 0, 1, 0, 1], 36 + 18);
@@ -34,7 +38,20 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
   f.set([0, 0, 0, 1, -0.5, -0.5, -0.5, 0.5, 0.5, 0.5, 3.4028234663852886e38], 72);
   heap[83] = 1;
   heap.set([0, 0, 256, 0], 84);
-  heap.set([0, 0, 1, 3], 88);
+  heap.set(
+    new Uint32Array(
+      encodeGeometryProductGpuLocationV1({
+        bankIndex: 0,
+        slotIndex: 0,
+        residentBankIndex: 0,
+        residentSlotIndex: 0,
+        productGeneration: 1,
+        flags: 3,
+        byteOffset: 0
+      }).buffer
+    ),
+    88
+  );
   heap.set([16 | (3 << 16), 12 << 8, 1 << 16, 0], 92);
   const matrix = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 100, 0, -20, 1]);
   const source = buildVirtualGeometrySceneSourceV1(
@@ -42,7 +59,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
     [{}],
     [{ assetIndex: 0, materialIndex: 0, transform: matrix }],
     [{}],
-    { scale: 0.1 },
+    { scale: 0.1 }
   ).source;
   const transform = source.currentTransforms;
   const record = (boundsSphere) =>
@@ -56,7 +73,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
       boundsMin: source.boundsMin,
       boundsMax: source.boundsMax,
       currentObjectToWorld: transform,
-      previousObjectToWorld: transform,
+      previousObjectToWorld: transform
     });
   const instances = buffer(record(source.boundsSpheres));
   const placeholder = buffer(256),
@@ -69,7 +86,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
         abiVersion: GPU_GEOMETRY_ABI_VERSION,
         geometryRecords: placeholder,
         clusterRecords: placeholder,
-        clusterChildren: placeholder,
+        clusterChildren: placeholder
       },
       scene: { abiVersion: GPU_INSTANCE_ABI_VERSION, instances, highWaterCount: 1 },
       instanceBegin: 0,
@@ -85,10 +102,10 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
         productTableSlot: 0,
         productGeneration: 1,
         pageCount: 1,
-        banks: [placeholder],
-      },
+        banks: [placeholder]
+      }
     },
-    { sseThreshold: 4, countersEnabled: true, diagnosticsEnabled: true, rasterExpansionEnabled: false },
+    { sseThreshold: 4, countersEnabled: true, diagnosticsEnabled: true, rasterExpansionEnabled: false }
   );
   const evidence = prepared.generated.evidence;
   const read = buffer(evidence.size, GPUBufferUsage.MAP_READ);
@@ -105,12 +122,12 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
         [1.4, 0],
         [-1.4, 0],
         [0, 1.55],
-        [0, -1.55],
+        [0, -1.55]
       ]) {
         camera.transform.position.set(
           center.x + distance * Math.sin(yaw) * Math.cos(pitch),
           center.y + distance * Math.sin(pitch),
-          center.z + distance * Math.cos(yaw) * Math.cos(pitch),
+          center.z + distance * Math.cos(yaw) * Math.cos(pitch)
         );
         camera.transform.lookAt(center);
         camera.update();
@@ -120,7 +137,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
           viewportHeight: 720,
           verticalFovRadians: camera.fov,
           nearPlane: camera.near,
-          frustumPlanes: Array.from({ length: 6 }, (_, i) => [...camera.frustum.slice(i * 4, i * 4 + 4)]),
+          frustumPlanes: Array.from({ length: 6 }, (_, i) => [...camera.frustum.slice(i * 4, i * 4 + 4)])
         };
         for (const emulateOldBounds of [true, false]) {
           // Negative control: the old mapper publishes fitted world bounds,
@@ -128,7 +145,7 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
           device.queue.writeBuffer(
             instances,
             0,
-            record(emulateOldBounds ? [10, 0, -2, 0.1] : source.boundsSpheres),
+            record(emulateOldBounds ? [10, 0, -2, 0.1] : source.boundsSpheres)
           );
           const encoder = device.createCommandEncoder();
           owner.encode(encoder, prepared, view, { previousHzb: null, coneEnabled: false });
@@ -144,12 +161,12 @@ export async function runVirtualGeometryInstanceCullingGpuOracle(device) {
             assert.equal(
               selected,
               1,
-              `visible Group lost at distance=${distance}, yaw=${yaw}, pitch=${pitch}; evidence=${[...words]}`,
+              `visible Group lost at distance=${distance}, yaw=${yaw}, pitch=${pitch}; evidence=${[...words]}`
             );
             assert.equal(
               words[prepared.generated.evidenceLayout.selectedHeaderIndex * 8 + 3],
               0,
-              "no visible queue overflow",
+              "no visible queue overflow"
             );
             passed++;
           }

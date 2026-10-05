@@ -21,7 +21,7 @@ validation:
   - OEngine/tests/contract/shading-program-specialization.test.mjs
   - OEngine/tests/contract/advanced-frame-abi.test.mjs
   - OEngine/tests/contract/bounded-gpu-work-protocol.test.mjs
-state: current
+state: history
 verifies:
   - checks
   - project/domains

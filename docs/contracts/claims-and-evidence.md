@@ -15,12 +15,14 @@ invariants:
 validation: 
   - node tools/vibe.mjs evidence
   - node tools/vibe.mjs status
-state: current
+state: history
 verifies:
   - checks
   - project/domains
 ---
 # Claims And Evidence
+
+Historical contract. The claim layer and its evidence/status/promotion commands were retired on 2026-10-05; this document preserves their former meaning and does not define the current validation workflow. Current behavior is described in `docs/VALIDATION.md` and `validation/AGENTS.md`.
 
 A claim is a durable statement that can affect a completion decision. Its `level` is the minimum evidence level (`L0` through `L4`), `requiredChecks` names the checks that must run, `evidencePolicy` defines the promotion expression, and `allowedDeclarations` bounds what the project may claim after evidence is accepted. Case manifests provide only the reverse coverage link; `covers` never silently adds a required case.
 

@@ -1,6 +1,6 @@
 ---
 id: next-execution/surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10
-state: current
+state: history
 verifies:
   - OEngine/src
 ---

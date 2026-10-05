@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const source = await readFile(new URL("../cases/virtual-geometry-component/main.ts", import.meta.url), "utf8");
+const source = await readFile(
+  new URL("../cases/virtual-geometry-component/main.ts", import.meta.url),
+  "utf8"
+);
 
-test("virtual geometry browser case executes the production MeshletWork overflow path", () => {
+test("source guard keeps overflow assertions wired in the browser case; real execution is separate", () => {
   for (const entryPoint of [
     "prepare_virtual_geometry_work",
     "generate_virtual_geometry_work",

@@ -4,32 +4,28 @@ kind: domain
 owner: frame-runtime
 state: current
 verifies:
-  - project/domains
+  - OEngine/src/render/FrameCoordinator.ts
+  - OEngine/src/render/pipeline/RendererCore.ts
+  - OEngine/src/render/program/FrameProgramLowering.ts
 ---
 # Frame Runtime
 
-## 当前生产链
+## 当前源码接线
 
-核对：2026-10-04，重构前代码14c17078。RendererCore是composition root，FrameCoordinator是唯一frame command context/submit owner。FrameProgramLowering连接唯一SurfaceWorkRuntime，前置Field/Signal查询、证书/分类、实际需求、GeometryRecord、Appearance/Lighting、Store发布和reconstruct均在同一FrameGraph；HZB、cluster、XeGTAO、VSM保留原owner。当前[有界前端执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)仅准备完成，尚未实施。
+核对日期：2026-10-05；源码基准 11a7af962dd4eae54e900e31d28dc856d540d443。本轮核对 owner 与主链注册，未重新认证所有生命周期分支。
 
-退休SurfaceMaterialPass/Probe及旧协调器不是生产路径。当前已使用独立FieldStore/SignalStore与唯一GeometryRecord，不再将旧Material/Geometry cache bypass当作当前实现。详细事实见[Shading](shading.md)；run06约801.7ms为diagnostic，完整质量/生命周期/性能验收未完成。
+[RendererCore](../../OEngine/src/render/pipeline/RendererCore.ts) 创建 FrameCoordinator、SurfaceWorkRuntime、TemporalFactsPass 等长期 owners。[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 将场景产品绑定并注册到 FrameGraph，其中包含 SurfaceWork 与后续 FSR3 链。
 
-FrameProgram 关闭有限产品需求，FrameProgramBindings 在 encode 前检查当前 publication/descriptor/device shape，Lowering 注册实际资源边。SurfaceWork 的固定前缀、GeometryRecord、cache key/value、packet 与 HDR/reactive 边界均可被 FrameGraph 看到；camera motion、history ping-pong 和局部 generation 不用于 CPU 选择本帧 work。
+[FrameCoordinator](../../OEngine/src/render/FrameCoordinator.ts) 持有当前 command context，通过 submitFrame 的 command.finish 收口提交，并依据 gpuDone 退役 inFlight。canBeginFrame 限制未完成帧数量；这是 GPU completion 背压，不是读取本帧 visibility/work 后由 CPU 决策。
 
-## 帧事务与历史
+SurfaceWork 的 demand、geometry、Appearance、lighting、Store 发布和 reconstruction 注册同一个 graph。各 pass 消费共享资源，不拥有独立 frame submit。
 
-TemporalFactsPass从depth、instance和current/previous camera发布motion/identity/masks；Surface reconstruct和FSR3消费同一基础产品，Surface没有第二套motion。当前signal复用由独立SignalStore/ref及其epoch/generation管理，不是早期四路dense history合同；完整reject/abort/camera cut/device recovery仍待集中验收。
+## 原则与验证边界
 
-TemporalFabric 管理 begin/commit/abort 与读写角色，各 consumer 管理实际纹理。Camera cut、resize、scene/representation/environment 变化和 device recovery 根据真实依赖失效；GPU completion 延迟资源退役。FrameCoordinator 在创建新帧资源前限制最多两个已提交未完成帧，是 completion 背压，不是本帧 visible/work readback 控制。
+唯一生产路径、禁止本帧 GPU→CPU→GPU work control、producer 与直接 consumer 同单元切换，继续由根规则和[当前设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)约束。
 
-Environment 发布完整 LUT generation，abort 不提升未提交状态；FSR3 仍保留选定 upscaler 算法阶段。Pre-exposure/working color space、motion/jitter 和 history 输入不能由新 Surface 重新定义。当前基础接线不证明完整形变、signal change/reactive、透明或全场景生命周期验收。
+camera cut/resize/abort/device loss、history 提交、publication 和资源生命周期必须用当前生产入口验证；仅观察这些 owner 存在不能判所有场景通过。Temporal/FSR3 的接线不表示未来 AI Upscaling 已实现。
 
-## 当前目标和验证边界
+旧 Phase0–6 不做中间检查的文字已失效。按[当前执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)集中核对单元编译、接线、正确性与成本；完整 browser/质量/性能矩阵在整个 Renderer/providers 完成后进行。
 
-唯一 Surface 目标是[第三版原文](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，实施见[SurfaceWork V3](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。保留现有 frame/scene/visibility/resource owner，重构 SurfaceWork、唯一 GeometryRecord、cache lookup/miss、signal packets、history 和廉价 reconstruct。
-
-禁止 private frame submit、本帧 GPU→CPU→GPU control、旧/新双路径和临时 adapter。Phase 0–6 的实现期不设置中间验证门；当前 revision 尚未运行本轮 typecheck/build/build:test/shader audit，正式 GPU/browser/benchmark/evidence 统一留在 Phase 7。来源核读提前，formal evidence/claims 分别记录。
-
-SSSR、Hybrid GI、VT、Transparency/Media 是后续模块。Surface 专项验收按原文 §8–§11，其他主要模块完成后再做完整 Renderer 系统验收。
-
-入口：`render/pipeline/RendererCore.ts`、`FrameCoordinator.ts`、`program/FrameProgram.ts`、`FrameProgramBindings.ts`、`FrameProgramLowering.ts`、`framegraph/FrameGraph.ts`、`surface/SurfaceWorkRuntime.ts`。过去 VSM/Temporal 组件检查见[ledger](../porting/next-renderer.md)，不转授新主链验收。
+旧阶段与旧状态说明已收回，Git 保留历史。本页只维护已核实 owner/数据流；阶段和每次运行结果不在这里复制。

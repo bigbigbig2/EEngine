@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isAcceptancePreflightReusable, validateArtifact } from "../src/shared/artifact.mjs";
+import { validateArtifact } from "../src/shared/artifact.mjs";
 
 const sha = "a".repeat(64);
 const commit = "b".repeat(40);
@@ -8,7 +8,7 @@ const now = "2026-09-13T00:00:00.000Z";
 
 function validArtifact() {
   return {
-    schemaVersion: 2,
+    schemaVersion: 3,
     runId: "2026-09-13T00-00-00-000Z-protocol-self-test-00000000-0000-4000-8000-000000000000",
     nonce: "c".repeat(48),
     caseId: "protocol-self-test",
@@ -16,12 +16,13 @@ function validArtifact() {
     registrySha256: sha,
     workloadSha256: sha,
     status: "passed",
-    validationMode: "acceptance",
-    evidenceStatus: "accepted",
+    validationMode: "diagnostic",
+    evidenceStatus: "diagnostic-only",
     provenance: {
       commit,
       tree: commit,
       dirty: false,
+      engineSourceSha256: sha,
       hostBuildId: "host-build-v1",
       browserExecutable: "chrome.exe",
       browserExecutableSha256: sha,
@@ -30,19 +31,6 @@ function validArtifact() {
       startedAt: now,
       completedAt: now
     },
-    checkReceipts: [{
-      id: "registry",
-      runner: "generated-registry",
-      level: "L1",
-      status: "passed",
-      revision: commit,
-      tree: commit,
-      dirty: false,
-      scope: "full",
-      registrySha256: sha,
-      detailsSha256: sha,
-      completedAt: now
-    }],
     page: {
       schemaVersion: 1,
       runId: "2026-09-13T00-00-00-000Z-protocol-self-test-00000000-0000-4000-8000-000000000000",
@@ -59,75 +47,57 @@ function validArtifact() {
       startedAt: now,
       completedAt: now,
       disposedAt: now,
-      phases: [{ state: "created", at: now }, { state: "passed", at: now }, { state: "disposed", at: now }],
+      phases: [
+        { state: "created", at: now },
+        { state: "passed", at: now },
+        { state: "disposed", at: now }
+      ],
       evidence: {},
       errors: [],
       disposeEvidence: { listeners: 0 }
     },
     events: [{ at: now, source: "browser:launch", detail: {} }],
     artifactManifest: [{ kind: "events", path: "events.json", bytes: 2, sha256: sha }],
-    gate: { freshness: true, identity: true, browserErrors: true, pageOutcome: true, disposed: true, artifacts: true }
+    gate: {
+      freshness: true,
+      identity: true,
+      browserErrors: true,
+      pageOutcome: true,
+      disposed: true,
+      artifacts: true
+    }
   };
 }
 
-const selectedCase = { id: "protocol-self-test", evidenceRole: "promotion", workloadId: "protocol-self-test-v1", artifacts: ["result", "events"] };
+const selectedCase = {
+  id: "protocol-self-test",
+  workloadId: "protocol-self-test-v1",
+  artifacts: ["result", "events"]
+};
 
-test("accepted artifact satisfies freshness, provenance, dispose and manifest contract", () => {
+// Local protocol validation, not a browser/GPU execution assertion.
+test("current diagnostic artifact satisfies identity, dispose and artifact ownership", () => {
   assert.deepEqual(validateArtifact(validArtifact(), selectedCase), []);
 });
-
-test("passed artifact rejects dirty evidence, identity drift and incomplete gates", () => {
+test("dirty diagnostic runs are allowed but identity drift and missing disposal fail", () => {
   const artifact = validArtifact();
   artifact.provenance.dirty = true;
-  artifact.checkReceipts[0].dirty = true;
+  assert.deepEqual(validateArtifact(artifact, selectedCase), []);
   artifact.page.nonce = "d".repeat(48);
   artifact.gate.disposed = false;
   const errors = validateArtifact(artifact, selectedCase);
-  assert.ok(errors.some((error) => error.includes("clean revision")));
   assert.ok(errors.some((error) => error.includes("page nonce")));
   assert.ok(errors.some((error) => error.includes("every gate")));
 });
-
-test("accepted artifact rejects synthesized or mismatched check receipts", () => {
-  const missing = validArtifact();
-  missing.checkReceipts = [];
-  assert.ok(validateArtifact(missing, selectedCase).some((error) => error.includes("passed check receipts")));
-
-  const mismatched = validArtifact();
-  mismatched.checkReceipts[0].revision = "d".repeat(40);
-  assert.ok(validateArtifact(mismatched, selectedCase).some((error) => error.includes("revision does not match")));
-});
-
-test("diagnostic runs cannot publish accepted evidence", () => {
+test("retired acceptance and fabricated receipts cannot re-enter the diagnostic protocol", () => {
   const artifact = validArtifact();
-  artifact.validationMode = "diagnostic";
-  assert.ok(validateArtifact(artifact, selectedCase).some((error) => error.includes("diagnostic runs")));
-  artifact.evidenceStatus = "diagnostic-only";
-  assert.deepEqual(validateArtifact(artifact, selectedCase), []);
-});
-
-test("diagnostic case manifests cannot publish accepted evidence", () => {
-  const diagnosticCase = { ...selectedCase, evidenceRole: "diagnostic" };
-  assert.ok(validateArtifact(validArtifact(), diagnosticCase).some((error) => error.includes("diagnostic cases")));
-});
-
-test("acceptance preflight reuse requires one matching clean full receipt set", () => {
-  const verification = {
-    ok: true,
-    verificationComplete: true,
-    changedOnly: false,
-    revision: commit,
-    tree: commit,
-    dirty: false,
-    generatedRegistry: { sha256: sha },
-    checkReceipts: [{ status: "passed", scope: "full", revision: commit, tree: commit, dirty: false, registrySha256: sha }]
-  };
-  assert.equal(isAcceptancePreflightReusable(verification, { commit, tree: commit, registrySha256: sha }), true);
-  verification.checkReceipts[0].scope = "changed";
-  assert.equal(isAcceptancePreflightReusable(verification, { commit, tree: commit, registrySha256: sha }), false);
-  verification.checkReceipts[0].scope = "full";
-  verification.dirty = true;
-  assert.equal(isAcceptancePreflightReusable(verification, { commit, tree: commit, registrySha256: sha }), false);
+  artifact.validationMode = "acceptance";
+  artifact.evidenceStatus = "accepted";
+  artifact.checkReceipts = [{ status: "passed" }];
+  const errors = validateArtifact(artifact, selectedCase);
+  assert.ok(errors.some((error) => error.includes("acceptance is retired")));
+  assert.ok(errors.some((error) => error.includes("evidenceStatus")));
+  assert.ok(errors.some((error) => error.includes("receipts are retired")));
 });
 
 test("manifest rejects undeclared, missing and unsafe artifacts", () => {
@@ -145,7 +115,14 @@ test("only failed runner artifacts may omit a page snapshot", () => {
   assert.ok(validateArtifact(artifact, selectedCase).some((error) => error.includes("failed run")));
   artifact.status = "failed";
   artifact.evidenceStatus = "diagnostic-only";
-  artifact.gate = { freshness: false, identity: false, browserErrors: false, pageOutcome: false, disposed: false, artifacts: true };
+  artifact.gate = {
+    freshness: false,
+    identity: false,
+    browserErrors: false,
+    pageOutcome: false,
+    disposed: false,
+    artifacts: true
+  };
   assert.deepEqual(validateArtifact(artifact, selectedCase), []);
 });
 

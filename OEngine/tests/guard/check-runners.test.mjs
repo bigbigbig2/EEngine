@@ -17,19 +17,22 @@ const emptyContext = {
   changedOnly: true,
   changedPaths: [],
   uncovered: [],
-  routingAmbiguities: [],
+  routingAmbiguities: []
 };
 
 function run(id, runner, config, patch = {}) {
   return runCheckImplementation(
     { id, runner, level: "L0", description: "test", config },
-    { ...emptyContext, ...patch },
+    { ...emptyContext, ...patch }
   );
 }
 
 test("every declared check binds to a registered runner", async () => {
   const model = await loadModel();
-  assert.ok(model.checks.length >= 11);
+  assert.ok(
+    model.checks.some((check) => check.id === "guard-docs-contract"),
+    "the real docs verifier must remain registered"
+  );
   for (const check of model.checks) {
     assert.ok(CHECK_RUNNER_IDS.includes(check.runner), `${check.id} -> ${check.runner}`);
   }
@@ -45,12 +48,12 @@ test("changed-coverage and changed-ownership react to uncovered paths", () => {
   assert.equal(run("changed-coverage", "changed-coverage").status, "passed");
   assert.equal(
     run("changed-coverage", "changed-coverage", undefined, { uncovered: ["a.ts"] }).status,
-    "failed",
+    "failed"
   );
   assert.equal(run("guard-ownership", "changed-ownership").status, "passed");
   assert.equal(
     run("guard-ownership", "changed-ownership", undefined, { routingAmbiguities: [{ path: "a.ts" }] }).status,
-    "failed",
+    "failed"
   );
 });
 
@@ -78,14 +81,14 @@ test("the shipped retired-path list matches the real tree", async () => {
 
   const result = run("guard-legacy", "retired-paths", check.config);
   const existing = (result.details ?? []).filter(
-    (entry) => typeof entry === "string" && entry.includes("still exists"),
+    (entry) => typeof entry === "string" && entry.includes("still exists")
   );
   assert.deepEqual(
     existing,
     [],
     `retired-path entries that still exist on disk: ${existing.join(", ")}. ` +
       "Either the path was legitimately restored to production (remove it from the list) " +
-      "or a retired owner is back (delete the file).",
+      "or a retired owner is back (delete the file)."
   );
   assert.equal(result.status, "passed");
   assert.ok(existsSync(resolve(repoRoot, "checks/guards/legacy.yaml")));
@@ -94,7 +97,7 @@ test("the shipped retired-path list matches the real tree", async () => {
 test("public-api-boundary rejects a missing entry and accepts the real one", () => {
   assert.equal(
     run("guard-public-api", "public-api-boundary", { entry: "OEngine/src/index.ts" }).status,
-    "passed",
+    "passed"
   );
   const missing = run("guard-public-api", "public-api-boundary", { entry: "OEngine/src/does-not-exist.ts" });
   assert.equal(missing.status, "failed");
@@ -104,7 +107,7 @@ test("generated-source-guard honours its configured patterns", () => {
   const config = { patterns: ["\\.generated\\.(?:ts|js)$"] };
   assert.equal(run("guard-generated-source", "generated-source-guard", config).status, "passed");
   const edited = run("guard-generated-source", "generated-source-guard", config, {
-    changedPaths: ["OEngine/src/render/nss_model.generated.ts"],
+    changedPaths: ["OEngine/src/render/nss_model.generated.ts"]
   });
   assert.equal(edited.status, "failed");
   assert.equal(run("guard-generated-source", "generated-source-guard", { patterns: [] }).status, "failed");
@@ -112,7 +115,7 @@ test("generated-source-guard honours its configured patterns", () => {
 
 test("domain-doc-coverage fails for a domain without a human page", () => {
   const result = run("guard-docs", "domain-doc-coverage", undefined, {
-    model: { domains: [{ id: "no-such-domain" }], claims: [], checks: [], cases: [] },
+    model: { domains: [{ id: "no-such-domain" }], claims: [], checks: [], cases: [] }
   });
   assert.equal(result.status, "failed");
   assert.match(result.details.join(" "), /no docs\/domains\/no-such-domain\.md/u);
@@ -150,7 +153,7 @@ test("engine-suites stays out of the way when no engine path changed", () => {
 test("changed engine plans select affected tests and keep heavy native oracles explicit", () => {
   const cooker = planEngineTests(
     { changedOnly: true, changedPaths: ["OEngine/src/assets/web-cook/WebCookCoordinator.ts"] },
-    { cwd: "OEngine" },
+    { cwd: "OEngine" }
   );
   assert.equal(cooker.scope, "changed");
   assert.ok(cooker.groups.includes("web-cook"));
@@ -159,7 +162,7 @@ test("changed engine plans select affected tests and keep heavy native oracles e
 
   const native = planEngineTests(
     { changedOnly: true, changedPaths: ["OEngine/tools/build-nyx-reference-harness.mjs"] },
-    { cwd: "OEngine" },
+    { cwd: "OEngine" }
   );
   assert.ok(native.groups.includes("native-reference"));
   assert.ok(native.files.some((path) => path.endsWith("nyx-differential-corpus.test.mjs")));
@@ -168,7 +171,7 @@ test("changed engine plans select affected tests and keep heavy native oracles e
 test("unmapped engine changes conservatively expand to the full suite", () => {
   const plan = planEngineTests(
     { changedOnly: true, changedPaths: ["OEngine/src/index.ts"] },
-    { cwd: "OEngine" },
+    { cwd: "OEngine" }
   );
   assert.equal(plan.scope, "full-fallback");
   assert.ok(plan.files.length > 50);

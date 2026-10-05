@@ -1,6 +1,6 @@
 ---
 id: next-design/eengine-next-overall-architecture-final-2026
-state: current
+state: history
 verifies:
   - OEngine/src
 ---

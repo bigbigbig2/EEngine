@@ -6,7 +6,7 @@ verifies:
 ---
 # Domains
 
-Domain pages explain the current owner boundary in human terms. The matching file under `project/domains/` owns routing plus direct contract, claim, check, and source relationships. Claim policies live under `project/claims/`, and case manifests live under `validation/cases/`. Run `node tools/vibe.mjs context <path>` to generate the current relationship summary.
+Domain pages summarize implemented owner boundaries, production data flow and known gaps. The matching file under `project/domains/` owns routing plus contract, check and source relationships. Case manifests live under `validation/cases/`; the claim layer is retired. Use `node tools/vibe.mjs context <path>` for navigation. A target design, a completed task label or a passing fixture does not by itself prove a production implementation.
 
 | Domain | Machine source | Current owners |
 | --- | --- | --- |

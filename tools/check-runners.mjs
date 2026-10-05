@@ -20,7 +20,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { summarizeTests } from "./test-reporter.mjs";
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -51,23 +52,24 @@ function listFiles(directory, suffix) {
 function gitTracked(path) {
   const result = spawnSync("git", ["ls-files", "--error-unmatch", path], {
     cwd: REPO_ROOT,
-    encoding: "utf8",
+    encoding: "utf8"
   });
   return result.status === 0;
 }
 
-/**
- * TAP 输出用 `# tests 12`，spec reporter 用 `ℹ tests 12`；两种前缀都必须识别。
- * 只匹配一种会让套件在另一版本下报告 `? passed, 0 failed of ? engine tests`，
- * 测试确实运行了，但计数从证据里消失。
- */
-function summarizeTestOutput(text) {
-  const summary = {};
-  for (const field of ["tests", "pass", "fail", "skipped"]) {
-    const match = text.match(new RegExp(`^(?:\\u2139|#)\\s*${field}\\s+(\\d+)$`, "mu"));
-    if (match) summary[field] = Number.parseInt(match[1], 10);
-  }
-  return summary;
+/** Only a completed TestsStream summary supplies machine assertion counts. */
+function summarizeTestOutput(text, exitCode) {
+  const result = summarizeTests(text, exitCode);
+  return {
+    complete: result.complete,
+    tests: result.counts?.tests,
+    pass: result.counts?.passed,
+    fail: result.counts?.failed,
+    skipped: result.counts?.skipped,
+    cancelled: result.counts?.cancelled,
+    todo: result.counts?.todo,
+    notRun: result.notRun
+  };
 }
 
 /**
@@ -76,7 +78,8 @@ function summarizeTestOutput(text) {
  */
 function describeSummary(summary) {
   const parts = [`${summary.pass ?? "?"} passed`];
-  if (summary.skipped > 0) parts.push(`${summary.skipped} skipped (prerequisite missing)`);
+  if (summary.skipped > 0) parts.push(`${summary.skipped} skipped`);
+  if (summary.todo > 0) parts.push(`${summary.todo} todo`);
   parts.push(`${summary.fail ?? 0} failed`);
   return `${parts.join(", ")} of ${summary.tests ?? "?"} engine tests`;
 }
@@ -85,23 +88,23 @@ const ENGINE_TEST_GROUPS = Object.freeze([
   {
     id: "project-tooling",
     paths: ["tools/", "checks/", "project/", "AGENTS.md", "OEngine/AGENTS.md"],
-    tests: /check-runners\.test\.mjs$/u,
+    tests: /check-runners\.test\.mjs$/u
   },
   {
     id: "native-reference",
     paths: ["OEngine/tools/nyx-*", "OEngine/tools/build-nyx-*", "OEngine/src/assets/web-cook/wasm/"],
     tests:
-      /(?:nyx-differential-corpus|nyx-function-map|nyx-shader-reference|web-cook-wasm-artifact)\.test\.mjs$/u,
+      /(?:nyx-differential-corpus|nyx-function-map|nyx-shader-reference|web-cook-wasm-artifact)\.test\.mjs$/u
   },
   {
     id: "web-cook",
     paths: [
       "OEngine/src/assets/web-cook/",
       "OEngine/src/assets/geometry-product/",
-      "OEngine/src/loaders/gltf/streaming/",
+      "OEngine/src/loaders/gltf/streaming/"
     ],
     tests:
-      /(?:web-cook|web-geometry|geometry-product|geometry-page|glb-|spatial-shard|nyx-web-runtime|runtime-scene-geometry-product|oegpack-offline-product).*\.test\.mjs$/u,
+      /(?:web-cook|web-geometry|geometry-product|geometry-page|glb-|spatial-shard|nyx-web-runtime|runtime-scene-geometry-product|oegpack-offline-product).*\.test\.mjs$/u
   },
   {
     id: "render-shading",
@@ -110,21 +113,21 @@ const ENGINE_TEST_GROUPS = Object.freeze([
       "OEngine/src/shaders/",
       "OEngine/src/framegraph/",
       "OEngine/src/material/",
-      "OEngine/src/texture/",
+      "OEngine/src/texture/"
     ],
     tests:
-      /(?:render|shading|framegraph|hzb|occlusion|shadow|texture|sparse|advanced-frame|packed-render-world).*\.test\.mjs$/u,
+      /(?:render|shading|framegraph|hzb|occlusion|shadow|texture|sparse|advanced-frame|packed-render-world).*\.test\.mjs$/u
   },
   {
     id: "gpu-geometry",
     paths: ["OEngine/src/gpu/", "OEngine/src/geometry/", "OEngine/src/scene/"],
-    tests: /(?:geometry|product|gpu-|render-world|scene|visibility|hzb|shadow).*\.test\.mjs$/u,
+    tests: /(?:geometry|product|gpu-|render-world|scene|visibility|hzb|shadow).*\.test\.mjs$/u
   },
   {
     id: "core-loaders",
     paths: ["OEngine/src/core/", "OEngine/src/loaders/", "OEngine/src/assets/"],
-    tests: /(?:asset|glb|gltf|runtime|oegpack|texture|codec).*\.test\.mjs$/u,
-  },
+    tests: /(?:asset|glb|gltf|runtime|oegpack|texture|codec).*\.test\.mjs$/u
+  }
 ]);
 
 function normalized(path) {
@@ -166,7 +169,7 @@ export function planEngineTests(context, config = {}) {
       continue;
     }
     const matching = ENGINE_TEST_GROUPS.filter((group) =>
-      group.paths.some((prefix) => pathStartsWith(path, prefix)),
+      group.paths.some((prefix) => pathStartsWith(path, prefix))
     );
     for (const group of matching) {
       groups.add(group.id);
@@ -191,7 +194,7 @@ function runCommand(command, cwd, timeout, environment = process.env) {
     shell: true,
     timeout,
     windowsHide: true,
-    env: environment,
+    env: environment
   });
   return { result, elapsedMs: Math.round(performance.now() - started) };
 }
@@ -210,7 +213,7 @@ function runNode(args, timeout = 900_000) {
     encoding: "utf8",
     timeout,
     windowsHide: true,
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: 64 * 1024 * 1024
   });
   let parsed = null;
   const stdout = result.stdout ?? "";
@@ -227,11 +230,32 @@ function runNode(args, timeout = 900_000) {
     stdout,
     stderr: result.stderr ?? "",
     parsed,
-    elapsedMs: Math.round(performance.now() - started),
+    elapsedMs: Math.round(performance.now() - started)
   };
 }
 
 export const CHECK_RUNNERS = Object.freeze({
+  "tooling-suites": () => {
+    const files = listFiles(join(REPO_ROOT, "tools/tests"), ".mjs").filter((file) =>
+      file.endsWith(".test.mjs")
+    );
+    const result = spawnSync(
+      process.execPath,
+      ["--test", "--test-reporter", pathToFileURL(join(REPO_ROOT, "tools/test-reporter.mjs")).href, ...files],
+      {
+        cwd: REPO_ROOT,
+        encoding: "utf8",
+        windowsHide: true,
+        timeout: 60_000
+      }
+    );
+    const summary = summarizeTestOutput(result.stdout ?? "", result.status);
+    if (result.status !== 0 || !summary.complete || summary.fail || summary.cancelled || !summary.tests)
+      return failed(["tooling regression suite failed or incomplete", result.stdout, result.stderr]);
+    if (summary.skipped || summary.todo || !summary.pass)
+      return notRun(["tooling regression assertions skipped", summary]);
+    return passed([{ summary, scope: "current tooling behavior, not renderer quality" }]);
+  },
   /**
    * 由 loadModel/assertModel 完成：domains、claims、checks、sources、cases、
    * profiles、workloads 的解析，以及 domain/contract frontmatter 与文档链接校验。
@@ -239,7 +263,10 @@ export const CHECK_RUNNERS = Object.freeze({
    */
   "project-model": () => passed(["project model and document frontmatter parsed"]),
 
-  "generated-registry": () => passed(["generated registry regenerated and validated"]),
+  "generated-registry": (_check, context) =>
+    context.registryState?.ok
+      ? passed(["generated registry compared without writing", context.registryState])
+      : failed([context.registryState?.reason ?? "registry comparison was not executed"]),
 
   "changed-coverage": (_check, context) =>
     context.uncovered.length > 0 ? failed(context.uncovered) : passed(),
@@ -294,7 +321,7 @@ export const CHECK_RUNNERS = Object.freeze({
       const candidates = [
         base,
         base.replace(JS_EXTENSION, ".ts"),
-        join(base.replace(JS_EXTENSION, ""), "index.ts"),
+        join(base.replace(JS_EXTENSION, ""), "index.ts")
       ];
       return candidates.some((candidate) => existsSync(candidate));
     };
@@ -330,7 +357,7 @@ export const CHECK_RUNNERS = Object.freeze({
   "style-contract": (check, context) => {
     const config = check.config ?? {};
     const changed = (context.changedPaths ?? []).filter((path) =>
-      /^(?:OEngine|tools|checks)\/.*\.(?:ts|mjs|js)$/u.test(path),
+      /^(?:OEngine|tools|checks)\/.*\.(?:ts|mjs|js)$/u.test(path)
     );
     const scoped = context.changedOnly === true && changed.length > 0;
     const targets = scoped ? changed : (config.targets ?? ["OEngine/src"]);
@@ -338,7 +365,7 @@ export const CHECK_RUNNERS = Object.freeze({
       scope: scoped ? "changed" : "full",
       targets: targets.length,
       format: null,
-      style: null,
+      style: null
     };
 
     if (config.format !== false) {
@@ -397,7 +424,14 @@ export const CHECK_RUNNERS = Object.freeze({
     if (result.status !== 0) {
       return failed([`documentation contract has ${report.total ?? "?"} finding(s)`, report]);
     }
-    return passed([{ documents: report.documents, total: report.total ?? 0 }]);
+    return passed([
+      {
+        documents: report.documents,
+        total: report.total ?? 0,
+        historicalWarnings: report.warnings?.length ?? 0,
+        scope: report.scope
+      }
+    ]);
   },
 
   /**
@@ -419,9 +453,9 @@ export const CHECK_RUNNERS = Object.freeze({
     const oracle = config.oracle ?? "environment-probe";
     const result = runNode(["tools/gpu-oracle.mjs", oracle, "--json"], config.timeoutMs ?? 180_000);
     if (result.parsed === null) {
-      return notRun([
+      return failed([
         `oracle '${oracle}' produced no parsable report`,
-        (result.stderr || result.stdout || "").trim().slice(-800),
+        (result.stderr || result.stdout || "").trim().slice(-800)
       ]);
     }
     const status = result.parsed.status;
@@ -432,20 +466,25 @@ export const CHECK_RUNNERS = Object.freeze({
       status,
       failureKind: result.parsed.failureKind ?? null,
       adapterKind: kind,
-      adapter,
+      adapter
     };
-    if (status === "passed") return passed([summary]);
+    if (status === "passed" && result.status === 0) return passed([summary]);
     // Environment blockers are not code defects. `no-webgpu` and `no-adapter`
     // are explicit kinds from the harness; a launch/timeout failure under a
     // blocked environment reports as `environment-blocked`.
-    const environmentKinds = new Set(["no-webgpu", "no-adapter", "environment-blocked"]);
+    const environmentKinds = new Set([
+      "no-webgpu",
+      "no-adapter",
+      "environment-blocked",
+      "capability-unsupported"
+    ]);
     if (environmentKinds.has(result.parsed.failureKind)) {
       return notRun([`real GPU unavailable: ${result.parsed.failureKind}`, summary]);
     }
     return failed([
       `real-GPU oracle '${oracle}' failed: ${result.parsed.failureKind ?? status}`,
       result.parsed.error?.message ?? "",
-      summary,
+      summary
     ]);
   },
 
@@ -511,22 +550,31 @@ export const CHECK_RUNNERS = Object.freeze({
         return failed([
           `build step failed: ${config.build}`,
           (build.result.stderr || build.result.stdout || "").trim().slice(-6000),
-          { plan, timings },
+          { plan, timings }
         ]);
       }
     }
 
     const started = performance.now();
-    const result = spawnSync(process.execPath, ["--test", ...plan.files], {
-      cwd,
-      encoding: "utf8",
-      timeout,
-      windowsHide: true,
-      env: { ...process.env, VIBE_ENGINE_SUITE_ACTIVE: "1" },
-    });
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--test",
+        "--test-reporter",
+        pathToFileURL(resolve(REPO_ROOT, "tools/test-reporter.mjs")).href,
+        ...plan.files
+      ],
+      {
+        cwd,
+        encoding: "utf8",
+        timeout,
+        windowsHide: true,
+        env: { ...process.env, VIBE_ENGINE_SUITE_ACTIVE: "1" }
+      }
+    );
     timings.testMs = Math.round(performance.now() - started);
-    const summary = summarizeTestOutput(result.stdout ?? "");
-    if (result.status !== 0) {
+    const summary = summarizeTestOutput(result.stdout ?? "", result.status);
+    if (result.status !== 0 || !summary.complete || summary.cancelled || summary.fail) {
       const failing = (result.stdout ?? "")
         .split(/\r?\n/u)
         .filter((line) => line.startsWith("\u2716") && !line.startsWith("\u2716 failing"))
@@ -536,10 +584,23 @@ export const CHECK_RUNNERS = Object.freeze({
         `${summary.fail ?? "?"} of ${summary.tests ?? "?"} engine tests failed`,
         ...failing,
         diagnostic,
-        { plan, timings },
+        { plan, timings }
       ]);
     }
-    return passed([describeSummary(summary), { plan, timings }]);
+    if (summary.skipped || summary.todo || !summary.pass)
+      return notRun([
+        describeSummary(summary),
+        {
+          plan,
+          timings,
+          notRun: summary.notRun,
+          scope: "CPU/ABI/mocks/source guards; not GPU numerical execution"
+        }
+      ]);
+    return passed([
+      describeSummary(summary),
+      { plan, timings, scope: "CPU/ABI/mocks/source guards; not GPU numerical execution" }
+    ]);
   },
 
   "validation-suites": (check, context) => {
@@ -548,8 +609,8 @@ export const CHECK_RUNNERS = Object.freeze({
       !context.changedOnly ||
       (context.changedPaths ?? []).some((path) =>
         ["validation/", "tools/", "checks/", "project/"].some((prefix) =>
-          pathStartsWith(normalized(path), prefix),
-        ),
+          pathStartsWith(normalized(path), prefix)
+        )
       );
     if (!relevant) return notRun(["validation host and project tooling are unaffected"]);
     const cwd = resolve(REPO_ROOT, config.cwd ?? "validation");
@@ -562,12 +623,12 @@ export const CHECK_RUNNERS = Object.freeze({
         return failed([
           `${command} failed`,
           (execution.result.stderr || execution.result.stdout || "").trim().slice(-6000),
-          { timings },
+          { timings }
         ]);
       }
     }
     return passed([{ timings }]);
-  },
+  }
 });
 
 export const CHECK_RUNNER_IDS = Object.freeze(Object.keys(CHECK_RUNNERS));

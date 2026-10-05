@@ -19,9 +19,7 @@ currentDocs:
   - docs/domains/shading.md
   - docs/next-design/eengine-extreme-performance-rebuild-2026-10.md
   - docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md
-contracts:
-  - surface-work-v1
-  - render-product-work-history-v2
+contracts: []
 decisions:
   - ADR-0020
 sources:
@@ -30,7 +28,6 @@ sources:
 checks:
   - model
   - registry
-  - docs-frontmatter
 watch:
   - OEngine/src/render/surface/**
   - OEngine/src/render/environment/**

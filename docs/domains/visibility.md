@@ -4,26 +4,23 @@ kind: domain
 owner: visibility
 state: current
 verifies:
-  - project/domains
+  - OEngine/src/render/program/FrameProgramLowering.ts
+  - OEngine/src/render/surface/SurfaceWorkRuntime.ts
 ---
 # Visibility
 
-## 当前源码事实
+## 当前源码边界
 
-核对：2026-10-02，基线 `11d906ab`。Visibility 拥有 GPU hierarchy traversal、bounded MeshletWork、indirect hardware raster、VisibilityKey/depth 和 HZB。普通与 Product 工作进入同一 GPU Scene。可见工作在 GPU 生产和消费，readback 只供诊断或延迟反馈，模块不拥有私有 frame submit。
+核对日期：2026-10-05；本轮核对 FrameProgramLowering→SurfaceWork 的直接输入关系，不重新认证全部 traversal/raster 算法。
 
-当前 FrameProgramLowering 将 VisibilityKey/depth/MeshletWork 与共享 frame geometry 送入 SurfaceWorkRuntime；SurfaceWork 先做 cache lookup，再注册唯一 GeometryRecord 和后续 packet/reconstruct，GeometryRecord 已按 hit mask 走包含代表像素与 object-to-clip 签名的持久化 geometry cache bypass，miss 进入 bounded queue 并由 indirect resolve 独立压缩。AppearanceCachePass、SparseLightingPass、旧 frequency planner、Dense/exception MaterialPass、Probe/sample 链均不是当前生产 consumer。
+[FrameProgramLowering](../../OEngine/src/render/program/FrameProgramLowering.ts) 向 SurfaceWorkRuntime 提供当前 visibility/depth、选中 work/frame geometry、几何 source heaps、可选 virtual product、纹理/材质 publication 与版本。SurfaceWork 再注册 demand、唯一 geometry records 和 Appearance/lighting consumers。
 
-选中工作经过 shared instance transforms、FrameGeometryVertices 和 FrameGeometryArena，为 raster/Appearance winner 消费准备 clips、triangle directory 和真实 attributes。Product late HZB 重排工作目录而共享底层几何存储。WinnerPrimitiveInterpolation 已在 Appearance 实际消费，不再是“仅 diagnostic、尚未接入”的状态。
+本页删除了“当前按 hit mask 持久化 geometry cache bypass”描述：它来自旧文档，不能据此恢复旧 owner。当前具体身份、缓存及 geometry 生产行为以 SurfaceWorkRuntime、SurfaceGeometryPass 和其生产 ABI 为准。
 
-当前 frame attributes 并不代表完成持久静态 resident packing、skin/morph 或跨 meshlet/LOD 的完整对应。Product 跨 LOD/source/seam、形变 previous mapping 和完整几何容量缺失下的 Surface 供给仍需结合最终新链核对；不能把旧 raster fixture 覆盖当成完整 Surface 验收。
+Visibility owner 的 traversal、work generation、hardware raster、HZB 与 frame geometry 为 Surface 提供选中源；winner 身份不能直接充当跨帧 sharing/cache 身份。完整 source/seam/LOD、skin/morph/previous mapping、溢出与生命周期仍需逐项生产检查，不从旧 raster fixture 推导完成。
 
-## 第三版目标边界
+## 目标与验证
 
-[用户指定原文](../next-design/eengine-extreme-performance-rebuild-2026-10.md)保留 Geometry/Visibility 和 frame geometry owners。Visibility 发布 winner/depth，SurfaceWork 入口解析 frame-local winner；SurfaceGeometryPass 唯一恢复 SurfaceGeometryRecord，Appearance/Lighting 不再各自解析 MeshletWork/三顶点/UV/normal。
+目标见[极致性能设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)；执行和退出条件见[当前计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。未来 Virtual Geometry 完整工作域属于该计划，不因已有 virtual 输入绑定就判定完成。
 
-Winner、Sharing 和 Cache identity 分开，VisibilityKey 不作跨帧 cache 身份。能力/容量先协商，每个 queue/indirect 有 bounded overflow 和消费者安全空状态；Surface 最终例外不交回旧 queue，不以 CPU 第二次 submit 修补。
-
-入口：`render/passes/PackedVisibilityPass.ts`、`HierarchicalWorkGenerator.ts`、`MeshletBucketRaster.ts`、`HierarchicalZBuffer.ts`、`FrameGeometryArena.ts`、`FrameGeometryVertices.ts`、`program/FrameProgramLowering.ts`。
-
-历史 Native/Chrome 组件诊断保留在[ledger](../porting/next-renderer.md)与[geometry lab](../../validation/labs/surface-geometry/README.md)，其日期和范围不转授第三版完整性能/画质。当前重构执行和验收见[SurfaceWork V3 计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。
+历史组件检查与来源集中在[porting ledger](../porting/next-renderer.md)。旧 cache/阶段说明由 Git 追溯，不能用作当前实现或完整性能/画质证明。

@@ -5,7 +5,7 @@ status: frozen
 owners: 
   - platform
   - frame-runtime
-version: 2
+version: 3
 consumers: 
   - validation/harness
   - validation/src/runner
@@ -18,13 +18,16 @@ validation:
   - webgpu-component
 state: current
 verifies:
-  - checks
-  - project/domains
+  - validation/harness/browser.ts
+  - validation/src/runner/run-case.mjs
+  - validation/src/shared/artifact.mjs
 ---
 # Browser Harness
 
-The shared harness owns protocol identity, state transitions, freshness, GPU error scopes, capability fingerprints, bounded readback, production observation, disposal, and the binding to a completed full-verification receipt set. Cases own only their scenario setup and assertions.
+The shared harness owns protocol identity, fresh run/nonce, state transitions, GPU/browser error aggregation, declared artifacts and disposal. Cases own scenario setup and independent assertions. New cases import `validation/harness/browser.ts`.
 
-New cases import `validation/harness/browser.ts`. The harness implementation lives beside the facade and owns freshness, identity, error, page outcome, disposal, and declared artifact gates.
+`node validation/src/runner/run-case.mjs <case-id>` launches an isolated browser and runs one diagnostic case. It checks page/runner identity, timestamps, errors, outcome, dispose and artifact ownership, writes schema-v3 raw results under .local/validation, and reports unsupported separately.
 
-The runner has two explicit modes. A normal `--run` performs a changed-scope preflight and always produces diagnostic evidence. `--run --accept` requires a clean worktree and a complete full-scope preflight; it may reuse an existing receipt set only when revision, tree, registry hash, cleanliness, scope, and passed status all match. Artifact schema v2 records `validationMode` and the actual receipts. Promotion checks that the acceptance mode and every receipt match the browser run.
+The runner does not perform claim promotion or repository preflight. `--accept` and retired artifact versions are rejected; v3 removes claim receipts and requires diagnostic mode. Identity/error/dispose/ownership assertions remain unchanged.
+
+Host identity includes engineSourceSha256 over conservative engine source/config/lock/compiler inputs, and the runner rejects input changes during execution. dirty remains descriptive. GPU oracle separately verifies fresh .test-dist source/output hashes before and after execution. These identities do not replace numeric assertions, workload quality or performance measurement.

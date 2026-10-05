@@ -43,7 +43,6 @@ sources:
 checks:
   - model
   - registry
-  - docs-frontmatter
 watch:
   - OEngine/src/assets/**
   - OEngine/src/loaders/**

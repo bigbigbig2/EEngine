@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
 import { requireValidArtifact } from "../shared/artifact.mjs";
 import { canonicalJson, requireValidRegistry } from "../shared/registry.mjs";
+import { sourceIdentity } from "../../../tools/test-build.mjs";
 
 const validationRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const repositoryRoot = resolve(validationRoot, "..");
@@ -19,12 +20,14 @@ if (process.argv.includes("--accept")) {
     "`--accept` was retired with the claim layer (2026-10-05). It required a " +
       "claim-promotion policy and a check-receipt report that no longer exist. " +
       "Run the case without --accept to get a diagnostic result; formal evidence " +
-      "is currently produced by `node tools/vibe.mjs verify --full`.",
+      "is currently produced by `node tools/vibe.mjs verify --full`."
   );
 }
 const selectedCase = registry.cases.find((item) => item.id === caseId);
 if (!selectedCase) {
-  throw new Error(`Unknown case '${caseId ?? ""}'. Expected one of: ${registry.cases.map(({ id }) => id).join(", ")}`);
+  throw new Error(
+    `Unknown case '${caseId ?? ""}'. Expected one of: ${registry.cases.map(({ id }) => id).join(", ")}`
+  );
 }
 // The claim-promotion acceptance path was retired with the claim layer
 // (2026-10-05). It required `selectedCase.evidenceRole === "promotion"`, a
@@ -37,10 +40,12 @@ const git = (...args) => execFileSync("git", args, { cwd: repositoryRoot, encodi
 const commit = git("rev-parse", "HEAD");
 const tree = git("rev-parse", "HEAD^{tree}");
 const dirty = git("status", "--porcelain").length > 0;
+const engineSourceSha256 = await sourceIdentity(repositoryRoot);
 const registrySha256 = sha256(registryBytes);
 const profile = registry.profiles[selectedCase.profile];
 const workload = registry.workloads[selectedCase.workloadId];
-const chromeExecutable = process.env.OENGINE_CHROME_PATH ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
+const chromeExecutable =
+  process.env.OENGINE_CHROME_PATH ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 if (!existsSync(chromeExecutable)) throw new Error(`Chrome stable executable not found: ${chromeExecutable}`);
 const browserExecutableSha256 = await sha256File(chromeExecutable);
 
@@ -55,7 +60,14 @@ await mkdir(runDirectory, { recursive: false });
 
 const events = [];
 const record = (source, detail) => events.push({ at: new Date().toISOString(), source, detail });
-const hostBuildId = await computeHostBuildId({ commit, tree, dirty, selectedCase, workload });
+const hostBuildId = await computeHostBuildId({
+  commit,
+  tree,
+  dirty,
+  engineSourceSha256,
+  selectedCase,
+  workload
+});
 
 async function waitForServer(url, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
@@ -70,7 +82,9 @@ async function waitForServer(url, timeoutMs) {
     }
     await new Promise((resolvePromise) => setTimeout(resolvePromise, 100));
   }
-  throw new Error(`Vite health check timed out: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
+  throw new Error(
+    `Vite health check timed out: ${lastError instanceof Error ? lastError.message : String(lastError)}`
+  );
 }
 
 const viteEntry = resolve(validationRoot, "node_modules/vite/bin/vite.js");
@@ -103,7 +117,11 @@ try {
     args: ["--enable-features=Vulkan,UseSkiaRenderer", "--enable-unsafe-webgpu"]
   });
   browserVersion = browser.version();
-  record("browser:launch", { version: browserVersion, headed: profile.headed, channel: profile.browserChannel });
+  record("browser:launch", {
+    version: browserVersion,
+    headed: profile.headed,
+    channel: profile.browserChannel
+  });
   browser.on("disconnected", () => record("browser:disconnected", {}));
   context = await browser.newContext({
     viewport: { width: profile.viewport[0], height: profile.viewport[1] },
@@ -113,9 +131,12 @@ try {
   page = await context.newPage();
   page.on("console", (message) => record(`console:${message.type()}`, message.text()));
   page.on("pageerror", (error) => record("page:error", error.message));
-  page.on("requestfailed", (request) => record("request:failed", { url: request.url(), failure: request.failure()?.errorText }));
+  page.on("requestfailed", (request) =>
+    record("request:failed", { url: request.url(), failure: request.failure()?.errorText })
+  );
   page.on("response", (response) => {
-    if (response.status() >= 400) record("response:error", { url: response.url(), status: response.status() });
+    if (response.status() >= 400)
+      record("response:error", { url: response.url(), status: response.status() });
   });
   page.on("crash", () => record("page:crash", {}));
   page.on("framenavigated", (frame) => {
@@ -144,7 +165,8 @@ try {
   );
   const preliminary = await readPageSnapshot(page);
   assertPageIdentity(preliminary);
-  if (navigationCount !== 1 || preliminary.navigationCount !== 1) throw new Error("Validation page reloaded or navigated more than once");
+  if (navigationCount !== 1 || preliminary.navigationCount !== 1)
+    throw new Error("Validation page reloaded or navigated more than once");
   assertFreshTimes(preliminary);
 
   if (selectedCase.artifacts.includes("screenshot")) {
@@ -153,16 +175,20 @@ try {
     producedArtifacts.push({ kind: "screenshot", path: "screenshot.png" });
   }
   await page.evaluate(async () => window.__OENGINE_VALIDATION__?.dispose());
-  await page.waitForFunction(() => window.__OENGINE_VALIDATION__?.state === "disposed", undefined, { timeout: 5000 });
+  await page.waitForFunction(() => window.__OENGINE_VALIDATION__?.state === "disposed", undefined, {
+    timeout: 5000
+  });
   pageSnapshot = await readPageSnapshot(page);
   assertPageIdentity(pageSnapshot);
   if (pageSnapshot.state !== "disposed" || !pageSnapshot.disposedAt || !pageSnapshot.disposeEvidence) {
     throw new Error("Validation case did not publish complete dispose evidence");
   }
-  fatalBrowserEvents = events.filter(isFatalBrowserEvent)
+  fatalBrowserEvents = events
+    .filter(isFatalBrowserEvent)
     .filter((event) => !isAllowlisted(event))
     .filter((event) => !isExpectedWatchdogAbort(event, pageSnapshot));
-  if (fatalBrowserEvents.length > 0) throw new Error(`Browser emitted ${fatalBrowserEvents.length} unallowlisted error event(s)`);
+  if (fatalBrowserEvents.length > 0)
+    throw new Error(`Browser emitted ${fatalBrowserEvents.length} unallowlisted error event(s)`);
   if (pageSnapshot.outcome === "passed" && pageSnapshot.errors.length > 0) {
     throw new Error("Passed page contains validation errors");
   }
@@ -214,24 +240,43 @@ for (const artifact of producedArtifacts) {
 }
 artifactManifest.sort((left, right) => left.path.localeCompare(right.path));
 
-const identityPassed = pageSnapshot !== null &&
-  pageSnapshot.runId === runId && pageSnapshot.nonce === nonce &&
-  pageSnapshot.caseId === selectedCase.id && pageSnapshot.workloadId === selectedCase.workloadId &&
-  pageSnapshot.registrySha256 === registrySha256 && pageSnapshot.workloadSha256 === workloadSha256 &&
+const identityPassed =
+  pageSnapshot !== null &&
+  pageSnapshot.runId === runId &&
+  pageSnapshot.nonce === nonce &&
+  pageSnapshot.caseId === selectedCase.id &&
+  pageSnapshot.workloadId === selectedCase.workloadId &&
+  pageSnapshot.registrySha256 === registrySha256 &&
+  pageSnapshot.workloadSha256 === workloadSha256 &&
   pageSnapshot.hostBuildId === hostBuildId;
-const freshnessPassed = identityPassed && pageSnapshot.navigationCount === 1 && navigationCount === 1 && areFreshTimes(pageSnapshot);
-const disposedPassed = pageSnapshot?.state === "disposed" && pageSnapshot.disposedAt !== undefined && pageSnapshot.disposeEvidence !== undefined;
-const pageOutcomePassed = pageSnapshot !== null && ["passed", "unsupported"].includes(pageSnapshot.outcome ?? "");
+const freshnessPassed =
+  identityPassed &&
+  pageSnapshot.navigationCount === 1 &&
+  navigationCount === 1 &&
+  areFreshTimes(pageSnapshot);
+const disposedPassed =
+  pageSnapshot?.state === "disposed" &&
+  pageSnapshot.disposedAt !== undefined &&
+  pageSnapshot.disposeEvidence !== undefined;
+const pageOutcomePassed =
+  pageSnapshot !== null && ["passed", "unsupported"].includes(pageSnapshot.outcome ?? "");
 const browserErrorsPassed = fatalBrowserEvents.length === 0;
 const artifactKinds = new Set(artifactManifest.map(({ kind }) => kind));
-const artifactsPassed = pageSnapshot?.outcome !== "passed" ||
+const artifactsPassed =
+  pageSnapshot?.outcome !== "passed" ||
   selectedCase.artifacts.filter((kind) => kind !== "result").every((kind) => artifactKinds.has(kind));
-const allHostGatesPassed = freshnessPassed && identityPassed && browserErrorsPassed && pageOutcomePassed && disposedPassed && artifactsPassed;
-const status = runnerError || !allHostGatesPassed
-  ? "failed"
-  : pageSnapshot.outcome;
+const allHostGatesPassed =
+  freshnessPassed &&
+  identityPassed &&
+  browserErrorsPassed &&
+  pageOutcomePassed &&
+  disposedPassed &&
+  artifactsPassed;
+if (engineSourceSha256 !== (await sourceIdentity(repositoryRoot)))
+  runnerError = new Error("engine source changed during browser diagnosis");
+const status = runnerError || !allHostGatesPassed ? "failed" : pageSnapshot.outcome;
 const result = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   runId,
   nonce,
   caseId: selectedCase.id,
@@ -245,6 +290,7 @@ const result = {
     commit,
     tree,
     dirty,
+    engineSourceSha256,
     hostBuildId,
     browserExecutable: chromeExecutable,
     browserExecutableSha256,
@@ -267,7 +313,13 @@ const result = {
 };
 requireValidArtifact(result, selectedCase);
 await writeFile(resolve(runDirectory, "result.json"), `${JSON.stringify(result, null, 2)}\n`, "utf8");
-console.log(JSON.stringify({ runId, caseId, status: result.status, evidenceStatus: result.evidenceStatus, artifact: runDirectory }, null, 2));
+console.log(
+  JSON.stringify(
+    { runId, caseId, status: result.status, evidenceStatus: result.evidenceStatus, artifact: runDirectory },
+    null,
+    2
+  )
+);
 if (result.status === "failed") {
   console.error(runnerError?.stack ?? "Validation failed");
   process.exitCode = 1;
@@ -278,9 +330,15 @@ if (result.status === "failed") {
 function assertPageIdentity(snapshot) {
   if (!snapshot) throw new Error("Validation protocol was not installed");
   if (snapshot.schemaVersion !== registry.hostProtocolVersion) throw new Error("Protocol version mismatch");
-  if (snapshot.runId !== runId || snapshot.nonce !== nonce) throw new Error("Stale or replayed validation result");
-  if (snapshot.caseId !== selectedCase.id || snapshot.workloadId !== selectedCase.workloadId) throw new Error("Case/workload identity mismatch");
-  if (snapshot.registrySha256 !== registrySha256 || snapshot.workloadSha256 !== workloadSha256 || snapshot.hostBuildId !== hostBuildId) {
+  if (snapshot.runId !== runId || snapshot.nonce !== nonce)
+    throw new Error("Stale or replayed validation result");
+  if (snapshot.caseId !== selectedCase.id || snapshot.workloadId !== selectedCase.workloadId)
+    throw new Error("Case/workload identity mismatch");
+  if (
+    snapshot.registrySha256 !== registrySha256 ||
+    snapshot.workloadSha256 !== workloadSha256 ||
+    snapshot.hostBuildId !== hostBuildId
+  ) {
     throw new Error("Registry/workload/build content identity mismatch");
   }
 }
@@ -293,8 +351,13 @@ function areFreshTimes(snapshot) {
   const runnerStart = Date.parse(runnerStartedAt);
   const pageStart = Date.parse(snapshot?.startedAt ?? "");
   const pageComplete = Date.parse(snapshot?.completedAt ?? "");
-  return Number.isFinite(pageStart) && Number.isFinite(pageComplete) &&
-    pageStart >= runnerStart - 2000 && pageComplete >= pageStart && pageComplete <= Date.now() + 2000;
+  return (
+    Number.isFinite(pageStart) &&
+    Number.isFinite(pageComplete) &&
+    pageStart >= runnerStart - 2000 &&
+    pageComplete >= pageStart &&
+    pageComplete <= Date.now() + 2000
+  );
 }
 
 async function readPageSnapshot(targetPage) {
@@ -326,19 +389,32 @@ async function readPageSnapshot(targetPage) {
 }
 
 function isFatalBrowserEvent(event) {
-  return new Set(["page:error", "request:failed", "response:error", "page:crash", "console:error", "console:warning", "console:warn"]).has(event.source);
+  return new Set([
+    "page:error",
+    "request:failed",
+    "response:error",
+    "page:crash",
+    "console:error",
+    "console:warning",
+    "console:warn"
+  ]).has(event.source);
 }
 
 function isAllowlisted(event) {
-  return (selectedCase.errorAllowlist ?? []).some((rule) => rule.source === event.source && rule.exact === event.detail);
+  return (selectedCase.errorAllowlist ?? []).some(
+    (rule) => rule.source === event.source && rule.exact === event.detail
+  );
 }
 
 function isExpectedWatchdogAbort(event, snapshot) {
   // The authored/formal cook heartbeat intentionally aborts the GLB request
   // before disposing the page. Chromium reports that cancellation as a failed
   // request, but it is diagnostic evidence rather than a browser/GPU fault.
-  return event.source === "request:failed" && event.detail?.failure === "net::ERR_ABORTED" &&
-    snapshot?.evidence?.cookHeartbeat?.aborted === true;
+  return (
+    event.source === "request:failed" &&
+    event.detail?.failure === "net::ERR_ABORTED" &&
+    snapshot?.evidence?.cookHeartbeat?.aborted === true
+  );
 }
 
 async function computeHostBuildId(input) {

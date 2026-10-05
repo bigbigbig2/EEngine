@@ -2,7 +2,7 @@
 id: shading-work-v1
 kind: spec
 owner: shading
-state: current
+state: history
 verifies:
   - OEngine/src
 ---

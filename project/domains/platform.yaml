@@ -43,10 +43,10 @@ decisions:
 sources:
   - webgpu-capability
 checks:
+  - tooling-suites
   - model
   - registry
   - changed-coverage
-  - docs-frontmatter
   - guard-docs
   - guard-public-api
   - guard-ownership

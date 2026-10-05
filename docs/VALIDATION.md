@@ -5,37 +5,54 @@ verifies:
   - checks
   - validation
 ---
-# Next Renderer 的检查时机与失败修复
+# 检查、测试与结论范围
 
-这是开发节奏说明，不是逐批许可规则。当前工程处于破坏式重建，先让功能原理和唯一生产链真正连通。
+开发节奏以根 AGENTS.md 为准，切换单元与测试可信度见[当前执行计划 §1.4](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)。本页说明工具当前能做什么，不复制当前阶段或建立逐 patch 门禁。
 
-**当前SurfaceWork V3覆盖规则（2026-10-05修订）**：此前2026-10-02“开发中不测试、整链结束才检查”的规则已被用户要求替代，不再生效。总架构/质量以[第三版原文](./next-design/eengine-extreme-performance-rebuild-2026-10.md)为准；当前执行唯一入口是[有界前端执行计划](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。Phase0做静态身份/容量核对；Phase1–6（含必需5.5）每阶段完成typecheck/build、新鲜targeted tests、涉及的WGSL与真实GPU producer→consumer检查，已有整链时补短smoke/成本诊断，通过后推进。Phase7保留正式整合、跨浏览器/完整生命周期/连续画质和同条件历史性能。按需调试，不要求每patch全测。
+## 什么时候检查
 
-当前顺序为Phase5先修唯一writer/计时覆盖并完成需求合同→Phase5.5前端物理表示与成本补齐→Phase6调度/reset/lifetime→Phase7。阶段内可以临时断链，结束必须真实闭合，不接旧consumer或占位值来通过。当前事实与历史结果见[执行记录](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。
+| 时点 | 工作 |
+| --- | --- |
+| 日常编码 | context 导航；按调试需要 typecheck/build/targeted test |
+| 大模块连通 | 集中 typecheck/build/必要 targeted tests；真实 producer→consumer、独立预期、边界与成本核对按模块退出要求执行 |
+| 整体 Renderer/providers 完成 | 生产 browser matrix、生命周期、材质/功能组合、画质和同条件 GPU P50/P95 |
 
-## Surface 测试可信度与修复边界
+阶段内可临时断链，单元结束必须编译修复、真实闭合。必需失败或未验证项不因正式验收在后面而忽略；不使用旧链、空 consumer 或占位结果通过。
 
-完整规范见[执行计划§1.4](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)，覆盖矩阵在各阶段实施记录维护，日常不增加逐patch许可表。
+## 当前真实入口
 
-- 对照设计逐项列producer/产品/全部consumer、正常/边界/拒绝用例、独立预期和实际结果；测试全绿不代替实施范围核对。缺必需实现或用例、未运行检查，均不能标阶段完成。
-- 真实GPU接线检查调用当前生成shader和生产consumer，先证明有效非零workload/目标分支真的执行；mock或手写模拟链只能证明其局部范围。独立参考不能复制被测输出，普通合法cache/coarse成功和局部失败必须可区分。
-- 正确性、结构和成本分别检查：完整身份、独立依赖、发布/生命周期、完整互斥覆盖；以及实际witness/proof/ref/worker写入、真实allocation限制、编码和计时分类。删除/按需/compact的目标要有实际证据，不能只断言预算未超或画面非空。
-- 失败先保留日志/身份，再复现、分类、定位和局部修复，重跑原用例及关联回归。旧ABI/fixture错误修测试宿主并保留仍有效语义；生产错误修权威边界；不得为了mock或旧测试反向改架构。
-- 禁止靠删/skip断言、吞异常、放宽容差、关feature/缩小最终workload、永久fine/residual、额外owner/submit或测试专用production fallback过关。改变功能、质量、误差预算或阶段范围需用户认可；改测试预期需独立依据和回归敏感性检查。
-- 未完成runner/超时/不可用计时不是通过；定位实际停顿/退出边界，不靠只加超时掩盖。历史报告保持身份；最终代码改动后更新build并重跑受影响验证，不能拼接快照。GPU任务串行。
-
-这些要求防止可发现遗漏和未经定位的修复，不承诺测试能穷尽全部问题。阶段检查不提前要求正式evidence/claim/clean revision；已有必需失败不能借正式验收在Phase7就略过。
-
-## 其他模块的通用节奏
-
-| 时点 | 做什么 | 结果如何使用 |
+| 命令 | 实际范围 | 不证明的事情 |
 | --- | --- | --- |
-| 日常编码 | `vibe context <path>` 导航；按需要 typecheck、build 或一个 targeted test | 调试信息，不改变能否继续开发 |
-| 大模块完成 | 集中运行 typecheck、build、该模块必要的 targeted tests；修明显问题、更新 workstream | 确认该模块的代码闭合，然后继续下一模块；不要求 formal evidence |
-| 整体 Next Renderer 完成 | browser matrix、resize、camera cut、device loss、不同场景/材质、feature interactions、画质对照、GPU 性能 P50/P95、formal evidence 与 claims | 形成正式系统验收与声明 |
+| `node tools/docs-verify.mjs` | 文档元数据、声明路径、部分链接 | 正文正确、设计已实现 |
+| `node tools/vibe.mjs doctor` | 模型/registry 结构及只读字节比较 | 正文与源码一致、算法正确 |
+| `node tools/vibe.mjs verify --module` | engine typecheck/build | 未指定测试、浏览器或 GPU 已运行 |
+| `node tools/vibe.mjs verify --module --test OEngine/tests/...test.mjs` | 上述检查、新鲜 build:test、显式 targeted test | 未覆盖生产分支的算法或整个场景正确 |
+| `node tools/gpu-oracle.mjs <name>` | 显式真实 GPU oracle | 其他 oracle/生产场景/性能通过 |
+| `node validation/src/runner/run-case.mjs <case-id>` | 选定 browser case 的诊断运行 | claim 晋升或全矩阵通过 |
+| `node tools/vibe.mjs verify --full` | 当前 catalog checks 与 engine/validation suites，GPU check 为 environment-probe | matched browser cases 已自动运行、数值 GPU/质量/性能完整验收 |
 
-`node tools/vibe.mjs verify --module` 只能由人或 Agent 在大模块连通后主动调用：它运行引擎 typecheck、build，并仅在显式传入 `--test OEngine/tests/...test.mjs` 时运行该 targeted test。它不加载 claim/case/evidence/registry，不生成正式报告，不检查 clean revision，也不运行浏览器。`verify --module --plan` 只显示命令。旧 `verify --changed` 已退役；`verify --full` 只在最终集成或发布前明确调用。`context` 也不加载验收模型。浏览器未运行、证据缺失、claim 未 accepted、文档暂时滞后或未来模块未完成，均不使普通开发失败。
+`--plan` 只显示计划。module 不加载完整验收模型，不要求 clean revision；普通开发不被未实现的未来 provider 或正式证据阻塞。
 
-不要为过渡阶段拼接只验证自己构造结果的伪闭环，也不要为通过旧测试保留 retired production 代码。模块级 targeted test 只覆盖当前确有实现的关键数学、ABI 或边界；真实编译失败需要修复。
+旧 `verify --changed`、claim 晋升与 case runner 的 `--accept` 已退休。vibe 没有现行 evidence/status/case 命令。当前 artifact v3 只接受 diagnostic 模式，不恢复历史 accepted/receipt 分支。
 
-最终验收仍必须诚实：正式浏览器记录只来自独立 `validation/` 宿主；诊断 case 不再自动触发仓库 preflight，且不能升级 claim；`case --run --accept` 才要求 `verify --full` 与 clean revision。Surface V3按当前执行计划用独立checkout比较 `89f0a94`、`15f12f7b`、`e7296be9`、重构前 `14c17078` 和最终固定revision，共同能力子集与最终完整功能分列。首要workload为GTX1650Ti、1080p复杂场景，并覆盖原文远/近景、静止/运动、高频材质、IBL/AO/VSM、LOD/page miss和生命周期矩阵。固定设备、浏览器、内部/输出尺寸、camera path、feature set、warm-up、热状态/时钟、画质和窗口，报告Surface全成本及整帧P50/P95、必要CPU/内存与原文counters；不承诺固定FPS或百分比。具体artifact、registry与claim规则保留在[validation case](contracts/validation-case.md)、[claims/evidence](contracts/claims-and-evidence.md)和[browser host](contracts/browser-harness.md)合同中，正式接受/声明流程只在最终验收使用，不代替阶段真实GPU检查。
+## 测试必须发现真实问题
+
+测试先核对当前生产入口、独立预期、目标分支确实执行，以及错误行为会被拒绝。mock 可验证局部协议和生命周期，源码结构检查可验证架构约束；都不能代替生产 WGSL 数值和实际 GPU 成本。
+
+正常合法成功、边界和局部拒绝必须可区分；永久 fine/miss、零有效 provider、预填正确输出、只断言出图或预算未超，不证明完整算法。正确性与成本分开核对，容量减少不直接证明帧时收益。
+
+失败保留原始日志与身份，复现并分类定位，再修原用例与关联回归。旧测试按退休合同迁移，仍有效的语义断言保留；不删断言、吞异常、放宽容差或加 production fallback 过关。质量/功能/误差预算的变更按根规则处理。
+
+## 新鲜度与报告
+
+最终源码变动后使用新鲜 build，重跑受影响验证；不拼接不同快照。GPU 作业串行。超时、不完整 runner、skip、缺浏览器/adapter、不可用 timestamp 明确列出，不能当完成。
+
+GPU oracle 在运行前后验证 .test-dist 的源码输入/编译产物身份；缺失或过期时显式 build:test。构建会先清理旧产物，避免删除源码后还测到旧 JS。能力需求由 oracle 登记并在资源创建前协商，缺能力不静默改弱设备。环境 probe 只证明 GPU 可达。
+
+Node 用例通过 TestsStream reporter 汇总完成、失败、取消与 skip，不能用打印的“通过数量”冒充执行。`--json` stdout 是单个结果，日志写 stderr；full 区分 complete/incomplete/failed，并明确 browser/performance 未运行。正式完成不能只看命令名。
+
+新增/修改工具回归统一由 checks 的 tooling-suites 调度。真实 GPU oracle 与生产 browser case 仍显式选择，不给普通开发增加自动浏览器门禁。
+
+browser host 的 nonce、身份、错误聚合、dispose、artifact ownership 仍有效，合同见[browser harness](contracts/browser-harness.md)与[validation case](contracts/validation-case.md)。
+
+最终性能比较方法由当前执行计划维护。固定 revision、设备、浏览器、尺寸、camera path、feature/质量、warm-up、热状态与窗口，保存实际样本和 Surface/整帧指标。不从历史诊断或不同条件的数据作性能通过声明。

@@ -63,7 +63,7 @@ function parseArguments(argv) {
     help: false,
     timeoutMs: null,
     transport: "auto",
-    name: null,
+    name: null
   };
   const errors = [];
   for (let index = 0; index < argv.length; index++) {
@@ -94,7 +94,7 @@ function parseArguments(argv) {
 /** playwright-core is a validation/ devDependency (ADR-0014 host); resolve it explicitly instead of adding a root dependency. */
 function loadPlaywrightChromium() {
   const requireFromValidation = createRequire(
-    pathToFileURL(join(repositoryRoot, "validation", "package.json")),
+    pathToFileURL(join(repositoryRoot, "validation", "package.json"))
   );
   const { chromium } = requireFromValidation("playwright-core");
   if (!chromium?.launch) throw new Error("playwright-core resolved but exports no chromium.launch");
@@ -104,12 +104,12 @@ function loadPlaywrightChromium() {
 function resolveChromeExecutable() {
   const candidates = [
     process.env.OENGINE_CHROME_PATH,
-    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
   ].filter(Boolean);
   const found = candidates.find((candidate) => existsSync(candidate));
   if (!found)
     throw new Error(
-      `Chrome stable executable not found. Tried: ${candidates.join(", ")}. Set OENGINE_CHROME_PATH to override.`,
+      `Chrome stable executable not found. Tried: ${candidates.join(", ")}. Set OENGINE_CHROME_PATH to override.`
     );
   return found;
 }
@@ -122,7 +122,7 @@ async function computeHostBuildId() {
     "gpu-oracle/server.mjs",
     "gpu-oracle/page/host.html",
     "gpu-oracle/page/host.mjs",
-    "gpu-oracle/page/assert-strict.mjs",
+    "gpu-oracle/page/assert-strict.mjs"
   ]) {
     hash.update(await readFile(join(harnessRoot, file)));
   }
@@ -136,22 +136,22 @@ function printReport(report, { json, consoleLines }) {
   }
   const label = report.status === "passed" ? "PASS" : "FAIL";
   const lines = [
-    `gpu-oracle ${report.oracle}: ${label}${report.failureKind ? ` (${report.failureKind})` : ""}`,
+    `gpu-oracle ${report.oracle}: ${label}${report.failureKind ? ` (${report.failureKind})` : ""}`
   ];
   if (report.registry?.negativeControl)
     lines.push(`  negative control  expected to FAIL; a pass here would mean the harness is blind`);
   lines.push(`  module            ${report.oracleFile}`);
   lines.push(
-    `  chrome            ${report.chrome.version ?? "unknown"} @ ${report.chrome.executablePath} (${report.chrome.headless ? "headless" : "headed"}, transport ${report.chrome.transport}${report.chrome.contextMode ? `, ${report.chrome.contextMode}` : ""})`,
+    `  chrome            ${report.chrome.version ?? "unknown"} @ ${report.chrome.executablePath} (${report.chrome.headless ? "headless" : "headed"}, transport ${report.chrome.transport}${report.chrome.contextMode ? `, ${report.chrome.contextMode}` : ""})`
   );
   for (const attempt of report.chrome.launchAttempts ?? []) {
     lines.push(
-      `  launch attempt    ${attempt.transport}: ${attempt.ok ? "ok" : `failed — ${String(attempt.message).split("\n")[0]}`}`,
+      `  launch attempt    ${attempt.transport}: ${attempt.ok ? "ok" : `failed — ${String(attempt.message).split("\n")[0]}`}`
     );
   }
   if (report.adapter)
     lines.push(
-      `  adapter           ${[report.adapter.vendor, report.adapter.architecture, report.adapter.device, report.adapter.description].filter(Boolean).join(" / ") || "unknown"} (${report.adapterKind})`,
+      `  adapter           ${[report.adapter.vendor, report.adapter.architecture, report.adapter.device, report.adapter.description].filter(Boolean).join(" / ") || "unknown"} (${report.adapterKind})`
     );
   if (report.deviceLost)
     lines.push(`  device lost       ${report.deviceLost.reason}: ${report.deviceLost.message}`);
@@ -159,28 +159,28 @@ function printReport(report, { json, consoleLines }) {
     lines.push(`  summary           ${JSON.stringify(report.summary)}`);
   for (const [kind, entries] of [
     ["scoped GPU error", report.scopedGpuErrors],
-    ["uncaptured GPU error", report.gpuErrors],
+    ["uncaptured GPU error", report.gpuErrors]
   ]) {
     for (const entry of entries ?? []) lines.push(`  ${kind}   ${entry.message}`);
   }
   if (report.error) {
     const errorLines = String(report.error.message).split("\n");
     lines.push(
-      `  error             ${report.error.name}: ${errorLines.slice(0, 3).join("\n                    ")}`,
+      `  error             ${report.error.name}: ${errorLines.slice(0, 3).join("\n                    ")}`
     );
     if (errorLines.length > 3)
       lines.push(
-        `                    [...${errorLines.length - 3} more lines; use --json for the full text]`,
+        `                    [...${errorLines.length - 3} more lines; use --json for the full text]`
       );
   }
   lines.push(
-    `  timing            oracle ${report.timings.oracleMs ?? "n/a"} ms | wall ${report.timings.totalMs} ms`,
+    `  timing            oracle ${report.timings.oracleMs ?? "n/a"} ms | wall ${report.timings.totalMs} ms`
   );
   lines.push(`  harness build     ${report.hostBuildId}`);
   process.stdout.write(`${lines.join("\n")}\n`);
   if (consoleLines.length > 0) {
     process.stdout.write(
-      `  browser console (${consoleLines.length} message${consoleLines.length === 1 ? "" : "s"}):\n`,
+      `  browser console (${consoleLines.length} message${consoleLines.length === 1 ? "" : "s"}):\n`
     );
     for (const line of consoleLines) process.stdout.write(`    [${line.type}] ${line.text}\n`);
   }
@@ -193,7 +193,7 @@ function printReport(report, { json, consoleLines }) {
       `  chrome process log (tail):\n${report.chrome.processLog
         .split("\n")
         .map((line) => `    ${line}`)
-        .join("\n")}\n`,
+        .join("\n")}\n`
     );
   }
 }
@@ -210,7 +210,7 @@ if (options.help) {
 if (options.list) {
   for (const oracle of oracles) {
     process.stdout.write(
-      `${oracle.name}\n  file        ${oracle.file}\n  entry       ${oracle.entry}(device)\n  description ${oracle.description}\n${oracle.note ? `  note        ${oracle.note}\n` : ""}`,
+      `${oracle.name}\n  file        ${oracle.file}\n  entry       ${oracle.entry}(device)\n  description ${oracle.description}\n${oracle.note ? `  note        ${oracle.note}\n` : ""}`
     );
   }
   process.exit(0);
@@ -222,7 +222,7 @@ if (options.name === null) {
 const oracle = findOracle(options.name);
 if (!oracle) {
   process.stderr.write(
-    `Unknown oracle '${options.name}'. Registered: ${oracles.map((entry) => entry.name).join(", ")}\n`,
+    `Unknown oracle '${options.name}'. Registered: ${oracles.map((entry) => entry.name).join(", ")}\n`
   );
   process.exit(2);
 }
@@ -279,6 +279,8 @@ function buildEnvelope({ status, failureKind, payload, error, runFailure }) {
     tool: "gpu-oracle",
     toolVersion: 1,
     hostBuildId,
+    buildIdentity,
+    oracleSha256,
     oracle: oracle.name,
     oracleFile: oracle.file,
     oracleEntry: oracle.entry,
@@ -298,7 +300,7 @@ function buildEnvelope({ status, failureKind, payload, error, runFailure }) {
       oracleMs: payload?.timings?.oracleMs ?? null,
       browserLaunchMs: chromeLaunchMs,
       navigationMs,
-      totalMs: Date.now() - startedAt,
+      totalMs: Date.now() - startedAt
     },
     chrome: {
       executablePath: chromeExecutable,
@@ -311,28 +313,31 @@ function buildEnvelope({ status, failureKind, payload, error, runFailure }) {
       args: chromeProcess?.chromeArgs ?? null,
       processLogPath: chromeLogPath,
       processLog: chromeProcess?.readChromeLog() || lastChromeLog,
-      environmentHints,
+      environmentHints
     },
     staticRequests: staticRequests.filter((path) => path.endsWith(".mjs") || path.endsWith(".js")),
     console: consoleLines,
     pageErrors,
     failedRequests,
-    runFailure: runFailure ?? null,
+    runFailure: runFailure ?? null
   };
   return report;
 }
 
 let report;
+let buildIdentity = null;
+const oracleSha256 = createHash("sha256")
+  .update(await readFile(join(repositoryRoot, oracle.file)))
+  .digest("hex");
 try {
   if (!existsSync(join(repositoryRoot, oracle.file))) {
     throw new Error(
-      `oracle module not found: ${oracle.file} (this file must exist in the repository tree; the harness never builds it)`,
+      `oracle module not found: ${oracle.file} (this file must exist in the repository tree; the harness never builds it)`
     );
   }
-  if (oracle.file.startsWith("OEngine/") && !existsSync(join(repositoryRoot, "OEngine", ".test-dist"))) {
-    throw new Error(
-      "OEngine/.test-dist is missing; the oracles import compiled modules from it and this harness must not rebuild it",
-    );
+  if (oracle.file.startsWith("OEngine/") || negativeControl) {
+    const { verifyTestBuild } = await import("./test-build.mjs");
+    buildIdentity = await verifyTestBuild(repositoryRoot);
   }
   staticRequests = [];
   server = await startStaticServer({
@@ -342,7 +347,7 @@ try {
     // Where bare specifiers such as `gl-matrix` are served from. Read from the
     // engine's own install so the oracle runs against the exact dependency the
     // production code links, not a copy.
-    vendorRoots: [join(repositoryRoot, "OEngine", "node_modules"), join(repositoryRoot, "node_modules")],
+    vendorRoots: [join(repositoryRoot, "OEngine", "node_modules"), join(repositoryRoot, "node_modules")]
   });
   const chromium = loadPlaywrightChromium();
   const launchStartedAt = Date.now();
@@ -357,7 +362,7 @@ try {
     headless,
     transport: options.transport,
     extraArgs: ["--enable-features=Vulkan,UseSkiaRenderer", "--enable-unsafe-webgpu"],
-    onAttempt: (attempt) => chromeLaunchAttempts.push(attempt),
+    onAttempt: (attempt) => chromeLaunchAttempts.push(attempt)
   });
   chromeLaunchMs = Date.now() - launchStartedAt;
   chromeVersion = launched.chromeVersion;
@@ -373,13 +378,13 @@ try {
     if (consoleLines.length < 2000) consoleLines.push({ type: message.type(), text: message.text() });
   });
   page.on("pageerror", (error) =>
-    pageErrors.push({ name: error.name, message: error.message, stack: error.stack ?? null }),
+    pageErrors.push({ name: error.name, message: error.message, stack: error.stack ?? null })
   );
   page.on("requestfailed", (request) =>
-    failedRequests.push({ url: request.url(), failure: request.failure()?.errorText ?? null }),
+    failedRequests.push({ url: request.url(), failure: request.failure()?.errorText ?? null })
   );
   page.on("crash", () =>
-    pageErrors.push({ name: "PageCrash", message: "renderer process crashed", stack: null }),
+    pageErrors.push({ name: "PageCrash", message: "renderer process crashed", stack: null })
   );
   page.on("response", (response) => {
     if (response.status() >= 400)
@@ -391,17 +396,31 @@ try {
   url.searchParams.set("module", oracle.url);
   url.searchParams.set("export", oracle.entry);
   url.searchParams.set("hostBuildId", hostBuildId);
+  url.searchParams.set("features", JSON.stringify(oracle.requiredFeatures ?? []));
+  url.searchParams.set("limits", JSON.stringify(oracle.requiredLimits ?? {}));
   const navigationStartedAt = Date.now();
   const response = await page.goto(url.href, { waitUntil: "load", timeout: Math.min(60_000, timeoutMs) });
   if (!response?.ok())
     throw new Error(`host page navigation failed with status ${response?.status() ?? "no response"}`);
   await page.waitForFunction(() => window.__GPU_ORACLE__?.state === "done", undefined, {
-    timeout: timeoutMs,
+    timeout: timeoutMs
   });
   navigationMs = Date.now() - navigationStartedAt;
   const serialized = await page.evaluate(() => window.__GPU_ORACLE__.json);
   const payload = JSON.parse(serialized);
   staticRequests = [...server.requests];
+  if (buildIdentity) {
+    const { verifyTestBuild } = await import("./test-build.mjs");
+    await verifyTestBuild(repositoryRoot);
+  }
+  if (
+    oracleSha256 !==
+    createHash("sha256")
+      .update(await readFile(join(repositoryRoot, oracle.file)))
+      .digest("hex")
+  ) {
+    throw new Error("oracle source changed during GPU execution");
+  }
   const moduleServed = staticRequests.some((path) => path === new URL(oracle.url, server.origin).pathname);
   const status = payload.status === "passed" && moduleServed ? "passed" : "failed";
   const runFailure = !moduleServed
@@ -412,7 +431,7 @@ try {
     failureKind: runFailure ? "module-not-loaded" : payload.failureKind,
     payload,
     error: runFailure ? { name: "HarnessError", message: runFailure, stack: null } : payload.error,
-    runFailure,
+    runFailure
   });
 } catch (error) {
   // A launch failure carries Chrome's own process log; that log is the only
@@ -437,9 +456,9 @@ try {
     error: {
       name: error?.name ?? "Error",
       message: error?.message ?? String(error),
-      stack: error?.stack ?? null,
+      stack: error?.stack ?? null
     },
-    runFailure: timedOut ? `oracle did not finish within ${timeoutMs} ms` : null,
+    runFailure: timedOut ? `oracle did not finish within ${timeoutMs} ms` : null
   });
 } finally {
   // Reporting and cleanup run below, so --keep-open can show the report first.
@@ -448,11 +467,11 @@ try {
 try {
   printReport(report, {
     json: options.json,
-    consoleLines: report.status === "passed" && !options.verbose ? [] : consoleLines,
+    consoleLines: report.status === "passed" && !options.verbose ? [] : consoleLines
   });
   if (options.keepOpen && page && !page.isClosed()) {
     process.stdout.write(
-      `\n--keep-open: Chrome left open; close the window to exit. Host page: ${page.url()}\n`,
+      `\n--keep-open: Chrome left open; close the window to exit. Host page: ${page.url()}\n`
     );
     await new Promise((resolvePromise) => {
       chromeProcess?.onProcessExit(resolvePromise);

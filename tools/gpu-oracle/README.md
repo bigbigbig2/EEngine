@@ -37,6 +37,8 @@ Exit codes: `0` oracle passed, `1` oracle failed or the run could not complete,
    hide exactly that.
 6. Chrome and the server are closed on every path, including failures.
 
+Engine oracles verify the build:test source/output manifest before and after execution; stale builds fail without rebuilding silently. The registry declares requiredFeatures/requiredLimits, which are negotiated before resources. Missing capability is explicit, and validation errors take precedence over downstream numeric failures. The negative control first checks a normal-depth production result, then must fail specifically on its wrong kernel; an unrelated boundary/environment failure does not validate its sensitivity.
+
 ## Adding an oracle
 
 One line in `registry.mjs`:

@@ -1,6 +1,6 @@
 ---
 id: next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10
-state: current
+state: history
 verifies:
   - OEngine/src
 ---

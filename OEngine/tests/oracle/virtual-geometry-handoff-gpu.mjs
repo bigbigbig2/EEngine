@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { VirtualGeometryMeshletWorkCandidate } from "../../.test-dist/render/MeshletWorkCandidate.js";
 import { packGpuInstanceRecord } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { GPU_COUNTER_BYTE_SIZE } from "../../.test-dist/debug/GpuFrameCounters.js";
+import {
+  GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1,
+  encodeGeometryProductGpuLocationV1
+} from "../../.test-dist/gpu/GeometryProductGpuAbiV1.js";
 
 /** Focused oracle for the production owner; caller supplies an actual GPUDevice. */
 export async function runVirtualGeometryHandoffGpuOracle(device) {
@@ -10,7 +14,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
     const data = typeof bytes === "number" ? null : bytes;
     const value = device.createBuffer({
       size: data?.byteLength ?? bytes,
-      usage: usage | GPUBufferUsage.COPY_DST,
+      usage: usage | GPUBufferUsage.COPY_DST
     });
     if (data) device.queue.writeBuffer(value, 0, data);
     buffers.push(value);
@@ -19,13 +23,31 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
   const heap = new Uint32Array(124);
   // Deliberately nonzero Product group base (3) AND asset-local group base (2).
   // Payload refine ID=3 resolves to global group 6, not assetBegin+3=8.
-  heap.set([1, 1, 1, 124, 16, 32, 36, 68, 72, 84, 112, 120]);
+  heap.set([GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1, 1, 1, 124, 16, 32, 36, 68, 72, 84, 112, 120]);
   heap.set([1, 1, 0, 1, 0, 1, 0, 1, 3, 4, 0, 2, 0, 1], 16);
   heap.set([0, 1, 0, 0], 32);
   heap.set([0, 1, 0, 1, 5, 2], 36 + 18);
   heap.set([0, 0, 8192, 0], 84 + 5 * 4);
   heap.set([1, 0, 8192, 0], 84 + 6 * 4);
-  heap.set([0, 0, 1, 3, 0, 1, 1, 1], 112);
+  // ABI v2 separates geometry and resident positions in the packed slot word.
+  // Inputs use the production codec; draw counts and compacted IDs below remain
+  // independently specified, including rejection of the original stale ABI.
+  for (let slot = 0; slot < 2; slot++) {
+    heap.set(
+      new Uint32Array(
+        encodeGeometryProductGpuLocationV1({
+          bankIndex: 0,
+          slotIndex: slot,
+          residentBankIndex: 0,
+          residentSlotIndex: slot,
+          productGeneration: 1,
+          flags: slot === 0 ? 3 : 1,
+          byteOffset: slot * 262144
+        }).buffer
+      ),
+      112 + slot * 4
+    );
+  }
   heap.set([16 | (3 << 16), 12 << 8, 1 << 16, 0], 120);
   const metadata = buffer(heap);
   const bankBytes = new ArrayBuffer(2 * 262144),
@@ -55,8 +77,8 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
       boundsMin: [-1, -1, -1],
       boundsMax: [1, 1, 1],
       currentObjectToWorld: identity,
-      previousObjectToWorld: identity,
-    }),
+      previousObjectToWorld: identity
+    })
   );
   const viewBytes = new Float32Array(64);
   viewBytes[2] = 10;
@@ -70,17 +92,17 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
     @group(0) @binding(1) var<storage,read_write> destination: array<u32>;
     @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id:vec3u) {
       if(id.x<arrayLength(&source)){destination[id.x]=source[id.x];}
-    }`,
+    }`
   });
   const copy = device.createComputePipeline({
     layout: "auto",
-    compute: { module: copyModule, entryPoint: "main" },
+    compute: { module: copyModule, entryPoint: "main" }
   });
   function capture(encoder, source) {
     const mirror = buffer(source.size, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const read = device.createBuffer({
       size: source.size,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
     });
     buffers.push(read);
     const pass = encoder.beginComputePass();
@@ -91,9 +113,9 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
         layout: copy.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: source } },
-          { binding: 1, resource: { buffer: mirror } },
-        ],
-      }),
+          { binding: 1, resource: { buffer: mirror } }
+        ]
+      })
     );
     pass.dispatchWorkgroups(Math.ceil(source.size / 256));
     pass.end();
@@ -103,7 +125,19 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
   const cases = [];
   try {
     for (const count of [1, 63, 64, 65, 128]) {
-      for (const mode of ["leaf", "missing", "near", "far", "equal", "mixed", "overflow", "invalid"]) {
+      for (const mode of [
+        "leaf",
+        "missing",
+        "near",
+        "far",
+        "equal",
+        "mixed",
+        "overflow",
+        "invalid",
+        "old-abi"
+      ]) {
+        heap[0] =
+          mode === "old-abi" ? GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 - 1 : GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1;
         words[11] = count;
         for (let m = 0; m < count; m++) {
           const at = 16 + m * 12;
@@ -133,7 +167,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
           capacity,
           counterBuffer,
           countersEnabled: false,
-          scene: { instances },
+          scene: { instances }
         });
         // Rebind also exercises the production sampled/unsampled counter seam.
         owner.rebind(prepared, { counterBuffer, countersEnabled: true });
@@ -149,20 +183,20 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
         drawRead.unmap();
         const overflow = mode === "overflow" && count > capacity;
         const expected =
-          mode === "near" || mode === "invalid" || overflow
+          mode === "near" || mode === "invalid" || mode === "old-abi" || overflow
             ? 0
             : mode === "mixed"
               ? Math.ceil(count / 2)
               : count;
         assert.equal(draw[1], expected, `${count}/${mode}: draw count`);
         assert.equal(queue[4], overflow ? count : 0, `${count}/${mode}: overflow`);
-        assert.equal(queue[6], mode === "invalid" ? 1 : 0, `${count}/${mode}: invalid`);
+        assert.equal(queue[6], mode === "invalid" || mode === "old-abi" ? 1 : 0, `${count}/${mode}: invalid`);
         if (expected) {
           const ids = Array.from({ length: expected }, (_, i) => queue[8 + i * 6 + 2] & 127);
           assert.deepEqual(
             ids,
             Array.from({ length: expected }, (_, i) => (mode === "mixed" ? i * 2 : i)),
-            `${count}/${mode}: exact compacted IDs`,
+            `${count}/${mode}: exact compacted IDs`
           );
         }
         owner.release(prepared);

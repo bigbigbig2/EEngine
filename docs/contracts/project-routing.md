@@ -4,7 +4,7 @@ kind: contract
 status: frozen
 owners:
   - platform
-version: 4
+version: 5
 consumers:
   - tools/vibe.mjs
   - AGENTS.md
@@ -16,15 +16,18 @@ validation:
   - node --check tools/vibe.mjs
 state: current
 verifies:
-  - checks
-  - project/domains
+  - tools/vibe.mjs
+  - tools/vibe-acceptance.mjs
+  - tools/vibe-lib.mjs
 ---
 # Project Routing
 
-`project/domains/*.yaml` owns path-to-domain routing. The highest specificity match is the primary owner; ties are reported as ambiguous. The `currentDocs` list points to current source facts under `docs/domains/`. The active Next design and execution plan are separate navigation entries, not current implementation facts.
+`project/domains/*.yaml` owns path-to-domain routing. The highest specificity match is primary; ties are ambiguous. `currentDocs` points to the declared documentation, while the active workstream provides the current slice. Source code remains the implementation authority.
 
-The daily `node tools/vibe.mjs context <path>` command parses only domain and active workstream YAML. It does not load checks, claims, cases, the generated registry, evidence, or the final acceptance runner. A missing or stale acceptance artifact therefore cannot stop coding.
+Daily `node tools/vibe.mjs context <path>` reads domain/workstream navigation without checks, browser registry or evidence. `context --all` explicitly uses the expanded model. Navigation is not permission or proof of implementation.
 
-`node tools/vibe.mjs verify --module` is an explicit large-module close check: engine typecheck, build and optional named targeted tests. It does not infer tests from every changed path and does not create evidence. `node tools/vibe.mjs verify --full` loads the acceptance model for final integration. `context --claims`, `--cases` and `--all`, plus `registry`, `evidence`, `case`, `status` and `doctor`, also explicitly enter that separate model.
+`verify --module` runs engine typecheck/build and only explicitly named targeted tests. `verify --full` currently runs catalog checks and suites; it does not schedule matched browser cases. `registry` generates runtime case input, and `doctor` checks model/registry structure.
 
-`checks/` and `project/claims/` describe formal checks and declarations for acceptance. They do not grant or withhold permission to implement the current module. Unknown runners, case policies and evidence freshness are checked only when the final acceptance model is invoked.
+The claim layer and vibe evidence/status/case commands are retired. Cases run through `validation/src/runner/run-case.mjs`; source/contract relationships remain navigation, not claim policies.
+
+Both context modes use tools/project-navigation.mjs. Renderer design/execution come from the active workstream's authority; missing or historical targets are rejected. Paused workstreams are listed separately from current modules. Navigation remains independent of acceptance artifacts.

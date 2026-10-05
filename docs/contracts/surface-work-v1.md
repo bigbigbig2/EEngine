@@ -19,7 +19,7 @@ invariants:
 validation:
   - node tools/vibe.mjs verify --module
   - node tools/vibe.mjs verify --full
-state: current
+state: history
 verifies:
   - checks
   - project/domains
