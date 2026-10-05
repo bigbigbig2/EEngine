@@ -1,13 +1,12 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import { resolveTextureView } from "../RenderTargetViews.js";
 import { surfaceCellClassifyStageWgsl } from "../../shaders/surface_cell_classify.js";
 import { surfaceCellProductionFactsWgsl } from "../../shaders/surface_cell_production_facts.js";
 import { SURFACE_CELL_LIGHTING_RISK_WGSL } from "../../shaders/surface_cell_lighting_risk.js";
 import { SURFACE_CELL_STATIC_PRODUCT_BOUNDS_WGSL } from "../../shaders/surface_cell_static_product_bounds.js";
 import { SURFACE_CELL_PLANE_COUNT,
-  SURFACE_CELL_TILE_PLAN_BYTES, surfaceCellWorkspaceLayout, surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
+  SURFACE_CELL_TILE_PLAN_BYTES, surfaceCellWorkspaceLayout, surfaceCellWorkspaceWgsl, surfaceCellWorkspaceResetRanges } from "../../gpu/GpuSurfaceCellPlanAbi.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import type { SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 import { SurfaceFrameResources } from "./SurfaceFrameResources.js";
@@ -96,9 +95,9 @@ export class SurfaceCellClassifierPass {
     fieldStore: GpuSurfaceFieldStore | null = null, signalStore: GpuSurfaceSignalStore | null = null) {
     this.scratch = scratch;
     this.coveragePass = new SurfaceCoveragePass(device, scratch);
-    this.radiometry = new SurfaceRadiometryPass(device);
-    this.fieldLookup = new SurfaceFieldLookupPass(device, fieldStore);
-    this.signalLookup = new SurfaceSignalLookupPass(device, signalStore);
+    this.radiometry = new SurfaceRadiometryPass(device, scratch);
+    this.fieldLookup = new SurfaceFieldLookupPass(device, fieldStore, scratch);
+    this.signalLookup = new SurfaceSignalLookupPass(device, signalStore, scratch);
     this.cellSettings = device.createBuffer({ label: "Surface/cell settings", size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     this.factSettings = device.createBuffer({ label: "Surface/cell fact settings", size: 112, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   }
@@ -107,6 +106,7 @@ export class SurfaceCellClassifierPass {
     const tilesX = Math.ceil(input.width / 8), tilesY = Math.ceil(input.height / 8), tiles = tilesX * tilesY;
     const targetCapacity = input.targetCapacity;
     const batchTileCapacity = Math.max(1, Math.floor(targetCapacity / 64));
+    const resetRanges = surfaceCellWorkspaceResetRanges(batchTileCapacity);
     const workspaceLayout = surfaceCellWorkspaceLayout(batchTileCapacity);
     if (workspaceLayout.bytes > this.device.limits.maxStorageBufferBindingSize) {
       throw new RangeError("Surface cell workspace exceeds the negotiated storage binding limit; batch splitting is required");
@@ -174,8 +174,6 @@ export class SurfaceCellClassifierPass {
     let workspace=this.scratch.importBuffer(graph,input.resourceBinding,"Surface/cell plan workspace",batchWorkspaceLayout.bytes,
       GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST);
     let fieldStore!:ResourceId,signalStore!:ResourceId;
-    const makeGroup = (pipeline: GPUComputePipeline, entries: readonly GPUBindGroupEntry[]): GPUBindGroup =>
-      this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries });
     this.radiometry.addToGraph(graph, {
       metadata: input.appearanceMetadata,
       offset: input.publication.surfaceMetadataOffsets.radiometry,
@@ -199,16 +197,16 @@ export class SurfaceCellClassifierPass {
       ]);
       command.writeBuffer(this.factSettings, 0, settings.buffer, 0, settings.byteLength);
       const pass = command.beginComputePass({ label: "Surface/cell publish material constants" }); pass.setPipeline(pipelines!.constants);
-      pass.setBindGroup(1, this.device.createBindGroup({ layout: pipelines!.constants.getBindGroupLayout(1), entries: [
+      pass.setBindGroup(1, this.scratch.obtainBindGroup(pipelines!.constants, 1, [
         { binding: 0, resource: { buffer: this.factSettings } }, { binding: 7, resource: { buffer: resources.get(input.appearanceMetadata) as GPUBuffer } }
-      ] }));
+      ]));
       pass.dispatchWorkgroups(Math.ceil(metadata.directoryCount / 64)); pass.end();
     });
     constants.read(input.appearanceMetadata); constants.write(input.appearanceMetadata);
 
     const bindFactGroups = (pipeline: GPUComputePipeline, resources: { get(id: ResourceId): unknown }, setup: SurfaceCellGeometrySetupProducts): readonly GPUBindGroup[] => {
       const group0: GPUBindGroupEntry[] = [
-        { binding: 0, resource: { buffer: this.cellSettings } }, { binding: 1, resource: resolveTextureView(resources.get(input.visibility)) }, { binding: 2, resource: { buffer: resources.get(workspace) as GPUBuffer } }
+        { binding: 0, resource: { buffer: this.cellSettings } }, { binding: 1, resource: this.scratch.resolveTextureView(resources.get(input.visibility)) }, { binding: 2, resource: { buffer: resources.get(workspace) as GPUBuffer } }
       ];
       const group1: GPUBindGroupEntry[] = [
         { binding: 0, resource: { buffer: this.factSettings } }, { binding: 1, resource: { buffer: resources.get(setup.arena) as GPUBuffer } },
@@ -222,9 +220,9 @@ export class SurfaceCellClassifierPass {
         { binding: 0, resource: { buffer: resources.get(input.lightRecords) as GPUBuffer } }, { binding: 1, resource: { buffer: resources.get(input.clusters.lookup) as GPUBuffer } },
         { binding: 2, resource: { buffer: resources.get(input.clusters.data) as GPUBuffer } }, { binding: 3, resource: { buffer: resources.get(input.clusters.parameters) as GPUBuffer } }
       ];
-      return [this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: group0 }),
-        this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(1), entries: group1 }),
-        this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(2), entries: group2 })];
+      return [this.scratch.obtainBindGroup(pipeline, 0, group0),
+        this.scratch.obtainBindGroup(pipeline, 1, group1),
+        this.scratch.obtainBindGroup(pipeline, 2, group2)];
     };
     let previous = constants;
     let consumed: readonly ResourceId[] = [];
@@ -234,7 +232,10 @@ export class SurfaceCellClassifierPass {
       const tileCount = Math.min(batchTileCapacity, tiles - firstTile);
       const batchReset = graph.add(`Surface/cell batch ${batch} workspace reset`, { firstTile, tileCount }, (_data, resources, context) => {
         const command = context.encoder as ShadeGPUCommandContext;
-        command.gpu_encoder.clearBuffer(resources.get(workspace) as GPUBuffer, 0, batchWorkspaceLayout.bytes);
+        const buffer = resources.get(workspace) as GPUBuffer;
+        for (const [offset, bytes] of resetRanges) {
+          command.gpu_encoder.clearBuffer(buffer, offset, bytes);
+        }
         command.writeBuffer(this.cellSettings, 0, new Uint32Array([input.width, input.height, tilesX, firstTile, tileCount, input.targetCapacity, input.generation, input.diagnosticsEnabled ? 1 : 0]).buffer, 0, 32);
       });
       for (const resource of consumed) { batchReset.read(resource); }

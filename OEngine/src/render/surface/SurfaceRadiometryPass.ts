@@ -3,7 +3,7 @@ import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { LIGHT_DATABASE_READ_WGSL, DIRECTIONAL_LIGHT_DESCRIPTOR,
     POINT_LIGHT_DESCRIPTOR, SPOT_LIGHT_DESCRIPTOR } from "../../gpu/LightDatabase.js";
-import { resolveTextureView } from "../RenderTargetViews.js";
+import type { SurfaceFrameResources } from "./SurfaceFrameResources.js";
 
 /** One current-provider numeric proof, before material publication and lookup.
  * This changes no visible/work count and requires no CPU readback or submit.
@@ -79,8 +79,11 @@ export class SurfaceRadiometryPass {
     private readonly disabledSun: GPUBuffer;
     private readonly disabledTransmittance: GPUTexture;
     private readonly disabledTransmittanceView: GPUTextureView;
+    private readonly settings: GPUBuffer;
 
-    constructor(private readonly device: GPUDevice) {
+    constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources) {
+        this.settings = device.createBuffer({label:"Surface/radiometry settings",size:16,
+            usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
         this.pipeline = device.createComputePipeline({
             label: "Surface/current radiometry envelope",
             layout: "auto",
@@ -113,21 +116,18 @@ export class SurfaceRadiometryPass {
             { kind: "imported" }, this.disabledTransmittanceView);
         const node = graph.add("Surface/current radiometry envelope", input, (_data, resources, context) => {
             const command = context.encoder as ShadeGPUCommandContext;
-            const settings = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 16);
+            const settings = this.settings;
             command.writeBuffer(settings, 0, new Uint32Array([
                 input.offset, input.sun === null ? 0 : 1, 0, 0
             ]).buffer, 0, 16);
-            const group = this.device.createBindGroup({
-                layout: this.pipeline.getBindGroupLayout(0),
-                entries: [
+            const group = this.scratch.obtainBindGroup(this.pipeline, 0, [
                     { binding: 0, resource: { buffer: settings } },
                     { binding: 1, resource: { buffer: resources.get(input.lightRecords) as GPUBuffer } },
                     { binding: 2, resource: { buffer: resources.get(input.clusters) as GPUBuffer } },
                     { binding: 3, resource: { buffer: resources.get(sun) as GPUBuffer } },
-                    { binding: 4, resource: resolveTextureView(resources.get(transmittance)) },
+                    { binding: 4, resource: this.scratch.resolveTextureView(resources.get(transmittance)) },
                     { binding: 5, resource: { buffer: resources.get(input.metadata) as GPUBuffer } }
-                ]
-            });
+                ]);
             const pass = command.beginComputePass({ label: "Surface/current radiometry envelope" });
             pass.setPipeline(this.pipeline);
             pass.setBindGroup(0, group);
@@ -143,6 +143,7 @@ export class SurfaceRadiometryPass {
     }
 
     destroy(): void {
+        this.settings.destroy();
         this.disabledSun.destroy();
         this.disabledTransmittance.destroy();
     }

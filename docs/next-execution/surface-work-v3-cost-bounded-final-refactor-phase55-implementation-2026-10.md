@@ -2,6 +2,8 @@
 
 日期：2026-10-05。起点 Phase5提交 `d5783b95`。状态：实施中、未完成。依据最终设计§8/10/13/17.4、执行计划§8.2及复审准备§5；每个替换单元同时迁移producer与全部直接consumer，无兼容桥。
 
+2026-10-05提交更新：本阶段已提交为`7d267d373e3c0d9fd37b0542095003c6eb6b57b1`。退出检查65项targeted、当前GPU组件/八帧32批poison、原1080p timing/detailed均通过；下方“待提交/实施中”描述提交前核对时点。提交前882份OEngine/validation/showcase文件组合指纹为`610cf43eedfe6b8bf65c95607684110ef9adfdf858b3789ff6532a48009646ba`，清单在`.local/validation/phase55-final-source`。Phase6已开始，最终性能/质量仍未验收。
+
 | 条款/缺口 | producer→产品→全部consumer | 独立预期及正常/边界/失败 | 结构/成本检查 | 本次结果 |
 |---|---|---|---|---|
 | A lazy witness/F02 | Geometry candidate/必要UV point witness/worker union→address及cold→Field hash/equality/support、DomainKey/provider、Signal key、Geometry worker、Store | constant/hit/miss、稀疏dirty、多UV/纹理梯度/非线性CXY、Unknown及memo满；完整身份/精度保留 | N/K/W/G分开；常量不物化field witness，昂贵输入随真正需求增长；同R实际写入 | 24-word identity、18-word UV/12-word Signal witness、setup worker已接线；14语义×3点误差4.77e-7；最终8帧整链通过，空/常量候选和probe为零 |

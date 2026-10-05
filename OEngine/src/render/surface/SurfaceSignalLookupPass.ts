@@ -5,7 +5,7 @@ import type { GpuSurfaceSignalStore } from "../../gpu/GpuSurfaceSignalStore.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import { surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_SIGNAL_LOOKUP_WGSL } from "../../shaders/surface_signal_lookup.js";
-import type { SurfaceResourceBinding } from "./SurfaceFrameResources.js";
+import type { SurfaceResourceBinding, SurfaceFrameResources } from "./SurfaceFrameResources.js";
 
 export interface SurfaceSignalLookupInput {
   readonly workspace: ResourceId;
@@ -31,7 +31,8 @@ export class SurfaceSignalLookupPass {
   private readonly disabledShadow: GPUBuffer;
   private readonly pipelines = new Map<number, GPUComputePipeline>();
 
-  constructor(private readonly device: GPUDevice, private readonly store: GpuSurfaceSignalStore | null) {
+  constructor(private readonly device: GPUDevice, private readonly store: GpuSurfaceSignalStore | null,
+    private readonly scratch: SurfaceFrameResources) {
     this.settings = device.createBuffer({
       label: "Surface/signal lookup settings", size: 64,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST
@@ -71,8 +72,7 @@ export class SurfaceSignalLookupPass {
         data.revisions.shadow, data.revisions.sun, data.shadowEnabled ? 1 : 0, data.sunEnabled ? 1 : 0,
         this.store === null ? 0 : 1, data.diagnostics ? 1 : 0, 0, 0
       ]).buffer, 0, 64);
-      const group = this.device.createBindGroup({
-        layout: pipeline!.getBindGroupLayout(0), entries: [
+      const groupEntries = [
           { binding: 0, resource: { buffer: this.settings } },
           { binding: 1, resource: { buffer: resources.get(data.workspace) as GPUBuffer } },
           { binding: 2, resource: { buffer: resources.get(data.metadata) as GPUBuffer } },
@@ -80,8 +80,8 @@ export class SurfaceSignalLookupPass {
           { binding: 4, resource: { buffer: resources.get(data.store) as GPUBuffer } },
           { binding: 5, resource: { buffer: resources.get(data.sun) as GPUBuffer } },
           { binding: 6, resource: { buffer: resources.get(data.shadowVersion) as GPUBuffer } }
-        ]
-      });
+        ];
+      const group = this.scratch.obtainBindGroup(pipeline!, 0, groupEntries);
       const pass = command.beginComputePass({ label: "Surface/kind-specific signal value lookup" });
       pass.setPipeline(pipeline!);pass.setBindGroup(0, group);pass.dispatchWorkgroupsIndirect(resources.get(data.activeIndirect) as GPUBuffer,0);pass.end();
     });

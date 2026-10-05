@@ -5,7 +5,7 @@ import type { GpuSurfaceFieldStore } from "../../gpu/GpuSurfaceFieldStore.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import { surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
 import { surfaceFieldLookupWgsl } from "../../shaders/surface_field_lookup.js";
-import type { SurfaceResourceBinding } from "./SurfaceFrameResources.js";
+import type { SurfaceResourceBinding, SurfaceFrameResources } from "./SurfaceFrameResources.js";
 
 export interface SurfaceFieldLookupInput {
   readonly workspace: ResourceId;
@@ -37,7 +37,8 @@ export class SurfaceFieldLookupPass {
   private readonly layout: GPUBindGroupLayout;
   private readonly pipelineLayout: GPUPipelineLayout;
 
-  constructor(private readonly device: GPUDevice, private readonly store: GpuSurfaceFieldStore | null) {
+  constructor(private readonly device: GPUDevice, private readonly store: GpuSurfaceFieldStore | null,
+    private readonly scratch: SurfaceFrameResources) {
     this.layout = device.createBindGroupLayout({ label: "Surface/Field candidate and proof layout", entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
@@ -88,7 +89,7 @@ export class SurfaceFieldLookupPass {
             this.store === null ? 0 : 1, data.diagnostics ? 1 : 0, data.width, data.height, 0, 0
           ]).buffer, 0, 48);
         }
-        const group = this.device.createBindGroup({ layout: this.layout, entries: [
+        const groupEntries = [
           { binding: 0, resource: { buffer: this.settings } },
           { binding: 1, resource: { buffer: resources.get(workspace) as GPUBuffer } },
           { binding: 2, resource: { buffer: resources.get(data.metadata) as GPUBuffer } },
@@ -96,7 +97,8 @@ export class SurfaceFieldLookupPass {
           { binding: 4, resource: { buffer: resources.get(data.store) as GPUBuffer } },
           { binding: 5, resource: { buffer: resources.get(args) as GPUBuffer } },
           { binding: 6, resource: { buffer: resources.get(data.geometry) as GPUBuffer } }
-        ] });
+        ];
+        const group = this.scratch.obtainBindGroup(pipelines![stage], 0, groupEntries);
         const pass = command.beginComputePass({ label: `Surface/${stage}` });
         pass.setPipeline(pipelines![stage]);
         pass.setBindGroup(0, group);

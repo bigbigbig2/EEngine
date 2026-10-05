@@ -5,6 +5,25 @@ import {
   GpuBindGroupResourceCache
 } from "../../.test-dist/gpu/GpuBindGroupResourceCache.js";
 
+test("last tuple captures mutable binding ranges and still reuses earlier tuples", () => {
+  const cache = new GpuBindGroupResourceCache();
+  let created = 0;
+  const create = () => ({ id: ++created });
+  const buffer = {};
+  const binding = { buffer, offset: 0, size: 64 };
+  const first = cache.obtain([binding], create);
+  binding.offset = 256;
+  assert.notEqual(cache.obtain([binding], create), first);
+  binding.offset = 0;
+  assert.equal(cache.obtain([binding], create), first);
+  binding.size = 32;
+  assert.notEqual(cache.obtain([binding], create), first);
+  cache.clear();
+  binding.size = 64;
+  assert.notEqual(cache.obtain([binding], create), first);
+  assert.equal(created, 4);
+});
+
 test("bind-group resource tuples canonicalize buffer bindings and resource identity", () => {
   const cache = new GpuBindGroupResourceCache();
   const buffer = { label: "buffer" };

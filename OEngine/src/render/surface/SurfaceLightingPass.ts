@@ -4,7 +4,6 @@ import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandCon
 import { SurfaceFrameResources } from "./SurfaceFrameResources.js";
 import { surfaceLightingWgsl, type SurfaceLightingInput } from "./SurfaceLightingWorkPass.js";
 import type { SurfaceDemandProducts } from "./SurfaceDemandPass.js";
-import { resolveTextureView } from "../RenderTargetViews.js";
 export class SurfaceLightingPass {
     private readonly pipelines = new Map<string, GPUComputePipeline>();
     private readonly layouts: readonly GPUBindGroupLayout[];
@@ -13,6 +12,8 @@ export class SurfaceLightingPass {
     private readonly depth: GPUTexture;
     private readonly transmittance: GPUTexture;
     private readonly sampler: GPUSampler;
+    private readonly depthView: GPUTextureView;
+    private readonly transmittanceView: GPUTextureView;
     constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources) {
         const visibility = GPUShaderStage.COMPUTE;
         const buffer = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEntry => ({ binding, visibility, buffer: { type } });
@@ -29,6 +30,8 @@ export class SurfaceLightingPass {
         this.pages = device.createBuffer({ label: "Surface/disabled shadow pages", size: 32, usage: GPUBufferUsage.STORAGE });
         this.depth = device.createTexture({ label: "Surface/disabled shadow atlas", size: [1, 1], format: "depth32float", usage: GPUTextureUsage.TEXTURE_BINDING });
         this.transmittance = device.createTexture({ label: "Surface/disabled solar transport", size: [1, 1], format: "rgba16float", usage: GPUTextureUsage.TEXTURE_BINDING });
+        this.depthView = this.depth.createView();
+        this.transmittanceView = this.transmittance.createView();
         this.sampler = device.createSampler({ minFilter: "linear", magFilter: "linear" });
     }
     addToGraph(graph: FrameGraph, input: SurfaceLightingInput): {
@@ -46,25 +49,29 @@ export class SurfaceLightingPass {
         const imported = <T extends object>(name: string, resolve: () => T): ResourceId => graph.import_resource(name, { kind: "imported" }, input.resourceBinding(name, resolve));
         const parameters = imported("surface-lighting-disabled-parameters", () => this.parameters);
         const pages = imported("surface-lighting-disabled-pages", () => this.pages);
-        const depth = imported("surface-lighting-disabled-depth", () => this.depth.createView());
-        const transport = imported("surface-lighting-disabled-transport", () => this.transmittance.createView());
+        const depth = imported("surface-lighting-disabled-depth", () => this.depthView);
+        const transport = imported("surface-lighting-disabled-transport", () => this.transmittanceView);
+        const settingsId = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/Lighting settings", 32,
+            GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
+        const viewId = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/Lighting view", 16,
+            GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
         let values = this.scratch.importBuffer(graph, input.resourceBinding, "Surface/unique signal values", signalCapacity * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
         const node = graph.add("Surface/unique dirty Lighting", { input, values }, (data, resources, context) => {
             const command = context.encoder as ShadeGPUCommandContext;
-            const settings = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 32);
-            const view = command.allocateTransientBuffer(GPUBufferUsage.UNIFORM, 16);
+            const settings = resources.get(settingsId) as GPUBuffer;
+            const view = resources.get(viewId) as GPUBuffer;
             command.writeBuffer(settings, 0, new Uint32Array([input.width, input.height, input.constantFieldsOffset, input.shadow === null ? 0 : 1,
                 input.physicalSun === null ? 0 : 1, input.diagnosticsEnabled ? 1 : 0, 0, 0]).buffer, 0, 32);
             command.writeBuffer(view, 0, new Uint32Array([input.width, input.height, input.frame, 0]).buffer, 0, 16);
             const b = (binding: number, id: ResourceId): GPUBindGroupEntry => ({ binding, resource: { buffer: resources.get(id) as GPUBuffer } });
-            const t = (binding: number, id: ResourceId): GPUBindGroupEntry => ({ binding, resource: resolveTextureView(resources.get(id)) });
+        const t = (binding: number, id: ResourceId): GPUBindGroupEntry => ({ binding, resource: this.scratch.resolveTextureView(resources.get(id)) });
             const groups = [
-                this.device.createBindGroup({ layout: this.layouts[0]!, entries: [{ binding: 0, resource: { buffer: settings } }, b(1, input.geometry), b(2, input.fields), b(3, input.demand.fieldStore),
+                this.scratch.obtainBindGroup(pipeline!, 0, [{ binding: 0, resource: { buffer: settings } }, b(1, input.geometry), b(2, input.fields), b(3, input.demand.fieldStore),
                         b(4, input.demand.arena), b(5, input.demand.workspace), b(6, input.appearanceMetadata), b(7, data.values), t(13, input.environment.diffuse), t(14, input.environment.specular), t(15, input.environment.dfg),
-                        b(16, input.physicalSun?.parameters ?? parameters), t(17, input.physicalSun?.transmittance ?? transport), { binding: 18, resource: this.sampler }] }),
-                this.device.createBindGroup({ layout: this.layouts[1]!, entries: [b(0, input.lightRecords), b(2, input.clusters.parameters), b(3, input.clusters.lookup), b(4, input.clusters.data), b(7, input.clusters.activeLightList)] }),
-                this.device.createBindGroup({ layout: this.layouts[2]!, entries: [{ binding: 0, resource: { buffer: view } }, b(1, input.camera)] }),
-                this.device.createBindGroup({ layout: this.layouts[3]!, entries: [b(0, input.shadow?.lightProjection ?? parameters), b(1, input.shadow?.virtualPageTable ?? pages), t(2, input.shadow?.physicalAtlasDepth ?? depth)] })
+                        b(16, input.physicalSun?.parameters ?? parameters), t(17, input.physicalSun?.transmittance ?? transport), { binding: 18, resource: this.sampler }]),
+                this.scratch.obtainBindGroup(pipeline!, 1, [b(0, input.lightRecords), b(2, input.clusters.parameters), b(3, input.clusters.lookup), b(4, input.clusters.data), b(7, input.clusters.activeLightList)]),
+                this.scratch.obtainBindGroup(pipeline!, 2, [{ binding: 0, resource: { buffer: view } }, b(1, input.camera)]),
+                this.scratch.obtainBindGroup(pipeline!, 3, [b(0, input.shadow?.lightProjection ?? parameters), b(1, input.shadow?.virtualPageTable ?? pages), t(2, input.shadow?.physicalAtlasDepth ?? depth)])
             ];
             const pass = command.beginComputePass({ label: "Surface/unique dirty Lighting" });
             pass.setPipeline(pipeline!);
@@ -79,6 +86,8 @@ export class SurfaceLightingPass {
             node.read(resource);
         }
         values = node.write(values);
+        node.write(settingsId);
+        node.write(viewId);
         node.read(input.demand.indirect);
         const arena = node.write(input.demand.arena);
         return { values, demand: { ...input.demand, arena } };

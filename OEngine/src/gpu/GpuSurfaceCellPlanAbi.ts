@@ -93,6 +93,17 @@ struct SurfaceCellWorkspace {
  proof_tiles:array<u32,${tiles*7}>,
 }`;
 }
+/** Payload validity is published by masks/counts. Reset only shared state
+ * that can accumulate or name an optional result before the next batch. */
+export function surfaceCellWorkspaceResetRanges(tiles: number): readonly (readonly [number, number])[] {
+  const layout = surfaceCellWorkspaceLayout(tiles);
+  return Object.freeze([
+    Object.freeze([0, SURFACE_CELL_CONTROL_HEADER_WORDS * 4] as const),
+    Object.freeze([layout.geometryProofs, layout.primitives - layout.geometryProofs] as const),
+    Object.freeze([layout.fieldStoreMasks, layout.demands - layout.fieldStoreMasks] as const),
+    Object.freeze([layout.proofTileCounts, 7 * 4] as const)
+  ]);
+}
 export const SURFACE_CELL_PLAN_MODE = Object.freeze({ empty: 0, publication: 1, fine: 2, grid: 3, masked: 4 });
 export const SURFACE_CELL_SIGNAL = Object.freeze({ directDiffuse: 15, environmentDiffuse: 16,
   directSpecular: 17, environmentSpecular: 18, directCoat: 19, environmentCoat: 20 });

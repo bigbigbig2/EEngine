@@ -24,7 +24,8 @@ test("ADR-0013 Step 7 profiler classifies the production sparse shading stages",
     { label: "Surface/reconstruct batch 0", durationMs: 0.4 }
   ];
 
-  assert.deepEqual(SURFACE_TIMING_PHASES, ["classify", "workFinalize", "materialLookup",
+  assert.deepEqual(SURFACE_TIMING_PHASES, ["classify", "geometrySetup", "cacheMaintenance", "workFinalize", "materialLookup",
+    "signalLookup", "address", "certificate", "demand",
     "geometryLookup", "geometryFinalize", "geometryResolve", "materialFinalize",
     "materialEvaluate", "lighting", "reconstruct"]);
   assert.deepEqual(
@@ -40,6 +41,18 @@ test("ADR-0013 Step 7 profiler classifies the production sparse shading stages",
   );
   assert.equal(classifyGpuFramePhase(segments[0].label), "unclassified");
   assert.equal(classifyGpuFramePhase(segments[8].label), "lighting-and-ibl");
+  const current = [
+    { label: "SurfaceGeometry/build_cell_geometry", durationMs: 1 },
+    { label: "Surface/field Store 1", durationMs: 2 },
+    { label: "Surface/kind-specific signal value lookup", durationMs: 3 },
+    { label: "Surface/canonical field addresses", durationMs: 4 },
+    { label: "Surface/shared geometry certificates", durationMs: 5 },
+    { label: "Surface/emit_surface_requests", durationMs: 6 }
+  ];
+  assert.deepEqual([...surfaceTimingTotalsForFrame(current)], [
+    ["geometrySetup", 1], ["cacheMaintenance", 2], ["signalLookup", 3],
+    ["address", 4], ["certificate", 5], ["demand", 6]
+  ]);
 });
 
 test("ADR-0013 diagnostics labels stay outside production surface timing", () => {

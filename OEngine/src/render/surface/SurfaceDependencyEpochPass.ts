@@ -1,7 +1,7 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import type { SurfaceResourceBinding } from "./SurfaceFrameResources.js";
+import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 import type { GpuSurfaceFieldStore } from "../../gpu/GpuSurfaceFieldStore.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
 import { SURFACE_FIELD_DEPENDENCY_EPOCH_WGSL } from "../../shaders/surface_field_dependency_epoch.js";
@@ -15,7 +15,8 @@ export class SurfaceDependencyEpochPass {
   private readonly disabled: GPUBuffer;
   private readonly pipelines: readonly GPUComputePipeline[];
 
-  constructor(private readonly device: GPUDevice, private readonly store: GpuSurfaceFieldStore | null) {
+  constructor(private readonly device: GPUDevice, private readonly store: GpuSurfaceFieldStore | null,
+    private readonly scratch: SurfaceFrameResources) {
     this.settings=device.createBuffer({label:"Surface/field dependency settings",size:32,
       usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     this.disabled=device.createBuffer({label:"Surface/disabled field dependency witnesses",size:32,usage:GPUBufferUsage.STORAGE});
@@ -43,10 +44,12 @@ export class SurfaceDependencyEpochPass {
     for (const [index,pipeline] of this.pipelines.entries()) {
       const node=graph.add(`Surface/field dependency ${["lookup","reserve","publish","resolve"][index]}`,{},(_data,resources,context) => {
         const command=context.encoder as ShadeGPUCommandContext;
-        if (index === 0) { input.beforeLookup?.(command, fields); }
-        command.writeBuffer(this.settings,0,new Uint32Array([fields,input.publication.surfaceMetadataOffsets.fieldIdentities,
-          input.publication.surfaceMetadataOffsets.fieldTextureDependencies,this.store?.nextSubmissionEpoch ?? 1,
-          sets,this.store===null?0:1,0,0]).buffer,0,32);
+        if (index === 0) {
+          input.beforeLookup?.(command, fields);
+          command.writeBuffer(this.settings,0,new Uint32Array([fields,input.publication.surfaceMetadataOffsets.fieldIdentities,
+            input.publication.surfaceMetadataOffsets.fieldTextureDependencies,this.store?.nextSubmissionEpoch ?? 1,
+            sets,this.store===null?0:1,0,0]).buffer,0,32);
+        }
         const entries: GPUBindGroupEntry[]=[{binding:0,resource:{buffer:this.settings}}];
         if(index!==2) {
           entries.push({binding:1,resource:{buffer:resources.get(metadata) as GPUBuffer}},
@@ -54,7 +57,7 @@ export class SurfaceDependencyEpochPass {
         }
         entries.push({binding:3,resource:{buffer:resources.get(cache) as GPUBuffer}});
         if(index!==3) { entries.push({binding:4,resource:{buffer:resources.get(owners) as GPUBuffer}}); }
-        const group=this.device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries});
+        const group=this.scratch.obtainBindGroup(pipeline,0,entries);
         const pass=command.beginComputePass({label:`Surface/field dependency ${["lookup","reserve","publish","resolve"][index]}`});
         pass.setPipeline(pipeline);pass.setBindGroup(0,group);pass.dispatchWorkgroups(Math.ceil(fields/64));pass.end();
       });

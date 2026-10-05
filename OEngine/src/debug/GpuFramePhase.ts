@@ -147,7 +147,18 @@ const PHASE_RULES: readonly PhaseRule[] = [
   rule("frame", /^frame$/, /renderer\/main/, /main frame/)
 ];
 
+const PHASE_CACHE = new Map<string, GpuFramePhase>();
+
 export function classifyGpuFramePhase(label: string): GpuFramePhase {
+  const cached = PHASE_CACHE.get(label);
+  if (cached !== undefined) { return cached; }
+  const phase = classifyUncachedGpuFramePhase(label);
+  if (PHASE_CACHE.size >= 4096) { PHASE_CACHE.clear(); }
+  PHASE_CACHE.set(label, phase);
+  return phase;
+}
+
+function classifyUncachedGpuFramePhase(label: string): GpuFramePhase {
   const normalized = label.trim().toLocaleLowerCase("en-US");
   if (normalized.length === 0) return "unclassified";
   for (const entry of PHASE_RULES) {

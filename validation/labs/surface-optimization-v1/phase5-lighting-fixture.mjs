@@ -147,7 +147,7 @@ export async function runPhaseFiveLighting(gpu,assert,stage) {
       beginComputePass(options){return encoder.beginComputePass(options);},
       writeBuffer(target,offset,data,start,size){const b=device.createBuffer({size,usage:GPUBufferUsage.COPY_SRC,mappedAtCreation:true});new Uint8Array(b.getMappedRange()).set(new Uint8Array(data,start,size));b.unmap();transients.push(b);encoder.copyBufferToBuffer(b,0,target,offset,size);}};
     scratch=new SurfaceFrameResources(device);scratch.prepare(width,height);
-    lighting=new SurfaceLightingPass(device,scratch);reconstruction=new SurfaceReconstructionPass(device);reconstruction.prepareFrame(width,height,1);
+    lighting=new SurfaceLightingPass(device,scratch);reconstruction=new SurfaceReconstructionPass(device,scratch);reconstruction.prepareFrame(width,height,1);
     const demand={workspace:ids.workspace,arena:ids.arena,indirect:ids.indirect,activeIndirect:ids.indirect,fieldStore:ids.fieldStore,signalStore:ids.signalStore,layout};
     const output=lighting.addToGraph(graph,{resourceBinding:bind,demand,geometry:ids.geometry,fields:ids.fields,appearanceMetadata:ids.metadata,constantFieldsOffset:0,
       width,height,frame:1,camera:imported('camera',camera),physicalSun:null,lightRecords:ids.lights,clusters,shadow:null,scalarAo:null,

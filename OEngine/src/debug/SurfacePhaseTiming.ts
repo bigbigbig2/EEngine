@@ -31,7 +31,20 @@ export interface SurfaceTimingSegment {
  * Maps exact V3 production labels onto stable report phases. Unknown work is
  * deliberately omitted and remains an external interval in the report.
  */
+const SURFACE_PHASE_CACHE = new Map<string, SurfaceTimingPhase | null>();
+
 export function classifySurfaceTimingPhase(
+  segment: Pick<SurfaceTimingSegment, "label" | "phase">
+): SurfaceTimingPhase | null {
+  const cached = SURFACE_PHASE_CACHE.get(segment.label);
+  if (cached !== undefined) { return cached; }
+  const phase = classifyUncachedSurfaceTimingPhase(segment);
+  if (SURFACE_PHASE_CACHE.size >= 4096) { SURFACE_PHASE_CACHE.clear(); }
+  SURFACE_PHASE_CACHE.set(segment.label, phase);
+  return phase;
+}
+
+function classifyUncachedSurfaceTimingPhase(
   segment: Pick<SurfaceTimingSegment, "label" | "phase">
 ): SurfaceTimingPhase | null {
   const label = segment.label.trim().toLocaleLowerCase("en-US");

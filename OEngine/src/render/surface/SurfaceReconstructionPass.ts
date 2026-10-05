@@ -1,12 +1,12 @@
 import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import { resolveTextureView } from "../RenderTargetViews.js";
 import { LINEAR_REC709_TO_REC2020_WGSL } from "../../shaders/working_color.js";
 import { surfaceCellWorkspaceWgsl, SURFACE_CELL_TILE_PLAN_BYTES } from "../../gpu/GpuSurfaceCellPlanAbi.js";
 import { SURFACE_FIELD_REFERENCE_VALUES_WGSL, SURFACE_SIGNAL_REFERENCE_VALUES_WGSL } from "../../shaders/surface_reference_values.js";
 
 import { SURFACE_PACKET_CONTRACT_WGSL } from "../../gpu/GpuSurfaceSignalPacketAbi.js";
+import type { SurfaceFrameResources } from "./SurfaceFrameResources.js";
 
 export const SURFACE_RECONSTRUCT_COUNTER_WORDS = 8;
 export const SURFACE_RECONSTRUCT_COUNTER_BYTES = SURFACE_RECONSTRUCT_COUNTER_WORDS * 4;
@@ -151,13 +151,16 @@ export class SurfaceReconstructionPass {
   private readonly pipelines = new Map<number,GPUComputePipeline>();
   private readonly backgroundPipeline: GPUComputePipeline;
   private readonly settings: GPUBuffer;
+  private readonly backgroundSettings: GPUBuffer;
   private prepared = false;
   private extent: readonly [number, number] = [0, 0];
   private batchPlan = planSurfaceReconstructionBatches(1, 1);
 
-  constructor(private readonly device: GPUDevice) {
+  constructor(private readonly device: GPUDevice, private readonly scratch: SurfaceFrameResources) {
     this.settings = device.createBuffer({ label: "Surface reconstruct settings", size: 48,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+    this.backgroundSettings = device.createBuffer({label:"Surface/background settings",size:16,
+      usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
     this.layout = device.createBindGroupLayout({ entries: [
       { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform", minBindingSize: 48 } },
       { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } },
@@ -240,37 +243,42 @@ export class SurfaceReconstructionPass {
         view.setUint32(36, data.firstTile, true);
         view.setUint32(40, data.scalarAo===null ? 0 : 1, true);
         command.writeBuffer(this.settings, 0, settings, 0, settings.byteLength);
+        let backgroundGroup: GPUBindGroup | undefined;
         if (data.previous === undefined) {
-          const backgroundSettings=command.allocateTransientBuffer(GPUBufferUsage.UNIFORM,16);
+          const backgroundSettings=this.backgroundSettings;
           command.writeBuffer(backgroundSettings,0,new Uint32Array([data.width,data.height,data.diagnosticsEnabled?1:0,0]).buffer,0,16);
-          const backgroundGroup=this.device.createBindGroup({layout:this.backgroundPipeline.getBindGroupLayout(0),entries:[
+          backgroundGroup=this.scratch.obtainBindGroup(this.backgroundPipeline,0,[
             {binding:0,resource:{buffer:backgroundSettings}},
             {binding:1,resource:{buffer:resources.get(data.coverage) as GPUBuffer}},
-            {binding:2,resource:resolveTextureView(resources.get(data.reactive))},
-            {binding:3,resource:resolveTextureView(resources.get(radiance))},
-            {binding:4,resource:resolveTextureView(resources.get(reactiveMask))},
+            {binding:2,resource:this.scratch.resolveTextureView(resources.get(data.reactive))},
+            {binding:3,resource:this.scratch.resolveTextureView(resources.get(radiance))},
+            {binding:4,resource:this.scratch.resolveTextureView(resources.get(reactiveMask))},
             {binding:5,resource:{buffer:countersBuffer}}
-          ]});
-          const background=command.beginComputePass({label:"Surface/background write domain"});
-          background.setPipeline(this.backgroundPipeline);background.setBindGroup(0,backgroundGroup);
-          background.dispatchWorkgroups(Math.ceil(data.width/8),Math.ceil(data.height/8));background.end();
+          ]);
         }
-        const group = this.device.createBindGroup({ layout: this.layout, entries: [
+        const group = this.scratch.obtainBindGroup(pipeline!, 0, [
           { binding: 0, resource: { buffer: this.settings } },
           { binding: 1, resource: { buffer: resources.get(data.signalValues) as GPUBuffer } },
           { binding: 2, resource: { buffer: resources.get(data.signalStore) as GPUBuffer } },
           { binding: 3, resource: { buffer: resources.get(data.fieldStore) as GPUBuffer } },
-          { binding: 4, resource: resolveTextureView(resources.get(data.reactive)) },
+          { binding: 4, resource: this.scratch.resolveTextureView(resources.get(data.reactive)) },
           { binding: 6, resource: { buffer: resources.get(data.preExposure) as GPUBuffer } },
-          { binding: 7, resource: resolveTextureView(resources.get(radiance)) },
-          { binding: 8, resource: resolveTextureView(resources.get(reactiveMask)) },
+          { binding: 7, resource: this.scratch.resolveTextureView(resources.get(radiance)) },
+          { binding: 8, resource: this.scratch.resolveTextureView(resources.get(reactiveMask)) },
           { binding: 9, resource: { buffer: countersBuffer } },
           { binding: 10, resource: { buffer: resources.get(data.cellWorkspace) as GPUBuffer } },
           { binding: 11, resource: { buffer: resources.get(data.fields) as GPUBuffer } },
           { binding: 12, resource: { buffer: resources.get(data.appearanceMetadata) as GPUBuffer } },
           { binding: 13, resource: { buffer: resources.get(data.scalarAo ?? data.preExposure) as GPUBuffer } }
-        ] });
+        ]);
         const pass = command.beginComputePass({ label: `Surface/reconstruct batch ${batch}` });
+        // Coverage owns disjoint background/Surface pixels; neither dispatch reads
+        // the other's output. Both keep the same storage texture usage scope.
+        if (backgroundGroup !== undefined) {
+          pass.setPipeline(this.backgroundPipeline);
+          pass.setBindGroup(0, backgroundGroup);
+          pass.dispatchWorkgroups(Math.ceil(data.width / 8), Math.ceil(data.height / 8));
+        }
         pass.setPipeline(pipeline!); pass.setBindGroup(0, group); pass.dispatchWorkgroupsIndirect(indirect, 0); pass.end();
       }
     });
@@ -305,5 +313,5 @@ export class SurfaceReconstructionPass {
 
   abort(): void { this.prepared = false; }
   invalidate(): void { /* TemporalFacts and FSR3 own temporal validity now. */ }
-  destroy(): void { this.settings.destroy(); }
+  destroy(): void { this.settings.destroy(); this.backgroundSettings.destroy(); this.pipelines.clear(); }
 }

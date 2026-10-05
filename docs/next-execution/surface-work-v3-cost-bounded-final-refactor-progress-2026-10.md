@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-**2026-10-05复审更正：Phase 0–4的实际接线和历史检查保留，但不能概括为全部前置要求完成。当前HEAD为0c8caf30，另有未提交Phase5实现；Phase5未收口。顺序固定为Phase5优先修复并完成合同→必需Phase5.5→Phase6→Phase7。** 逐项缺口、责任和门槛见[复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。不把短诊断当作正式性能验收。
+**2026-10-05当前状态：Phase5提交d5783b95、Phase5.5提交7d267d37；Phase6实现与集中检查完成，待中文提交，Phase7正式验收未开始。** 原复审0c8caf30+dirty身份属于历史起点，不是当前HEAD。逐项缺口、责任和门槛见[复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。不把短诊断当作正式性能验收。
 
 | 阶段 | 状态 |
 |---|---|
@@ -15,8 +15,8 @@
 | Phase 3：Field候选/验证/proof | candidate/支持域/受理已有检查；dense证书结果尚欠，交5.5补齐。历史45 targeted checks/GPU/smoke范围见 [Phase 3记录](surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10.md) |
 | Phase 4：固定Field/Signal层级 | 已完成；52 targeted tests、固定树/parent/provider/source真实GPU组件、两个Store生产链与Showcase短smoke通过；见 [Phase 4记录](surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md) |
 | Phase 5：worker/发布/重建 | 本次实现/集中检查通过；F08/F09、IOR/coat validity和canonical包含性修复；73 targeted、37 demand/Store/support GPU、20 Lighting+4 provider、27-module六帧与1080p smoke通过；身份/限制见Phase5记录 |
-| Phase 5.5：前端物理表示/成本补齐 | 实现与集中检查通过，待提交；lazy witness、typed结果、formula ref、真实planner、proof/cache满、毒值、parent/tree、reconstruct和1080p timing/detailed已通过；Phase6/7未开始，正式性能/质量/生命周期仍未验收 |
-| Phase 6：reset/调度/lifetime | 未开始 |
+| Phase 5.5：前端物理表示/成本补齐 | 已提交7d267d37；lazy witness、typed结果、formula ref、真实planner、proof/cache满、毒值、parent/tree、reconstruct和1080p timing/detailed已通过；正式性能/质量仍未验收 |
+| Phase 6：reset/调度/lifetime | 实现与集中检查完成，待中文提交；87 targeted/build、8帧32poison GPU、10项真实Renderer生命周期及最终无drift/无drop 1080p smoke通过；详见Phase6矩阵 |
 | Phase 7：集中验证/性能比较 | 未开始 |
 
 表内历史实现/检查范围不代表此次复审发现的物理表示要求已经实现；这些要求由5.5明确补齐，旧阶段报告不会被回写成当时已经验证。Phase4 Ddirect未factorize原属Phase5，Geometry cold实际append已接通，不能误报为两者都漏接。
@@ -24,6 +24,8 @@
 2026-10-05本次代码续作覆盖上方复审起点状态：Phase5已按矩阵核对当前producer/consumer并通过集中检查，提交`d5783b95`；Phase5.5实现与集中检查现在同一源码身份通过，待中文提交。详细物理账、GPU矩阵、毒值、proof/cache满、repair迁移和1080p报告见[Phase5.5记录](surface-work-v3-cost-bounded-final-refactor-phase55-implementation-2026-10.md)。短smoke timing GPU pass sum/span/Surface/CPU P50=280.374016/305.376832/269.948416/50.505ms，detailed Surface=275.41536ms；coverage=pass、errors/timestamp/sourceDrift/drop=0。不是Phase7收益或画质验收。固定剩余顺序5.5→6→7。
 
 ## 2026-10-05：复审决定与开工准备
+
+本轮Phase6续作覆盖历史复审起点：当前HEAD7d267d37+dirty，选择性reset、stable BG/view/PSO/ordered uniform、setup scratch owner、合法background/reconstruct合并、resize fence/实际retired预算、namespace abort/retry和fresh device恢复完成。最终timing CPU/GPU pass sum/span/Surface P50=32.160/269.392512/276.222976/258.584928ms；detailed Surface270.899904ms，snapshot32.344896ms单列，coverage/API/timestamp/drop/sourceDrift通过。只作为阶段诊断，完整跨浏览器/连续质量/共同能力历史比较留Phase7，未宣称达成总目标。细节与原始失败映射见[Phase6记录](surface-work-v3-cost-bounded-final-refactor-phase6-implementation-2026-10.md)。
 
 - 保留HEAD/dirty Phase5与各次报告的独立身份。撤回“前置缺口已全部补齐”的笼统状态；历史通过项不转授新工作树。
 - Phase5先修hash未建立owner却进入unique writer的路径，并检查重复key/碰撞/probe耗尽下writers/key≤1；补真实Field lookup/support四pass计时分类与生产名称覆盖，不能只测旧标签。

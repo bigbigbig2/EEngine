@@ -77,6 +77,14 @@ export function surfaceDemandLayout(targets: number, programs: number): SurfaceD
         signalAdmissionCapacity, fieldHashCapacity,
         signalHashCapacity, offsets: Object.freeze(offsets), bytes });
 }
+/** Request/alias/result/queue payload is overwritten inside actual counts.
+ * Empty hash slots and atomic target masks start from the current batch. */
+export function surfaceDemandResetRanges(layout: SurfaceDemandLayout): readonly (readonly [number, number])[] {
+    return Object.freeze([
+        Object.freeze([0, layout.offsets.field_requests!] as const),
+        Object.freeze([layout.offsets.geometry_masks!, layout.targets * 3 * 4] as const)
+    ]);
+}
 export function surfaceDemandArenaWgsl(targets: number, programs: number): string {
     const layout = surfaceDemandLayout(targets, programs);
     return /* wgsl */ `

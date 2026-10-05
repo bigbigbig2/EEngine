@@ -3,6 +3,7 @@ import {surfaceCellWorkspaceLayout} from '../../../OEngine/.test-dist/gpu/GpuSur
 import {FrameGraph,FrameGraphContext,FrameGraphResourceManager} from '../../../OEngine/.test-dist/framegraph/FrameGraph.js';
 import {GPUBufferAllocator} from '../../../OEngine/.test-dist/gpu/GPUBufferAllocator.js';
 import {GPUTextureAllocator} from '../../../OEngine/.test-dist/gpu/GPUTextureAllocator.js';
+import {SurfaceFrameResources} from '../../../OEngine/.test-dist/render/surface/SurfaceFrameResources.js';
 function half(value) {
   const sign=value&0x8000?-1:1,exponent=(value>>10)&31,mantissa=value&1023;
   return sign*(exponent===0?mantissa*2**-24:exponent===31?Infinity:(1+mantissa/1024)*2**(exponent-15));
@@ -45,7 +46,8 @@ export async function runRepairStepOne(gpu,assert,stage=()=>{}) {
     const exposure=buffer(4);device.queue.writeBuffer(exposure,0,new Float32Array([1]));
     const ao=buffer(64),coverage=buffer(48),indirect=buffer(16,GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_DST);
     const facts=texture('rgba8unorm',GPUTextureUsage.TEXTURE_BINDING|GPUTextureUsage.COPY_DST);
-    const reconstruction=new SurfaceReconstructionPass(device);
+    const scratch=new SurfaceFrameResources(device);retained.push(scratch);scratch.prepare(8,8);
+    const reconstruction=new SurfaceReconstructionPass(device,scratch);
     retained.push(reconstruction);
     const allocator=new GPUBufferAllocator(device),textures=new GPUTextureAllocator(device);
     retained.push(allocator,textures);

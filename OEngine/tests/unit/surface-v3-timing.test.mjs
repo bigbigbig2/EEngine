@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { classifySurfaceTimingPhase, surfaceTimingTotalsForFrame } from "../../.test-dist/debug/SurfacePhaseTiming.js";
 import { SurfaceFieldLookupPass } from "../../.test-dist/render/surface/SurfaceFieldLookupPass.js";
+import { SurfaceFrameResources } from "../../.test-dist/render/surface/SurfaceFrameResources.js";
 import '../webgpu-test-globals.mjs';
 
 globalThis.GPUBufferUsage ??= { UNIFORM: 64, STORAGE: 128, COPY_SRC: 4, COPY_DST: 8, INDIRECT: 256 };
@@ -13,7 +14,7 @@ test('current Field lookup encoder labels all contribute to Surface timing', () 
     createBindGroupLayout: descriptor => descriptor,
     createPipelineLayout: descriptor => descriptor,
     createShaderModule: descriptor => descriptor,
-    createComputePipeline: descriptor => descriptor,
+    createComputePipeline: descriptor => ({...descriptor,getBindGroupLayout:index=>descriptor.layout.bindGroupLayouts[index]}),
     createBindGroup: descriptor => descriptor
   };
   const graph = {
@@ -33,7 +34,7 @@ test('current Field lookup encoder labels all contribute to Surface timing', () 
       };
     }
   };
-  const owner = new SurfaceFieldLookupPass(device, null);
+  const owner = new SurfaceFieldLookupPass(device, null, new SurfaceFrameResources(device));
   owner.addToGraph(graph, {
     batchTiles: 1, tileCount: 1, referenceCapacity: 64,
     width: 8, height: 8, viewRevision: { value: 1 }, diagnostics: false,

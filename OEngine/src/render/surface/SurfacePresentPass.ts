@@ -2,6 +2,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import { resolveTextureView } from "../RenderTargetViews.js";
+import { GpuBindGroupResourceCache } from "../../gpu/GpuBindGroupResourceCache.js";
 import { buildHdrDisplayLut, buildSdrDisplayLut, type SdrGradeOptions } from "./DisplayColorGrading.js";
 
 export const SURFACE_PRESENT_WGSL = /* wgsl */ `
@@ -88,10 +89,15 @@ export class SurfacePresentPass {
   private readonly lutView: GPUTextureView;
   private readonly lutSampler: GPUSampler;
   private readonly profile: "sdr" | "hdr";
+  private readonly size: GPUBuffer;
+  private readonly bindings = new GpuBindGroupResourceCache();
+  private readonly debugBindings = new GpuBindGroupResourceCache();
 
   constructor(private readonly device: GPUDevice, format: GPUTextureFormat,
     profile: "sdr" | "hdr" = "sdr") {
     this.profile = profile;
+    this.size = device.createBuffer({ label: "Surface/present size", size: 16,
+      usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
     const lutSize = 32;
     this.lutTexture = device.createTexture({ label: `Presentation/${profile} static display LUT`,
       size: [lutSize, lutSize, lutSize], dimension: "3d",
@@ -151,21 +157,24 @@ export class SurfacePresentPass {
     debug = false): ResourceId {
     const present = graph.add(debug ? "Surface/present debug color" : "Surface/present radiance", {}, (_data, resources, context) => {
       const command = context.encoder as ShadeGPUCommandContext;
-      const size = command.allocateTransientBufferAndLoad(
-        new Uint32Array([width, height, 0, 0]).buffer, GPUBufferUsage.UNIFORM);
-      const bind = debug
-        ? this.device.createBindGroup({ layout: this.debugLayout, entries: [
+      const size = this.size;
+      command.writeBuffer(size, 0, new Uint32Array([width, height, 0, 0]).buffer, 0, 16);
+      const entries: GPUBindGroupEntry[] = debug
+        ? [
           { binding: 0, resource: resolveTextureView(resources.get(input)) },
           { binding: 1, resource: { buffer: size } }
-        ] })
-        : this.device.createBindGroup({ layout: this.layout, entries: [
+        ]
+        : [
           { binding: 0, resource: resolveTextureView(resources.get(input)) },
           { binding: 1, resource: { buffer: size } },
           { binding: 2, resource: { buffer: resources.get(exposure) as GPUBuffer } },
           { binding: 3, resource: this.lutView },
           { binding: 4, resource: this.lutSampler },
           { binding: 5, resource: { buffer: resources.get(preExposure) as GPUBuffer } }
-        ] });
+        ];
+      const layout = debug ? this.debugLayout : this.layout;
+      const bind = (debug ? this.debugBindings : this.bindings).obtain(entries.map(entry => entry.resource),
+        () => this.device.createBindGroup({ layout, entries }));
       const pass = command.beginRenderPass({ label: debug ? "Surface/present debug color" : "Surface/present radiance",
         colorAttachments: [{ view: resolveTextureView(resources.get(swapchain)),
           loadOp: "clear", storeOp: "store", clearValue: { r: 0, g: 0, b: 0, a: 1 } }] });
@@ -177,5 +186,5 @@ export class SurfacePresentPass {
     return swapchain;
   }
 
-  destroy(): void { this.lutTexture.destroy(); }
+  destroy(): void { this.lutTexture.destroy(); this.size.destroy(); this.bindings.clear(); this.debugBindings.clear(); }
 }

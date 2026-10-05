@@ -20,7 +20,6 @@ import { SurfaceStorePublishPass } from "./SurfaceStorePublishPass.js";
 import { SurfaceDependencyEpochPass } from "./SurfaceDependencyEpochPass.js";
 import type { SurfaceDemandInput } from "./SurfaceDemandPass.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
-import { resolveTextureView } from "../RenderTargetViews.js";
 export interface SurfaceWorkFrame {
     readonly generation: number;
     readonly arenaHeaderOffset: number;
@@ -64,10 +63,10 @@ export class SurfaceWorkRuntime {
         this.classifier = new SurfaceCellClassifierPass(device, this.scratch, fieldStore, signalStore);
         this.demand = new SurfaceDemandPass(device, this.scratch);
         this.geometry = new SurfaceGeometryPass(device, this.scratch);
-        this.reconstruction = new SurfaceReconstructionPass(device);
+        this.reconstruction = new SurfaceReconstructionPass(device, this.scratch);
         this.lighting = new SurfaceLightingPass(device, this.scratch);
-        this.publisher = new SurfaceStorePublishPass(device);
-        this.dependencyEpoch = new SurfaceDependencyEpochPass(device, fieldStore);
+        this.publisher = new SurfaceStorePublishPass(device, this.scratch);
+        this.dependencyEpoch = new SurfaceDependencyEpochPass(device, fieldStore, this.scratch);
         this.diagnostics = new SurfaceDiagnosticsPass(device, (command, source, frameId) => {
             const capture=this.capture;
             if (capture===null || this.mode!=="detailed" || command.gpu_encoder===undefined) {
@@ -85,7 +84,12 @@ export class SurfaceWorkRuntime {
         if (this.destroyed || this.prepared) {
             throw new Error("SurfaceWork frame is already prepared");
         }
-        this.capacity=planSurfaceOptimizationCapacity(width,height,this.device.limits);
+        if (this.capacity === null || this.capacity.width !== width || this.capacity.height !== height) {
+            this.capacity=planSurfaceOptimizationCapacity(width,height,this.device.limits);
+        }
+        if (!this.scratch.canPrepare(width, height, this.capacity.ledger.scratchBytes)) {
+            throw new Error("Surface resize must wait for submitted scratch retirement before preparing a frame");
+        }
         this.scratch.prepare(width,height);
         this.reconstruction.prepareFrame(width,height,this.capacity.batchTileCapacity);
         this.fieldStore?.preparePublication(publicationGeneration);
@@ -93,6 +97,11 @@ export class SurfaceWorkRuntime {
         this.prepared=true;
     }
     capacityEvidence(): SurfaceOptimizationCapacity | null { return this.capacity; }
+    canPrepareFrame(width: number, height: number): boolean {
+        const capacity = this.capacity?.width === width && this.capacity.height === height ? this.capacity :
+            planSurfaceOptimizationCapacity(width, height, this.device.limits);
+        return this.scratch.canPrepare(width, height, capacity.ledger.scratchBytes);
+    }
     setDiagnosticsMode(mode: SurfaceDiagnosticsMode): void {
         if (this.prepared) { throw new Error("Cannot change Surface diagnostics mode during a frame"); }
         this.mode=mode;
@@ -197,7 +206,7 @@ export class SurfaceWorkRuntime {
                 setup: cells.setup,width: input.width,height:input.height });
             let fields = this.scratch.importBuffer(graph, input.historyBinding, "Surface/unique field values", demand.layout.fieldCapacity * 16, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
             const material = graph.add("Surface/unique missing Appearance fields", { geometry: geometry.records, demand, fields }, (data, resources, context) => {
-                const banks = input.textureBanks.map(set => set.map(id => resolveTextureView(resources.get(id))));
+                const banks = input.textureBanks.map(set => set.map(id => this.scratch.resolveTextureView(resources.get(id))));
                 input.publication.encodeSurfaceFields(context.encoder as ShadeGPUCommandContext, {
                     geometry: resources.get(data.geometry) as GPUBuffer, demand: resources.get(data.demand.arena) as GPUBuffer,
                     indirect:resources.get(data.demand.indirect) as GPUBuffer,

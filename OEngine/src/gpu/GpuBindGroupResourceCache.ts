@@ -21,6 +21,8 @@ export class GpuBindGroupResourceCache {
   private root = createNode<GPUBindGroup>();
   private requestCount = 0;
   private creationCount = 0;
+  private lastResources: readonly GPUBindingResource[] = [];
+  private lastValue: GPUBindGroup | undefined;
 
   obtain(
     resources: readonly GPUBindingResource[],
@@ -30,14 +32,30 @@ export class GpuBindGroupResourceCache {
       throw new RangeError("Bind-group resource cache requires at least one resource");
     }
     this.requestCount++;
-    let node = this.root;
-    for (const key of resourceTupleKeys(resources)) {
-      node = childNode(node, key);
+    if (this.lastValue !== undefined && equalResourceTuples(resources, this.lastResources)) {
+      return this.lastValue;
     }
-    if (node.value !== undefined) return node.value;
-    const value = create();
-    node.value = value;
-    this.creationCount++;
+    let node = childNode(this.root, resources.length);
+    for (const resource of resources) {
+      if (isGpuBufferBinding(resource)) {
+        node = childNode(node, "buffer");
+        node = childNode(node, resource.buffer);
+        node = childNode(node, resource.offset ?? 0);
+        node = childNode(node, resource.size ?? -1);
+      } else {
+        node = childNode(node, "resource");
+        node = childNode(node, resource);
+      }
+    }
+    let value = node.value;
+    if (value === undefined) {
+      value = create();
+      node.value = value;
+      this.creationCount++;
+    }
+    this.lastResources = resources.map(resource => isGpuBufferBinding(resource)
+      ? { buffer: resource.buffer, offset: resource.offset ?? 0, size: resource.size } : resource);
+    this.lastValue = value;
     return value;
   }
 
@@ -50,21 +68,23 @@ export class GpuBindGroupResourceCache {
 
   clear(): void {
     this.root = createNode<GPUBindGroup>();
+    this.lastResources = [];
+    this.lastValue = undefined;
   }
 }
 
-function resourceTupleKeys(
-  resources: readonly GPUBindingResource[]
-): readonly (object | PrimitiveKey)[] {
-  const keys: (object | PrimitiveKey)[] = [resources.length];
-  for (const resource of resources) {
-    if (isGpuBufferBinding(resource)) {
-      keys.push("buffer", resource.buffer as object, resource.offset ?? 0, resource.size ?? -1);
-    } else {
-      keys.push("resource", resource as object);
+function equalResourceTuples(first: readonly GPUBindingResource[], second: readonly GPUBindingResource[]): boolean {
+  if (first.length !== second.length) { return false; }
+  for (let index = 0; index < first.length; index++) {
+    const a = first[index]!, b = second[index]!;
+    if (isGpuBufferBinding(a)) {
+      if (!isGpuBufferBinding(b) || a.buffer !== b.buffer || (a.offset ?? 0) !== (b.offset ?? 0) ||
+          (a.size ?? -1) !== (b.size ?? -1)) { return false; }
+    } else if (a !== b) {
+      return false;
     }
   }
-  return keys;
+  return true;
 }
 
 function isGpuBufferBinding(resource: GPUBindingResource): resource is GPUBufferBinding {

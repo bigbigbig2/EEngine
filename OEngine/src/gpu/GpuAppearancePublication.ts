@@ -19,6 +19,7 @@ import { APPEARANCE_FIELD_NAMES } from "./GpuAppearanceFieldAbi.js";
 import { appearanceInputLayout, appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
 import { appearanceCoverageKernel, COVERAGE_DIRECTORY_STRIDE } from "../shaders/appearance_coverage.js";
 import { ShadeTransparencyMode } from "../material/enums.js";
+import { GpuBindGroupResourceCache } from "./GpuBindGroupResourceCache.js";
 import { lowerAppearanceFieldBounds, type AppearanceFieldBoundProgram } from "../shaders/appearance_field_bounds.js";
 import { packSurfaceAppearanceBounds } from "./GpuSurfaceAppearanceBoundsAbi.js";
 import { publishSurfaceFieldIdentities, SURFACE_FIELD_IDENTITY_WORDS, SURFACE_FIELD_EXECUTION_PROFILE_WORD } from "./GpuSurfaceFieldIdentityAbi.js";
@@ -122,6 +123,10 @@ export class GpuAppearancePublication {
   private readonly samplers: readonly GPUSampler[];
   private readonly productSampler: GPUSampler;
   private surfacePipelines: readonly Awaited<AppearanceProgramLease["ready"]>[] | null = null;
+  private readonly surfaceSettings: GPUBuffer[] = [];
+  private readonly surfaceBindings = new Map<GPUBindGroupLayout, GpuBindGroupResourceCache>();
+  private readonly surfaceEmptyBindings = new Map<GPUBindGroupLayout, GPUBindGroup>();
+  private readonly surfaceProductViews = new WeakMap<GPUTexture, GPUTextureView>();
   private constantValues!: Float32Array<ArrayBuffer>;
   private inputValues!: Float32Array<ArrayBuffer>;
   private fieldWords!: Uint32Array<ArrayBuffer>;
@@ -434,6 +439,15 @@ export class GpuAppearancePublication {
       this.fieldDependencies = fieldDependencies;
        this.entries = Object.freeze(entries);
        this.surfaceProgramCount = surfaceDescriptors.length;
+       for (let program = 0; program < this.surfaceProgramCount; program++) {
+         const label = `GpuAppearancePublication/Surface settings ${program}`;
+         const settings = device.createBuffer({ label, size: 32,
+           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+         this.buffers.push(settings);
+         this.surfaceSettings.push(settings);
+         if (accounting !== undefined) { this.accountingHandles.push(accounting.created({
+           kind: "buffer", category: "resident", owner: "GpuAppearancePublication", label, bytes: 32 })); }
+       }
        this.surfaceBoundPrograms = Object.freeze(boundPrograms);
        this.surfaceMaxInputVectors = Math.max(1, ...surfaceKernels.map(kernel => kernel.inputVectorCount));
        this.surfaceMaxOutputs = Math.max(1, ...surfaceKernels.map(kernel => kernel.lowered.outputCount));
@@ -541,13 +555,13 @@ export class GpuAppearancePublication {
     for (let programIndex=0;programIndex<pipelines.length;programIndex++) {
       const entry=this.entries.find(candidate=>candidate.programIndex===programIndex);
       if (!entry) continue;
-      const settings=command.allocateTransientBuffer(GPUBufferUsage.UNIFORM,32);
+      const settings=this.surfaceSettings[programIndex]!;
       command.writeBuffer(settings,0,new Uint32Array([
         programIndex,offsets.programs!/4,offsets.ordered_material_queue!/4,offsets.material_masks!/4,
         0,this.surfaceMetadataOffsets.directory,this.surfaceMetadataOffsets.runtimeInputs,offsets.material_entries!/4
       ]).buffer,0,32);
       const ready=pipelines[programIndex]!;
-      const group0=this.device.createBindGroup({layout:ready.layouts[0]!,entries:[
+      const group0=this.obtainSurfaceBindGroup(ready.layouts[0]!,[
         {binding:0,resource:{buffer:this.constants}},
         {binding:1,resource:{buffer:this.routes}},
         {binding:2,resource:{buffer:input.geometry}},
@@ -555,7 +569,7 @@ export class GpuAppearancePublication {
         {binding:4,resource:{buffer:this.surfaceMetadata}},
         {binding:5,resource:{buffer:input.values}},
         {binding:6,resource:{buffer:settings}}
-      ]});
+      ]);
       const groups: GPUBindGroup[] = [group0];
       const textureLayout = ready.layouts[1];
       const textureDescriptors = entry.kernel.descriptor.groups[1] ?? [];
@@ -572,22 +586,44 @@ export class GpuAppearancePublication {
             textureEntries.push({ binding: descriptor.binding, resource: this.samplers[samplerIndex]! });
           }
         }
-        groups.push(this.device.createBindGroup({ layout: textureLayout, entries: textureEntries }));
+        groups.push(this.obtainSurfaceBindGroup(textureLayout, textureEntries));
       }
       const productLayout = ready.layouts[2];
       if (productLayout) {
-        const productEntries: GPUBindGroupEntry[] = entry.productTextures.map((texture, binding) => ({
-          binding, resource: texture.createView({ dimension: "2d-array" })
-        }));
+        const productEntries: GPUBindGroupEntry[] = entry.productTextures.map((texture, binding) => {
+          let view = this.surfaceProductViews.get(texture);
+          if (view === undefined) {
+            view = texture.createView({ dimension: "2d-array" });
+            this.surfaceProductViews.set(texture, view);
+          }
+          return { binding, resource: view };
+        });
         if (entry.productTextures.length > 0) productEntries.push({ binding: entry.productTextures.length,
           resource: this.productSampler });
-        groups.push(this.device.createBindGroup({ layout: productLayout, entries: productEntries }));
+        groups.push(this.obtainSurfaceBindGroup(productLayout, productEntries));
       }
       const pass = command.beginComputePass({ label: `Surface/material publication kernel ${programIndex}` });
       pass.setPipeline(ready.pipeline); groups.forEach((group, index) => pass.setBindGroup(index, group));
       pass.dispatchWorkgroupsIndirect(input.indirect, offsets.programs! + programIndex * 32);
       pass.end();
     }
+  }
+
+  private obtainSurfaceBindGroup(layout: GPUBindGroupLayout, entries: readonly GPUBindGroupEntry[]): GPUBindGroup {
+    if (entries.length === 0) {
+      let group = this.surfaceEmptyBindings.get(layout);
+      if (group === undefined) {
+        group = this.device.createBindGroup({ layout, entries });
+        this.surfaceEmptyBindings.set(layout, group);
+      }
+      return group;
+    }
+    let cache = this.surfaceBindings.get(layout);
+    if (cache === undefined) {
+      cache = new GpuBindGroupResourceCache();
+      this.surfaceBindings.set(layout, cache);
+    }
+    return cache.obtain(entries.map(entry => entry.resource), () => this.device.createBindGroup({ layout, entries }));
   }
 
   evidence(): Readonly<{ allocatedBytes: number; residentBytes: number; retiringBytes: number; stagingBytes: number }> {
@@ -622,6 +658,8 @@ export class GpuAppearancePublication {
     this.unwatchRegistry = null;
     this.cancelReadiness(new Error("Appearance publication cancelled or destroyed"));
     this.surfacePipelines = null;
+    this.surfaceBindings.clear();
+    this.surfaceEmptyBindings.clear();
     for (const buffer of this.buffers) buffer.destroy();
     for (const handle of this.accountingHandles) this.accounting?.destroyed(handle);
     for (const lease of this.surfaceLeases) lease.release();

@@ -70,11 +70,14 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  const poisonWord=0x7fc00000,poisonLayout=surfaceCellWorkspaceLayout(2);
  const poison=buffer(new Uint32Array(poisonLayout.bytes/4).fill(poisonWord),GPUBufferUsage.COPY_SRC|GPUBufferUsage.COPY_DST);
  let poisonResets=0;
+ const clearRanges=[];
  const createEncoder=()=>{
    const encoder=device.createCommandEncoder(),clear=encoder.clearBuffer.bind(encoder);
    if(options.phase5)encoder.clearBuffer=(target,offset=0,size)=>{
      clear(target,offset,size);
+     clearRanges.push({label:target.label,offset,bytes:size??target.size-offset});
      if(target.label!=='Surface/cell plan workspace')return;
+     if(offset!==0)return;
      poisonResets++;
      // Poison only cold payload. Authoritative maps, masks and counters retain
      // their production reset. A consumer that bypasses validity cannot obtain
@@ -161,11 +164,11 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  const fieldStore=options.fieldStore?new GpuSurfaceFieldStore(device,8*1024**2+16*256):null;
  const signalStore=options.signalStore?new GpuSurfaceSignalStore(device,256*352):null;
  const classifier=new SurfaceCellClassifierPass(device,scratch,fieldStore,signalStore);
- const dependency=options.fieldStore?new SurfaceDependencyEpochPass(device,fieldStore):null;
+ const dependency=options.fieldStore?new SurfaceDependencyEpochPass(device,fieldStore,scratch):null;
  const demandOwner=new SurfaceDemandPass(device,scratch);
  const lightingOwner=new SurfaceLightingPass(device,scratch);
- const publishOwner=new SurfaceStorePublishPass(device);
- const reconstructOwner=new SurfaceReconstructionPass(device);reconstructOwner.prepareFrame(width,height,2);
+ const publishOwner=new SurfaceStorePublishPass(device,scratch);
+ const reconstructOwner=new SurfaceReconstructionPass(device,scratch);reconstructOwner.prepareFrame(width,height,2);
  retained.push({destroy(){classifier.destroy();fieldStore?.destroy();signalStore?.destroy();dependency?.destroy();geometryOwner.destroy();demandOwner.destroy();lightingOwner.destroy();publishOwner.destroy();reconstructOwner.destroy();scratch.destroy();}});
  const fieldValueBuffers=[];
  const ids=Object.fromEntries(Object.entries(geometryInputs).map(([name,value])=>[name,imported(name,value)]));
@@ -484,6 +487,9 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
  assert.equal(allocated('Surface/proof family indirect')[0].bytes,112);
  assert.equal(allocated('Surface/unique GeometryRecord').length,1,'All batches consume one complete physical record pool');
  assert.equal(allocated('Surface/unique GeometryRecord')[0].bytes,128*656);
+ report.clearRanges=clearRanges;
+ report.bindings=scratch.bindingEvidence();
+ assert.ok(report.bindings.creations<report.bindings.requests,'Stable resource tuples reuse native bind groups');
  report.allocations={scratch:scratch.physicalBytes(),surface:owned,allocator:allocator.evidence(),
    all:actualAllocations};
  if(options.phase5){assert.equal(poisonResets,32,'Every actual production batch payload was poisoned');report.poisonedBatchResets=poisonResets;}

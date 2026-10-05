@@ -3,6 +3,7 @@ import test from "node:test";
 import "../webgpu-test-globals.mjs";
 import { FrameGraph, FrameGraphContext } from "../../.test-dist/framegraph/FrameGraph.js";
 import { planSurfaceReconstructionBatches, SurfaceReconstructionPass } from "../../.test-dist/render/surface/SurfaceReconstructionPass.js";
+import { SurfaceFrameResources } from "../../.test-dist/render/surface/SurfaceFrameResources.js";
 
 globalThis.GPUBufferUsage ??= { UNIFORM: 1, COPY_DST: 2, STORAGE: 4, COPY_SRC: 8 };
 
@@ -25,7 +26,7 @@ test("Surface reconstruct consumes independent FieldRef/SignalRef and TemporalFa
     writeBuffer() {},
     beginComputePass: () => ({ setPipeline() {}, setBindGroup() {}, dispatchWorkgroups() {},
       dispatchWorkgroupsIndirect() {}, end() {} }) };
-  const owner = new SurfaceReconstructionPass(device);
+  const owner = new SurfaceReconstructionPass(device, new SurfaceFrameResources(device));
   owner.prepareFrame(4, 2, 1);
   const graph = new FrameGraph("Surface independent reconstruct");
   const texture = { createView: () => ({}) };

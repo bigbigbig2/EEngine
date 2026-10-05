@@ -1312,6 +1312,7 @@ export class Renderer {
     // A healthy device may defer this tick. No graph/resources/history are
     // advanced until one of the two submitted frames has completed.
     if (!this._frameCoordinator.canBeginFrame) return true;
+    if (!this._surfaceWork.canPrepareFrame(this._render_resolution.x, this._render_resolution.y)) return true;
     const runtime = this._graphics.render_world_if_created?.runtime(scene);
     if (!runtime) {
       if (scene.instance_count !== 0) throw new Error("Scene has no GPU Render World publication");

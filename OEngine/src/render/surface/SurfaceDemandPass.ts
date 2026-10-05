@@ -2,7 +2,7 @@ import type { FrameGraph } from "../../framegraph/FrameGraph.js";
 import type { ResourceId } from "../../framegraph/ResourceHandle.js";
 import type { ShadeGPUCommandContext } from "../../framegraph/ShadeGPUCommandContext.js";
 import type { GpuAppearancePublication } from "../../gpu/GpuAppearancePublication.js";
-import { surfaceDemandLayout, type SurfaceDemandLayout } from "../../gpu/GpuSurfaceDemandAbi.js";
+import { surfaceDemandLayout, surfaceDemandResetRanges, type SurfaceDemandLayout } from "../../gpu/GpuSurfaceDemandAbi.js";
 import { surfaceDemandWgsl } from "../../shaders/surface_demand.js";
 import { SurfaceFrameResources, type SurfaceResourceBinding } from "./SurfaceFrameResources.js";
 export interface SurfaceDemandProducts {
@@ -67,6 +67,7 @@ export class SurfaceDemandPass {
             throw new RangeError("Surface publication exceeds the negotiated 256 program profile");
         }
         const layout = surfaceDemandLayout(input.targets, programs);
+        const resetRanges = surfaceDemandResetRanges(layout);
         if (input.leaves > input.targets || layout.bytes > Math.min(this.device.limits.maxStorageBufferBindingSize, Number(this.device.limits.maxBufferSize))) {
             throw new RangeError("Surface demand arena exceeds its complete negotiated batch profile");
         }
@@ -98,11 +99,15 @@ export class SurfaceDemandPass {
         const indirectBytes=layout.offsets.programs!+programs*32;
         let indirect=this.scratch.importBuffer(graph,input.bind,"Surface/actual demand indirect",indirectBytes,
             GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_DST);
-        let settings!: ResourceId;
+        let settings = this.scratch.importBuffer(graph, input.bind, "Surface/actual demand settings", 96,
+            GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
         let workspace = input.workspace;
         const reset = graph.add("Surface/actual demand reset", { arena, input }, (data, resources, context) => {
             const command = context.encoder as ShadeGPUCommandContext;
-            command.gpu_encoder.clearBuffer(resources.get(data.arena) as GPUBuffer);
+            const buffer = resources.get(data.arena) as GPUBuffer;
+            for (const [offset, bytes] of resetRanges) {
+                command.gpu_encoder.clearBuffer(buffer, offset, bytes);
+            }
             const offsets = data.input.publication.surfaceMetadataOffsets;
             command.writeBuffer(resources.get(settings) as GPUBuffer, 0, new Uint32Array([
                 offsets.fieldIdentities, offsets.constantFields, data.input.leaves, 0,
@@ -114,15 +119,14 @@ export class SurfaceDemandPass {
             ]).buffer, 0, 96);
         });
         arena = reset.write(arena);
-        settings = reset.create("Surface/actual demand settings", { kind: "transient_buffer", size: 96,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST, domain: "internal-full" });
+        settings = reset.write(settings);
         reset.read(workspace);
         let previous = reset;
         for (const [index, [entryPoint, indirectWord]] of STAGES.entries()) {
             const pipeline = pipelines[index]!;
             const node = graph.add(`Surface/${entryPoint}`, { arena, workspace,indirect }, (data, resources, context) => {
                 const command = context.encoder as ShadeGPUCommandContext;
-                const group = this.device.createBindGroup({ layout: pipeline.getBindGroupLayout(0), entries: [
+                const group = this.scratch.obtainBindGroup(pipeline, 0, [
                         { binding: 0, resource: { buffer: resources.get(settings) as GPUBuffer } },
                         { binding: 1, resource: { buffer: resources.get(data.workspace) as GPUBuffer } },
                         { binding: 2, resource: { buffer: resources.get(input.metadata) as GPUBuffer } },
@@ -130,7 +134,7 @@ export class SurfaceDemandPass {
                         { binding: 4, resource: { buffer: resources.get(data.arena) as GPUBuffer } },
                         { binding: 5, resource: { buffer: resources.get(sun) as GPUBuffer } },
                         { binding: 6, resource: { buffer: resources.get(shadow) as GPUBuffer } }
-                    ] });
+                    ]);
                 const pass = command.beginComputePass({ label: `Surface/${entryPoint}` });
                 pass.setPipeline(pipeline);
                 pass.setBindGroup(0, group);

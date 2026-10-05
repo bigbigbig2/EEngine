@@ -105,7 +105,7 @@ export class SurfaceCellGeometrySetup {
         const group1:GPUBindGroupEntry[]=[{binding:2,resource:{buffer:resources.get(counts) as GPUBuffer}}];
         if(stage!=="finalize_cell_geometry")group1.push({binding:0,resource:{buffer:resources.get(arena) as GPUBuffer}});
         if(stage==="request_cell_geometry") {
-          group1.push({binding:3,resource:resolveTextureView(resources.get(data.visibility))});
+          group1.push({binding:3,resource:this.scratch?.resolveTextureView(resources.get(data.visibility)) ?? resolveTextureView(resources.get(data.visibility))});
           group1.push({binding:5,resource:{buffer:resources.get(data.workspace) as GPUBuffer}});
         }
         if (stage === "reset_cell_geometry" || stage === "build_cell_geometry" ||
@@ -114,8 +114,13 @@ export class SurfaceCellGeometrySetup {
         }
         if(stage==="finalize_cell_geometry")group1.push({binding:4,resource:{buffer:resources.get(indirect) as GPUBuffer}});
         const compute=command.beginComputePass({label:`SurfaceGeometry/${stage}`});compute.setPipeline(pipeline);
-        compute.setBindGroup(0,this.device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:group0}));
-        compute.setBindGroup(1,this.device.createBindGroup({layout:pipeline.getBindGroupLayout(1),entries:group1}));
+        if (this.scratch !== null) {
+          compute.setBindGroup(0, this.scratch.obtainBindGroup(pipeline, 0, group0));
+          compute.setBindGroup(1, this.scratch.obtainBindGroup(pipeline, 1, group1));
+        } else {
+          compute.setBindGroup(0,this.device.createBindGroup({layout:pipeline.getBindGroupLayout(0),entries:group0}));
+          compute.setBindGroup(1,this.device.createBindGroup({layout:pipeline.getBindGroupLayout(1),entries:group1}));
+        }
         if(stage==="build_cell_geometry" || stage==="publish_cell_geometry_memo" || stage==="commit_cell_geometry_memo")compute.dispatchWorkgroupsIndirect(resources.get(indirect) as GPUBuffer,0);
         else if(stage==="request_cell_geometry") { compute.dispatchWorkgroupsIndirect(resources.get(data.activeIndirect) as GPUBuffer,0); }
         else compute.dispatchWorkgroups(stage==="reset_cell_geometry"?Math.ceil(referenceCapacity/64):1);
@@ -131,10 +136,21 @@ export class SurfaceCellGeometrySetup {
           memo = pass.write(memo);
         }
         const storage=GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_SRC;
-        arena=pass.create("Surface cell primitive setups and explicit references",{kind:"transient_buffer",size:capacity.referenceBytes+setupCapacity*SURFACE_CELL_GEOMETRY_SETUP_BYTES,usage:storage});
-        counts=pass.create("Surface cell geometry counters",{kind:"transient_buffer",size:32,usage:storage});
-        settings=pass.create("Surface cell geometry settings",{kind:"transient_buffer",size:SURFACE_CELL_GEOMETRY_SETTINGS_BYTES,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
-        indirect=pass.create("Surface cell geometry indirect",{kind:"transient_buffer",size:16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_SRC});
+        if (this.scratch !== null) {
+          arena=this.scratch.importBuffer(graph,bind,"Surface/cell primitive setups and explicit references",
+            capacity.referenceBytes+setupCapacity*SURFACE_CELL_GEOMETRY_SETUP_BYTES,storage);
+          counts=this.scratch.importBuffer(graph,bind,"Surface/cell geometry counters",32,storage);
+          settings=this.scratch.importBuffer(graph,bind,"Surface/cell geometry settings",SURFACE_CELL_GEOMETRY_SETTINGS_BYTES,
+            GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST);
+          indirect=this.scratch.importBuffer(graph,bind,"Surface/cell geometry indirect",16,
+            GPUBufferUsage.STORAGE|GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_SRC);
+          arena=pass.write(arena);counts=pass.write(counts);settings=pass.write(settings);indirect=pass.write(indirect);
+        } else {
+          arena=pass.create("Surface cell primitive setups and explicit references",{kind:"transient_buffer",size:capacity.referenceBytes+setupCapacity*SURFACE_CELL_GEOMETRY_SETUP_BYTES,usage:storage});
+          counts=pass.create("Surface cell geometry counters",{kind:"transient_buffer",size:32,usage:storage});
+          settings=pass.create("Surface cell geometry settings",{kind:"transient_buffer",size:SURFACE_CELL_GEOMETRY_SETTINGS_BYTES,usage:GPUBufferUsage.UNIFORM|GPUBufferUsage.COPY_DST});
+          indirect=pass.create("Surface cell geometry indirect",{kind:"transient_buffer",size:16,usage:GPUBufferUsage.STORAGE|GPUBufferUsage.INDIRECT|GPUBufferUsage.COPY_SRC});
+        }
       } else {pass.read(settings);pass.read(arena);pass.read(counts);pass.read(memo!);counts=pass.write(counts);
         if(stage==="request_cell_geometry"){pass.read(input.visibility);pass.read(input.workspace);pass.read(input.activeIndirect);arena=pass.write(arena);}
         if(stage==="finalize_cell_geometry")indirect=pass.write(indirect);

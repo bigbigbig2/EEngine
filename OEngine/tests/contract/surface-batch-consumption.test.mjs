@@ -24,7 +24,7 @@ function fixture() {
   const scratch=new SurfaceFrameResources(device);
   const classifier=new SurfaceCellClassifierPass(device,scratch);
   const setup=new SurfaceCellGeometrySetup(device);
-  const reconstruction=new SurfaceReconstructionPass(device);
+  const reconstruction=new SurfaceReconstructionPass(device,scratch);
   reconstruction.prepareFrame(17,9,2);
   return {device,graph,imported,ids,scratch,classifier,setup,reconstruction};
 }
@@ -34,8 +34,8 @@ test('production allocation obeys batch capacity even with a full-screen caller 
   Object.assign(owner,{
     device:{limits:{maxBufferSize:1<<30,maxStorageBufferBindingSize:1<<27,maxTextureDimension2D:8192}},
     budget:{maxTiles:262144,maxSamples:4194304,maxGeometryRecords:4194304,maxExceptions:65536,maxBytes:1<<29},
-    scratch:{prepare(){}},reconstruction:{prepareFrame(_w,_h,tiles){preparedTiles=tiles;}},
-    fieldStore:null,signalStore:null,prepared:false,destroyed:false
+    scratch:{prepare(){},canPrepare(){return true;}},reconstruction:{prepareFrame(_w,_h,tiles){preparedTiles=tiles;}},
+    fieldStore:null,signalStore:null,prepared:false,destroyed:false,capacity:null
   });
   owner.prepareFrame(1920,1080,1);
   assert.ok(owner.capacity.batchCount>1);

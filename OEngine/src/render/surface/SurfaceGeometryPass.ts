@@ -155,18 +155,20 @@ export class SurfaceGeometryPass {
             this.pipelines.set(key, pipeline);
         }
         let records = this.scratch.importBuffer(graph, input.bind, "Surface/unique GeometryRecord", targets * SURFACE_GEOMETRY_RECORD_BYTES, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+        const viewportId = this.scratch.importBuffer(graph, input.bind, "Surface/Geometry viewport", 16,
+            GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST);
         const node = graph.add("Surface/unique GeometryRecord", { records, demand: input.demand }, (data, resources, context) => {
             const command = context.encoder as ShadeGPUCommandContext;
-            const viewport=command.allocateTransientBuffer(GPUBufferUsage.UNIFORM,16);
+            const viewport=resources.get(viewportId) as GPUBuffer;
             command.writeBuffer(viewport,0,new Uint32Array([input.width,input.height,0,0]).buffer,0,16);
-            const group = this.device.createBindGroup({ layout: pipeline!.getBindGroupLayout(0), entries: [
+            const group = this.scratch.obtainBindGroup(pipeline!, 0, [
                     { binding: 0, resource: { buffer: resources.get(data.demand.workspace) as GPUBuffer } },
                     { binding: 1, resource: { buffer: resources.get(data.demand.arena) as GPUBuffer } },
                     { binding: 2, resource: { buffer: resources.get(input.camera) as GPUBuffer } },
                     { binding: 3, resource: { buffer: resources.get(data.records) as GPUBuffer } },
                     { binding: 4, resource: { buffer: resources.get(input.setup.arena) as GPUBuffer } },
                     { binding: 5, resource: { buffer: viewport } }
-                ] });
+                ]);
             const pass = command.beginComputePass({ label: "Surface/unique GeometryRecord" });
             pass.setPipeline(pipeline!);
             pass.setBindGroup(0, group);
@@ -178,6 +180,7 @@ export class SurfaceGeometryPass {
         node.read(input.demand.indirect);
         node.read(input.camera);
         node.read(input.setup.arena);
+        node.write(viewportId);
         records = node.write(records);
         return { records };
     }
