@@ -166,7 +166,7 @@ export async function runPhaseFiveLighting(gpu,assert,stage) {
       encoder.copyBufferToBuffer(resources.get(output.values),0,packets,0,packets.size);
       encoder.copyBufferToBuffer(arena,0,demandReadback,0,layout.bytes);
       encoder.copyTextureToBuffer({texture:resources.get(composed.radiance).gpu_texture},{buffer:hdr,bytesPerRow:256},[width,height]);
-    });capture.read(output.values);capture.read(ids.arena);capture.read(composed.radiance);capture.make_side_effect();
+    });capture.read(output.values);capture.read(output.demand.arena);capture.read(composed.radiance);capture.make_side_effect();
     allocator=new GPUBufferAllocator(device);textureAllocator=new GPUTextureAllocator(device);
     context=new FrameGraphContext({device,encoder:command,graphics:{device,buffer_allocator_main:allocator,allocator_textures:textureAllocator},resource_manager:new FrameGraphResourceManager(device,done)});
     compiled=graph.compile();
@@ -184,6 +184,11 @@ export async function runPhaseFiveLighting(gpu,assert,stage) {
       'One guarded per-light evaluation per dirty direct target; full work reuses its transport math');
     assert.ok(expectedShared>0&&expectedTransport>0,'Both fused and transport-only branches executed');
     report.directWork={full:executed[96],sharedTransport:executed[97],transportOnly:executed[98]};
+    const expectedEnvironment=[2,8,32].map(mask=>cases.filter(input=>(input.mask&mask)!==0).length);
+    assert.deepEqual([executed[67],executed[70],executed[68]],expectedEnvironment,
+      'Actual diffuse/specular/coat environment branches each count one evaluation');
+    assert.ok(expectedEnvironment.every(count=>count>0),'All three environment producer branches execute');
+    report.environmentWork={diffuse:executed[67],specular:executed[70],coat:executed[68]};
     const executionError=await device.popErrorScope();
     assert.equal(executionError,null,executionError?.message);
     device.pushErrorScope('validation');

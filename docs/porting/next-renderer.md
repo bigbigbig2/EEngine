@@ -16,6 +16,8 @@ verifies:
 
 本条目服务于[当前设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)和[执行文档](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。本轮先核可复制具体算法，再对照作者资料；下表是已调查/拟移植及参考选择，**没有实施新生产链，没有运行上游或GPU，不提升adoption或性能状态**。下文早期Phase/未提交文字属于当时调查记录，当前实现须查源码，当前进度须查workstream/执行文档。
 
+2026-10-06 补充：A1 已核读 SF04 固定 revision 的 `FrameGraph.cpp::compile/execute`、`PassNode::registerResource` 和 `ResourceNode::resolveResourceUsage`：active first/last→各 node devirtualize/destroy list，对应本地 `FrameGraph.compile` 的 `acquire_before/release_after/resource_slots`→`executeCompiled` 自身事件。保留 import/version/dead culling/ordering；本地新增完整 old-reader-before-overwrite 依赖，未把上游 TODO 当作合法输入。WebGPU queue fence、abort/native fallback、late-bound history/scratch 是本地集成，未照搬 native backend 或销毁时机。CPU 结构/版本测试和当前真实 GPU executor→buffer→readback 均有结果，范围见执行文档 §5.1；这是选定生命周期事件策略的实现核对，不宣称完整 Filament FrameGraph 移植或其他 SF 项已采用。本文下面的“拟议/未实现”文字属于 2026-10-05 来源设计时点，此补充仅覆盖 A1。
+
 Wicked、Intel CPS、Forge、OSS的所列本地冻结源码与固定revision网络原文已核对相同；Filament、GPUPrefixSums、Twinklebear所列源码直接读取固定原文。DOOM以冻结完整PDF/text核对，网络解析超过工具大小上限；SHA256与账本一致。来源repo存在完整工程不表示本轮已经逐文件审完整套引擎；下面限定到明确算法profile。
 
 ### 固定revision、许可与入口

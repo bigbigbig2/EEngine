@@ -5,9 +5,9 @@
  * counters are mutable indirect arguments, while these fields are immutable
  * evidence for one sampled frame.
  */
-import { SURFACE_GEOMETRY_RECORD_VECTORS } from "./GpuSurfaceGeometryRecordAbi.js";
+import { SURFACE_GEOMETRY_RECORD_HOT_BYTES } from "./GpuSurfaceGeometryRecordAbi.js";
 
-export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 6;
+export const SURFACE_DIAGNOSTICS_SCHEMA_VERSION = 7;
 export const SURFACE_DIAGNOSTICS_MAGIC = 0x53564433; // "SVD3"
 export const SURFACE_DIAGNOSTICS_HEADER_WORDS = 16;
 export const SURFACE_DIAGNOSTICS_COUNTER_WORDS = 112;
@@ -128,11 +128,95 @@ export const SURFACE_DIAGNOSTIC_COUNTERS = Object.freeze({
   fieldLookupProbes: 106,
   transportEligibleLeaves: 107,
   residualLeaves: 108,
+  geometryDescriptions: 109,
+  materialDescriptions: 110,
+  lightingDescriptions: 111,
 } as const);
 
 export const SURFACE_DIAGNOSTICS_COUNTERS = SURFACE_DIAGNOSTIC_COUNTERS;
 
 export type SurfaceDiagnosticCounter = keyof typeof SURFACE_DIAGNOSTIC_COUNTERS;
+
+/** Actual producer locations, not semantic aliases of queue lengths. Unlisted
+ * counters have no current producer and must not appear as measured zeroes. */
+export const SURFACE_DIAGNOSTIC_PRODUCERS: Readonly<Partial<Record<SurfaceDiagnosticCounter, string>>> =
+  Object.freeze({
+    totalTiles: "workspace.control[127,125]/coverage tile scan",
+    emptyTiles: "coverage tile scan",
+    uniformTiles: "coverage material equality",
+    mixedTiles: "coverage material inequality",
+    visiblePixels: "coverage facts scan",
+    materialLookup: "workspace.counters[115]+[113]",
+    materialHit: "workspace.counters[113]",
+    materialMissRequested: "workspace.counters[115]",
+    materialMissQueued: "demand.control[5]",
+    geometryDescriptions: "demand.control[0]",
+    materialDescriptions: "demand.control[5]",
+    lightingDescriptions: "demand.control[6]",
+    diffuseEvaluations: "lighting diagnostic_add(0)",
+    specularEvaluations: "lighting diagnostic_add(1)",
+    coatEvaluations: "lighting diagnostic_add(2)",
+    iblEvaluations: "lighting diagnostic_add(3)+[6]+[4], diffuse/specular/coat environments",
+    diffusePacketWrites: "lighting diagnostic_add(20)+[21]",
+    specularPacketWrites: "lighting diagnostic_add(22)+[23]",
+    coatPacketWrites: "lighting diagnostic_add(24)+[25]",
+    iblPacketWrites: "lighting diagnostic_add(21)+[23]+[25]",
+    packetWriteBytes: "six actual packet-store counters * 16 bytes",
+    fieldCacheRequests: "demand.control[1]",
+    fieldCacheProbes: "demand.control[53]",
+    fieldCacheUnique: "demand.control[3]",
+    fieldCacheAdmissions: "demand.control[51]",
+    fieldCacheQueueRejected: "demand.control[47]",
+    signalCacheRequests: "demand.control[2]",
+    signalCacheProbes: "demand.control[54]",
+    signalCacheUnique: "demand.control[4]",
+    signalCacheAdmissions: "demand.control[52]",
+    signalCacheQueueRejected: "demand.control[48]",
+    fieldValuesProduced: "demand.control[49]/field publication",
+    signalValuesProduced: "demand.control[50]/signal publication",
+    candidateLeaves: "workspace.counters[84]",
+    uvWitnessGroups: "workspace.counters[85]",
+    uvWitnessWriteBytes: "workspace.counters[86]",
+    signalWitnessLeaves: "workspace.counters[87]",
+    signalWitnessWriteBytes: "workspace.counters[88]",
+    proofResultWriteBytes: "workspace.counters[89]",
+    proofAdmitted: "workspace.counters[120]",
+    proofRejected: "workspace.counters[122]",
+    explicitStoreRefWriteBytes: "workspace.counters[90]",
+    fullDirectLightEvaluations: "lighting diagnostic_add(32)",
+    sharedDirectTransportEvaluations: "lighting diagnostic_add(33)",
+    transportOnlyLightEvaluations: "lighting diagnostic_add(34)",
+    fieldLookupCandidates: "workspace.counters[91]",
+    nonPublicationFields: "workspace.counters[92]",
+    fieldLookupProbes: "workspace.counters[93]",
+    transportEligibleLeaves: "workspace.counters[94]",
+    residualLeaves: "workspace.counters[95]",
+    reconstructOutputPixels: "reconstruct[0]",
+    reconstructUncoveredPixels: "reconstruct[1]",
+    reconstructMappedPixels: "reconstruct[7]",
+    outputPixels: "extent width*height",
+    geometryRecordStrideWords: "GeometryRecord hot ABI bytes/4",
+  });
+
+export const SURFACE_DIAGNOSTIC_DESCRIPTORS = Object.freeze(
+  Object.fromEntries(
+    (Object.keys(SURFACE_DIAGNOSTICS_COUNTERS) as SurfaceDiagnosticCounter[]).map((name) => [
+      name,
+      Object.freeze({
+        producer: SURFACE_DIAGNOSTIC_PRODUCERS[name] ?? null,
+        unit: name.endsWith("Bytes")
+          ? "bytes"
+          : name.endsWith("Words")
+            ? "u32-words"
+            : name.endsWith("Pixels")
+              ? "pixels"
+              : "count",
+        window: "one sampled frame, accumulated across active batches",
+        availability: SURFACE_DIAGNOSTIC_PRODUCERS[name] === undefined ? "unavailable" : "wired",
+      }),
+    ]),
+  ),
+);
 
 export const SURFACE_DIAGNOSTIC_FLAGS = Object.freeze({
   sampleOverflow: 1 << 0,
@@ -222,11 +306,19 @@ export function decodeSurfaceDiagnostics(
     return unavailableSnapshot(identity, mode, "snapshot-schema-mismatch");
   }
   const values: Record<string, number> = {};
+  if (words[4] !== identity.frameId >>> 0) {
+    return unavailableSnapshot(identity, mode, "snapshot-frame-mismatch");
+  }
   for (const [name, index] of Object.entries(SURFACE_DIAGNOSTICS_COUNTERS) as [
     SurfaceDiagnosticCounter,
     number,
   ][]) {
-    values[name] = words[SURFACE_DIAGNOSTICS_HEADER_WORDS + index] ?? 0;
+    if (
+      ((words[8 + (index >>> 5)]! >>> (index & 31)) & 1) !== 0 &&
+      SURFACE_DIAGNOSTIC_PRODUCERS[name] !== undefined
+    ) {
+      values[name] = words[SURFACE_DIAGNOSTICS_HEADER_WORDS + index]!;
+    }
   }
   const coverage = evaluateSurfaceCoverage(values);
   return {
@@ -242,7 +334,31 @@ export function decodeSurfaceDiagnostics(
 
 export function evaluateSurfaceCoverage(values: SurfaceDiagnosticsValues): SurfaceCoverageReport {
   const violations: string[] = [];
+  const required: SurfaceDiagnosticCounter[] = [
+    "totalTiles",
+    "emptyTiles",
+    "uniformTiles",
+    "mixedTiles",
+    "sampleRequested",
+    "sampleAccepted",
+    "sampleOverflow",
+    "materialLookup",
+    "materialHit",
+    "materialMissRequested",
+    "materialRejected",
+    "geometryRecordsRequested",
+    "geometryCacheHit",
+    "geometryMissQueued",
+    "geometryRejected",
+    "geometryMissCompleted",
+    "materialEvaluatorCompleted",
+    "materialEvaluatorSkippedOrRejected",
+    "reconstructOutputPixels",
+    "reconstructUncoveredPixels",
+    "outputPixels",
+  ];
   const incomplete =
+    required.some((name) => values[name] === undefined) ||
     ((values.diagnosticsFlags ?? 0) & SURFACE_DIAGNOSTIC_FLAGS.incompleteProducerCounters) !== 0;
   if (!incomplete) {
     sumEquals(values, "totalTiles", ["emptyTiles", "uniformTiles", "mixedTiles"], violations);
@@ -266,8 +382,9 @@ export function evaluateSurfaceCoverage(values: SurfaceDiagnosticsValues): Surfa
     ) {
       violations.push("material queued less than completed plus skipped/rejected");
     }
-    if (counterValue(values, "geometryMissCompleted") > counterValue(values, "geometryMissQueued"))
+    if (counterValue(values, "geometryMissCompleted") > counterValue(values, "geometryMissQueued")) {
       violations.push("geometry miss completed exceeds queued");
+    }
     if (
       counterValue(values, "reconstructOutputPixels") + counterValue(values, "reconstructUncoveredPixels") !==
       counterValue(values, "outputPixels")
@@ -275,11 +392,16 @@ export function evaluateSurfaceCoverage(values: SurfaceDiagnosticsValues): Surfa
       violations.push("reconstruct output coverage mismatch");
     }
   }
-  if (values.geometryProducerBaseWords !== values.geometryConsumerBaseWords) {
+  if (
+    values.geometryProducerBaseWords !== undefined &&
+    values.geometryConsumerBaseWords !== undefined &&
+    values.geometryProducerBaseWords !== values.geometryConsumerBaseWords
+  ) {
     violations.push("geometry producer/consumer base mismatch");
   }
   if (
-    values.geometryRecordStrideWords !== SURFACE_GEOMETRY_RECORD_VECTORS &&
+    values.geometryRecordStrideWords !== undefined &&
+    values.geometryRecordStrideWords !== SURFACE_GEOMETRY_RECORD_HOT_BYTES / 4 &&
     values.geometryRecordStrideWords !== 0
   ) {
     violations.push("geometry record stride mismatch");

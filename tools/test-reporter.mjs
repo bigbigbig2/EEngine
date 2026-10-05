@@ -12,7 +12,7 @@ export function summarizeTests(output, exitCode) {
       !summary?.complete ||
       !counts ||
       ["tests", "passed", "failed", "cancelled", "skipped", "todo"].some(
-        (key) => !Number.isInteger(counts[key]) || counts[key] < 0
+        (key) => !Number.isInteger(counts[key]) || counts[key] < 0,
       )
     )
       return { status: "failed", complete: false };

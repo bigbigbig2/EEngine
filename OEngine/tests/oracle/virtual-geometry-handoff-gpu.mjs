@@ -4,7 +4,7 @@ import { packGpuInstanceRecord } from "../../.test-dist/gpu/GpuInstanceAbi.js";
 import { GPU_COUNTER_BYTE_SIZE } from "../../.test-dist/debug/GpuFrameCounters.js";
 import {
   GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1,
-  encodeGeometryProductGpuLocationV1
+  encodeGeometryProductGpuLocationV1,
 } from "../../.test-dist/gpu/GeometryProductGpuAbiV1.js";
 
 /** Focused oracle for the production owner; caller supplies an actual GPUDevice. */
@@ -14,7 +14,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
     const data = typeof bytes === "number" ? null : bytes;
     const value = device.createBuffer({
       size: data?.byteLength ?? bytes,
-      usage: usage | GPUBufferUsage.COPY_DST
+      usage: usage | GPUBufferUsage.COPY_DST,
     });
     if (data) device.queue.writeBuffer(value, 0, data);
     buffers.push(value);
@@ -42,10 +42,10 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
           residentSlotIndex: slot,
           productGeneration: 1,
           flags: slot === 0 ? 3 : 1,
-          byteOffset: slot * 262144
-        }).buffer
+          byteOffset: slot * 262144,
+        }).buffer,
       ),
-      112 + slot * 4
+      112 + slot * 4,
     );
   }
   heap.set([16 | (3 << 16), 12 << 8, 1 << 16, 0], 120);
@@ -77,8 +77,8 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
       boundsMin: [-1, -1, -1],
       boundsMax: [1, 1, 1],
       currentObjectToWorld: identity,
-      previousObjectToWorld: identity
-    })
+      previousObjectToWorld: identity,
+    }),
   );
   const viewBytes = new Float32Array(64);
   viewBytes[2] = 10;
@@ -92,17 +92,17 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
     @group(0) @binding(1) var<storage,read_write> destination: array<u32>;
     @compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id:vec3u) {
       if(id.x<arrayLength(&source)){destination[id.x]=source[id.x];}
-    }`
+    }`,
   });
   const copy = device.createComputePipeline({
     layout: "auto",
-    compute: { module: copyModule, entryPoint: "main" }
+    compute: { module: copyModule, entryPoint: "main" },
   });
   function capture(encoder, source) {
     const mirror = buffer(source.size, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const read = device.createBuffer({
       size: source.size,
-      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST
+      usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
     buffers.push(read);
     const pass = encoder.beginComputePass();
@@ -113,9 +113,9 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
         layout: copy.getBindGroupLayout(0),
         entries: [
           { binding: 0, resource: { buffer: source } },
-          { binding: 1, resource: { buffer: mirror } }
-        ]
-      })
+          { binding: 1, resource: { buffer: mirror } },
+        ],
+      }),
     );
     pass.dispatchWorkgroups(Math.ceil(source.size / 256));
     pass.end();
@@ -134,7 +134,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
         "mixed",
         "overflow",
         "invalid",
-        "old-abi"
+        "old-abi",
       ]) {
         heap[0] =
           mode === "old-abi" ? GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1 - 1 : GEOMETRY_PRODUCT_GPU_ABI_VERSION_V1;
@@ -167,7 +167,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
           capacity,
           counterBuffer,
           countersEnabled: false,
-          scene: { instances }
+          scene: { instances },
         });
         // Rebind also exercises the production sampled/unsampled counter seam.
         owner.rebind(prepared, { counterBuffer, countersEnabled: true });
@@ -196,7 +196,7 @@ export async function runVirtualGeometryHandoffGpuOracle(device) {
           assert.deepEqual(
             ids,
             Array.from({ length: expected }, (_, i) => (mode === "mixed" ? i * 2 : i)),
-            `${count}/${mode}: exact compacted IDs`
+            `${count}/${mode}: exact compacted IDs`,
           );
         }
         owner.release(prepared);

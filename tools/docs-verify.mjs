@@ -40,7 +40,7 @@ export async function verifyDocuments({ root = REPO_ROOT, mode = "all", base = "
         .filter(Boolean);
     // Do not convert a broken git invocation into a successful empty check.
     selected = new Set(
-      git("diff", ...(mode === "staged" ? ["--cached"] : [base]), "--name-only", "-z", "--", "docs")
+      git("diff", ...(mode === "staged" ? ["--cached"] : [base]), "--name-only", "-z", "--", "docs"),
     );
     if (mode === "changed")
       for (const path of git("ls-files", "--others", "--exclude-standard", "-z", "--", "docs"))
@@ -112,7 +112,7 @@ export async function verifyDocuments({ root = REPO_ROOT, mode = "all", base = "
             rule: "broken-reference",
             doc: repoPath(path),
             reason: link.target,
-            line: link.line
+            line: link.line,
           };
           (parsed.fields.state === "history" ? warnings : findings).push(item);
         }
@@ -121,7 +121,7 @@ export async function verifyDocuments({ root = REPO_ROOT, mode = "all", base = "
           rule: "broken-reference",
           doc: repoPath(path),
           reason: error.message,
-          line: link.line
+          line: link.line,
         });
       }
     }
@@ -149,8 +149,8 @@ export async function verifyDocuments({ root = REPO_ROOT, mode = "all", base = "
               path: resolve(root, path),
               value: parseYamlObject(
                 execFileSync("git", ["show", `:${path}`], { cwd: root, encoding: "utf8" }),
-                path
-              )
+                path,
+              ),
             }))
         : await readYamlFiles(resolve(root, dir));
     for (const { path, value } of metadata) {
@@ -185,7 +185,7 @@ export async function verifyDocuments({ root = REPO_ROOT, mode = "all", base = "
     scope: "document structure, dependencies and current navigation; not prose truth",
     total: findings.length,
     findings,
-    warnings
+    warnings,
   };
 }
 
@@ -203,7 +203,7 @@ async function main() {
   if (!Number.isInteger(max) || max < 0) throw new Error("--max requires a nonnegative integer");
   const report = await verifyDocuments({
     mode: args.includes("--staged") ? "staged" : args.includes("--changed") ? "changed" : "all",
-    base: value("--base", "HEAD")
+    base: value("--base", "HEAD"),
   });
   console.log(
     args.includes("--json")
@@ -212,8 +212,8 @@ async function main() {
           .slice(0, max)
           .map((item) => `${item.doc}:${item.line ?? 1} ${item.rule}: ${item.reason}`)
           .join(
-            "\n"
-          )}\ndocs-verify: ${report.total} finding(s), ${report.warnings.length} historical warning(s), ${report.documents} documents`
+            "\n",
+          )}\ndocs-verify: ${report.total} finding(s), ${report.warnings.length} historical warning(s), ${report.documents} documents`,
   );
   if (report.total) process.exitCode = 1;
 }

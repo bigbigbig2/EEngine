@@ -349,7 +349,7 @@ fn build(@builtin(global_invocation_id) id: vec3u) {
   var coat_ibl = vec3f(0.0);
   if has_diffuse_env {environment_diffuse = environment_diffuse_irradiance(normal);diagnostic_add(3u, 1u);}
   if has_specular_env {environment_specular = environment_specular_surface(material, normal, view_dir);diagnostic_add(6u, 1u);}
-  if has_coat_env {coat_ibl = coat_environment(material, material.coatNormal, view_dir);}
+  if has_coat_env {coat_ibl = coat_environment(material, material.coatNormal, view_dir);diagnostic_add(4u, 1u);}
   if has_diffuse {packet_store(record,0u,vec4f(direct_diffuse, 1.0),SURFACE_PACKET_DIFFUSE | select(SURFACE_PACKET_RADIANCE | SURFACE_PACKET_COLORED_RESIDUAL,
     SURFACE_PACKET_DIFFUSE_TRANSPORT, transport));diagnostic_add(20u,1u);}
   if has_diffuse_env {packet_store(record,1u,vec4f(environment_diffuse, 1.0),SURFACE_PACKET_IRRADIANCE|SURFACE_PACKET_DIFFUSE|SURFACE_PACKET_ENVIRONMENT);diagnostic_add(21u,1u);}

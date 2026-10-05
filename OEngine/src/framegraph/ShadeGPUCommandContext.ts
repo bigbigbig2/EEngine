@@ -19,7 +19,8 @@ import {
   FrameGraphContext,
   FrameGraphResourceManager,
 } from "./FrameGraph.js";
-import { GPUTimer, type GPUTimerResult } from "./GPUTimer.js";
+import type { GPUTimerResult } from "./GPUTimer.js";
+import { GPUFrameTimingRing, type GPUFrameTimingMode, type GPUFrameTimingSession } from "./GPUFrameTiming.js";
 
 type ConstructComputePassOptions = {
   pipeline: CachedComputePipelineDescriptor;
@@ -51,7 +52,7 @@ export class ShadeGPUCommandContext {
   #graphics!: GraphicsContext;
   #transientBuffers: GPUBuffer[] = [];
   #stagingBuffers: GPUBuffer[] = [];
-  #gpuTimer: GPUTimer | undefined;
+  #gpuTimer: GPUFrameTimingSession | undefined;
   #debugTimersCallbacks = new Set<(results: GPUTimerResult[]) => void>();
   #debugTimerErrorCallbacks = new Set<(error: unknown) => void>();
   #finished = false;
@@ -84,8 +85,12 @@ export class ShadeGPUCommandContext {
 
   get gpu_encoder(): GPUCommandEncoder {
     const encoder = this.#encoder!;
-    if (this.#gpuTimer === undefined) return encoder;
-    if (this.#timedEncoderFacade !== undefined) return this.#timedEncoderFacade;
+    if (this.#gpuTimer === undefined && !this.#graphics.profiler.enabled) {
+      return encoder;
+    }
+    if (this.#timedEncoderFacade !== undefined) {
+      return this.#timedEncoderFacade;
+    }
 
     const context = this;
     const boundMethods = new Map<PropertyKey, Function>();
@@ -97,8 +102,22 @@ export class ShadeGPUCommandContext {
         if (property === "beginRenderPass") {
           return (descriptor: GPURenderPassDescriptor) => context.beginRenderPass(descriptor);
         }
+        if (property === "clearBuffer") {
+          return context.clearBuffer.bind(context);
+        }
+        if (property === "copyBufferToBuffer") {
+          return context.copyBufferToBuffer.bind(context);
+        }
+        if (property === "copyTextureToTexture") {
+          return context.copyTextureToTexture.bind(context);
+        }
+        if (property === "copyBufferToTexture") {
+          return context.copyBufferToTexture.bind(context);
+        }
         const value = Reflect.get(target, property, target) as unknown;
-        if (typeof value !== "function") return value;
+        if (typeof value !== "function") {
+          return value;
+        }
         let bound = boundMethods.get(property);
         if (bound === undefined) {
           const created = value.bind(target) as Function;
@@ -165,10 +184,26 @@ export class ShadeGPUCommandContext {
   enable_debug_timers(
     callback: (results: GPUTimerResult[]) => void,
     onError?: (error: unknown) => void,
+    ring = this.#graphics.profiler.getGpuTimingRing(this.device),
+    mode: GPUFrameTimingMode = "full",
   ): void {
-    this.#gpuTimer ??= new GPUTimer(this.device);
+    if (this.#gpuTimer === undefined) {
+      const session = ring.acquire(mode);
+      if (session === null) {
+        onError?.(new Error("GPU timestamps unavailable or readback ring saturated"));
+        return;
+      }
+      this.#gpuTimer = session;
+      session.begin(this.#encoder!);
+    }
     this.#debugTimersCallbacks.add(callback);
-    if (onError !== undefined) this.#debugTimerErrorCallbacks.add(onError);
+    if (onError !== undefined) {
+      this.#debugTimerErrorCallbacks.add(onError);
+    }
+  }
+
+  enterTimingStage(label: string): void {
+    this.#gpuTimer?.enterStage(this.#encoder!, label);
   }
 
   createFrameGraphContext(): FrameGraphContext {
@@ -232,6 +267,10 @@ export class ShadeGPUCommandContext {
   }
 
   clearBuffer(buffer: GPUBuffer, offset = 0, size?: number): void {
+    if (this.#graphics.profiler.enabled) {
+      this.#graphics.profiler.addCounter("gpu.commands.clearBuffer", 1);
+      this.#graphics.profiler.addCounter("gpu.commands.clearBytes", size ?? buffer.size - offset);
+    }
     this.#encoder!.clearBuffer(buffer, offset, size);
   }
 
@@ -246,6 +285,13 @@ export class ShadeGPUCommandContext {
     destinationOffset: number,
     size?: number,
   ): void {
+    if (this.#graphics.profiler.enabled) {
+      this.#graphics.profiler.addCounter("gpu.commands.copyBuffer", 1);
+      this.#graphics.profiler.addCounter(
+        "gpu.commands.copyBytes",
+        size ?? Math.min(source.size - sourceOffset, destination.size - destinationOffset),
+      );
+    }
     this.#encoder!.copyBufferToBuffer(source, sourceOffset, destination, destinationOffset, size);
   }
 
@@ -254,6 +300,9 @@ export class ShadeGPUCommandContext {
     destination: GPUImageCopyTexture,
     copySize: GPUExtent3DStrict,
   ): void {
+    if (this.#graphics.profiler.enabled) {
+      this.#graphics.profiler.addCounter("gpu.commands.textureCopy", 1);
+    }
     this.#encoder!.copyTextureToTexture(source, destination, copySize);
   }
 
@@ -263,17 +312,25 @@ export class ShadeGPUCommandContext {
     destination: GPUTexelCopyTextureInfo,
     copySize: GPUExtent3DStrict,
   ): void {
+    if (this.#graphics.profiler.enabled) {
+      this.#graphics.profiler.addCounter("gpu.commands.textureCopy", 1);
+    }
     this.#encoder!.copyBufferToTexture(source, destination, copySize);
   }
 
   beginComputePass(descriptor?: GPUComputePassDescriptor): GPUComputePassEncoder {
     const resolved: GPUComputePassDescriptor = descriptor === undefined ? {} : { ...descriptor };
     if (this.#gpuTimer !== undefined && this.device.features.has("timestamp-query")) {
-      resolved.timestampWrites = this.#gpuTimer.getComputeWrites(descriptor?.label);
+      const writes = this.#gpuTimer.writes(descriptor?.label, "compute");
+      if (writes) {
+        resolved.timestampWrites = writes;
+      }
     }
     const pass = this.#encoder!.beginComputePass(resolved);
     const profiler = this.#graphics.profiler;
-    if (!profiler.enabled) return pass;
+    if (!profiler.enabled) {
+      return pass;
+    }
     profiler.recordGpuCommand("computePass");
     return profileComputePass(pass, profiler);
   }
@@ -324,11 +381,16 @@ export class ShadeGPUCommandContext {
 
   beginRenderPass(descriptor: GPURenderPassDescriptor): GPURenderPassEncoder {
     if (this.#gpuTimer !== undefined && this.device.features.has("timestamp-query")) {
-      descriptor.timestampWrites = this.#gpuTimer.getRenderWrites(descriptor.label);
+      const writes = this.#gpuTimer.writes(descriptor.label, "render");
+      if (writes) {
+        descriptor = { ...descriptor, timestampWrites: writes };
+      }
     }
     const pass = this.#encoder!.beginRenderPass(descriptor);
     const profiler = this.#graphics.profiler;
-    if (!profiler.enabled) return pass;
+    if (!profiler.enabled) {
+      return pass;
+    }
     profiler.recordGpuCommand("renderPass");
     return profileRenderPass(pass, profiler);
   }
@@ -416,7 +478,14 @@ export class ShadeGPUCommandContext {
       this.onBeforeFinish.send1(this);
       if (timer !== undefined) {
         timer.resolve(encoder);
-        const readbackByteLength = timer.readbackByteLength;
+        const evidence = timer.evidence();
+        const readbackByteLength = evidence.readbackBytes;
+        const profiler = this.#graphics.profiler;
+        profiler.addCounter("gpu.timing.queries", evidence.queries);
+        profiler.addCounter("gpu.timing.markerPasses", evidence.markerPasses);
+        profiler.addCounter("gpu.timing.resolveCommands", evidence.resolveCommands);
+        profiler.addCounter("gpu.timing.copyCommands", evidence.copyCommands);
+        profiler.addCounter("gpu.timing.truncated", evidence.truncated ? 1 : 0);
         if (readbackByteLength > 0) {
           this.#graphics.profiler.recordReadback("gpu-timestamps", readbackByteLength);
         }
@@ -442,9 +511,8 @@ export class ShadeGPUCommandContext {
       this.#debugTimersCallbacks.clear();
       this.#debugTimerErrorCallbacks.clear();
       void timer
-        .download_results()
-        .then(() => {
-          const results = timer.results_to_console_table();
+        .download()
+        .then((results) => {
           for (const callback of callbacks) {
             try {
               callback(results);
@@ -465,9 +533,6 @@ export class ShadeGPUCommandContext {
               console.error("GPU timer error callback failed", callbackError);
             }
           }
-        })
-        .finally(() => {
-          timer.destroy();
         });
       this.#gpuTimer = undefined;
     }
@@ -477,7 +542,9 @@ export class ShadeGPUCommandContext {
 
   /** Discards an unsubmitted encoder and settles asynchronous observers. */
   abort(cause: unknown = new Error("GPU command context aborted")): void {
-    if (this.#finished) return;
+    if (this.#finished) {
+      return;
+    }
     openContextCount--;
     arrayRemoveFirst(openContexts, this);
     this.#finished = true;
@@ -488,7 +555,9 @@ export class ShadeGPUCommandContext {
 
     const timer = this.#gpuTimer;
     this.#gpuTimer = undefined;
-    if (timer !== undefined) timer.destroy();
+    if (timer !== undefined) {
+      timer.abort();
+    }
     const errorCallbacks = [...this.#debugTimerErrorCallbacks];
     this.#debugTimersCallbacks.clear();
     this.#debugTimerErrorCallbacks.clear();

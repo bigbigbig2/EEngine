@@ -20,16 +20,16 @@ test("real Node failure cannot be hidden by a test printing fake pass statistics
   delete env.NODE_TEST_CONTEXT;
   await writeFile(
     path,
-    'import test from "node:test";import assert from "node:assert/strict";test("wrong",()=>{console.log("100 passed, 0 failed");assert.equal(1,2);});'
+    'import test from "node:test";import assert from "node:assert/strict";test("wrong",()=>{console.log("100 passed, 0 failed");assert.equal(1,2);});',
   );
   const result = spawnSync(process.execPath, ["--test", "--test-reporter", reporter, path], {
     encoding: "utf8",
     windowsHide: true,
-    env
+    env,
   });
   assert.ok(
     result.stdout.trim(),
-    result.stderr || result.error?.message || "runner produced no machine output"
+    result.stderr || result.error?.message || "runner produced no machine output",
   );
   const events = result.stdout.trim().split("\n").map(JSON.parse);
   const summary = events.findLast((item) => item.type === "summary");
@@ -41,7 +41,7 @@ test("real Node failure cannot be hidden by a test printing fake pass statistics
   const skipped = spawnSync(process.execPath, ["--test", "--test-reporter", reporter, path], {
     encoding: "utf8",
     windowsHide: true,
-    env
+    env,
   });
   const skip = skipped.stdout
     .trim()

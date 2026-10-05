@@ -119,6 +119,12 @@ export class GPUTextureContext {
     return this.descriptor.memory_footprint;
   }
 
+  setRetired(retired: boolean): void {
+    if (this.resourceHandle) {
+      this.accounting?.accounting?.setRetired(this.resourceHandle, retired);
+    }
+  }
+
   obtainView(descriptor: GPUTextureViewDescriptor | gd = DEFAULT_TEXTURE_VIEW_DESCRIPTOR): GPUTextureView {
     const nativeDescriptor = nativeTextureViewDescriptor(descriptor);
     const key = viewDescriptorKey(nativeDescriptor);

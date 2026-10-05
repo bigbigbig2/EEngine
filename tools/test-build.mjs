@@ -34,7 +34,7 @@ export async function sourceIdentity(root = REPO_ROOT) {
     "package-lock.json",
     "tsconfig.json",
     "tsconfig.test.json",
-    "node_modules/typescript/package.json"
+    "node_modules/typescript/package.json",
   ]) {
     const file = resolve(engine, name);
     if (existsSync(file)) files.push(file);
@@ -68,8 +68,8 @@ export async function buildTests(root = REPO_ROOT) {
     {
       cwd: engine,
       stdio: "inherit",
-      windowsHide: true
-    }
+      windowsHide: true,
+    },
   );
   if (result.status !== 0)
     throw new Error(`test compilation failed: ${result.error?.message ?? result.status}`);
@@ -82,7 +82,7 @@ export async function buildTests(root = REPO_ROOT) {
     dependencyScope: "conservative: engine src, configs, lock and compiler identity",
     sourceSha256: before,
     outputSha256: await hashFiles(root, await walk(output)),
-    completedAt: new Date().toISOString()
+    completedAt: new Date().toISOString(),
   };
   await writeFile(resolve(output, manifestName), JSON.stringify(manifest, null, 2) + "\n");
   return manifest;

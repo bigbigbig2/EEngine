@@ -61,7 +61,9 @@ export class GPUBufferAllocator {
     }
     const request = normalizeDescriptor(descriptor);
     let buffer = this.takeCompatible(this.recent, request, true);
-    if (!buffer) buffer = this.takeCompatible(this.aged, request, false);
+    if (!buffer) {
+      buffer = this.takeCompatible(this.aged, request, false);
+    }
 
     if (!buffer) {
       if (request.size > this.device.limits.maxBufferSize) {
@@ -77,12 +79,15 @@ export class GPUBufferAllocator {
       if (this.resourceAccounting !== undefined) {
         this.accountingHandles.set(
           buffer,
-          this.resourceAccounting.created({
-            kind: "buffer",
-            category: "transient",
-            owner: "GPUBufferAllocator",
-            bytes: request.size,
-          }),
+          this.resourceAccounting.created(
+            {
+              kind: "buffer",
+              category: "transient",
+              owner: "GPUBufferAllocator",
+              bytes: request.size,
+            },
+            buffer,
+          ),
         );
       }
       this.creationCount++;
@@ -101,10 +106,16 @@ export class GPUBufferAllocator {
   }
 
   release(buffer: GPUBuffer, reuseAfter?: Promise<void>): boolean {
-    if (!this.active.has(buffer)) return false;
+    if (!this.active.has(buffer)) {
+      return false;
+    }
     this.active.delete(buffer);
     if (reuseAfter !== undefined) {
       this.pending.add(buffer);
+      const handle = this.accountingHandles.get(buffer);
+      if (handle) {
+        this.resourceAccounting!.setRetired(handle, true);
+      }
       void reuseAfter.then(
         () => this.finishPendingRelease(buffer),
         () => this.finishPendingRelease(buffer),
@@ -177,10 +188,16 @@ export class GPUBufferAllocator {
   }
 
   private finishPendingRelease(buffer: GPUBuffer): void {
-    if (!this.pending.delete(buffer)) return;
+    if (!this.pending.delete(buffer)) {
+      return;
+    }
     if (this.destroyed) {
       this.destroyBuffer(buffer);
       return;
+    }
+    const handle = this.accountingHandles.get(buffer);
+    if (handle) {
+      this.resourceAccounting!.setRetired(handle, false);
     }
     this.cacheReleased(buffer);
   }

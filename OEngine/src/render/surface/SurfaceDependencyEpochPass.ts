@@ -81,10 +81,11 @@ export class SurfaceDependencyEpochPass {
     let owners!: ResourceId;
     let previous: ReturnType<FrameGraph["add"]> | undefined;
     for (const [index, pipeline] of this.pipelines.entries()) {
+      const passData = { metadata, cache, owners: -1 };
       const node = graph.add(
         `Surface/field dependency ${["lookup", "reserve", "publish", "resolve"][index]}`,
-        {},
-        (_data, resources, context) => {
+        passData,
+        (data, resources, context) => {
           const command = context.encoder as ShadeGPUCommandContext;
           if (index === 0) {
             input.beforeLookup?.(command, fields);
@@ -108,13 +109,13 @@ export class SurfaceDependencyEpochPass {
           const entries: GPUBindGroupEntry[] = [{ binding: 0, resource: { buffer: this.settings } }];
           if (index !== 2) {
             entries.push(
-              { binding: 1, resource: { buffer: resources.get(metadata) as GPUBuffer } },
+              { binding: 1, resource: { buffer: resources.get(data.metadata) as GPUBuffer } },
               { binding: 2, resource: { buffer: resources.get(input.versions) as GPUBuffer } },
             );
           }
-          entries.push({ binding: 3, resource: { buffer: resources.get(cache) as GPUBuffer } });
+          entries.push({ binding: 3, resource: { buffer: resources.get(data.cache) as GPUBuffer } });
           if (index !== 3) {
-            entries.push({ binding: 4, resource: { buffer: resources.get(owners) as GPUBuffer } });
+            entries.push({ binding: 4, resource: { buffer: resources.get(data.owners) as GPUBuffer } });
           }
           const group = this.scratch.obtainBindGroup(pipeline, 0, entries);
           const pass = command.beginComputePass({
@@ -134,7 +135,8 @@ export class SurfaceDependencyEpochPass {
         });
       }
       node.read(owners);
-      node.write(owners);
+      passData.owners = owners;
+      owners = node.write(owners);
       node.read(cache);
       cache = node.write(cache);
       if (index !== 2) {

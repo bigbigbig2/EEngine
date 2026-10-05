@@ -2,6 +2,7 @@ import type { Renderer } from "../../../../OEngine/src/render/pipeline/RendererC
 import { SurfaceDiagnosticsCapture } from "../../../../OEngine/src/debug/SurfaceDiagnosticsCapture.ts";
 import type { SurfaceDiagnosticsMode, SurfaceDiagnosticsSnapshot } from "../../../../OEngine/src/gpu/SurfaceDiagnosticsAbi.ts";
 import { summarizeCapture, validGpuFrame, type TimedFrame } from "./BenchmarkMetrics.ts";
+import type { GPUFrameTimingMode } from "../../../../OEngine/src/framegraph/GPUFrameTiming.ts";
 
 export interface CaptureRequest {
   width?: number; height?: number; frames?: number; warmup?: number;
@@ -17,6 +18,7 @@ export interface CaptureRequest {
   /** Reproducible per-submitted-frame path: static / small orbit / return. */
   trajectory?: "static" | "orbit-return";
   vsm?: boolean;
+  gpuTimingMode?: Exclude<GPUFrameTimingMode, "production">;
 }
 export interface CaptureHost {
   renderer(): Renderer;
@@ -56,11 +58,12 @@ export class BenchmarkCapture {
     const request: Required<CaptureRequest> = { width: 1280, height: 720, frames: 120, warmup: 60,
       view: "overview", profile: "full", counters: true, coverage: "low",
       distanceScale: input.coverage === "high" ? 0.5 : 1.75, lockCamera: false,
-      surfaceMode: "timing", retainView: false, trajectory: "static", vsm: false, ...input };
+      surfaceMode: "timing", retainView: false, trajectory: "static", vsm: false, gpuTimingMode: "full", ...input };
     for (const key of ["width", "height", "frames", "warmup"] as const) {
       if (!Number.isSafeInteger(request[key]) || request[key] < (key === "warmup" ? 0 : 1) || request[key] > 8192) throw new Error(`Invalid capture ${key}`);
     }
     if (!["overview", "detail"].includes(request.view) || !["full", "no-ao", "no-fsr3", "no-bloom"].includes(request.profile)) throw new Error("Unknown capture profile/view");
+    if (!["coarse", "stage", "full"].includes(request.gpuTimingMode) || (request.gpuTimingMode === "full" && request.frames > 120)) throw new Error("Full timestamp capture is limited to 120 frames; use a coarse/stage capture for longer runs");
     if (!["static","orbit-return"].includes(request.trajectory) || (request.trajectory === "orbit-return" && (request.frames<3 || request.frames%3!==0))) throw new Error("Orbit trajectory requires three equal nonempty frame ranges");
     if (!["low", "high", "preset"].includes(request.coverage) || !Number.isFinite(request.distanceScale) || request.distanceScale < 0.02 || request.distanceScale > 8) throw new Error("Invalid coverage/distance");
     const renderer = this.host.renderer();
@@ -89,6 +92,7 @@ export class BenchmarkCapture {
     try {
       this.host.prepare(request);
       renderer.profiler.configure({ enabled: true, gpuSampleInterval: 1, gpuCounterSampleInterval: 1,
+        gpuTimingMode: "coarse",
         historyCapacity: Math.max(256, request.frames + request.warmup + 32) });
       renderer.profiler.setMode("record");
       renderer.perf_gpu_counters_enabled = true;
@@ -132,7 +136,7 @@ export class BenchmarkCapture {
       const workloadStart = this.host.stability();
       // A short independent detailed run must sample every measured frame;
       // an eight-frame cadence can miss the entire three-frame window.
-      renderer.profiler.configure({ gpuCounterSampleInterval: request.counters ? 1 : 8 });
+      renderer.profiler.configure({ gpuCounterSampleInterval: request.counters ? 1 : 8, gpuTimingMode: request.gpuTimingMode });
       renderer.perf_gpu_counters_enabled = request.counters;
       begin = renderer.frame_count; end = begin + request.frames;
       this.host.beginMeasurement?.(begin, request);
@@ -180,11 +184,13 @@ export class BenchmarkCapture {
           maxStorageBuffersPerShaderStage: renderer.device.limits.maxStorageBuffersPerShaderStage,
           maxTextureDimension2D: renderer.device.limits.maxTextureDimension2D
         }, gpuClockMapping: "CPU encoding to async GPU-result observation window; no calibrated GPU↔UTC mapping" };
-      this.host.status(issues.length ? `采集异常：${issues.join("；")}` : `完成 ${rows.length} 帧 · GPU P50 ${summary.gpuPassSumMs!.p50.toFixed(2)} / P95 ${summary.gpuPassSumMs!.p95.toFixed(2)} ms`);
+      const timing = summary.gpuFrameSpanMs ?? summary.gpuPassSumMs;
+      this.host.status(issues.length ? `采集异常：${issues.join("；")}` : `完成 ${rows.length} 帧 · GPU span P50 ${timing!.p50.toFixed(2)} / P95 ${timing!.p95.toFixed(2)} ms`);
       return this.last;
     } finally {
       this.host.endMeasurement?.();
       renderer.configureSurfaceDiagnostics("off", null);
+      renderer.profiler.configure({ gpuTimingMode: "coarse" });
       diagnosticsCapture.destroy();
       unsubscribe(); document.removeEventListener("visibilitychange", onVisibility);
       this.host.restore(request.retainView); this.clocks.clear(); this.busy = false;

@@ -22,6 +22,9 @@ export class SurfaceFrameResources {
   private extent = "";
   private activeBytes = 0;
   private retiredBytes = 0;
+  private livePeakBytes = 0;
+  private retiredPeakBytes = 0;
+  private physicalPeakBytes = 0;
   private done: Promise<void> = Promise.resolve();
   private doneSettled = true;
   private bindings = new WeakMap<
@@ -79,8 +82,9 @@ export class SurfaceFrameResources {
       { kind: "imported", label: name, domain: "internal-full" },
       bind(`surface-scratch/${name}`, () => {
         let entry = this.buffers.get(name);
-        if (entry && (entry.size !== size || entry.usage !== usage))
+        if (entry && (entry.size !== size || entry.usage !== usage)) {
           throw new Error(`Surface scratch shape changed without prepare: ${name}`);
+        }
         if (!entry) {
           if (this.activeBytes + this.retiredBytes + size > this.budgetBytes) {
             throw new RangeError(
@@ -88,16 +92,21 @@ export class SurfaceFrameResources {
             );
           }
           const buffer = this.device.createBuffer({ label: name, size, usage });
-          const handle = this.accounting?.created({
-            kind: "buffer",
-            category: "transient",
-            owner: "Surface/scratch",
-            bytes: size,
-            label: name,
-          });
+          const handle = this.accounting?.created(
+            {
+              kind: "buffer",
+              category: "transient",
+              owner: "Surface/scratch",
+              bytes: size,
+              label: name,
+            },
+            buffer,
+          );
           entry = { buffer, size, usage, ...(handle === undefined ? {} : { handle }) };
           this.buffers.set(name, entry);
           this.activeBytes += size;
+          this.livePeakBytes = Math.max(this.livePeakBytes, this.activeBytes);
+          this.physicalPeakBytes = Math.max(this.physicalPeakBytes, this.activeBytes + this.retiredBytes);
         }
         return entry.buffer;
       }),
@@ -153,8 +162,22 @@ export class SurfaceFrameResources {
   bindingEvidence(): Readonly<{ requests: number; creations: number }> {
     return { requests: this.bindingRequests, creations: this.bindingCreations };
   }
-  physicalBytes(): Readonly<{ active: number; retired: number; budget: number }> {
-    return { active: this.activeBytes, retired: this.retiredBytes, budget: this.budgetBytes };
+  physicalBytes(): Readonly<{
+    active: number;
+    retired: number;
+    budget: number;
+    livePeak: number;
+    retiredPeak: number;
+    physicalPeak: number;
+  }> {
+    return {
+      active: this.activeBytes,
+      retired: this.retiredBytes,
+      budget: this.budgetBytes,
+      livePeak: this.livePeakBytes,
+      retiredPeak: this.retiredPeakBytes,
+      physicalPeak: this.physicalPeakBytes,
+    };
   }
   commit(done: Promise<void>): void {
     this.done = done;
@@ -173,12 +196,20 @@ export class SurfaceFrameResources {
     this.buffers.clear();
     const bytes = this.activeBytes;
     this.retiredBytes += bytes;
+    this.retiredPeakBytes = Math.max(this.retiredPeakBytes, this.retiredBytes);
+    for (const entry of retired) {
+      if (entry.handle) {
+        this.accounting!.setRetired(entry.handle, true);
+      }
+    }
     this.activeBytes = 0;
     const destroy = () => {
       this.retiredBytes -= bytes;
       for (const entry of retired) {
         entry.buffer.destroy();
-        if (entry.handle) this.accounting!.destroyed(entry.handle);
+        if (entry.handle) {
+          this.accounting!.destroyed(entry.handle);
+        }
       }
     };
     if (this.doneSettled) {

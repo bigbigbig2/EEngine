@@ -24,16 +24,16 @@ export async function runWrongKernelHzbOracle(device) {
   const source = device.createTexture({
     size: [8, 8],
     format: "rg32float",
-    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST
+    usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
   });
   const output = device.createTexture({
     size: [8, 8],
     format: "rg16float",
-    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
+    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC,
   });
   const read = device.createBuffer({
     size: 256 * 8,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
   });
   resources.push(source, output, read);
   try {
@@ -41,7 +41,7 @@ export async function runWrongKernelHzbOracle(device) {
       { texture: source },
       new Float32Array(8 * 8 * 2).fill(0.5),
       { bytesPerRow: 64 },
-      [8, 8]
+      [8, 8],
     );
     const layout = device.createBindGroupLayout({
       entries: [
@@ -49,21 +49,21 @@ export async function runWrongKernelHzbOracle(device) {
         {
           binding: 1,
           visibility: GPUShaderStage.COMPUTE,
-          storageTexture: { access: "write-only", format: "rg16float" }
-        }
-      ]
+          storageTexture: { access: "write-only", format: "rg16float" },
+        },
+      ],
     });
     const group = device.createBindGroup({
       layout,
       entries: [
         { binding: 0, resource: source.createView() },
-        { binding: 1, resource: output.createView() }
-      ]
+        { binding: 1, resource: output.createView() },
+      ],
     });
     async function run(code) {
       const pipeline = device.createComputePipeline({
         layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-        compute: { module: device.createShaderModule({ code }), entryPoint: "main" }
+        compute: { module: device.createShaderModule({ code }), entryPoint: "main" },
       });
       const encoder = device.createCommandEncoder(),
         pass = encoder.beginComputePass();
@@ -81,7 +81,7 @@ export async function runWrongKernelHzbOracle(device) {
     const baseline = await run(HZB_REDUCE_COMPUTE_WGSL);
     assert.ok(
       baseline[0] <= 0.5 && baseline[1] >= 0.5,
-      "production normal-depth positive control must pass before mutation"
+      "production normal-depth positive control must pass before mutation",
     );
     const bad = await run(wrong);
     assert.ok(bad[0] <= 0.5, `controlled wrong kernel rejected: min ${bad[0]} exceeds source 0.5`);

@@ -20,6 +20,8 @@ import { ProfileHistory } from "./profiling/ProfileHistory.js";
 import type { ProfileFrame } from "./profiling/ProfileFrame.js";
 import type { ProfileSpan } from "./profiling/ProfileSpan.js";
 import type { ResourceAccounting } from "./profiling/ResourceAccounting.js";
+import { GPUFrameTimingRing, type GPUFrameTimingMode } from "../framegraph/GPUFrameTiming.js";
+import { summarizeGpuTimingCost, type GpuTimingCost } from "./GpuTimingCost.js";
 
 export interface FrameProfilerOptions {
   enabled?: boolean;
@@ -31,6 +33,7 @@ export interface FrameProfilerOptions {
   readbackRingSlots?: number;
   /** Attribute FrameGraph pass CPU encoding in addition to the normal sections. */
   cpuPassTimings?: boolean;
+  gpuTimingMode?: GPUFrameTimingMode;
   now?: () => number;
 }
 
@@ -70,6 +73,7 @@ export interface FrameGpuSegment {
   /** Raw query values retained for interval/span attribution. */
   startTick?: string;
   endTick?: string;
+  scope?: "pass" | "stage" | "span";
 }
 
 export interface FrameGpuEvidence {
@@ -77,6 +81,8 @@ export interface FrameGpuEvidence {
   sampled: boolean;
   pending: boolean;
   segments: FrameGpuSegment[];
+  cost?: GpuTimingCost;
+  mode?: GPUFrameTimingMode;
 }
 
 export interface FrameGpuCounterEvidence {
@@ -121,11 +127,22 @@ export interface FrameGpuTimingInput {
   duration_ms: number;
   start?: bigint;
   end?: bigint;
+  scope?: "pass" | "stage" | "span";
 }
 
 export type FrameProfileListener = (snapshot: FrameProfileSnapshot) => void;
 
 const KNOWN_RUNTIME_METRIC_IDS = Object.freeze([
+  "gpu.timing.queries",
+  "gpu.timing.markerPasses",
+  "gpu.timing.resolveCommands",
+  "gpu.timing.copyCommands",
+  "gpu.timing.truncated",
+  "gpu.commands.clearBuffer",
+  "gpu.commands.clearBytes",
+  "gpu.commands.copyBuffer",
+  "gpu.commands.copyBytes",
+  "gpu.commands.textureCopy",
   "ao.bentNormalUpsamplePasses",
   "ao.compositePasses",
   "ao.historyBytes",
@@ -350,6 +367,9 @@ type GpuTimingBatchState = {
  * readback is asynchronous. Disabled profiling does not retain frame history.
  */
 export class FrameProfiler {
+  private timingRing: GPUFrameTimingRing | null = null;
+  private timingModeOverride: GPUFrameTimingMode | undefined;
+  private fullCaptureFrames = 0;
   private enabledValue: boolean;
   private gpuSampleIntervalValue: number;
   private gpuCounterSampleIntervalValue: number;
@@ -392,11 +412,17 @@ export class FrameProfiler {
     const error = event.error;
     const name = error.constructor?.name || "GPUError";
     this.uncapturedErrorCount++;
-    if (name === "GPUValidationError") this.validationErrorCount++;
+    if (name === "GPUValidationError") {
+      this.validationErrorCount++;
+    }
     appendBounded(this.uncapturedErrors, `${name}: ${error.message}`);
   };
 
   constructor(options: FrameProfilerOptions = {}) {
+    this.timingModeOverride = options.gpuTimingMode;
+    if (options.gpuTimingMode === "full") {
+      this.fullCaptureFrames = 120;
+    }
     this.enabledValue = options.enabled ?? false;
     this.gpuSampleIntervalValue = positiveInteger(options.gpuSampleInterval ?? 60, "gpuSampleInterval");
     this.gpuCounterSampleIntervalValue = positiveInteger(
@@ -415,12 +441,18 @@ export class FrameProfiler {
       throw new RangeError("readbackRingSlots must be at least 3");
     }
     this.now = options.now ?? (() => performance.now());
-    for (const descriptor of DEFAULT_METRIC_DESCRIPTORS) this.metricRegistry.register(descriptor);
+    for (const descriptor of DEFAULT_METRIC_DESCRIPTORS) {
+      this.metricRegistry.register(descriptor);
+    }
     for (const id of KNOWN_RUNTIME_METRIC_IDS) {
       this.ensureMetric(id, "counted", KNOWN_SUM_METRIC_IDS.has(id) ? "sum" : "last");
     }
-    for (const field of GPU_COUNTER_FIELDS) this.ensureMetric(`gpu.counter.${field.name}`, "counted", "last");
-    if (this.enabledValue) this.profileHistoryValue = new ProfileHistory(this.historyCapacityValue);
+    for (const field of GPU_COUNTER_FIELDS) {
+      this.ensureMetric(`gpu.counter.${field.name}`, "counted", "last");
+    }
+    if (this.enabledValue) {
+      this.profileHistoryValue = new ProfileHistory(this.historyCapacityValue);
+    }
   }
 
   get enabled(): boolean {
@@ -493,8 +525,11 @@ export class FrameProfiler {
   }
 
   setMode(mode: FrameProfilerMode): void {
-    if (this.active !== null) throw new Error("Cannot change FrameProfiler mode during a frame");
+    if (this.active !== null) {
+      throw new Error("Cannot change FrameProfiler mode during a frame");
+    }
     this.modeValue = mode;
+    this.fullCaptureFrames = mode === "deep-capture" ? 120 : 0;
     if (mode === "live") {
       this.gpuCounterSamplingEnabledValue = false;
       const configuredInterval = this.configuredGpuSampleIntervalValue;
@@ -596,10 +631,18 @@ export class FrameProfiler {
   }
 
   configure(options: Omit<FrameProfilerOptions, "now">): void {
-    if (this.active !== null) throw new Error("Cannot configure FrameProfiler during a frame");
+    if (this.active !== null) {
+      throw new Error("Cannot configure FrameProfiler during a frame");
+    }
+    if (options.gpuTimingMode !== undefined) {
+      this.timingModeOverride = options.gpuTimingMode;
+      this.fullCaptureFrames = options.gpuTimingMode === "full" ? 120 : 0;
+    }
     if (options.enabled !== undefined) {
       this.enabledValue = options.enabled;
-      if (this.enabledValue) this.profileHistoryValue ??= new ProfileHistory(this.historyCapacityValue);
+      if (this.enabledValue) {
+        this.profileHistoryValue ??= new ProfileHistory(this.historyCapacityValue);
+      }
     }
     if (options.gpuTimestampAvailable !== undefined) {
       this.gpuTimestampAvailableValue = options.gpuTimestampAvailable;
@@ -629,7 +672,9 @@ export class FrameProfiler {
     }
     if (options.readbackRingSlots !== undefined) {
       const slots = positiveInteger(options.readbackRingSlots, "readbackRingSlots");
-      if (slots < 3) throw new RangeError("readbackRingSlots must be at least 3");
+      if (slots < 3) {
+        throw new RangeError("readbackRingSlots must be at least 3");
+      }
       if (slots !== this.readbackRingSlotsValue) {
         this.readbackRingSlotsValue = slots;
         this.destroyGpuCounterResources();
@@ -638,17 +683,24 @@ export class FrameProfiler {
     if (options.cpuPassTimings !== undefined) {
       this.cpuPassTimingsValue = options.cpuPassTimings;
     }
-    if (!this.enabledValue) this.destroyGpuCounterResources();
+    if (!this.enabledValue) {
+      this.destroyGpuCounterResources();
+    }
   }
 
   attachGpuDevice(device: GPUDevice): void {
-    if (this.gpuDevice === device) return;
+    if (this.gpuDevice === device) {
+      return;
+    }
     this.detachGpuDevice();
     this.gpuDevice = device;
+    this.gpuTimestampAvailableValue = device.features.has("timestamp-query");
     const epoch = ++this.deviceEpochValue;
     device.addEventListener("uncapturederror", this.onUncapturedError);
     void device.lost.then((info) => {
-      if (this.gpuDevice !== device || this.deviceEpochValue !== epoch) return;
+      if (this.gpuDevice !== device || this.deviceEpochValue !== epoch) {
+        return;
+      }
       this.deviceLostCount++;
       appendBounded(this.deviceLostReasons, `${info.reason}: ${info.message}`);
     });
@@ -661,7 +713,11 @@ export class FrameProfiler {
   }
 
   detachGpuDevice(device?: GPUDevice): void {
-    if (device !== undefined && this.gpuDevice !== device) return;
+    if (device !== undefined && this.gpuDevice !== device) {
+      return;
+    }
+    this.timingRing?.destroy();
+    this.timingRing = null;
     const current = this.gpuDevice;
     if (current !== null) {
       current.removeEventListener("uncapturederror", this.onUncapturedError);
@@ -672,14 +728,23 @@ export class FrameProfiler {
   }
 
   beginFrame(frameIndex: number): void {
-    if (!this.enabledValue) return;
+    if (!this.enabledValue) {
+      return;
+    }
     if (this.active !== null) {
       throw new Error(`FrameProfiler frame ${this.active.snapshot.frameIndex} is still active`);
     }
     if (!Number.isInteger(frameIndex) || frameIndex < 0) {
       throw new RangeError("frameIndex must be a non-negative integer");
     }
-    const sampled = this.gpuTimestampAvailableValue && frameIndex % this.gpuSampleIntervalValue === 0;
+    const mode = this.gpuTimingMode;
+    const sampled =
+      mode !== "production" &&
+      this.gpuTimestampAvailableValue &&
+      frameIndex % this.gpuSampleIntervalValue === 0;
+    if (sampled && mode === "full") {
+      this.fullCaptureFrames--;
+    }
     this.active = {
       startedAt: this.now(),
       epoch: this.epochValue,
@@ -707,6 +772,7 @@ export class FrameProfiler {
         },
         counters: {},
         gpu: {
+          mode,
           available: this.gpuTimestampAvailableValue,
           sampled,
           pending: sampled,
@@ -722,7 +788,9 @@ export class FrameProfiler {
         },
       },
     };
-    if (this.warmupRemainingValue > 0) this.warmupRemainingValue--;
+    if (this.warmupRemainingValue > 0) {
+      this.warmupRemainingValue--;
+    }
     const counters = this.active.snapshot.gpuCounters;
     counters.sampled =
       this.gpuCounterSamplingEnabledValue &&
@@ -792,6 +860,13 @@ export class FrameProfiler {
       return;
     }
     const frameIndex = active.snapshot.frameIndex;
+    const mode = active.snapshot.gpu.mode ?? this.gpuTimingMode;
+    this.timingRing ??= new GPUFrameTimingRing(
+      command.device,
+      this.readbackRingSlotsValue,
+      8192,
+      this.resourceAccounting,
+    );
     let state = this.gpuTimingBatchesByFrame.get(frameIndex);
     if (state === undefined) {
       state = { sealed: false, batches: [] };
@@ -801,12 +876,36 @@ export class FrameProfiler {
     state.batches.push({ contextLabel, timings: null });
     command.enable_debug_timers(
       (timings) => {
+        if (this.gpuTimingBatchesByFrame.get(frameIndex) !== state) {
+          return;
+        }
         this.completeGpuTimingBatch(frameIndex, batchIndex, timings);
       },
       (error) => {
+        if (this.gpuTimingBatchesByFrame.get(frameIndex) !== state) {
+          return;
+        }
         this.failGpuTimingBatch(frameIndex, batchIndex, error);
       },
+      this.timingRing,
+      mode,
     );
+  }
+
+  get gpuTimingMode(): GPUFrameTimingMode {
+    const requested =
+      this.timingModeOverride ??
+      (this.modeValue === "deep-capture" ? "full" : this.modeValue === "record" ? "stage" : "coarse");
+    return requested === "full" && this.fullCaptureFrames <= 0 ? "coarse" : requested;
+  }
+
+  getGpuTimingRing(device: GPUDevice): GPUFrameTimingRing {
+    return (this.timingRing ??= new GPUFrameTimingRing(
+      device,
+      this.readbackRingSlotsValue,
+      8192,
+      this.resourceAccounting,
+    ));
   }
 
   shouldSampleGpuCounters(): boolean {
@@ -930,7 +1029,9 @@ export class FrameProfiler {
 
   endFrame(): FrameProfileSnapshot | undefined {
     const active = this.active;
-    if (active === null) return undefined;
+    if (active === null) {
+      return undefined;
+    }
     if (active.snapshot.gpuCounters.sampled && !active.gpuCounterSampleEncoded) {
       active.snapshot.gpuCounters.pending = false;
       active.snapshot.gpuCounters.dropped = true;
@@ -941,6 +1042,9 @@ export class FrameProfiler {
       if (timingState !== undefined) {
         timingState.sealed = true;
         this.finalizeGpuTimingBatches(active.snapshot.frameIndex, timingState);
+      } else {
+        active.snapshot.gpu.pending = false;
+        this.failedGpuTimingFrames.add(active.snapshot.frameIndex);
       }
     }
     active.snapshot.cpuMs.frame = Math.max(0, this.now() - active.startedAt);
@@ -965,7 +1069,9 @@ export class FrameProfiler {
 
   recordGpuTimings(frameIndex: number, timings: readonly FrameGpuTimingInput[]): void {
     const frame = this.frames.find((candidate) => candidate.frameIndex === frameIndex);
-    if (frame === undefined || !frame.gpu.sampled) return;
+    if (frame === undefined || !frame.gpu.sampled) {
+      return;
+    }
     frame.gpu.segments = timings.map((timing, index) => ({
       label: timing.label ?? `unnamed-${index}`,
       type: timing.type,
@@ -973,7 +1079,12 @@ export class FrameProfiler {
       durationMs: nonNegativeFinite(timing.duration_ms, "GPU duration"),
       ...(timing.start === undefined ? {} : { startTick: timing.start.toString() }),
       ...(timing.end === undefined ? {} : { endTick: timing.end.toString() }),
+      ...(timing.scope === undefined ? {} : { scope: timing.scope }),
     }));
+    frame.gpu.cost = summarizeGpuTimingCost(
+      frame.gpu.segments,
+      !((frame.counters["gpu.timing.truncated"] ?? 0) > 0),
+    );
     frame.gpu.pending = false;
     this.failedGpuTimingFrames.delete(frameIndex);
     const profileFrame = this.profileHistoryValue?.get(frameIndex);
@@ -1161,12 +1272,19 @@ export class FrameProfiler {
           durationMs: nonNegativeFinite(timing.duration_ms, "GPU duration"),
           ...(timing.start === undefined ? {} : { startTick: timing.start.toString() }),
           ...(timing.end === undefined ? {} : { endTick: timing.end.toString() }),
+          ...(timing.scope === undefined ? {} : { scope: timing.scope }),
         };
       }),
     );
     snapshot.gpu.pending = false;
-    if (state.batches.some((batch) => batch.timings!.length === 0))
+    snapshot.gpu.cost = summarizeGpuTimingCost(
+      snapshot.gpu.segments,
+      !((snapshot.counters["gpu.timing.truncated"] ?? 0) > 0) &&
+        state.batches.every((batch) => batch.timings!.length > 0),
+    );
+    if (state.batches.some((batch) => batch.timings!.length === 0)) {
       this.failedGpuTimingFrames.add(frameIndex);
+    }
     this.gpuTimingBatchesByFrame.delete(frameIndex);
     if (this.active?.snapshot !== snapshot) {
       this.profileHistoryValue?.patch(frameIndex, {
@@ -1278,10 +1396,14 @@ function cloneSnapshot(snapshot: FrameProfileSnapshot): FrameProfileSnapshot {
     graph: { ...snapshot.graph },
     counters: { ...snapshot.counters },
     gpu: {
+      ...(snapshot.gpu.mode === undefined ? {} : { mode: snapshot.gpu.mode }),
       available: snapshot.gpu.available,
       sampled: snapshot.gpu.sampled,
       pending: snapshot.gpu.pending,
       segments: snapshot.gpu.segments.map((segment) => ({ ...segment })),
+      ...(snapshot.gpu.cost === undefined
+        ? {}
+        : { cost: { ...snapshot.gpu.cost, stageMs: { ...snapshot.gpu.cost.stageMs } } }),
     },
     gpuCounters: {
       available: snapshot.gpuCounters.available,
@@ -1338,7 +1460,9 @@ function profileSamples(
   const samples: Record<string, MetricSample> = { ...customSamples };
   for (const [label, value] of Object.entries(snapshot.cpuMs)) {
     const id = label === "frame" ? "cpu.frameMs" : CPU_SECTION_METRIC_IDS[label];
-    if (id === undefined) continue;
+    if (id === undefined) {
+      continue;
+    }
     if (samples[id] === undefined) {
       samples[id] = sample(
         id,
@@ -1420,22 +1544,29 @@ function profileSamples(
     snapshot.frameIndex,
     resolvedAtFrameIndex,
   );
-  const gpuPassSum = snapshot.gpu.segments.reduce((total, segment) => total + segment.durationMs, 0);
+  const passSegments = snapshot.gpu.segments.filter(
+    (segment) => segment.scope === undefined || segment.scope === "pass",
+  );
+  const gpuPassSum = passSegments.reduce((total, segment) => total + segment.durationMs, 0);
   const gpuAvailability: MetricSampleAvailability =
     !snapshot.gpu.available || !snapshot.gpu.sampled
       ? "unsupported"
       : snapshot.gpu.pending
         ? "pending"
-        : gpuTimingFailed
+        : gpuTimingFailed || (snapshot.counters["gpu.timing.truncated"] ?? 0) > 0
           ? "invalid"
           : "available";
   samples["gpu.passSumMs"] = sample(
     "gpu.passSumMs",
-    gpuAvailability === "available" ? gpuPassSum : null,
+    gpuAvailability === "available" && passSegments.length > 0 ? gpuPassSum : null,
     snapshot.frameIndex,
     "gpu-timestamp",
     snapshot.gpu.sampled,
-    gpuAvailability,
+    snapshot.gpu.mode !== undefined && snapshot.gpu.mode !== "full"
+      ? "unsupported"
+      : gpuAvailability === "available" && passSegments.length === 0
+        ? "invalid"
+        : gpuAvailability,
     resolvedAtFrameIndex,
   );
   const fields = [...gpuCounterFields];

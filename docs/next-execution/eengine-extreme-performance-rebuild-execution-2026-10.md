@@ -9,6 +9,11 @@ verifies:
     - OEngine/src/gpu/GpuAppearancePublication.ts
     - OEngine/src/gpu/SurfaceOptimizationCapacity.ts
     - OEngine/src/framegraph/FrameGraph.ts
+    - OEngine/src/framegraph/GPUFrameTiming.ts
+    - OEngine/src/gpu/SurfaceDiagnosticsAbi.ts
+    - OEngine/src/debug/GpuTimingCost.ts
+    - OEngine/tests/unit/framegraph-executor.test.mjs
+    - OEngine/tests/unit/gpu-frame-timing.test.mjs
     - OEngine/tests/contract/frame-program.test.mjs
     - OEngine/tests/contract/surface-demand-phase5.test.mjs
     - OEngine/package.json
@@ -18,7 +23,7 @@ verifies:
 
 日期：2026-10-05。设计依据：[重建设计母稿](../next-design/eengine-extreme-performance-rebuild-2026-10.md)；来源与采用记录：[next-renderer ledger](../porting/next-renderer.md)；开发节奏：[根 AGENTS.md](../../AGENTS.md)。本文替代此前的有界前端、优化 V1 与五步修复执行路线。
 
-**本文是待实施的目标计划，不是完成记录。** 本轮只完善设计和任务拆分，未实现新域、队列、缓存、GPU 路径，也未产生新性能结果。实际进行到哪个切换单元，以 [workstream 的 currentSlice](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 为准；单元收口后更新该处，入口文件不得复制阶段状态。
+**本文保留目标计划，并在 §5.1 集中记录 A0/A1 的实施与检查。** 后续新 Surface 域、队列、有限执行家族与缓存策略仍是实施要求。实际进行到哪个切换单元，以 [workstream 的 currentSlice](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 为准；入口文件不得复制阶段状态。
 
 本次首要交付是 **B1 → B2 → C 的 Surface 生产链收口**。A0/A1 只建设对此必要的测量、执行生命周期和物理资源身份。D/E/F 中直接受 Surface 布局、需求和输出改变影响的接线随 producer 前移；完整 Geometry/Lighting/Temporal 后续工作仍有独立单元。SSR、SSGI、VT、ReSTIR、AI Upscaling 暂只约束输入输出和扩展边界，不提前建设通用 provider framework。
 
@@ -150,6 +155,34 @@ timer 用持久 query/readback ring；GPU→CPU 仅异步诊断，不控制本�
 
 失败/边界：同物理不同版本、alias overlap、throw/abort、pending completion、cached resize recipe、destroy/device replacement。出口：无逐 node 全扫，依赖和 late binding/清理成立；仅证明 CPU 算法改进，不能从 GPU 毫秒扣 CPU 时间，也不假称 Surface 全帧 A/B/C 通过。
 
+### 5.1 A0/A1 实施核对（2026-10-06）
+
+起点为 `41ceca80`，本次工作树修改；设计核对范围为母稿 §3.1、§13、§18 和本文 §4/§5。完成测量与执行生命周期单元，**没有实施 B1/B2/C，也不宣称当前 Surface 全帧满足 A/B/C**。本节是本次集中记录，未新增独立进度或验收文档。
+
+| 任务 | 已落实的生产行为 | 独立检查与边界 |
+|---|---|---|
+| A0-01 | `GPUFrameTimingRing` 持久拥有 query/resolve/readback；production 不写 query，coarse 测一个命令 span，stage 最多 32 个连续语义区间，full 逐 pass 且最多 120 个采样帧/8,192 intervals。主 encoder 内写 marker/resolve/copy，不增加 submit | timer 微测四模式均得到 8 次依赖计算的正确读回；查询 0/2/6/22，marker 0/2/6/6，读回 0/16/48/176 B。marker 是计时额外工作；span 含 marker tax，但不含尾部 query resolve/readback copy，不称完整 queue completion |
+| A0-02 | diagnostics schema 7 带逐 counter availability bitmap 与 producer/unit/window；Geometry/Material/Lighting descriptions 不冒充 samples/completion，未接通字段省略。Geometry hot stride 为 **128 B / 4 = 32 u32 words**；真实 diffuse/specular/coat IBL 与 packet writes 分别计数 | 当前 snapshot WGSL 实际执行后核对 visible lane、description、stride、unknown coverage。Lighting→packet→HDR 20 个 case 保留独立数值预期，环境三分支实际计数 1/2/1。旧排队量不能证明 evaluator 完成，完整 Surface coverage 因缺少 completion producer 仍为 unknown |
+| A0-03 | `FrameProfiler` 发布同帧 command span、pass subtotal、stage、管理/求值/辅助、未分类与 pass 外差值；后者包含 copy/clear/gaps/marker，不是单独 copy/clear GPU 时间。CPU encode 单列；原生命令 facade 计实际 clear/copy 范围，多 context tax 累计 | 原 showcase 报告 consumer 同迁，span/stage 不重复加到 pass sum；没有 phase 的样本不填 0。截断/失败仅保留部分事实，不发布完整成本结论；先逐帧求和再取分布 |
+| A0-04 | ledger 支持物理 identity 去重、live/retired/physical peak；Surface scratch 与池化资源退休计入真实 fence，query 容量和 resolve/readback buffer bytes 分列 | query set 的 native 显存大小不可观测，明确为 null，不估成 imports 总量。GPU component 中非重叠 transient scopes 只创建一个物理 buffer；pending owner destroy 及 resize 账闭合 |
+| A1-01 | compile 生成每 scope 的 resolved resource slots、acquireBefore/releaseAfter，execute 处理自身事件；异常只清理实际 acquired set，删除逐 node registry 扫描；dump 首末引用也在 compile 汇总 | 固定 commands 加 4,096 个冷资源、固定 resources 加 commands 的生产 execute 结构回归；读取 registry.last 与重新 getResourceEntry 会令该测试失败。mock 只证明 CPU 调度；另有真实 GPU producer→buffer→copy/readback |
+| A1-02 | 同物理导入共享 entry，但保留逻辑 node/version；late binding identity 带 layout owner，等名不同 owner 不合并；compile 建 RAW/WAW/WAR，旧 reader 必须先于覆盖写入 | 同物理不同版本、交叠 alias/依赖环、显式依赖与裁剪、不同 binding owner、未声明物理资源均核对。shader dispatch 的 usage scopes 保持原 API 边界，本单元没有自动 pass 合并 |
+| A1-03 | 拓扑缓存晚绑定当前 imports，dead imports 不执行 resolver，执行后清除 bound GPU 对象；eviction 清理资源和 closure 引用，device replacement 要求重建 | 已有环境/history role 测试、真实 scratch 4→8→4 缓存 recipe 检查；返回旧 extent 使用新物理资源，不 pin 首次已退休 allocation |
+| A1-04 | 主 command 的已提交 completion fence 与 abort 分开；pool 在逻辑 last use 后可于同 encoder 内复用，跨 command 归还等待 fence。native fallback 必须提供显式 completion，真正 destroy 不早于提交/完成 | real GPU 同一 buffer 重用前清 4 B，两个 readback 都为 1；native fallback 提交前存活。throw+cleanup 双失败保留原始 cause，pending completion、连续 prepare/commit、resize/destroy 与 device replacement 有 targeted 覆盖 |
+
+**失败与修复记录。** 完整 1080p showcase 揭示旧 producer 返回的新版本未传给 direct consumer：dependency owner、radiometry→constants→Surface 以及跨 batch workspace；本次直接修正句柄传递，不关闭版本检查。facts/proof/classify/witness 的真实 Product bindings 补齐声明。Lighting fixture readback 原来读取旧 arena，迁到实际 Lighting 输出版本，数值预期/质量断言不变。原始失败与后续结果保存于 `.local/a0-a1/`。独立复审的多页部分 map failure、截断报告、同帧多 context tax 都有失败→修复→通过记录；多页必须全部 settle/unmap 后归还 slot。旧 batch 在 clear/复用 frame index 后不得填新帧；无 timestamp、ring 饱和、abort、完整 full 窗口结束均不会阻塞 render 或填假零。
+
+**本次验证命令与证据范围：**
+
+- `OEngine` 的 `npm run typecheck`、`npm run build`、新鲜 `npm run build:test`；examples 的 `tsc --noEmit -p examples/tsconfig.surface-performance.json`。
+- 12 个 A0/A1 相关 unit/contract 文件共 53 个 targeted tests；`node --import ./examples/tests/source-resolver.mjs --test examples/tests/showcase-benchmark.test.mjs examples/tests/performance-metrics.test.mjs` 共 12 个报告聚合测试。源码 resolver 是 Node TS 测试集成，不进入 production。library benchmark 与 evidence gate 同样拒绝将截断的部分事实作为完整分项百分位。
+- GPU 串行：`node tools/gpu-oracle.mjs frame-timing --json`、`framegraph-lifecycle --json`；`node validation/labs/surface-optimization-v1/run-production-cell-browser.mjs phase5-lighting .local/a0-a1/lighting-counter-final 12`。真实 NVIDIA/Turing、Chrome 154.0.8037.93；零 GPU API error 与输出断言同时核对。fixture favicon 404 不是 GPU 算法验证。
+- 原 production showcase：`node validation/tools/run-surface-performance.mjs --frames 3 --warmup 2 --batches 1 --width 1920 --height 1080 --modes timing --coverage low --no-counters --no-sensors --headless --out .local/a0-a1/surface-final --port 4187`。该项刷新当前成本事实，不是正式性能收益验收；完整功能 profile、低 coverage、静止相机，未运行正式 high/near/far/移动/材质/失效矩阵。
+
+基线完整逐帧记录、配置、fixture/source fingerprints 与截图在 `.local/a0-a1/surface-final/`：3/3 完整帧、32.84% coverage，Surface pass P50 **327.287 ms**、command span P50 **346.030 ms**，GPU API/readback error 为 0。同一帧 102 的管理/求值/辅助分别为 **310.378/12.976/3.473 ms**；不能用多个分项 P50 拼出比例。每帧 489 次 clear、297,241,108 B clear 范围、965 次 buffer copy、324,420 B copy 范围、4,798 queries、1 frame submit；copy 字节不是物理总线实测流量，tail profiler copy 单列。短基线后仅补 library 报告消费者的截断拒绝回归，未改变本次测量的 Renderer/WGSL。仅 3 帧、没有控制频率/温度/供电，不能外推稳定 P95/FPS 或与旧历史测量相减。更早的修复后短采样在 `surface-baseline-repro6/` 独立保存，不拼接统计。
+
+**A/B/C 的本单元结论。** A0 的 production/coarse/stage 调度及 query/slot 预算有界，full 是显式诊断开销；A1 的 CPU execute 随实际 scopes/references/events 增长，冷资源不再乘每节点扫描。关闭计时仍得到相同 component 数值输出，非重叠 lifetime 复用保持正确。管理不等于全部 GPU 计算、可关闭复用的整帧质量与净收益仍属于 B1/B2/C，当前同帧数据清楚显示 Surface 管理成本严重高于求值。未运行 browser matrix、正式画质/历史收益、device-loss 全链恢复、`verify --full` 与 claim promotion；这是后期验收范围，不从 component 通过中推导。
+
 ## 6. B1 — 单 closure 竖切与执行家族可行性门
 
 ### 6.1 任务与原子切换
@@ -185,6 +218,22 @@ B1 至少验证普通 material 和上述完整 generic graph 可执行性、正�
 独立预期来自 material 数学、sampler reference、独立插值，不调用 production evaluator 当 oracle。拟新增真实 GPU B1 case使用当前发布/evaluator/consumer，证明目标 closure 不执行旧 proof/lookup，并比较输出。源码 guard 只证明结构，不证明算法。
 
 结构成本：该 closure 有限 scopes 不随像素/域/material 实例增加；descriptions/refs/samples 及 generic graph 实际算术分别计数。常量绝对管理预算与纹理/程序成本分别报告。出口：单 closure 完整切换，普通与完整 generic 家族原型通过，关闭可选复用 exact 输出成立；A/B/C 只覆盖本单元。整帧其他 closure 仍为明确遗留。
+
+### 6.4 实施记录（2026-10-05）
+
+已实施并经真实 GPU 验证的部分，逐项对应 §6.1 任务：
+
+| 任务 | 状态 | 实际证据 |
+|---|---|---|
+| B1-04 有限家族与完整 generic graph | 已实施 | `material/ExactAppearanceDag.ts` 完整标量 IR、liveness、slot 复用与 lane 规划；`gpu/GpuAppearanceDagAbi.ts` 打包；`shaders/appearance_exact_dag.ts` 为**唯一** kernel body，所有拓扑走同一份 WGSL。`GpuAppearancePublication` 的 `for (program…)` per-program dispatch 循环已删除，改为对协商 texture set 数的有限循环，`register`/`lease` 由每 program 一个降为每 publication 一个。 |
+| B1-04 oracle | 通过 | `appearance-exact-dag` 在真实 GPU（nvidia/turing）通过：42 个报告覆盖全部算术 opcode 与嵌套 C/X/Y 坐标；`lanes 1/7/64` 下 `work` 恒为 129，即命令数与 lane 数解耦。独立预期来自既有 CPU evaluator，不使用 production evaluator 当 oracle。 |
+| B1-02 域实体 | 已实施 | `gpu/GpuSurfaceDomainAbi.ts`：发布期 interning 目录，域身份按完整 key（closure/planeMask/tileEdges/sampleMask）判等；`sampleMask` 与 `planeMask` 分列，使"发布值"与"需真实求值"可区分。**不再预提交固定 descriptor ABI**：目录是长度前缀词数组，记录宽度由 plane 数推导。 |
+| B1-02/B1-05 oracle | 通过 | `surface-domain` 在真实 GPU 通过。三个 fixture 中 `constant-uniform` 与 `textured-uniform` 的**域数相同（1）、tile 引用数相同（32400）**，而每域样本为 `0` 与 `15`、全帧样本工作为 `0` 与 `486000`；`mixed-two-domains` 为 2 个域、全帧工作 `243000`，等于按每个 tile 实际引用求和。断言同时要求 GPU 观察值等于发布打包值，并逐记录走公开 reader 复核。 |
+| B1-05 三者分别断言 | 已实施 | 域数、引用数、样本工作三者在本 oracle 与 `tests/unit/surface-domain-abi.test.mjs` 中分别断言，且构造上使三者互不相等，避免巧合相等导致断言失效。 |
+| B1-01 closure 选择 | 部分 | 常量与简单源纹理 closure 已走 exact DAG，但未单独具名记录输出/identity/rate/all consumer 清单。 |
+| B1-03 需求/handle/binding/reset/容量同切 | **未完成** | exact DAG 在 `SurfaceWorkRuntime` 的 `consumeBatch` 闭包内执行，但 `SurfaceFieldLookupPass`、`SurfaceSignalLookupPass` 与 `SurfaceCellClassifierPass` 的 21-plane 批链**仍被 addToGraph**。"同 closure 旧链不能重复请求/求值/写入"因此未证成立，这是 B1 收口的主要缺口。 |
+
+本单元未声称 B1 已通过出口条件。B2 全部未开始，其删除对象已定位：`SurfaceCellClassifierPass.addToGraph` 内 `for (let batch = 0; batch < batchCount; batch++)` 每批 11 个 graph node，47 批对应审计中 2,689 节点；工作区按 `tiles × 64 × N × 4` 逐像素分配 proof/witness/reference 家族，是 Field Lookup 与 Proof 分项的主要来源。
 
 ## 7. B2 — 全部当前 Surface 替换与完整 exact work
 
@@ -378,4 +427,4 @@ Production无profiling/coarse frame/有限stage/full诊断分开；frame span/pa
 
 ### 13.3 本轮状态
 
-所有任务是实施要求。历史测试/审计/来源pin只证明各自范围，**不证明本计划已实现、全帧A/B/C已过、donor采用或性能目标达成**。本轮只更新设计/执行文档，不运行生产build、targeted tests、GPU component/benchmark；文档合同检查统一执行并单独报告。
+A0/A1 的本次实施与集中检查见 §5.1；B1/B2/C/D/E/F 仍是实施要求。历史测试/审计/来源 pin 与本次 component 只证明各自范围，**不证明整个重建已实现、全帧 A/B/C 已过、完整 donor 采用或性能目标达成**。当前模块只在 workstream 维护。

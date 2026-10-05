@@ -16,7 +16,7 @@ async function fixture(t) {
   t.after(async () => {
     assert.ok(
       resolve(root).startsWith(resolve(tmpdir()) + "\\eengine-doc-") ||
-        resolve(root).startsWith(resolve(tmpdir()) + "/eengine-doc-")
+        resolve(root).startsWith(resolve(tmpdir()) + "/eengine-doc-"),
     );
     await rm(root, { recursive: true, force: true });
   });
@@ -31,14 +31,14 @@ async function fixture(t) {
     root,
     write,
     git: (...args) =>
-      execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+      execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }),
   };
 }
 
 test("production YAML parser rejects duplicate keys and supports actual YAML shapes", () => {
   assert.throws(() => parseMarkdown("---\nid: a\nid: b\nstate: current\n---\n"), /unique|duplicate/i);
   const parsed = parseMarkdown(
-    "---\nid: a\nstate: current\nverifies: {files: ['tools/production.js']}\ndescription: |\n  two lines\n  stay valid\n---\n"
+    "---\nid: a\nstate: current\nverifies: {files: ['tools/production.js']}\ndescription: |\n  two lines\n  stay valid\n---\n",
   );
   assert.deepEqual(parsed.fields.verifies.files, ["tools/production.js"]);
   assert.match(parsed.fields.description, /two lines/);
@@ -52,7 +52,7 @@ test("real Markdown links resolve spaces, references and escapes; code samples a
   assert.equal(
     parseMarkdown(text("a", body)).links.length,
     3,
-    "reference definition must be a block, not paragraph text"
+    "reference definition must be a block, not paragraph text",
   );
   await write("docs/a.md", text("a", body));
   assert.equal((await verifyDocuments({ root })).total, 0);
@@ -87,7 +87,7 @@ test("staged uses actual index content and detects deleted targets through incom
   git("add", "docs/a.md");
   await write("docs/a.md", text("a"));
   assert.ok(
-    (await verifyDocuments({ root, mode: "staged" })).findings.some((item) => item.rule === "id-duplicate")
+    (await verifyDocuments({ root, mode: "staged" })).findings.some((item) => item.rule === "id-duplicate"),
   );
   git("reset", "--quiet");
   await write("docs/a.md", text("a", "[b](b.md)"));
@@ -95,8 +95,8 @@ test("staged uses actual index content and detects deleted targets through incom
   git("rm", "--quiet", "docs/b.md");
   assert.ok(
     (await verifyDocuments({ root, mode: "staged" })).findings.some(
-      (item) => item.rule === "broken-reference"
-    )
+      (item) => item.rule === "broken-reference",
+    ),
   );
 });
 test("navigation rejects history/missing authority and keeps paused slices out of current modules", async (t) => {
@@ -104,7 +104,7 @@ test("navigation rejects history/missing authority and keeps paused slices out o
   await write("project/domains/test.yaml", "id: test\npaths: [tools/**]\ncurrentDocs: [docs/a.md]\n");
   await write(
     "project/workstreams/active/test.yaml",
-    "id: test\ndomain: test\nstate: active\nauthority:\n  design: docs/a.md\n  execution: docs/b.md\n"
+    "id: test\ndomain: test\nstate: active\nauthority:\n  design: docs/a.md\n  execution: docs/b.md\n",
   );
   await write("project/workstreams/active/paused.yaml", "id: paused\ndomain: test\nstate: paused\n");
   const summary = await navigationSummary("tools/production.js", await loadNavigation(root), root);
@@ -114,7 +114,7 @@ test("navigation rejects history/missing authority and keeps paused slices out o
   await write("docs/b.md", text("b", "", "history"));
   await assert.rejects(
     navigationSummary("tools/production.js", await loadNavigation(root), root),
-    /must be current/
+    /must be current/,
   );
   assert.ok((await verifyDocuments({ root })).findings.some((item) => item.rule === "history-used-as-entry"));
 });

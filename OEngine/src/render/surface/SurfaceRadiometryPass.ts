@@ -121,7 +121,7 @@ export class SurfaceRadiometryPass {
       readonly sun: ResourceId | null;
       readonly transmittance: ResourceId | null;
     },
-  ): void {
+  ): ResourceId {
     if (input.sun !== null && input.transmittance === null) {
       throw new Error("Surface radiometry requires the actual solar transmittance publication");
     }
@@ -164,7 +164,7 @@ export class SurfaceRadiometryPass {
     node.read(sun);
     node.read(transmittance);
     node.read(input.metadata);
-    node.write(input.metadata);
+    return node.write(input.metadata);
   }
 
   destroy(): void {

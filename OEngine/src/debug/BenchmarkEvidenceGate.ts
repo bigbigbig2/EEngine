@@ -754,7 +754,9 @@ function validateFrames(
   const frameIndices = new Set<number>();
   for (let index = 0; index < value.length; index++) {
     const frame = asRecord(value[index]);
-    if (frame === null) continue;
+    if (frame === null) {
+      continue;
+    }
     // Counter-instrumented frames are intentionally excluded from the normal
     // timestamp baseline, matching BenchmarkHarness.summarizeFrames().
     const counterSampled = asRecord(frame.gpuCounters)?.sampled === true;
@@ -789,6 +791,17 @@ function validateFrames(
         );
       }
       const segments = Array.isArray(gpu.segments) ? gpu.segments : [];
+      const timingCounters = asRecord(frame.counters);
+      const timingTruncated = Number(timingCounters?.["gpu.timing.truncated"] ?? 0) > 0;
+      if (timingTruncated) {
+        add(
+          issues,
+          "gpu-timing-truncated",
+          "error",
+          `$.frames[${index}].counters`,
+          "GPU query budget 截断，保留部分事实但不接受完整计时结论",
+        );
+      }
       if (gpu.sampled === true && gpu.pending !== true && segments.length > 0) {
         stats.timestampSamples++;
       }
@@ -840,13 +853,27 @@ function validateFrames(
         if (phase === "unclassified") {
           unclassifiedSegments++;
         }
-        if (gpu.sampled === true && gpu.pending !== true && !counterSampled && labelValid && durationValid) {
+        if (
+          gpu.sampled === true &&
+          gpu.pending !== true &&
+          !timingTruncated &&
+          !counterSampled &&
+          labelValid &&
+          durationValid
+        ) {
           append(stats.gpuValues, segment.label as string, segment.durationMs as number);
+          if (
+            segment.scope === "span" ||
+            (segment.scope === "stage" && segments.some((entry) => asRecord(entry)?.scope === "pass"))
+          ) {
+            continue;
+          }
           framePhaseTotals.set(phase, (framePhaseTotals.get(phase) ?? 0) + (segment.durationMs as number));
           surfaceSegments.push({
             label: segment.label as string,
             durationMs: segment.durationMs as number,
             phase,
+            ...(segment.scope === "stage" ? { scope: "stage" as const } : {}),
           });
         }
       }
@@ -1100,7 +1127,9 @@ function requiredRecord(
   path: string,
 ): Record<string, unknown> | null {
   const record = asRecord(value);
-  if (record === null) add(issues, "required-object-missing", "error", path, `${path} 必须是对象`);
+  if (record === null) {
+    add(issues, "required-object-missing", "error", path, `${path} 必须是对象`);
+  }
   return record;
 }
 
@@ -1128,8 +1157,9 @@ function numberEquals(
   code: string,
   path: string,
 ): void {
-  if (value !== expected)
+  if (value !== expected) {
     add(issues, code, "error", path, `需要 schema ${expected}，实际为 ${String(value)}`);
+  }
 }
 
 function isTraceableSha256(value: string): boolean {

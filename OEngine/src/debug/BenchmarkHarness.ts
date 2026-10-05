@@ -153,9 +153,20 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
     }
     // Counter collection adds GPU work. Preserve the raw evidence in `frames`,
     // but exclude instrumented frames from the normal GPU timing baseline.
-    if (!frame.gpuCounters.sampled) {
+    if (
+      !frame.gpuCounters.sampled &&
+      !frame.gpu.pending &&
+      (frame.counters["gpu.timing.truncated"] ?? 0) === 0 &&
+      frame.gpu.cost?.complete !== false
+    ) {
       for (const segment of frame.gpu.segments) {
         append(gpuValues, segment.label, segment.durationMs);
+        if (
+          segment.scope === "span" ||
+          (segment.scope === "stage" && frame.gpu.segments.some((entry) => entry.scope === "pass"))
+        ) {
+          continue;
+        }
         const phase = segment.phase ?? classifyGpuFramePhase(segment.label);
         framePhaseTotals.set(phase, (framePhaseTotals.get(phase) ?? 0) + segment.durationMs);
       }
@@ -171,7 +182,9 @@ function summarizeFrames(frames: readonly FrameProfileSnapshot[]): BenchmarkSumm
     }
     if (frame.gpuCounters.sampled && !frame.gpuCounters.dropped) {
       for (const [label, value] of Object.entries(frame.gpuCounters.values)) {
-        if (value !== undefined) append(gpuCounterValues, label, value);
+        if (value !== undefined) {
+          append(gpuCounterValues, label, value);
+        }
       }
     }
   }

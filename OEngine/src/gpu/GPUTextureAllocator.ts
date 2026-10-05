@@ -21,9 +21,12 @@ export interface GPUTextureAllocatorEvidence {
   readonly cachedBytes: number;
   readonly pendingCount: number;
   readonly cachedCount: number;
+  readonly activeBytes: number;
+  readonly activeCount: number;
 }
 
 export class GPUTextureAllocator {
+  private readonly active = new Set<GPUTextureContext>();
   readonly texture_cache: GPUTextureContext[] = [];
   private readonly pending = new Set<GPUTextureContext>();
   private destroyed = false;
@@ -68,6 +71,7 @@ export class GPUTextureAllocator {
       );
     }
     this.lastUse.set(context, now());
+    this.active.add(context);
     return context;
   }
 
@@ -76,8 +80,10 @@ export class GPUTextureAllocator {
       return;
     }
     void context.gpu_texture;
+    this.active.delete(context);
     if (reuseAfter !== undefined) {
       this.pending.add(context);
+      context.setRetired(true);
       void reuseAfter.then(
         () => this.finishPendingRelease(context),
         () => this.finishPendingRelease(context),
@@ -108,6 +114,9 @@ export class GPUTextureAllocator {
     for (const context of this.pending) {
       usage += context.gpu_memory_usage;
     }
+    for (const context of this.active) {
+      usage += context.gpu_memory_usage;
+    }
     return usage;
   }
 
@@ -118,11 +127,17 @@ export class GPUTextureAllocator {
   evidence(): GPUTextureAllocatorEvidence {
     const cachedBytes = this.texture_cache.reduce((sum, texture) => sum + texture.gpu_memory_usage, 0);
     let pendingBytes = 0;
+    let activeBytes = 0;
+    for (const texture of this.active) {
+      activeBytes += texture.gpu_memory_usage;
+    }
     for (const texture of this.pending) {
       pendingBytes += texture.gpu_memory_usage;
     }
     return Object.freeze({
-      allocatedBytes: cachedBytes + pendingBytes,
+      allocatedBytes: activeBytes + cachedBytes + pendingBytes,
+      activeBytes,
+      activeCount: this.active.size,
       pendingBytes,
       cachedBytes,
       pendingCount: this.pending.size,
@@ -131,18 +146,29 @@ export class GPUTextureAllocator {
   }
 
   destroy(): void {
-    if (this.destroyed) return;
+    if (this.destroyed) {
+      return;
+    }
     this.destroyed = true;
-    for (const context of this.texture_cache) context.destroy();
+    for (const context of this.active) {
+      context.destroy();
+    }
+    this.active.clear();
+    for (const context of this.texture_cache) {
+      context.destroy();
+    }
     this.texture_cache.length = 0;
   }
 
   private finishPendingRelease(context: GPUTextureContext): void {
-    if (!this.pending.delete(context)) return;
+    if (!this.pending.delete(context)) {
+      return;
+    }
     if (this.destroyed) {
       context.destroy();
       return;
     }
+    context.setRetired(false);
     this.cacheReleased(context);
   }
 

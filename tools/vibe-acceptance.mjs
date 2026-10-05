@@ -8,7 +8,7 @@ import {
   assertRegistry,
   checkGeneratedRegistry,
   writeGeneratedRegistry,
-  matchingCases
+  matchingCases,
 } from "./vibe-lib.mjs";
 import { loadNavigation, navigationSummary } from "./project-navigation.mjs";
 import { planEngineTests, runCheckImplementation } from "./check-runners.mjs";
@@ -44,8 +44,8 @@ try {
       cases: (input === "." ? model.cases : matchingCases(model, [input])).map((item) => ({
         id: item.id,
         caseKind: item.caseKind,
-        route: item.route
-      }))
+        route: item.route,
+      })),
     });
   } else if (command === "registry" || command === "doctor") {
     allowed(command === "registry" ? ["--check", "--write"] : []);
@@ -66,11 +66,11 @@ try {
                 checks: model.checks.length,
                 cases: registry.cases.length,
                 profiles: model.profiles.length,
-                workloads: model.workloads.length
+                workloads: model.workloads.length,
               },
-              registryState: state
+              registryState: state,
             }
-          : { mode: "check", ...state, cases: registry.cases.length }
+          : { mode: "check", ...state, cases: registry.cases.length },
       );
       if (!state.ok) process.exitCode = 1;
     }
@@ -90,14 +90,14 @@ try {
     const checks = model.checks.filter(
       (item) =>
         !["changed-coverage", "guard-ownership", "guard-generated-source", "docs-frontmatter"].includes(
-          item.id
-        )
+          item.id,
+        ),
     );
     const oracles = [...new Set(names)].map((name) => ({
       id: `gpu-oracle-${name}`,
       runner: "gpu-environment",
       config: { oracle: name },
-      level: "L2"
+      level: "L2",
     }));
     const tasks = [...checks, ...oracles];
     const context = {
@@ -107,7 +107,7 @@ try {
       changedPaths: ["."],
       uncovered: [],
       routingAmbiguities: [],
-      registryState: await checkGeneratedRegistry(registry)
+      registryState: await checkGeneratedRegistry(registry),
     };
     if (args.includes("--plan")) {
       print({
@@ -116,7 +116,7 @@ try {
         checks: tasks.map((item) => item.id),
         engineTests: planEngineTests(context).files,
         browserCases: { status: "not-run", ids: registry.cases.map((item) => item.id) },
-        rendererAcceptance: "not evaluated"
+        rendererAcceptance: "not evaluated",
       });
     } else {
       const started = performance.now();
@@ -125,7 +125,7 @@ try {
         return {
           id: check.id,
           ...runCheckImplementation(check, context),
-          durationMs: Math.round(performance.now() - began)
+          durationMs: Math.round(performance.now() - began),
         };
       });
       const failed = results.filter((item) => item.status === "failed");
@@ -140,7 +140,7 @@ try {
         checks: results,
         skippedChecks: skipped,
         browserCases: { status: "not-run", ids: registry.cases.map((item) => item.id) },
-        rendererAcceptance: "not evaluated"
+        rendererAcceptance: "not evaluated",
       });
       if (conclusion !== "complete") process.exitCode = 1;
     }

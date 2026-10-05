@@ -42,7 +42,7 @@ export async function readFrontmatterFiles(directory) {
         const path = resolve(directory, entry.name);
         const source = await readFile(path, "utf8");
         return { path, source, value: parseMarkdown(source, relative(REPO_ROOT, path)).fields };
-      })
+      }),
   );
 }
 
@@ -57,7 +57,7 @@ export async function loadModel() {
     profileFiles,
     workloadFiles,
     domainDocs,
-    contractDocs
+    contractDocs,
   ] = await Promise.all([
     readYamlFiles(DOMAIN_DIR),
     readYamlFiles(CHECK_DIR),
@@ -68,7 +68,7 @@ export async function loadModel() {
     readYamlFiles(PROFILE_DIR),
     readYamlFiles(WORKLOAD_DIR),
     readFrontmatterFiles(DOMAIN_DOC_DIR),
-    readFrontmatterFiles(CONTRACT_DOC_DIR)
+    readFrontmatterFiles(CONTRACT_DOC_DIR),
   ]);
 
   const domains = domainFiles.map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
@@ -82,14 +82,14 @@ export async function loadModel() {
     .map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
   const workstreams = workstreamFiles.map(({ path, value }) => ({
     ...value,
-    _file: relative(REPO_ROOT, path)
+    _file: relative(REPO_ROOT, path),
   }));
   const cases = [...caseFiles, ...labFiles]
     .filter(({ path }) => basename(path) === "case.yaml")
     .map(({ path, value }) => ({
       ...value,
       _file: relative(REPO_ROOT, path),
-      _lab: path.startsWith(`${LAB_DIR}${sep}`)
+      _lab: path.startsWith(`${LAB_DIR}${sep}`),
     }));
   const profiles = profileFiles.map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
   const workloads = workloadFiles.map(({ path, value }) => ({ ...value, _file: relative(REPO_ROOT, path) }));
@@ -104,7 +104,7 @@ export async function loadModel() {
     profiles,
     workloads,
     domainDocs,
-    contractDocs
+    contractDocs,
   };
 }
 
@@ -290,7 +290,7 @@ function validateFrontmatterDocs(model, errors) {
       errors.push(`${relative(REPO_ROOT, entry.path)}: invalid domain frontmatter identity`);
     if ("contracts" in value)
       errors.push(
-        `${relative(REPO_ROOT, entry.path)}: domain relationships belong in project/domains, not Markdown frontmatter`
+        `${relative(REPO_ROOT, entry.path)}: domain relationships belong in project/domains, not Markdown frontmatter`,
       );
   }
   for (const entry of model.contractDocs ?? []) {
@@ -330,7 +330,7 @@ function hasDecisionFile(id) {
   if (!/^ADR-\d{4}$/u.test(id ?? "")) return false;
   const prefix = id.slice(4).toLowerCase();
   return readdirSync(resolve(REPO_ROOT, "docs/adr"), { withFileTypes: true }).some(
-    (entry) => entry.isFile() && entry.name.toLowerCase().startsWith(prefix) && entry.name.endsWith(".md")
+    (entry) => entry.isFile() && entry.name.toLowerCase().startsWith(prefix) && entry.name.endsWith(".md"),
   );
 }
 
@@ -341,10 +341,10 @@ function normalizeCaseEntry(item) {
 
 export function buildRegistry(model, legacyRegistry) {
   const profiles = Object.fromEntries(
-    model.profiles.map(({ _file, schemaVersion, ...profile }) => [profile.id, profile])
+    model.profiles.map(({ _file, schemaVersion, ...profile }) => [profile.id, profile]),
   );
   const workloads = Object.fromEntries(
-    model.workloads.map(({ _file, schemaVersion, ...workload }) => [workload.id, workload])
+    model.workloads.map(({ _file, schemaVersion, ...workload }) => [workload.id, workload]),
   );
   const cases = model.cases.map(normalizeCaseEntry);
   return {
@@ -355,8 +355,8 @@ export function buildRegistry(model, legacyRegistry) {
     cases,
     generatedFrom: {
       source: "project + validation/cases/*/case.yaml + validation/labs/*/case.yaml",
-      generatorVersion: 1
-    }
+      generatorVersion: 1,
+    },
   };
 }
 
@@ -380,7 +380,7 @@ export async function checkGeneratedRegistry(registry, path = GENERATED_REGISTRY
         ? "registry missing; use registry --write"
         : actual === expected
           ? null
-          : "registry drift; use registry --write after reviewing inputs"
+          : "registry drift; use registry --write after reviewing inputs",
   };
 }
 
@@ -390,20 +390,20 @@ export function validateGeneratedRegistry(registry) {
 
 export function matchingDomains(model, paths) {
   return model.domains.filter((domain) =>
-    paths.some((path) => domain.paths.some((pattern) => pathMatches(path, pattern)))
+    paths.some((path) => domain.paths.some((pattern) => pathMatches(path, pattern))),
   );
 }
 
 export function matchingCases(model, paths) {
   return model.cases.filter((item) =>
-    paths.some((path) => item.changedPaths.some((pattern) => pathMatches(path, pattern)))
+    paths.some((path) => item.changedPaths.some((pattern) => pathMatches(path, pattern))),
   );
 }
 
 export function getChangedPaths(baseRevision) {
   const output = execFileSync("git", ["status", "--short", "--untracked-files=all", "-z"], {
     cwd: REPO_ROOT,
-    encoding: "utf8"
+    encoding: "utf8",
   });
   const paths = new Set();
   const records = output.split("\0");
@@ -422,7 +422,7 @@ export function getChangedPaths(baseRevision) {
   if (baseRevision) {
     const diff = execFileSync("git", ["diff", "--name-status", "-z", "--find-renames", baseRevision, "--"], {
       cwd: REPO_ROOT,
-      encoding: "utf8"
+      encoding: "utf8",
     });
     const entries = diff.split("\0");
     for (let index = 0; index < entries.length; ) {

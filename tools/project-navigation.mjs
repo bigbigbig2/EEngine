@@ -51,14 +51,14 @@ export function routeDomains(model, paths) {
   return {
     primary,
     related,
-    ambiguous: Boolean(primary && related.some((item) => item.score === primary.score))
+    ambiguous: Boolean(primary && related.some((item) => item.score === primary.score)),
   };
 }
 
 export async function loadNavigation(root = REPO_ROOT) {
   const [domains, streams] = await Promise.all([
     readYamlFiles(resolve(root, "project/domains")),
-    readYamlFiles(resolve(root, "project/workstreams/active"))
+    readYamlFiles(resolve(root, "project/workstreams/active")),
   ]);
   return { domains: domains.map((item) => item.value), workstreams: streams.map((item) => item.value) };
 }
@@ -72,8 +72,8 @@ export async function navigationSummary(input, model, root = REPO_ROOT) {
       all ||
       stream.authority ||
       primary.some(
-        (domain) => stream.domain === domain.id || (domain.decisions ?? []).includes(stream.decision)
-      )
+        (domain) => stream.domain === domain.id || (domain.decisions ?? []).includes(stream.decision),
+      ),
   );
   const active = streams.filter((stream) => stream.state === "active");
   const documents = [...new Set(primary.flatMap((domain) => domain.currentDocs ?? []))];
@@ -90,15 +90,15 @@ export async function navigationSummary(input, model, root = REPO_ROOT) {
       : {
           primary: routing.primary?.id ?? null,
           related: routing.related.map((item) => item.id),
-          ambiguous: routing.ambiguous
+          ambiguous: routing.ambiguous,
         },
     documents,
     ...(authorities[0] ? { nextArchitecture: authorities[0] } : {}),
     currentModules: active.map((stream) => ({
       workstream: stream.id,
       currentSlice: stream.currentSlice ?? null,
-      nextModules: (stream.nextModules ?? []).map((module) => module.id)
+      nextModules: (stream.nextModules ?? []).map((module) => module.id),
     })),
-    pausedWorkstreams: streams.filter((stream) => stream.state === "paused").map((stream) => stream.id)
+    pausedWorkstreams: streams.filter((stream) => stream.state === "paused").map((stream) => stream.id),
   };
 }

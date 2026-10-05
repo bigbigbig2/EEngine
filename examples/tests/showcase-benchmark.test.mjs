@@ -49,5 +49,17 @@ test("full-frame and Surface spans retain encoder gaps and subtract bigint clock
  assert.equal(summary.surfacePassSumMs.p50,2);
  assert.equal(summary.surfaceSpanMs.p50,12);
  assert.equal(summary.gpuFrameSpanMs.p50,14);
- assert.equal(summary.surfacePhases.lighting.p50,0);
+ assert.equal(summary.surfacePhases.lighting,undefined,'Missing phase has no measured duration');
+});
+
+test('span and semantic stage do not double-count pass sum; same-frame costs precede percentiles',()=>{
+ const first=frame(1,[]);
+ first.gpu.segments=[{label:'Renderer/frame-span',scope:'span',durationMs:20},{label:'Renderer/surface',scope:'stage',durationMs:17},
+ {label:'Surface/emit_surface_requests',scope:'pass',durationMs:3},{label:'Surface/unique GeometryRecord',scope:'pass',durationMs:5},{label:'Surface/reconstruct',scope:'pass',durationMs:2}];
+ const summary=summarizeCapture([first]);
+ assert.equal(summary.gpuPassSumMs.p50,10);assert.equal(summary.gpuFrameSpanMs.p50,20);assert.equal(summary.surfaceSpanMs.p50,17);
+ assert.equal(summary.pairedCosts.surfaceManagementMs.p50,3);assert.equal(summary.pairedCosts.surfaceEvaluationMs.p50,5);assert.equal(summary.pairedCosts.outsidePassMs.p50,10);
+ const coarse=frame(2,[]);coarse.gpu.segments=[{label:'Renderer/frame-span',scope:'span',durationMs:20}];
+ assert.equal(summarizeCapture([coarse]).surfacePassSumMs,null);assert.equal(summarizeCapture([coarse]).gpuPassSumMs,null);
+ first.counters['gpu.timing.truncated']=1;assert.equal(validGpuFrame(first),false);
 });

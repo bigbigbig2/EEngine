@@ -82,6 +82,7 @@ export interface SurfaceCellClassifierInput {
 }
 
 export interface SurfaceCellClassifierProducts {
+  readonly appearanceMetadata: ResourceId;
   readonly setup: SurfaceCellGeometrySetupProducts;
   readonly coverage: ResourceId;
   readonly activeIndirect: ResourceId;
@@ -314,7 +315,7 @@ export class SurfaceCellClassifierPass {
       GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
     );
     let fieldStore!: ResourceId, signalStore!: ResourceId;
-    this.radiometry.addToGraph(graph, {
+    const radiometryMetadata = this.radiometry.addToGraph(graph, {
       metadata: input.appearanceMetadata,
       offset: input.publication.surfaceMetadataOffsets.radiometry,
       lightRecords: input.lightRecords,
@@ -322,6 +323,7 @@ export class SurfaceCellClassifierPass {
       sun: input.sun,
       transmittance: input.solarTransmittance ?? null,
     });
+    input = { ...input, appearanceMetadata: radiometryMetadata };
     const constants = graph.add(
       "Surface/cell publish material constants",
       { input, workspace },
@@ -374,7 +376,8 @@ export class SurfaceCellClassifierPass {
       },
     );
     constants.read(input.appearanceMetadata);
-    constants.write(input.appearanceMetadata);
+    const publishedMetadata = constants.write(input.appearanceMetadata);
+    input = { ...input, appearanceMetadata: publishedMetadata };
 
     const bindFactGroups = (
       pipeline: GPUComputePipeline,
@@ -526,6 +529,12 @@ export class SurfaceCellClassifierPass {
       facts.dependsOn(batchReset);
       facts.read(setup.memo);
       facts.read(activeIndirect);
+      if (input.product !== null) {
+        facts.read(input.product.heap);
+        for (const resource of input.product.banks) {
+          facts.read(resource);
+        }
+      }
       previous = facts;
       const addresses = graph.add(
         `Surface/canonical field addresses batch ${batch}`,
@@ -636,6 +645,12 @@ export class SurfaceCellClassifierPass {
       ]) {
         proofTiles.read(resource);
       }
+      if (input.product !== null) {
+        proofTiles.read(input.product.heap);
+        for (const resource of input.product.banks) {
+          proofTiles.read(resource);
+        }
+      }
       workspace = proofTiles.write(workspace);
       proofIndirect = proofTiles.write(proofIndirect);
       previous = addresses;
@@ -723,6 +738,12 @@ export class SurfaceCellClassifierPass {
         previous = classify;
         classify.read(setup.memo);
         classify.read(activeIndirect);
+        if (input.product !== null) {
+          classify.read(input.product.heap);
+          for (const resource of input.product.banks) {
+            classify.read(resource);
+          }
+        }
         if (stageIndex === 0) {
           const witnesses = graph.add(
             `Surface/admitted signal witnesses batch ${batch}`,
@@ -757,6 +778,12 @@ export class SurfaceCellClassifierPass {
           ]) {
             witnesses.read(resource);
           }
+          if (input.product !== null) {
+            witnesses.read(input.product.heap);
+            for (const resource of input.product.banks) {
+              witnesses.read(resource);
+            }
+          }
           workspace = witnesses.write(workspace);
           witnesses.dependsOn(previous);
           previous = witnesses;
@@ -781,21 +808,40 @@ export class SurfaceCellClassifierPass {
         }
       }
       if (input.consumeBatch !== undefined) {
-        consumed = input.consumeBatch(
-          { workspace, fieldStore, signalStore, batchTileCapacity, coverage, activeIndirect, setup },
+        const completedResources = input.consumeBatch(
+          {
+            workspace,
+            fieldStore,
+            signalStore,
+            batchTileCapacity,
+            coverage,
+            activeIndirect,
+            setup,
+            appearanceMetadata: input.appearanceMetadata,
+          },
           firstTile,
           tileCount,
           batchTileCapacity,
         );
         const complete = graph.add(`Surface/cell batch ${batch} consumed`, {}, () => {});
-        for (const resource of consumed) {
+        const outputDependencies: ResourceId[] = [];
+        for (const resource of completedResources) {
           complete.read(resource);
+          if (graph.getResourceEntry(resource) === graph.getResourceEntry(workspace)) {
+            workspace = resource;
+          } else {
+            outputDependencies.push(resource);
+          }
         }
+        // Workspace is overwritten at the next batch boundary. Its latest
+        // version feeds that writer, not a stale post-reset read dependency.
+        consumed = outputDependencies;
         complete.make_side_effect();
         previous = complete;
       }
     }
     return {
+      appearanceMetadata: input.appearanceMetadata,
       workspace,
       fieldStore,
       signalStore,

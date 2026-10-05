@@ -241,6 +241,7 @@ export class SurfaceWorkRuntime {
       tileCount: number,
       batchTiles: number,
     ): readonly ResourceId[] => {
+      input = { ...input, appearanceMetadata: cells.appearanceMetadata };
       const runtime = this;
       const epoch = input.historyBinding("surface-submitted-epoch", () => ({
         get value() {
@@ -284,6 +285,13 @@ export class SurfaceWorkRuntime {
         demand.layout.fieldCapacity * 16,
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
       );
+      const exactScratch = this.scratch.importBuffer(
+        graph,
+        input.historyBinding,
+        "Surface/exact Appearance live lanes",
+        input.publication.exactDagScratchBytes,
+        GPUBufferUsage.STORAGE,
+      );
       const material = graph.add(
         "Surface/unique missing Appearance fields",
         { geometry: geometry.records, demand, fields },
@@ -296,6 +304,7 @@ export class SurfaceWorkRuntime {
             demand: resources.get(data.demand.arena) as GPUBuffer,
             indirect: resources.get(data.demand.indirect) as GPUBuffer,
             values: resources.get(data.fields) as GPUBuffer,
+            scratch: resources.get(exactScratch) as GPUBuffer,
             layout: data.demand.layout,
             textureBanks: banks,
           });
@@ -310,6 +319,7 @@ export class SurfaceWorkRuntime {
         }
       }
       fields = material.write(fields);
+      material.write(exactScratch);
       material.read(demand.indirect);
       demand = this.publisher.addToGraph(graph, {
         ...request,
@@ -392,6 +402,7 @@ export class SurfaceWorkRuntime {
         ...(diagnostics === null ? {} : { diagnostics: diagnostics.snapshot }),
       };
       return [
+        demand.workspace,
         reconstructed.radiance,
         reconstructed.reactiveMask,
         demand.fieldStore,

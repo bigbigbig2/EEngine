@@ -7,7 +7,7 @@ export interface ExperimentFrame {
   uploads: { bytes: number };
   readbacks: { bytes: number };
   graph?: { cacheHits: number; cacheMisses: number };
-  gpu: { available: boolean; sampled: boolean; pending: boolean; segments: { label: string; phase: string; durationMs: number; startTick?: string; endTick?: string }[] };
+  gpu: { available: boolean; sampled: boolean; pending: boolean; segments: { label: string; phase: string; durationMs: number; startTick?: string; endTick?: string; scope?: "pass" | "stage" | "span" }[] };
   gpuCounters: { sampled: boolean; pending: boolean; dropped: boolean; values: Partial<Record<string, number>> };
   gpuValid: boolean;
 }
@@ -42,6 +42,7 @@ export function gpuRows(frames: readonly ExperimentFrame[], groupBy: "pass" | "p
     if (!frame.gpuValid) continue;
     const totals = new Map<string, number>();
     for (const segment of frame.gpu.segments) {
+      if (groupBy === "phase" && (segment.scope === "span" || (segment.scope === "stage" && frame.gpu.segments.some(entry => entry.scope === "pass")))) continue;
       const key = groupBy === "pass" ? segment.label : segment.phase;
       totals.set(key, (totals.get(key) ?? 0) + segment.durationMs);
     }
@@ -115,7 +116,9 @@ export function shadingDispatchEvidence(
 
 export function frameSeries(frames: readonly ExperimentFrame[], metric: "gpu" | "cpu" | "raf"): number[] {
   return frames.flatMap((frame) => {
-    const value = metric === "gpu" ? (frame.gpuValid ? frame.gpu.segments.reduce((sum, segment) => sum + segment.durationMs, 0) : undefined)
+    const spans = frame.gpu.segments.filter(segment => segment.scope === "span");
+    const intervals = spans.length ? spans : frame.gpu.segments.filter(segment => segment.scope === undefined || segment.scope === "pass");
+    const value = metric === "gpu" ? (frame.gpuValid ? intervals.reduce((sum, segment) => sum + segment.durationMs, 0) : undefined)
       : metric === "cpu" ? frame.cpuMs.frame : frame.counters["frame.rafIntervalMs"];
     return value !== undefined && Number.isFinite(value) ? [value] : [];
   });

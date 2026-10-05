@@ -31,6 +31,10 @@ export interface ResourceCategorySnapshot {
 export interface ResourceAccountingSnapshot {
   readonly totalBytes: number;
   readonly peakBytes: number;
+  readonly liveBytes: number;
+  readonly retiredBytes: number;
+  readonly livePeakBytes: number;
+  readonly retiredPeakBytes: number;
   readonly createdCount: number;
   readonly destroyedCount: number;
   readonly counts: Readonly<Record<AccountedResourceKind, number>>;
@@ -44,18 +48,40 @@ export class ResourceAccounting {
   private peakBytes = 0;
   private createdCount = 0;
   private destroyedCount = 0;
+  private retiredBytes = 0;
+  private livePeakBytes = 0;
+  private retiredPeakBytes = 0;
+  private readonly retired = new Set<number>();
+  private readonly physical = new WeakMap<object, ResourceHandle>();
   private readonly resources = new Map<number, ResourceHandle>();
   private readonly categoryStats = new Map<
     AccountedResourceCategory,
     { bytes: number; peakBytes: number; count: number }
   >();
 
-  created(input: ResourceAccountedInput): ResourceHandle {
+  created(input: ResourceAccountedInput, physical?: object): ResourceHandle {
     validateInput(input);
+    if (physical) {
+      const existing = this.physical.get(physical);
+      if (existing && this.resources.has(existing.id)) {
+        if (
+          existing.bytes !== input.bytes ||
+          existing.owner !== input.owner ||
+          existing.kind !== input.kind
+        ) {
+          throw new Error("Physical resource has conflicting accounting owners");
+        }
+        return existing;
+      }
+    }
     const handle = Object.freeze({ ...input, category: input.category ?? "resident", id: this.nextId++ });
     this.resources.set(handle.id, handle);
+    if (physical) {
+      this.physical.set(physical, handle);
+    }
     this.currentBytes += handle.bytes;
     this.peakBytes = Math.max(this.peakBytes, this.currentBytes);
+    this.livePeakBytes = Math.max(this.livePeakBytes, this.currentBytes - this.retiredBytes);
     this.createdCount++;
     const category = this.categoryStats.get(handle.category) ?? { bytes: 0, peakBytes: 0, count: 0 };
     category.bytes += handle.bytes;
@@ -72,10 +98,28 @@ export class ResourceAccounting {
     }
     this.resources.delete(handle.id);
     this.currentBytes -= current.bytes;
+    if (this.retired.delete(handle.id)) {
+      this.retiredBytes -= current.bytes;
+    }
     this.destroyedCount++;
     const category = this.categoryStats.get(current.category)!;
     category.bytes -= current.bytes;
     category.count--;
+  }
+
+  setRetired(handle: ResourceHandle, retired: boolean): void {
+    if (this.resources.get(handle.id) !== handle) {
+      throw new Error("Unknown accounting resource");
+    }
+    if (retired && !this.retired.has(handle.id)) {
+      this.retired.add(handle.id);
+      this.retiredBytes += handle.bytes;
+    }
+    if (!retired && this.retired.delete(handle.id)) {
+      this.retiredBytes -= handle.bytes;
+    }
+    this.retiredPeakBytes = Math.max(this.retiredPeakBytes, this.retiredBytes);
+    this.livePeakBytes = Math.max(this.livePeakBytes, this.currentBytes - this.retiredBytes);
   }
 
   snapshot(): ResourceAccountingSnapshot {
@@ -101,6 +145,10 @@ export class ResourceAccounting {
     return Object.freeze({
       totalBytes: this.currentBytes,
       peakBytes: this.peakBytes,
+      liveBytes: this.currentBytes - this.retiredBytes,
+      retiredBytes: this.retiredBytes,
+      livePeakBytes: this.livePeakBytes,
+      retiredPeakBytes: this.retiredPeakBytes,
       createdCount: this.createdCount,
       destroyedCount: this.destroyedCount,
       counts: Object.freeze({ ...counts }),
@@ -280,5 +328,7 @@ function validateInput(input: ResourceAccountedInput): void {
 }
 
 function assertPositiveInteger(value: number, name: string): void {
-  if (!Number.isInteger(value) || value <= 0) throw new RangeError(`${name} must be a positive integer`);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new RangeError(`${name} must be a positive integer`);
+  }
 }

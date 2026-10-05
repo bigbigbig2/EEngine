@@ -8,11 +8,12 @@ import {
   SURFACE_DIAGNOSTICS_SCHEMA_VERSION,
   SURFACE_DIAGNOSTICS_COUNTER_WORDS,
   SURFACE_DIAGNOSTICS_COUNTERS as C,
+  SURFACE_DIAGNOSTIC_PRODUCERS,
 } from "../../gpu/SurfaceDiagnosticsAbi.js";
 import { surfaceCellWorkspaceWgsl } from "../../gpu/GpuSurfaceCellPlanAbi.js";
 import { surfaceDemandArenaWgsl } from "../../gpu/GpuSurfaceDemandAbi.js";
 import {
-  SURFACE_GEOMETRY_RECORD_VECTORS,
+  SURFACE_GEOMETRY_RECORD_HOT_BYTES,
   SURFACE_GEOMETRY_RECORD_BYTES,
 } from "../../gpu/GpuSurfaceGeometryRecordAbi.js";
 import type { SurfaceDemandProducts } from "./SurfaceDemandPass.js";
@@ -84,20 +85,16 @@ fn publish_snapshot() {
  let fields=atomicLoad(&demand.control[49u]);
  let misses=atomicLoad(&workspace.counters[115u]);
  let geometry=atomicLoad(&demand.control[0u]);let materials=atomicLoad(&demand.control[5u]);let lighting=atomicLoad(&demand.control[6u]);
- ${add(C.sampleRequested, "geometry")}${add(C.sampleAccepted, "geometry")}
+ ${add(C.geometryDescriptions, "geometry")}${add(C.materialDescriptions, "materials")}${add(C.lightingDescriptions, "lighting")}
  ${add(C.materialLookup, "misses+atomicLoad(&workspace.counters[113u])")}
  ${add(C.materialHit, "atomicLoad(&workspace.counters[113u])")}${add(C.materialMissRequested, "misses")}${add(C.materialMissQueued, "materials")}
- ${add(C.materialEvaluatorEntered, "materials")}${add(C.materialEvaluatorCompleted, "materials")}${add(C.materialFieldsPublished, "fields")}
- ${add(C.geometryRecordsRequested, "geometry")}${add(C.geometryMissQueued, "geometry")}${add(C.geometryMissCompleted, "geometry")}${add(C.geometryRecordsValid, "geometry")}
- ${add(C.geometryRecordWriteBytes, `geometry*128u+atomicLoad(&demand.control[46u])*4u`)}
- ${add(C.lightingRecordsProcessed, "lighting")}
  ${add(C.diffuseEvaluations, "atomicLoad(&demand.control[64u])")}${add(C.specularEvaluations, "atomicLoad(&demand.control[65u])")}${add(C.coatEvaluations, "atomicLoad(&demand.control[66u])")}
- ${add(C.iblEvaluations, "atomicLoad(&demand.control[67u])")}
+ ${add(C.iblEvaluations, "atomicLoad(&demand.control[67u])+atomicLoad(&demand.control[70u])+atomicLoad(&demand.control[68u])")}
  ${add(C.diffusePacketWrites, "atomicLoad(&demand.control[84u])+atomicLoad(&demand.control[85u])")}
  ${add(C.specularPacketWrites, "atomicLoad(&demand.control[86u])+atomicLoad(&demand.control[87u])")}
  ${add(C.coatPacketWrites, "atomicLoad(&demand.control[88u])+atomicLoad(&demand.control[89u])")}
  ${add(C.iblPacketWrites, "atomicLoad(&demand.control[85u])+atomicLoad(&demand.control[87u])+atomicLoad(&demand.control[89u])")}
- ${add(C.packetWriteBytes, "atomicLoad(&demand.control[50u])*16u")}
+ ${add(C.packetWriteBytes, "(atomicLoad(&demand.control[84u])+atomicLoad(&demand.control[85u])+atomicLoad(&demand.control[86u])+atomicLoad(&demand.control[87u])+atomicLoad(&demand.control[88u])+atomicLoad(&demand.control[89u]))*16u")}
  ${add(C.fieldCacheRequests, "atomicLoad(&demand.control[1u])")}
  ${add(C.fieldCacheProbes, "atomicLoad(&demand.control[53u])")}
  ${add(C.fieldCacheUnique, "atomicLoad(&demand.control[3u])")}
@@ -117,8 +114,6 @@ fn publish_snapshot() {
  ${add(C.proofResultWriteBytes, "atomicLoad(&workspace.counters[89u])")}
  ${add(C.proofAdmitted, "atomicLoad(&workspace.counters[120u])")}
  ${add(C.proofRejected, "atomicLoad(&workspace.counters[122u])")}
- ${add(C.geometryHotWriteBytes, "geometry*128u")}
- ${add(C.geometryColdWriteBytes, "atomicLoad(&demand.control[46u])*4u")}
  ${add(C.explicitStoreRefWriteBytes, "atomicLoad(&workspace.counters[90u])")}
  ${add(C.fullDirectLightEvaluations, "atomicLoad(&demand.control[96u])")}
  ${add(C.sharedDirectTransportEvaluations, "atomicLoad(&demand.control[97u])")}
@@ -138,8 +133,19 @@ fn publish_snapshot() {
   atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.reconstructUncoveredPixels}u],reconstruct[1u]);
   atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.reconstructMappedPixels}u],reconstruct[7u]);
   atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.outputPixels}u],settings.width*settings.height);
-  atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.reconstructWriteBytes}u],settings.width*settings.height*12u);
-  atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.geometryRecordStrideWords}u],${SURFACE_GEOMETRY_RECORD_VECTORS}u);
+  atomicStore(&snapshot[${SURFACE_DIAGNOSTICS_HEADER_WORDS + C.geometryRecordStrideWords}u],${SURFACE_GEOMETRY_RECORD_HOT_BYTES / 4}u);
+  ${[0, 1, 2, 3]
+    .map((word) => {
+      let mask = 0;
+      for (const name of Object.keys(SURFACE_DIAGNOSTIC_PRODUCERS) as Array<keyof typeof C>) {
+        const index = C[name];
+        if (index >>> 5 === word) {
+          mask |= 1 << (index & 31);
+        }
+      }
+      return `atomicStore(&snapshot[${8 + word}u],${mask >>> 0}u);`;
+    })
+    .join("\n")}
  }
 }
 `;

@@ -15,6 +15,7 @@ import type { GPUBufferAllocator, GPUBufferClearEncoder } from "../gpu/GPUBuffer
 import type { GPUTextureAllocator } from "../gpu/GPUTextureAllocator.js";
 import type { GPUTextureContext } from "../gpu/GPUTextureContext.js";
 import { createNativeTexture } from "../gpu/GPUTextureDescriptors.js";
+import { classifyGpuFramePhase } from "../debug/GpuFramePhase.js";
 
 export type FrameGraphCommandEncoder = {
   readonly gpu_encoder: GPUCommandEncoder;
@@ -23,6 +24,7 @@ export type FrameGraphCommandEncoder = {
   beginRenderPass?(descriptor: GPURenderPassDescriptor): GPURenderPassEncoder;
   beginComputePass?(descriptor?: GPUComputePassDescriptor): GPUComputePassEncoder;
   clearBuffer?(buffer: GPUBuffer, offset?: number, size?: number): void;
+  enterTimingStage?(label: string): void;
 };
 
 export type FrameGraphGraphicsResources = {
@@ -48,13 +50,15 @@ export class FrameGraphContext {
       device?: GPUDevice;
       graphics?: unknown;
       resource_manager?: FrameGraphResourceManager;
+      completion?: Promise<void>;
       passCpuProfiler?: FrameGraphPassCpuProfiler;
     } = {},
   ) {
     this.encoder = opts.encoder ?? null;
     this.device = opts.device;
     this.graphics = opts.graphics;
-    this.resource_manager = opts.resource_manager ?? new FrameGraphResourceManager(opts.device ?? null);
+    this.resource_manager =
+      opts.resource_manager ?? new FrameGraphResourceManager(opts.device ?? null, opts.completion);
     this.pass_cpu_profiler = opts.passCpuProfiler;
     if (isFrameGraphGraphicsResources(opts.graphics)) {
       this.resource_manager.attachGraphics(opts.graphics, this.encoder);
@@ -109,6 +113,7 @@ export type PassExecuteFn<TData = unknown> = (
 type BindingResolver = (bindings: unknown) => unknown;
 
 type FrameGraphBindingSlot = {
+  readonly owner: object;
   readonly name: string;
   readonly resolve: BindingResolver;
   readonly releaseInitial: () => void;
@@ -142,6 +147,7 @@ export class FrameGraphBindingLayout<TBindings> {
     };
     this.initialBindingReleases.add(releaseOwnInitialBindings);
     const binding: FrameGraphBindingSlot = {
+      owner: this,
       name,
       resolve: (bindings) => resolve(bindings as TBindings),
       // A Pass often wraps a bound job inside another data object. Releasing the
@@ -204,6 +210,9 @@ export type CompiledFrameGraphPassDump = {
   readonly dependencies: readonly number[];
   readonly scheduleIndex?: number;
   readonly encoderWork?: FrameGraphEncoderWork;
+  readonly resourceSlots?: readonly number[];
+  readonly acquireBefore?: readonly number[];
+  readonly releaseAfter?: readonly number[];
 };
 
 export type CompiledFrameGraphResourceDump = {
@@ -303,10 +312,16 @@ export class PassBuilder {
 export class PassResources {
   private graph: FrameGraph;
   private pass: PassNode;
+  private readonly slots = new Set<ResourceEntry>();
+  private readonly nodes: readonly ResourceEntry[];
 
   constructor(graph: FrameGraph, pass: PassNode) {
     this.graph = graph;
     this.pass = pass;
+    this.nodes = graph.compiledResourceSlots;
+    for (const id of [...pass.resource_creates, ...pass.resource_reads, ...pass.resource_writes]) {
+      this.slots.add(graph.getResourceEntry(id));
+    }
   }
 
   get pass_name(): string {
@@ -318,15 +333,30 @@ export class PassResources {
   }
 
   get(id: ResourceId): unknown {
-    return this.graph.getResourceEntry(id).resource;
+    const entry = this.nodes[id];
+    if (!entry || !this.slots.has(entry)) {
+      throw new Error(
+        `FrameGraph pass '${this.pass.name}' accessed undeclared resource ${id} (${this.graph.getResourceNode(id).name})`,
+      );
+    }
+    return entry.resource;
   }
 
   getDescriptor(id: ResourceId): ResourceDescriptor | null {
-    return this.graph.getResourceEntry(id).resource_descriptor;
+    const entry = this.nodes[id];
+    if (!entry || !this.slots.has(entry)) {
+      throw new Error(`FrameGraph pass '${this.pass.name}' accessed undeclared descriptor ${id}`);
+    }
+    return entry.resource_descriptor;
   }
 }
 
 class PassNode {
+  readonly acquire_before: ResourceEntry[] = [];
+  readonly release_after: ResourceEntry[] = [];
+  readonly resource_slots: ResourceEntry[] = [];
+  resources: PassResources | null = null;
+  timing_stage = "unclassified";
   id = 0;
   name = "";
   version = 0;
@@ -383,6 +413,9 @@ export class FrameGraphResourceManager {
   private graphics: FrameGraphGraphicsResources | null = null;
   private encoder: GPUBufferClearEncoder | null = null;
   private readonly fallbackOwned = new Set<object>();
+  private readonly fallbackActive = new Set<object>();
+  private readonly fallbackDescriptors = new WeakMap<object, ResourceDescriptor>();
+  private readonly availableFallback: Array<{ resource: object; descriptor: ResourceDescriptor }> = [];
   private readonly pooledBuffers = new Set<GPUBuffer>();
   private readonly pooledTextures = new Set<GPUTextureContext>();
   private readonly availableBuffers: GPUBuffer[] = [];
@@ -397,6 +430,11 @@ export class FrameGraphResourceManager {
 
   attach(device: GPUDevice | null | undefined): void {
     this.device = device ?? null;
+  }
+
+  attachEncoder(encoder: FrameGraphCommandEncoder | GPUCommandEncoder | null): void {
+    this.encoder =
+      encoder && typeof encoder.clearBuffer === "function" ? (encoder as GPUBufferClearEncoder) : null;
   }
 
   attachGraphics(
@@ -414,19 +452,56 @@ export class FrameGraphResourceManager {
   }
 
   get(descriptor: ResourceDescriptor | null): unknown {
-    if (!descriptor) return null;
-    if (descriptor.kind === "imported") return null;
+    if (!descriptor) {
+      return null;
+    }
+    if (descriptor.kind === "imported") {
+      return null;
+    }
 
     if (!this.device) {
       return descriptor;
     }
+    if (this.graphics === null && this.encoder && this.device.queue && this.reuseAfter === undefined) {
+      throw new Error("Native FrameGraph transient allocation requires an explicit submit/completion fence");
+    }
+    if (this.graphics === null) {
+      const index = this.availableFallback.findIndex((entry) =>
+        compatibleFallback(entry.descriptor, descriptor),
+      );
+      if (index >= 0) {
+        const reused = this.availableFallback.splice(index, 1)[0]!;
+        this.fallbackActive.add(reused.resource);
+        if (
+          descriptor.kind === "transient_buffer" &&
+          descriptor.ensure_cleared &&
+          descriptor.ensure_cleared[1] > 0
+        ) {
+          if (!this.encoder) {
+            throw new Error("FrameGraph ensure_cleared requires a command encoder");
+          }
+          this.encoder.clearBuffer(reused.resource as GPUBuffer, ...descriptor.ensure_cleared);
+        }
+        return reused.resource;
+      }
+    }
 
     if (descriptor.kind === "transient_buffer") {
-      const size = Math.max(4, descriptor.size | 0);
+      if (
+        !Number.isSafeInteger(descriptor.size) ||
+        descriptor.size < 0 ||
+        descriptor.size > this.device.limits.maxBufferSize
+      ) {
+        throw new RangeError("FrameGraph buffer exceeds negotiated limits");
+      }
+      const size = Math.max(4, Math.ceil(descriptor.size / 4) * 4);
       let usage =
         descriptor.usage ??
         GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC | GPUBufferUsage.UNIFORM;
       if ((descriptor.ensure_cleared?.[1] ?? 0) > 0) {
+        if (!this.encoder) {
+          throw new Error("FrameGraph ensure_cleared requires a command encoder");
+        }
         usage |= GPUBufferUsage.COPY_DST;
       }
       let buf: GPUBuffer;
@@ -462,9 +537,21 @@ export class FrameGraphResourceManager {
           size,
           usage,
         });
+        const clear = descriptor.ensure_cleared;
+        if (clear && clear[1] > 0) {
+          if (!this.encoder) {
+            throw new Error("FrameGraph ensure_cleared requires a command encoder");
+          }
+          this.encoder.clearBuffer(buf, clear[0], clear[1]);
+        }
       }
-      if (this.graphics) this.pooledBuffers.add(buf);
-      else this.fallbackOwned.add(buf);
+      if (this.graphics) {
+        this.pooledBuffers.add(buf);
+      } else {
+        this.fallbackOwned.add(buf);
+        this.fallbackActive.add(buf);
+        this.fallbackDescriptors.set(buf, descriptor);
+      }
       return buf;
     }
 
@@ -515,6 +602,8 @@ export class FrameGraphResourceManager {
         mipLevelCount: Math.max(1, descriptor.mipLevelCount ?? 1),
       });
       this.fallbackOwned.add(tex);
+      this.fallbackActive.add(tex);
+      this.fallbackDescriptors.set(tex, descriptor);
       return tex;
     }
 
@@ -522,7 +611,9 @@ export class FrameGraphResourceManager {
   }
 
   release(resource: unknown): void {
-    if (!resource || typeof resource !== "object") return;
+    if (!resource || typeof resource !== "object") {
+      return;
+    }
     if (this.graphics && this.pooledBuffers.has(resource as GPUBuffer)) {
       this.pooledBuffers.delete(resource as GPUBuffer);
       this.availableBuffers.push(resource as GPUBuffer);
@@ -533,15 +624,10 @@ export class FrameGraphResourceManager {
       this.availableTextures.push(resource as GPUTextureContext);
       return;
     }
-    if (!this.fallbackOwned.has(resource as object)) {
+    if (!this.fallbackActive.delete(resource as object)) {
       return;
     }
-    this.fallbackOwned.delete(resource as object);
-    const r = resource as { destroy?: () => void };
-    if (typeof r.destroy === "function") {
-      const destroy = r.destroy.bind(r);
-      destroy();
-    }
+    this.availableFallback.push({ resource, descriptor: this.fallbackDescriptors.get(resource)! });
   }
 
   destroy(): void {
@@ -555,7 +641,23 @@ export class FrameGraphResourceManager {
 
   /** Publishes command-local aliases to shared pools behind the submit fence. */
   finish(): void {
-    if (this.graphics === null) return;
+    for (const object of this.fallbackOwned) {
+      const resource = object as { destroy?: () => void };
+      if (this.reuseAfter) {
+        void this.reuseAfter.then(
+          () => resource.destroy?.(),
+          () => resource.destroy?.(),
+        );
+      } else {
+        resource.destroy?.();
+      }
+    }
+    this.fallbackOwned.clear();
+    this.fallbackActive.clear();
+    this.availableFallback.length = 0;
+    if (this.graphics === null) {
+      return;
+    }
     for (const buffer of this.availableBuffers) {
       this.graphics.buffer_allocator_main.release(buffer, this.reuseAfter);
     }
@@ -577,11 +679,39 @@ function isFrameGraphGraphicsResources(value: unknown): value is FrameGraphGraph
   );
 }
 
+function compatibleFallback(a: ResourceDescriptor, b: ResourceDescriptor): boolean {
+  if (a.kind === "transient_buffer" && b.kind === "transient_buffer") {
+    const defaultUsage =
+      GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC | GPUBufferUsage.UNIFORM;
+    const usageA =
+      (a.usage ?? defaultUsage) | ((a.ensure_cleared?.[1] ?? 0) > 0 ? GPUBufferUsage.COPY_DST : 0);
+    const usageB =
+      (b.usage ?? defaultUsage) | ((b.ensure_cleared?.[1] ?? 0) > 0 ? GPUBufferUsage.COPY_DST : 0);
+    return (
+      a.size >= b.size && (usageA & usageB) === usageB && !(a.size > 2 * b.size && a.size - b.size > 1024)
+    );
+  }
+  if (a.kind === "transient_texture" && b.kind === "transient_texture") {
+    return (
+      a.width === b.width &&
+      a.height === b.height &&
+      a.format === b.format &&
+      a.usage === b.usage &&
+      (a.depthOrArrayLayers ?? 1) === (b.depthOrArrayLayers ?? 1) &&
+      (a.dimension ?? "2d") === (b.dimension ?? "2d") &&
+      (a.mipLevelCount ?? 1) === (b.mipLevelCount ?? 1)
+    );
+  }
+  return false;
+}
+
 /**
  * 以资源依赖为核心组织一帧 GPU 工作。
  * 构建阶段声明读写关系，编译阶段计算引用和生命周期，执行阶段按顺序运行有效阶段。
  */
 export class FrameGraph {
+  /** @internal Immutable logical-node to physical-entry table, resolved at compile. */
+  compiledResourceSlots: readonly ResourceEntry[] = [];
   name: string;
   declare readonly isFrameGraph: boolean;
   readonly onExecuted = new Signal<[FrameGraphContext, FrameGraph]>();
@@ -593,6 +723,12 @@ export class FrameGraph {
   private __compiled: CompiledFrameGraph | null = null;
   private __execution_order: PassNode[] = [];
   private __build_count = 0;
+  private readonly importedObjects = new WeakMap<object, ResourceEntry>();
+  private readonly importedNames = new Map<object, Map<string, ResourceEntry>>();
+  private readonly liveImports: Array<{ entry: ResourceEntry; binding: FrameGraphBindingSlot }> = [];
+  private readonly liveTransients: ResourceEntry[] = [];
+  private executionDevice: GPUDevice | null = null;
+  private readonly acquired = new Set<ResourceEntry>();
 
   constructor(name = "") {
     this.name = name;
@@ -626,14 +762,18 @@ export class FrameGraph {
 
   getResourceNode(id: ResourceId): ResourceNode {
     const n = this.__resource_nodes[id];
-    if (n === undefined) throw new Error(`Resource Node ${id} not found`);
+    if (n === undefined) {
+      throw new Error(`Resource Node ${id} not found`);
+    }
     return n;
   }
 
   getResourceEntry(id: ResourceId): ResourceEntry {
     const node = this.getResourceNode(id);
     const entry = this.__resource_registry[node.resource_id];
-    if (!entry) throw new Error(`Resource entry missing for node ${id}`);
+    if (!entry) {
+      throw new Error(`Resource entry missing for node ${id}`);
+    }
     return entry;
   }
 
@@ -649,12 +789,39 @@ export class FrameGraph {
 
   import_resource(name: string, descriptor: ResourceDescriptor, resource: unknown): ResourceId {
     this.assertBuilding();
-    const entry = this._createResourceEntry(descriptor);
     const binding = objectBindingSlot(resource);
-    if (binding === null) entry.resource = resource;
-    else this.__imported_bindings.set(entry.resource_id, binding);
-    entry.imported = true;
-    return this._createResourceNode(name, entry.resource_id).id;
+    const object = typeof resource === "object" && resource !== null ? resource : null;
+    let namedEntries = binding ? this.importedNames.get(binding.owner) : undefined;
+    let entry = binding
+      ? namedEntries?.get(binding.name)
+      : object
+        ? this.importedObjects.get(object)
+        : undefined;
+    if (entry) {
+      if (entry.resource_descriptor?.domain !== descriptor.domain) {
+        throw new Error(`Conflicting imported domains for '${name}'`);
+      }
+    } else {
+      entry = this._createResourceEntry(descriptor);
+      if (binding === null) {
+        entry.resource = resource;
+      } else {
+        this.__imported_bindings.set(entry.resource_id, binding);
+        if (!namedEntries) {
+          namedEntries = new Map();
+          this.importedNames.set(binding.owner, namedEntries);
+        }
+        namedEntries.set(binding.name, entry);
+      }
+      if (!binding && object) {
+        this.importedObjects.set(object, entry);
+      }
+      entry.imported = true;
+    }
+    // Imports share a physical slot, but observe the current logical version.
+    const node = this._createResourceNode(name, entry.resource_id);
+    node.version = entry.resource_version;
+    return node.id;
   }
 
   clone_resource(id: ResourceId): ResourceId {
@@ -701,7 +868,9 @@ export class FrameGraph {
 
   /** 计算资源引用、剔除无效阶段，并确定瞬态资源的最后使用位置。 */
   compile(): CompiledFrameGraph {
-    if (this.__compiled !== null) return this.__compiled;
+    if (this.__compiled !== null) {
+      return this.__compiled;
+    }
     this.__build_count++;
     const passes = this.__pass_nodes;
     const resources = this.__resource_nodes;
@@ -723,14 +892,18 @@ export class FrameGraph {
 
     for (const p of passes) {
       p.dependencies.clear();
-      for (const dependency of p.explicit_dependencies) p.dependencies.add(dependency);
+      for (const dependency of p.explicit_dependencies) {
+        p.dependencies.add(dependency);
+      }
       this.assertPassResources(p, "create", p.resource_creates);
       this.assertPassResources(p, "read", p.resource_reads);
       this.assertPassResources(p, "write", p.resource_writes);
       p.ref_count = p.resource_writes.length;
       for (const r of p.resource_reads) {
         const node = resources[r];
-        if (node) node.ref_count++;
+        if (node) {
+          node.ref_count++;
+        }
       }
       for (const w of p.resource_writes) {
         const node = resources[w];
@@ -739,13 +912,17 @@ export class FrameGraph {
             `FrameGraph '${this.name}' resource '${node.name}' v${node.version} has multiple producers`,
           );
         }
-        if (node) node.producer = p;
+        if (node) {
+          node.producer = p;
+        }
       }
     }
 
     const stack: ResourceNode[] = [];
     for (const n of resources) {
-      if (n.ref_count === 0) stack.push(n);
+      if (n.ref_count === 0) {
+        stack.push(n);
+      }
     }
 
     while (stack.length > 0) {
@@ -756,11 +933,39 @@ export class FrameGraph {
         if (producer.ref_count === 0) {
           for (const r of producer.resource_reads) {
             const rn = resources[r];
-            if (!rn) continue;
+            if (!rn) {
+              continue;
+            }
             rn.ref_count--;
-            if (rn.ref_count === 0) stack.push(rn);
+            if (rn.ref_count === 0) {
+              stack.push(rn);
+            }
           }
         }
+      }
+    }
+
+    // Explicit ordering dependencies are real work, even without resource output.
+    const retain = (pass: PassNode, visited: Set<number>): void => {
+      if (visited.has(pass.id)) {
+        return;
+      }
+      visited.add(pass.id);
+      pass.ref_count = Math.max(1, pass.ref_count);
+      for (const id of pass.explicit_dependencies) {
+        retain(passes[id]!, visited);
+      }
+      for (const id of pass.resource_reads) {
+        const producer = resources[id]!.producer as PassNode | null;
+        if (producer && producer !== pass) {
+          retain(producer, visited);
+        }
+      }
+    };
+    const retained = new Set<number>();
+    for (const pass of passes) {
+      if (pass.can_execute()) {
+        retain(pass, retained);
       }
     }
 
@@ -791,10 +996,70 @@ export class FrameGraph {
         }
       }
     }
+    // All logical aliases of one slot/version share a producer. Readers of the
+    // previous version must finish before an in-place writer overwrites it.
+    const versions = new Map<
+      ResourceEntry,
+      Map<number, { writer: PassNode | null; readers: Set<PassNode> }>
+    >();
+    const version = (id: ResourceId) => {
+      const node = resources[id]!,
+        entry = this.__resource_registry[node.resource_id]!;
+      let chain = versions.get(entry);
+      if (!chain) {
+        chain = new Map();
+        versions.set(entry, chain);
+      }
+      let value = chain.get(node.version);
+      if (!value) {
+        value = { writer: null, readers: new Set() };
+        chain.set(node.version, value);
+      }
+      return value;
+    };
+    for (const pass of executable) {
+      for (const id of pass.resource_reads) {
+        version(id).readers.add(pass);
+      }
+      for (const id of pass.resource_writes) {
+        const value = version(id);
+        if (value.writer && value.writer !== pass) {
+          throw new Error(`FrameGraph '${this.name}' aliased version has multiple producers`);
+        }
+        value.writer = pass;
+      }
+    }
+    for (const chain of versions.values()) {
+      const ordered = [...chain.entries()].sort(([a], [b]) => a - b);
+      for (let index = 0; index < ordered.length; index++) {
+        const [, value] = ordered[index]!;
+        for (const reader of value.readers) {
+          if (value.writer && value.writer !== reader) {
+            reader.dependencies.add(value.writer.id);
+          }
+        }
+        if (value.writer && index > 0) {
+          const previous = ordered[index - 1]![1];
+          if (previous.writer && previous.writer !== value.writer) {
+            value.writer.dependencies.add(previous.writer.id);
+          }
+          for (const reader of previous.readers) {
+            if (reader !== value.writer) {
+              value.writer.dependencies.add(reader.id);
+            }
+          }
+        }
+      }
+    }
     this.__execution_order = stableTopologicalOrder(this.name, executable);
+    this.compiledResourceSlots = this.__resource_nodes.map(
+      (node) => this.__resource_registry[node.resource_id]!,
+    );
 
     for (const p of this.__execution_order) {
-      if (!p.can_execute()) continue;
+      if (!p.can_execute()) {
+        continue;
+      }
       for (const e of p.resource_creates) {
         const entry = this.getResourceEntry(e);
         entry.producer = p;
@@ -806,13 +1071,40 @@ export class FrameGraph {
       for (const e of p.resource_reads) {
         this.getResourceEntry(e).last = p;
       }
+      const slots = new Set<ResourceEntry>();
+      for (const id of [...p.resource_creates, ...p.resource_reads, ...p.resource_writes]) {
+        slots.add(this.getResourceEntry(id));
+      }
+      for (const entry of slots) {
+        p.resource_slots.push(entry);
+        if (!entry.imported && entry.producer === null) {
+          entry.producer = p;
+        }
+      }
+      p.resources = new PassResources(this, p);
+      p.timing_stage = frameGraphTimingStage(p.name);
+    }
+    for (const entry of this.__resource_registry) {
+      if (isTransientEntry(entry) && entry.producer && entry.last) {
+        passes[entry.producer.id]!.acquire_before.push(entry);
+        passes[entry.last.id]!.release_after.push(entry);
+        this.liveTransients.push(entry);
+      }
+      const binding = this.__imported_bindings.get(entry.resource_id);
+      if (binding && entry.last) {
+        this.liveImports.push({ entry, binding });
+      }
     }
     this.__compiled = new CompiledFrameGraph(this);
     const bindingSlots = new Set(this.__imported_bindings.values());
     for (const pass of this.__pass_nodes) {
-      if (pass.data_binding !== null) bindingSlots.add(pass.data_binding);
+      if (pass.data_binding !== null) {
+        bindingSlots.add(pass.data_binding);
+      }
     }
-    for (const binding of bindingSlots) binding.releaseInitial();
+    for (const binding of bindingSlots) {
+      binding.releaseInitial();
+    }
     return this.__compiled;
   }
 
@@ -859,26 +1151,36 @@ export class FrameGraph {
   /** @internal CompiledFrameGraph is the reusable execution owner. */
   executeCompiled(ctx: FrameGraphContext, bindings: unknown): void {
     const rm = ctx.resource_manager ?? new FrameGraphResourceManager(ctx.device ?? null);
-    if (ctx.device) rm.attach(ctx.device);
+    if (ctx.device) {
+      rm.attach(ctx.device);
+    }
+    rm.attachEncoder(ctx.encoder);
     ctx.resource_manager = rm;
+    if (ctx.device) {
+      if (this.executionDevice && this.executionDevice !== ctx.device) {
+        throw new Error("CompiledFrameGraph device changed; rebuild topology and owners");
+      }
+      this.executionDevice = ctx.device;
+    }
 
     if (ACTIVE_FRAME_GRAPH_BINDINGS !== NO_ACTIVE_FRAME_GRAPH_BINDINGS) {
       throw new Error("Nested CompiledFrameGraph execution is not supported");
     }
     ACTIVE_FRAME_GRAPH_BINDINGS = bindings;
-
+    let executionFailure: unknown;
     try {
-      for (const [resourceId, binding] of this.__imported_bindings) {
-        this.__resource_registry[resourceId]!.resource = binding.resolve(bindings);
+      for (const { entry, binding } of this.liveImports) {
+        entry.resource = binding.resolve(bindings);
       }
       for (const pass of this.__execution_order) {
-        for (const id of pass.resource_creates) {
-          const entry = this.getResourceEntry(id);
-          if (!entry.imported) {
-            entry.resource = rm.get(entry.resource_descriptor);
-          }
+        if (ctx.encoder && "enterTimingStage" in ctx.encoder) {
+          ctx.encoder.enterTimingStage?.(pass.timing_stage);
         }
-        const resources = new PassResources(this, pass);
+        for (const entry of pass.acquire_before) {
+          entry.resource = rm.get(entry.resource_descriptor);
+          this.acquired.add(entry);
+        }
+        const resources = pass.resources!;
         const executePass = (): void => {
           try {
             const data = pass.data_binding === null ? pass.data : pass.data_binding.resolve(bindings);
@@ -890,28 +1192,51 @@ export class FrameGraph {
             throw err;
           }
         };
-        if (ctx.pass_cpu_profiler === undefined) executePass();
-        else ctx.pass_cpu_profiler(`FrameGraph/${pass.name}`, executePass);
+        if (ctx.pass_cpu_profiler === undefined) {
+          executePass();
+        } else {
+          ctx.pass_cpu_profiler(`FrameGraph/${pass.name}`, executePass);
+        }
 
-        for (const entry of this.__resource_registry) {
-          if (entry.last === pass && isTransientEntry(entry)) {
-            rm.release(entry.resource);
-            entry.resource = null;
-          }
+        for (const entry of pass.release_after) {
+          rm.release(entry.resource);
+          entry.resource = null;
+          this.acquired.delete(entry);
         }
       }
+    } catch (cause) {
+      executionFailure = cause;
+      throw cause;
     } finally {
-      for (const entry of this.__resource_registry) {
-        if (isTransientEntry(entry) && entry.resource !== null) {
+      for (const { entry } of this.liveImports) {
+        entry.resource = null;
+      }
+      ACTIVE_FRAME_GRAPH_BINDINGS = NO_ACTIVE_FRAME_GRAPH_BINDINGS;
+      let cleanupFailure: unknown;
+      for (const entry of this.acquired) {
+        try {
           rm.release(entry.resource);
+        } catch (cause) {
+          cleanupFailure ??= cause;
+        } finally {
           entry.resource = null;
         }
       }
-      for (const resourceId of this.__imported_bindings.keys()) {
-        this.__resource_registry[resourceId]!.resource = null;
+      this.acquired.clear();
+      try {
+        rm.finish();
+      } catch (cause) {
+        cleanupFailure ??= cause;
       }
-      ACTIVE_FRAME_GRAPH_BINDINGS = NO_ACTIVE_FRAME_GRAPH_BINDINGS;
-      rm.finish();
+      if (cleanupFailure !== undefined) {
+        if (executionFailure !== undefined) {
+          throw new AggregateError(
+            [executionFailure, cleanupFailure],
+            "FrameGraph execute and cleanup failed",
+          );
+        }
+        throw cleanupFailure;
+      }
     }
 
     this.onExecuted.emit([ctx, this]);
@@ -965,8 +1290,12 @@ export class FrameGraph {
         createdBy?: number;
       };
       const description = resourceDescriptorToString(entry.resource_descriptor);
-      if (description) resource.description = description;
-      if (entry.producer !== null) resource.createdBy = entry.producer.id;
+      if (description) {
+        resource.description = description;
+      }
+      if (entry.producer !== null) {
+        resource.createdBy = entry.producer.id;
+      }
       resources[id] = resource;
     });
     return {
@@ -1028,7 +1357,9 @@ export class FrameGraph {
       output.indent();
       for (const pass of this.__pass_nodes) {
         for (const resourceId of pass.resource_reads) {
-          if (resourceId === node.id) output.add(`P${pass.id} `);
+          if (resourceId === node.id) {
+            output.add(`P${pass.id} `);
+          }
         }
       }
       output.dedent();
@@ -1072,28 +1403,38 @@ export class FrameGraph {
   createCompiledDump(): CompiledFrameGraphDump {
     const executablePassOrder = this.__execution_order.map((pass) => pass.id);
     const scheduleIndex = new Map(executablePassOrder.map((id, index) => [id, index]));
+    const uses = new Map<ResourceEntry, { first: number; last: number }>();
+    const names = new Map<number, string>();
+    for (const node of this.__resource_nodes) {
+      if (!names.has(node.resource_id)) {
+        names.set(node.resource_id, node.name);
+      }
+    }
+    for (const pass of this.__execution_order) {
+      for (const entry of pass.resource_slots) {
+        const use = uses.get(entry);
+        if (use) {
+          use.last = pass.id;
+        } else {
+          uses.set(entry, { first: pass.id, last: pass.id });
+        }
+      }
+    }
     const resources = this.__resource_registry.map((entry, logicalSlot) => {
-      const uses = this.__execution_order.filter(
-        (pass) =>
-          pass.resource_creates.some((id) => this.getResourceNode(id).resource_id === logicalSlot) ||
-          pass.resource_reads.some((id) => this.getResourceNode(id).resource_id === logicalSlot) ||
-          pass.resource_writes.some((id) => this.getResourceNode(id).resource_id === logicalSlot),
-      );
+      const use = uses.get(entry);
       const binding = this.__imported_bindings.get(logicalSlot);
       const description = resourceDescriptorToString(entry.resource_descriptor);
       const dump: CompiledFrameGraphResourceDump = {
         logicalSlot,
-        name:
-          this.__resource_nodes.find((node) => node.resource_id === logicalSlot)?.name ??
-          `resource-${logicalSlot}`,
+        name: names.get(logicalSlot) ?? `resource-${logicalSlot}`,
         imported: entry.imported,
         transient: isTransientEntry(entry),
         ...(binding === undefined ? {} : { binding: binding.name }),
-        ...(uses.length === 0
+        ...(use === undefined
           ? {}
           : {
-              firstUsePass: uses[0]!.id,
-              lastUsePass: uses[uses.length - 1]!.id,
+              firstUsePass: use.first,
+              lastUsePass: use.last,
             }),
         ...(description ? { description } : {}),
         ...(entry.resource_descriptor?.domain === undefined
@@ -1114,6 +1455,9 @@ export class FrameGraph {
             reads: Object.freeze([...pass.resource_reads]),
             writes: Object.freeze([...pass.resource_writes]),
             dependencies: Object.freeze([...pass.dependencies].sort((a, b) => a - b)),
+            resourceSlots: Object.freeze(pass.resource_slots.map((entry) => entry.resource_id)),
+            acquireBefore: Object.freeze(pass.acquire_before.map((entry) => entry.resource_id)),
+            releaseAfter: Object.freeze(pass.release_after.map((entry) => entry.resource_id)),
             ...(scheduleIndex.has(pass.id) ? { scheduleIndex: scheduleIndex.get(pass.id) } : {}),
             ...(pass.encoder_work === null ? {} : { encoderWork: pass.encoder_work }),
           }),
@@ -1128,6 +1472,22 @@ export class FrameGraph {
     if (this.__compiled !== null) {
       throw new Error(`FrameGraph '${this.name}' topology is already compiled`);
     }
+  }
+
+  /** Eviction releases closures and imported objects; the dump remains diagnostic. */
+  releaseCompiledReferences(): void {
+    for (const entry of this.__resource_registry) {
+      entry.resource = null;
+    }
+    for (const pass of this.__pass_nodes) {
+      pass.data = null;
+      pass.data_binding = null;
+      pass.execute = () => {};
+    }
+    this.liveImports.length = 0;
+    this.__imported_bindings.clear();
+    this.importedNames.clear();
+    this.executionDevice = null;
   }
 }
 
@@ -1152,7 +1512,11 @@ export class CompiledFrameGraph {
   }
 
   destroy(): void {
+    if (this.destroyed) {
+      return;
+    }
     this.destroyed = true;
+    this.graph.releaseCompiledReferences();
   }
 }
 
@@ -1162,7 +1526,9 @@ function stableTopologicalOrder(name: string, passes: readonly PassNode[]): Pass
   const consumers = new Map<number, number[]>();
   for (const pass of passes) {
     for (const dependency of pass.dependencies) {
-      if (!byId.has(dependency)) continue;
+      if (!byId.has(dependency)) {
+        continue;
+      }
       indegree.set(pass.id, (indegree.get(pass.id) ?? 0) + 1);
       const list = consumers.get(dependency) ?? [];
       list.push(pass.id);
@@ -1184,10 +1550,47 @@ function stableTopologicalOrder(name: string, passes: readonly PassNode[]): Pass
     }
   }
   if (result.length !== passes.length) {
-    const cyclic = passes.filter((pass) => !result.includes(pass)).map((pass) => pass.name);
-    throw new Error(`FrameGraph '${name}' contains a resource dependency cycle: ${cyclic.join(", ")}`);
+    const active = new Set<number>();
+    const complete = new Set<number>();
+    const path: PassNode[] = [];
+    let cycle: string[] = [];
+    const visit = (pass: PassNode): boolean => {
+      if (active.has(pass.id)) {
+        cycle = path.slice(path.findIndex((item) => item.id === pass.id)).map((item) => item.name);
+        cycle.push(pass.name);
+        return true;
+      }
+      if (complete.has(pass.id)) {
+        return false;
+      }
+      active.add(pass.id);
+      path.push(pass);
+      for (const id of pass.dependencies) {
+        const dependency = byId.get(id);
+        if (dependency && visit(dependency)) {
+          return true;
+        }
+      }
+      path.pop();
+      active.delete(pass.id);
+      complete.add(pass.id);
+      return false;
+    };
+    for (const pass of passes) {
+      if (!result.includes(pass) && visit(pass)) {
+        break;
+      }
+    }
+    throw new Error(`FrameGraph '${name}' contains a resource dependency cycle: ${cycle.join(" -> ")}`);
   }
   return result;
+}
+
+function frameGraphTimingStage(label: string): string {
+  if (/^Surface(?:\/|Geometry\/|Work\/)/.test(label)) {
+    return "surface";
+  }
+  return classifyGpuFramePhase(label);
 }
 
 function nonNegativeInteger(value: number, label: string): number {

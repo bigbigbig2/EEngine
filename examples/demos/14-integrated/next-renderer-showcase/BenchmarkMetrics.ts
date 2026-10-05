@@ -1,6 +1,7 @@
 import { distribution, type ExperimentFrame } from "../shared/PerformanceMetrics.ts";
 import type { SurfaceDiagnosticsSnapshot } from "../../../../OEngine/src/gpu/SurfaceDiagnosticsAbi.ts";
 import { classifySurfaceTimingPhase, surfaceTimingTotalsForFrame, SURFACE_TIMING_PHASES } from "../../../../OEngine/src/debug/SurfacePhaseTiming.ts";
+import { summarizeGpuTimingCost } from "../../../../OEngine/src/debug/GpuTimingCost.ts";
 
 /** Local integration: fixed-range captures retain late patches and every slow frame. */
 export interface TimedFrame extends ExperimentFrame {
@@ -12,6 +13,7 @@ export interface TimedFrame extends ExperimentFrame {
 
 export function validGpuFrame(frame: ExperimentFrame): boolean {
   return frame.gpu.available && frame.gpu.sampled && !frame.gpu.pending &&
+    !(frame.counters["gpu.timing.truncated"] > 0) &&
     frame.gpu.segments.length > 0 && frame.gpu.segments.every(s => Number.isFinite(s.durationMs) && s.durationMs >= 0) &&
     frame.gpu.segments.reduce((sum, s) => sum + s.durationMs, 0) > 0;
 }
@@ -22,26 +24,35 @@ export function summarizeCapture(frames: readonly TimedFrame[]) {
   const passSeries = new Map<string, number[]>();
   const surfacePhaseSeries = new Map<string, number[]>();
   const total: number[] = [], surface: number[] = [], surfaceSpan: number[] = [], frameSpan: number[] = [];
+  const costs = new Map<string, number[]>();
   for (const frame of valid) {
+    const segments = frame.gpu.segments.map(({ label, durationMs, scope }) => ({ label, durationMs, scope }));
+    const cost = summarizeGpuTimingCost(segments);
+    for (const name of ["outsidePassMs", "surfaceManagementMs", "surfaceEvaluationMs", "surfaceAuxiliaryMs", "unclassifiedPassMs"] as const) {
+      const value = cost[name];
+      if (value !== null) { const values = costs.get(name) ?? []; values.push(value); costs.set(name, values); }
+    }
     const passes = new Map<string, number>();
-    for (const segment of frame.gpu.segments) passes.set(segment.label, (passes.get(segment.label) ?? 0) + segment.durationMs);
-    total.push([...passes.values()].reduce((a, b) => a + b, 0));
-    const surfaceTotals = surfaceTimingTotalsForFrame(frame.gpu.segments.map(({ label, durationMs }) => ({ label, durationMs })));
-    surface.push([...surfaceTotals.values()].reduce((sum, ms) => sum + ms, 0));
+    for (const segment of frame.gpu.segments) if (segment.scope === undefined || segment.scope === "pass") passes.set(segment.label, (passes.get(segment.label) ?? 0) + segment.durationMs);
+    if (passes.size) total.push([...passes.values()].reduce((a, b) => a + b, 0));
+    const surfaceTotals = surfaceTimingTotalsForFrame(segments);
+    if (surfaceTotals.size) surface.push([...surfaceTotals.values()].reduce((sum, ms) => sum + ms, 0));
     for (const phase of SURFACE_TIMING_PHASES) {
-      const ms = surfaceTotals.get(phase) ?? 0;
+      const ms = surfaceTotals.get(phase);
+      if (ms === undefined) continue;
       if (!surfacePhaseSeries.has(phase)) surfacePhaseSeries.set(phase, []);
       surfacePhaseSeries.get(phase)!.push(ms);
     }
-    const ticks = frame.gpu.segments.filter(segment => classifySurfaceTimingPhase({ label: segment.label }) !== null).flatMap(segment => segment.startTick !== undefined && segment.endTick !== undefined
+    const ticks = frame.gpu.segments.filter(segment => (segment.scope === undefined || segment.scope === "pass") && classifySurfaceTimingPhase({ label: segment.label }) !== null).flatMap(segment => segment.startTick !== undefined && segment.endTick !== undefined
       ? [{ start: BigInt(segment.startTick), end: BigInt(segment.endTick) }] : []);
-    const elapsed = tickSpan(ticks);
+    const stageSpans = frame.gpu.segments.filter(segment => segment.scope === "stage" && segment.label.endsWith("/surface"));
+    const elapsed = stageSpans.length ? stageSpans.reduce((sum, segment) => sum + segment.durationMs, 0) : tickSpan(ticks);
     if (elapsed !== null) {
       surfaceSpan.push(elapsed);
     }
     const allTicks = frame.gpu.segments.flatMap(segment => segment.startTick !== undefined && segment.endTick !== undefined
       ? [{ start: BigInt(segment.startTick), end: BigInt(segment.endTick) }] : []);
-    const frameElapsed = tickSpan(allTicks);
+    const frameElapsed = cost.commandSpanMs ?? tickSpan(allTicks);
     if (frameElapsed !== null) {
       frameSpan.push(frameElapsed);
     }
@@ -63,8 +74,13 @@ export function summarizeCapture(frames: readonly TimedFrame[]) {
     // This is the sum of measured pass intervals, not queue wall time or FPS.
     passes: [...passSeries].map(([label, values]) => ({ label, ...distribution(values)! })).sort((a, b) => b.p50 - a.p50),
     surfacePhases: Object.fromEntries([...surfacePhaseSeries].map(([phase, values]) => [phase, distribution(values)!])),
+    pairedCosts: Object.fromEntries([...costs].map(([name, values]) => [name, distribution(values)])),
     counters, multipleSubmitFrameIds: unique.filter(frame => frame.submits.count !== 1).map(frame => frame.frameIndex),
-    slowFrames: valid.filter(frame => frame.gpu.segments.reduce((sum, s) => sum + s.durationMs, 0) > 70).map(frame => frame.frameIndex)
+    slowFrames: valid.filter(frame => {
+      const spans = frame.gpu.segments.filter(segment => segment.scope === "span");
+      const intervals = spans.length ? spans : frame.gpu.segments.filter(segment => segment.scope === undefined || segment.scope === "pass");
+      return intervals.reduce((total, segment) => total + segment.durationMs, 0) > 70;
+    }).map(frame => frame.frameIndex)
   };
 }
 

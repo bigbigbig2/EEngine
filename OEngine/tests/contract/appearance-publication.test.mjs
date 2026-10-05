@@ -158,6 +158,7 @@ function command(device) {
         },
         setBindGroup() {},
         dispatchWorkgroupsIndirect() {},
+        dispatchWorkgroups() {},
         end() {
           encoded.push(this.pipeline);
         },
@@ -182,6 +183,7 @@ function encodeFields(publication, c) {
     demand: {},
     indirect: {},
     values: {},
+    scratch: {},
     layout,
     textureBanks: [Array.from({ length: 9 }, () => ({}))],
   });
@@ -373,7 +375,7 @@ test("shared PSO does not merge distinct physical product resource sets; capabil
   await p.ready;
   assert.notEqual(p.entries[0].programIndex, p.entries[1].programIndex);
   const encoded = encodeFields(p, command(f.device));
-  assert.equal(encoded[0], encoded[1], "Actual Surface field consumer shares the compiled PSO");
+  assert.equal(encoded.length, 1, "product identities remain data in one residency-family dispatch");
   assert.notEqual(p.entries[0].resourceSetIndex, p.entries[1].resourceSetIndex);
   assert.notEqual(p.entries[0].productTextures[0], p.entries[1].productTextures[0]);
   assert.equal(allocations.length, 2);

@@ -10,6 +10,7 @@ export type GPUTimerResult = {
   duration_ms: number;
   start: bigint;
   end: bigint;
+  scope?: "pass" | "stage" | "span";
 };
 
 export type GPUTimerTimestampWrites = {
@@ -35,6 +36,7 @@ export class GPUTimer {
   private readonly pages: GPUTimerPage[] = [];
   private readonly entries: GPUTimerEntry[] = [];
   private entryCount = 0;
+  onAllocationChanged?: () => void;
 
   constructor(
     private readonly device: GPUDevice,
@@ -51,6 +53,23 @@ export class GPUTimer {
 
   get capacity(): number {
     return this.pages.length * this.pageCapacity;
+  }
+
+  /** Only the ring owner resets a slot, after readback has unmapped or abort. */
+  reset(): void {
+    this.entryCount = 0;
+    for (const page of this.pages) {
+      page.entryCount = 0;
+    }
+  }
+
+  get allocatedBytes(): number {
+    // Query storage is opaque; report API query count separately, not guessed VRAM.
+    return this.pages.length * this.pageCapacity * 32;
+  }
+
+  get queryCapacity(): number {
+    return this.capacity * 2;
   }
 
   private createPage(): GPUTimerPage {
@@ -98,10 +117,12 @@ export class GPUTimer {
   }
 
   async download_results(): Promise<void> {
-    await Promise.all(
+    const downloads = await Promise.allSettled(
       this.pages.map(async (page) => {
         const byteLength = 2 * page.entryCount * BigUint64Array.BYTES_PER_ELEMENT;
-        if (byteLength === 0) return;
+        if (byteLength === 0) {
+          return;
+        }
         await page.readbackBuffer.mapAsync(GPUMapMode.READ, 0, byteLength);
         try {
           page.values.set(new BigUint64Array(page.readbackBuffer.getMappedRange(0, byteLength)));
@@ -110,6 +131,12 @@ export class GPUTimer {
         }
       }),
     );
+    const failures = downloads.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failures.length > 0) {
+      throw failures[0]!.reason;
+    }
   }
 
   results_to_console_table(): GPUTimerResult[] {
@@ -120,6 +147,9 @@ export class GPUTimer {
       const queryIndex = 2 * (index % this.pageCapacity);
       const start = page.values[queryIndex]!;
       const end = page.values[queryIndex + 1]!;
+      if (end < start) {
+        throw new Error(`Invalid GPU timestamp interval '${entry.label}'`);
+      }
       results.push({
         label: entry.label,
         type: entry.type,
@@ -143,6 +173,7 @@ export class GPUTimer {
     const pageIndex = Math.floor(this.entryCount / this.pageCapacity);
     if (pageIndex === this.pages.length) {
       this.pages.push(this.createPage());
+      this.onAllocationChanged?.();
     }
     const page = this.pages[pageIndex]!;
     const index = this.entryCount++;

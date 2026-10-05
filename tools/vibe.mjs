@@ -19,7 +19,7 @@ try {
     await moduleCheck(args);
   } else if (command === "verify" && !args.includes("--full")) {
     throw new Error(
-      "Choose `verify --module` at a large module close or `verify --full` for final acceptance."
+      "Choose `verify --module` at a large module close or `verify --full` for final acceptance.",
     );
   } else if (command === "verify" && args.includes("--module")) {
     throw new Error("Choose either --module or --full, not both.");
@@ -57,7 +57,7 @@ async function gpuOracle(args) {
   const result = spawnSync(process.execPath, [resolve(root, "tools/gpu-oracle.mjs"), ...forwarded], {
     cwd: root,
     stdio: "inherit",
-    windowsHide: true
+    windowsHide: true,
   });
   if (result.status !== 0) process.exitCode = result.status ?? 1;
 }
@@ -75,7 +75,7 @@ function npmRun(script, cwd) {
     encoding: "utf8",
     windowsHide: true,
     timeout: 900_000,
-    maxBuffer: 16 * 1024 * 1024
+    maxBuffer: 16 * 1024 * 1024,
   });
 }
 
@@ -105,7 +105,7 @@ async function moduleCheck(args) {
   const plan = [
     "npm run typecheck",
     "npm run build",
-    ...(testPaths.length ? ["npm run build:test", ...testPaths.map((path) => `node --test ${path}`)] : [])
+    ...(testPaths.length ? ["npm run build:test", ...testPaths.map((path) => `node --test ${path}`)] : []),
   ];
   if (args.includes("--plan")) {
     console.log(JSON.stringify({ mode: "module", commands: plan }, null, 2));
@@ -120,13 +120,13 @@ async function moduleCheck(args) {
       passed: result.status === 0,
       status: result.status === 0 ? "passed" : "failed",
       exitCode: result.status,
-      error: result.error?.message ?? null
+      error: result.error?.message ?? null,
     });
     if (result.stdout) (json ? process.stderr : process.stdout).write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
     if (result.status !== 0) {
       console.log(
-        JSON.stringify({ mode: "module", ok: false, checks, error: result.error?.message ?? null })
+        JSON.stringify({ mode: "module", ok: false, checks, error: result.error?.message ?? null }),
       );
       process.exitCode = 1;
       return;
@@ -141,8 +141,8 @@ async function moduleCheck(args) {
         encoding: "utf8",
         windowsHide: true,
         timeout: 900_000,
-        maxBuffer: 16 * 1024 * 1024
-      }
+        maxBuffer: 16 * 1024 * 1024,
+      },
     );
     const summary = summarizeTests(result.stdout ?? "", result.status);
     const passed = summary.status === "passed";
@@ -150,7 +150,7 @@ async function moduleCheck(args) {
       command: `node --test ${path}`,
       passed,
       summary: summary ?? null,
-      exitCode: result.status
+      exitCode: result.status,
     });
     if (result.stdout) (json ? process.stderr : process.stdout).write(result.stdout);
     if (result.stderr) process.stderr.write(result.stderr);
@@ -172,10 +172,10 @@ async function moduleCheck(args) {
             : "complete",
         checks,
         browser: "not run",
-        rendererAcceptance: "not evaluated"
+        rendererAcceptance: "not evaluated",
       },
       null,
-      2
-    )
+      2,
+    ),
   );
 }

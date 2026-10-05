@@ -25,6 +25,7 @@ export interface SurfaceTimingSegment {
   readonly label: string;
   readonly durationMs: number;
   readonly phase?: GpuFramePhase;
+  readonly scope?: "pass" | "stage" | "span";
 }
 
 /**
@@ -164,8 +165,13 @@ export function surfaceTimingTotalsForFrame(
 ): ReadonlyMap<SurfaceTimingPhase, number> {
   const totals = new Map<SurfaceTimingPhase, number>();
   for (const segment of segments) {
+    if (segment.scope !== undefined && segment.scope !== "pass") {
+      continue;
+    }
     const phase = classifySurfaceTimingPhase(segment);
-    if (phase === null) continue;
+    if (phase === null) {
+      continue;
+    }
     totals.set(phase, Math.round(((totals.get(phase) ?? 0) + segment.durationMs) * 1e12) / 1e12);
   }
   return totals;

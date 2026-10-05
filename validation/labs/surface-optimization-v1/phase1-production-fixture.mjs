@@ -208,24 +208,28 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
    sourceMeshletVertices:0,sourceMeshletTriangles:4,sourceVertexData:0,publication,product:null,lightRecords:lightId,clusters,shadowEnabled:false,physicalSunEnabled:false,targetCapacity:128,diagnosticsEnabled:true,
    consumeBatch(cells,firstTile,tileCount,batchTiles){
     const request={workspace:cells.workspace,activeIndirect:cells.activeIndirect,fieldStore:cells.fieldStore,signalStore:cells.signalStore,
-      metadata:metadataId,versions:versionsId,publication,targets:128,leaves:tileCount*64,epoch:{value:1},viewRevision:{value:1},revisions:signalRevisions,
+      metadata:cells.appearanceMetadata,versions:versionsId,publication,targets:128,leaves:tileCount*64,epoch:{value:1},viewRevision:{value:1},revisions:signalRevisions,
       sun:null,shadow:null,firstTile,width,height,diagnostics:true,bind};
     let demand=demandOwner.addToGraph(graph,request);
     const geometry=geometryOwner.addToGraph(graph,{demand,camera:cameraId,bind,setup:cells.setup,width,height});
-    const values=buffer(new Float32Array(demand.layout.fieldCapacity*4),GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST|GPUBufferUsage.COPY_SRC);const valuesId=imported(`field values ${firstTile}`,values);
+    const values=buffer(new Float32Array(demand.layout.fieldCapacity*4),GPUBufferUsage.STORAGE|GPUBufferUsage.COPY_DST|GPUBufferUsage.COPY_SRC);let valuesId=imported(`field values ${firstTile}`,values);
     fieldValueBuffers.push(values);
+    const exactScratch=buffer(new Float32Array(publication.exactDagScratchBytes/4),GPUBufferUsage.STORAGE);
+    const exactScratchId=imported(`exact Appearance scratch ${firstTile}`,exactScratch);
     const materialNode=graph.add('Real Appearance closures',{demand,geometry},(data,resources)=>publication.encodeSurfaceFields(command,{
-      geometry:resources.get(data.geometry.records),demand:resources.get(data.demand.arena),indirect:resources.get(data.demand.indirect),values,layout:data.demand.layout,
-      textureBanks:[[texture.createView({dimension:'2d-array'}),ormGpu.createView({dimension:'2d-array'})]]}));
-    materialNode.read(geometry.records);materialNode.read(demand.arena);materialNode.read(demand.indirect);materialNode.read(bankId);materialNode.read(ormBankId);materialNode.write(valuesId);
+      geometry:resources.get(data.geometry.records),demand:resources.get(data.demand.arena),indirect:resources.get(data.demand.indirect),values,scratch:resources.get(exactScratchId),layout:data.demand.layout,
+      textureBanks:[Array.from({length:9},(_,bank)=>(bank===1?ormGpu:texture).createView({dimension:'2d-array'}))]}));
+    materialNode.write(exactScratchId);
+    materialNode.read(cells.appearanceMetadata);
+    materialNode.read(geometry.records);materialNode.read(demand.arena);materialNode.read(demand.indirect);materialNode.read(bankId);materialNode.read(ormBankId);valuesId=materialNode.write(valuesId);
     demand=publishOwner.addToGraph(graph,{...request,demand,values:valuesId,signal:false,entries:fieldStore?.capacity.entries??4,enabled:fieldStore!==null});
-    const lighting=lightingOwner.addToGraph(graph,{resourceBinding:bind,demand,geometry:geometry.records,fields:valuesId,appearanceMetadata:metadataId,
+    const lighting=lightingOwner.addToGraph(graph,{resourceBinding:bind,demand,geometry:geometry.records,fields:valuesId,appearanceMetadata:cells.appearanceMetadata,
       constantFieldsOffset:o.constantFields,width,height,frame:11,camera:cameraId,physicalSun:null,lightRecords:lightId,clusters,shadow:null,scalarAo:null,
       environment:{diffuse:envId,specular:envId,dfg:envId},diagnosticsEnabled:true});
     demand=publishOwner.addToGraph(graph,{...request,demand:lighting.demand,values:lighting.values,signal:true,entries:signalStore?.capacity.entries??4,enabled:signalStore!==null});
     final=reconstructOwner.addToGraph(graph,{signalValues:lighting.values,signalStore:demand.signalStore,fieldStore:demand.fieldStore,fields:valuesId,
       reactive:factsId,preExposure:exposureId,cellWorkspace:demand.workspace,cellBatchTiles:batchTiles,coverage:cells.coverage,activeIndirect:cells.activeIndirect,
-      firstTile,appearanceMetadata:metadataId,constantFieldsOffset:o.constantFields,scalarAo:null,width,height,recordCount:128,diagnosticsEnabled:true,batch:{index:firstTile/batchTiles,batchTiles},previous:final});
+      firstTile,appearanceMetadata:cells.appearanceMetadata,constantFieldsOffset:o.constantFields,scalarAo:null,width,height,recordCount:128,diagnosticsEnabled:true,batch:{index:firstTile/batchTiles,batchTiles},previous:final});
     const size=surfaceCellWorkspaceLayout(batchTiles).bytes;
     const captureBuffer=device.createBuffer({size:size+16,usage:GPUBufferUsage.COPY_DST|GPUBufferUsage.MAP_READ});retained.push(captureBuffer);captures.push(captureBuffer);
     let extra;
@@ -245,7 +249,7 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
       }
     });
     capture.read(demand.workspace);capture.read(demand.arena);capture.read(lighting.values);capture.read(cells.activeIndirect);capture.read(final.radiance);const captured=capture.write(token);capture.make_side_effect();
-    return [final.radiance,final.reactiveMask,demand.fieldStore,demand.signalStore,captured];
+    return [demand.workspace,final.radiance,final.reactiveMask,demand.fieldStore,demand.signalStore,captured];
    }
  });
  const coverageBytes=surfaceCoverageLayout(8).bytes;
@@ -258,7 +262,7 @@ export async function runPhaseOneOracle(gpu,assert,onStage=()=>{},options={}) {
    encoder.copyTextureToBuffer({texture:resources.get(final.radiance).gpu_texture},{buffer:hdrReadback,bytesPerRow:256},{width,height});
    encoder.copyBufferToBuffer(resources.get(final.counters),0,counterReadback,0,32);
    encoder.copyBufferToBuffer(publication.surfaceMetadata,0,metadataReadback,0,publication.surfaceMetadata.size);
- });capture.read(cells.coverage);capture.read(metadataId);capture.read(final.radiance);capture.read(final.counters);capture.make_side_effect();
+ });capture.read(cells.coverage);capture.read(cells.appearanceMetadata);capture.read(final.radiance);capture.read(final.counters);capture.make_side_effect();
  allocator=new GPUBufferAllocator(device);const textures=new GPUTextureAllocator(device);retained.push(textures);
  context=new FrameGraphContext({device,encoder:command,graphics:{device,buffer_allocator_main:allocator,allocator_textures:textures},resource_manager:new FrameGraphResourceManager(device,gpuDone)});
  compiled=graph.compile();

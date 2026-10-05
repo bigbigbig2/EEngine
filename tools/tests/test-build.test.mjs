@@ -20,14 +20,14 @@ test("real tsc output rejects both changed production input and edited compiled 
     "OEngine/tsconfig.test.json",
     JSON.stringify({
       compilerOptions: { outDir: ".test-dist", rootDir: "src", target: "ES2022", skipLibCheck: true },
-      include: ["src"]
-    })
+      include: ["src"],
+    }),
   );
   // Delegate to the project's actual installed compiler, not a fake build result.
   const compiler = new URL("../../OEngine/node_modules/typescript/lib/tsc.js", import.meta.url);
   await write(
     "OEngine/node_modules/typescript/lib/tsc.js",
-    `require(${JSON.stringify(decodeURIComponent(compiler.pathname.replace(/^\/([A-Z]:)/, "$1")))})`
+    `require(${JSON.stringify(decodeURIComponent(compiler.pathname.replace(/^\/([A-Z]:)/, "$1")))})`,
   );
   await write("tools/test-build.mjs", await readFile(new URL("../test-build.mjs", import.meta.url), "utf8"));
   await assert.rejects(verifyTestBuild(root), /identity missing/);

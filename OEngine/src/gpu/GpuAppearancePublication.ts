@@ -29,6 +29,10 @@ import type { StandardShadeMaterial } from "../material/StandardShadeMaterial.js
 import { standardAppearanceParameters } from "../material/AppearanceRuntimeInputs.js";
 import { appearanceSurfaceDemandIntegration } from "../shaders/appearance_surface_demand.js";
 import type { SurfaceDemandLayout } from "./GpuSurfaceDemandAbi.js";
+import { packAppearanceDagPublication } from "./GpuAppearanceDagAbi.js";
+import { planExactAppearanceLanes } from "../material/ExactAppearanceDag.js";
+import { appearanceSurfaceExactDescriptor } from "../shaders/appearance_surface_exact.js";
+import { TEXTURE_BINDING_SET_MAX_RESIDENT_SETS } from "./TextureBindingSetPolicy.js";
 import { APPEARANCE_FIELD_NAMES } from "./GpuAppearanceFieldAbi.js";
 import { appearanceInputLayout, appearanceGeometryInputKind } from "../shaders/appearance_demand_inputs.js";
 import { appearanceCoverageKernel, COVERAGE_DIRECTORY_STRIDE } from "../shaders/appearance_coverage.js";
@@ -146,6 +150,12 @@ export class GpuAppearancePublication {
   readonly coverageDirectory: GPUBuffer;
   readonly allocatedBytes: number;
   readonly ready: Promise<void>;
+  readonly exactDagCode: GPUBuffer;
+  readonly exactDagProducts: readonly GPUBuffer[];
+  readonly exactDagProductBankWords: number;
+  readonly exactDagLiveSlots: number;
+  readonly exactDagLanes: number;
+  readonly exactDagScratchBytes: number;
   private readonly staticLeases: AppearanceStaticLease[] = [];
   private readonly buffers: GPUBuffer[] = [];
   private readonly surfaceLeases: AppearanceProgramLease[] = [];
@@ -667,8 +677,39 @@ export class GpuAppearancePublication {
           );
         }
       // Publication byte admission precedes every shader/layout/pipeline/buffer creation.
-      for (const descriptor of surfaceDescriptors) registry.preflight(descriptor);
-      for (const descriptor of surfaceDescriptors) this.surfaceLeases.push(registry.acquire(descriptor));
+      const exactDescriptor = appearanceSurfaceExactDescriptor();
+      const exactData = packAppearanceDagPublication(
+        entries.map((entry) => ({
+          program: entry.program,
+          lowered: entry.kernel.lowered,
+          constantBase: entry.constantBase,
+          routeBase: entry.routeBase,
+          inputBase: entry.inputBase,
+          textureBindingSetId: entry.textureBindingSetId,
+        })),
+        maximum,
+      );
+      const exactPlan = planExactAppearanceLanes(exactData.liveSlots, Math.min(maximum, 16 * 1024 * 1024));
+      for (const entry of entries) {
+        if (
+          entry.textureBindingSetId < 0 ||
+          entry.textureBindingSetId >= TEXTURE_BINDING_SET_MAX_RESIDENT_SETS
+        ) {
+          throw new RangeError("Appearance references an unnegotiated texture binding set");
+        }
+      }
+      registry.preflight(exactDescriptor);
+      this.surfaceLeases.push(registry.acquire(exactDescriptor));
+      this.exactDagCode = this.upload(device, command, "exact-dag-code", exactData.code);
+      this.exactDagProducts = Object.freeze(
+        exactData.products.map((data, bank) =>
+          this.upload(device, command, `exact-dag-products-${bank}`, data),
+        ),
+      );
+      this.exactDagProductBankWords = exactData.productBankWords;
+      this.exactDagLiveSlots = exactData.liveSlots;
+      this.exactDagLanes = exactPlan.lanes;
+      this.exactDagScratchBytes = exactPlan.bytes;
       const assetLeases = new Map<string, AppearanceStaticLease>();
       for (const [id, asset] of assets) {
         const lease = staticResidency!.acquire(asset, command);
@@ -728,11 +769,11 @@ export class GpuAppearancePublication {
       this.fieldDependencies = fieldDependencies;
       this.entries = Object.freeze(entries);
       this.surfaceProgramCount = surfaceDescriptors.length;
-      for (let program = 0; program < this.surfaceProgramCount; program++) {
-        const label = `GpuAppearancePublication/Surface settings ${program}`;
+      for (let family = 0; family < TEXTURE_BINDING_SET_MAX_RESIDENT_SETS; family++) {
+        const label = `GpuAppearancePublication/Surface texture-set settings ${family}`;
         const settings = device.createBuffer({
           label,
-          size: 32,
+          size: 48,
           usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         this.buffers.push(settings);
@@ -744,7 +785,7 @@ export class GpuAppearancePublication {
               category: "resident",
               owner: "GpuAppearancePublication",
               label,
-              bytes: 32,
+              bytes: 48,
             }),
           );
         }
@@ -889,7 +930,7 @@ export class GpuAppearancePublication {
     );
   }
 
-  /** Actual unique missing fields, grouped by the compiler's PSO/resources. */
+  /** One exact generic execution scope per negotiated residency set. */
   encodeSurfaceFields(
     command: ShadeGPUCommandContext,
     input: {
@@ -897,6 +938,7 @@ export class GpuAppearancePublication {
       readonly demand: GPUBuffer;
       readonly indirect: GPUBuffer;
       readonly values: GPUBuffer;
+      readonly scratch: GPUBuffer;
       readonly layout: SurfaceDemandLayout;
       readonly textureBanks: readonly (readonly GPUTextureView[])[];
     },
@@ -908,78 +950,65 @@ export class GpuAppearancePublication {
     ) {
       throw new Error("Surface Appearance requires an open resident frame");
     }
-    const pipelines = this.surfacePipelines;
-    if (!pipelines) throw new Error("Surface field kernels are not ready");
+    const ready = this.surfacePipelines?.[0];
+    if (ready === undefined) {
+      throw new Error("Exact Surface Appearance kernel is not ready");
+    }
     const offsets = input.layout.offsets;
-    for (let programIndex = 0; programIndex < pipelines.length; programIndex++) {
-      const entry = this.entries.find((candidate) => candidate.programIndex === programIndex);
-      if (!entry) continue;
-      const settings = this.surfaceSettings[programIndex]!;
+    for (let family = 0; family < TEXTURE_BINDING_SET_MAX_RESIDENT_SETS; family++) {
+      const banks = input.textureBanks[family];
+      if (banks === undefined) {
+        continue;
+      }
+      const settings = this.surfaceSettings[family]!;
       command.writeBuffer(
         settings,
         0,
         new Uint32Array([
-          programIndex,
-          offsets.programs! / 4,
-          offsets.ordered_material_queue! / 4,
+          offsets.material_queue! / 4,
           offsets.material_masks! / 4,
-          0,
-          this.surfaceMetadataOffsets.directory,
-          this.surfaceMetadataOffsets.runtimeInputs,
           offsets.material_entries! / 4,
+          family,
+          this.surfaceMetadataOffsets.constants,
+          this.surfaceMetadataOffsets.routes,
+          this.surfaceMetadataOffsets.runtimeInputs,
+          this.exactDagProductBankWords,
+          this.exactDagLanes,
+          this.exactDagLiveSlots,
+          0,
+          0,
         ]).buffer,
         0,
-        32,
+        48,
       );
-      const ready = pipelines[programIndex]!;
       const group0 = this.obtainSurfaceBindGroup(ready.layouts[0]!, [
-        { binding: 0, resource: { buffer: this.constants } },
-        { binding: 1, resource: { buffer: this.routes } },
-        { binding: 2, resource: { buffer: input.geometry } },
-        { binding: 3, resource: { buffer: input.demand } },
-        { binding: 4, resource: { buffer: this.surfaceMetadata } },
+        { binding: 0, resource: { buffer: this.exactDagCode } },
+        { binding: 1, resource: { buffer: this.surfaceMetadata } },
+        { binding: 2, resource: { buffer: input.scratch } },
+        { binding: 3, resource: { buffer: input.geometry } },
+        { binding: 4, resource: { buffer: input.demand } },
         { binding: 5, resource: { buffer: input.values } },
-        { binding: 6, resource: { buffer: settings } },
+        { binding: 6, resource: { buffer: this.exactDagProducts[0]! } },
+        { binding: 7, resource: { buffer: this.exactDagProducts[1]! } },
+        { binding: 8, resource: { buffer: settings } },
       ]);
-      const groups: GPUBindGroup[] = [group0];
-      const textureLayout = ready.layouts[1];
-      const textureDescriptors = entry.kernel.descriptor.groups[1] ?? [];
-      if (textureLayout) {
-        const textureEntries: GPUBindGroupEntry[] = [];
-        const banks = input.textureBanks[entry.textureBindingSetId] ?? [];
-        for (const descriptor of textureDescriptors) {
-          if (descriptor.texture) {
-            const view = banks[descriptor.binding];
-            if (!view)
-              throw new Error(
-                `Surface texture bank ${entry.textureBindingSetId}:${descriptor.binding} is missing`,
-              );
-            textureEntries.push({ binding: descriptor.binding, resource: view });
-          } else if (descriptor.sampler) {
-            const samplerIndex = descriptor.binding - 9;
-            textureEntries.push({ binding: descriptor.binding, resource: this.samplers[samplerIndex]! });
-          }
+      const textures: GPUBindGroupEntry[] = [];
+      for (let bank = 0; bank < 9; bank++) {
+        const view = banks[bank];
+        if (view === undefined) {
+          throw new Error("Exact Appearance resident bank is missing");
         }
-        groups.push(this.obtainSurfaceBindGroup(textureLayout, textureEntries));
+        textures.push({ binding: bank, resource: view });
       }
-      const productLayout = ready.layouts[2];
-      if (productLayout) {
-        const productEntries: GPUBindGroupEntry[] = entry.productTextures.map((texture, binding) => {
-          let view = this.surfaceProductViews.get(texture);
-          if (view === undefined) {
-            view = texture.createView({ dimension: "2d-array" });
-            this.surfaceProductViews.set(texture, view);
-          }
-          return { binding, resource: view };
-        });
-        if (entry.productTextures.length > 0)
-          productEntries.push({ binding: entry.productTextures.length, resource: this.productSampler });
-        groups.push(this.obtainSurfaceBindGroup(productLayout, productEntries));
+      for (let sampler = 0; sampler < 6; sampler++) {
+        textures.push({ binding: 9 + sampler, resource: this.samplers[sampler]! });
       }
-      const pass = command.beginComputePass({ label: `Surface/material publication kernel ${programIndex}` });
+      const group1 = this.obtainSurfaceBindGroup(ready.layouts[1]!, textures);
+      const pass = command.beginComputePass({ label: "Surface/exact Appearance residency set " + family });
       pass.setPipeline(ready.pipeline);
-      groups.forEach((group, index) => pass.setBindGroup(index, group));
-      pass.dispatchWorkgroupsIndirect(input.indirect, offsets.programs! + programIndex * 32);
+      pass.setBindGroup(0, group0);
+      pass.setBindGroup(1, group1);
+      pass.dispatchWorkgroups(Math.ceil(this.exactDagLanes / 64));
       pass.end();
     }
   }

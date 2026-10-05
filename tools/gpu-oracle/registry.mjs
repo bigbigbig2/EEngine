@@ -11,6 +11,46 @@
 
 export const oracles = Object.freeze([
   Object.freeze({
+    name: "surface-domain",
+    file: "OEngine/tests/oracle/surface-domain-gpu.mjs",
+    url: "/OEngine/tests/oracle/surface-domain-gpu.mjs",
+    entry: "runSurfaceDomainGpuOracle",
+    description:
+      "B1 domain entity: interned domain identity, tile references and sample work counted separately.",
+    timeoutMs: 60000,
+    note: "Real GPU reads the publication-packed domain directory; separates domain/tile/sample counts (execution plan 6.1).",
+  }),
+  Object.freeze({
+    name: "appearance-exact-dag",
+    file: "OEngine/tests/oracle/appearance-exact-dag-gpu.mjs",
+    url: "/OEngine/tests/oracle/appearance-exact-dag-gpu.mjs",
+    entry: "runExactAppearanceDagGpuOracle",
+    description: "B1 complete arithmetic and nested C/X/Y generic-component feasibility.",
+    timeoutMs: 120000,
+    note: "New production WGSL component versus independent CPU evaluation; not full Surface cutover.",
+  }),
+  Object.freeze({
+    name: "framegraph-lifecycle",
+    file: "OEngine/tests/oracle/framegraph-lifecycle-gpu.mjs",
+    url: "/OEngine/tests/oracle/framegraph-lifecycle-gpu.mjs",
+    entry: "runFrameGraphLifecycleGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    description:
+      "A0/A1 production compiled executor, pooled/native lifetime, resize binding and diagnostics WGSL.",
+    timeoutMs: 60000,
+    note: "Real GPU component chain with independent buffer/diagnostic assertions.",
+  }),
+  Object.freeze({
+    name: "frame-timing",
+    file: "OEngine/tests/oracle/frame-timing-gpu.mjs",
+    url: "/OEngine/tests/oracle/frame-timing-gpu.mjs",
+    entry: "runFrameTimingGpuOracle",
+    requiredFeatures: ["timestamp-query"],
+    description: "A0 persistent timer modes, query/marker tax and real GPU span/result assertions.",
+    timeoutMs: 60000,
+    note: "Production timer components, not a full-frame benchmark.",
+  }),
+  Object.freeze({
     name: "environment-probe",
     file: "tools/gpu-oracle/self-test/environment-probe.mjs",
     url: "/__gpu-oracle/self-test/environment-probe.mjs",
@@ -18,7 +58,7 @@ export const oracles = Object.freeze([
     description:
       "Minimal real-GPU smoke test: one compute dispatch, storage-buffer readback, asserted on the CPU.",
     timeoutMs: 60_000,
-    note: "Run this first on a new machine or CI runner; it separates harness/driver availability from oracle logic."
+    note: "Run this first on a new machine or CI runner; it separates harness/driver availability from oracle logic.",
   }),
   Object.freeze({
     name: "hzb-conservative",
@@ -29,7 +69,7 @@ export const oracles = Object.freeze([
     description:
       "Exhaustive rg16float half-boundary reduction plus all 1296 HZB footprint rectangles against buildHzbReference.",
     timeoutMs: 180_000,
-    note: "Independent CPU reference; strongest numeric oracle in the repository."
+    note: "Independent CPU reference; strongest numeric oracle in the repository.",
   }),
   Object.freeze({
     name: "virtual-geometry-handoff",
@@ -40,7 +80,7 @@ export const oracles = Object.freeze([
     description:
       "VirtualGeometryMeshletWorkCandidate queue/draw-indirect handoff with exact compacted cluster IDs.",
     timeoutMs: 180_000,
-    note: "Drives the production owner VirtualGeometryMeshletWorkCandidate from OEngine/.test-dist."
+    note: "Drives the production owner VirtualGeometryMeshletWorkCandidate from OEngine/.test-dist.",
   }),
   Object.freeze({
     name: "virtual-geometry-instance-culling",
@@ -51,7 +91,7 @@ export const oracles = Object.freeze([
     description:
       "HierarchicalWorkGenerator root/hierarchy kernels over 20 camera frames, with the old double-transform false rejection as negative control.",
     timeoutMs: 180_000,
-    note: "Drives the production owner HierarchicalWorkGenerator from OEngine/.test-dist."
+    note: "Drives the production owner HierarchicalWorkGenerator from OEngine/.test-dist.",
   }),
   Object.freeze({
     name: "self-test-wrong-kernel",
@@ -63,8 +103,8 @@ export const oracles = Object.freeze([
       "Negative control: the HZB reduction oracle with a deliberately non-conservative GPU kernel.",
     timeoutMs: 180_000,
     negativeControl: true,
-    note: "Must FAIL. Proves the harness propagates failures produced by real GPU output. Never a production oracle."
-  })
+    note: "Must FAIL. Proves the harness propagates failures produced by real GPU output. Never a production oracle.",
+  }),
 ]);
 
 export function findOracle(name) {
