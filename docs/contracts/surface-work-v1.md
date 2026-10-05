@@ -26,7 +26,7 @@ verifies:
 ---
 # Surface / Work V1：Phase 2 实现边界
 
-本合同记录已退役的早期 Phase 2 结构，不再描述当前或目标 SurfaceWork V3。当前实现事实见 [Shading](../domains/shading.md)，目标和执行见 [SurfaceWork V3](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 与[执行计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。下文只供历史追溯，不代表正式 GPU 画质或性能验收；旧 evidence 不转授新合同。
+本合同记录已退役的早期 Phase 2 结构，不再描述当前或目标 SurfaceWork V3。当前实现事实见 [Shading](../domains/shading.md)，目标和执行见 [SurfaceWork V3](../next-design/eengine-extreme-performance-rebuild-2026-10.md) 与[执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。下文只供历史追溯，不代表正式 GPU 画质或性能验收；旧 evidence 不转授新合同。
 
 ## 所有权与提取
 

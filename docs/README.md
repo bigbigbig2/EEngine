@@ -10,13 +10,13 @@ verifies:
 
 当前方向以第三版原文为架构边界。文档说明目标、执行和源码事实，不是逐批编码许可；准备完成不等于生产代码已重构。
 
-**当前阶段不在本页断言。** 阶段状态只有一个权威来源：[workstream 的 currentSlice](../project/workstreams/active/eengine-next-clean-rebuild.yaml) 与[执行记录](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。本页曾经把"Phase5 实施中"写死在这里，结果 HEAD 已是 Phase 7 提交而入口仍在说 Phase 5——新读者读到的第一个状态就是错的。任何"当前处于什么阶段"的文字都会漂移，所以这里只提供导航，不复制状态。
+**当前阶段不在本页断言。** 阶段状态只有一个权威来源：[workstream 的 currentSlice](../project/workstreams/active/eengine-next-clean-rebuild.yaml) 与[执行记录](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。本页曾经把"Phase5 实施中"写死在这里，结果 HEAD 已是 Phase 7 提交而入口仍在说 Phase 5——新读者读到的第一个状态就是错的。任何"当前处于什么阶段"的文字都会漂移，所以这里只提供导航，不复制状态。
 
 ## 从这里开始
 
-1. [第三版最终重构设计](next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)：用户指定原文，后续 Surface/Appearance/Lighting 的唯一目标依据。
-2. [最终性能重构设计](next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)、[当前执行计划](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)：有界前端、源码切换与最终验收。重构前基线 `14c17078`。
-3. [整体架构](next-design/eengine-next-overall-architecture-final-2026.md)与[架构层计划](next-execution/eengine-next-architecture-layer-plan-2026.md)：保留系统边界与后续 SSSR/GI/VT/Transparency 方向；Surface 部分服从第三版原文。
+1. [第三版最终重构设计](./next-design/eengine-extreme-performance-rebuild-2026-10.md)：用户指定原文，后续 Surface/Appearance/Lighting 的唯一目标依据。
+2. [最终性能重构设计](./next-design/eengine-extreme-performance-rebuild-2026-10.md)、[当前执行计划](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)与[进度/基线](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)：有界前端、源码切换与最终验收。重构前基线 `14c17078`。
+3. [整体架构](./next-design/eengine-extreme-performance-rebuild-2026-10.md)与[架构层计划](next-execution/eengine-next-architecture-layer-plan-2026.md)：保留系统边界与后续 SSSR/GI/VT/Transparency 方向；Surface 部分服从第三版原文。
 4. [当前 workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml)：当前切片和待完成目标。
 5. `node tools/vibe.mjs context <path>`：查询 owner/current docs/Next 入口。
 6. `node tools/docs-verify.mjs`：校验本文档树是否仍满足自身合同。
@@ -50,6 +50,6 @@ verifies:
 
 ## 开发与验收
 
-检查时机与失败修复规则见 [VALIDATION](VALIDATION.md)；测试可信度合同见[执行计划 §1.4](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)。
+检查时机与失败修复规则见 [VALIDATION](VALIDATION.md)；测试可信度合同见[执行计划 §1.4](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)。
 
 正式 evidence/claims 留最终验收。历史诊断（如 run06 约 801.7ms，accepted=false）不是性能通过。

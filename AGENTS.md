@@ -1,6 +1,6 @@
 # EEngine Next 协作规则
 
-目标是极致 GPU 性能与现代 AAA 画质，首要运行目标为 GTX 1650 Ti、1080p 复杂场景。当前处于单生产路径的破坏式重建。Surface/Appearance/Lighting 以用户指定的 [第三版最终重构设计](docs/next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)为唯一总架构目标；当前性能实施细化为[有界前端最终设计](docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)，具体顺序见[当前执行计划](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)，身份与状态见[执行记录](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。原V3、优化V1和五步修复页仅供历史追溯，不是并行执行入口。保留系统边界见[整体架构](docs/next-design/eengine-next-overall-architecture-final-2026.md)，后续模块见[架构层计划](docs/next-execution/eengine-next-architecture-layer-plan-2026.md)，当前模块见[workstream](project/workstreams/active/eengine-next-clean-rebuild.yaml)。源码是当前实现事实；文档采纳不证明实现、性能、claim 或来源 adoption 已完成。
+目标是极致 GPU 性能与现代 AAA 画质，首要运行目标为 GTX 1650 Ti、1080p 复杂场景。当前处于单生产路径的破坏式重建，方向由 [极致性能重建设计](docs/next-design/eengine-extreme-performance-rebuild-2026-10.md) 统一：它取代此前的 V3 原文、有界前端设计与优化 V1 设计（均已归档至 `docs/archive/`，只供追溯）。执行顺序见 [重建执行计划](docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)，当前模块见 [workstream](project/workstreams/active/eengine-next-clean-rebuild.yaml)。源码是当前实现事实；文档采纳不证明实现、性能、claim 或来源 adoption 已完成。
 
 ## 开发节奏
 
@@ -10,15 +10,19 @@
 4. 大模块的原理和生产链连通后，集中运行一次 typecheck、build 与该模块必要的 targeted tests；可显式使用 `node tools/vibe.mjs verify --module --test <OEngine/tests/...test.mjs>`。修明显问题，更新 currentSlice，然后进入下一个模块。未运行的测试必须如实陈述。
 5. Next Renderer 的主要架构与计划中的 providers 全部完成后，才做 browser matrix、resize/camera cut/device loss、场景和材质组合、画质对照、GPU P50/P95、正式 evidence 与 claims。`verify --full` 属于这个阶段。
 
-### 当前 SurfaceWork V3 重构的执行覆盖规则（2026-10-05 复审更新）
+### 重建执行覆盖规则
 
-按用户2026-10-04最新要求，Surface V3采用每阶段实现、每阶段集中检查、通过后再进入下一阶段，覆盖此前“整个新链结束才检查”的时点规则。SurfaceWork、唯一GeometryRecord、前置lookup/miss-only、独立signal、TemporalFacts与cheap reconstruct仍作为统一目标。阶段内部允许短暂编译失败/无图/consumer未接通，但阶段结束必须修复编译错误并验证本阶段真实producer→consumer。跨阶段必要接线前移，不用旧链、adapter、占位效果或空consumer通过检查；替换producer与直接consumer作为同一切换单元，仅保留一条生产路径。
+本次重建按**切换单元**推进，每个单元实现与集中检查通过后进入下一个。完整顺序与退出条件见[重建执行计划](docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。
 
-Phase 0核对基线身份、消费矩阵、容量与文档。Phase 1–6（含5.5）每阶段集中运行typecheck、build、必要targeted tests，以及涉及WGSL/GPU产物的编译、数值/覆盖和真实GPU组件/接线检查；完整链已可运行时做受影响场景短smoke/成本诊断。检查失败在本阶段修复并重跑受影响项，不带着已知错误或未完成必需检查进入下一阶段，不要求每个patch重跑全部测试。Phase 7在阶段检查基础上做完整整合、跨浏览器、生命周期、连续画质及同条件历史版本性能正式验收；不承诺固定FPS/百分比。来源核读仍在复杂实施前完成，来源采用、实现完成与验收通过分别记录。具体每阶段检查和外部阻塞处理见当前执行计划§1。
+单元：**A0** 测量口径与基线 → **A1** FrameGraph 执行器 → **B1** 域实体竖切（可行性门）→ **B2** 域/率全面替换 → **C** 材质分类与信号复用 → **D** Geometry 完整工作域 → **E** Lighting/Shadow 极端路径 → **F** Temporal/Post 收口。
 
-只复用最终架构需要的数学、资源 owner 和 GPU 产品，删除旧协调器及无消费者依赖，不为旧测试修改新架构。Winner/Sharing/Cache identity 分开；cache lookup 在 material miss compact 前，命中字段不重跑其 geometry/material heavy work，其他 dirty consumer 仍可请求唯一 record；Appearance/Lighting 只消费唯一 GeometryRecord；reconstruct 不重新执行完整几何、材质或 PBR。最终 bounded full-rate exception、身份失效和写域互斥集中在权威生产/发布边界保证，热 consumer 不重复检查已保证的不变量。具体删除顺序与范围见[有界前端执行计划](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。此覆盖规则优先于近目录和历史计划中的逐阶段检查要求。
+阶段内部允许短暂编译失败/无图/consumer 未接通，但单元结束必须修复编译错误并验证本单元真实 producer→consumer。跨单元必要接线前移，不用旧链、adapter、占位效果或空 consumer 通过检查；替换 producer 与直接 consumer 作为同一切换单元，仅保留一条生产路径。
 
-**阶段状态不在本文件维护。** 本文件此前记录"Phase4 HEAD 0c8caf30，另有未提交 Phase5 实现，当前未收口"——HEAD 早已是 Phase 7 提交，这条文字一直是错的，而它正是 agent 读到的第一条状态。当前阶段只有一个权威来源：[workstream 的 currentSlice](project/workstreams/active/eengine-next-clean-rebuild.yaml) 与[进度文档](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。任何入口文件都不得复制阶段状态。
+**三条架构不变量每个单元都要过**（见设计母稿 §3.1）：命令数与场景复杂度解耦、管理成本不超过实际计算成本、复用层关掉后仍正确且同量级。
+
+只复用最终架构需要的数学、资源 owner 和 GPU 产品，删除旧协调器及无消费者依赖，不为旧测试修改新架构。Winner/Sharing/Cache identity 分开；cache lookup 在 material miss compact 前，命中字段不重跑其 geometry/material heavy work，其他 dirty consumer 仍可请求唯一 record；Appearance/Lighting 只消费唯一 GeometryRecord；reconstruct 不重新执行完整几何、材质或 PBR。最终 bounded full-rate exception、身份失效和写域互斥集中在权威生产/发布边界保证，热 consumer 不重复检查已保证的不变量。具体删除顺序与范围见[重建执行计划](docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。此覆盖规则优先于近目录和历史计划中的逐阶段检查要求。
+
+**阶段状态不在本文件维护。** 本文件此前记录"Phase4 HEAD 0c8caf30，另有未提交 Phase5 实现，当前未收口"——HEAD 早已是 Phase 7 提交，这条文字一直是错的，而它正是 agent 读到的第一条状态。当前阶段只有一个权威来源：[workstream 的 currentSlice](project/workstreams/active/eengine-next-clean-rebuild.yaml) 与[进度文档](./docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。任何入口文件都不得复制阶段状态。
 
 **仍然有效的长期约束**（与阶段无关，不随阶段推进失效）：
 
@@ -32,7 +36,7 @@ Phase 0核对基线身份、消费矩阵、容量与文档。Phase 1–6（含5.
 
 ### Surface 阶段测试与失败修复规则（2026-10-05 补齐）
 
-详细执行合同为[当前执行计划§1.4](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)，适用于后续全部Surface阶段（含5.5）。不能只以测试数量、出图或预算未超限判断阶段完成。
+详细执行合同为[当前执行计划§1.4](./docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)，适用于后续全部Surface阶段（含5.5）。不能只以测试数量、出图或预算未超限判断阶段完成。
 
 1. 阶段实施前列设计任务、复审缺口和不变量；收口时逐项核对真实producer→产品→全部consumer、正常/边界/失败用例、独立预期、结构/成本检查和本次结果。必需项遗漏、未测或无consumer，阶段就未完成；不把遗漏改名为可选优化或悄悄后移。
 2. 测试调用当前生产入口/生成WGSL/真实GPU链，数值与覆盖预期有独立依据；mock、源码正则、归档shader、小fixture和预填正确结果不证明生产算法完成。先证明被测分支确实执行，Lighting有非零有效provider，cache/coarse有普通合法成功与局部拒绝用例，不能永久fine/miss过关。

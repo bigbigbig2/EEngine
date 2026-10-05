@@ -8,7 +8,7 @@ verifies:
 ---
 # Shading Frequency Plan V1
 
-Status: retired historical Phase 2 contract. The frequency planner and sample consumer were removed before the V3 direction; current facts are in [Shading](../domains/shading.md), and the target is [SurfaceWork V3](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md). The contract below must not be used to infer production behavior or the new ABI.
+Status: retired historical Phase 2 contract. The frequency planner and sample consumer were removed before the V3 direction; current facts are in [Shading](../domains/shading.md), and the target is [SurfaceWork V3](../next-design/eengine-extreme-performance-rebuild-2026-10.md). The contract below must not be used to infer production behavior or the new ABI.
 
 Owners: Visibility & Surface / shading
 

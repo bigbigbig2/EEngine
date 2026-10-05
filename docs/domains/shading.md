@@ -12,10 +12,10 @@ verifies:
 
 核对日期：2026-10-05。重构前代码已保存为 **14c170785505b316c273a8aed0257fe22056b0d3**。Phase4 HEAD为0c8caf30，当前另有未收口的dirty Phase5实现；下文区分已提交事实和工作树变化，旧基线另列。
 
-- 总架构：[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。
-- 当前目标：[有界前端最终性能设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。
-- 当前执行：[重构计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
-- 状态：Phase5实施中、未收口；Phase0–4历史检查保留但不代表前置物理要求全部落实。按[复审与准备](../next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)先修Phase5并完成合同，再执行必需5.5、Phase6/7。完整数值/画质/性能与来源采用仍未验收。
+- 总架构：[第三版原文](../next-design/eengine-extreme-performance-rebuild-2026-10.md)。
+- 当前目标：[有界前端最终性能设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)。
+- 当前执行：[重构计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)与[进度/基线](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。
+- 状态：Phase5实施中、未收口；Phase0–4历史检查保留但不代表前置物理要求全部落实。按[复审与准备](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)先修Phase5并完成合同，再执行必需5.5、Phase6/7。完整数值/画质/性能与来源采用仍未验收。
 
 ## 当前唯一生产链
 
@@ -70,7 +70,7 @@ SurfaceReconstructionPass只消费refs/results/TemporalFacts及合成输入，�
 
 ## 当前阶段验证与性能边界
 
-详见[Phase 4实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md)：52 targeted tests；固定树、parent、实际DomainKey/provider/Field→Signal source真实GPU检查；26 module生产链和两个Store实际消费；Showcase短smoke通过。累计generic counter drop=1，采样detailed的计数和Surface coverage产品完整；不把短诊断提升为正式收益/目标判定。
+详见[Phase 4实施记录](../archive/surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md)：52 targeted tests；固定树、parent、实际DomainKey/provider/Field→Signal source真实GPU检查；26 module生产链和两个Store实际消费；Showcase短smoke通过。累计generic counter drop=1，采样detailed的计数和Surface coverage产品完整；不把短诊断提升为正式收益/目标判定。
 
 当前classifier仅16 quad、4 parent、1 root，每节点四child；parent合并完整范围并转换plane residual再判预算。DomainKey与并行prefix直接source map替换pair/member/代表线性搜索；相同node/coverage的direct provider风险有界共用，kind4 proof与全部family共用R/2预算。
 

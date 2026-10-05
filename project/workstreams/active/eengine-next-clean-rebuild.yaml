@@ -6,29 +6,30 @@ state: active
 owner: frame-runtime
 decision: ADR-0021
 goal: >-
-  Preserve the user-selected V3 architecture while implementing the cost-bounded Surface frontend:
-  independent candidate/value/certificate contracts, fixed spatial hierarchy, profitable cache/proof
-  admission, one hot/cold GeometryRecord producer, actual missing closures and independent signals,
-  bounded memory and complete coverage on one production FrameGraph and frame submit.
+  Rebuild the execution and data model so frame cost is set by the scale of the execution
+  structure rather than by scene complexity or pixel count: few bounded execution scopes,
+  an explicit domain entity that replaces per-pixel reuse proof, cost-classified reuse that
+  must earn its place, one authority per data product, and one production FrameGraph with
+  one frame submit.
 
 currentSlice:
-  id: surface-work-v3-cost-bounded-final-refactor
-  title: Surface V3：Phase 6 检查完成，进入 Phase 7 正式验收
+  id: eengine-extreme-performance-rebuild
+  title: 极致性能重建：A0 测量口径 → A1 FrameGraph → B1 域实体竖切
   status: active
   goal: >-
-    按 docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md
-    与 docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md
-    每阶段实现并检查，通过后进入下一阶段。重构前基线 14c17078，Phase 4 HEAD 0c8caf30；
-    Phase 0–4 的接线与历史检查保留，但前置物理表示未全部落实。本次 Phase 5 实现与集中检查通过，
-    同 key writer、真实计时、IOR/coat validity、canonical包含性已修复，六帧GPU链与原1080p短smoke完成。
-    Phase 5.5 已补齐 lazy witness、typed compact certificate、公式 ref 与真实预算映射，
-    并通过同R/newR账、真实八帧producer→consumer、proof/cache满、NaN毒值、parent/tree、reset/compose、
-    1080p timing+detailed短smoke，并提交7d267d37。Phase6实现与87 targeted/build、8帧GPU、10项真实Renderer生命周期、
-    最终无drift/无drop 1080p smoke通过；选择性reset、稳定BG/view/PSO、ordered uniforms、setup owner、合法合并、
-    resize fence与namespace/abort/device恢复完成。当前进入Phase7正式整合、跨浏览器、连续质量和同条件历史性能验收。
-    开工清单见 docs/next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md。
-    run06 的约 801.7ms 为历史诊断，accepted=false，不宣称性能完成。
-    详细状态维护于对应 progress 文档。
+    按 docs/next-design/eengine-extreme-performance-rebuild-2026-10.md（母稿）
+    与 docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md 推进。
+    母稿取代此前的 V3 原文、有界前端设计与优化 V1 设计，三者已归档至 docs/archive/。
+    基线快照 09449d6d；重构前性能基线为近景 Surface GPU P50 785.19 ms，管理成本 708.71 ms
+    对实际计算 23.26 ms（约 30:1），整帧 2,689 个 graph node。
+    本次按切换单元推进：A0 测量口径与基线 → A1 FrameGraph 执行器 → B1 域实体竖切（可行性门）
+    → B2 域/率全面替换 → C 材质分类与信号复用 → D Geometry 完整工作域 → E Lighting/Shadow
+    极端路径 → F Temporal/Post 收口。
+    三条架构不变量每个单元必过：命令数与场景复杂度解耦、管理成本不超过实际计算成本、
+    复用层关闭后仍正确且同量级。
+    A 与 B 并行推进，但 B 先以 B1 竖切验证可行性——A 只治 CPU graph 执行（近景约 40 ms，
+    占 Surface 785 ms 的约 5%），先做安全的 A 会掩盖真正的手术。
+    不承诺固定 FPS 或百分比；正式历史性能比较留最终验收。
 
 nextModules:
   - id: sssr
@@ -41,59 +42,48 @@ nextModules:
     title: Transparency, local media and presentation integration
 
 architectureRules:
-  - Preserve V3 architecture and the final cost-bounded design; use the current execution plan, not historical per-step plans.
-  - Keep one production renderer, one FrameGraph submit owner and original complete material/BRDF/IBL/provider semantics.
-  - Keep Winner, Sharing and Cache identities separate; hashes select candidates and never prove identity.
-  - Separate CandidateKey, ValueWitness and SharingCertificate; value hits do not authorize spatial sharing.
-  - Bind Field sources before constructing Signal identities; transient indices are not stable cache keys.
-  - Use publication dependency/cost profiles and fixed 2x2, 4x4 and 8x8 merges; delete arbitrary member and pair searches.
-  - Bound proof operations, queries and admission; Unknown only refines related work without truncating proofs or output.
-  - Use implicit/uniform/mixed work and guaranteed local setup with optional bounded memo; do not materialize every fine pixel task.
-  - SurfaceGeometryPass is the sole hot/cold GeometryRecord producer; Appearance and Lighting do not decode triangles.
-  - Field hits skip their own heavy closure; other dirty consumers may still request the unique GeometryRecord.
-  - Do not impose universal full-key request dedup; admission failure uses correct transient work without global scans or spin.
-  - Preserve independent signal packets, direct-diffuse semantics, TemporalFacts ownership and cheap reconstruction.
-  - Reserve complete implicit-fine coverage before mixed publication; no partial coarse/fine overlapping writes.
-  - Account for real layouts, mandatory worst-case capacity, reset masks, GPU limits and in-flight retirement before allocation.
-  - Keep copy/clear outside compute passes and valid indirect usage scopes; cache compatible layouts and stable bindings.
-  - No current-frame GPU-to-CPU-to-GPU work control, private submits, retired owners or compatibility bridges.
-  - Validate each phase before advancing; Phase 1-6 including Phase 5.5 require typecheck/build, targeted semantics and relevant real GPU producer-consumer checks, with short whole-chain smoke when available.
-  - Phase 5.5 is mandatory before Phase 6; migrate eager witnesses, dense certificate results, formula references and physical budget mapping with every direct consumer.
-  - Phase completion needs actual cost-contract evidence as well as correctness; small-fixture output, bounded proof counts and allocation ceilings do not prove compact physical products.
-  - Unresolved cache admission retains transient output and must not create multiple Store writers for one key; diagnostic timing must cover actual production pass names.
-  - Maintain phase requirement coverage across real producers, all consumers, independent expectations, normal and failure cases, structural costs and actual source-identified results; green test counts do not prove completion.
-  - Preserve failures, reproduce and classify the root cause before scoped repair; migrate stale fixtures without weakening semantic assertions or adding test-only production fallbacks, owners or submits.
-  - Do not pass by skipping required assertions, loosening tolerances, disabling required features or forcing ordinary work to fine or residual; scope and quality changes require explicit user approval.
-  - Read pinned complete source before complex implementation; design, implementation and validated adoption remain distinct.
-  - Temporary compile failures or missing consumers are allowed only inside a phase; pull required wiring forward and never use adapters or placeholders to pass checks.
-  - Preparation and historical repair results do not mark new reconstruction phases or performance claims complete.
+  - Frame cost is set by the scale of the execution structure, never by scene complexity or pixel count. Command count must decouple from both.
+  - Management cost must not exceed the cost of the computation it manages. This is invariant B and it is checked, not asserted.
+  - The whole reuse layer must be switchable off with the frame still correct and still in the same order of magnitude. This is invariant C.
+  - A domain is a first-class entity: evaluated once, referenced by its consumers. Proof, certificate, fixed-tree and per-pixel witness machinery has no role once a domain exists — that is why it is deleted, not optimised.
+  - Recommended reuse strategy is decided at publication time, never by a per-tile dynamic cost predictor.
+  - Not every product must be sparse. High-frequency regions legitimately keep geometry near full rate; forcing sparsity everywhere is an incorrect target.
+  - One authority per data product. Consumers get an explicit read interface; no second geometry recovery owner, no consumer-side writes into a shared record.
+  - Replacing a producer and all of its direct consumers is one atomic switch. No adapters, no placeholder effects, no empty consumers, no second production path.
+  - Full-rate facts (coverage, depth, motion, identity) carry no "should I do this" decision. Any conditional branch entering that layer is an architecture error.
+  - Unique GeometryRecord means one production semantics and one demand union, not every primary storing every field. Thin records plus on-demand completion are allowed; a fixed write domain per field is not.
+  - Whole-algorithm sources: read pinned complete upstream implementations before complex work, and keep design, implementation and validated adoption as separate states.
+  - Delete rather than adapt: retired owners, no-consumer dependencies and duplicate authority are removed, not bridged.
+  - Real compile failures must be fixed. Weakened assertions, widened tolerances, disabled features and test-only production fallbacks are not ways to pass a unit.
+  - Stage state is maintained only in this workstream's currentSlice and the execution plan. Entry documents must not copy it.
 
 deferredValidation:
   policy: >-
-    Follow the user-requested per-phase validation policy. Phase 0 checks frozen identity, consumer/capacity
-    inventories and documentation; each Phase 1-6 including mandatory Phase 5.5 completes typecheck/build, relevant semantic tests and
-    real WGSL/GPU component wiring checks before advancing. Fix failures within the phase and pull required
-    consumers forward; no placeholder or retired path. Phase 5.5 also verifies actual witness/proof/ref production,
-    physical layouts and binding constraints; its unfinished structural work cannot be deferred to Phase 6.
-    Follow current execution section 1.4 for coverage, independent oracles and failure repair; unresolved required
-    checks, incomplete reports and stale artifacts cannot count as phase completion. Revalidate affected work
-    after final production changes rather than combining passes from different snapshots.
-    Phase 7 repeats integration and completes full
-    quality/lifecycle/browser matrices and fixed-condition performance acceptance.
+    Per-unit concentrated checks rather than per-patch gates. Each unit completes its own
+    typecheck/build, targeted semantic tests and, where WGSL or GPU products are involved,
+    real GPU component and wiring checks, then passes the three architecture invariants
+    before the next unit starts. Fix failures inside the unit and pull required consumers
+    forward; never use a retired path, adapter or placeholder to pass. Structural evidence
+    is preferred over counter deltas: assertable structure (for example "one full-screen
+    single-material region produces exactly one domain and zero exceptions") cannot be
+    shrunk the way a counter can. Correctness and cost are reported separately. Formal
+    browser matrix, continuous quality, lifecycle and same-condition historical comparison
+    belong to final acceptance.
   finalAcceptance:
     - typecheck and build after the complete target and production wiring
     - shader compilation, CPU/WGSL numerical oracles, complete coverage and write ownership
     - browser and resize, camera cut, abort, device recovery and resource retirement
     - far/near, static/moving, high-frequency normal/ORM, multi-material and strong IBL quality
     - direct plus VSM, AO on/off, Product LOD/page miss, empty and single Product cases
-    - same-condition independent-checkout comparison of 89f0a94, 15f12f7b, e7296be9, pre-refactor 14c17078 and the pinned final revision
+    - same-condition independent-checkout comparison against pre-rebuild 09449d6d and the pinned final revision
     - GTX 1650 Ti 1080p complex scenes with fixed camera, features, browser, warm-up and thermal state
     - all-cost Surface and GPU frame P50/P95 with hit/miss, geometry, signal, exception, IBL, overflow and memory counters
-    - V3 section 8-11 goals plus final cost-bounded design section 22; no promised FPS or fixed percentage
-    - formal evidence and claim promotion only for actually validated scope
+    - real command counts, clear/copy ranges, hot/cold writes and live/retired memory with an explainable ledger
+    - the three architecture invariants demonstrated on the final wiring, not inferred from tuning
+    - formal evidence and claim promotion only for actually validated scope, without altering measurement definitions
 
 links:
-  design: docs/next-design/eengine-next-overall-architecture-final-2026.md
-  execution: docs/next-execution/eengine-next-architecture-layer-plan-2026.md
-  currentDesign: docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md
-  currentExecution: docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md
+  design: docs/next-design/eengine-extreme-performance-rebuild-2026-10.md
+  execution: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md
+  currentDesign: docs/next-design/eengine-extreme-performance-rebuild-2026-10.md
+  currentExecution: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md

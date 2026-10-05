@@ -6,7 +6,7 @@ verifies:
 ---
 # Module C 执行：按需 Surface Fields 与 XeGTAO
 
-> 2026-10-02 方向说明：本文保留 XeGTAO 的已完成来源核对、实现记录和 AO owner 边界；Surface 的执行入口、工作组织和重建必须服从 [SurfaceWork V3](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 与 [V3 计划](./surface-work-runtime-v3-rebuild-2026.md)。旧 SurfaceMaterialPass/Dense/Binned 接口不再是当前目标入口。
+> 2026-10-02 方向说明：本文保留 XeGTAO 的已完成来源核对、实现记录和 AO owner 边界；Surface 的执行入口、工作组织和重建必须服从 [SurfaceWork V3](../next-design/eengine-extreme-performance-rebuild-2026-10.md) 与 [V3 计划](./eengine-extreme-performance-rebuild-execution-2026-10.md)。旧 SurfaceMaterialPass/Dense/Binned 接口不再是当前目标入口。
 
 > 状态：2026-09-27 C0–C8 工程实施与模块集中检查完成；选定 High scalar 已进入唯一 FrameGraph 生产链。真实 GPU 数值消费与画质尚未核对，R05 保持 `not adopted`。设计依据见[Module C 设计](../next-design/surface-fields-xegtao.md)，整体顺序见[架构层计划](./eengine-next-architecture-layer-plan-2026.md)，固定来源与逐阶段对照见[Next 来源账本 R05](../porting/next-renderer.md)。本文是连续编码路线，不是每一小步的许可/验证门禁。
 

@@ -20,10 +20,10 @@ verifies:
 
 ## 第三版目标边界
 
-[用户指定原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)保留 Geometry/Visibility 和 frame geometry owners。Visibility 发布 winner/depth，SurfaceWork 入口解析 frame-local winner；SurfaceGeometryPass 唯一恢复 SurfaceGeometryRecord，Appearance/Lighting 不再各自解析 MeshletWork/三顶点/UV/normal。
+[用户指定原文](../next-design/eengine-extreme-performance-rebuild-2026-10.md)保留 Geometry/Visibility 和 frame geometry owners。Visibility 发布 winner/depth，SurfaceWork 入口解析 frame-local winner；SurfaceGeometryPass 唯一恢复 SurfaceGeometryRecord，Appearance/Lighting 不再各自解析 MeshletWork/三顶点/UV/normal。
 
 Winner、Sharing 和 Cache identity 分开，VisibilityKey 不作跨帧 cache 身份。能力/容量先协商，每个 queue/indirect 有 bounded overflow 和消费者安全空状态；Surface 最终例外不交回旧 queue，不以 CPU 第二次 submit 修补。
 
 入口：`render/passes/PackedVisibilityPass.ts`、`HierarchicalWorkGenerator.ts`、`MeshletBucketRaster.ts`、`HierarchicalZBuffer.ts`、`FrameGeometryArena.ts`、`FrameGeometryVertices.ts`、`program/FrameProgramLowering.ts`。
 
-历史 Native/Chrome 组件诊断保留在[ledger](../porting/next-renderer.md)与[geometry lab](../../validation/labs/surface-geometry/README.md)，其日期和范围不转授第三版完整性能/画质。当前重构执行和验收见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。
+历史 Native/Chrome 组件诊断保留在[ledger](../porting/next-renderer.md)与[geometry lab](../../validation/labs/surface-geometry/README.md)，其日期和范围不转授第三版完整性能/画质。当前重构执行和验收见[SurfaceWork V3 计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。

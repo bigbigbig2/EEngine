@@ -71,7 +71,7 @@ for (const id of ["guard-legacy","guard-ownership","guard-docs","guard-generated
 
 ### 2.1 设计目标
 
-[`surface-work-v3-cost-bounded-final-refactor-design-2026-10.md`:509](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md) §17.1 原文：
+[`surface-work-v3-cost-bounded-final-refactor-design-2026-10.md`:509](../next-design/eengine-extreme-performance-rebuild-2026-10.md) §17.1 原文：
 
 > 初始 desktop profile 目标 R=65,536，即 1,024 tiles；1080p 最大范围 B=ceil(32,400/1,024)=32。
 
@@ -135,7 +135,7 @@ envelope: scratch * 2 + 224 * MIB + 48 * MIB
 
 ### 2.5 杠杆量化：为什么这不是"再优化一轮"
 
-设计自己在 [§19:603-608](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md) 给出模型：
+设计自己在 [§19:603-608](../next-design/eengine-extreme-performance-rebuild-2026-10.md) 给出模型：
 
 ```text
 D = Dframe + B × (Dfrontend + Dstore + PpublishedPrograms + FproofFamilies + LworkerFamilies + Dcompose)
@@ -149,9 +149,9 @@ D = Dframe + B × (Dfrontend + Dstore + PpublishedPrograms + FproofFamilies + Lw
 达到 60fps 所需（设计文档引用的 run06 801.730ms）  → 801.73 / 16.67 ≈ 48.1×
 ```
 
-即：**完全实现 §17.1 的目标，也只走完所需距离的约 9%**。设计自身在 [§23:736](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md) 已把"只删clear/扩batch/加setup"标为"有价值但不足"，但 §17.1 仍把它列为阶段目标，而 §21 的执行顺序没有任何一项处理 B×整链展开本身。
+即：**完全实现 §17.1 的目标，也只走完所需距离的约 9%**。设计自身在 [§23:736](../next-design/eengine-extreme-performance-rebuild-2026-10.md) 已把"只删clear/扩batch/加setup"标为"有价值但不足"，但 §17.1 仍把它列为阶段目标，而 §21 的执行顺序没有任何一项处理 B×整链展开本身。
 
-**结论 A**：需要在重新设计中删除的是 **B（CPU 逐 batch 展开整条消费链）作为主要成本因子**这一执行模型，而不是把 B 调小。设计在 [§19:608](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md) 已经写明"GPU 零 count 省 shader 工作，不省 CPU 编码"——即已经知道 B 是 CPU 侧固定成本，但没有据此改变结构。
+**结论 A**：需要在重新设计中删除的是 **B（CPU 逐 batch 展开整条消费链）作为主要成本因子**这一执行模型，而不是把 B 调小。设计在 [§19:608](../next-design/eengine-extreme-performance-rebuild-2026-10.md) 已经写明"GPU 零 count 省 shader 工作，不省 CPU 编码"——即已经知道 B 是 CPU 侧固定成本，但没有据此改变结构。
 
 ### 2.6 需要用户判断的设计矛盾（我不单方面裁决）
 

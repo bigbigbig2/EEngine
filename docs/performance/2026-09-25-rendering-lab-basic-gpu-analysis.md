@@ -39,7 +39,7 @@ state: history
 
 ## 代码路径与原因判断
 
-在该历史基线中，每帧先经过几何工作生成和 Hardware Visibility，再由已删除的 `SparseShadingResolvePass`/`sparse_shading_resolve.ts` 对着色输出执行 compute。它是全屏发射、可见像素执行较重工作的路径，不是只按唯一材质数计算一次。当前方向改由 SurfaceWork V3 统一 Work/GeometryRecord/cache/signal，见[第三版设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。
+在该历史基线中，每帧先经过几何工作生成和 Hardware Visibility，再由已删除的 `SparseShadingResolvePass`/`sparse_shading_resolve.ts` 对着色输出执行 compute。它是全屏发射、可见像素执行较重工作的路径，不是只按唯一材质数计算一次。当前方向改由 SurfaceWork V3 统一 Work/GeometryRecord/cache/signal，见[第三版设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)。
 
 完整 lit 路径在材质解析后调用 `sparse_direct`：先做标准材质直接光照，随后为 IBL 采样 split-sum LUT、预过滤环境镜面图与环境漫反射图，并计算能量与 AO。当前资产的 25 个材质 metallic factor 都是 0，roughness factor 默认为 1；材质依然进入这条完整 IBL 路径。因此肉眼看着接近“纯色”，不能据此认为 PBR 没有执行。粗糙材质的高光本来较钝，而额外工作仍要按可见像素支付。
 

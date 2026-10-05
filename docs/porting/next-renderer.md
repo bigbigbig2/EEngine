@@ -36,7 +36,7 @@ SignalStore 的 packet/spill ABI 对照 Intel CPS 的 coarse/fine/overflow 分�
 
 ### Phase 1 实施与来源边界
 
-实际代码与检查范围见[Phase 1 发布记录](../next-execution/surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。连续域与角点lineage为具名本地Continuity-Domain Signal Sampling的publication部分；六种域、独立risk、LOD-local继承、位置/属性误差及上取整tangent角锥不是OSS或DOOM已交付的完整算法。
+实际代码与检查范围见[Phase 1 发布记录](../archive/surface-work-v3-optimization-v1-phase1-implementation-2026-10.md)。连续域与角点lineage为具名本地Continuity-Domain Signal Sampling的publication部分；六种域、独立risk、LOD-local继承、位置/属性误差及上取整tangent角锥不是OSS或DOOM已交付的完整算法。
 
 既有meshoptimizer donor固定`9e1f07b159d3cb777f1c67ed31fc11fd117986f4` / MIT，使用已归档`indexgenerator.cpp`的完整记录remap与`simplifier.cpp`的attribute/update路径；不改vendor算法，hash仍严格核对。source lineage随实际weld/split/update/compact保留到`GeometryCooker.cpp::BuildMeshlets/SimplifyGroup/SerializeGroup`；source角点未能精确字节回查不再导致整个几何域清零。普通资产对应`SurfaceContinuity.ts` → `GeometrySurfacePublication.ts` → GpuAssetStore的真实metadata upload，Product对应同一64 B metadata → group/page publication。Native和两个WASM版本同步profile/flags。
 
@@ -46,9 +46,9 @@ SignalStore 的 packet/spill ABI 对照 Intel CPS 的 coarse/fine/overflow 分�
 
 生产GPU纹理摘要组件的五个真实case已通过，仍不提升Surface整体adoption/性能claim。新classifier、FieldStore、SignalStore、reconstruct尚待后续Phase；局部组件GPU证据不冒称整帧链路已通过。
 
-执行更新：用户已要求逐 Phase 完整实现、检查、每阶段一次提交。Phase 0 已完成身份冻结、资源删除/依赖清单和独立容量政策检查，详见[Phase 0 清单](../next-execution/surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)；尚未实施/验证下表复杂算法，采用状态不变。以下“本次只形成设计”指此前设计编写阶段。
+执行更新：用户已要求逐 Phase 完整实现、检查、每阶段一次提交。Phase 0 已完成身份冻结、资源删除/依赖清单和独立容量政策检查，详见[Phase 0 清单](../archive/surface-work-v3-optimization-v1-phase0-inventory-2026-10.md)；尚未实施/验证下表复杂算法，采用状态不变。以下“本次只形成设计”指此前设计编写阶段。
 
-对应[第一版优化设计](../next-design/surface-work-v3-optimization-v1-design-2026-10.md)与[执行文档](../next-execution/surface-work-v3-optimization-v1-execution-2026-10.md)。本次只形成设计，不修改生产源码、不运行测试、不提升任何 adoption 或性能 claim。下文历史主链名称和验证记录不能当作本方案已接入。
+对应[第一版优化设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)与[执行文档](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。本次只形成设计，不修改生产源码、不运行测试、不提升任何 adoption 或性能 claim。下文历史主链名称和验证记录不能当作本方案已接入。
 
 沿用本账本固定的 Forge `cd5046893faba2dc7869243873bf01f02a6f0df9` / Apache-2.0、Wicked `df44c3db4c4927492bc9c791eac715d98d7ed091` / MIT、Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887` / shader Apache-2.0、OSS `473a59bbcdd30e3366cc567d66a5a97353620d48` / Apache-2.0，以及 DOOM GPC2025 PDF（SHA256 `e5fe7cf223006bf95089eb2890c878a47aecccd612eb9e5398c1fe43273d0fad`）。固定 URL、许可和源文件详见下文“选定来源到本地阶段的映射”及 10-01 `DependencySamplePages` 条目。早期“仅审部分 OSS”的范围与 10-01 追加源文件映射是不同时间记录，本轮不宣称重新审完上游全仓。
 
@@ -162,7 +162,7 @@ GTX1650Ti/Dawn-D3D12 actual owner→hardware raster→typed及single-binding con
 
 ## 2026-09-30 Surface 历史设计：Signal-Rate Surface（已被 V3 取代）
 
-该段历史方案现已由[用户指定第三版最终设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)和[SurfaceWork V3 执行计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)取代。这里保留 2026-09-30 的来源核对记录；**历史设计不等于采用完成**，R02/R03/R20/R23 的上游采用状态与正式画质/性能 claims 不因本地接线自动改变。
+该段历史方案现已由[用户指定第三版最终设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)和[SurfaceWork V3 执行计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)取代。这里保留 2026-09-30 的来源核对记录；**历史设计不等于采用完成**，R02/R03/R20/R23 的上游采用状态与正式画质/性能 claims 不因本地接线自动改变。
 
 ### 来源检索范围与核对记录
 
@@ -225,7 +225,7 @@ DACS 独立工程 `da514fe9f6b1a2c5a732b0b9f2e20c25227960e3` 的 license 未明�
 
 ## 2026-09-30 Surface 极致性能调查补充（历史调查，未实施）
 
-设计分析见历史记录（原文件已移出活动树），本地代码基线 `f4c2127a`。当前方向已切换至[第三版最终设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，这次只修改设计/来源记录，不提升 R02/R03/R20/R23 的采用状态，不切换 currentSlice。旧账本关于 ShadingWork/classify/scatter 的阶段历史不作为当前事实。
+设计分析见历史记录（原文件已移出活动树），本地代码基线 `f4c2127a`。当前方向已切换至[第三版最终设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，这次只修改设计/来源记录，不提升 R02/R03/R20/R23 的采用状态，不切换 currentSlice。旧账本关于 ShadingWork/classify/scatter 的阶段历史不作为当前事实。
 
 **检索与核对顺序**：先检查完整 GitHub 源文件/目录/许可证，再核对 DACS/对象空间着色/FastAtlas 作者资料及 Microsoft 的 DOOM VRCS 第一方说明。The Forge 的 pin 与 R02 相同；Wicked 此次新调查 pin 与 R23 原 pin 分立。未运行任何上游工程。
 
@@ -266,7 +266,7 @@ DACS 独立工程 `da514fe9f6b1a2c5a732b0b9f2e20c25227960e3` 的 license 未明�
 
 ## Surface 缓存与稀疏照明重构：2026-10-01 执行来源
 
-用户已选择[第三版最终设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，执行边界及完整要求见[SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md)。本节不把旧 Surface oracle 或已审读局部来源升级为新算法完成。
+用户已选择[第三版最终设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，执行边界及完整要求见[SurfaceWork V3 计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。本节不把旧 Surface oracle 或已审读局部来源升级为新算法完成。
 
 ### 材质图编译与烘焙
 
@@ -782,7 +782,7 @@ The local page-table ABI now allocates 32 bytes per entry across disjoint mip pl
 
 本轮沿用已核读固定来源：Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887`，Apache-2.0，`ComputeShaderTile.hlsl::ComputeSurfaceDataFromGBufferAllSamplesCPS/RequiresPerPixelShading/ComputeShaderTileCS`；DOOM VRCS 原始技术演讲的 primary/duplicate、tile remap、compact lists 和 cluster locality 阶段；Filament `41f996de8fcc2d6b60b73159aa1bc44a05a40700`，Apache-2.0 的已有 BRDF、DFG 和环境卷积映射。VRCS 演讲是研究资料，不作为可复制源码许可。本地解码复用 Nyx `bc7e5b1e51f6b3b8af4771db81ffaa714fcbe64b` / MIT 的现有 Product 数学，以及本地 Geometry ABI 和 HomogeneousWinnerInterpolation。
 
-下表中的 `surface_sparse_lighting.ts`、`prepare_surface`、`evaluate_packets` 等名称属于来源核读和历史实现阶段，不是当前 TypeScript 生产入口。当前唯一生产接线位于 `SurfaceWorkRuntime.ts`、`SurfaceLightingWorkPass.ts`、`SurfaceReconstructionPass.ts`；本地接线状态以 [Shading domain](../domains/shading.md) 和 [SurfaceWork V3 计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md) 为准。
+下表中的 `surface_sparse_lighting.ts`、`prepare_surface`、`evaluate_packets` 等名称属于来源核读和历史实现阶段，不是当前 TypeScript 生产入口。当前唯一生产接线位于 `SurfaceWorkRuntime.ts`、`SurfaceLightingWorkPass.ts`、`SurfaceReconstructionPass.ts`；本地接线状态以 [Shading domain](../domains/shading.md) 和 [SurfaceWork V3 计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md) 为准。
 
 | 完整来源阶段 / 本地决定 | 本地真实入口与分支 | 差异与当前状态 |
 | --- | --- | --- |
@@ -873,7 +873,7 @@ Directional VSM 的真实 PCF 接收点比较没有删除或换成 page-version 
 
 ## 2026-10-04：分类、证书与 Store 五步修复设计（尚未实施）
 
-执行入口：[Surface V3 分类与 Store 五步修复计划](../next-execution/surface-work-v3-classifier-store-repair-plan-2026-10.md)。本次仅创建计划与来源映射，不修改生产源码、不运行组件或整帧检查，不提升采用状态。核对基点为 `0bc4e68752ab187a1b508f7a1952e6ebe18bec02` 加创建文档时 dirty 工作树；8 秒报告是另一个 `c28d0292 + 当时 dirty` 身份。
+执行入口：[Surface V3 分类与 Store 五步修复计划](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。本次仅创建计划与来源映射，不修改生产源码、不运行组件或整帧检查，不提升采用状态。核对基点为 `0bc4e68752ab187a1b508f7a1952e6ebe18bec02` 加创建文档时 dirty 工作树；8 秒报告是另一个 `c28d0292 + 当时 dirty` 身份。
 
 重新访问固定 Intel CPS `63ad5c1adafbfcc2869a200f50a5ea11f28b4887` 的 `ComputeShaderTile.hlsl`（文件头 Apache-2.0）及 GPU Pro 7 配套 README，固定 OSS `473a59bbcdd30e3366cc567d66a5a97353620d48` 的 `RenderTaskProcessing.compute`、README 和 `License`（Apache-2.0）。OSS 固定 revision preprint 本次 web 提取失败，未声称重读论文全文；既有论文与详细资料研究边界沿用本账本。API 约束核对 [WGSL 2026-09-21 atomic 规范](https://www.w3.org/TR/2026/CRD-WGSL-20260921/#atomic-builtin-functions)。
 
@@ -903,7 +903,7 @@ Directional VSM 的真实 PCF 接收点比较没有删除或换成 page-version 
 | 实际 fine-anchor 与 GeometryRecord gradient 合同 | fixed hierarchy 的 accepted first-covered source | parent source 始终是已覆盖 fine location，material 保持原 fine gradients；quad证书包含其完整 analytic/filter support。因此 parent union 不偷偷扩大发生采样的 footprint；新 anchor/filter 不被覆盖时不能命中（持久有效域由步骤3补全） |
 | 本地资源/ABI集成与 WGSL dispatch/barrier scope | `GpuSurfaceCellPlanAbi` 紧凑 certificate sections、`SurfaceOptimizationCapacity`、FrameGraph geometry/field certificate→classify | 不分配 node×domain×plane 大表；每目标128 B geometry、208 B field 与4 B primitive映射，最大64 leaf/tile；scratch在消费后按batch复用，创建前协商总绑定与512 MiB envelope。跨producer使用 dispatch，组内协作是 uniform barrier；diagnostic按workgroup聚合，timing关闭计数 |
 
-组件检查：真实 production publication/setup→geometry/field certificate→classifier fixture、ORM复用、parent颜色/残差/方向/unknown/roughness小用例已执行；细节见[执行记录](../next-execution/surface-work-v3-classifier-store-repair-progress-2026-10.md)。这些组件结果不证明完整 Showcase、移动视角有效域、连续画质或整帧性能完成。signed normalTS与world coat basis是对既有 Appearance/BRDF 单位的接线修正，未改写原 BRDF公式。
+组件检查：真实 production publication/setup→geometry/field certificate→classifier fixture、ORM复用、parent颜色/残差/方向/unknown/roughness小用例已执行；细节见[执行记录](../archive/surface-work-v3-classifier-store-repair-progress-2026-10.md)。这些组件结果不证明完整 Showcase、移动视角有效域、连续画质或整帧性能完成。signed normalTS与world coat basis是对既有 Appearance/BRDF 单位的接线修正，未改写原 BRDF公式。
 
 ### 同一来源范围下的步骤 3：有效域与精确 publication proof
 
@@ -923,7 +923,7 @@ VSM content version/namespace 是原 owner 的发布胶水：实际 allocation/t
 
 ## 2026-10-04：有界 Surface 前端最终性能重构设计（未实施）
 
-设计入口：[Surface V3 最终性能重构设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。基于 daaed9c7303a90e1658265e77e5cda02d63921b4 加已有 dirty 工作树及 Showcase run06；本次仅写文档，没有修改生产代码、运行新测试/benchmark 或提升 claims/adoption。前述五步记录中的完整 key 全请求去重、满表全流扫描和 dense leaf certificates 是历史实现事实，不是新方案保留要求。
+设计入口：[Surface V3 最终性能重构设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)。基于 daaed9c7303a90e1658265e77e5cda02d63921b4 加已有 dirty 工作树及 Showcase run06；本次仅写文档，没有修改生产代码、运行新测试/benchmark 或提升 claims/adoption。前述五步记录中的完整 key 全请求去重、满表全流扫描和 dense leaf certificates 是历史实现事实，不是新方案保留要求。
 
 本地方案为 **Bounded Surface Frontend（有界 Surface 前端）**，修订 Continuity-Domain Signal Sampling 的工作生成与成本约束。没有一个完整 donor 同时覆盖本地前置 field/value/certificate 协议、21-plane 分解、WebGPU 容量/生命周期及 Product/LOD。
 
@@ -952,7 +952,7 @@ VSM content version/namespace 是原 owner 的发布胶水：实际 allocation/t
 
 ### 2026-10-04 Phase 0：静态核读完成，未实施
 
-完整清单：[Phase 0身份/消费者/容量审计](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10.md)。固定production代码14c17078，Phase0开始HEAD bc274708；没有生产改动、项目build/tests或新GPU采样。
+完整清单：[Phase 0身份/消费者/容量审计](../archive/surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10.md)。固定production代码14c17078，Phase0开始HEAD bc274708；没有生产改动、项目build/tests或新GPU采样。
 
 再次读完整固定Forge/CPS/OSS源码并在线核对本机副本逐字符一致（9406/13298/3453字符）；本机SHA256分别9b567bf3dc106398b6462418c6457a953d2f5dc4fd797d388c50d4aec4af1d1c、bf8d9ff071965457779184bca8dc1d67c0381d0183e2f97283ea0a2142c6d2c9、523ab05a538f6366d88e83e94fd022ea70c206751f2470a00a93549f54d6cdab。Forge/CPS许可头、OSS固定根License重新核对；Microsoft固定完整shader、GPUSort阶段和MIT根许可按前文pin复核，未运行donor。
 
@@ -1000,7 +1000,7 @@ WGSL workgroupUniformLoad 按 [WGSL规范](https://www.w3.org/TR/WGSL/#workgroup
 | 实际Cluster/LightDatabase/Lighting provider | 同完整cluster充分条件、同node/coverage provider复用、8 punctual风险上限 | 不比较不同cluster完整列表，不缩减heavy合法光源集合；无receiver证明direct fine |
 | 本地有界reservation/prefix协议 | provider typed kind4并入原R/2总账，workgroup一次预留，root/parent优先 | 八次有限CAS；满额/竞争Unknown，不自旋、不部分接受proof；修复实测有空位却只接纳8/21的问题 |
 
-实际验证：52 targeted tests；17 tree/domain/provider、8 parent、10 Field与12 selected Field→Signal GPU用例；26 module两个Store生产链完整HDR；Showcase短smoke可用。累计generic counter drop=1，采样帧计数/Surface coverage完整，未用短采样作性能或完整质量判定。详细命令/身份/边界见[Phase 4实施记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md)。未运行donor工程，未提升正式claims或完整来源采用。
+实际验证：52 targeted tests；17 tree/domain/provider、8 parent、10 Field与12 selected Field→Signal GPU用例；26 module两个Store生产链完整HDR；Showcase短smoke可用。累计generic counter drop=1，采样帧计数/Surface coverage完整，未用短采样作性能或完整质量判定。详细命令/身份/边界见[Phase 4实施记录](../archive/surface-work-v3-cost-bounded-final-refactor-phase4-implementation-2026-10.md)。未运行donor工程，未提升正式claims或完整来源采用。
 
 ### 2026-10-05 Phase 5：mask demand / factorized direct diffuse
 
@@ -1016,10 +1016,10 @@ WGSL workgroupUniformLoad 按 [WGSL规范](https://www.w3.org/TR/WGSL/#workgroup
 | 本地 publication/asset格式与WGSL dispatch边界 | 当前GPU参数DAG envelope、实际provider/LUT envelope、address semantic、complete key/proof/source合同 | 本地 NumericGuardTransport；不依赖过期CPU值/author range；unsafe保留显式residual；先发布后lookup，无额外submit/readback |
 | 本地Store状态与queue/fence生命周期 | reserve→Produced→后续commit→ref；完整namespace协同重建 | 弱CAS有界、pin、generation/version分域、abort不推进有效身份，普通帧不清persistent池 |
 
-未找到覆盖本地pre-material三合同、cost admission、完整guard证明与WebGPU Store消费的单一donor。组合方案明确为本地实现，来源核读、实现、GPU诊断与正式采用分别记录；不提升R01–R24、adoption或claims。实际检查与剩余边界见[Phase 5记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase5-implementation-2026-10.md)。
+未找到覆盖本地pre-material三合同、cost admission、完整guard证明与WebGPU Store消费的单一donor。组合方案明确为本地实现，来源核读、实现、GPU诊断与正式采用分别记录；不提升R01–R24、adoption或claims。实际检查与剩余边界见[Phase 5记录](../archive/surface-work-v3-cost-bounded-final-refactor-phase5-implementation-2026-10.md)。
 
 2026-10-05 canonical→screen 包含性修复仍属上述本地数学集成：`cell_scalar_footprint`的既有透视/一像素差分区间→`cell_parameter_support_covers`的完整quad value/DX/DY包含判断→证书producer按UV family复用→screen tree/Store消费。不另移植新interval算法；保留既有向外舍入、分母穿零Unknown及局部screen proof/fine路线。原address46/48没有producer，不能作为证明；本次删除该读取。10个真实GPU数学用例包含正常成功、三个UV越域、负cell、梯度越包络/W穿零/Unknown，隔离原函数确实错误接受三个越域和梯度用例；27-module六帧与1080p smoke完成，不提升正式adoption/画质/性能状态。
 
-Phase5.5实施前再次核读上述固定Forge/CPS/OSS完整shader及Apache许可，复核DAIS triangle/reference与低频分离说明。阶段映射：Forge `CalcFullBary/Interpolate2DWithDeriv`→Geometry-owned必要point/CXY witness；OSS `AllocateTask/RenderTaskIndirectDispatch`→GPU实际受理typed slot及indirect count；CPS `RequiresPerPixelShading/DEFER_PER_PIXEL`→固定局部拒绝/完整fine覆盖；DAIS triangle buffer→共享setup与唯一record。donor不含本地typed interval pool/三合同/完整Store规则，本次physical lowering具名为本地Bounded Surface Frontend方案。typed请求kind/state+结果slot→Field support/tree/Store，以及lazy witness/formula refs/预算的直接consumer映射与验证状态见[Phase5.5记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase55-implementation-2026-10.md)。该阶段已完成记录中的GPU/成本检查，不提升完整来源采用。
+Phase5.5实施前再次核读上述固定Forge/CPS/OSS完整shader及Apache许可，复核DAIS triangle/reference与低频分离说明。阶段映射：Forge `CalcFullBary/Interpolate2DWithDeriv`→Geometry-owned必要point/CXY witness；OSS `AllocateTask/RenderTaskIndirectDispatch`→GPU实际受理typed slot及indirect count；CPS `RequiresPerPixelShading/DEFER_PER_PIXEL`→固定局部拒绝/完整fine覆盖；DAIS triangle buffer→共享setup与唯一record。donor不含本地typed interval pool/三合同/完整Store规则，本次physical lowering具名为本地Bounded Surface Frontend方案。typed请求kind/state+结果slot→Field support/tree/Store，以及lazy witness/formula refs/预算的直接consumer映射与验证状态见[Phase5.5记录](../archive/surface-work-v3-cost-bounded-final-refactor-phase55-implementation-2026-10.md)。该阶段已完成记录中的GPU/成本检查，不提升完整来源采用。
 
-Phase6的选择性reset、stable settings/BG/view、resource tuple fast path、label分类缓存、setup scratch owner及queue-fence resize admission均为本地确定性ABI/绑定/生命周期集成；没有另改interval、树、BRDF或donor算法。背景与Surface重建合并只合并compute pass，保持coverage反集/集合的互斥写域及独立dispatch，不依赖彼此payload；copy/clear/staging在pass外，Store Produced→Published→ref和其他真实发布依赖保留独立pass。真实8帧poison链、10项Renderer生命周期与CPU热点诊断见[Phase6记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-phase6-implementation-2026-10.md)，正式质量/性能/adoption仍待Phase7，不以capacity/创建量下降冒充正式收益。
+Phase6的选择性reset、stable settings/BG/view、resource tuple fast path、label分类缓存、setup scratch owner及queue-fence resize admission均为本地确定性ABI/绑定/生命周期集成；没有另改interval、树、BRDF或donor算法。背景与Surface重建合并只合并compute pass，保持coverage反集/集合的互斥写域及独立dispatch，不依赖彼此payload；copy/clear/staging在pass外，Store Produced→Published→ref和其他真实发布依赖保留独立pass。真实8帧poison链、10项Renderer生命周期与CPU热点诊断见[Phase6记录](../archive/surface-work-v3-cost-bounded-final-refactor-phase6-implementation-2026-10.md)，正式质量/性能/adoption仍待Phase7，不以capacity/创建量下降冒充正式收益。

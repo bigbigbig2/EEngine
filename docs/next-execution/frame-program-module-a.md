@@ -4,9 +4,9 @@ state: history
 ---
 # Module A 执行：Frame Program 与语义事实层
 
-> 2026-10-02 方向说明：本文保留 Frame Program 的历史迁移背景。Surface 当前目标和执行不再由本文中的旧 SurfaceMaterialPass/ShadingWork 入口规定，改以 [第三版 SurfaceWork 设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 和 [V3 执行计划](./surface-work-runtime-v3-rebuild-2026.md) 为准。
+> 2026-10-02 方向说明：本文保留 Frame Program 的历史迁移背景。Surface 当前目标和执行不再由本文中的旧 SurfaceMaterialPass/ShadingWork 入口规定，改以 [第三版 SurfaceWork 设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md) 和 [V3 执行计划](./eengine-extreme-performance-rebuild-execution-2026-10.md) 为准。
 
-> 状态：模块 A 已按当前生产链完成（2026-09-27）；本文件保留迁移路线供后续追溯。实现事实见[Frame Runtime](../domains/frame-runtime.md)，Surface 目标与取舍见[第三版最终设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。workstream 的 `currentSlice` 已切换到 SurfaceWork V3；浏览器矩阵和性能验收仍在最终阶段。
+> 状态：模块 A 已按当前生产链完成（2026-09-27）；本文件保留迁移路线供后续追溯。实现事实见[Frame Runtime](../domains/frame-runtime.md)，Surface 目标与取舍见[第三版最终设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)。workstream 的 `currentSlice` 已切换到 SurfaceWork V3；浏览器矩阵和性能验收仍在最终阶段。
 
 ## 0. 执行纪律与边界
 

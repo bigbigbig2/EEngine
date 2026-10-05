@@ -361,10 +361,19 @@ function main() {
     }
 
     // References. Only links are promises; see extractReferences.
-    for (const ref of extractReferences(text)) {
-      if (!ref.target.startsWith("/") && /^(?:[a-z]+:)/iu.test(ref.target)) continue;
-      if (!existsSync(resolveReference(absolute, ref.target))) {
-        findings["broken-reference"].push({ doc, target: ref.target });
+    //
+    // `docs/archive/` is exempt: it holds dated records whose cross-references
+    // describe the tree as it stood when they were written. Rewriting those
+    // links would edit the historical record to say something it never said, and
+    // every rewrite of an archived file is a chance to introduce an error into
+    // material nobody re-reads. The archive is excluded by path, and its
+    // documents carry `state: history` so no reader mistakes them for current.
+    if (!doc.startsWith("docs/archive/")) {
+      for (const ref of extractReferences(text)) {
+        if (!ref.target.startsWith("/") && /^(?:[a-z]+:)/iu.test(ref.target)) continue;
+        if (!existsSync(resolveReference(absolute, ref.target))) {
+          findings["broken-reference"].push({ doc, target: ref.target });
+        }
       }
     }
 

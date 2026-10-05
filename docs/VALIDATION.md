@@ -9,13 +9,13 @@ verifies:
 
 这是开发节奏说明，不是逐批许可规则。当前工程处于破坏式重建，先让功能原理和唯一生产链真正连通。
 
-**当前SurfaceWork V3覆盖规则（2026-10-05修订）**：此前2026-10-02“开发中不测试、整链结束才检查”的规则已被用户要求替代，不再生效。总架构/质量以[第三版原文](next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)为准；当前执行唯一入口是[有界前端执行计划](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。Phase0做静态身份/容量核对；Phase1–6（含必需5.5）每阶段完成typecheck/build、新鲜targeted tests、涉及的WGSL与真实GPU producer→consumer检查，已有整链时补短smoke/成本诊断，通过后推进。Phase7保留正式整合、跨浏览器/完整生命周期/连续画质和同条件历史性能。按需调试，不要求每patch全测。
+**当前SurfaceWork V3覆盖规则（2026-10-05修订）**：此前2026-10-02“开发中不测试、整链结束才检查”的规则已被用户要求替代，不再生效。总架构/质量以[第三版原文](./next-design/eengine-extreme-performance-rebuild-2026-10.md)为准；当前执行唯一入口是[有界前端执行计划](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。Phase0做静态身份/容量核对；Phase1–6（含必需5.5）每阶段完成typecheck/build、新鲜targeted tests、涉及的WGSL与真实GPU producer→consumer检查，已有整链时补短smoke/成本诊断，通过后推进。Phase7保留正式整合、跨浏览器/完整生命周期/连续画质和同条件历史性能。按需调试，不要求每patch全测。
 
-当前顺序为Phase5先修唯一writer/计时覆盖并完成需求合同→Phase5.5前端物理表示与成本补齐→Phase6调度/reset/lifetime→Phase7。阶段内可以临时断链，结束必须真实闭合，不接旧consumer或占位值来通过。当前事实与历史结果见[执行记录](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
+当前顺序为Phase5先修唯一writer/计时覆盖并完成需求合同→Phase5.5前端物理表示与成本补齐→Phase6调度/reset/lifetime→Phase7。阶段内可以临时断链，结束必须真实闭合，不接旧consumer或占位值来通过。当前事实与历史结果见[执行记录](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。
 
 ## Surface 测试可信度与修复边界
 
-完整规范见[执行计划§1.4](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)，覆盖矩阵在各阶段实施记录维护，日常不增加逐patch许可表。
+完整规范见[执行计划§1.4](./next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)，覆盖矩阵在各阶段实施记录维护，日常不增加逐patch许可表。
 
 - 对照设计逐项列producer/产品/全部consumer、正常/边界/拒绝用例、独立预期和实际结果；测试全绿不代替实施范围核对。缺必需实现或用例、未运行检查，均不能标阶段完成。
 - 真实GPU接线检查调用当前生成shader和生产consumer，先证明有效非零workload/目标分支真的执行；mock或手写模拟链只能证明其局部范围。独立参考不能复制被测输出，普通合法cache/coarse成功和局部失败必须可区分。

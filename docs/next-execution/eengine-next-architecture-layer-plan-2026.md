@@ -6,18 +6,18 @@ verifies:
 ---
 # EEngine Next 架构层执行计划
 
-更新：2026-10-04。Surface总目标保留[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，当前实施见[有界前端最终设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)和[执行计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。准备/基线已完成，新重构未开始；本页保留整体依赖，原Surface阶段表是架构概览，不作为另一实施顺序。
+更新：2026-10-04。Surface总目标保留[第三版原文](../next-design/eengine-extreme-performance-rebuild-2026-10.md)，当前实施见[有界前端最终设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)和[执行计划](./eengine-extreme-performance-rebuild-execution-2026-10.md)。准备/基线已完成，新重构未开始；本页保留整体依赖，原Surface阶段表是架构概览，不作为另一实施顺序。
 
 ## 1. 权威入口与状态
 
-- 目标：第三版原文；保留系统边界见 [整体架构](../next-design/eengine-next-overall-architecture-final-2026.md)。
+- 目标：第三版原文；保留系统边界见 [整体架构](../next-design/eengine-extreme-performance-rebuild-2026-10.md)。
 - 决策：[ADR-0021](../adr/0021-surface-work-runtime-v3.md) 补充 [ADR-0020](../adr/0020-clean-cut-renderer.md)，替代其旧 Surface 阶段约束。
 - 当前切片：[eengine-next-clean-rebuild](../../project/workstreams/active/eengine-next-clean-rebuild.yaml) 的 surface-work-v3-cost-bounded-final-refactor。
 - 当前事实：[Shading](../domains/shading.md)、[Frame Runtime](../domains/frame-runtime.md)、[Visibility](../domains/visibility.md) 与源码。
 - 来源：[Next porting ledger](../porting/next-renderer.md)；旧条目和组件验证不等于新链实现或 adoption。
 - 验收：[VALIDATION](../VALIDATION.md) 与原文 §8–§11。
 
-重构前代码14c17078保留唯一SurfaceWorkRuntime，已有独立FieldStore/SignalStore、前置value/certificate查询、唯一720B GeometryRecord、实际missing closure/dirty signal与cheap reconstruct。dense前端、90batch等成本仍在，run06约801.7ms，不是性能完成。当前事实以[Shading](../domains/shading.md)和[执行记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)为准，不再将旧material/geometry cache和四路dense history当现行方案。
+重构前代码14c17078保留唯一SurfaceWorkRuntime，已有独立FieldStore/SignalStore、前置value/certificate查询、唯一720B GeometryRecord、实际missing closure/dirty signal与cheap reconstruct。dense前端、90batch等成本仍在，run06约801.7ms，不是性能完成。当前事实以[Shading](../domains/shading.md)和[执行记录](./eengine-extreme-performance-rebuild-execution-2026-10.md)为准，不再将旧material/geometry cache和四路dense history当现行方案。
 
 ## 2. 保留底座和当前范围
 
