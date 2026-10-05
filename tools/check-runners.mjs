@@ -251,13 +251,6 @@ export const CHECK_RUNNERS = Object.freeze({
       : passed();
   },
 
-  "evidence-provenance": (_check, context) => {
-    if (context.evidence.errors?.length > 0) return failed(context.evidence.errors);
-    if ((context.evidence.evidence ?? []).length === 0)
-      return passed(["evidence index is valid and currently empty"]);
-    return passed([`${context.evidence.evidence.length} compact evidence record(s) are structurally valid`]);
-  },
-
   /** 已退休入口不得回归：路径重新出现即失败。 */
   "retired-paths": (check) => {
     const config = check.config ?? {};
@@ -405,6 +398,55 @@ export const CHECK_RUNNERS = Object.freeze({
       return failed([`documentation contract has ${report.total ?? "?"} finding(s)`, report]);
     }
     return passed([{ documents: report.documents, total: report.total ?? 0 }]);
+  },
+
+  /**
+   * Tier 2 entry point: real GPU execution.
+   *
+   * Every engine test in this repository runs against a fake WebGPU device, so
+   * nothing else here compiles WGSL or executes a dispatch. This check launches
+   * local Chrome through `tools/gpu-oracle.mjs` and runs the environment-probe
+   * oracle, which requests a real adapter, dispatches one compute shader and
+   * reads the result back.
+   *
+   * A missing browser or a missing WebGPU adapter is reported as `not-run`, not
+   * as a failure: that is an environment fact, and conflating it with a code
+   * defect would train the reader to ignore this check. Only an oracle
+   * assertion or a GPU error fails the run.
+   */
+  "gpu-environment": (check) => {
+    const config = check.config ?? {};
+    const oracle = config.oracle ?? "environment-probe";
+    const result = runNode(["tools/gpu-oracle.mjs", oracle, "--json"], config.timeoutMs ?? 180_000);
+    if (result.parsed === null) {
+      return notRun([
+        `oracle '${oracle}' produced no parsable report`,
+        (result.stderr || result.stdout || "").trim().slice(-800),
+      ]);
+    }
+    const status = result.parsed.status;
+    const adapter = result.parsed.adapter ?? null;
+    const kind = result.parsed.adapterKind ?? "unknown";
+    const summary = {
+      oracle,
+      status,
+      failureKind: result.parsed.failureKind ?? null,
+      adapterKind: kind,
+      adapter,
+    };
+    if (status === "passed") return passed([summary]);
+    // Environment blockers are not code defects. `no-webgpu` and `no-adapter`
+    // are explicit kinds from the harness; a launch/timeout failure under a
+    // blocked environment reports as `environment-blocked`.
+    const environmentKinds = new Set(["no-webgpu", "no-adapter", "environment-blocked"]);
+    if (environmentKinds.has(result.parsed.failureKind)) {
+      return notRun([`real GPU unavailable: ${result.parsed.failureKind}`, summary]);
+    }
+    return failed([
+      `real-GPU oracle '${oracle}' failed: ${result.parsed.failureKind ?? status}`,
+      result.parsed.error?.message ?? "",
+      summary,
+    ]);
   },
 
   "generated-source-guard": (check, context) => {

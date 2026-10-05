@@ -14,20 +14,15 @@
         "OEngine/src/assets/GeometryAbiV3.ts",
         "OEngine/src/shaders/oegpack_v3_decode.ts"
       ],
-      "covers": [
-        "virtual-assets.product-consumer"
-      ],
       "decision": "ADR-0016",
       "domain": "virtual-assets",
       "errorAllowlist": [
         {
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.product-consumer",
           "reason": "Chrome stable emits this platform warning while adapter identity is captured for the ABI decode proof.",
           "source": "console:warning"
         }
       ],
-      "evidenceRole": "diagnostic",
       "harness": "gpu",
       "id": "oegpack-v3-component",
       "kind": "oracle",
@@ -50,13 +45,8 @@
         "validation/harness",
         "validation/src/runner"
       ],
-      "covers": [
-        "frame.host-protocol",
-        "platform.evidence"
-      ],
       "decision": "ADR-0014",
       "domain": "platform",
-      "evidenceRole": "promotion",
       "harness": "protocol",
       "id": "protocol-self-test",
       "kind": "contract",
@@ -84,21 +74,15 @@
         "OEngine/src/gpu/GpuTextureRefAbi.ts",
         "OEngine/src/gpu/GpuMaterialVisibilityAbi.ts"
       ],
-      "covers": [
-        "materials.texture-path",
-        "materials.mip-convergence"
-      ],
       "decision": "ADR-0016",
       "domain": "materials-textures",
       "errorAllowlist": [
         {
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "materials.texture-path",
           "reason": "Chrome stable emits this platform warning while adapter identity is captured from WebGPU evidence.",
           "source": "console:warning"
         }
       ],
-      "evidenceRole": "promotion",
       "harness": "gpu",
       "id": "texture-residency-component",
       "kind": "oracle",
@@ -124,20 +108,15 @@
         "OEngine/src/shaders/virtual_geometry_product.ts",
         "OEngine/src/shaders/hierarchical_work_generation.ts"
       ],
-      "covers": [
-        "virtual-assets.product-consumer"
-      ],
       "decision": "ADR-0016",
       "domain": "virtual-assets",
       "errorAllowlist": [
         {
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.product-consumer",
           "reason": "Chrome stable emits this platform warning while adapter identity is captured for the Product ABI proof.",
           "source": "console:warning"
         }
       ],
-      "evidenceRole": "diagnostic",
       "harness": "gpu",
       "id": "virtual-geometry-component",
       "kind": "oracle",
@@ -166,14 +145,9 @@
         "OEngine/src/assets/geometry-product",
         "OEngine/src/gpu/GeometryProductMultiRuntime.ts"
       ],
-      "covers": [
-        "virtual-assets.authored-producer",
-        "virtual-assets.performance"
-      ],
       "decision": "ADR-0018",
       "domain": "virtual-assets",
       "errorAllowlist": [],
-      "evidenceRole": "promotion",
       "harness": "production",
       "id": "web-authored-large-cook-k0",
       "kind": "contract",
@@ -197,21 +171,15 @@
         "validation/cases/webgpu-component",
         "OEngine/src/gpu"
       ],
-      "covers": [
-        "platform.capability",
-        "platform.evidence"
-      ],
       "decision": "ADR-0014",
       "domain": "platform",
       "errorAllowlist": [
         {
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "platform.capability",
           "reason": "Chrome stable emits this platform warning while adapter identity is verified from WebGPU evidence.",
           "source": "console:warning"
         }
       ],
-      "evidenceRole": "promotion",
       "harness": "gpu",
       "id": "webgpu-component",
       "kind": "contract",
@@ -242,22 +210,15 @@
         "OEngine/src/gpu/GeometryProductAdmission.ts",
         "OEngine/src/gpu/VirtualGeometryResidency.ts"
       ],
-      "covers": [
-        "virtual-assets.product-consumer",
-        "virtual-assets.web-cook",
-        "platform.evidence"
-      ],
       "decision": "ADR-0016",
       "domain": "virtual-assets",
       "errorAllowlist": [
         {
           "exact": "The powerPreference option is currently ignored when calling requestAdapter() on Windows. See https://crbug.com/369219127",
-          "ownerClaim": "virtual-assets.product-consumer",
           "reason": "Chrome stable emits this platform warning while the observer captures adapter identity.",
           "source": "console:warning"
         }
       ],
-      "evidenceRole": "diagnostic",
       "harness": "observer",
       "id": "virtual-product-observer",
       "kind": "contract",

@@ -1,5 +1,4 @@
 const CASE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
-const CLAIM_ID_PATTERN = /^[a-z][a-z0-9-]*(?:\.[a-z0-9-]+)+$/u;
 const CASE_KINDS = new Set(["orchestration", "component", "internal-candidate", "production"]);
 const VALIDATION_KINDS = new Set(["unit", "contract", "oracle", "guard", "gpu", "perf"]);
 const LEVELS = new Set(["L0", "L1", "L2", "L3", "L4"]);
@@ -38,12 +37,6 @@ export function validateRegistry(registry) {
     if (item.lab !== undefined && typeof item.lab !== "boolean") errors.push(`${item.id}: lab must be boolean`);
     if (item.automatic !== undefined && typeof item.automatic !== "boolean") errors.push(`${item.id}: automatic must be boolean`);
     if (item.lab === true && item.automatic === true) errors.push(`${item.id}: lab cases cannot be automatic`);
-    if (!new Set(["promotion", "diagnostic"]).has(item.evidenceRole)) errors.push(`${item.id}: invalid evidenceRole`);
-    if (!Array.isArray(item.covers) || item.covers.some((id) => !CLAIM_ID_PATTERN.test(id))) {
-      errors.push(`${item.id}: invalid covers`);
-    }
-    if (item.evidenceRole === "promotion" && item.covers?.length === 0) errors.push(`${item.id}: promotion case must cover a claim`);
-    if (item.lab === true && item.evidenceRole !== "diagnostic") errors.push(`${item.id}: lab cases must be diagnostic`);
     if (typeof item.workloadId !== "string" || !registry?.workloads?.[item.workloadId]) errors.push(`${item.id}: missing or unknown workloadId`);
     if (!registry?.profiles?.[item.profile]) errors.push(`${item.id}: unknown profile`);
     const workload = registry?.workloads?.[item.workloadId];
@@ -69,15 +62,12 @@ export function validateRegistry(registry) {
           errors.push(`${item.id}: error allowlist must name an exact event source`);
         }
         if (typeof rule.exact !== "string" || rule.exact.length < 8 || /[.*+?^${}()|[\]\\]/u.test(rule.exact.slice(0, 2)) ||
-            typeof rule.reason !== "string" || rule.reason.length < 8 || !CLAIM_ID_PATTERN.test(rule.ownerClaim ?? "")) {
+            typeof rule.reason !== "string" || rule.reason.length < 8) {
           errors.push(`${item.id}: error allowlist must use exact text, reason, and owner claim`);
         }
         const ruleKey = `${rule.source}\u0000${rule.exact}`;
         if (exactRules.has(ruleKey)) errors.push(`${item.id}: duplicate error allowlist rule`);
         exactRules.add(ruleKey);
-        if (!item.covers?.includes(rule.ownerClaim)) {
-          errors.push(`${item.id}: error allowlist owner must be a case claim`);
-        }
       }
     }
   }

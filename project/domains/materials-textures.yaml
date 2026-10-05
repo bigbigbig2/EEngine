@@ -14,7 +14,7 @@ paths:
 currentDocs:
   - docs/domains/materials-textures.md
 contracts:
-  - claims-and-evidence
+  - project-routing
 decisions:
   - ADR-0020
   - ADR-0011
@@ -22,9 +22,6 @@ decisions:
 sources:
   - next-renderer-reference
   - texture-format-rules
-claims:
-  - materials.texture-path
-  - materials.mip-convergence
 checks:
   - model
   - registry

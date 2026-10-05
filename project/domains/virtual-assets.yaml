@@ -40,15 +40,9 @@ decisions:
 sources:
   - next-renderer-reference
   - nyx-geometry
-claims:
-  - virtual-assets.product-consumer
-  - virtual-assets.web-cook
-  - virtual-assets.lifecycle
-  - virtual-assets.performance
 checks:
   - model
   - registry
-  - evidence-provenance
   - docs-frontmatter
 watch:
   - OEngine/src/assets/**

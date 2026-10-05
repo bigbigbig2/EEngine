@@ -18,7 +18,6 @@ const emptyContext = {
   changedPaths: [],
   uncovered: [],
   routingAmbiguities: [],
-  evidence: { evidence: [], errors: [], warnings: [] },
 };
 
 function run(id, runner, config, patch = {}) {
@@ -117,14 +116,6 @@ test("domain-doc-coverage fails for a domain without a human page", () => {
   });
   assert.equal(result.status, "failed");
   assert.match(result.details.join(" "), /no docs\/domains\/no-such-domain\.md/u);
-});
-
-test("evidence-provenance accepts an empty index but rejects invalid evidence", () => {
-  assert.equal(run("evidence-provenance", "evidence-provenance").status, "passed");
-  const invalid = run("evidence-provenance", "evidence-provenance", undefined, {
-    evidence: { evidence: [{ runId: "x" }], errors: ["bad artifact"], warnings: [] },
-  });
-  assert.equal(invalid.status, "failed");
 });
 
 test("engine-suites refuses to recurse into itself", () => {

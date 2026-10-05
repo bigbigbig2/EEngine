@@ -11,23 +11,29 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const [command = "context", ...args] = process.argv.slice(2);
 
 try {
-  if (command === "context" && !args.some((arg) => ["--claims", "--cases", "--all"].includes(arg))) {
+  if (command === "context" && !args.some((arg) => ["--all"].includes(arg))) {
     await context(args.find((arg) => !arg.startsWith("--")) ?? ".");
   } else if (command === "verify" && args.includes("--module") && !args.includes("--full")) {
     await moduleCheck(args);
   } else if (command === "verify" && !args.includes("--full")) {
     throw new Error(
-      "Choose `verify --module` at a large module close or `verify --full` for final acceptance. Changed-path verification was retired.",
+      "Choose `verify --module` at a large module close or `verify --full` for final acceptance.",
     );
   } else if (command === "verify" && args.includes("--module")) {
     throw new Error("Choose either --module or --full, not both.");
+  } else if (command === "gpu-oracle") {
+    await gpuOracle(args);
   } else if (command === "help" || command === "--help" || command === "-h") {
     console.log(`vibe context <path>                    owner, current facts, current module and design/plan
-vibe verify --module [--test <path>]    explicit module-close typecheck, build and focused tests
-vibe verify --module --plan             show module check without running
-vibe verify --full                       final integration and acceptance checks
-vibe context <path> --claims|--cases|--all, registry, evidence, case, status, doctor
-                                         explicit final-acceptance tools`);
+vibe context <path> --all              context plus the full document and check index
+vibe verify --module [--test <path>]   explicit module-close typecheck, build and focused tests
+vibe verify --module --plan            show module check without running
+vibe verify --full                     integration checks plus the GPU environment probe
+vibe verify --full --gpu-oracle <name> also run a named real-GPU oracle
+vibe gpu-oracle --list                 list registered real-GPU oracles
+vibe gpu-oracle <name> [--json]        run one oracle on a real GPU
+vibe registry                          regenerate validation/registry.generated.json
+vibe doctor                            project model summary and warnings`);
   } else {
     // The acceptance model is loaded only for explicitly requested final tools.
     await import("./vibe-acceptance.mjs");
@@ -35,6 +41,23 @@ vibe context <path> --claims|--cases|--all, registry, evidence, case, status, do
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
+}
+
+/**
+ * Run a real-GPU oracle directly from the project CLI.
+ *
+ * This exists so the oracles are reachable without knowing the harness path, and
+ * so `verify --full --gpu-oracle <name>` has a single implementation to call. The
+ * harness owns argument shape and exit codes; this only forwards.
+ */
+async function gpuOracle(args) {
+  const forwarded = args[0] === "--list" ? ["--list"] : args;
+  const result = spawnSync(process.execPath, [resolve(root, "tools/gpu-oracle.mjs"), ...forwarded], {
+    cwd: root,
+    stdio: "inherit",
+    windowsHide: true,
+  });
+  if (result.status !== 0) process.exitCode = result.status ?? 1;
 }
 
 async function readYamlDirectory(directory) {

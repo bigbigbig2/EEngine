@@ -1,6 +1,5 @@
 schemaVersion: 1
 id: texture-residency-component
-evidenceRole: promotion
 route: /cases/texture-residency-component/index.html
 buildTarget: host
 workloadId: texture-residency-component-v1
@@ -23,13 +22,9 @@ errorAllowlist:
       requestAdapter() on Windows. See https://crbug.com/369219127
     reason: Chrome stable emits this platform warning while adapter identity is
       captured from WebGPU evidence.
-    ownerClaim: materials.texture-path
 harness: gpu
 domain: materials-textures
 caseKind: component
 kind: oracle
 level: L3
-covers:
-  - materials.texture-path
-  - materials.mip-convergence
 decision: ADR-0016

@@ -3,7 +3,7 @@ checks:
   - id: model
     kind: contract
     level: L0
-    description: Parse and validate domains, claims, checks, workstreams, profiles, workloads, and case-local manifests.
+    description: Parse and validate domains, checks, workstreams, profiles, workloads, and case-local manifests.
     domains: [platform]
     runner: project-model
     automatic: true
@@ -28,13 +28,6 @@ checks:
     domains: [platform]
     runner: project-model
     automatic: true
-  - id: evidence-provenance
-    kind: guard
-    level: L1
-    description: Validate evidence identity, freshness fields, artifact hashes, and claim coverage before promotion.
-    domains: [platform]
-    runner: evidence-provenance
-    automatic: true
   - id: engine-suites
     kind: contract
     level: L1
@@ -49,7 +42,7 @@ checks:
   - id: validation-suites
     kind: contract
     level: L1
-    description: Typecheck and test the validation host, artifact protocol, registry, and claim policy.
+    description: Typecheck and test the validation host, artifact protocol and registry.
     domains: [platform]
     runner: validation-suites
     config:

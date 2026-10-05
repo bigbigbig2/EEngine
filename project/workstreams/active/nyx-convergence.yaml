@@ -1,4 +1,4 @@
-schemaVersion: 2
+﻿schemaVersion: 2
 id: nyx-convergence
 title: Web and Offline Product convergence
 domain: virtual-assets
@@ -22,10 +22,6 @@ contracts:
   - virtual-geometry-runtime-v1
   - web-geometry-cooker-abi-v1
   - web-cook-session-protocol-v1
-claims:
-  - virtual-assets.product-consumer
-  - virtual-assets.web-cook
-  - virtual-assets.lifecycle
 completedMilestones:
   - id: source-function-map
     result: Nyx source functions, shader entries, decisions, dependencies, invariants, differences, fallbacks, and validation routes are mapped.
@@ -42,7 +38,6 @@ tasks:
       - Differential and negative corpora cover topology, bounds, pages, identity, and failure paths.
 exitChecks:
   - registry
-  - evidence-provenance
 requiredEvidence:
   - Source-function and shader-entry mapping for each migrated Nyx stage.
   - Differential and negative corpus for Product topology, bounds, pages, identity, and failure paths.

@@ -1,6 +1,5 @@
 schemaVersion: 1
 id: web-authored-large-cook-k0
-evidenceRole: promotion
 route: /cases/web-authored-large-cook-k0/index.html
 buildTarget: production
 workloadId: web-authored-large-cook-k0-v1
@@ -24,7 +23,4 @@ domain: virtual-assets
 caseKind: production
 kind: contract
 level: L3
-covers:
-  - virtual-assets.authored-producer
-  - virtual-assets.performance
 decision: ADR-0018

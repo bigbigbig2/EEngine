@@ -24,26 +24,20 @@ paths:
   - OEngine/src/gpu/GpuSparseShading*.ts
   - validation/cases/sparse-shading-*/**
   - docs/domains/visibility.md
-  - docs/contracts/claims-and-evidence.md
   - docs/specs/**
 currentDocs:
   - docs/domains/visibility.md
 contracts:
   - render-product-work-history-v2
-  - claims-and-evidence
 decisions:
   - ADR-0020
 sources:
   - next-renderer-reference
   - visibility-reference
-claims:
-  - visibility.gpu-closure
-  - visibility.feature-off
 checks:
   - model
   - registry
   - docs-frontmatter
-  - evidence-provenance
 watch:
   - OEngine/src/render/passes/**
   - OEngine/src/render/visibility/**

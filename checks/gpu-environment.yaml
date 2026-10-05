@@ -1,0 +1,16 @@
+id: gpu-environment
+kind: gpu
+level: L1
+description: >-
+  Real-GPU availability: runs the environment-probe oracle through
+  tools/gpu-oracle.mjs, which launches local Chrome, obtains a real GPUAdapter and
+  GPUDevice, performs one compute dispatch and reads the result back. This is the
+  entry point of the Tier 2 verification layer — the layer that executes real
+  WGSL on real hardware. It reports `not-run` when no browser or no WebGPU
+  adapter is available, which is an environment fact rather than a code defect;
+  no other check in this repository exercises GPU execution at all.
+runner: gpu-environment
+config:
+  oracle: environment-probe
+  timeoutMs: 180000
+automatic: true

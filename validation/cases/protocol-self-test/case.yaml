@@ -1,6 +1,5 @@
 schemaVersion: 1
 id: protocol-self-test
-evidenceRole: promotion
 route: /cases/protocol-self-test/index.html
 buildTarget: host
 workloadId: protocol-self-test-v1
@@ -17,7 +16,4 @@ domain: platform
 caseKind: orchestration
 kind: contract
 level: L3
-covers:
-  - frame.host-protocol
-  - platform.evidence
 decision: ADR-0014

@@ -48,7 +48,6 @@ currentDocs:
 contracts:
   - render-product-work-history-v2
   - browser-harness
-  - claims-and-evidence
 decisions:
   - ADR-0020
   - ADR-0010
@@ -56,14 +55,10 @@ decisions:
 sources:
   - next-renderer-reference
   - webgpu-capability
-claims:
-  - frame.recovery
-  - frame.host-protocol
 checks:
   - model
   - registry
   - docs-frontmatter
-  - evidence-provenance
 watch:
   - OEngine/src/core/**
   - OEngine/src/framegraph/**

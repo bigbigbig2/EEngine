@@ -22,19 +22,15 @@ currentDocs:
 contracts:
   - surface-work-v1
   - render-product-work-history-v2
-  - claims-and-evidence
 decisions:
   - ADR-0020
 sources:
   - next-renderer-reference
   - shading-reference
-claims:
-  - shading.surface-structure
 checks:
   - model
   - registry
   - docs-frontmatter
-  - evidence-provenance
 watch:
   - OEngine/src/render/surface/**
   - OEngine/src/render/environment/**

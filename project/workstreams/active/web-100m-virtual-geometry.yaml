@@ -1,4 +1,4 @@
-schemaVersion: 2
+﻿schemaVersion: 2
 id: web-100m-virtual-geometry
 title: Web authored-large Virtual Geometry validation
 domain: virtual-assets
@@ -29,13 +29,6 @@ contracts:
   - web-geometry-product-work-budget-v1
   - web-geometry-product-task-trace-v1
   - web-geometry-formal-perf-freeze-v1
-claims:
-  - virtual-assets.authored-producer
-  - virtual-assets.product-consumer
-  - virtual-assets.web-cook
-  - virtual-assets.lifecycle
-  - visibility.gpu-closure
-  - virtual-assets.performance
 
 completedMilestones:
   - range: A-E
@@ -109,7 +102,6 @@ exitChecks:
   - model
   - registry
   - changed-coverage
-  - evidence-provenance
   - engine-suites
 requiredEvidence:
   - Accepted authored-large K0 receipt with complete catalog coverage and Product task, owner, spill, settlement, and disposal evidence.

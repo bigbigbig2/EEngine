@@ -37,22 +37,16 @@ contracts:
   - generated-registry
   - validation-case
   - browser-harness
-  - claims-and-evidence
 decisions:
   - ADR-0010
   - ADR-0014
 sources:
   - webgpu-capability
-claims:
-  - platform.capability
-  - platform.evidence
-  - platform.routing
 checks:
   - model
   - registry
   - changed-coverage
   - docs-frontmatter
-  - evidence-provenance
   - guard-docs
   - guard-public-api
   - guard-ownership
@@ -60,6 +54,7 @@ checks:
   - guard-generated-source
   - guard-style
   - guard-docs-contract
+  - gpu-environment
 watch:
   - project/**
   - checks/**

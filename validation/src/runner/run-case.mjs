@@ -1,11 +1,11 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
-import { isAcceptancePreflightReusable, requireValidArtifact } from "../shared/artifact.mjs";
+import { requireValidArtifact } from "../shared/artifact.mjs";
 import { canonicalJson, requireValidRegistry } from "../shared/registry.mjs";
 
 const validationRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -14,43 +14,30 @@ const registryPath = resolve(validationRoot, "registry.generated.json");
 const registryBytes = await readFile(registryPath);
 const registry = requireValidRegistry(JSON.parse(registryBytes.toString("utf8")));
 const caseId = process.argv[2];
-const acceptanceRequested = process.argv.includes("--accept");
+if (process.argv.includes("--accept")) {
+  throw new Error(
+    "`--accept` was retired with the claim layer (2026-10-05). It required a " +
+      "claim-promotion policy and a check-receipt report that no longer exist. " +
+      "Run the case without --accept to get a diagnostic result; formal evidence " +
+      "is currently produced by `node tools/vibe.mjs verify --full`.",
+  );
+}
 const selectedCase = registry.cases.find((item) => item.id === caseId);
 if (!selectedCase) {
   throw new Error(`Unknown case '${caseId ?? ""}'. Expected one of: ${registry.cases.map(({ id }) => id).join(", ")}`);
 }
-if (acceptanceRequested && selectedCase.evidenceRole !== "promotion") {
-  throw new Error(`Diagnostic case '${selectedCase.id}' cannot publish accepted evidence`);
-}
+// The claim-promotion acceptance path was retired with the claim layer
+// (2026-10-05). It required `selectedCase.evidenceRole === "promotion"`, a
+// clean worktree, and a `validation/evidence/verification.json` report with
+// passing check receipts — and it had no report writer any more, so `--accept`
+// could only ever throw. What remains is the diagnostic runner: it still gates
+// on freshness, identity, browser errors, page outcome, dispose and artifact
+// ownership, which is where the real verification value was.
 const git = (...args) => execFileSync("git", args, { cwd: repositoryRoot, encoding: "utf8" }).trim();
 const commit = git("rev-parse", "HEAD");
 const tree = git("rev-parse", "HEAD^{tree}");
 const dirty = git("status", "--porcelain").length > 0;
 const registrySha256 = sha256(registryBytes);
-if (acceptanceRequested && dirty) throw new Error("Accepted browser evidence requires a clean worktree; run without --accept for diagnostics");
-const verificationPath = resolve(repositoryRoot, "validation/evidence/verification.json");
-// A diagnostic browser run is an observation, not a claim promotion. It must
-// not trigger repository-wide checks just to let a developer inspect a frame.
-let verification = acceptanceRequested ? await reusableAcceptancePreflight() : { ok: true, checkReceipts: [] };
-if (acceptanceRequested && verification === null) {
-  const preflightArgs = [resolve(repositoryRoot, "tools/vibe.mjs"), "verify", "--full"];
-  const preflight = spawnSync(process.execPath, preflightArgs, {
-    cwd: repositoryRoot,
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: 900_000
-  });
-  if (preflight.status !== 0) {
-    throw new Error(`Validation preflight failed (${preflight.status ?? "no status"}): ${(preflight.stderr || preflight.stdout || "").trim().slice(-6000)}`);
-  }
-  verification = JSON.parse(await readFile(verificationPath, "utf8"));
-}
-if (!Array.isArray(verification.checkReceipts) || verification.ok !== true) {
-  throw new Error("Validation preflight did not produce passing check receipts");
-}
-if (acceptanceRequested && (verification.verificationComplete !== true || verification.changedOnly !== false)) {
-  throw new Error("Accepted validation requires a complete full-scope preflight");
-}
 const profile = registry.profiles[selectedCase.profile];
 const workload = registry.workloads[selectedCase.workloadId];
 const chromeExecutable = process.env.OENGINE_CHROME_PATH ?? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
@@ -252,9 +239,8 @@ const result = {
   registrySha256,
   workloadSha256,
   status,
-  validationMode: acceptanceRequested ? "acceptance" : "diagnostic",
-  evidenceStatus: acceptanceRequested && !dirty && status === "passed" ? "accepted" : "diagnostic-only",
-  checkReceipts: verification.checkReceipts,
+  validationMode: "diagnostic",
+  evidenceStatus: "diagnostic-only",
   provenance: {
     commit,
     tree,
@@ -287,16 +273,6 @@ if (result.status === "failed") {
   process.exitCode = 1;
 } else if (result.status === "unsupported") {
   process.exitCode = 2;
-}
-
-async function reusableAcceptancePreflight() {
-  if (!existsSync(verificationPath)) return null;
-  try {
-    const candidate = JSON.parse(await readFile(verificationPath, "utf8"));
-    return isAcceptancePreflightReusable(candidate, { commit, tree, registrySha256 }) ? candidate : null;
-  } catch {
-    return null;
-  }
 }
 
 function assertPageIdentity(snapshot) {
