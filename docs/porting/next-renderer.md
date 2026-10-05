@@ -2,9 +2,86 @@
 id: porting/next-renderer
 state: current
 verifies:
-  - tools
+  files:
+    - tools
+    - OEngine/src/gpu/GpuAppearancePublication.ts
+    - OEngine/src/render/surface
+    - OEngine/src/framegraph/FrameGraph.ts
 ---
 # EEngine Next：开源迁移来源与采用边界
+
+## 2026-10-05：Surface 集中重建的固定来源与阶段映射
+
+### 状态与检索边界
+
+本条目服务于[当前设计](../next-design/eengine-extreme-performance-rebuild-2026-10.md)和[执行文档](../next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md)。本轮先核可复制具体算法，再对照作者资料；下表是已调查/拟移植及参考选择，**没有实施新生产链，没有运行上游或GPU，不提升adoption或性能状态**。下文早期Phase/未提交文字属于当时调查记录，当前实现须查源码，当前进度须查workstream/执行文档。
+
+Wicked、Intel CPS、Forge、OSS的所列本地冻结源码与固定revision网络原文已核对相同；Filament、GPUPrefixSums、Twinklebear所列源码直接读取固定原文。DOOM以冻结完整PDF/text核对，网络解析超过工具大小上限；SHA256与账本一致。来源repo存在完整工程不表示本轮已经逐文件审完整套引擎；下面限定到明确算法profile。
+
+### 固定revision、许可与入口
+
+| ID | 固定revision / 许可依据 | 具体完整源入口 | 选定范围与未覆盖项 |
+|---|---|---|---|
+| SF01 | Wicked df44c3db4c4927492bc9c791eac715d98d7ed091；[MIT](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/LICENSE.txt) | [analyze](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/visibility_analyzeCS.hlsl)、[resolve](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/visibility_resolveCS.hlsl)、[shade](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/visibility_shadeCS.hlsl)、[surface helpers](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/shaders/surfaceHF.hlsli)、[host](https://github.com/turanszkij/WickedEngine/blob/df44c3db4c4927492bc9c791eac715d98d7ed091/WickedEngine/wiRenderer.cpp) | non-MSAA tile分类/bin/indirect/masked消费的结构；不称完整Wicked材质/RT、跨primitive sparse donor |
+| SF02 | Intel CPS 63ad5c1adafbfcc2869a200f50a5ea11f28b4887；所列shader头Apache-2.0 | [ComputeShaderTile](https://github.com/GameTechDev/DeferredCoarsePixelShading/blob/63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ComputeShaderTile.hlsl)、[GBuffer](https://github.com/GameTechDev/DeferredCoarsePixelShading/blob/63ad5c1adafbfcc2869a200f50a5ea11f28b4887/GBuffer.hlsl)、[ShaderDefines](https://github.com/GameTechDev/DeferredCoarsePixelShading/blob/63ad5c1adafbfcc2869a200f50a5ea11f28b4887/ShaderDefines.h) | 原GBuffer-first、rate2 coarse/full覆盖用于对照；加入normal/roughness/shadow风险或改阈值后为本地Signal Footprint Admission |
+| SF03 | Forge cd5046893faba2dc7869243873bf01f02a6f0df9；[Apache-2.0](https://github.com/ConfettiFX/The-Forge/blob/cd5046893faba2dc7869243873bf01f02a6f0df9/LICENSE) | [VisibilityBufferShadingUtilities](https://github.com/ConfettiFX/The-Forge/blob/cd5046893faba2dc7869243873bf01f02a6f0df9/Common_3/Renderer/VisibilityBuffer2/Shaders/FSL/VisibilityBufferShadingUtilities.h.fsl)、[shade consumer](https://github.com/ConfettiFX/The-Forge/blob/cd5046893faba2dc7869243873bf01f02a6f0df9/Examples_3/Visibility_Buffer2/src/Shaders/FSL/VisibilityBufferShade.frag.fsl) | CalcFullBary＋Interpolate*WithDeriv的完整数学profile；不选CalcRayBary、64-bit visibility、软件raster全工程 |
+| SF04 | Filament bb360e80259167c986e94db7b70153bcdb92c0e1；[Apache-2.0](https://github.com/google/filament/blob/bb360e80259167c986e94db7b70153bcdb92c0e1/LICENSE) | [FrameGraph](https://github.com/google/filament/blob/bb360e80259167c986e94db7b70153bcdb92c0e1/filament/src/fg/FrameGraph.cpp)、[PassNode](https://github.com/google/filament/blob/bb360e80259167c986e94db7b70153bcdb92c0e1/filament/src/fg/PassNode.cpp)、[ResourceNode](https://github.com/google/filament/blob/bb360e80259167c986e94db7b70153bcdb92c0e1/filament/src/fg/ResourceNode.cpp) | compile资源首末事件→execute事件列表；native backend枚举/资源销毁语义不照搬 |
+| SF05 | GPUPrefixSums 98d93a4e9ed2f3c8353119515bf9be90a2e137ad；[MIT及根CUB BSD notice](https://github.com/b0nes164/GPUPrefixSums/blob/98d93a4e9ed2f3c8353119515bf9be90a2e137ad/LICENSE) | [RTS WGSL](https://github.com/b0nes164/GPUPrefixSums/blob/98d93a4e9ed2f3c8353119515bf9be90a2e137ad/GPUPrefixSumsWebGPUapis/SharedShaders/rts.wgsl)、[Dawn host](https://github.com/b0nes164/GPUPrefixSums/blob/98d93a4e9ed2f3c8353119515bf9be90a2e137ad/GPUPrefixSumsWebGPUapis/Dawn/main.cpp) | reduce/spine_scan/downsweep inclusive u32完整算法；该版本要求subgroups，作为协商特化；不选look-back或fallback spin算法 |
+| SF06 | OSS 473a59bbcdd30e3366cc567d66a5a97353620d48；[Apache-2.0](https://github.com/WeakKnight/real-time-seamless-object-space-shading/blob/473a59bbcdd30e3366cc567d66a5a97353620d48/License) | [RenderTaskProcessing](https://github.com/WeakKnight/real-time-seamless-object-space-shading/blob/473a59bbcdd30e3366cc567d66a5a97353620d48/ObjectSpaceShading/Assets/Shaders/Resources/RenderTaskProcessing.compute)、[ShadelAllocator](https://github.com/WeakKnight/real-time-seamless-object-space-shading/blob/473a59bbcdd30e3366cc567d66a5a97353620d48/ObjectSpaceShading/Assets/Shaders/Resources/ShadelAllocator.cginc)、[VirtualRenderTexture](https://github.com/WeakKnight/real-time-seamless-object-space-shading/blob/473a59bbcdd30e3366cc567d66a5a97353620d48/ObjectSpaceShading/Assets/Shaders/Resources/VirtualRenderTexture.cginc)、[host](https://github.com/WeakKnight/real-time-seamless-object-space-shading/blob/473a59bbcdd30e3366cc567d66a5a97353620d48/ObjectSpaceShading/Assets/Scripts/ObjectSpaceShadingPipeline.cs) | occupancy/task/虚拟地址与filtering对照；不直接采用其后验overflow、逐instance host、Htex/RT/GI全工程 |
+| SF07 | Filament同SF04 / Apache-2.0 | [UbershaderProvider](https://github.com/google/filament/blob/bb360e80259167c986e94db7b70153bcdb92c0e1/libs/gltfio/src/UbershaderProvider.cpp)、[MaterialProvider](https://github.com/google/filament/blob/bb360e80259167c986e94db7b70153bcdb92c0e1/libs/gltfio/include/gltfio/MaterialProvider.h) | 有限预构建程序与material instance参数/route的架构参考；无完整AppearanceGraph generic执行donor |
+| SF08 | [DOOM GPC2025完整PDF](https://static.graphicsprogrammingconference.com/public/2025/talks/variable-rate-compute-shaders-in-doom-the-dark-ages/Fuller-Hammer-variable-rate-compute-shaders-in-doom-the-dark-ages.pdf)；SHA256 e5fe7cf223006bf95089eb2890c878a47aecccd612eb9e5398c1fe43273d0fad | p11–24 compact/remap，p27–38质量，p48撤回composite/fog VRCS，p58/62 future | 第一方技术参考，无本轮已核完整可复制源码许可；未来建议不称已实现 |
+| SF09 | Twinklebear webgpu-marching-cubes 1d550a3de65ef2f8c10a89069526c5d2b8b0413b；[MIT](https://github.com/Twinklebear/webgpu-marching-cubes/blob/1d550a3de65ef2f8c10a89069526c5d2b8b0413b/LICENSE.md) | [block exclusive scan](https://github.com/Twinklebear/webgpu-marching-cubes/blob/1d550a3de65ef2f8c10a89069526c5d2b8b0413b/src/exclusive_scan_prefix_sum.wgsl)、[block sums scan](https://github.com/Twinklebear/webgpu-marching-cubes/blob/1d550a3de65ef2f8c10a89069526c5d2b8b0413b/src/exclusive_scan_prefix_sum_blocks.wgsl)、[add sums](https://github.com/Twinklebear/webgpu-marching-cubes/blob/1d550a3de65ef2f8c10a89069526c5d2b8b0413b/src/exclusive_scan_add_block_sums.wgsl)、[host](https://github.com/Twinklebear/webgpu-marching-cubes/blob/1d550a3de65ef2f8c10a89069526c5d2b8b0413b/src/exclusive_scan.ts) | 无subgroup Blelloch up/down sweep及block offsets完整GPU profile；host chunk循环/private submit/readback不采用，多层有界发布是具名本地调度适配 |
+
+### 源阶段 → 本地产品 / 分支映射
+
+| 原始阶段 | 输入 → 输出 | 保留关键条件与不变量 | 本地拟议阶段与差异 |
+|---|---|---|---|
+| SF01 analyze main | primitive IDs/extent → uniform/divergent tile列表及counts | 背景、合法尾部、同primitive uniform；原MSAA sample0分支需明确profile | S1 Coverage/TileWork；non-MSAA选定范围，Wave判定协商subgroup或workgroup reduction |
+| SF01 resolve bin publication | tile/primitive shaderType → tile/type mask和indirect | 每tile每type只append一次；uniform/divergent列表；背景独立 | S4有限family bins；family是本地ABI，不恢复逐材质全屏扫描 |
+| SF01 shade main | bin tile/primitive/Surface → radiance | 匹配shaderType lane、合法extent、背景/Surface load失败 | S5/S7 worker覆盖参考；load失败本地仍必须有合法结果/明确失败，不把退出不写当成功 |
+| SF02 ComputeSurfaceDataFromGBufferAllSamplesCPS | 四个真实surface → depth/normal/导数facts | 原来已经支付完整GBuffer成本 | S6 Lighting facts；不证明pre-material省算 |
+| SF02 RequiresPerPixelShading | depth/positionViewDX,DY/normal → coarse/full | CPS_RATE×sqrt(2)×深度梯度阈值；原逐分量normal常量 | 原profile保留对照；新风险/阈值为本地Signal Footprint Admission |
+| SF02 ComputeShaderTileCS | facts/light list → 完整lighting | top-left先算；coarse splat；DEFER_PER_PIXEL拒绝cell补做；零灯写零；32×32/rate2为256 invocations | S6/S7完整coarse/full覆盖；不将rate1当1024 invocations可用，不移植静态容量截灯 |
+| SF03 CalcFullBary | clip三顶点/NDC/pixel比例 → λ、相邻像素差分 | determinant、透视分母、Y方向、邻点重新归一化 | S2/S5唯一Geometry；不改affine gradient或clampW；既有齐次W=0/负W扩展独立oracle |
+| SF03 Interpolate*WithDeriv | 实际属性/权重 → 值及梯度 | 布局、坐标变换、两轴footprint；值与导数合法性分开 | GeometryRecord→Appearance textureGrad；粗率足迹另声明，不隐式mip bias |
+| SF04 compile/registerResource | edges/side effects → 活跃pass、first/last、各node事件 | dead culling、import ownership/version/subresource、执行顺序 | A1 acquireBefore/releaseAfter；不采上游read-before-write TODO为合法输入 |
+| SF04 execute | 已编译列表 → acquire/execute/release | node仅消费自己事件 | A1 execute不扫全表；GPU真正销毁/retire、abort/commit仍本地 |
+| SF05 reduce | vec4 counts → 每4096 scalar partition total | tail补零、subgroup-size agnostic、uniform barriers | S4 counts/reduction scratch；requires subgroups |
+| SF05 spine_scan | partition totals → inclusive partition prefixes | 单workgroup分段carry与barriers | S4 prefix；无“最后workgroup”自旋 |
+| SF05 downsweep | input/prefix → inclusive offsets | 局部和、前partition offset、尾部写域 | exclusive=inclusive−input、scatter/args/overflow是本地集成 |
+| SF09 block main | 512个padding合法u32 → exclusive局部offset＋block total | 256 lanes，每lane两项；upsweep→root置零→downsweep及完整barriers | 无subgroup基线scan；padding必须初始化，不能越界或读旧尾部 |
+| SF09 blocks main/add sums | block totals/carry → exclusive block offsets → 全局offset | carry语义、block顺序和加offset | 对tile counts使用有界多级GPU发布；调用者encoder，无private submit/等待/readback |
+| SF06 allocation/allocator | occupancy popcount → size-class remap | 8/16…64 class、零需求不分配；原overflow后验检查 | cache/task结构参考；本地必须先预留/commit并提供无损full-rate，不能直接照搬后验overflow |
+| SF06 RenderTaskPrepare/IndirectDispatch | occupancy → actual task/offset/count/args | 枚举完整bitfield，actual counts | S4/S8；原逐instance CPU编码不进入本地有限命令 |
+| SF06 VRT_ReadTexture/SampleHtexture | chart/mip/remap → filtered result | unmapped、occupancy rank、边缘clamp、Htex权重与mip filtering | C贵closure对照；未选Htex不能称seamless OSS已port，point cache另有本地合同 |
+| SF07 getMaterial/createMaterialInstance | material key/UV map/archive → 程序与参数实例 | 有限archive与显式支持分支、dummy资源和lifetime | C有限family参考；完整任意DAG、3UV、动态输入由本地Exact Appearance DAG Execution承接 |
+
+所有本地产物均是拟议接口，尚未实现。选定源算法的normal/finite/采样分支必须在源到本地oracle中逐项核；WebGPU绑定与生命周期适配不能暗改算法。
+
+### 论文与详细技术资料
+
+- [Filament FrameGraph作者说明](https://google.github.io/filament/notes/framegraph.html)：资源首末/usage及import/history边界。
+- [Intel CPS README/GPU Pro 7入口](https://github.com/GameTechDev/DeferredCoarsePixelShading/blob/63ad5c1adafbfcc2869a200f50a5ea11f28b4887/README.md)：GBuffer-first算法范围。
+- [DAIS论文](https://cg.ivd.kit.edu/publications/2015/dais/DAIS.pdf)：插值依据；本轮网络访问超时，沿用固定源码和已有冻结研究，不宣称本轮在线全文重读。
+- [DOOM Microsoft第一方说明](https://developer.microsoft.com/en-us/games/articles/2026/04/variable-rate-compute-shaders-doom-the-dark-ages/)与SF08完整PDF：texturing compact与Lighting tile locality、去块/轮廓/噪声、算法撤回成本。
+- [OSS作者preprint](https://github.com/WeakKnight/real-time-seamless-object-space-shading/blob/473a59bbcdd30e3366cc567d66a5a97353620d48/object_space_shading_preprint.pdf)：对象空间地址、需求/过滤；不据此宣称本地完整移植。
+- [RTS算法图/bibliography](https://github.com/b0nes164/GPUPrefixSums/blob/98d93a4e9ed2f3c8353119515bf9be90a2e137ad/README.md)及[NVIDIA GPU Gems scan](https://developer.nvidia.com/gpugems/gpugems3/part-vi-gpu-computing/chapter-39-parallel-prefix-sum-scan-cuda)：prefix独立数学参考；CUDA执行模型不照搬。
+- [WebGPU作用域](https://gpuweb.github.io/gpuweb/#synchronization)、[WGSL同步](https://www.w3.org/TR/WGSL/#synchronization-builtin-functions)：dispatch发布、relaxed atomics、workgroup barriers范围；spec不等于目标browser实测支持。
+
+### 本地算法缺口、来源检索与采用门槛
+
+检索覆盖以上完整源码，以及DACS、Decoupled Sampling、Filament材质provider、OSS/FastAtlas路线和WebGPU材质图/scan公开项目。没有得到能够完整替代本地AppearanceInstruction DAG、连续域/LOD身份、全closure dirty union、缓存/历史、WebGPU无损overflow的单一donor。
+
+1. **EEngine Domain-Scheduled Surface**：publication domain＋有限family work＋完整indexed异常＋分信号采样与immutable合成。SF01/02/08提供局部阶段参考，完整组合本地。
+2. **Exact Appearance DAG Execution**：复用现有scalar IR/操作数学/采样，publication liveness＋有限generic kernel；SF07只提供family架构参考。必须对constant/parameter/input/texture/operation/product/normal-product、坐标DAG及finite语义逐项验证，无节点截断。
+3. **Signal Footprint Admission**：共同合法域/当前guide/provider风险→独立signal率。SF02原profile用于对照，新判据与质量预算本地，不能仍叫原CPS完整port。
+4. **Field Cache Publication**：完整intern描述/动态witness、唯一writer、pin/generation/retire与miss-only需求；SF06提供occupancy/task参考，不保证本地完整identity与overflow。
+5. **Bounded Tile Count Scan**：SF09 block scan数学、有限层级GPU counts/offset/scatter/args；padding/checked-u32/容量/调用者command集成本地。SF05特化不能成为无subgroup正确性前提。
+
+采用状态继续为not adopted/拟移植/参考。只有源映射、许可证notice、独立CPU/WGSL对照和新生产GPU producer→真实consumer齐备，才按实际覆盖更新。typecheck/build/小fixture或原论文性能数字不能提升整链正确性、性能和功能完成状态。
+
+---
+
 
 ## 2026-10-03：Surface V3 第一版优化设计映射（待实施）
 

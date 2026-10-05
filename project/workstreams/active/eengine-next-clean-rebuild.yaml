@@ -5,31 +5,31 @@ domain: frame-runtime
 state: active
 owner: frame-runtime
 decision: ADR-0021
+authority:
+  design: docs/next-design/eengine-extreme-performance-rebuild-2026-10.md
+  execution: docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md
 goal: >-
-  Rebuild the execution and data model so frame cost is set by the scale of the execution
-  structure rather than by scene complexity or pixel count: few bounded execution scopes,
-  an explicit domain entity that replaces per-pixel reuse proof, cost-classified reuse that
-  must earn its place, one authority per data product, and one production FrameGraph with
-  one frame submit.
+  Rebuild Surface V3 first for GTX 1650 Ti at 1080p: few bounded execution scopes,
+  explicit publication domains, complete direct evaluation, cost-classified reuse,
+  thin Geometry products and finite material families. Command topology is independent
+  of pixel, tile and material-instance counts; actual GPU work follows complete demand.
+  Keep one authority per product, one production FrameGraph and one frame submit.
 
 currentSlice:
   id: eengine-extreme-performance-rebuild
-  title: 极致性能重建：A0 测量口径 → A1 FrameGraph → B1 域实体竖切
+  title: Surface V3 集中重建：必要测量与执行底座 → 域竖切 → 完整生产链替换
   status: active
   goal: >-
-    按 docs/next-design/eengine-extreme-performance-rebuild-2026-10.md（母稿）
-    与 docs/next-execution/eengine-extreme-performance-rebuild-execution-2026-10.md 推进。
-    母稿取代此前的 V3 原文、有界前端设计与优化 V1 设计，三者已归档至 docs/archive/。
-    基线快照 09449d6d；重构前性能基线为近景 Surface GPU P50 785.19 ms，管理成本 708.71 ms
-    对实际计算 23.26 ms（约 30:1），整帧 2,689 个 graph node。
-    本次按切换单元推进：A0 测量口径与基线 → A1 FrameGraph 执行器 → B1 域实体竖切（可行性门）
-    → B2 域/率全面替换 → C 材质分类与信号复用 → D Geometry 完整工作域 → E Lighting/Shadow
-    极端路径 → F Temporal/Post 收口。
-    三条架构不变量每个单元必过：命令数与场景复杂度解耦、管理成本不超过实际计算成本、
-    复用层关闭后仍正确且同量级。
-    A 与 B 并行推进，但 B 先以 B1 竖切验证可行性——A 只治 CPU graph 执行（近景约 40 ms，
-    占 Surface 785 ms 的约 5%），先做安全的 A 会掩盖真正的手术。
-    不承诺固定 FPS 或百分比；正式历史性能比较留最终验收。
+    按现有母稿与执行文档的 Surface 集中重建细化方案推进；本次仅更新设计和计划，未实施新链。
+    保持 A0 → A1 → B1 → B2 → C → D → E → F 的切换单元顺序。
+    A0/A1 只前移必要测量、lifetime events 和物理资源身份；B1/B2/C 是首要生产路径替换。
+    B1 验证廉价 closure 真实消费、有限 family 的完整 DAG 可行性和无复用完整输出；
+    B2 切换需求、Record、全部直接 consumer、reset/capacity，C 落实有净收益的字段与信号复用。
+    命令有界、管理成本和复用可关闭逐单元核对，明确单元范围与尚未收口的整帧遗留，
+    不以局部通过宣称全架构已通过。必要 Geometry/Lighting/Temporal 接线随 producer 前移。
+    独立 GPU 审计基线 09449d6d 是历史定位；分项 P50 合计不是逐帧比例，
+    CPU graph 时间不能从 GPU Surface 时间相减。新性能、质量及采用均待实际实施验证。
+    未来 providers 只保留明确产品扩展合同，不先建设无消费者基础设施，不承诺固定 FPS。
 
 nextModules:
   - id: sssr
@@ -42,15 +42,15 @@ nextModules:
     title: Transparency, local media and presentation integration
 
 architectureRules:
-  - Frame cost is set by the scale of the execution structure, never by scene complexity or pixel count. Command count must decouple from both.
+  - Command topology is bounded by execution and resource families, not pixels, tiles, authored graph count or material instances. Actual evaluation cost may grow with complete demand.
   - Management cost must not exceed the cost of the computation it manages. This is invariant B and it is checked, not asserted.
   - The whole reuse layer must be switchable off with the frame still correct and still in the same order of magnitude. This is invariant C.
-  - A domain is a first-class entity: evaluated once, referenced by its consumers. Proof, certificate, fixed-tree and per-pixel witness machinery has no role once a domain exists — that is why it is deleted, not optimised.
+  - A publication domain is a shared identity and address entity; it may contain many samples and tile references. Common identity proof is published once; signal-specific quality and validity remain explicit.
   - Recommended reuse strategy is decided at publication time, never by a per-tile dynamic cost predictor.
   - Not every product must be sparse. High-frequency regions legitimately keep geometry near full rate; forcing sparsity everywhere is an incorrect target.
   - One authority per data product. Consumers get an explicit read interface; no second geometry recovery owner, no consumer-side writes into a shared record.
   - Replacing a producer and all of its direct consumers is one atomic switch. No adapters, no placeholder effects, no empty consumers, no second production path.
-  - Full-rate facts (coverage, depth, motion, identity) carry no "should I do this" decision. Any conditional branch entering that layer is an architecture error.
+  - Required full-rate coverage, depth, motion and identity are independent of reuse admission. Bounds, background, invalid input and demanded field branches retain their correctness roles.
   - Unique GeometryRecord means one production semantics and one demand union, not every primary storing every field. Thin records plus on-demand completion are allowed; a fixed write domain per field is not.
   - Whole-algorithm sources: read pinned complete upstream implementations before complex work, and keep design, implementation and validated adoption as separate states.
   - Delete rather than adapt: retired owners, no-consumer dependencies and duplicate authority are removed, not bridged.
@@ -62,10 +62,11 @@ deferredValidation:
     Per-unit concentrated checks rather than per-patch gates. Each unit completes its own
     typecheck/build, targeted semantic tests and, where WGSL or GPU products are involved,
     real GPU component and wiring checks, then passes the three architecture invariants
-    before the next unit starts. Fix failures inside the unit and pull required consumers
+    over its declared production scope before the next unit starts, while reporting
+    unresolved whole-frame scope explicitly. Fix failures inside the unit and pull required consumers
     forward; never use a retired path, adapter or placeholder to pass. Structural evidence
-    is preferred over counter deltas: assertable structure (for example "one full-screen
-    single-material region produces exactly one domain and zero exceptions") cannot be
+    is preferred over counter deltas: assertable structure (for example "one published
+    domain has shared tile references, and declared full-rate samples remain complete") cannot be
     shrunk the way a counter can. Correctness and cost are reported separately. Formal
     browser matrix, continuous quality, lifecycle and same-condition historical comparison
     belong to final acceptance.
