@@ -1,3 +1,7 @@
+---
+id: performance/2026-09-25-rendering-lab-basic-gpu-analysis
+state: history
+---
 # rendering-lab-basic 近景 GPU 性能分析
 
 日期：2026-09-25  

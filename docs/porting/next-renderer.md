@@ -1,3 +1,9 @@
+---
+id: porting/next-renderer
+state: current
+verifies:
+  - tools
+---
 # EEngine Next：开源迁移来源与采用边界
 
 ## 2026-10-03：Surface V3 第一版优化设计映射（待实施）

@@ -1,3 +1,7 @@
+---
+id: reviews/adr-0018_web_100m_virtual_geometry_architecture
+state: history
+---
 # ADR-0018 历史研究稿：Web Authored Large Virtual Geometry
 
 > 本文保留早期规模探索与诊断，作为历史研究资料，不是当前实施计划。

@@ -1,3 +1,9 @@
+---
+id: next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # EEngine 第三版：极致 GPU 性能与 AAA 画质最终重构设计
 
 > 2026-10-04 当前性能实施入口：[有界前端最终设计](surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)、[执行计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)、[状态与基线](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。本文保留总架构与质量边界；下文旧实现核对为日期化历史，不等于当前源码或新重构完成。

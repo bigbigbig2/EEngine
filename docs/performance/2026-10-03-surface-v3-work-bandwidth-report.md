@@ -1,3 +1,7 @@
+---
+id: performance/2026-10-03-surface-v3-work-bandwidth-report
+state: history
+---
 # Surface V3 1080p 性能测量报告
 
 日期：2026-10-03。范围：当前工程的工作量、逻辑读写量与 GPU 时间测量；本报告不讨论后续优化设计，不判定新旧架构优劣。

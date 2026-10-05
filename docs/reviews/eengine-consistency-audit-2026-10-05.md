@@ -1,3 +1,7 @@
+---
+id: reviews/eengine-consistency-audit-2026-10-05
+state: history
+---
 # EEngine 文档/守门/成本模型一致性审计
 
 - 审计对象：`D:\code\EEngine - 副本`，revision `09449d6d`（2026-10-05，工作树 clean，仅两份既有 untracked 审计文档）

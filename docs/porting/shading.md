@@ -1,3 +1,9 @@
+---
+id: porting/shading
+state: current
+verifies:
+  - tools
+---
 # Shading
 
 ## SHADE-SURFACE · Surface and material reconstruction

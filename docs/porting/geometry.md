@@ -1,3 +1,9 @@
+---
+id: porting/geometry
+state: current
+verifies:
+  - tools
+---
 # Geometry
 
 ## S6 consumer mapping (2026-09-19)

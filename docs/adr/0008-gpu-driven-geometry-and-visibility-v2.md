@@ -1,3 +1,9 @@
+---
+id: adr/0008-gpu-driven-geometry-and-visibility-v2
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0008: GPU-driven Geometry 与 Hardware Visibility
 
 Status: accepted

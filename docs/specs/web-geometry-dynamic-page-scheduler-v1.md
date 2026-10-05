@@ -1,3 +1,9 @@
+---
+id: specs/web-geometry-dynamic-page-scheduler-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Web Geometry Dynamic Page Scheduler V1
 
 Status: candidate

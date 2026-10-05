@@ -1,3 +1,9 @@
+---
+id: porting/visibility
+state: current
+verifies:
+  - tools
+---
 # Visibility
 
 ## VIS-WORK · Hierarchical GPU work generation

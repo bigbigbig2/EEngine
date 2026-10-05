@@ -2,6 +2,9 @@
 id: virtual-assets
 kind: domain
 owner: virtual-assets
+state: current
+verifies:
+  - project/domains
 ---
 # Virtual Assets
 

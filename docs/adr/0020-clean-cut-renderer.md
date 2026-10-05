@@ -1,3 +1,9 @@
+---
+id: adr/0020-clean-cut-renderer
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0020: EEngine 单路径重建渲染架构
 
 Status: accepted

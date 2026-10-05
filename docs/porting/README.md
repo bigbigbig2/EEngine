@@ -1,3 +1,9 @@
+---
+id: porting/readme
+state: current
+verifies:
+  - tools
+---
 # OEngine 移植与来源
 
 这里只登记仍被运行代码、验证资产或当前架构消费的外部来源。历史候选和已拒绝且不再影响设计的研究从 Git 查询。

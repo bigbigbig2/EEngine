@@ -1,3 +1,7 @@
+---
+id: adr/0015-visibility-native-pbr-receiver
+state: history
+---
 # ADR-0015: Visibility-native PBR Receiver
 
 Status: superseded by ADR-0020

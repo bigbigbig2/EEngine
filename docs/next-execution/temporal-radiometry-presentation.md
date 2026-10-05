@@ -1,3 +1,9 @@
+---
+id: next-execution/temporal-radiometry-presentation
+state: current
+verifies:
+  - OEngine/src
+---
 # Module D 执行：Temporal Facts、Radiometry 与 Presentation
 
 > 收口状态：D0-D6 已完成生产链实现与一次模块级集中检查。已通过 `npm run typecheck`、`npm run build:test`、Frame Program 定向契约测试和 Radiometry/Bloom/Present WGSL Naga 解析。未运行 browser matrix、真实 GPU 画质比较、P50/P95 benchmark、正式 evidence 或 claims；这些继续留在 Next Renderer 总体验收。

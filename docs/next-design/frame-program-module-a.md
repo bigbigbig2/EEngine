@@ -1,3 +1,9 @@
+---
+id: next-design/frame-program-module-a
+state: current
+verifies:
+  - OEngine/src
+---
 # Module A 设计：Frame Program 与语义事实层
 
 > 状态：模块 A 已接入当前生产链（2026-09-27）；后续 SurfaceWork V3 以用户指定的[第三版最终设计](./eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)为唯一目标。对应迁移记录见[模块 A 执行文档](../next-execution/frame-program-module-a.md)。第 2 节的“当前事实”表保留实施前的问题定位，实施后的事实以[Frame Runtime](../domains/frame-runtime.md)及源码为准；本状态不代表浏览器或性能验收。

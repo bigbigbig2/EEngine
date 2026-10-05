@@ -1,3 +1,9 @@
+---
+id: adr/0021-surface-work-runtime-v3
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0021：以用户指定第三版设计统一 SurfaceWork Runtime 方向
 
 Status: accepted

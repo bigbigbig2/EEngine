@@ -1,3 +1,9 @@
+---
+id: next-design/surface-work-v3-optimization-v1-design-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 第一版优化设计：连续表面共享、稳定字段缓存与有界稀疏信号
 
 > 2026-10-04 状态：历史优化方案，非当前实施入口。当前采用[有界前端最终设计](surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)与[执行计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。本页保留来源与取舍历史，旧物理布局和阶段状态不约束新实现。

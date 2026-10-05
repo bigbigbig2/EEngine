@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-cost-bounded-final-refactor-phase3-implementation-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 Phase 3：Field 候选、验证与有界证明实施记录
 
 **2026-10-05 复审补注**

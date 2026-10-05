@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-cost-bounded-final-refactor-phase5-implementation-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 Phase 5：mask 需求、实际 worker 与物理 packet
 
 日期：2026-10-05（Asia/Hong_Kong）。起点 `0c8caf30`。范围为[执行计划 §8](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)和[设计 §14–15](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。本记录随阶段集中检查更新；正式性能/完整画质验收仍在 Phase 7。

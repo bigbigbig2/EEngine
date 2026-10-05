@@ -380,6 +380,33 @@ export const CHECK_RUNNERS = Object.freeze({
     return passed([details]);
   },
 
+  /**
+   * Documentation contract: every `docs/**` page declares a machine-checkable
+   * state, and its links resolve.
+   *
+   * Why this is a gate and not a lint: the documentation tree is the constraint
+   * system an agent reads before touching code. Measured before this check
+   * existed, all three entry points claimed the project was in Phase 5 while
+   * HEAD was a Phase 7 commit — so the first thing a new contributor or agent
+   * read was wrong. A document is a claim, and an unverified claim silently
+   * becomes false.
+   *
+   * The check verifies that documents are *checkable and internally consistent*.
+   * It cannot verify that a document is *true*; that is what each `current`
+   * document's `verifies` clause is for, and choosing a real one is a review
+   * responsibility.
+   */
+  "docs-contract": (_check, context) => {
+    const args = ["tools/docs-verify.mjs", "--json"];
+    if (context.changedOnly === true) args.push("--staged");
+    const result = runNode(args);
+    const report = result.parsed ?? { total: null, raw: (result.stdout || result.stderr).slice(-2000) };
+    if (result.status !== 0) {
+      return failed([`documentation contract has ${report.total ?? "?"} finding(s)`, report]);
+    }
+    return passed([{ documents: report.documents, total: report.total ?? 0 }]);
+  },
+
   "generated-source-guard": (check, context) => {
     const patterns = (check.config?.patterns ?? []).map((pattern) => new RegExp(pattern, "u"));
     if (patterns.length === 0) return failed(["generated-source guard has no configured patterns"]);

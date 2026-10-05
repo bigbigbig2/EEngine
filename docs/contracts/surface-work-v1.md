@@ -19,6 +19,10 @@ invariants:
 validation:
   - node tools/vibe.mjs verify --module
   - node tools/vibe.mjs verify --full
+state: current
+verifies:
+  - checks
+  - project/domains
 ---
 # Surface / Work V1：Phase 2 实现边界
 

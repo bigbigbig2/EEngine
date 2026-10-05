@@ -1,3 +1,9 @@
+---
+id: adr/0002-runtime-assets-and-gpu-driven
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0002: Runtime Asset 与 GPU-driven 边界
 
 Status: accepted

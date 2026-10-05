@@ -1,0 +1,16 @@
+id: guard-docs-contract
+kind: guard
+level: L0
+description: >-
+  Require every docs/** page to declare a machine-checkable state in frontmatter
+  and keep its links resolvable. Three states only: `generated` (a tool writes
+  it), `current` (claims to describe present code, so it must declare
+  verifies.files as a falsifiable condition), `history` (a dated record that must
+  not be presented as current authority). Enforced by tools/docs-verify.mjs.
+  Rationale: the docs tree is the constraint system an agent reads before
+  touching code, and unverified claims silently become false — measured before
+  this check existed, all three entry points described Phase 5 while HEAD was a
+  Phase 7 commit.
+domains: [platform]
+runner: docs-contract
+automatic: true

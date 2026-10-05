@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-web-100m-phase-i-current-hzb-late-recheck
+state: history
+---
 # ADR-0018 Phase I Current-HZB Late Recheck 审评（2026-09-22）
 
 本记录最初冻结 ADR-0018 §28 的 bounded diagnostic policy；生产闭环随后由

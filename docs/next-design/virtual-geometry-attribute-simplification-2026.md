@@ -1,3 +1,9 @@
+---
+id: next-design/virtual-geometry-attribute-simplification-2026
+state: current
+verifies:
+  - OEngine/src
+---
 # Virtual Geometry：性能优先的几何与材质属性联合简化
 
 状态：**设计提案，尚未替换生产算法；v3.3 为未完成实验。** 研究日期：2026-09-30（本机 Asia/Hong_Kong）。适用当前 static PBR Geometry Product；动态变形与位移另行定义。

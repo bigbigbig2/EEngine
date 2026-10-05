@@ -1,3 +1,9 @@
+---
+id: porting/platform
+state: current
+verifies:
+  - tools
+---
 # Platform
 
 ## PLAT-TEXTURE-V3 · KTX/Basis production codec 与 Web integration reference

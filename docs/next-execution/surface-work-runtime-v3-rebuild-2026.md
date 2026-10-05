@@ -1,3 +1,7 @@
+---
+id: next-execution/surface-work-runtime-v3-rebuild-2026
+state: history
+---
 # SurfaceWork Runtime V3 直接重构执行计划
 
 > 2026-10-04 状态：初版V3阶段历史，非当前实施入口。请按[有界前端执行计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)和[进度记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)推进。本文原Phase完成状态不转授新阶段；当前每阶段检查范围按新计划§1执行，不直接照搬旧用例/提交要求。

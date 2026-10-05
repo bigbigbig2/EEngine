@@ -17,6 +17,9 @@ invariants:
 validation:
   - task-trace contract and oracle tests
   - authored-large K0 trace artifact
+state: current
+verifies:
+  - OEngine/src
 ---
 Status: candidate
 Owners: virtual-assets

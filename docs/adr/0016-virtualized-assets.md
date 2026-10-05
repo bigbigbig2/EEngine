@@ -1,3 +1,9 @@
+---
+id: adr/0016-virtualized-assets
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0016: Runtime-first 虚拟化资产
 
 Status: accepted

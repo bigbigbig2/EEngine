@@ -2,6 +2,9 @@
 id: platform
 kind: domain
 owner: platform
+state: current
+verifies:
+  - project/domains
 ---
 # Platform
 

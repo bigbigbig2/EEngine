@@ -1,3 +1,9 @@
+---
+id: specs/web-geometry-current-hzb-late-recheck-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Web Geometry Current-HZB Late Recheck V1
 
 Status: candidate

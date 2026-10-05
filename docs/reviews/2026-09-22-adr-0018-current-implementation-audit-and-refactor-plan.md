@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-adr-0018-current-implementation-audit-and-refactor-plan
+state: history
+---
 # ADR-0018 当前实现审计与重构计划（2026-09-22）
 
 ## 1. 结论

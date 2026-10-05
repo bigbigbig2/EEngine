@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 有界前端最终重构执行计划
 
 日期：2026-10-05（Asia/Hong_Kong）。状态：Phase 0–4 已有实现与历史阶段检查保留，但前置物理表示未全部落实；Phase 5 工作树实施中、未收口。按本次复审先修 Phase 5 正确性/诊断缺陷并完成需求合同，再执行必需的 Phase 5.5，之后进入 Phase 6/7。具体事实、缺口和开工清单见[阶段复审与准备](surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。

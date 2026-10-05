@@ -59,6 +59,7 @@ checks:
   - guard-legacy
   - guard-generated-source
   - guard-style
+  - guard-docs-contract
 watch:
   - project/**
   - checks/**

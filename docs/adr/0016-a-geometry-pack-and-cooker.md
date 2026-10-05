@@ -1,3 +1,9 @@
+---
+id: adr/0016-a-geometry-pack-and-cooker
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0016-A: OEGPACK V3 与 Offline Geometry Cooker
 
 Status: accepted

@@ -1,3 +1,7 @@
+---
+id: adr/0004-visibility-to-surface
+state: history
+---
 # ADR-0004: Visibility-to-Surface
 
 Status: superseded by ADR-0013

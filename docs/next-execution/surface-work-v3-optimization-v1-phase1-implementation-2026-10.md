@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-optimization-v1-phase1-implementation-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 优化 Phase 1：连续域、LOD lineage 与局部摘要发布
 
 日期：2026-10-03。Phase 0 提交：`3c0113d8`。范围是本阶段的数据生产、发布和生命周期；采样调度在 Phase 2，缓存和重工作在后续阶段，本页不作整帧性能结论。

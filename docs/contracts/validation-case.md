@@ -15,6 +15,10 @@ invariants:
 validation: 
   - registry validation
   - case protocol self-test
+state: current
+verifies:
+  - checks
+  - project/domains
 ---
 # Validation Case
 

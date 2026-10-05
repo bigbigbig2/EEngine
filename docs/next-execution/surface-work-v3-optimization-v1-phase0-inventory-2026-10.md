@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-optimization-v1-phase0-inventory-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 优化 Phase 0：生产依赖、容量与删除清单
 
 日期：2026-10-03。核对源码：`0676cf28478bc2f4b96af7138f45ef33f1216a3f`。此文固定实施输入，不声称优化已在 renderer 生效。

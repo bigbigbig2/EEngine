@@ -16,6 +16,10 @@ invariants:
 validation: 
   - protocol-self-test
   - webgpu-component
+state: current
+verifies:
+  - checks
+  - project/domains
 ---
 # Browser Harness
 

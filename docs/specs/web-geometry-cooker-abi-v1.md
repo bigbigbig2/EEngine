@@ -1,3 +1,9 @@
+---
+id: specs/web-geometry-cooker-abi-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Web Geometry Cooker ABI V1
 
 Status: draft

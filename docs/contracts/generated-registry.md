@@ -15,6 +15,10 @@ invariants:
 validation: 
   - node tools/vibe.mjs registry
   - validation registry validator
+state: current
+verifies:
+  - checks
+  - project/domains
 ---
 # Generated Registry
 

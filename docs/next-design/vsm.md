@@ -1,3 +1,9 @@
+---
+id: next-design/vsm
+state: current
+verifies:
+  - OEngine/src
+---
 # Module E：Virtual Shadow Maps 与 Shadow Visibility
 
 > 状态：E0-E7 已接入候选生产主链；E8 生命周期与 E9 模块收口仍待完成。来源 adoption 仍保持 `not adopted`，因为正式 oracle/GPU evidence 后置。

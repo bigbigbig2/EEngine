@@ -1,3 +1,9 @@
+---
+id: adr/0011-asset-codec-and-gpu-native-texture-pipeline-v3
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0011: Asset Codec 与 GPU-native Texture
 
 Status: accepted

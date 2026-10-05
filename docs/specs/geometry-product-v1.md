@@ -1,3 +1,9 @@
+---
+id: specs/geometry-product-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Geometry Product V1
 
 Status: draft

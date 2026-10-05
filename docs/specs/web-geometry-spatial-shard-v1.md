@@ -1,3 +1,9 @@
+---
+id: specs/web-geometry-spatial-shard-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Web Geometry Spatial Shard V1
 
 Status: draft

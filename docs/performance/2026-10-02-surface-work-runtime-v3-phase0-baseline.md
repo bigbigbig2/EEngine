@@ -1,3 +1,7 @@
+---
+id: performance/2026-10-02-surface-work-runtime-v3-phase0-baseline
+state: history
+---
 # SurfaceWork Runtime V3 Phase 0 基线
 
 日期：2026-10-02。状态：已固定比较身份和采集口径，尚未采样。

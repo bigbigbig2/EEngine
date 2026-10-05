@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-web-100m-authored-first-validation-plan
+state: history
+---
 # ADR-0018 Authored-Large Acceptance Plan (2026-09-22)
 
 > 本文记录当时的实施顺序与早期故障。当前执行目标只有用户的 `large.glb`；

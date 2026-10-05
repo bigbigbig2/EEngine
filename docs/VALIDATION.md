@@ -1,3 +1,10 @@
+---
+id: validation
+state: current
+verifies:
+  - checks
+  - validation
+---
 # Next Renderer 的检查时机与失败修复
 
 这是开发节奏说明，不是逐批许可规则。当前工程处于破坏式重建，先让功能原理和唯一生产链真正连通。

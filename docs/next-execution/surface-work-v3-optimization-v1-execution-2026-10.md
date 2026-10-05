@@ -1,3 +1,7 @@
+---
+id: next-execution/surface-work-v3-optimization-v1-execution-2026-10
+state: history
+---
 # Surface V3 第一版优化执行文档
 
 > 2026-10-04 状态：历史优化执行记录，非当前实施入口。当前顺序见[有界前端计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)，状态见[进度记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。旧用例/提交节奏属于当时任务；当前按新计划每阶段检查，通过后推进。

@@ -1,3 +1,9 @@
+---
+id: adr/0017-incremental-geometry-product-publication
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0017: Geometry Product 增量发布与页身份解耦
 
 Status: proposed

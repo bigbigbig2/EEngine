@@ -1,3 +1,9 @@
+---
+id: specs/readme
+state: current
+verifies:
+  - OEngine/src
+---
 # OEngine 规范
 
 spec 是实现之间的精确合同，不负责解释长期取舍或报告进度。

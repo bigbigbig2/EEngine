@@ -1,3 +1,9 @@
+---
+id: adr/0006-packed-render-world-convergence
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0006: Packed Render World 收敛
 
 Status: accepted

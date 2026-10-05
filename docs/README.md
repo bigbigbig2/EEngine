@@ -1,35 +1,55 @@
+---
+id: readme
+state: current
+verifies:
+  - project/workstreams/active/eengine-next-clean-rebuild.yaml
+  - docs
+---
+
 # EEngine Next 文档入口
 
-当前方向以第三版原文为架构边界，2026-10-04 已准备有界 Surface 前端重构。文档说明目标、执行和源码事实，不是逐批编码许可；准备完成不等于生产代码已重构。
+当前方向以第三版原文为架构边界。文档说明目标、执行和源码事实，不是逐批编码许可；准备完成不等于生产代码已重构。
+
+**当前阶段不在本页断言。** 阶段状态只有一个权威来源：[workstream 的 currentSlice](../project/workstreams/active/eengine-next-clean-rebuild.yaml) 与[执行记录](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。本页曾经把"Phase5 实施中"写死在这里，结果 HEAD 已是 Phase 7 提交而入口仍在说 Phase 5——新读者读到的第一个状态就是错的。任何"当前处于什么阶段"的文字都会漂移，所以这里只提供导航，不复制状态。
 
 ## 从这里开始
 
 1. [第三版最终重构设计](next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)：用户指定原文，后续 Surface/Appearance/Lighting 的唯一目标依据。
-2. [最终性能重构设计](next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)、[当前执行计划](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)：有界前端、源码切换与最终验收。重构前代码14c17078，Phase4 HEAD 0c8caf30；Phase5工作树实施中、未收口。[阶段复审与准备](next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)明确先修Phase5并完成合同→必需Phase5.5→Phase6→Phase7；历史检查不代表前置物理要求全部落实。
+2. [最终性能重构设计](next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)、[当前执行计划](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)与[进度/基线](next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)：有界前端、源码切换与最终验收。重构前基线 `14c17078`。
 3. [整体架构](next-design/eengine-next-overall-architecture-final-2026.md)与[架构层计划](next-execution/eengine-next-architecture-layer-plan-2026.md)：保留系统边界与后续 SSSR/GI/VT/Transparency 方向；Surface 部分服从第三版原文。
 4. [当前 workstream](../project/workstreams/active/eengine-next-clean-rebuild.yaml)：当前切片和待完成目标。
-5. [方向一致性核对](reviews/surface-work-runtime-v3-direction-alignment-2026-10-02.md)：原文条目到活动入口的映射及本次检查范围。
-6. `node tools/vibe.mjs context <path>`：只查询 owner/current docs/Next 入口，不检查编码许可或 claims。
+5. `node tools/vibe.mjs context <path>`：查询 owner/current docs/Next 入口。
+6. `node tools/docs-verify.mjs`：校验本文档树是否仍满足自身合同。
 
-## 文档分层和优先级
+## 文档合同
+
+每份文档在 frontmatter 声明 `state`，只有三种取值，由 `tools/docs-verify.mjs` 强制：
+
+| state | 含义 | 强制条件 |
+| --- | --- | --- |
+| `generated` | 由工具写出 | 必须带生成器标记；手改即失败 |
+| `current` | 声称描述当前代码 | 必须声明 `verifies`——否则无法证伪，即为失败 |
+| `history` | 日期化记录，不定义当前规则 | 不得被入口点当作当前依据引用 |
+
+设计动机：此前 141 份文档没有任何机读有效期，于是三处入口同时停在过期阶段、设计文档把已变的容量值称作"当前"。文档是给 agent 读的约束，**约束必须可证伪，否则会静默变假**。
+
+## 文档分层
 
 | 位置 | 作用 |
 | --- | --- |
-| 第三版设计原文 | Surface 最终目标；保留原文日期 2026-10-01 和基线 e7296be9，采纳日期为 2026-10-02 |
-| next-design/ | 总体目标与有界前端性能实施细化；旧优化页仅记录历史方案 |
-| next-execution/ | 当前有界前端执行计划与进度；原V3/优化V1/五步计划标注历史入口 |
+| next-design/ | 目标架构与模块设计 |
+| next-execution/ | 人读的执行顺序与切断步骤；日期化 phase 记录标注为历史 |
 | domains/ | 源码现状与缺口；不能用目标代替实现事实 |
-| contracts/、specs/ | 稳定跨 owner 协议和 ABI；retired 文档不供新消费者使用 |
-| porting/、sources/ | 固定来源、许可、阶段映射和真实 adoption 状态 |
-| adr/ | 长期决策和替代关系；[ADR-0021](adr/0021-surface-work-runtime-v3.md) 调整 Surface 目标 |
-| reviews/、performance/ | 日期化检查与历史诊断；不是当前设计或性能证明 |
+| contracts/、specs/ | 稳定跨 owner 协议和 ABI |
+| porting/ | 固定来源、许可、阶段映射和真实 adoption 状态 |
+| adr/ | 长期决策和替代关系 |
+| reviews/、performance/ | 日期化检查与历史诊断；一律 `state: history`，不是当前设计或性能证明 |
+| archive/ | 已归档，只供追溯 |
 
-原文与执行摘要冲突时以原文为架构目标；性能物理策略以当前最终设计细化，执行时点以当前计划和根AGENTS为准。源码描述现状，不因文档采纳自动完成。保留的旧优化/五步页只供追溯，不设并行路线。Frame Program、AO、Temporal、VSM保留算法和来源，其历史Surface接口不约束新消费者。
+原文与执行摘要冲突时以原文为架构目标；性能物理策略以当前最终设计细化，执行时点以当前计划和根 `AGENTS.md` 为准。源码描述现状，不因文档采纳自动完成。
 
 ## 开发与验收
 
-当前Surface按每阶段实现、集中检查、通过后推进：Phase0静态基线/消费/容量核对；Phase1–6（含必需5.5）的typecheck/build、必要语义测试、WGSL及真实GPU组件/接线检查在各阶段完成。5.5另须验证实际witness/证书/ref产量与物理账，不能只用出图/预算未超限通过。只允许阶段内部短暂断链，跨阶段必要consumer前移，不用旧链/占位效果通过检查。已有可运行整链时补短smoke/成本诊断；Phase7负责完整跨场景/浏览器、连续画质和同条件性能正式验收，不再首次发现基础编译/覆盖问题。
+检查时机与失败修复规则见 [VALIDATION](VALIDATION.md)；测试可信度合同见[执行计划 §1.4](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)。
 
-测试可信度和失败修复统一遵守[执行计划§1.4](next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md#14-测试可信度失败修复与阶段完成规则2026-10-05-补齐)与[VALIDATION](VALIDATION.md)：逐项设计覆盖、真实入口与独立预期、正确性/成本分别验证；失败先定位分类再修，不能为过关删断言、放宽容差或乱接生产fallback。旧“开发不测、最后才检查”规则已失效。
-
-本次准备只作源码差异/采样身份、链接、YAML和导航静态核对，并保存代码基线，不运行renderer验证。run06的约801.7ms是已有diagnostic、accepted=false，不是性能通过。其他模块按[VALIDATION](VALIDATION.md)通用节奏；正式evidence/claims留最终验收。
+正式 evidence/claims 留最终验收。历史诊断（如 run06 约 801.7ms，accepted=false）不是性能通过。

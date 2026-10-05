@@ -15,6 +15,10 @@ invariants:
   - telemetry is diagnostic feedback and never a CPU-visible render-list producer
 validation:
   - module-close targeted checks; final acceptance after the planned providers
+state: current
+verifies:
+  - checks
+  - project/domains
 ---
 # Phase 4 Minimal Virtual Resource Contract
 

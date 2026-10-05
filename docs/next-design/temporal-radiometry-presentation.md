@@ -1,3 +1,9 @@
+---
+id: next-design/temporal-radiometry-presentation
+state: current
+verifies:
+  - OEngine/src
+---
 # Module D 设计：Temporal Facts、Radiometry 与 Presentation
 
 > 实施状态：D0-D6 已完成生产路径接入。模块级静态检查已完成；browser、真实 GPU 画质/性能与正式 evidence 仍按总体验收后置。

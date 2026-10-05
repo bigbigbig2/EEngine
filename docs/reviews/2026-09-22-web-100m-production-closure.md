@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-web-100m-production-closure
+state: history
+---
 # ADR-0018 Production Closure Review (2026-09-22, superseded target)
 
 > Target update: this implementation inventory remains historical evidence, but

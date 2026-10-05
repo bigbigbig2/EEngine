@@ -2,6 +2,9 @@
 id: frame-runtime
 kind: domain
 owner: frame-runtime
+state: current
+verifies:
+  - project/domains
 ---
 # Frame Runtime
 

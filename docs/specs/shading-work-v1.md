@@ -2,6 +2,9 @@
 id: shading-work-v1
 kind: spec
 owner: shading
+state: current
+verifies:
+  - OEngine/src
 ---
 # ShadingWork V1：可见样本队列
 

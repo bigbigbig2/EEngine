@@ -1,3 +1,10 @@
+---
+id: webgpu
+state: current
+verifies:
+  - docs/specs
+  - docs/porting
+---
 # OEngine WebGPU 2026 能力合同
 
 状态：目标平台规范。审查快照：2026-09-13。

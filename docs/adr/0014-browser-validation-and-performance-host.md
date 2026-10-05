@@ -1,3 +1,9 @@
+---
+id: adr/0014-browser-validation-and-performance-host
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0014: 独立浏览器验证与性能宿主
 
 Status: accepted

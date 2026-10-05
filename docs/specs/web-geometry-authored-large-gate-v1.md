@@ -19,6 +19,9 @@ invariants:
 validation:
   - web-authored-large-cook-k0
   - web-authored-large-perf
+state: current
+verifies:
+  - OEngine/src
 ---
 Status: candidate
 Owners: virtual-assets

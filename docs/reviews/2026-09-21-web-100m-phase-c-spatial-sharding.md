@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-21-web-100m-phase-c-spatial-sharding
+state: history
+---
 # ADR-0018 Phase C Giant Primitive Spatial Sharding 审评（2026-09-21）
 
 本记录声明 Phase C implementation/contract/oracle complete，不声明 100M 浏览器 Runtime Validated、Performance Evaluated、Phase D 或 ADR Complete。

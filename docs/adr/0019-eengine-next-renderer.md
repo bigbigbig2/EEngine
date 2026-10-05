@@ -1,3 +1,7 @@
+---
+id: adr/0019-eengine-next-renderer
+state: history
+---
 # ADR-0019: EEngine Next 的需求驱动虚拟化可见性架构
 
 Status: superseded by ADR-0020

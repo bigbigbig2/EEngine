@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-23-documentation-system-refactor-design
+state: history
+---
 # 文档系统重构设计（2026-09-23）
 
 > 本文保存重构动机和设计边界，不是产品事实或完成声明。D1-D5 已于 2026-09-23 落地；当前机器事实仍由 `project/`、`checks/`、case-local manifest、正式合同和 evidence 提供。

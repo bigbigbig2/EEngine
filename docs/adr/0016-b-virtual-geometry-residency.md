@@ -1,3 +1,9 @@
+---
+id: adr/0016-b-virtual-geometry-residency
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0016-B: Geometry Product Admission 与 Virtual Geometry Residency
 
 Status: accepted

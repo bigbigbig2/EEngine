@@ -1,3 +1,9 @@
+---
+id: next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 最终性能重构设计：有界前端、真实复用与单一生产链
 
 > 执行入口：[独立执行计划](../next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)；状态与冻结基线：[执行记录](../next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。2026-10-05复审：Phase 0–4已有实现/历史检查保留，前端物理表示仍有缺口；Phase 5工作树实施中、未收口。固定顺序为Phase5优先修复并完成合同→必需Phase5.5→Phase6→Phase7。审查依据和逐项责任见[复审与准备](../next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)。重构前基线14c17078、Phase4 HEAD 0c8caf30与dirty Phase5不能混作同一验证身份。

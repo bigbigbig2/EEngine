@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-25-eengine-next-final-architecture-analysis
+state: history
+---
 # EEngine Next：最终渲染架构整理与源码评审
 
 日期：2026-09-25  

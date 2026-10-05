@@ -1,3 +1,9 @@
+---
+id: next-execution/eengine-next-architecture-layer-plan-2026
+state: current
+verifies:
+  - OEngine/src
+---
 # EEngine Next 架构层执行计划
 
 更新：2026-10-04。Surface总目标保留[第三版原文](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)，当前实施见[有界前端最终设计](../next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)和[执行计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。准备/基线已完成，新重构未开始；本页保留整体依赖，原Surface阶段表是架构概览，不作为另一实施顺序。

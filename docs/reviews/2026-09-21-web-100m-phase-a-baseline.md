@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-21-web-100m-phase-a-baseline
+state: history
+---
 # ADR-0018 Phase A 基线记录（2026-09-21）
 
 这份记录是诊断证据，不是 Runtime Validated、Performance Evaluated 或 ADR Complete 声明。原始报告位于忽略目录 `.local/validation/web-100m-phase-a-baseline/`，不会把大型 GLB 或浏览器 raw artifact 提交进仓库。

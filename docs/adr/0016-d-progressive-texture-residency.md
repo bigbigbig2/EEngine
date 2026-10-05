@@ -1,3 +1,9 @@
+---
+id: adr/0016-d-progressive-texture-residency
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0016-D: Progressive Texture Delivery 与 Physical Residency
 
 Status: accepted

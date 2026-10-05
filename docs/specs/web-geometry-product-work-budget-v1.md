@@ -17,6 +17,9 @@ invariants:
 validation:
   - planner contract and oracle tests
   - authored-large K0 receipt
+state: current
+verifies:
+  - OEngine/src
 ---
 Status: candidate
 Owners: virtual-assets

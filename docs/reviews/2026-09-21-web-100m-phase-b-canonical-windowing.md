@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-21-web-100m-phase-b-canonical-windowing
+state: history
+---
 # ADR-0018 Phase B Canonical Windowing 审评（2026-09-21）
 
 本记录声明 Phase B 的实现与 contract/oracle 完成，不声明 Runtime Validated、Performance Evaluated 或 ADR Complete。正式浏览器 100M PERF 仍属于后续 Phase K。

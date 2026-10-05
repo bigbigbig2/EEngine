@@ -1,3 +1,10 @@
+---
+id: contracts/readme
+state: current
+verifies:
+  - checks
+  - project/domains
+---
 # Contracts
 
 Contracts are the small, exact interfaces shared by owners. Long term rationale remains in ADRs; binary and shader layouts remain in `docs/specs/`; current proof is indexed under `validation/evidence/`.

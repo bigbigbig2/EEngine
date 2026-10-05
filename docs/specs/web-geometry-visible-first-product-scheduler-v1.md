@@ -1,3 +1,9 @@
+---
+id: specs/web-geometry-visible-first-product-scheduler-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Web Geometry Visible-First Product Scheduler V1
 
 Status: frozen

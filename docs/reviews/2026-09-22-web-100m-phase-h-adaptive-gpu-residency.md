@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-web-100m-phase-h-adaptive-gpu-residency
+state: history
+---
 # ADR-0018 Phase H Adaptive GPU Residency 审评（2026-09-22）
 
 本记录把 Phase H 的 Portable、Balanced、HighEnd 物理驻留 profile 落到共享

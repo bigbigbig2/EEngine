@@ -1,3 +1,9 @@
+---
+id: adr/0009-compute-shading-and-advanced-frame-pipeline-v2
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0009: Advanced Frame Pipeline
 
 Status: accepted

@@ -1,3 +1,9 @@
+---
+id: adr/0007-gpu-native-runtime-assets-and-residency-v2
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0007: GPU-native Runtime Assets 与 Residency
 
 Status: accepted

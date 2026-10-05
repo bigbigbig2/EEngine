@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-cost-bounded-final-refactor-phase6-implementation-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 Phase 6：调度、reset与生命周期
 
 日期：2026-10-05。起点`7d267d373e3c0d9fd37b0542095003c6eb6b57b1`，Phase5.5已提交。状态：实现与集中检查完成，待中文提交；Phase7正式验收未开始。依据设计§16/17.3/19及执行计划§9，保持单生产路径/submit，无当前帧CPU工作控制。

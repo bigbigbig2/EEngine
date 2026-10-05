@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-21-documentation-validation-system-review
+state: history
+---
 # 文档系统与验证测试系统审评（2026-09-21）
 
 > 本文是针对当前 revision `dc1994dd450499ecaf04a020563cb2f45ff131f1` 的审评报告，不是设计权威、完成声明或 evidence。机器事实仍以 `project/`、`checks/`、case-local `case.yaml` 和正式合同为准。

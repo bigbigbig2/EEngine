@@ -1,3 +1,9 @@
+---
+id: adr/0001-gpu-first-scope
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0001: GPU-first 产品范围
 
 Status: accepted

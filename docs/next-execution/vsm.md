@@ -1,3 +1,9 @@
+---
+id: next-execution/vsm
+state: current
+verifies:
+  - OEngine/src
+---
 # Module E 执行：VSM / Shadow Visibility
 
 > 本文是模块 E 的连续实施顺序。设计语义见 [VSM design](../next-design/vsm.md)。

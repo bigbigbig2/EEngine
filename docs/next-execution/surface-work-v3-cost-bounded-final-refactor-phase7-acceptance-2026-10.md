@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-cost-bounded-final-refactor-phase7-acceptance-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 Phase 7：正式整合与验收
 
 日期2026-10-05；起点`a7e415d2`（Phase6通过并提交）。状态：实施/验收中，未完成。依据总V3设计§8–11、有界设计§22、执行计划§10、VALIDATION。源代码与固定条件结果分别核对；诊断不是accepted evidence。

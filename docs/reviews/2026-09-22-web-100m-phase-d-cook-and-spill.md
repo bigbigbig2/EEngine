@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-web-100m-phase-d-cook-and-spill
+state: history
+---
 # ADR-0018 Phase D Cook-and-Spill 审评（2026-09-22）
 
 本记录声明 Phase D 的实现、contract 和 oracle 完成；不声明 100M 浏览器

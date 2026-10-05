@@ -1,3 +1,9 @@
+---
+id: specs/oegpack-scene-manifest-v3
+state: current
+verifies:
+  - OEngine/src
+---
 # OEGPACK Scene Manifest V3（`scene.oescene`）
 
 Status: candidate

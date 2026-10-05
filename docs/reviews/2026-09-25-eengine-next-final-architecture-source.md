@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-25-eengine-next-final-architecture-source
+state: history
+---
 <!--
 Source archive: final architecture selected by the user in the shared conversation.
 URL: https://chatgpt.com/share/6ab63639-d184-83e8-8994-1e3b9cd1c400

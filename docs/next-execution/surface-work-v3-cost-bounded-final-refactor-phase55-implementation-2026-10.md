@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-cost-bounded-final-refactor-phase55-implementation-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 Phase 5.5：前端物理表示与成本补齐
 
 日期：2026-10-05。起点 Phase5提交 `d5783b95`。状态：实施中、未完成。依据最终设计§8/10/13/17.4、执行计划§8.2及复审准备§5；每个替换单元同时迁移producer与全部直接consumer，无兼容桥。

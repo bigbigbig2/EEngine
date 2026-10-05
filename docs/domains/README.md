@@ -1,3 +1,9 @@
+---
+id: domains/readme
+state: current
+verifies:
+  - project/domains
+---
 # Domains
 
 Domain pages explain the current owner boundary in human terms. The matching file under `project/domains/` owns routing plus direct contract, claim, check, and source relationships. Claim policies live under `project/claims/`, and case manifests live under `validation/cases/`. Run `node tools/vibe.mjs context <path>` to generate the current relationship summary.

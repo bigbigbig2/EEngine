@@ -1,3 +1,9 @@
+---
+id: specs/virtual-geometry-runtime-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Virtual Geometry Runtime V1
 
 Status: draft

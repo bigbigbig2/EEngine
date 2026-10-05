@@ -2,6 +2,9 @@
 id: materials-textures
 kind: domain
 owner: materials-textures
+state: current
+verifies:
+  - project/domains
 ---
 # Materials And Textures
 

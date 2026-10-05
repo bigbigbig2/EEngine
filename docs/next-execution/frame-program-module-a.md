@@ -1,3 +1,7 @@
+---
+id: next-execution/frame-program-module-a
+state: history
+---
 # Module A 执行：Frame Program 与语义事实层
 
 > 2026-10-02 方向说明：本文保留 Frame Program 的历史迁移背景。Surface 当前目标和执行不再由本文中的旧 SurfaceMaterialPass/ShadingWork 入口规定，改以 [第三版 SurfaceWork 设计](../next-design/eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md) 和 [V3 执行计划](./surface-work-runtime-v3-rebuild-2026.md) 为准。

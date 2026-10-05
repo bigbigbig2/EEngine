@@ -1,3 +1,7 @@
+---
+id: adr/readme
+state: history
+---
 # OEngine ADR
 
 ADR 只保存跨模块、长期且仍有解释价值的决策。它不承担规格书、实施计划、当前状态或验证日志。

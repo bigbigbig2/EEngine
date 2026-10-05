@@ -1,3 +1,9 @@
+---
+id: adr/0016-c-v3-geometry-consumption
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0016-C: Virtual Geometry 生产消费与原子切换
 
 Status: accepted

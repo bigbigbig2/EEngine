@@ -1,3 +1,7 @@
+---
+id: next-execution/surface-work-v3-classifier-store-repair-plan-2026-10
+state: history
+---
 # Surface V3 分类与 Store 修复计划：五步完成生产链，再做同场景复测
 
 > 2026-10-04 后续状态：本页是已执行五步修复的历史计划，原“尚未实施”仅指创建时状态。步骤1–4及后续run06诊断见[历史执行记录](surface-work-v3-classifier-store-repair-progress-2026-10.md)；当前重构改按[有界前端计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。新阶段的检查依据当前执行计划和用户最新要求；旧用例不自动转授通过，诊断完成不等于性能达标。

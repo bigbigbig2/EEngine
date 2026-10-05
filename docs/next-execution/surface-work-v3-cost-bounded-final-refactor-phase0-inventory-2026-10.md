@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-cost-bounded-final-refactor-phase0-inventory-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 Phase 0：冻结身份、消费矩阵与物理容量清单
 
 日期：2026-10-04（Asia/Hong_Kong）。范围：Phase 0 静态核对，不修改渲染生产代码，不运行新 GPU/benchmark。

@@ -2,6 +2,9 @@
 id: visibility
 kind: domain
 owner: visibility
+state: current
+verifies:
+  - project/domains
 ---
 # Visibility
 

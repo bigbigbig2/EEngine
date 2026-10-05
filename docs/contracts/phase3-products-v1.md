@@ -15,6 +15,10 @@ invariants:
   - temporal products carry frame revision and history validity before reuse
 validation:
   - focused module-close tests; final GPU acceptance is deferred
+state: current
+verifies:
+  - checks
+  - project/domains
 ---
 # Phase 3 Product Semantics
 

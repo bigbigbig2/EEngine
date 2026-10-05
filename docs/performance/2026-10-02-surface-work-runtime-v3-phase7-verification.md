@@ -1,3 +1,7 @@
+---
+id: performance/2026-10-02-surface-work-runtime-v3-phase7-verification
+state: history
+---
 # SurfaceWork Runtime V3 Phase 7 验证记录
 
 日期：2026-10-02。目标：GTX 1650 Ti、1080p、复杂场景。该记录只报告本轮实际执行，不提升性能或画质 claim。

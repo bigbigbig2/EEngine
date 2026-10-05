@@ -1,3 +1,9 @@
+---
+id: adr/0012-example-library-reset
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0012: Example Library 边界
 
 Status: accepted

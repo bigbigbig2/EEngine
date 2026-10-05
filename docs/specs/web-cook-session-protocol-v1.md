@@ -1,3 +1,9 @@
+---
+id: specs/web-cook-session-protocol-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Web CookSession Protocol V1
 
 Status: draft

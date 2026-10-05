@@ -2,6 +2,9 @@
 id: shading
 kind: domain
 owner: shading
+state: current
+verifies:
+  - project/domains
 ---
 # Shading
 

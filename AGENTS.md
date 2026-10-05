@@ -18,7 +18,17 @@ Phase 0核对基线身份、消费矩阵、容量与文档。Phase 1–6（含5.
 
 只复用最终架构需要的数学、资源 owner 和 GPU 产品，删除旧协调器及无消费者依赖，不为旧测试修改新架构。Winner/Sharing/Cache identity 分开；cache lookup 在 material miss compact 前，命中字段不重跑其 geometry/material heavy work，其他 dirty consumer 仍可请求唯一 record；Appearance/Lighting 只消费唯一 GeometryRecord；reconstruct 不重新执行完整几何、材质或 PBR。最终 bounded full-rate exception、身份失效和写域互斥集中在权威生产/发布边界保证，热 consumer 不重复检查已保证的不变量。具体删除顺序与范围见[有界前端执行计划](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)。此覆盖规则优先于近目录和历史计划中的逐阶段检查要求。
 
-2026-10-05 复审状态：重构前基线14c17078，Phase4 HEAD 0c8caf30，另有未提交Phase5实现，当前未收口。Phase0–4已有接线和历史检查保留，但lazy witness、dense certificate/ref和预算映射尚未全部落实，撤回“前置缺口全部补齐”的概括。按[复审与准备](docs/next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)固定顺序：先修Phase5同key writer/真实计时覆盖并定位未完成smoke，完成Phase5需求/数值合同与检查；再执行必需Phase5.5前端物理表示/成本补齐；通过后Phase6调度/reset/lifetime，最后Phase7正式验收。Phase5.5适用上述每阶段检查规则，额外要求实际工作量/存储与设计约束相符，不能只凭小链出图或不超预算通过。布局变化所需直接consumer/reset/binding随producer前移，不等Phase6后返工。Phase7不承接已知基础缺陷，不要求每阶段一次提交。CandidateKey、ValueWitness、SharingCertificate分开；不以所有未知材质永久fine、裁剪key、截断证明或漏工作换性能。
+**阶段状态不在本文件维护。** 本文件此前记录"Phase4 HEAD 0c8caf30，另有未提交 Phase5 实现，当前未收口"——HEAD 早已是 Phase 7 提交，这条文字一直是错的，而它正是 agent 读到的第一条状态。当前阶段只有一个权威来源：[workstream 的 currentSlice](project/workstreams/active/eengine-next-clean-rebuild.yaml) 与[进度文档](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。任何入口文件都不得复制阶段状态。
+
+**仍然有效的长期约束**（与阶段无关，不随阶段推进失效）：
+
+- 重构前基线 14c17078。Phase 0–4 的接线与历史检查保留，但 lazy witness、dense certificate/ref 和预算映射尚未全部落实；不声称"前置缺口全部补齐"。
+- 每阶段检查规则适用于全部 Surface 阶段。Phase 5.5 另要求实际工作量/存储与设计约束相符，不能只凭小链出图或不超预算通过。
+- 布局变化所需的直接 consumer/reset/binding 随 producer 前移，不等后续阶段返工。
+- 不承接已知基础缺陷进入最终验收阶段。
+- CandidateKey、ValueWitness、SharingCertificate 分开；不以所有未知材质永久 fine、裁剪 key、截断证明或漏工作换性能。
+
+**文档合同**：`docs/**` 每份文档必须以 frontmatter 声明 `state`（`generated` / `current` / `history`），由 `node tools/docs-verify.mjs` 强制。`current` 必须声明 `verifies.files`（可证伪条件）；`history` 不得被入口点当作当前依据引用。改动 `docs/` 后必须运行该命令。禁止把阶段状态或源码事实抄进入口文件——这类复制是本仓库文档漂移的主要来源。
 
 ### Surface 阶段测试与失败修复规则（2026-10-05 补齐）
 

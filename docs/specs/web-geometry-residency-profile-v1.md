@@ -1,3 +1,9 @@
+---
+id: specs/web-geometry-residency-profile-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Web Geometry Adaptive GPU Residency Profile V1
 
 Status: candidate

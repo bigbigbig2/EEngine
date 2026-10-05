@@ -2,6 +2,9 @@
 id: shading-frequency-plan-v1
 kind: spec
 owner: shading
+state: current
+verifies:
+  - OEngine/src
 ---
 # Shading Frequency Plan V1
 

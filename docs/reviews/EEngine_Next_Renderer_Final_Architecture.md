@@ -1,3 +1,7 @@
+---
+id: reviews/eengine_next_renderer_final_architecture
+state: history
+---
 对，这次重新看完**最新提交的文档 + 真实源码 + 与上一版的 diff** 后，我认为方向应该更加明确：
 
 > **仍然直接砍掉当前 Renderer 的 ownership，单路径重建。**

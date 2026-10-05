@@ -21,6 +21,10 @@ validation:
   - OEngine/tests/contract/shading-program-specialization.test.mjs
   - OEngine/tests/contract/advanced-frame-abi.test.mjs
   - OEngine/tests/contract/bounded-gpu-work-protocol.test.mjs
+state: current
+verifies:
+  - checks
+  - project/domains
 ---
 # Render Product、GPU Work 与 History 最小合同（已废弃的 A 批次）
 

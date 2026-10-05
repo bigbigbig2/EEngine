@@ -1,3 +1,9 @@
+---
+id: adr/0018-web-100m-virtual-geometry
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0018: Web `large.glb` Virtual Geometry 生产与分片运行时
 
 Status: proposed

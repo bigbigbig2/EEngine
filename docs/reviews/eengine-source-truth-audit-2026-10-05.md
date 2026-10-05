@@ -1,3 +1,7 @@
+---
+id: reviews/eengine-source-truth-audit-2026-10-05
+state: history
+---
 # EEngine 源码真值审计报告
 
 - 审计对象：`D:\code\EEngine`，`OEngine/src`（581 个 `.ts`，132,841 行；WGSL 全部以 TS 字符串生成器存在，无独立 `.wgsl`）

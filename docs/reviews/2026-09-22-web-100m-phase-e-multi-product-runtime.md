@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-web-100m-phase-e-multi-product-runtime
+state: history
+---
 # ADR-0018 Phase E Multi-Product Runtime 审评（2026-09-22）
 
 本记录最初将 Phase E 落为 lifecycle/ABI contract；生产闭环随后由

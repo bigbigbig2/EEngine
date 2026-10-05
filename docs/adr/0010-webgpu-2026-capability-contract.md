@@ -1,3 +1,9 @@
+---
+id: adr/0010-webgpu-2026-capability-contract
+state: current
+verifies:
+  - project/workstreams/active
+---
 # ADR-0010: WebGPU 2026 Desktop 能力合同
 
 Status: accepted

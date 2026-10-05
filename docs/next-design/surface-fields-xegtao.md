@@ -1,3 +1,9 @@
+---
+id: next-design/surface-fields-xegtao
+state: current
+verifies:
+  - OEngine/src
+---
 # Module C 设计：按需 Surface Fields 与 XeGTAO
 
 > 2026-10-02 方向说明：Surface 内部执行服从[第三版 SurfaceWork 设计](./eengine-v3-extreme-performance-aaa-final-refactor-design-2026-10.md)。本文保留 XeGTAO 的语义、来源和 AO 合成边界；其中旧 SurfaceMaterialPass、Dense/Binned 和旧绑定描述是历史基线，实施接线改由 [SurfaceWork V3 执行计划](../next-execution/surface-work-runtime-v3-rebuild-2026.md) 的 GeometryRecord、signal packet 与真实 consumer 决定。

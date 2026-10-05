@@ -1,3 +1,7 @@
+---
+id: adr/0013-sparse-shading-bin-pipeline
+state: history
+---
 # ADR-0013: Sparse Shading Bin
 
 Status: superseded by ADR-0020

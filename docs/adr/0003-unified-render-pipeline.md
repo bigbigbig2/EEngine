@@ -1,3 +1,7 @@
+---
+id: adr/0003-unified-render-pipeline
+state: history
+---
 # ADR-0003: 统一渲染主管线
 
 Status: superseded by ADR-0020

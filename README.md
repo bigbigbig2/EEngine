@@ -8,7 +8,8 @@ OEngine 是面向桌面浏览器 WebGPU、中大型高几何密度场景的 GPU-
 
 - 协作和开发节奏：[AGENTS.md](AGENTS.md)。
 - 当前设计：[Surface V3 最终性能重构设计](docs/next-design/surface-work-v3-cost-bounded-final-refactor-design-2026-10.md)。
-- 当前执行：[有界前端重构计划](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)，[进度与基线](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)；Phase5实施中、未收口。按[复审决定](docs/next-execution/surface-work-v3-cost-bounded-refactor-review-and-readiness-2026-10.md)先修Phase5并完成合同，再执行必需Phase5.5物理布局/成本补齐，之后Phase6/7；历史阶段检查不代表前置要求全部落实。
+- 当前执行：[有界前端重构计划](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)，[进度与基线](docs/next-execution/surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。
+- **当前阶段状态只在 [workstream](project/workstreams/active/eengine-next-clean-rebuild.yaml) 与进度文档中维护，不在本文件重复。** 本文件曾把"Phase5 实施中"写死在此，HEAD 已是 Phase 7 提交时仍在说 Phase 5；任何复制状态到入口文件的做法都会这样漂移。
 - 整体边界、源码现状、来源和验收：[docs/README.md](docs/README.md)。
 - 路径导航：`node tools/vibe.mjs context <path>`。
 - 浏览器示例：[examples/README.md](examples/README.md)。

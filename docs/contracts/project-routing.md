@@ -14,6 +14,10 @@ invariants:
 validation:
   - node tools/vibe.mjs context <path>
   - node --check tools/vibe.mjs
+state: current
+verifies:
+  - checks
+  - project/domains
 ---
 # Project Routing
 

@@ -1,3 +1,9 @@
+---
+id: next-execution/surface-work-v3-classifier-store-repair-progress-2026-10
+state: current
+verifies:
+  - OEngine/src
+---
 # Surface V3 五步修复执行记录
 
 > 2026-10-04 后续状态：run06已完成同场景诊断，约801.7ms、accepted=false；本页历史“尚未运行步骤5”描述的是各提交当时状态。当前代码已保存14c17078；新重构见[执行计划](surface-work-v3-cost-bounded-final-refactor-execution-2026-10.md)和[当前记录](surface-work-v3-cost-bounded-final-refactor-progress-2026-10.md)。

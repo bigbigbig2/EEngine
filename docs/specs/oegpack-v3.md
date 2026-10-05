@@ -1,3 +1,9 @@
+---
+id: specs/oegpack-v3
+state: current
+verifies:
+  - OEngine/src
+---
 # OEGPACK V3.0
 
 Status: candidate

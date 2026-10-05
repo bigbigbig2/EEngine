@@ -1,3 +1,9 @@
+---
+id: next-design/eengine-next-overall-architecture-final-2026
+state: current
+verifies:
+  - OEngine/src
+---
 # EEngine Next 整体渲染架构设计（Final Architecture Baseline / WebGPU 2026）
 
 > 状态：整体架构最终基线（后续模块设计必须以本边界为起点，但允许被真实 benchmark 反证后修订）  

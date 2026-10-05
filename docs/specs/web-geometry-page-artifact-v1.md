@@ -1,3 +1,9 @@
+---
+id: specs/web-geometry-page-artifact-v1
+state: current
+verifies:
+  - OEngine/src
+---
 # Web Geometry Page Artifact / Spill Store V1
 
 Status: draft

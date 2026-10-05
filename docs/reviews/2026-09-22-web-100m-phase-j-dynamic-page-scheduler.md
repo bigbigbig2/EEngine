@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-web-100m-phase-j-dynamic-page-scheduler
+state: history
+---
 # ADR-0018 Phase J Dynamic Page Scheduler 审评（2026-09-22）
 
 本记录把 ADR-0018 Phase J 的 camera/IO/GPU/frame pressure 调度要求落到现有

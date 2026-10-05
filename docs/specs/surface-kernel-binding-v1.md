@@ -2,6 +2,9 @@
 id: surface-kernel-binding-v1
 kind: spec
 owner: shading
+state: current
+verifies:
+  - OEngine/src
 ---
 # Surface Kernel Binding V1
 

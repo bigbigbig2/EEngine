@@ -1,3 +1,9 @@
+---
+id: next-execution/eengine-next-dungeon-performance-2026-09
+state: current
+verifies:
+  - OEngine/src
+---
 # EEngine Next Dungeon 性能基线（2026-09-29）
 
 ## 测量条件

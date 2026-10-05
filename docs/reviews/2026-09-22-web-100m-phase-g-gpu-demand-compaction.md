@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-web-100m-phase-g-gpu-demand-compaction
+state: history
+---
 # ADR-0018 Phase G GPU Demand Dedup / Compaction 审评（2026-09-22）
 
 本记录把 Phase G 的“Product-local request mask + priority record compaction”

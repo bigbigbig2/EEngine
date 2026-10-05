@@ -15,6 +15,10 @@ invariants:
 validation: 
   - node tools/vibe.mjs evidence
   - node tools/vibe.mjs status
+state: current
+verifies:
+  - checks
+  - project/domains
 ---
 # Claims And Evidence
 

@@ -1,3 +1,7 @@
+---
+id: reviews/2026-09-22-web-100m-phase-f-visible-first-product-scheduler
+state: history
+---
 # ADR-0018 Phase F Visible-First Product Scheduler 审评（2026-09-22）
 
 本记录把 Phase F 落为 coordinator 实现、unit contract/oracle 和冻结 spec；它不
