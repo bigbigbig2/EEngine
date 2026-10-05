@@ -27,3 +27,8 @@ OEngine/tools/oengine-asset-core/build/
 OEngine/tools/oengine-web-geometry-cooker/build/
 OEngine/tools/oengine-web-geometry-cooker/build-wasm/
 OEngine/tools/oengine-web-geometry-cooker/build-wasm-threads/
+# Local caches for the workspace-level tooling (prettier / style guard). These
+# live inside the workspace because package-manager caches outside it are not
+# always writable in this environment.
+.npm-cache/
+.pnpm-store/

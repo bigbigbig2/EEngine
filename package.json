@@ -1,13 +1,21 @@
 {
-  "name": "oengine-project-os",
+  "name": "eengine-workspace",
   "private": true,
   "type": "module",
+  "description": "EEngine workspace-level tooling: code formatting, style guard and verification harnesses.",
   "scripts": {
+    "format": "node tools/format.mjs --write",
+    "format:check": "node tools/format.mjs --check",
+    "style": "node tools/style-guard.mjs",
     "vibe": "node tools/vibe.mjs context .",
     "vibe:module-check": "node tools/vibe.mjs verify --module",
-    "vibe:final": "node tools/vibe.mjs verify --full"
+    "vibe:final": "node tools/vibe.mjs verify --full",
+    "gpu-oracle": "node tools/gpu-oracle.mjs"
   },
   "dependencies": {
     "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2"
   }
 }

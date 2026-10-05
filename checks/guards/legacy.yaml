@@ -31,7 +31,13 @@ config:
     - OEngine/src/render/features/ShadowFeatureManager.ts
     - OEngine/src/render/features/TemporalFeature.ts
     - OEngine/src/render/features/TransparencyFeature.ts
-    - OEngine/src/render/passes/BloomPass.ts
+    # BloomPass.ts was removed from this list on 2026-10-05. Commit bbfbfda5
+    # deleted the file and added the entry; commit 53523212 then re-added the
+    # file as the production bloom producer (+110 lines) and the entry was never
+    # retired with it. The stale entry made `verify --full` fail on every
+    # revision for a documentation reason rather than a code reason.
+    # `OEngine/tests/guard/check-runners.test.mjs` now asserts this list against
+    # the real tree so the same drift fails loudly instead of silently.
     - OEngine/src/render/passes/GtaoPass.ts
     - OEngine/src/render/passes/LongRangeDiffuseProviderPass.ts
     - OEngine/src/render/passes/NeuralSuperSamplingPass.ts

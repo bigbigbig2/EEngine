@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EEngine GPU oracle host</title>
+    <!--
+      The oracles under OEngine/tests/oracle/ are loaded unmodified. They import
+      `node:assert/strict`, which Chrome cannot resolve, so the exact specifier
+      is mapped onto the browser-side shim in this directory. Everything else
+      resolves through the static server (OEngine/tests + OEngine/.test-dist).
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "node:assert": "/__gpu-oracle/page/assert-strict.mjs",
+          "node:assert/strict": "/__gpu-oracle/page/assert-strict.mjs",
+          "node:assert/strict.js": "/__gpu-oracle/page/assert-strict.mjs"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <pre id="gpu-oracle-status">gpu-oracle host: booting</pre>
+    <script type="module" src="/__gpu-oracle/page/host.mjs"></script>
+  </body>
+</html>

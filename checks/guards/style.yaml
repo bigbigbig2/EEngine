@@ -1,0 +1,17 @@
+id: guard-style
+kind: guard
+level: L0
+description: >-
+  Require formatted source and the source-shape rules a formatter cannot express.
+  Formatting is checked by tools/format.mjs (which also proves every template
+  literal is left byte-identical, so shader text cannot be silently rewritten);
+  braces, inlined type bodies and blank-line runs are checked by
+  tools/style-guard.mjs. Both come from .agents/skills/eengine-code-style/SKILL.md.
+domains: [platform]
+runner: style-contract
+automatic: true
+config:
+  targets:
+    - OEngine/src
+  format: true
+  style: true

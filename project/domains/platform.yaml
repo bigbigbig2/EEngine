@@ -58,6 +58,7 @@ checks:
   - guard-ownership
   - guard-legacy
   - guard-generated-source
+  - guard-style
 watch:
   - project/**
   - checks/**

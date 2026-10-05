@@ -49,7 +49,10 @@ function listFiles(directory, suffix) {
 }
 
 function gitTracked(path) {
-  const result = spawnSync("git", ["ls-files", "--error-unmatch", path], { cwd: REPO_ROOT, encoding: "utf8" });
+  const result = spawnSync("git", ["ls-files", "--error-unmatch", path], {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+  });
   return result.status === 0;
 }
 
@@ -82,21 +85,23 @@ const ENGINE_TEST_GROUPS = Object.freeze([
   {
     id: "project-tooling",
     paths: ["tools/", "checks/", "project/", "AGENTS.md", "OEngine/AGENTS.md"],
-    tests: /check-runners\.test\.mjs$/u
+    tests: /check-runners\.test\.mjs$/u,
   },
   {
     id: "native-reference",
     paths: ["OEngine/tools/nyx-*", "OEngine/tools/build-nyx-*", "OEngine/src/assets/web-cook/wasm/"],
-    tests: /(?:nyx-differential-corpus|nyx-function-map|nyx-shader-reference|web-cook-wasm-artifact)\.test\.mjs$/u
+    tests:
+      /(?:nyx-differential-corpus|nyx-function-map|nyx-shader-reference|web-cook-wasm-artifact)\.test\.mjs$/u,
   },
   {
     id: "web-cook",
     paths: [
       "OEngine/src/assets/web-cook/",
       "OEngine/src/assets/geometry-product/",
-      "OEngine/src/loaders/gltf/streaming/"
+      "OEngine/src/loaders/gltf/streaming/",
     ],
-    tests: /(?:web-cook|web-geometry|geometry-product|geometry-page|glb-|spatial-shard|nyx-web-runtime|runtime-scene-geometry-product|oegpack-offline-product).*\.test\.mjs$/u
+    tests:
+      /(?:web-cook|web-geometry|geometry-product|geometry-page|glb-|spatial-shard|nyx-web-runtime|runtime-scene-geometry-product|oegpack-offline-product).*\.test\.mjs$/u,
   },
   {
     id: "render-shading",
@@ -105,20 +110,21 @@ const ENGINE_TEST_GROUPS = Object.freeze([
       "OEngine/src/shaders/",
       "OEngine/src/framegraph/",
       "OEngine/src/material/",
-      "OEngine/src/texture/"
+      "OEngine/src/texture/",
     ],
-    tests: /(?:render|shading|framegraph|hzb|occlusion|shadow|texture|sparse|advanced-frame|packed-render-world).*\.test\.mjs$/u
+    tests:
+      /(?:render|shading|framegraph|hzb|occlusion|shadow|texture|sparse|advanced-frame|packed-render-world).*\.test\.mjs$/u,
   },
   {
     id: "gpu-geometry",
     paths: ["OEngine/src/gpu/", "OEngine/src/geometry/", "OEngine/src/scene/"],
-    tests: /(?:geometry|product|gpu-|render-world|scene|visibility|hzb|shadow).*\.test\.mjs$/u
+    tests: /(?:geometry|product|gpu-|render-world|scene|visibility|hzb|shadow).*\.test\.mjs$/u,
   },
   {
     id: "core-loaders",
     paths: ["OEngine/src/core/", "OEngine/src/loaders/", "OEngine/src/assets/"],
-    tests: /(?:asset|glb|gltf|runtime|oegpack|texture|codec).*\.test\.mjs$/u
-  }
+    tests: /(?:asset|glb|gltf|runtime|oegpack|texture|codec).*\.test\.mjs$/u,
+  },
 ]);
 
 function normalized(path) {
@@ -159,7 +165,9 @@ export function planEngineTests(context, config = {}) {
       reasons.push(`${path}: engine build configuration changed`);
       continue;
     }
-    const matching = ENGINE_TEST_GROUPS.filter((group) => group.paths.some((prefix) => pathStartsWith(path, prefix)));
+    const matching = ENGINE_TEST_GROUPS.filter((group) =>
+      group.paths.some((prefix) => pathStartsWith(path, prefix)),
+    );
     for (const group of matching) {
       groups.add(group.id);
       for (const testPath of allTests) if (group.tests.test(testPath)) selected.add(testPath);
@@ -177,8 +185,50 @@ export function planEngineTests(context, config = {}) {
 
 function runCommand(command, cwd, timeout, environment = process.env) {
   const started = performance.now();
-  const result = spawnSync(command, { cwd, encoding: "utf8", shell: true, timeout, windowsHide: true, env: environment });
+  const result = spawnSync(command, {
+    cwd,
+    encoding: "utf8",
+    shell: true,
+    timeout,
+    windowsHide: true,
+    env: environment,
+  });
   return { result, elapsedMs: Math.round(performance.now() - started) };
+}
+
+/**
+ * Run a repository tool that emits a JSON report on stdout, and parse it.
+ *
+ * The style-contract check consumes `--json` output rather than scraping a
+ * summary line: a verifier that pattern-matches human prose silently stops
+ * asserting anything the first time the wording changes.
+ */
+function runNode(args, timeout = 900_000) {
+  const started = performance.now();
+  const result = spawnSync(process.execPath, args, {
+    cwd: REPO_ROOT,
+    encoding: "utf8",
+    timeout,
+    windowsHide: true,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  let parsed = null;
+  const stdout = result.stdout ?? "";
+  const opening = stdout.indexOf("{");
+  if (opening !== -1) {
+    try {
+      parsed = JSON.parse(stdout.slice(opening));
+    } catch {
+      parsed = null;
+    }
+  }
+  return {
+    status: result.status,
+    stdout,
+    stderr: result.stderr ?? "",
+    parsed,
+    elapsedMs: Math.round(performance.now() - started),
+  };
 }
 
 export const CHECK_RUNNERS = Object.freeze({
@@ -191,9 +241,8 @@ export const CHECK_RUNNERS = Object.freeze({
 
   "generated-registry": () => passed(["generated registry regenerated and validated"]),
 
-  "changed-coverage": (_check, context) => context.uncovered.length > 0
-    ? failed(context.uncovered)
-    : passed(),
+  "changed-coverage": (_check, context) =>
+    context.uncovered.length > 0 ? failed(context.uncovered) : passed(),
 
   "changed-ownership": (_check, context) => {
     const problems = context.uncovered.length > 0 || context.routingAmbiguities.length > 0;
@@ -204,7 +253,8 @@ export const CHECK_RUNNERS = Object.freeze({
 
   "evidence-provenance": (_check, context) => {
     if (context.evidence.errors?.length > 0) return failed(context.evidence.errors);
-    if ((context.evidence.evidence ?? []).length === 0) return passed(["evidence index is valid and currently empty"]);
+    if ((context.evidence.evidence ?? []).length === 0)
+      return passed(["evidence index is valid and currently empty"]);
     return passed([`${context.evidence.evidence.length} compact evidence record(s) are structurally valid`]);
   },
 
@@ -248,7 +298,11 @@ export const CHECK_RUNNERS = Object.freeze({
     // every single export as broken.
     const resolves = (specifier) => {
       const base = resolve(dirname(entry), specifier);
-      const candidates = [base, base.replace(JS_EXTENSION, ".ts"), join(base.replace(JS_EXTENSION, ""), "index.ts")];
+      const candidates = [
+        base,
+        base.replace(JS_EXTENSION, ".ts"),
+        join(base.replace(JS_EXTENSION, ""), "index.ts"),
+      ];
       return candidates.some((candidate) => existsSync(candidate));
     };
 
@@ -257,8 +311,73 @@ export const CHECK_RUNNERS = Object.freeze({
       if (!resolves(match[1])) brokenExports.push(match[1]);
     }
     const validationLeaks = [...source.matchAll(VALIDATION_EXPORT)].map((match) => match[1]);
-    if (brokenExports.length > 0 || validationLeaks.length > 0) return failed({ brokenExports, validationLeaks });
+    if (brokenExports.length > 0 || validationLeaks.length > 0)
+      return failed({ brokenExports, validationLeaks });
     return passed([`${check.config?.entry} resolves every relative re-export`]);
+  },
+
+  /**
+   * Source shape: formatting plus the style rules a formatter cannot express.
+   *
+   * Two tools, one check, because they answer one question — "is this source in
+   * the shape the style contract requires?" Splitting them into separate checks
+   * would let a change pass formatting while failing braces, and the report
+   * would not make clear that both come from the same contract.
+   *
+   * `tools/format.mjs --check` is authoritative for layout and also proves that
+   * formatting never alters shader text (it compares every template literal
+   * before deciding the file is formatted). `tools/style-guard.mjs` covers
+   * braces, inlined type bodies and blank-line runs.
+   *
+   * In changed-only mode both are restricted to the changed paths, so pre-existing
+   * debt does not block unrelated work. In full mode the guard's findings are
+   * reported as a count rather than a failure, because the repository has not
+   * yet paid that debt down; the count is the actionable part.
+   */
+  "style-contract": (check, context) => {
+    const config = check.config ?? {};
+    const changed = (context.changedPaths ?? []).filter((path) =>
+      /^(?:OEngine|tools|checks)\/.*\.(?:ts|mjs|js)$/u.test(path),
+    );
+    const scoped = context.changedOnly === true && changed.length > 0;
+    const targets = scoped ? changed : (config.targets ?? ["OEngine/src"]);
+    const details = {
+      scope: scoped ? "changed" : "full",
+      targets: targets.length,
+      format: null,
+      style: null,
+    };
+
+    if (config.format !== false) {
+      // `--check --verify-wgsl` is read-only and additionally proves that
+      // formatting would leave every shader text block byte-identical. Without
+      // the second flag the check only asserts layout, and the WGSL guarantee —
+      // the reason a formatter is safe in this repository at all — stays
+      // unexercised.
+      const formatArgs = ["tools/format.mjs", "--check", "--verify-wgsl", "--json", ...targets];
+      const format = runNode(formatArgs);
+      details.format = format.parsed ?? { ok: false, raw: (format.stdout || format.stderr).slice(-2000) };
+      details.formatMs = format.elapsedMs;
+      if (format.status !== 0) {
+        return failed([`formatting or WGSL preservation check failed`, details]);
+      }
+    }
+
+    if (config.style !== false) {
+      const styleArgs = ["tools/style-guard.mjs", "--json", ...targets];
+      const style = runNode(styleArgs);
+      details.style = style.parsed
+        ? { scanned: style.parsed.scanned, totals: style.parsed.totals, total: style.parsed.total }
+        : { ok: false, raw: (style.stdout || style.stderr).slice(-2000) };
+      details.styleMs = style.elapsedMs;
+      // In changed-only mode a style finding is a real failure: the touched code
+      // must satisfy the contract. In full mode it is reported, because the
+      // repository-wide debt is large and unrelated to the current change.
+      if (scoped && (details.style?.total ?? 0) > 0) {
+        return failed([`style guard reported ${details.style.total} finding(s) in changed files`, details]);
+      }
+    }
+    return passed([details]);
   },
 
   "generated-source-guard": (check, context) => {
@@ -289,7 +408,8 @@ export const CHECK_RUNNERS = Object.freeze({
     for (const file of listFiles(join(DOCUMENTATION_ROOT, "domains"), ".md")) {
       const name = relative(join(DOCUMENTATION_ROOT, "domains"), file).replaceAll("\\", "/");
       if (name === "README.md") continue;
-      if (!domainIds.includes(name.replace(/\.md$/u, ""))) findings.push(`docs/domains/${name} has no matching project/domains entry`);
+      if (!domainIds.includes(name.replace(/\.md$/u, "")))
+        findings.push(`docs/domains/${name} has no matching project/domains entry`);
     }
     if (gitTracked(GENERATED_DOC)) findings.push(`${GENERATED_DOC} is generated and must not be tracked`);
     return findings.length === 0 ? passed() : failed(findings);
@@ -319,7 +439,11 @@ export const CHECK_RUNNERS = Object.freeze({
       const build = runCommand(config.build, cwd, timeout);
       timings.buildMs = build.elapsedMs;
       if (build.result.status !== 0) {
-        return failed([`build step failed: ${config.build}`, (build.result.stderr || build.result.stdout || "").trim().slice(-6000), { plan, timings }]);
+        return failed([
+          `build step failed: ${config.build}`,
+          (build.result.stderr || build.result.stdout || "").trim().slice(-6000),
+          { plan, timings },
+        ]);
       }
     }
 
@@ -329,7 +453,7 @@ export const CHECK_RUNNERS = Object.freeze({
       encoding: "utf8",
       timeout,
       windowsHide: true,
-      env: { ...process.env, VIBE_ENGINE_SUITE_ACTIVE: "1" }
+      env: { ...process.env, VIBE_ENGINE_SUITE_ACTIVE: "1" },
     });
     timings.testMs = Math.round(performance.now() - started);
     const summary = summarizeTestOutput(result.stdout ?? "");
@@ -339,16 +463,25 @@ export const CHECK_RUNNERS = Object.freeze({
         .filter((line) => line.startsWith("\u2716") && !line.startsWith("\u2716 failing"))
         .slice(0, 20);
       const diagnostic = (result.stderr || result.stdout || "").trim().slice(-6000);
-      return failed([`${summary.fail ?? "?"} of ${summary.tests ?? "?"} engine tests failed`, ...failing, diagnostic, { plan, timings }]);
+      return failed([
+        `${summary.fail ?? "?"} of ${summary.tests ?? "?"} engine tests failed`,
+        ...failing,
+        diagnostic,
+        { plan, timings },
+      ]);
     }
     return passed([describeSummary(summary), { plan, timings }]);
   },
 
   "validation-suites": (check, context) => {
     const config = check.config ?? {};
-    const relevant = !context.changedOnly || (context.changedPaths ?? []).some((path) =>
-      ["validation/", "tools/", "checks/", "project/"].some((prefix) => pathStartsWith(normalized(path), prefix))
-    );
+    const relevant =
+      !context.changedOnly ||
+      (context.changedPaths ?? []).some((path) =>
+        ["validation/", "tools/", "checks/", "project/"].some((prefix) =>
+          pathStartsWith(normalized(path), prefix),
+        ),
+      );
     if (!relevant) return notRun(["validation host and project tooling are unaffected"]);
     const cwd = resolve(REPO_ROOT, config.cwd ?? "validation");
     const timeout = config.timeoutMs ?? 300_000;
@@ -357,11 +490,15 @@ export const CHECK_RUNNERS = Object.freeze({
       const execution = runCommand(command, cwd, timeout);
       timings.push({ command, elapsedMs: execution.elapsedMs });
       if (execution.result.status !== 0) {
-        return failed([`${command} failed`, (execution.result.stderr || execution.result.stdout || "").trim().slice(-6000), { timings }]);
+        return failed([
+          `${command} failed`,
+          (execution.result.stderr || execution.result.stdout || "").trim().slice(-6000),
+          { timings },
+        ]);
       }
     }
     return passed([{ timings }]);
-  }
+  },
 });
 
 export const CHECK_RUNNER_IDS = Object.freeze(Object.keys(CHECK_RUNNERS));
